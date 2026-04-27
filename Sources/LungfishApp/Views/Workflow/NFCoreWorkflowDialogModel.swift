@@ -11,9 +11,7 @@ final class NFCoreWorkflowDialogModel {
         let requiredInputs: String
         let expectedOutputs: String
         let exampleUseCase: String
-        let provenanceText: String
         let runButtonTitle: String
-        let pinnedVersionText: String
         let keyParameters: [NFCoreWorkflowParameter]
     }
 
@@ -79,9 +77,7 @@ final class NFCoreWorkflowDialogModel {
                 requiredInputs: "",
                 expectedOutputs: "",
                 exampleUseCase: "",
-                provenanceText: "",
                 runButtonTitle: "Run",
-                pinnedVersionText: "",
                 keyParameters: []
             )
         }
@@ -93,9 +89,7 @@ final class NFCoreWorkflowDialogModel {
             requiredInputs: selectedWorkflow.requiredInputs,
             expectedOutputs: selectedWorkflow.expectedOutputs,
             exampleUseCase: selectedWorkflow.exampleUseCase,
-            provenanceText: "Lungfish will record the exact nf-core workflow, pinned workflow version, runtime, inputs, outputs, and parameters with the run.",
             runButtonTitle: selectedWorkflow.runButtonTitle,
-            pinnedVersionText: "App-pinned version: \(selectedWorkflow.pinnedVersion)",
             keyParameters: selectedWorkflow.keyParameters
         )
     }

@@ -121,6 +121,31 @@ extension SequenceViewerView {
         runAnnotationFASTAOperationImpl(annotation)
     }
 
+    func presentAnnotationSequenceExtractionDialog(_ annotations: [SequenceAnnotation]) {
+        let records = annotations.compactMap { annotation -> String? in
+            guard let provider = makeSequenceProvider(for: annotation) else { return nil }
+            let chromLength = chromosomeLengthForAnnotation(annotation)
+            let request = ExtractionRequest(source: .annotation(annotation))
+            do {
+                let result = try SequenceExtractor.extract(
+                    request: request,
+                    sequenceProvider: provider,
+                    chromosomeLength: chromLength
+                )
+                return SequenceExtractor.formatFASTA(result)
+            } catch {
+                extractionLogger.error("Failed to prepare annotation extraction for '\(annotation.name)': \(error.localizedDescription)")
+                return nil
+            }
+        }
+        guard !records.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let suggestedName = annotations.count == 1 ? annotations[0].name : "selected-annotations"
+        viewController?.presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName)
+    }
+
     func runAnnotationFASTAOperationImpl(_ annotation: SequenceAnnotation) {
         guard let provider = makeSequenceProvider(for: annotation) else {
             NSSound.beep()
@@ -217,7 +242,7 @@ extension SequenceViewerView {
 
     @objc func extractAnnotationSequence(_ sender: NSMenuItem?) {
         guard let annotation = sender?.representedObject as? SequenceAnnotation else { return }
-        presentExtractionSheet(for: .annotation(annotation))
+        presentAnnotationSequenceExtractionDialog([annotation])
     }
 
     @objc func extractSelectionSequence(_ sender: Any?) {

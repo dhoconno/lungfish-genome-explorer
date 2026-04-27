@@ -28,8 +28,7 @@ final class NFCoreWorkflowExecutionService {
         let operationID = operationCenter.start(
             title: request.displayTitle,
             detail: "Preparing nf-core workflow run",
-            operationType: .nfCoreWorkflow,
-            cliCommand: request.cliCommandPreview(bundlePath: bundleURL)
+            operationType: .nfCoreWorkflow
         )
         operationCenter.log(
             id: operationID,
@@ -57,10 +56,9 @@ final class NFCoreWorkflowExecutionService {
         let operationID = operationCenter.start(
             title: request.displayTitle,
             detail: "Running nf-core workflow with lungfish-cli",
-            operationType: .nfCoreWorkflow,
-            cliCommand: request.cliCommandPreview(bundlePath: bundleURL)
+            operationType: .nfCoreWorkflow
         )
-        operationCenter.log(id: operationID, level: .info, message: request.cliCommandPreview(bundlePath: bundleURL))
+        operationCenter.log(id: operationID, level: .info, message: "Started \(request.workflow.fullName) run")
 
         do {
             let processResult = try await processRunner.runNextflow(

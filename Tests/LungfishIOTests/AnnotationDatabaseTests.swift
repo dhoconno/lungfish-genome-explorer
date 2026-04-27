@@ -777,16 +777,18 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(results.first?.name, "before")
     }
 
-    func testCreateFromGFF3SkipsExonAndIntron() async throws {
+    func testCreateFromGFF3IndexesExonAndSkipsIntron() async throws {
         let lines = [
             gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=myGene"),
             gff3Line(seqid: "chr1", type: "exon", start: 100, end: 200, attributes: "Parent=g1"),
             gff3Line(seqid: "chr1", type: "intron", start: 200, end: 300, attributes: "ID=intron1;Name=myIntron"),
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        // gene indexed, exon consumed as child, intron ignored by GFF3 importer
-        XCTAssertEqual(count, 1)
-        XCTAssertEqual(db.queryByRegion(chromosome: "chr1", start: 0, end: 1000).first?.name, "myGene")
+        // gene and exon are both indexed so table selections can relate exon/CDS rows to a gene.
+        XCTAssertEqual(count, 2)
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
+        XCTAssertEqual(Set(results.map(\.type)), ["gene", "exon"])
+        XCTAssertTrue(results.contains { $0.attributes?.contains("Parent=g1") == true })
     }
 
     func testCreateFromGFF3StrandHandling() async throws {
@@ -818,12 +820,12 @@ final class AnnotationDatabaseTests: XCTestCase {
                      attributes: "Parent=mrna1"),
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        // mRNA indexed with blocks; exons consumed
-        XCTAssertEqual(count, 1)
+        // mRNA indexed with blocks, and exons are also available as selectable rows.
+        XCTAssertEqual(count, 4)
 
         let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
-        XCTAssertEqual(results.count, 1)
-        let mrna = results[0]
+        XCTAssertEqual(results.count, 4)
+        let mrna = try XCTUnwrap(results.first { $0.type == "mRNA" })
         XCTAssertEqual(mrna.name, "TestmRNA")
 
         // Check block data
@@ -872,10 +874,11 @@ final class AnnotationDatabaseTests: XCTestCase {
                      attributes: "Parent=mrna2"),
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        XCTAssertEqual(count, 2, "Both transcripts should be indexed")
+        XCTAssertEqual(count, 5, "Transcripts and their exons should be indexed")
 
         let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
-        let byName = Dictionary(uniqueKeysWithValues: results.map { ($0.name, $0) })
+        let transcripts = results.filter { $0.type == "mRNA" }
+        let byName = Dictionary(uniqueKeysWithValues: transcripts.map { ($0.name, $0) })
 
         // Both transcripts should have 2 blocks each (shared + unique exon)
         let t1 = byName["transcript1"]!.toAnnotation()
@@ -1007,8 +1010,8 @@ final class AnnotationDatabaseTests: XCTestCase {
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
 
-        // Should have 3 records: gene, mRNA (with exon blocks), and ONE merged CDS
-        XCTAssertEqual(count, 3, "5 CDS lines with same ID should merge into 1 row")
+        // Gene, mRNA, exon rows, and ONE merged CDS row should be available.
+        XCTAssertEqual(count, 8, "5 CDS lines with same ID should merge into 1 row while exons remain selectable")
 
         let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 10000)
         let cdsResults = results.filter { $0.type == "CDS" }

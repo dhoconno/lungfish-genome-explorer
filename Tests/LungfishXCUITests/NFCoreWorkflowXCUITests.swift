@@ -37,15 +37,10 @@ final class NFCoreWorkflowXCUITests: XCTestCase {
         XCTAssertTrue(detailTitle.waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Download public sequencing reads"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["nf-core-fetchngs-usage"].waitForExistence(timeout: 5))
-        let versionLabel = app.staticTexts["nf-core-version-label"]
-        XCTAssertTrue(versionLabel.waitForExistence(timeout: 5))
-        let versionText = [versionLabel.label, versionLabel.value as? String]
-            .compactMap { $0 }
-            .joined(separator: " ")
-        XCTAssertTrue(versionText.contains("App-pinned"))
-        XCTAssertTrue(app.textFields["nf-core-version-field"].exists)
-        XCTAssertTrue(app.segmentedControls["nf-core-executor-picker"].exists)
-        XCTAssertTrue(app.staticTexts["nf-core-command-preview"].exists)
+        XCTAssertFalse(app.staticTexts["nf-core-version-label"].exists)
+        XCTAssertFalse(app.textFields["nf-core-version-field"].exists)
+        XCTAssertFalse(app.segmentedControls["nf-core-executor-picker"].exists)
+        XCTAssertFalse(app.staticTexts["nf-core-command-preview"].exists)
         XCTAssertTrue(app.checkBoxes["nf-core-input-row-accessions.csv"].waitForExistence(timeout: 5))
 
         app.buttons["nf-core-select-all-inputs"].click()

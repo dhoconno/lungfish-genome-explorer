@@ -311,6 +311,10 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         viewerView.setNeedsDisplay(viewerView.bounds)
     }
 
+    public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {
+        viewerView.presentAnnotationSequenceExtractionDialog(annotations)
+    }
+
     public func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?) {
         viewerView.setLocalVariantRenderFilterKeys(keys)
         viewerView.setNeedsDisplay(viewerView.bounds)

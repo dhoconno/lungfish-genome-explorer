@@ -598,7 +598,7 @@ public class ViewerViewController: NSViewController {
 
     @objc private func handleExtractSequenceRequested(_ notification: Notification) {
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
-        viewerView?.presentExtractionSheet(for: .annotation(annotation))
+        viewerView?.presentAnnotationSequenceExtractionDialog([annotation])
     }
 
     @objc private func handleCopyAnnotationAsFASTARequested(_ notification: Notification) {

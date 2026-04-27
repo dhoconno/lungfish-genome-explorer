@@ -12,6 +12,20 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     private nonisolated(unsafe) var tempDir: URL!
 
+    private final class DrawerDelegateSpy: AnnotationTableDrawerDelegate {
+        var extractedAnnotations: [SequenceAnnotation] = []
+
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult) {}
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {
+            extractedAnnotations = annotations
+        }
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int) {}
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion]) {}
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?) {}
+        func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {}
+        func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView) {}
+    }
+
     override func setUp() {
         super.setUp()
         tempDir = FileManager.default.temporaryDirectory
@@ -283,5 +297,55 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let item = invokeMenuItem(titled: "Copy Translation as FASTA", on: drawer)
         XCTAssertNotNil(item)
         waitForExpectations(timeout: 1.0)
+    }
+
+    func testAnnotationContextMenuSupportsMultiSelectExtractionAndDeletion() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b"
+        ])
+        let delegate = DrawerDelegateSpy()
+        drawer.delegate = delegate
+        XCTAssertEqual(drawer.selectAnnotations(named: ["gene-a", "gene-b"]), 2)
+
+        let extractItem = invokeMenuItem(titled: "Extract 2 Sequences\u{2026}", on: drawer)
+        XCTAssertNotNil(extractItem)
+        XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-a", "gene-b"])
+
+        let deleteItem = invokeMenuItem(titled: "Delete 2 Selected Annotations", on: drawer)
+        XCTAssertNotNil(deleteItem)
+        XCTAssertFalse(drawer.selectAnnotation(named: "gene-a"))
+        XCTAssertFalse(drawer.selectAnnotation(named: "gene-b"))
+    }
+
+    func testAnnotationContextMenuExposesEditForSingleDatabaseAnnotation() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a"
+        ])
+        XCTAssertTrue(drawer.selectAnnotation(named: "gene-a"))
+
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+
+        let editItem = findMenuItem(titled: "Edit Annotation\u{2026}", in: menu)
+        XCTAssertNotNil(editItem)
+        XCTAssertTrue(editItem?.isEnabled ?? false)
+        XCTAssertNotNil(findMenuItem(titled: "Delete Annotation", in: menu))
+    }
+
+    func testSelectRelatedGeneFeaturesConnectsGeneExonAndCDSRows() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t500\tgene-a\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tgene\tgene=gene-a;ID=gene-a",
+            "chr1\t160\t220\texon-a\t0\t+\t160\t220\t0,0,0\t1\t60\t0\texon\tgene=gene-a;Parent=gene-a",
+            "chr1\t160\t220\tcds-a\t0\t+\t160\t220\t0,0,0\t1\t60\t0\tCDS\tgene=gene-a;Parent=gene-a"
+        ])
+        XCTAssertTrue(drawer.selectAnnotation(named: "cds-a"))
+
+        let relatedItem = invokeMenuItem(titled: "Select Related Gene Features", on: drawer)
+        XCTAssertNotNil(relatedItem)
+
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+        XCTAssertNotNil(findMenuItem(titled: "Extract 3 Sequences\u{2026}", in: menu))
     }
 }

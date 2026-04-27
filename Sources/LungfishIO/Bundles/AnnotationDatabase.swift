@@ -14,6 +14,7 @@ private let dbLogger = Logger(subsystem: LogSubsystem.io, category: "AnnotationD
 
 /// A single annotation record from the SQLite database.
 public struct AnnotationDatabaseRecord: Sendable {
+    public let rowID: Int64?
     public let name: String
     public let type: String
     public let chromosome: String
@@ -31,7 +32,8 @@ public struct AnnotationDatabaseRecord: Sendable {
     /// Gene name extracted from the GFF3 `gene` attribute, for cross-feature search.
     public let geneName: String?
 
-    public init(name: String, type: String, chromosome: String, start: Int, end: Int, strand: String, attributes: String? = nil, blockCount: Int? = nil, blockSizes: String? = nil, blockStarts: String? = nil, geneName: String? = nil) {
+    public init(rowID: Int64? = nil, name: String, type: String, chromosome: String, start: Int, end: Int, strand: String, attributes: String? = nil, blockCount: Int? = nil, blockSizes: String? = nil, blockStarts: String? = nil, geneName: String? = nil) {
+        self.rowID = rowID
         self.name = name
         self.type = type
         self.chromosome = chromosome
@@ -96,6 +98,12 @@ extension AnnotationDatabaseRecord {
                 }
             }
         }
+        if let rowID {
+            qualifiers["annotation_db_row_id"] = AnnotationQualifier(String(rowID))
+        }
+        if let geneName, qualifiers["gene_name"] == nil {
+            qualifiers["gene_name"] = AnnotationQualifier(geneName)
+        }
 
         return SequenceAnnotation(
             type: annotationType,
@@ -141,14 +149,26 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
     private var db: OpaquePointer?
     private let url: URL
+    public var databaseURL: URL { url }
 
     /// Opens an existing annotation database for reading.
     ///
     /// - Parameter url: URL to the SQLite database file
     /// - Throws: If the database cannot be opened
-    public init(url: URL) throws {
+    public convenience init(url: URL) throws {
+        try self.init(url: url, readWrite: false)
+    }
+
+    /// Opens an existing annotation database.
+    ///
+    /// - Parameters:
+    ///   - url: URL to the SQLite database file
+    ///   - readWrite: Open with write permissions when mutations are required
+    /// - Throws: If the database cannot be opened
+    public init(url: URL, readWrite: Bool) throws {
         self.url = url
-        let rc = sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX, nil)
+        let flags = (readWrite ? SQLITE_OPEN_READWRITE : SQLITE_OPEN_READONLY) | SQLITE_OPEN_NOMUTEX
+        let rc = sqlite3_open_v2(url.path, &db, flags, nil)
         guard rc == SQLITE_OK else {
             let msg = db.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "Unknown error"
             sqlite3_close(db)
@@ -262,7 +282,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
     public func query(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
 
-        var sql = "SELECT name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
+        var sql = "SELECT rowid, name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
         var conditions: [String] = []
         var bindings: [String] = []
 
@@ -298,17 +318,18 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         var results: [AnnotationDatabaseRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let name = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            let type = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let chrom = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-            let start = Int(sqlite3_column_int64(stmt, 3))
-            let end = Int(sqlite3_column_int64(stmt, 4))
-            let strand = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? "."
-            let attributes = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let geneName = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+            let rowID = sqlite3_column_int64(stmt, 0)
+            let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let type = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+            let chrom = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+            let start = Int(sqlite3_column_int64(stmt, 4))
+            let end = Int(sqlite3_column_int64(stmt, 5))
+            let strand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
+            let attributes = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+            let geneName = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
 
             results.append(AnnotationDatabaseRecord(
-                name: name, type: type, chromosome: chrom,
+                rowID: rowID, name: name, type: type, chromosome: chrom,
                 start: start, end: end, strand: strand,
                 attributes: attributes,
                 geneName: geneName
@@ -373,7 +394,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         // v4 schema: fixed column order
         let sql = """
-        SELECT name, type, chromosome, start, end, strand, attributes,
+        SELECT rowid, name, type, chromosome, start, end, strand, attributes,
                block_count, block_sizes, block_starts, gene_name
         FROM annotations
         WHERE (name = ? OR gene_name = ?) AND chromosome = ? AND start = ? AND end = ?
@@ -391,21 +412,22 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
 
-        let rName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-        let rType = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-        let rChrom = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-        let rStart = Int(sqlite3_column_int64(stmt, 3))
-        let rEnd = Int(sqlite3_column_int64(stmt, 4))
-        let rStrand = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? "."
-        let rAttrs = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-        let bcType = sqlite3_column_type(stmt, 7)
-        let rBlockCount = bcType != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 7)) : nil
-        let rBlockSizes = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
-        let rBlockStarts = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
-        let rGeneName = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+        let rRowID = sqlite3_column_int64(stmt, 0)
+        let rName = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+        let rType = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+        let rChrom = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+        let rStart = Int(sqlite3_column_int64(stmt, 4))
+        let rEnd = Int(sqlite3_column_int64(stmt, 5))
+        let rStrand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
+        let rAttrs = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+        let bcType = sqlite3_column_type(stmt, 8)
+        let rBlockCount = bcType != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 8)) : nil
+        let rBlockSizes = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
+        let rBlockStarts = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+        let rGeneName = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
 
         return AnnotationDatabaseRecord(
-            name: rName, type: rType, chromosome: rChrom,
+            rowID: rRowID, name: rName, type: rType, chromosome: rChrom,
             start: rStart, end: rEnd, strand: rStrand,
             attributes: rAttrs,
             blockCount: rBlockCount, blockSizes: rBlockSizes, blockStarts: rBlockStarts,
@@ -429,7 +451,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         // v4 schema: fixed column order
         let sql = """
-        SELECT name, type, chromosome, start, end, strand, attributes,
+        SELECT rowid, name, type, chromosome, start, end, strand, attributes,
                block_count, block_sizes, block_starts, gene_name
         FROM annotations
         WHERE chromosome = ? AND end > ? AND start < ?
@@ -451,21 +473,22 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         var results: [AnnotationDatabaseRecord] = []
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let rName = sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
-            let rType = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
-            let rChrom = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
-            let rStart = Int(sqlite3_column_int64(stmt, 3))
-            let rEnd = Int(sqlite3_column_int64(stmt, 4))
-            let rStrand = sqlite3_column_text(stmt, 5).map { String(cString: $0) } ?? "."
-            let rAttrs = sqlite3_column_text(stmt, 6).map { String(cString: $0) }
-            let bcType = sqlite3_column_type(stmt, 7)
-            let rBlockCount = bcType != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 7)) : nil
-            let rBlockSizes = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
-            let rBlockStarts = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
-            let rGeneName = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+            let rRowID = sqlite3_column_int64(stmt, 0)
+            let rName = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let rType = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+            let rChrom = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+            let rStart = Int(sqlite3_column_int64(stmt, 4))
+            let rEnd = Int(sqlite3_column_int64(stmt, 5))
+            let rStrand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
+            let rAttrs = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+            let bcType = sqlite3_column_type(stmt, 8)
+            let rBlockCount = bcType != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 8)) : nil
+            let rBlockSizes = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
+            let rBlockStarts = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+            let rGeneName = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
 
             results.append(AnnotationDatabaseRecord(
-                name: rName, type: rType, chromosome: rChrom,
+                rowID: rRowID, name: rName, type: rType, chromosome: rChrom,
                 start: rStart, end: rEnd, strand: rStrand,
                 attributes: rAttrs,
                 blockCount: rBlockCount, blockSizes: rBlockSizes, blockStarts: rBlockStarts,
@@ -491,6 +514,75 @@ public final class AnnotationDatabase: @unchecked Sendable {
             }
         }
         return values
+    }
+
+    @discardableResult
+    public func updateAnnotation(
+        rowID: Int64,
+        name: String,
+        type: String,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        strand: String,
+        attributes: String?,
+        geneName: String?
+    ) throws -> Bool {
+        guard let db else { return false }
+        let sql = """
+        UPDATE annotations
+        SET name = ?, type = ?, chromosome = ?, start = ?, end = ?, strand = ?, attributes = ?, gene_name = ?
+        WHERE rowid = ?
+        """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 2, (type as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 3, (chromosome as NSString).utf8String, -1, nil)
+        sqlite3_bind_int64(stmt, 4, Int64(start))
+        sqlite3_bind_int64(stmt, 5, Int64(end))
+        sqlite3_bind_text(stmt, 6, (strand as NSString).utf8String, -1, nil)
+        if let attributes {
+            sqlite3_bind_text(stmt, 7, (attributes as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 7)
+        }
+        if let geneName {
+            sqlite3_bind_text(stmt, 8, (geneName as NSString).utf8String, -1, nil)
+        } else {
+            sqlite3_bind_null(stmt, 8)
+        }
+        sqlite3_bind_int64(stmt, 9, rowID)
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        return sqlite3_changes(db) > 0
+    }
+
+    @discardableResult
+    public func deleteAnnotations(rowIDs: [Int64]) throws -> Int {
+        guard let db, !rowIDs.isEmpty else { return 0 }
+        let sql = "DELETE FROM annotations WHERE rowid = ?"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw AnnotationDatabaseError.createFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil)
+        var deleted = 0
+        for rowID in Set(rowIDs) {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            sqlite3_bind_int64(stmt, 1, rowID)
+            if sqlite3_step(stmt) == SQLITE_DONE {
+                deleted += Int(sqlite3_changes(db))
+            }
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        return deleted
     }
 
     // MARK: - Attribute Parsing
@@ -745,7 +837,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         // Indexable types — superset of createFromBED's set, plus GFF3-specific transcript types
         let indexableTypes: Set<String> = [
-            "gene", "mRNA", "transcript", "region", "promoter", "enhancer",
+            "gene", "mRNA", "transcript", "exon", "region", "promoter", "enhancer",
             "primer", "primer_pair", "amplicon", "SNP", "variation",
             "restriction_site", "repeat_region", "origin_of_replication",
             "misc_feature", "silencer", "terminator", "polyA_signal",
@@ -857,7 +949,6 @@ public final class AnnotationDatabase: @unchecked Sendable {
         func serializeAttributes(_ attrs: [String: String]) -> String? {
             var attrPairs: [String] = []
             for (key, value) in attrs.sorted(by: { $0.key < $1.key }) {
-                if key == "ID" || key == "Parent" { continue }
                 let encoded = value
                     .replacingOccurrences(of: "%", with: "%25")
                     .replacingOccurrences(of: ";", with: "%3B")
@@ -1119,7 +1210,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
     }
 
     private static func geneName(from attributes: [String: String]) -> String? {
-        attributes["gene"] ?? attributes["gene_name"]
+        attributes["gene"] ?? attributes["gene_name"] ?? attributes["gene_id"]
     }
 
     private static func decodeAttributeValue(_ value: String) -> String {

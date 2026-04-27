@@ -28,7 +28,7 @@ final class NFCoreWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(result.operationItem?.operationType, .nfCoreWorkflow)
         XCTAssertEqual(result.operationItem?.title, "Run nf-core/seqinspector")
         XCTAssertEqual(result.operationItem?.detail, "Prepared nf-core workflow run bundle")
-        XCTAssertTrue(result.operationItem?.cliCommand?.contains("lungfish-cli workflow run nf-core/seqinspector") == true)
+        XCTAssertNil(result.operationItem?.cliCommand)
         XCTAssertEqual(result.operationItem?.bundleURLs, [result.bundleURL])
     }
 

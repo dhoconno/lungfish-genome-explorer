@@ -132,6 +132,7 @@ final class DrawerDividerView: NSView {
 @MainActor
 protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didSelectAnnotation result: AnnotationSearchIndex.SearchResult)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didDeleteVariants count: Int)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didResolveGeneRegions regions: [GeneRegion])
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?)
@@ -144,6 +145,8 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
 }
 
 extension AnnotationTableDrawerDelegate {
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestExtract annotations: [SequenceAnnotation]) {}
+
     func annotationDrawer(
         _ drawer: AnnotationTableDrawerView,
         fallbackConsequenceFor result: AnnotationSearchIndex.SearchResult
@@ -1972,8 +1975,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tabControl.selectedSegment = tab.rawValue
         updateSearchFieldVisibility()
 
-        // Multi-select for variants and samples tabs
-        tableView.allowsMultipleSelection = (tab == .variants || tab == .samples)
+        // Multi-select for annotations, variants, and samples tabs.
+        tableView.allowsMultipleSelection = true
 
         switch tab {
         case .annotations:
@@ -4870,6 +4873,22 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         return true
     }
 
+    @discardableResult
+    func selectAnnotations(named names: [String]) -> Int {
+        let wanted = Set(names)
+        let indexes = displayedAnnotations.enumerated().reduce(into: IndexSet()) { partial, pair in
+            if wanted.contains(pair.element.name) {
+                partial.insert(pair.offset)
+            }
+        }
+        guard !indexes.isEmpty else { return 0 }
+        isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        tableView.scrollRowToVisible(indexes.first!)
+        return indexes.count
+    }
+
     // MARK: - AI Snapshot API
 
     /// Returns the currently shown variant rows in the Calls subtab.
@@ -4994,6 +5013,26 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         )
     }
 
+    private func selectedAnnotationResults(fallback result: AnnotationSearchIndex.SearchResult? = nil) -> [AnnotationSearchIndex.SearchResult] {
+        var indexes = tableView.selectedRowIndexes
+        if indexes.isEmpty, let result, let index = displayedAnnotations.firstIndex(where: { $0.id == result.id }) {
+            indexes.insert(index)
+        }
+        let selected = indexes.compactMap { index -> AnnotationSearchIndex.SearchResult? in
+            guard index >= 0, index < displayedAnnotations.count else { return nil }
+            let row = displayedAnnotations[index]
+            return row.isVariant ? nil : row
+        }
+        if selected.isEmpty, let result, !result.isVariant {
+            return [result]
+        }
+        return selected
+    }
+
+    private func selectedSequenceAnnotations(fallback result: AnnotationSearchIndex.SearchResult? = nil) -> [SequenceAnnotation] {
+        selectedAnnotationResults(fallback: result).map(makeAnnotation(from:))
+    }
+
     @objc private func copyAsFASTAAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
         let annotation = makeAnnotation(from: result)
@@ -5016,12 +5055,175 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     @objc private func extractSequenceAction(_ sender: NSMenuItem) {
         guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
-        let annotation = makeAnnotation(from: result)
-        NotificationCenter.default.post(
-            name: .extractSequenceRequested,
-            object: nil,
-            userInfo: ["annotation": annotation]
-        )
+        let annotations = selectedSequenceAnnotations(fallback: result)
+        guard !annotations.isEmpty else { return }
+        delegate?.annotationDrawer(self, didRequestExtract: annotations)
+    }
+
+    @objc private func editAnnotationAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult,
+              let rowID = result.annotationRowId,
+              let searchIndex else {
+            NSSound.beep()
+            return
+        }
+        let currentRecord = searchIndex.lookupAnnotation(for: result)
+        let alert = NSAlert()
+        alert.messageText = "Edit Annotation"
+        alert.informativeText = "Update the annotation fields stored in this bundle."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        func row(_ label: String, _ value: String) -> NSTextField {
+            let field = NSTextField(string: value)
+            field.placeholderString = label
+            let labelView = NSTextField(labelWithString: label)
+            let rowStack = NSStackView(views: [labelView, field])
+            rowStack.orientation = .horizontal
+            rowStack.spacing = 8
+            labelView.widthAnchor.constraint(equalToConstant: 90).isActive = true
+            field.widthAnchor.constraint(equalToConstant: 280).isActive = true
+            stack.addArrangedSubview(rowStack)
+            return field
+        }
+
+        let nameField = row("Name", result.name)
+        let typeField = row("Type", result.type)
+        let chromosomeField = row("Chromosome", result.chromosome)
+        let startField = row("Start", "\(result.start)")
+        let endField = row("End", "\(result.end)")
+        let strandField = row("Strand", result.strand)
+        let attributesField = row("Attributes", currentRecord?.attributes ?? result.attributes?.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ";") ?? "")
+        alert.accessoryView = stack
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chromosome = chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !type.isEmpty, !chromosome.isEmpty,
+              let start = Int(startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let end = Int(endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              end >= start else {
+            NSSound.beep()
+            return
+        }
+        let attributes = attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
+        let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
+        guard searchIndex.updateAnnotation(
+            trackId: result.trackId,
+            rowID: rowID,
+            name: name,
+            type: type,
+            chromosome: chromosome,
+            start: start,
+            end: end,
+            strand: strandField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "." : strandField.stringValue,
+            attributes: attributes.isEmpty ? nil : attributes,
+            geneName: geneName
+        ) else {
+            NSSound.beep()
+            return
+        }
+        updateDisplayedAnnotations()
+    }
+
+    @objc private func deleteSelectedAnnotationsAction(_ sender: NSMenuItem) {
+        let fallback = sender.representedObject as? AnnotationSearchIndex.SearchResult
+        let selected = selectedAnnotationResults(fallback: fallback)
+        guard !selected.isEmpty else { return }
+        let rowIDsByTrack = Dictionary(grouping: selected, by: \.trackId).mapValues { rows in
+            rows.compactMap(\.annotationRowId)
+        }.filter { !$0.value.isEmpty }
+
+        let deleted: Int
+        if let searchIndex, !rowIDsByTrack.isEmpty {
+            deleted = searchIndex.deleteAnnotations(rowIDsByTrack: rowIDsByTrack)
+        } else {
+            let ids = Set(selected.map(\.id))
+            let before = displayedAnnotations.count
+            displayedAnnotations.removeAll { ids.contains($0.id) }
+            deleted = before - displayedAnnotations.count
+        }
+        guard deleted > 0 else {
+            NSSound.beep()
+            return
+        }
+        updateDisplayedAnnotations()
+    }
+
+    @objc private func selectRelatedGeneFeaturesAction(_ sender: NSMenuItem) {
+        guard let result = sender.representedObject as? AnnotationSearchIndex.SearchResult else { return }
+        let related = relatedGeneFeatures(for: result)
+        guard !related.isEmpty else { return }
+        let rowIDs = Set(related.compactMap(\.annotationRowId))
+        let names = Set(related.map(\.name))
+        let indexes = displayedAnnotations.enumerated().reduce(into: IndexSet()) { partial, pair in
+            if let rowID = pair.element.annotationRowId, rowIDs.contains(rowID) {
+                partial.insert(pair.offset)
+            } else if names.contains(pair.element.name) {
+                partial.insert(pair.offset)
+            }
+        }
+        guard !indexes.isEmpty else { return }
+        isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        tableView.scrollRowToVisible(indexes.first!)
+    }
+
+    private func relatedGeneFeatures(for result: AnnotationSearchIndex.SearchResult) -> [AnnotationSearchIndex.SearchResult] {
+        let types = Set(["gene", "mRNA", "transcript", "exon", "CDS"])
+        let immediateRows = searchIndex?.queryAnnotationsInRegion(
+            chromosome: result.chromosome,
+            start: result.start,
+            end: result.end,
+            types: types,
+            limit: 1000
+        ) ?? displayedAnnotations.filter {
+            $0.chromosome == result.chromosome && $0.end > result.start && $0.start < result.end && types.contains($0.type)
+        }
+        let immediateSameStrand = immediateRows.filter { result.strand == "." || $0.strand == "." || $0.strand == result.strand }
+        let containingGene = (result.type == "gene" ? result : immediateSameStrand
+            .filter { $0.type == "gene" && result.start >= $0.start && result.end <= $0.end }
+            .sorted { ($0.end - $0.start) < ($1.end - $1.start) }
+            .first)
+        let relationStart = containingGene?.start ?? result.start
+        let relationEnd = containingGene?.end ?? result.end
+        let regionRows = searchIndex?.queryAnnotationsInRegion(
+            chromosome: result.chromosome,
+            start: relationStart,
+            end: relationEnd,
+            types: types,
+            limit: 5000
+        ) ?? displayedAnnotations.filter {
+            $0.chromosome == result.chromosome && $0.end > relationStart && $0.start < relationEnd && types.contains($0.type)
+        }
+        let sameStrand = regionRows.filter { result.strand == "." || $0.strand == "." || $0.strand == result.strand }
+        let resultAttrs = result.attributes ?? [:]
+        let parentTokens = Set((resultAttrs["Parent"] ?? "").split(separator: ",").map(String.init))
+        let resultID = resultAttrs["ID"]
+        let geneName = resultAttrs["gene"] ?? resultAttrs["gene_name"] ?? resultAttrs["gene_id"] ?? result.name
+        return sameStrand.filter { row in
+            let attrs = row.attributes ?? [:]
+            if row.name == result.name || row.annotationRowId == result.annotationRowId { return true }
+            if let id = attrs["ID"], parentTokens.contains(id) { return true }
+            if let resultID, (attrs["Parent"] ?? "").split(separator: ",").map(String.init).contains(resultID) { return true }
+            let rowGene = attrs["gene"] ?? attrs["gene_name"] ?? attrs["gene_id"] ?? row.name
+            if rowGene == geneName { return true }
+            if row.type == "gene" {
+                return result.start >= row.start && result.end <= row.end
+            }
+            if let containingGene {
+                return row.start >= containingGene.start && row.end <= containingGene.end
+            }
+            return false
+        }
     }
 
     @objc private func copySequenceAction(_ sender: NSMenuItem) {
@@ -5194,6 +5396,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     private func buildAnnotationContextMenu(_ menu: NSMenu, annotation: AnnotationSearchIndex.SearchResult) {
         let isCDS = Self.supportsTranslationMenu(for: annotation.type)
+        let selectedAnnotations = selectedAnnotationResults(fallback: annotation)
+        let selectedCount = max(1, selectedAnnotations.count)
 
         // --- Copy submenu ---
         let copyMenu = NSMenu(title: "Copy")
@@ -5253,10 +5457,32 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         menu.addItem(copyMenuItem)
 
         // --- Extract ---
-        let extractItem = NSMenuItem(title: "Extract Sequence\u{2026}", action: #selector(extractSequenceAction(_:)), keyEquivalent: "")
+        let extractTitle = selectedCount > 1 ? "Extract \(selectedCount) Sequences\u{2026}" : "Extract Sequence\u{2026}"
+        let extractItem = NSMenuItem(title: extractTitle, action: #selector(extractSequenceAction(_:)), keyEquivalent: "")
         extractItem.target = self
         extractItem.representedObject = annotation
         menu.addItem(extractItem)
+
+        menu.addItem(NSMenuItem.separator())
+
+        // --- Editing ---
+        let editItem = NSMenuItem(title: "Edit Annotation\u{2026}", action: #selector(editAnnotationAction(_:)), keyEquivalent: "")
+        editItem.target = self
+        editItem.representedObject = annotation
+        editItem.isEnabled = selectedCount == 1 && annotation.annotationRowId != nil
+        menu.addItem(editItem)
+
+        let deleteTitle = selectedCount > 1 ? "Delete \(selectedCount) Selected Annotations" : "Delete Annotation"
+        let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedAnnotationsAction(_:)), keyEquivalent: "")
+        deleteItem.target = self
+        deleteItem.representedObject = annotation
+        menu.addItem(deleteItem)
+
+        let relatedItem = NSMenuItem(title: "Select Related Gene Features", action: #selector(selectRelatedGeneFeaturesAction(_:)), keyEquivalent: "")
+        relatedItem.target = self
+        relatedItem.representedObject = annotation
+        relatedItem.isEnabled = ["gene", "mRNA", "transcript", "exon", "CDS"].contains(annotation.type)
+        menu.addItem(relatedItem)
 
         menu.addItem(NSMenuItem.separator())
 

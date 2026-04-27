@@ -44,6 +44,8 @@ public final class AnnotationSearchIndex {
         public let sourceFile: String?
         /// Parsed annotation attribute key-value pairs (nil for variants or legacy rows).
         public let attributes: [String: String]?
+        /// Stable SQLite row id for annotation rows (nil for variants or in-memory rows).
+        public let annotationRowId: Int64?
 
         /// Whether this result represents a variant (vs annotation).
         public var isVariant: Bool { ref != nil }
@@ -53,7 +55,7 @@ public final class AnnotationSearchIndex {
                     ref: String? = nil, alt: String? = nil, quality: Double? = nil,
                     filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil,
                     infoDict: [String: String]? = nil, sourceFile: String? = nil,
-                    attributes: [String: String]? = nil) {
+                    attributes: [String: String]? = nil, annotationRowId: Int64? = nil) {
             self.id = id
             self.name = name
             self.chromosome = chromosome
@@ -71,6 +73,7 @@ public final class AnnotationSearchIndex {
             self.infoDict = infoDict
             self.sourceFile = sourceFile
             self.attributes = attributes
+            self.annotationRowId = annotationRowId
         }
     }
 
@@ -435,6 +438,102 @@ public final class AnnotationSearchIndex {
     /// Queries ONLY annotations (no variants). Used when the Annotations tab is active.
     public func queryAnnotationsOnly(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [SearchResult] {
         query(nameFilter: nameFilter, types: types, limit: limit) ?? []
+    }
+
+    /// Queries annotation records in a genomic interval, preserving track id and row id.
+    public func queryAnnotationsInRegion(
+        chromosome: String,
+        start: Int,
+        end: Int,
+        types: Set<String> = [],
+        limit: Int = 10000
+    ) -> [SearchResult] {
+        var results: [SearchResult] = []
+        for handle in annotationDatabases {
+            let remaining = limit - results.count
+            guard remaining > 0 else { break }
+            for queryChrom in annotationChromosomeCandidates(for: chromosome) {
+                let records = handle.db.queryByRegion(
+                    chromosome: queryChrom,
+                    start: start,
+                    end: end,
+                    limit: remaining
+                )
+                let filtered = types.isEmpty ? records : records.filter { types.contains($0.type) }
+                results.append(contentsOf: filtered.map { annotationRecordToSearchResult($0, trackId: handle.trackId) })
+                if results.count >= limit { break }
+            }
+        }
+        if annotationDatabases.isEmpty, let db = database {
+            let records = db.queryByRegion(chromosome: chromosome, start: start, end: end, limit: limit)
+            let filtered = types.isEmpty ? records : records.filter { types.contains($0.type) }
+            results.append(contentsOf: filtered.map { annotationRecordToSearchResult($0, trackId: databaseTrackId) })
+        }
+        return Array(results.prefix(limit))
+    }
+
+    @discardableResult
+    public func deleteAnnotations(rowIDsByTrack: [String: [Int64]]) -> Int {
+        var deleted = 0
+        for (trackId, rowIDs) in rowIDsByTrack {
+            guard let handle = annotationDatabases.first(where: { $0.trackId == trackId }) else { continue }
+            do {
+                let rwDB = try AnnotationDatabase(url: handle.db.databaseURL, readWrite: true)
+                deleted += try rwDB.deleteAnnotations(rowIDs: rowIDs)
+            } catch {
+                searchLogger.error("AnnotationSearchIndex: Failed to delete annotations from '\(trackId, privacy: .public)': \(error.localizedDescription)")
+            }
+        }
+        if annotationDatabases.isEmpty, let db = database, let rowIDs = rowIDsByTrack[databaseTrackId] {
+            do {
+                let rwDB = try AnnotationDatabase(url: db.databaseURL, readWrite: true)
+                deleted += try rwDB.deleteAnnotations(rowIDs: rowIDs)
+            } catch {
+                searchLogger.error("AnnotationSearchIndex: Failed to delete annotations: \(error.localizedDescription)")
+            }
+        }
+        return deleted
+    }
+
+    @discardableResult
+    public func updateAnnotation(
+        trackId: String,
+        rowID: Int64,
+        name: String,
+        type: String,
+        chromosome: String,
+        start: Int,
+        end: Int,
+        strand: String,
+        attributes: String?,
+        geneName: String?
+    ) -> Bool {
+        let dbURL: URL?
+        if let handle = annotationDatabases.first(where: { $0.trackId == trackId }) {
+            dbURL = handle.db.databaseURL
+        } else if annotationDatabases.isEmpty, trackId == databaseTrackId, let db = database {
+            dbURL = db.databaseURL
+        } else {
+            dbURL = nil
+        }
+        guard let dbURL else { return false }
+        do {
+            let rwDB = try AnnotationDatabase(url: dbURL, readWrite: true)
+            return try rwDB.updateAnnotation(
+                rowID: rowID,
+                name: name,
+                type: type,
+                chromosome: chromosome,
+                start: start,
+                end: end,
+                strand: strand,
+                attributes: attributes,
+                geneName: geneName
+            )
+        } catch {
+            searchLogger.error("AnnotationSearchIndex: Failed to update annotation \(rowID): \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Returns count of annotations only (no variants).
@@ -817,7 +916,8 @@ public final class AnnotationSearchIndex {
             trackId: trackId,
             type: record.type,
             strand: record.strand,
-            attributes: parsedAttributes
+            attributes: parsedAttributes,
+            annotationRowId: record.rowID
         )
     }
 

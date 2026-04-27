@@ -120,10 +120,6 @@ private struct NFCoreWorkflowDialogView: View {
                 Divider()
                 inputsSection
                 Divider()
-                primarySettingsSection
-                Divider()
-                advancedSettingsSection
-                Divider()
                 outputSection
                 Divider()
                 readinessSection
@@ -203,73 +199,12 @@ private struct NFCoreWorkflowDialogView: View {
         }
     }
 
-    private var primarySettingsSection: some View {
-        section("Primary Settings") {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Executor", selection: executorBinding) {
-                    Text("Docker").tag(NFCoreExecutor.docker)
-                    Text("Conda").tag(NFCoreExecutor.conda)
-                    Text("Local").tag(NFCoreExecutor.local)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.executorPicker)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(model.selectedWorkflowDetail.pinnedVersionText)
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                        .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.versionLabel)
-                        .accessibilityLabel(model.selectedWorkflowDetail.pinnedVersionText)
-                        .accessibilityValue(model.selectedWorkflowDetail.pinnedVersionText)
-                    TextField("Workflow version", text: versionBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                        .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.versionField)
-                }
-            }
-        }
-    }
-
-    private var advancedSettingsSection: some View {
-        section("Advanced Settings") {
-            VStack(alignment: .leading, spacing: 12) {
-                if model.selectedWorkflowDetail.keyParameters.isEmpty {
-                    Text("No key parameters are exposed for this workflow yet.")
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                } else {
-                    ForEach(model.selectedWorkflowDetail.keyParameters) { parameter in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(parameter.displayName)
-                                .font(.subheadline.weight(.medium))
-                            TextField(parameter.help, text: parameterBinding(for: parameter.name))
-                                .textFieldStyle(.roundedBorder)
-                                .font(.system(.body, design: .monospaced))
-                                .accessibilityIdentifier("nf-core-param-\(parameter.name)")
-                            Text(parameter.help)
-                                .font(.caption)
-                                .foregroundStyle(Color.lungfishSecondaryText)
-                        }
-                    }
-                }
-            }
-            .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.parameterStack)
-        }
-    }
-
     private var outputSection: some View {
         section("You will get") {
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.selectedWorkflowDetail.expectedOutputs)
                     .foregroundStyle(Color.lungfishSecondaryText)
                     .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.expectedOutputsText)
-                Text(model.selectedWorkflowDetail.provenanceText)
-                    .font(.caption)
-                    .foregroundStyle(Color.lungfishSecondaryText)
-                Text(commandPreview)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(Color.lungfishSecondaryText)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.commandPreview)
             }
         }
     }
@@ -281,49 +216,6 @@ private struct NFCoreWorkflowDialogView: View {
                 .foregroundStyle(canRun ? Color.lungfishSecondaryText : Color.lungfishOrangeFallback)
                 .accessibilityIdentifier(NFCoreWorkflowAccessibilityID.statusLabel)
         }
-    }
-
-    private var commandPreview: String {
-        guard let bundleRoot = model.bundleRootURL else {
-            return "Open a project to preview the command."
-        }
-        do {
-            let bundleURL = bundleRoot
-                .appendingPathComponent("\(model.selectedWorkflow?.name ?? "workflow").lungfishrun", isDirectory: true)
-            return try model.makeRequest().cliCommandPreview(bundlePath: bundleURL)
-        } catch {
-            return "Select valid inputs to preview the command."
-        }
-    }
-
-    private var executorBinding: Binding<NFCoreExecutor> {
-        Binding(
-            get: { model.executor },
-            set: {
-                model.executor = $0
-                clearStatusAndRefresh()
-            }
-        )
-    }
-
-    private var versionBinding: Binding<String> {
-        Binding(
-            get: { model.version },
-            set: {
-                model.version = $0
-                clearStatusAndRefresh()
-            }
-        )
-    }
-
-    private func parameterBinding(for name: String) -> Binding<String> {
-        Binding(
-            get: { model.parameterValue(for: name) },
-            set: {
-                model.setParameterValue($0, for: name)
-                clearStatusAndRefresh()
-            }
-        )
     }
 
     private func inputBinding(for url: URL) -> Binding<Bool> {
