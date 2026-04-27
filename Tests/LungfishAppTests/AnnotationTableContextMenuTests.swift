@@ -202,6 +202,48 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     // MARK: - Context menu behavior
 
+    func testAnnotationTableAllowsMultipleSelectionWhenInitializedOnAnnotationTab() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a",
+            "chr1\t300\t400\tgene-b\t0\t+\t300\t400\t0,0,0\t1\t100\t0\tgene\tgene=gene-b"
+        ])
+
+        XCTAssertTrue(drawer.tableView.allowsMultipleSelection)
+    }
+
+    func testAnnotationEditAccessoryViewHasStableSizeForAlertLayout() throws {
+        let drawer = try createDrawerWithDatabase(lines: [
+            "chr1\t100\t200\tgene-a\t0\t+\t100\t200\t0,0,0\t1\t100\t0\tgene\tgene=gene-a;Note=long"
+        ])
+        let result = AnnotationSearchIndex.SearchResult(
+            name: "gene-a",
+            chromosome: "chr1",
+            start: 100,
+            end: 200,
+            trackId: "annotations",
+            type: "gene",
+            strand: "+",
+            attributes: ["gene": "gene-a", "Note": "long"],
+            annotationRowId: 1
+        )
+        let record = AnnotationDatabaseRecord(
+            rowID: 1,
+            name: "gene-a",
+            type: "gene",
+            chromosome: "chr1",
+            start: 100,
+            end: 200,
+            strand: "+",
+            attributes: "gene=gene-a;Note=long",
+            geneName: "gene-a"
+        )
+
+        let form = drawer.makeAnnotationEditAccessoryView(for: result, currentRecord: record)
+
+        XCTAssertGreaterThanOrEqual(form.frame.width, 460)
+        XCTAssertGreaterThanOrEqual(form.frame.height, 260)
+    }
+
     func testContextMenuUsesSelectedRowWhenNoClickedRow() throws {
         let drawer = try createDrawerWithDatabase(lines: [
             "chr1\t100\t500\tgag-cds\t0\t+\t100\t500\t0,0,0\t1\t400\t0\tCDS\ttranslation=MKVLGPRSE"

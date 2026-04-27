@@ -968,7 +968,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tableView.rowHeight = 22
         tableView.intercellSpacing = NSSize(width: 8, height: 2)
         tableView.usesAlternatingRowBackgroundColors = true
-        tableView.allowsMultipleSelection = false
+        tableView.allowsMultipleSelection = true
         tableView.style = .plain
         tableView.columnAutoresizingStyle = .noColumnAutoresizing
         tableView.gridStyleMask = []
@@ -5070,49 +5070,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let currentRecord = searchIndex.lookupAnnotation(for: result)
         let alert = NSAlert()
         alert.messageText = "Edit Annotation"
-        alert.informativeText = "Update the annotation fields stored in this bundle."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
 
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.spacing = 8
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        func row(_ label: String, _ value: String) -> NSTextField {
-            let field = NSTextField(string: value)
-            field.placeholderString = label
-            let labelView = NSTextField(labelWithString: label)
-            let rowStack = NSStackView(views: [labelView, field])
-            rowStack.orientation = .horizontal
-            rowStack.spacing = 8
-            labelView.widthAnchor.constraint(equalToConstant: 90).isActive = true
-            field.widthAnchor.constraint(equalToConstant: 280).isActive = true
-            stack.addArrangedSubview(rowStack)
-            return field
-        }
-
-        let nameField = row("Name", result.name)
-        let typeField = row("Type", result.type)
-        let chromosomeField = row("Chromosome", result.chromosome)
-        let startField = row("Start", "\(result.start)")
-        let endField = row("End", "\(result.end)")
-        let strandField = row("Strand", result.strand)
-        let attributesField = row("Attributes", currentRecord?.attributes ?? result.attributes?.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ";") ?? "")
-        alert.accessoryView = stack
+        let form = makeAnnotationEditForm(for: result, currentRecord: currentRecord)
+        alert.accessoryView = form.view
 
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let type = typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let chromosome = chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = form.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let type = form.typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chromosome = form.chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !type.isEmpty, !chromosome.isEmpty,
-              let start = Int(startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
-              let end = Int(endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let start = Int(form.startField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
+              let end = Int(form.endField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)),
               end >= start else {
             NSSound.beep()
             return
         }
-        let attributes = attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let attributes = form.attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
         guard searchIndex.updateAnnotation(
@@ -5123,7 +5098,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             chromosome: chromosome,
             start: start,
             end: end,
-            strand: strandField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "." : strandField.stringValue,
+            strand: form.strandField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "." : form.strandField.stringValue,
             attributes: attributes.isEmpty ? nil : attributes,
             geneName: geneName
         ) else {
@@ -5131,6 +5106,104 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             return
         }
         updateDisplayedAnnotations()
+    }
+
+    func makeAnnotationEditAccessoryView(
+        for result: AnnotationSearchIndex.SearchResult,
+        currentRecord: AnnotationDatabaseRecord?
+    ) -> NSView {
+        makeAnnotationEditForm(for: result, currentRecord: currentRecord).view
+    }
+
+    private struct AnnotationEditForm {
+        let view: NSView
+        let nameField: NSTextField
+        let typeField: NSTextField
+        let chromosomeField: NSTextField
+        let startField: NSTextField
+        let endField: NSTextField
+        let strandField: NSTextField
+        let attributesField: NSTextField
+    }
+
+    private func makeAnnotationEditForm(
+        for result: AnnotationSearchIndex.SearchResult,
+        currentRecord: AnnotationDatabaseRecord?
+    ) -> AnnotationEditForm {
+        let formWidth: CGFloat = 520
+        let formHeight: CGFloat = 292
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: formWidth, height: formHeight))
+
+        let subtitle = NSTextField(wrappingLabelWithString: "Update the annotation fields stored in this bundle.")
+        subtitle.font = .systemFont(ofSize: 12)
+        subtitle.textColor = .secondaryLabelColor
+        subtitle.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(subtitle)
+
+        func label(_ value: String) -> NSTextField {
+            let field = NSTextField(labelWithString: value)
+            field.alignment = .right
+            field.font = .systemFont(ofSize: 13, weight: .medium)
+            return field
+        }
+
+        func textField(_ value: String, placeholder: String) -> NSTextField {
+            let field = NSTextField(string: value)
+            field.placeholderString = placeholder
+            field.lineBreakMode = .byTruncatingTail
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: 340).isActive = true
+            return field
+        }
+
+        let nameField = textField(result.name, placeholder: "Name")
+        let typeField = textField(result.type, placeholder: "Type")
+        let chromosomeField = textField(result.chromosome, placeholder: "Chromosome")
+        let startField = textField("\(result.start)", placeholder: "Start")
+        let endField = textField("\(result.end)", placeholder: "End")
+        let strandField = textField(result.strand, placeholder: "Strand")
+        let attributesValue = currentRecord?.attributes
+            ?? result.attributes?.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ";")
+            ?? ""
+        let attributesField = textField(attributesValue, placeholder: "Attributes")
+
+        let grid = NSGridView(views: [
+            [label("Name"), nameField],
+            [label("Type"), typeField],
+            [label("Chromosome"), chromosomeField],
+            [label("Start"), startField],
+            [label("End"), endField],
+            [label("Strand"), strandField],
+            [label("Attributes"), attributesField],
+        ])
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.rowSpacing = 8
+        grid.columnSpacing = 12
+        grid.column(at: 0).width = 110
+        grid.column(at: 1).xPlacement = .fill
+        container.addSubview(grid)
+
+        NSLayoutConstraint.activate([
+            container.widthAnchor.constraint(equalToConstant: formWidth),
+            container.heightAnchor.constraint(equalToConstant: formHeight),
+            subtitle.topAnchor.constraint(equalTo: container.topAnchor),
+            subtitle.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            subtitle.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            grid.topAnchor.constraint(equalTo: subtitle.bottomAnchor, constant: 14),
+            grid.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            grid.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            grid.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor),
+        ])
+        return AnnotationEditForm(
+            view: container,
+            nameField: nameField,
+            typeField: typeField,
+            chromosomeField: chromosomeField,
+            startField: startField,
+            endField: endField,
+            strandField: strandField,
+            attributesField: attributesField
+        )
     }
 
     @objc private func deleteSelectedAnnotationsAction(_ sender: NSMenuItem) {
