@@ -701,10 +701,23 @@ final class FASTQOperationDialogState {
         case 0:
             return "No \(datasetLabel) selected"
         case 1:
-            return selectedInputURLs[0].lastPathComponent
+            return Self.displayPath(for: selectedInputURLs[0], relativeTo: projectURL)
         default:
             return "\(selectedInputURLs.count) \(datasetLabel) datasets"
         }
+    }
+
+    static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
+        let standardizedTarget = url.standardizedFileURL.path
+        guard let projectURL else { return standardizedTarget }
+
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard standardizedTarget.hasPrefix(normalizedProjectPath) else {
+            return standardizedTarget
+        }
+
+        return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {

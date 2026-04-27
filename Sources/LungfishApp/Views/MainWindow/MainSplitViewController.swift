@@ -766,6 +766,7 @@ public class MainSplitViewController: NSSplitViewController {
                         url: url,
                         projectURL: projectURL,
                         targetDir: targetDir,
+                        destinationItem: destinationItem,
                         requestID: requestID,
                         displayAfterImport: importPlan.shouldAutoDisplayImportedContent
                     )
@@ -788,6 +789,7 @@ public class MainSplitViewController: NSSplitViewController {
         url: URL,
         projectURL: URL?,
         targetDir: URL,
+        destinationItem: SidebarItem?,
         requestID: String?,
         displayAfterImport: Bool
     ) async {
@@ -860,6 +862,51 @@ public class MainSplitViewController: NSSplitViewController {
             return
         }
 
+        if ReferenceBundleImportService.classify(url) == .annotationTrack {
+            guard let projectURL else {
+                let errorMessage = "Open a project before importing annotation tracks."
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: errorMessage)
+                return
+            }
+
+            let destinationBundleURL: URL?
+            if destinationItem?.type == .referenceBundle {
+                destinationBundleURL = destinationItem?.url
+            } else {
+                destinationBundleURL = await promptForAnnotationTargetBundle(projectURL: projectURL, preferredBundleURL: nil)
+            }
+
+            guard let bundleURL = destinationBundleURL else {
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: "Annotation import cancelled.")
+                return
+            }
+
+            let opID = OperationCenter.shared.start(
+                title: "Annotation Import",
+                detail: "Importing \(url.lastPathComponent)...",
+                operationType: .bundleBuild,
+                cliCommand: nil
+            )
+
+            do {
+                let result = try await ReferenceBundleAnnotationImportService()
+                    .attachAnnotationTrack(sourceURL: url, bundleURL: bundleURL)
+                OperationCenter.shared.complete(
+                    id: opID,
+                    detail: "Imported \(result.featureCount) annotations"
+                )
+                sidebarController.reloadFromFilesystem()
+                if viewerController?.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                    try? viewerController?.displayBundle(at: bundleURL)
+                }
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: true, error: nil)
+            } catch {
+                OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: false, error: error.localizedDescription)
+            }
+            return
+        }
+
         var urlToLoad = url
         var importSucceeded = true
         var importError: String?
@@ -917,6 +964,50 @@ public class MainSplitViewController: NSSplitViewController {
             loadGenomicsFileInBackground(url: urlToLoad)
         }
         postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
+    }
+
+    private func promptForAnnotationTargetBundle(projectURL: URL, preferredBundleURL: URL?) async -> URL? {
+        let choices: [ReferenceBundleChoice]
+        do {
+            choices = try ReferenceBundleAnnotationImportService.discoverReferenceBundles(in: projectURL)
+        } catch {
+            return nil
+        }
+        guard !choices.isEmpty else { return nil }
+        if choices.count == 1 { return choices[0].url }
+
+        return await withCheckedContinuation { continuation in
+            let alert = NSAlert()
+            alert.messageText = "Choose Reference Bundle"
+            alert.informativeText = "Select the FASTA/reference bundle to receive this annotation track."
+            alert.addButton(withTitle: "Import")
+            alert.addButton(withTitle: "Cancel")
+
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 28), pullsDown: false)
+            for choice in choices {
+                popup.addItem(withTitle: choice.displayPath)
+                popup.lastItem?.representedObject = choice.url
+            }
+            if let preferredBundleURL,
+               let index = choices.firstIndex(where: { $0.url.standardizedFileURL == preferredBundleURL.standardizedFileURL }) {
+                popup.selectItem(at: index)
+            }
+            alert.accessoryView = popup
+
+            let finish: (NSApplication.ModalResponse) -> Void = { response in
+                guard response == .alertFirstButtonReturn else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: popup.selectedItem?.representedObject as? URL)
+            }
+
+            if let window = self.view.window {
+                alert.beginSheetModal(for: window, completionHandler: finish)
+            } else {
+                finish(alert.runModal())
+            }
+        }
     }
 
     // MARK: - FASTQ Import Sheet

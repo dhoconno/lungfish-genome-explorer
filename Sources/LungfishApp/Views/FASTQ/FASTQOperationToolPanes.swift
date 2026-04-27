@@ -181,10 +181,10 @@ private struct FASTQOperationInputsSection: View {
         }
 
         guard state.isAuxiliaryInputValid(for: kind) else {
-            return "\(url.lastPathComponent) is not a valid \(kind.title.lowercased())."
+            return "\(FASTQOperationDialogState.displayPath(for: url, relativeTo: state.projectURL)) is not a valid \(kind.title.lowercased())."
         }
 
-        return url.lastPathComponent
+        return FASTQOperationDialogState.displayPath(for: url, relativeTo: state.projectURL)
     }
 
     private func inputSummaryColor(for kind: FASTQOperationInputKind) -> Color {

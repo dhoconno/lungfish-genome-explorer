@@ -121,6 +121,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertTrue(ids.contains("taxtriage"))
         XCTAssertTrue(ids.contains("nvd"))
         XCTAssertTrue(ids.contains("fasta"))
+        XCTAssertTrue(ids.contains("annotation-track"))
         XCTAssertFalse(ids.contains("project-files"))
         XCTAssertFalse(ids.contains("bundle-sample-metadata"))
         XCTAssertFalse(ids.contains("project-sample-metadata"))

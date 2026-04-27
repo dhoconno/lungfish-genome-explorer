@@ -280,11 +280,11 @@ struct MappingWizardSheet: View {
             } else {
                 Picker("", selection: $selectedReferenceID) {
                     if let browsedReferenceURL {
-                        Text(browsedReferenceURL.lastPathComponent)
+                        Text(displayPath(for: browsedReferenceURL))
                             .tag("__browsed__")
                     }
                     ForEach(referenceCandidates) { candidate in
-                        Text(candidate.displayName).tag(candidate.id)
+                        Text(candidate.pickerDisplayName(relativeTo: projectURL)).tag(candidate.id)
                     }
                 }
                 .labelsHidden()

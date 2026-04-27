@@ -10,8 +10,8 @@ import LungfishIO
 
 /// A reference discovered during project scanning, with its resolved FASTA URL.
 private struct DiscoveredReference: Identifiable {
-    let id: String  // display name
-    let name: String
+    let id: String
+    let displayPath: String
     let bundleURL: URL
     let fastaURL: URL
 }
@@ -35,8 +35,8 @@ struct ReferenceSequencePickerView: View {
     /// All reference bundles discovered in the project.
     @State private var discoveredRefs: [DiscoveredReference] = []
 
-    /// The display name of the currently selected reference.
-    @State private var selectedRefName: String = ""
+    /// The stable identifier of the currently selected reference.
+    @State private var selectedRefID: String = ""
 
     /// Whether a FASTA import is in progress.
     @State private var isImporting: Bool = false
@@ -54,9 +54,9 @@ struct ReferenceSequencePickerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             } else {
-                Picker("", selection: $selectedRefName) {
+                Picker("", selection: $selectedRefID) {
                     ForEach(discoveredRefs) { ref in
-                        Text(ref.name).tag(ref.name)
+                        Text(ref.displayPath).tag(ref.id)
                     }
                 }
                 .labelsHidden()
@@ -78,8 +78,8 @@ struct ReferenceSequencePickerView: View {
             }
         }
         .task { loadReferences() }
-        .onChange(of: selectedRefName) { _, newName in
-            if let ref = discoveredRefs.first(where: { $0.name == newName }) {
+        .onChange(of: selectedRefID) { _, newID in
+            if let ref = discoveredRefs.first(where: { $0.id == newID }) {
                 selectedReferenceURL = ref.fastaURL
             }
         }
@@ -93,21 +93,21 @@ struct ReferenceSequencePickerView: View {
         let refs = ReferenceSequenceScanner.scanAll(in: projectURL).map { candidate in
             DiscoveredReference(
                 id: candidate.id,
-                name: candidate.displayName,
+                displayPath: candidate.pickerDisplayName(relativeTo: projectURL),
                 bundleURL: candidate.sourceBundleURL ?? candidate.fastaURL.deletingLastPathComponent(),
                 fastaURL: candidate.fastaURL
             )
         }
 
-        discoveredRefs = refs.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        discoveredRefs = refs.sorted { $0.displayPath.localizedCaseInsensitiveCompare($1.displayPath) == .orderedAscending }
 
         // Auto-select first if nothing selected
         if selectedReferenceURL == nil, let first = discoveredRefs.first {
-            selectedRefName = first.name
+            selectedRefID = first.id
             selectedReferenceURL = first.fastaURL
         } else if let current = selectedReferenceURL,
                   let match = discoveredRefs.first(where: { $0.fastaURL.path == current.path }) {
-            selectedRefName = match.name
+            selectedRefID = match.id
         }
     }
 
@@ -138,14 +138,27 @@ struct ReferenceSequencePickerView: View {
             // Add to picker as an ad-hoc entry
             let adHoc = DiscoveredReference(
                 id: url.path,
-                name: url.deletingPathExtension().lastPathComponent,
+                displayPath: displayPath(for: url),
                 bundleURL: url.deletingLastPathComponent(),
                 fastaURL: url
             )
             if !discoveredRefs.contains(where: { $0.id == adHoc.id }) {
                 discoveredRefs.append(adHoc)
             }
-            selectedRefName = adHoc.name
+            selectedRefID = adHoc.id
         }
+    }
+
+    private func displayPath(for url: URL) -> String {
+        let standardizedTarget = url.standardizedFileURL.path
+        guard let projectURL else { return standardizedTarget }
+
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard standardizedTarget.hasPrefix(normalizedProjectPath) else {
+            return standardizedTarget
+        }
+
+        return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 }

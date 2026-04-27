@@ -904,6 +904,19 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.datasetLabel, "3 FASTQ datasets")
     }
 
+    func testDatasetLabelUsesProjectRelativePathForSingleSelectedInput() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let state = FASTQOperationDialogState(
+            initialCategory: .assembly,
+            selectedInputURLs: [
+                projectURL.appendingPathComponent("Samples/A/reads.fastq")
+            ],
+            projectURL: projectURL
+        )
+
+        XCTAssertEqual(state.datasetLabel, "Samples/A/reads.fastq")
+    }
+
     func testToolPaneFileRoutesSpecialToolsThroughEmbeddedSheets() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

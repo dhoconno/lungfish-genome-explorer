@@ -92,6 +92,7 @@ struct ImportCardInfo: Identifiable, Sendable {
         case bam
         case vcf
         case fasta
+        case annotationTrack
         case bundleSampleMetadata
         case projectSampleMetadata
         case naoMgs
@@ -413,6 +414,28 @@ final class ImportCenterViewModel {
             )
         ),
         ImportCardInfo(
+            id: "annotation-track",
+            title: "Annotation Track",
+            description: "Attach GTF, GFF, GFF3, or BED annotations to an existing reference sequence bundle.",
+            sfSymbol: "list.bullet.rectangle",
+            fileHint: ".gtf, .gff, .gff3, .bed",
+            tab: .references,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "gtf") ?? .data,
+                        UTType(filenameExtension: "gff") ?? .data,
+                        UTType(filenameExtension: "gff3") ?? .data,
+                        UTType(filenameExtension: "bed") ?? .data,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: true
+                ),
+                action: .annotationTrack
+            )
+        ),
+        ImportCardInfo(
             id: "primer-scheme",
             title: "Primer Scheme",
             description: "Import a .lungfishprimers bundle authored from a BED (and optional FASTA) for use with iVar primer trimming.",
@@ -492,6 +515,7 @@ final class ImportCenterViewModel {
         case .bam:      return "Select BAM or CRAM alignment files to import"
         case .vcf:      return "Select VCF variant files to import"
         case .fasta:    return "Select standalone reference sequence files (.fa/.fasta/.gb/.embl, optionally .gz) to import"
+        case .annotationTrack: return "Select GTF, GFF, GFF3, or BED annotation files to attach to a reference bundle"
         case .bundleSampleMetadata:
             return "Select a CSV or TSV file with sample metadata for the selected dataset"
         case .projectSampleMetadata: return "Select project sample metadata"
@@ -535,6 +559,8 @@ final class ImportCenterViewModel {
             for url in urls {
                 appDelegate.importFASTAFromURL(url)
             }
+        case .annotationTrack:
+            appDelegate.importAnnotationTracksFromURLs(urls)
         case .bundleSampleMetadata:
             for url in urls {
                 appDelegate.importBundleSampleMetadataFromURL(url)
@@ -607,6 +633,7 @@ final class ImportCenterViewModel {
         case .bam:      return "BAM"
         case .vcf:      return "VCF"
         case .fasta:    return "FASTA"
+        case .annotationTrack: return "Annotation Track"
         case .bundleSampleMetadata: return "Bundle Metadata"
         case .projectSampleMetadata: return "Project Metadata"
         case .naoMgs:   return "NAO-MGS"

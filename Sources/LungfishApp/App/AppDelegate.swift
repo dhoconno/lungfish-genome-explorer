@@ -1481,6 +1481,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    /// Import a GTF/GFF/GFF3/BED annotation track from a known URL (called from Import Center).
+    func importAnnotationTrackFromURL(_ url: URL) {
+        importAnnotationTracksFromURLs([url])
+    }
+
+    /// Import GTF/GFF/GFF3/BED annotation tracks from known URLs (called from Import Center).
+    func importAnnotationTracksFromURLs(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+
+        let unsupported = urls.filter { ReferenceBundleImportService.classify($0) != .annotationTrack }
+        guard unsupported.isEmpty else {
+            showAlert(title: "Unsupported Annotation Import", message: "Select a GTF, GFF, GFF3, or BED file.")
+            return
+        }
+
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing annotation tracks.")
+            return
+        }
+
+        let preferredBundleURL = mainWindowController?.mainSplitViewController?.viewerController?.currentBundleURL
+        chooseReferenceBundleForAnnotation(projectURL: projectURL, preferredBundleURL: preferredBundleURL) { [weak self] bundleURL in
+            guard let self, let bundleURL else { return }
+            self.performAnnotationTrackImports(annotationURLs: urls, bundleURL: bundleURL)
+        }
+    }
+
     /// Import an ONT run directory from a known URL (called from Import Center).
     func importONTRunFromURL(_ url: URL) {
         guard let projectURL = workingDirectoryURL else {
@@ -1618,6 +1646,102 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
             }
+        }
+    }
+
+    private func chooseReferenceBundleForAnnotation(
+        projectURL: URL,
+        preferredBundleURL: URL?,
+        completion: @escaping (URL?) -> Void
+    ) {
+        let choices: [ReferenceBundleChoice]
+        do {
+            choices = try ReferenceBundleAnnotationImportService.discoverReferenceBundles(in: projectURL)
+        } catch {
+            showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
+            completion(nil)
+            return
+        }
+
+        guard !choices.isEmpty else {
+            showAlert(title: "No Reference Bundles", message: "Import a FASTA/reference bundle before importing annotation tracks.")
+            completion(nil)
+            return
+        }
+        if choices.count == 1 {
+            completion(choices[0].url)
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Choose Reference Bundle"
+        alert.informativeText = "Select the FASTA/reference bundle to receive this annotation track."
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+
+        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 28), pullsDown: false)
+        for choice in choices {
+            popup.addItem(withTitle: choice.displayPath)
+            popup.lastItem?.representedObject = choice.url
+        }
+        if let preferredBundleURL,
+           let index = choices.firstIndex(where: { $0.url.standardizedFileURL == preferredBundleURL.standardizedFileURL }) {
+            popup.selectItem(at: index)
+        }
+        alert.accessoryView = popup
+
+        let finish: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else {
+                completion(nil)
+                return
+            }
+            completion(popup.selectedItem?.representedObject as? URL)
+        }
+
+        if let window = mainWindowController?.window {
+            alert.beginSheetModal(for: window, completionHandler: finish)
+        } else {
+            finish(alert.runModal())
+        }
+    }
+
+    private func performAnnotationTrackImport(annotationURL: URL, bundleURL: URL) {
+        performAnnotationTrackImports(annotationURLs: [annotationURL], bundleURL: bundleURL)
+    }
+
+    private func performAnnotationTrackImports(annotationURLs: [URL], bundleURL: URL) {
+        guard !annotationURLs.isEmpty else { return }
+
+        Task { @MainActor [weak self] in
+            for annotationURL in annotationURLs {
+                await self?.performSingleAnnotationTrackImport(annotationURL: annotationURL, bundleURL: bundleURL)
+            }
+        }
+    }
+
+    private func performSingleAnnotationTrackImport(annotationURL: URL, bundleURL: URL) async {
+        let opID = OperationCenter.shared.start(
+            title: "Annotation Import",
+            detail: "Importing \(annotationURL.lastPathComponent)...",
+            operationType: .bundleBuild,
+            cliCommand: nil
+        )
+
+        do {
+            let result = try await ReferenceBundleAnnotationImportService()
+                .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: bundleURL)
+            OperationCenter.shared.complete(
+                id: opID,
+                detail: "Imported \(result.featureCount) annotations"
+            )
+            refreshSidebarAndSelectImportedURL(bundleURL)
+            if let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+               viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try viewerController.displayBundle(at: bundleURL)
+            }
+        } catch {
+            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
         }
     }
 

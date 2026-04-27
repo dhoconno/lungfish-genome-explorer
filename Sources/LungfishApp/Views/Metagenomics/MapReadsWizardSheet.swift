@@ -271,11 +271,11 @@ struct MapReadsWizardSheet: View {
             } else {
                 Picker("", selection: $selectedReferenceID) {
                     if let browsedURL = browsedReferenceURL {
-                        Text(browsedURL.lastPathComponent)
+                        Text(displayPath(for: browsedURL))
                             .tag("__browsed__")
                     }
                     ForEach(referenceCandidates) { candidate in
-                        Text(candidate.displayName)
+                        Text(candidate.pickerDisplayName(relativeTo: projectURL))
                             .tag(candidate.id)
                     }
                 }
@@ -467,6 +467,19 @@ struct MapReadsWizardSheet: View {
             browsedReferenceURL = url
             selectedReferenceID = "__browsed__"
         }
+    }
+
+    private func displayPath(for url: URL) -> String {
+        let standardizedTarget = url.standardizedFileURL.path
+        guard let projectURL else { return standardizedTarget }
+
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard standardizedTarget.hasPrefix(normalizedProjectPath) else {
+            return standardizedTarget
+        }
+
+        return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 
     /// Builds a ``Minimap2Config`` from the current settings and calls ``onRun``.

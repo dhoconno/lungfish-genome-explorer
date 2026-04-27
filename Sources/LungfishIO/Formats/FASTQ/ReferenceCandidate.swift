@@ -73,6 +73,14 @@ public enum ReferenceCandidate: Sendable, Identifiable, Equatable {
         Self.displayPath(for: fastaURL, relativeTo: projectURL)
     }
 
+    /// Returns the label to use inside project file pickers.
+    ///
+    /// Project-local choices include their full path relative to the project root
+    /// so same-named files in different folders remain distinguishable.
+    public func pickerDisplayName(relativeTo projectURL: URL?) -> String {
+        displayPath(relativeTo: projectURL)
+    }
+
     /// Source categories for grouping in dropdowns.
     public enum SourceCategory: String, Sendable, CaseIterable {
         case projectReferences = "Project References"
