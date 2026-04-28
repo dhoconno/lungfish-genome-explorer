@@ -6,6 +6,31 @@ import SwiftUI
 import AppKit
 import LungfishIO
 
+struct ImportPathValidationToken: Sendable {
+    let generation: UInt64
+    let path: String
+}
+
+struct ImportPathValidationGate<Output> {
+    private var session = AsyncValidationSession<String, Output>()
+
+    mutating func begin(path: URL) -> ImportPathValidationToken {
+        let token = session.begin(input: path.standardizedFileURL.path)
+        return ImportPathValidationToken(generation: token.generation, path: token.identity)
+    }
+
+    mutating func cancel() {
+        session.cancel()
+    }
+
+    func shouldAccept(_ token: ImportPathValidationToken) -> Bool {
+        session.shouldAccept(resultFor: AsyncRequestToken(
+            generation: token.generation,
+            identity: token.path
+        ))
+    }
+}
+
 // MARK: - NvdImportSheet
 
 /// A SwiftUI sheet for importing results from the NVD (Novel Virus Diagnostics) pipeline.
@@ -59,6 +84,7 @@ struct NvdImportSheet: View {
     @State private var isScanning: Bool = false
     @State private var linesScanned: Int = 0
     @State private var scanError: String? = nil
+    @State private var scanValidationGate = ImportPathValidationGate<NvdScanResult>()
 
     // Preview data from scanning
     @State private var experimentId: String? = nil
@@ -298,6 +324,7 @@ struct NvdImportSheet: View {
 
     /// Scans the selected NVD directory for results and populates preview data.
     private func scanDirectory(at url: URL) {
+        let scanToken = scanValidationGate.begin(path: url)
         isScanning = true
         scanError = nil
         experimentId = nil
@@ -311,11 +338,13 @@ struct NvdImportSheet: View {
             do {
                 let result = try await nvdScanDirectory(url) { count in
                     Task { @MainActor in
+                        guard scanValidationGate.shouldAccept(scanToken) else { return }
                         self.linesScanned = count
                     }
                 }
 
                 await MainActor.run {
+                    guard scanValidationGate.shouldAccept(scanToken) else { return }
                     experimentId = result.experiment
                     sampleCount = result.sampleCount
                     contigCount = result.contigCount
@@ -325,6 +354,7 @@ struct NvdImportSheet: View {
                 }
             } catch {
                 await MainActor.run {
+                    guard scanValidationGate.shouldAccept(scanToken) else { return }
                     scanError = error.localizedDescription
                     isScanning = false
                 }

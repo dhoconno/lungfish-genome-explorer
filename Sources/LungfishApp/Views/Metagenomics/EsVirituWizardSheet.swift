@@ -5,6 +5,32 @@
 import SwiftUI
 import LungfishWorkflow
 
+struct EsVirituRunReadiness {
+    static func canRun(
+        groupedSampleCount: Int,
+        isBatchMode: Bool,
+        sampleName: String,
+        isDatabaseInstalled: Bool,
+        databasePath: URL?
+    ) -> Bool {
+        groupedSampleCount > 0
+            && isDatabaseInstalled
+            && databasePath != nil
+            && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+}
+
+private struct EsVirituDatabaseStatus {
+    let isInstalled: Bool
+    let databasePath: URL?
+    let databaseSizeText: String
+}
+
+private struct EsVirituDatabaseStatusToken: Sendable {
+    let generation: UInt64
+    let identity: Int
+}
+
 // MARK: - EsVirituWizardSheet
 
 /// A SwiftUI sheet for configuring and launching an EsViritu viral detection run.
@@ -70,6 +96,8 @@ struct EsVirituWizardSheet: View {
     @State private var isDatabaseInstalled: Bool = false
     @State private var databasePath: URL?
     @State private var databaseSizeText: String = ""
+    @State private var databaseStatusGeneration: Int = 0
+    @State private var databaseStatusSession = AsyncValidationSession<Int, EsVirituDatabaseStatus>()
 
     // MARK: - Callbacks
 
@@ -120,7 +148,13 @@ struct EsVirituWizardSheet: View {
 
     /// Whether the Run button should be enabled.
     private var canRun: Bool {
-        !groupedSamples.isEmpty && isDatabaseInstalled && (isBatchMode || !sampleName.trimmingCharacters(in: .whitespaces).isEmpty)
+        EsVirituRunReadiness.canRun(
+            groupedSampleCount: groupedSamples.count,
+            isBatchMode: isBatchMode,
+            sampleName: sampleName,
+            isDatabaseInstalled: isDatabaseInstalled,
+            databasePath: databasePath
+        )
     }
 
     /// The system's physical memory in bytes.
@@ -435,22 +469,51 @@ struct EsVirituWizardSheet: View {
 
     /// Checks whether the EsViritu database is installed.
     private func checkDatabaseStatus() {
+        databaseStatusGeneration += 1
+        let generation = databaseStatusGeneration
+        let rawStatusToken = databaseStatusSession.begin(input: generation)
+        let statusToken = EsVirituDatabaseStatusToken(
+            generation: rawStatusToken.generation,
+            identity: rawStatusToken.identity
+        )
+
         // EsVirituDatabaseManager is an actor, so we need Task for async access.
         // This runs on the main actor since we are updating @State.
         Task { @MainActor in
             let manager = EsVirituDatabaseManager.shared
             let installed = await manager.isInstalled()
-            isDatabaseInstalled = installed
+            let status: EsVirituDatabaseStatus
             if installed {
                 if let info = await manager.installedDatabaseInfo() {
-                    databasePath = info.path
                     let gb = Double(info.sizeBytes) / 1_073_741_824
-                    databaseSizeText = String(format: "%.1f GB", gb)
+                    status = EsVirituDatabaseStatus(
+                        isInstalled: true,
+                        databasePath: info.path,
+                        databaseSizeText: String(format: "%.1f GB", gb)
+                    )
+                } else {
+                    status = EsVirituDatabaseStatus(
+                        isInstalled: false,
+                        databasePath: nil,
+                        databaseSizeText: ""
+                    )
                 }
             } else {
-                databasePath = nil
-                databaseSizeText = ""
+                status = EsVirituDatabaseStatus(
+                    isInstalled: false,
+                    databasePath: nil,
+                    databaseSizeText: ""
+                )
             }
+
+            guard databaseStatusSession.shouldAccept(resultFor: AsyncRequestToken(
+                generation: statusToken.generation,
+                identity: statusToken.identity
+            )) else { return }
+            isDatabaseInstalled = status.isInstalled
+            databasePath = status.databasePath
+            databaseSizeText = status.databaseSizeText
+            onRunnerAvailabilityChange?(canRun)
         }
     }
 

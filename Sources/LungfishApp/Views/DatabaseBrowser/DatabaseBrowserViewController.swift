@@ -555,6 +555,19 @@ private func confirmLargeResultActionDialog(totalCount: Int, sourceLabel: String
 
 // MARK: - DatabaseBrowserViewModel
 
+private struct DatabaseSearchRequestIdentity: Hashable, Sendable {
+    let source: String
+    let ncbiSearchType: String
+    let searchText: String
+    let searchScope: String
+    let filtersDigest: String
+}
+
+private struct DatabaseSearchRequestToken: Sendable {
+    let generation: UInt64
+    let identity: DatabaseSearchRequestIdentity
+}
+
 /// View model for the database browser.
 @MainActor
 public class DatabaseBrowserViewModel: ObservableObject {
@@ -841,6 +854,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Current search task (for cancellation support)
     private var currentSearchTask: Task<Void, Never>?
+    private var searchValidationSession = AsyncValidationSession<DatabaseSearchRequestIdentity, SearchResults>()
 
     /// Search history for autocomplete suggestions
     @Published var searchHistory: [String] = []
@@ -1167,7 +1181,72 @@ public class DatabaseBrowserViewModel: ObservableObject {
     func cancelSearch() {
         currentSearchTask?.cancel()
         currentSearchTask = nil
+        searchValidationSession.cancel()
         searchPhase = .idle
+    }
+
+    private func currentSearchIdentity() -> DatabaseSearchRequestIdentity {
+        DatabaseSearchRequestIdentity(
+            source: String(describing: source),
+            ncbiSearchType: String(describing: ncbiSearchType),
+            searchText: searchText,
+            searchScope: String(describing: searchScope),
+            filtersDigest: [
+                organismFilter,
+                locationFilter,
+                geneFilter,
+                authorFilter,
+                journalFilter,
+                minLength,
+                maxLength,
+                String(refseqOnly),
+                String(describing: moleculeType),
+                pubDateFrom,
+                pubDateTo,
+                propertyFilters.map { String(describing: $0) }.sorted().joined(separator: ","),
+                virusHostFilter,
+                virusGeoLocationFilter,
+                String(describing: virusCompletenessFilter),
+                virusReleasedSinceFilter,
+                String(virusAnnotatedOnly),
+                String(describing: sraPlatformFilter),
+                String(describing: sraStrategyFilter),
+                String(describing: sraLayoutFilter),
+                sraMinMbases,
+                sraPubDateFrom,
+                sraPubDateTo,
+                importedAccessions.joined(separator: ","),
+                String(sraResultLimit),
+                pathoplexusOrganism?.id ?? "",
+                pathoplexusCountryFilter,
+                pathoplexusCladeFilter,
+                pathoplexusLineageFilter,
+                pathoplexusHostFilter,
+                pathoplexusNucMutationsFilter,
+                pathoplexusAAMutationsFilter,
+                pathoplexusDateFrom,
+                pathoplexusDateTo,
+                String(describing: pathoplexusINSDCFilter),
+            ].joined(separator: "\u{1f}")
+        )
+    }
+
+    private func beginSearchValidation() -> DatabaseSearchRequestToken {
+        let token = searchValidationSession.begin(input: currentSearchIdentity())
+        return DatabaseSearchRequestToken(generation: token.generation, identity: token.identity)
+    }
+
+    private func applySearchUpdate(
+        for token: DatabaseSearchRequestToken,
+        _ update: () -> Void
+    ) {
+        let requestToken = AsyncRequestToken(
+            generation: token.generation,
+            identity: token.identity
+        )
+        guard searchValidationSession.shouldAccept(resultFor: requestToken) else { return }
+        objectWillChange.send()
+        update()
     }
 
     /// Initiates a search operation.
@@ -1193,6 +1272,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         errorMessage = nil
         results = []
         selectedRecords = []
+        let searchToken = beginSearchValidation()
 
         if let automationBackend {
             let currentSource = source
@@ -1213,21 +1293,25 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     await MainActor.run {
                         guard let self else { return }
-                        self.errorMessage = nil
-                        self.results = response.records
-                        self.selectedRecord = nil
-                        self.selectedRecords = []
-                        self.totalResultCount = response.totalCount
-                        self.hasMoreResults = response.hasMore
-                        self.searchPhase = .complete(count: response.records.count)
-                        self.currentSearchTask = nil
+                        self.applySearchUpdate(for: searchToken) {
+                            self.errorMessage = nil
+                            self.results = response.records
+                            self.selectedRecord = nil
+                            self.selectedRecords = []
+                            self.totalResultCount = response.totalCount
+                            self.hasMoreResults = response.hasMore
+                            self.searchPhase = .complete(count: response.records.count)
+                            self.currentSearchTask = nil
+                        }
                     }
                 } catch {
                     await MainActor.run {
                         guard let self else { return }
-                        self.errorMessage = error.localizedDescription
-                        self.searchPhase = .failed(error.localizedDescription)
-                        self.currentSearchTask = nil
+                        self.applySearchUpdate(for: searchToken) {
+                            self.errorMessage = error.localizedDescription
+                            self.searchPhase = .failed(error.localizedDescription)
+                            self.currentSearchTask = nil
+                        }
                     }
                 }
             }
@@ -1311,8 +1395,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 // Update UI using performOnMainRunLoop for modal sheet compatibility
                 performOnMainRunLoop { [weak self] in
                     guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.searchPhase = .searching
+                    self.applySearchUpdate(for: searchToken) {
+                        self.searchPhase = .searching
+                    }
                 }
 
                 var searchResults: SearchResults
@@ -1321,8 +1406,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 case .ncbi:
                     performOnMainRunLoop { [weak self] in
                         guard let self = self else { return }
-                        self.objectWillChange.send()
-                        self.searchPhase = .loadingDetails
+                        self.applySearchUpdate(for: searchToken) {
+                            self.searchPhase = .loadingDetails
+                        }
                     }
 
                     // Use the appropriate search method based on search type
@@ -1388,11 +1474,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             let recordsSnapshot = allRecords
                             performOnMainRunLoop { [weak self] in
                                 guard let self = self else { return }
-                                self.objectWillChange.send()
-                                self.results = recordsSnapshot
-                                self.totalResultCount = totalSnapshot
-                                self.hasMoreResults = loadedSnapshot < totalSnapshot
-                                self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                self.applySearchUpdate(for: searchToken) {
+                                    self.results = recordsSnapshot
+                                    self.totalResultCount = totalSnapshot
+                                    self.hasMoreResults = loadedSnapshot < totalSnapshot
+                                    self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                }
                             }
 
                             if currentOffset >= (totalCount ?? 0) {
@@ -1430,16 +1517,22 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         // Store the page token for "Load More" pagination
                         let nextToken = searchResults.nextCursor
                         performOnMainRunLoop { [weak self] in
-                            self?.virusNextPageToken = nextToken
+                            guard let self = self else { return }
+                            self.applySearchUpdate(for: searchToken) {
+                                self.virusNextPageToken = nextToken
+                            }
                         }
 
                         guard !searchResults.records.isEmpty else {
                             performOnMainRunLoop { [weak self] in
-                                self?.objectWillChange.send()
-                                self?.results = []
-                                self?.totalResultCount = searchResults.totalCount
-                                self?.hasMoreResults = false
-                                self?.searchPhase = .complete(count: 0)
+                                guard let self = self else { return }
+                                self.applySearchUpdate(for: searchToken) {
+                                    self.results = []
+                                    self.totalResultCount = searchResults.totalCount
+                                    self.hasMoreResults = false
+                                    self.searchPhase = .complete(count: 0)
+                                    self.currentSearchTask = nil
+                                }
                             }
                             return
                         }
@@ -1505,11 +1598,12 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             let recordsSnapshot = allRecords
                             performOnMainRunLoop { [weak self] in
                                 guard let self = self else { return }
-                                self.objectWillChange.send()
-                                self.results = recordsSnapshot
-                                self.totalResultCount = totalSnapshot
-                                self.hasMoreResults = loadedSnapshot < totalSnapshot
-                                self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                self.applySearchUpdate(for: searchToken) {
+                                    self.results = recordsSnapshot
+                                    self.totalResultCount = totalSnapshot
+                                    self.hasMoreResults = loadedSnapshot < totalSnapshot
+                                    self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                }
                             }
 
                             if currentOffset >= (totalCount ?? 0) {
@@ -1532,8 +1626,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 case .ena:
                     performOnMainRunLoop { [weak self] in
                         guard let self = self else { return }
-                        self.objectWillChange.send()
-                        self.searchPhase = .searching
+                        self.applySearchUpdate(for: searchToken) {
+                            self.searchPhase = .searching
+                        }
                     }
 
                     let records: [SearchResultRecord]
@@ -1548,8 +1643,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         logger.info("performSearch: Batch mode with \(parsedAccessions.count) accessions")
                         performOnMainRunLoop { [weak self] in
                             guard let self = self else { return }
-                            self.objectWillChange.send()
-                            self.searchPhase = .loadingDetails
+                            self.applySearchUpdate(for: searchToken) {
+                                self.searchPhase = .loadingDetails
+                            }
                         }
 
                         let readRecords = try await ena.searchReadsBatch(
@@ -1558,8 +1654,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             progress: { [weak self] completed, total in
                                 performOnMainRunLoop { [weak self] in
                                     guard let self = self else { return }
-                                    self.objectWillChange.send()
-                                    self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                                    self.applySearchUpdate(for: searchToken) {
+                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                                    }
                                 }
                             }
                         )
@@ -1579,8 +1676,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         logger.info("performSearch: Direct ENA lookup for single accession")
                         performOnMainRunLoop { [weak self] in
                             guard let self = self else { return }
-                            self.objectWillChange.send()
-                            self.searchPhase = .loadingDetails
+                            self.applySearchUpdate(for: searchToken) {
+                                self.searchPhase = .loadingDetails
+                            }
                         }
                         let accession = query.term.trimmingCharacters(in: .whitespaces)
                         async let readRecordsTask = ena.searchReads(term: accession, limit: query.limit, offset: query.offset)
@@ -1664,8 +1762,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         // Step 2: EFetch to get SRA run info
                         performOnMainRunLoop { [weak self] in
                             guard let self = self else { return }
-                            self.objectWillChange.send()
-                            self.searchPhase = .loadingDetails
+                            self.applySearchUpdate(for: searchToken) {
+                                self.searchPhase = .loadingDetails
+                            }
                         }
                         let ncbiRuns = try await ncbi.sraEFetchRunInfo(ids: esearchResult.ids)
                         logger.info("performSearch: EFetch resolved \(ncbiRuns.count) SRA runs")
@@ -1685,8 +1784,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             progress: { [weak self] completed, total in
                                 performOnMainRunLoop { [weak self] in
                                     guard let self = self else { return }
-                                    self.objectWillChange.send()
-                                    self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                                    self.applySearchUpdate(for: searchToken) {
+                                        self.searchPhase = .loadingAllResults(loaded: completed, total: total)
+                                    }
                                 }
                             }
                         )
@@ -1711,8 +1811,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 case .pathoplexus:
                     performOnMainRunLoop { [weak self] in
                         guard let self = self else { return }
-                        self.objectWillChange.send()
-                        self.searchPhase = .loadingDetails
+                        self.applySearchUpdate(for: searchToken) {
+                            self.searchPhase = .loadingDetails
+                        }
                     }
 
                     let ppOrganism = capturedPpOrganism?.id ?? "mpox"
@@ -1793,8 +1894,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             let totalSnapshot = totalCount
                             performOnMainRunLoop { [weak self] in
                                 guard let self = self else { return }
-                                self.objectWillChange.send()
-                                self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                self.applySearchUpdate(for: searchToken) {
+                                    self.searchPhase = .loadingAllResults(loaded: loadedSnapshot, total: totalSnapshot)
+                                }
                             }
 
                             // For unfiltered mode we only need to scan up to targetCount.
@@ -1865,34 +1967,40 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 // Update UI with results via RunLoop for modal compatibility
                 performOnMainRunLoop { [weak self] in
                     guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.results = searchResults.records
-                    self.totalResultCount = searchResults.totalCount
-                    self.hasMoreResults = searchResults.hasMore
-                    self.searchPhase = .complete(count: searchResults.records.count)
-                    logger.info("performSearch: UI updated with \(searchResults.records.count) results")
+                    self.applySearchUpdate(for: searchToken) {
+                        self.results = searchResults.records
+                        self.totalResultCount = searchResults.totalCount
+                        self.hasMoreResults = searchResults.hasMore
+                        self.searchPhase = .complete(count: searchResults.records.count)
+                        logger.info("performSearch: UI updated with \(searchResults.records.count) results")
+                    }
                 }
 
             } catch is CancellationError {
                 logger.info("Search cancelled")
                 performOnMainRunLoop { [weak self] in
                     guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.searchPhase = .idle
+                    self.applySearchUpdate(for: searchToken) {
+                        self.searchPhase = .idle
+                    }
                 }
             } catch {
                 let errorMsg = error.localizedDescription
                 logger.error("Search failed: \(errorMsg, privacy: .public)")
                 performOnMainRunLoop { [weak self] in
                     guard let self = self else { return }
-                    self.objectWillChange.send()
-                    self.errorMessage = "Search failed: \(errorMsg)"
-                    self.searchPhase = .failed(errorMsg)
+                    self.applySearchUpdate(for: searchToken) {
+                        self.errorMessage = "Search failed: \(errorMsg)"
+                        self.searchPhase = .failed(errorMsg)
+                    }
                 }
             }
 
             performOnMainRunLoop { [weak self] in
-                self?.currentSearchTask = nil
+                guard let self = self else { return }
+                self.applySearchUpdate(for: searchToken) {
+                    self.currentSearchTask = nil
+                }
             }
         }
     }

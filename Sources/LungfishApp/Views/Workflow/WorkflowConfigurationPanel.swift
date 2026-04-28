@@ -12,6 +12,11 @@ import LungfishCore
 /// Logger for workflow configuration panel operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowConfigurationPanel")
 
+private struct WorkflowSchemaLoadToken: Sendable {
+    let generation: UInt64
+    let path: String
+}
+
 // MARK: - WorkflowConfigurationPanelDelegate
 
 /// Delegate protocol for workflow configuration panel events.
@@ -79,6 +84,8 @@ public class WorkflowConfigurationPanel: NSPanel {
 
     /// The loaded schema
     private var schema: UnifiedWorkflowSchema?
+    private var schemaLoader: (@Sendable (URL) async throws -> UnifiedWorkflowSchema)?
+    private var schemaValidationSession = AsyncValidationSession<String, UnifiedWorkflowSchema>()
 
     // MARK: - UI Components
 
@@ -102,6 +109,18 @@ public class WorkflowConfigurationPanel: NSPanel {
 
     /// Creates a new workflow configuration panel.
     public init() {
+        super.init(
+            contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: true
+        )
+        logger.info("init: Creating WorkflowConfigurationPanel")
+        setupPanel()
+    }
+
+    init(schemaLoader: @escaping @Sendable (URL) async throws -> UnifiedWorkflowSchema) {
+        self.schemaLoader = schemaLoader
         super.init(
             contentRect: NSRect(x: 0, y: 0, width: Self.panelWidth, height: Self.panelHeight),
             styleMask: [.titled, .closable, .resizable],
@@ -494,6 +513,7 @@ public class WorkflowConfigurationPanel: NSPanel {
             if FileManager.default.fileExists(atPath: possibleSchemaPath.path) {
                 loadSchema(from: possibleSchemaPath)
             } else {
+                schemaValidationSession.cancel()
                 showNoSchemaPlaceholder()
             }
         }
@@ -513,6 +533,11 @@ public class WorkflowConfigurationPanel: NSPanel {
 
     private func loadSchema(from url: URL) {
         logger.info("loadSchema: Loading from '\(url.path, privacy: .public)'")
+        let rawSchemaToken = schemaValidationSession.begin(input: url.standardizedFileURL.path)
+        let schemaToken = WorkflowSchemaLoadToken(
+            generation: rawSchemaToken.generation,
+            path: rawSchemaToken.identity
+        )
 
         showLoading(true)
         hideError()
@@ -520,7 +545,14 @@ public class WorkflowConfigurationPanel: NSPanel {
         Task {
             do {
                 // Parse schema (this would use a real parser in production)
-                let schema = try await parseSchema(from: url)
+                let schema: UnifiedWorkflowSchema
+                if let schemaLoader {
+                    schema = try await schemaLoader(url)
+                } else {
+                    schema = try await parseSchema(from: url)
+                }
+
+                guard shouldAcceptSchemaLoad(schemaToken) else { return }
                 self.schema = schema
 
                 // Create parameter form
@@ -544,6 +576,7 @@ public class WorkflowConfigurationPanel: NSPanel {
                 logger.info("loadSchema: Loaded schema '\(schema.title, privacy: .public)' with \(schema.groups.count) parameter groups")
 
             } catch {
+                guard shouldAcceptSchemaLoad(schemaToken) else { return }
                 logger.error("loadSchema: Failed to load schema: \(error.localizedDescription, privacy: .public)")
                 showLoading(false)
                 showError("Failed to load schema: \(error.localizedDescription)")
@@ -748,6 +781,16 @@ public class WorkflowConfigurationPanel: NSPanel {
         let hasOutput = outputPathControl.url != nil
         runButton.isEnabled = hasWorkflow && hasOutput
     }
+
+    private func shouldAcceptSchemaLoad(_ token: WorkflowSchemaLoadToken) -> Bool {
+        schemaValidationSession.shouldAccept(resultFor: AsyncRequestToken(
+            generation: token.generation,
+            identity: token.path
+        ))
+    }
+
+    var testingLoadedSchemaTitle: String? { schema?.title }
+    var testingWorkflowPath: URL? { workflowPathControl.url?.standardizedFileURL }
 }
 
 // MARK: - ParameterFormDelegate

@@ -4,6 +4,36 @@ import XCTest
 
 @MainActor
 final class UnifiedClassifierRunnerTests: XCTestCase {
+    func testRunnerReadinessIgnoresInactiveRunnerCallbacks() {
+        var gate = UnifiedRunnerReadinessGate(initialSelection: .classification)
+
+        XCTAssertEqual(gate.accept(canRun: true, for: .classification), true)
+
+        gate.select(.viralDetection)
+
+        XCTAssertNil(gate.accept(canRun: true, for: .classification))
+        XCTAssertEqual(gate.accept(canRun: false, for: .viralDetection), false)
+        XCTAssertEqual(gate.accept(canRun: true, for: .viralDetection), true)
+    }
+
+    func testEsVirituReadinessRequiresResolvedDatabasePath() {
+        XCTAssertFalse(EsVirituRunReadiness.canRun(
+            groupedSampleCount: 1,
+            isBatchMode: false,
+            sampleName: "sample-1",
+            isDatabaseInstalled: true,
+            databasePath: nil
+        ))
+
+        XCTAssertTrue(EsVirituRunReadiness.canRun(
+            groupedSampleCount: 1,
+            isBatchMode: false,
+            sampleName: "sample-1",
+            isDatabaseInstalled: true,
+            databasePath: URL(fileURLWithPath: "/tmp/esviritu-db")
+        ))
+    }
+
     func testAnalysisTypeTitlesMatchSharedRunnerContract() {
         XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.classification.sidebarTitle, "Kraken2")
         XCTAssertEqual(UnifiedMetagenomicsWizard.AnalysisType.viralDetection.sidebarTitle, "EsViritu")
@@ -54,7 +84,7 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
 
         XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
         XCTAssertTrue(source.contains("embeddedRunTrigger: runnerRunTrigger"))
-        XCTAssertTrue(source.contains("onRunnerAvailabilityChange: { runnerCanRun = $0 }"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange: { acceptRunnerAvailability($0, for: .classification) }"))
         XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 

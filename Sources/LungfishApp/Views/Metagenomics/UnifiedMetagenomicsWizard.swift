@@ -57,6 +57,7 @@ struct UnifiedMetagenomicsWizard: View {
     @State private var sidebarSelection: AnalysisType
     @State private var runnerCanRun: Bool = false
     @State private var runnerRunTrigger: Int = 0
+    @State private var runnerReadinessGate: UnifiedRunnerReadinessGate
 
     // MARK: - Callbacks
 
@@ -87,6 +88,7 @@ struct UnifiedMetagenomicsWizard: View {
         self.onRunTaxTriage = onRunTaxTriage
         self.onCancel = onCancel
         _sidebarSelection = State(initialValue: initialSelection)
+        _runnerReadinessGate = State(initialValue: UnifiedRunnerReadinessGate(initialSelection: initialSelection))
     }
 
     #if DEBUG
@@ -97,7 +99,7 @@ struct UnifiedMetagenomicsWizard: View {
     // MARK: - Enums
 
     /// The available metagenomics analysis types.
-    enum AnalysisType: CaseIterable, Identifiable {
+    enum AnalysisType: CaseIterable, Identifiable, Hashable, Sendable {
         case classification
         case viralDetection
         case clinicalTriage
@@ -236,7 +238,7 @@ struct UnifiedMetagenomicsWizard: View {
                     onRun: { configs in
                         onRunClassification?(configs)
                     },
-                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                    onRunnerAvailabilityChange: { acceptRunnerAvailability($0, for: .classification) }
                 )
 
             case .viralDetection:
@@ -247,7 +249,7 @@ struct UnifiedMetagenomicsWizard: View {
                     onRun: { configs in
                         onRunEsViritu?(configs)
                     },
-                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                    onRunnerAvailabilityChange: { acceptRunnerAvailability($0, for: .viralDetection) }
                 )
 
             case .clinicalTriage:
@@ -258,13 +260,21 @@ struct UnifiedMetagenomicsWizard: View {
                     onRun: { config in
                         onRunTaxTriage?(config)
                     },
-                    onRunnerAvailabilityChange: { runnerCanRun = $0 }
+                    onRunnerAvailabilityChange: { acceptRunnerAvailability($0, for: .clinicalTriage) }
                 )
             }
         }
-        .onChange(of: sidebarSelection) { _, _ in
+        .onChange(of: sidebarSelection) { _, newSelection in
+            runnerReadinessGate.select(newSelection)
             runnerCanRun = false
         }
+    }
+
+    private func acceptRunnerAvailability(_ canRun: Bool, for type: AnalysisType) {
+        guard let accepted = runnerReadinessGate.accept(canRun: canRun, for: type) else {
+            return
+        }
+        runnerCanRun = accepted
     }
 
     private var runnerDatasetLabel: String {
@@ -287,4 +297,34 @@ struct UnifiedMetagenomicsWizard: View {
         )
     }
 
+}
+
+struct UnifiedRunnerReadinessGate {
+    private var selected: UnifiedMetagenomicsWizard.AnalysisType
+    private var session = AsyncValidationSession<UnifiedMetagenomicsWizard.AnalysisType, Bool>()
+    private var tokens: [UnifiedMetagenomicsWizard.AnalysisType: AsyncRequestToken<UnifiedMetagenomicsWizard.AnalysisType>] = [:]
+
+    init(initialSelection: UnifiedMetagenomicsWizard.AnalysisType) {
+        selected = initialSelection
+        tokens[initialSelection] = session.begin(input: initialSelection)
+    }
+
+    mutating func select(_ type: UnifiedMetagenomicsWizard.AnalysisType) {
+        selected = type
+        tokens[type] = session.begin(input: type)
+    }
+
+    mutating func accept(
+        canRun: Bool,
+        for type: UnifiedMetagenomicsWizard.AnalysisType
+    ) -> Bool? {
+        guard selected == type else { return nil }
+        if tokens[type] == nil {
+            tokens[type] = session.begin(input: type)
+        }
+        guard let token = tokens[type], session.shouldAccept(resultFor: token) else {
+            return nil
+        }
+        return canRun
+    }
 }

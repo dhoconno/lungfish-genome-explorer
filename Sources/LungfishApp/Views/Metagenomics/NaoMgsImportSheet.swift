@@ -67,6 +67,7 @@ struct NaoMgsImportSheet: View {
     @State private var selectedPath: URL? = nil
     @State private var isValidating: Bool = false
     @State private var scanError: String? = nil
+    @State private var validationGate = ImportPathValidationGate<Bool>()
 
     // Lightweight validation results (no full parse)
     @State private var headerValid: Bool = false
@@ -306,6 +307,7 @@ struct NaoMgsImportSheet: View {
     /// For a directory, scans for `*virus_hits*.tsv*` files, validates the
     /// header of the first match, and reports the total count.
     private func validateResults(at url: URL) {
+        let validationToken = validationGate.begin(path: url)
         isValidating = true
         scanError = nil
         headerValid = false
@@ -331,6 +333,7 @@ struct NaoMgsImportSheet: View {
                     _ = try await parser.validateHeader(at: firstFile)
 
                     await MainActor.run {
+                        guard validationGate.shouldAccept(validationToken) else { return }
                         headerValid = true
                         fileCount = matchingFiles.count
                         sourceFileName = firstFile.lastPathComponent
@@ -341,6 +344,7 @@ struct NaoMgsImportSheet: View {
                     _ = try await parser.validateHeader(at: url)
 
                     await MainActor.run {
+                        guard validationGate.shouldAccept(validationToken) else { return }
                         headerValid = true
                         fileCount = 1
                         sourceFileName = url.lastPathComponent
@@ -349,6 +353,7 @@ struct NaoMgsImportSheet: View {
                 }
             } catch {
                 await MainActor.run {
+                    guard validationGate.shouldAccept(validationToken) else { return }
                     scanError = error.localizedDescription
                     isValidating = false
                 }

@@ -26,9 +26,14 @@ struct DatabaseSearchAutomationBackend: Sendable {
     private enum Mode: Sendable {
         case scenario(DatabaseSearchUITestScenario)
         case misconfigured(String)
+        case handler(@Sendable (DatabaseSearchAutomationRequest) async throws -> SearchResults)
     }
 
     private let mode: Mode
+
+    init(_ searchHandler: @escaping @Sendable (DatabaseSearchAutomationRequest) async throws -> SearchResults) {
+        self.mode = .handler(searchHandler)
+    }
 
     init?(scenarioName: String) {
         guard let scenario = DatabaseSearchUITestScenario(rawValue: scenarioName) else {
@@ -61,6 +66,10 @@ struct DatabaseSearchAutomationBackend: Sendable {
     }
 
     func search(_ request: DatabaseSearchAutomationRequest) async throws -> SearchResults {
+        if case .handler(let handler) = mode {
+            return try await handler(request)
+        }
+
         let scenario = try resolvedScenario()
         let records: [SearchResultRecord]
 
@@ -134,6 +143,10 @@ struct DatabaseSearchAutomationBackend: Sendable {
             return scenario
         case .misconfigured(let message):
             throw DatabaseSearchAutomationBackendError.misconfigured(message)
+        case .handler:
+            throw DatabaseSearchAutomationBackendError.misconfigured(
+                "Database search automation handler does not resolve to a UI-test scenario."
+            )
         }
     }
 }

@@ -6,6 +6,18 @@ import SwiftUI
 import LungfishIO
 import LungfishWorkflow
 
+private struct TaxTriagePrerequisiteState {
+    let nextflowAvailable: Bool
+    let containerAvailable: Bool
+    let containerName: String
+    let databases: [MetagenomicsDatabaseInfo]
+}
+
+private struct TaxTriagePrerequisiteToken: Sendable {
+    let generation: UInt64
+    let identity: Int
+}
+
 // MARK: - TaxTriageWizardSheet
 
 /// A SwiftUI sheet for configuring and launching a TaxTriage run.
@@ -56,6 +68,8 @@ struct TaxTriageWizardSheet: View {
     @State private var nextflowAvailable: Bool? = nil
     @State private var containerAvailable: Bool? = nil
     @State private var containerName: String = "Checking..."
+    @State private var prerequisiteCheckGeneration: Int = 0
+    @State private var prerequisiteCheckSession = AsyncValidationSession<Int, TaxTriagePrerequisiteState>()
 
     // MARK: - Callbacks
 
@@ -500,30 +514,70 @@ struct TaxTriageWizardSheet: View {
 
     /// Checks Nextflow and container runtime availability.
     private func checkPrerequisites() {
+        prerequisiteCheckGeneration += 1
+        let generation = prerequisiteCheckGeneration
+        let rawPrerequisiteToken = prerequisiteCheckSession.begin(input: generation)
+        let prerequisiteToken = TaxTriagePrerequisiteToken(
+            generation: rawPrerequisiteToken.generation,
+            identity: rawPrerequisiteToken.identity
+        )
+
         Task { @MainActor in
             let runner = NextflowRunner()
             let nfAvailable = await runner.isAvailable()
-            nextflowAvailable = nfAvailable
 
             if let containerRT = await NewContainerRuntimeFactory.createRuntime() {
-                containerAvailable = true
                 let name = await containerRT.displayName
-                containerName = "\(name): Available"
+                let state = await loadPrerequisiteState(
+                    nextflowAvailable: nfAvailable,
+                    containerAvailable: true,
+                    containerName: "\(name): Available"
+                )
+                applyPrerequisiteState(state, for: prerequisiteToken)
             } else {
-                containerAvailable = false
-                containerName = "Container: Not found"
+                let state = await loadPrerequisiteState(
+                    nextflowAvailable: nfAvailable,
+                    containerAvailable: false,
+                    containerName: "Container: Not found"
+                )
+                applyPrerequisiteState(state, for: prerequisiteToken)
             }
-
-            // Load installed Kraken2 databases
-            let registry = MetagenomicsDatabaseRegistry.shared
-            let allDbs = (try? await registry.availableDatabases()) ?? []
-            let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
-            installedDatabases = kraken2Dbs
-            selectedDatabaseName = ClassificationWizardSheet.databaseSelectionAfterRefresh(
-                currentSelection: selectedDatabaseName,
-                databases: kraken2Dbs
-            )
         }
+    }
+
+    private func loadPrerequisiteState(
+        nextflowAvailable: Bool,
+        containerAvailable: Bool,
+        containerName: String
+    ) async -> TaxTriagePrerequisiteState {
+        let registry = MetagenomicsDatabaseRegistry.shared
+        let allDbs = (try? await registry.availableDatabases()) ?? []
+        let kraken2Dbs = allDbs.filter { $0.tool == "kraken2" && $0.isDownloaded }
+        return TaxTriagePrerequisiteState(
+            nextflowAvailable: nextflowAvailable,
+            containerAvailable: containerAvailable,
+            containerName: containerName,
+            databases: kraken2Dbs
+        )
+    }
+
+    private func applyPrerequisiteState(
+        _ state: TaxTriagePrerequisiteState,
+        for token: TaxTriagePrerequisiteToken
+    ) {
+        guard prerequisiteCheckSession.shouldAccept(resultFor: AsyncRequestToken(
+            generation: token.generation,
+            identity: token.identity
+        )) else { return }
+        nextflowAvailable = state.nextflowAvailable
+        containerAvailable = state.containerAvailable
+        containerName = state.containerName
+        installedDatabases = state.databases
+        selectedDatabaseName = ClassificationWizardSheet.databaseSelectionAfterRefresh(
+            currentSelection: selectedDatabaseName,
+            databases: state.databases
+        )
+        onRunnerAvailabilityChange?(canRun)
     }
 
     /// Populates the sample list from the initial files.
