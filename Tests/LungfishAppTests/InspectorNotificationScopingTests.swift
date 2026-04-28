@@ -51,4 +51,72 @@ final class InspectorNotificationScopingTests: XCTestCase {
 
         XCTAssertEqual(inspector.viewModel.selectedItem, "Legacy")
     }
+
+    func testInspectorIgnoresScopedBatchManifestCachedFromDifferentWindow() {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.testingWindowStateScope = WindowStateScope()
+        inspector.viewModel.documentSectionViewModel.batchManifestStatus = .building
+
+        inspector.testingHandleBatchManifestCached(
+            Notification(
+                name: .batchManifestCached,
+                object: nil,
+                userInfo: [NotificationUserInfoKey.windowStateScope: WindowStateScope()]
+            )
+        )
+
+        XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .building)
+    }
+
+    func testInspectorStillAcceptsLegacyUnscopedBatchManifestCached() {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        inspector.testingWindowStateScope = WindowStateScope()
+        inspector.viewModel.documentSectionViewModel.batchManifestStatus = .building
+
+        inspector.testingHandleBatchManifestCached(
+            Notification(name: .batchManifestCached, object: nil)
+        )
+
+        XCTAssertEqual(inspector.viewModel.documentSectionViewModel.batchManifestStatus, .cached)
+    }
+
+    func testInspectorOriginatedAnnotationSettingsNotificationIncludesWindowScope() {
+        let inspector = InspectorViewController()
+        _ = inspector.view
+        let scope = WindowStateScope()
+        inspector.testingWindowStateScope = scope
+
+        let capture = InspectorNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .annotationSettingsChanged,
+            object: inspector,
+            queue: nil
+        ) { notification in
+            capture.record(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        inspector.resetAllAppearanceSettings()
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+    }
+}
+
+private final class InspectorNotificationUserInfoCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedUserInfo: [AnyHashable: Any]?
+
+    var userInfo: [AnyHashable: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedUserInfo
+    }
+
+    func record(_ notification: Notification) {
+        lock.lock()
+        capturedUserInfo = notification.userInfo
+        lock.unlock()
+    }
 }

@@ -2277,6 +2277,10 @@ public class MainSplitViewController: NSSplitViewController {
         inspectorWidthConstraint?.constant ?? 0
     }
 
+    var testingWindowStateScope: WindowStateScope {
+        windowStateScope
+    }
+
     func testingSetShellFrames(
         sidebarWidth: CGFloat,
         inspectorWidth: CGFloat,
@@ -2335,6 +2339,19 @@ public class MainSplitViewController: NSSplitViewController {
         identity: ContentSelectionIdentity
     ) -> Bool {
         canCommitDisplayRequest(token, identity: identity)
+    }
+
+    func testingCommitDisplayRequest(
+        _ token: AsyncRequestToken<ContentSelectionIdentity>,
+        identity: ContentSelectionIdentity,
+        commit: () -> Void
+    ) {
+        guard canCommitDisplayRequest(token, identity: identity) else { return }
+        commit()
+    }
+
+    func testingRequestInspectorDocumentModeAfterDownload() {
+        requestInspectorDocumentModeAfterDownload()
     }
 }
 
@@ -4853,7 +4870,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: nil,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
+            userInfo: [
+                NotificationUserInfoKey.inspectorTab: "document",
+                NotificationUserInfoKey.windowStateScope: windowStateScope
+            ]
         )
     }
 
