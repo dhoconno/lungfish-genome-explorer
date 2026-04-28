@@ -14,9 +14,11 @@ public enum ViralReconSamplesheetBuilder {
         let url = directory.appendingPathComponent("samplesheet.csv")
         var lines = ["sample,fastq_1,fastq_2"]
         for sample in samples {
-            let first = sample.fastqURLs.first?.path ?? ""
-            let second = sample.fastqURLs.dropFirst().first?.path ?? ""
-            lines.append([sample.sampleName, first, second].map(escapeCSVField).joined(separator: ","))
+            for index in stride(from: 0, to: sample.fastqURLs.count, by: 2) {
+                let first = sample.fastqURLs[index].path
+                let second = index + 1 < sample.fastqURLs.count ? sample.fastqURLs[index + 1].path : ""
+                lines.append([sample.sampleName, first, second].map(escapeCSVField).joined(separator: ","))
+            }
         }
         try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
         return url

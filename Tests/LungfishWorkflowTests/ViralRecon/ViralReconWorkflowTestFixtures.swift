@@ -15,7 +15,22 @@ enum ViralReconWorkflowTestFixtures {
         return url
     }
 
+    static func writeReferenceFASTA(in directory: URL, contents: String) throws -> URL {
+        let url = directory.appendingPathComponent("MN908947.3.fasta")
+        try (contents.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+            .write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
     static func writePrimerBundleWithoutFasta(in directory: URL) throws -> URL {
+        let bed = """
+        MN908947.3\t0\t8\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t12\t20\tamplicon_1_RIGHT\t1\t-
+        """
+        return try writePrimerBundleWithoutFasta(in: directory, bed: bed)
+    }
+
+    static func writePrimerBundleWithoutFasta(in directory: URL, bed: String) throws -> URL {
         let bundleURL = directory.appendingPathComponent("QIASeqDIRECT-SARS2.lungfishprimers", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
@@ -35,11 +50,8 @@ enum ViralReconWorkflowTestFixtures {
         """
         try manifest.write(to: bundleURL.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
 
-        let bed = """
-        MN908947.3\t0\t8\tamplicon_1_LEFT\t1\t+
-        MN908947.3\t12\t20\tamplicon_1_RIGHT\t1\t-
-        """
-        try (bed + "\n").write(to: bundleURL.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+        try (bed.trimmingCharacters(in: .whitespacesAndNewlines) + "\n")
+            .write(to: bundleURL.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
         try "Test fixture.\n".write(to: bundleURL.appendingPathComponent("PROVENANCE.md"), atomically: true, encoding: .utf8)
         return bundleURL
     }

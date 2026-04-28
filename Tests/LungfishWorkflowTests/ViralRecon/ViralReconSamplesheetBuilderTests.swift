@@ -18,6 +18,34 @@ final class ViralReconSamplesheetBuilderTests: XCTestCase {
         XCTAssertTrue(csv.contains("B,\(temp.path)/B.fastq.gz,"))
     }
 
+    func testIlluminaSamplesheetPreservesFourFastqsAsRepeatedRows() throws {
+        let temp = try ViralReconWorkflowTestFixtures.makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let sample = ViralReconSample(
+            sampleName: "A",
+            sourceBundleURL: temp,
+            fastqURLs: [
+                temp.appendingPathComponent("A_L001_R1.fastq.gz"),
+                temp.appendingPathComponent("A_L001_R2.fastq.gz"),
+                temp.appendingPathComponent("A_L002_R1.fastq.gz"),
+                temp.appendingPathComponent("A_L002_R2.fastq.gz"),
+            ],
+            barcode: nil,
+            sequencingSummaryURL: nil
+        )
+
+        let url = try ViralReconSamplesheetBuilder.writeIlluminaSamplesheet(samples: [sample], in: temp)
+        let lines = try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+
+        XCTAssertEqual(lines, [
+            "sample,fastq_1,fastq_2",
+            "A,\(temp.path)/A_L001_R1.fastq.gz,\(temp.path)/A_L001_R2.fastq.gz",
+            "A,\(temp.path)/A_L002_R1.fastq.gz,\(temp.path)/A_L002_R2.fastq.gz",
+        ])
+    }
+
     func testNanoporeSamplesheetStagesFastqPassAndBarcodes() throws {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let source = temp.appendingPathComponent("reads.fastq")
