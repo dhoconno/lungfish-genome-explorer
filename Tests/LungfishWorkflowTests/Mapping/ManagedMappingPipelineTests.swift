@@ -45,6 +45,19 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertNil(command.nativeTool)
     }
 
+    func testBuildsMinimap2SpliceCommand() throws {
+        let request = makeRequest(tool: .minimap2, modeID: MappingMode.minimap2Splice.id)
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        XCTAssertEqual(command.executable, "minimap2")
+        XCTAssertEqual(command.environment, "minimap2")
+        XCTAssertTrue(command.arguments.contains("-x"))
+        let presetIndex = try XCTUnwrap(command.arguments.firstIndex(of: "-x"))
+        XCTAssertEqual(command.arguments[presetIndex + 1], "splice")
+        XCTAssertTrue(command.arguments.contains("@RG\\tID:sample\\tSM:sample\\tPL:CDNA"))
+    }
+
     func testBuildsBowtie2CommandWithIndexPrefix() throws {
         let request = makeRequest(tool: .bowtie2)
 

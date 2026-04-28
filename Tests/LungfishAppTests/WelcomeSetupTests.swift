@@ -629,7 +629,7 @@ final class WelcomeSetupTests: XCTestCase {
 
         viewModel.installRequiredSetup()
         await fulfillment(of: [notification], timeout: 2)
-        for _ in 0..<20 where viewModel.isInstallingRequiredSetup {
+        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup {
             try? await Task.sleep(for: .milliseconds(10))
         }
 

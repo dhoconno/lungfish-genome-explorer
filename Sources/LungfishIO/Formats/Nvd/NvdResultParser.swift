@@ -251,7 +251,14 @@ public final class NvdResultParser: @unchecked Sendable {
 
     // MARK: - Public API
 
-    /// Parses a `*_blast_concatenated.csv` file into an ``NvdParseResult``.
+    /// Returns whether a URL names an NVD BLAST concatenated CSV, including gzip-compressed CSVs.
+    public static func isBlastConcatenatedCSV(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return name.hasSuffix("_blast_concatenated.csv")
+            || name.hasSuffix("_blast_concatenated.csv.gz")
+    }
+
+    /// Parses a `*_blast_concatenated.csv(.gz)` file into an ``NvdParseResult``.
     ///
     /// - Parameters:
     ///   - url: Path to the blast_concatenated.csv file.
@@ -269,8 +276,10 @@ public final class NvdResultParser: @unchecked Sendable {
 
         logger.info("Parsing NVD BLAST results from \(url.lastPathComponent)")
 
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        var lines = contents.components(separatedBy: "\n")
+        var lines: [String] = []
+        for try await line in url.linesAutoDecompressing() {
+            lines.append(line)
+        }
 
         // Remove trailing empty lines
         while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {

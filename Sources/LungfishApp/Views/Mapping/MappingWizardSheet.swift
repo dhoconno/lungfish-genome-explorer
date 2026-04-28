@@ -459,6 +459,10 @@ struct MappingWizardSheet: View {
         switch mode {
         case .defaultShortRead:
             return "Best for Illumina short-read DNA mapping."
+        case .minimap2Asm5:
+            return "Optimized for closely related haplotype or assembly alignment."
+        case .minimap2Splice:
+            return "Optimized for spliced CDS or cDNA alignment to genomic references."
         case .minimap2MapONT:
             return "Optimized for Oxford Nanopore reads."
         case .minimap2MapHiFi:

@@ -109,6 +109,10 @@ public enum MappingCompatibility {
 
     private static func minimap2State(mode: MappingMode, readClass: MappingReadClass) -> MappingCompatibilityState {
         switch mode {
+        case .minimap2Asm5:
+            return .allowed
+        case .minimap2Splice:
+            return .allowed
         case .defaultShortRead:
             return readClass == .illuminaShortReads
                 ? .allowed
@@ -150,7 +154,7 @@ public enum MappingCompatibility {
                 return .blocked("BBMap PacBio mode supports reads up to 6000 bases. Choose another mapper for longer reads.")
             }
             return .allowed
-        case .defaultShortRead, .minimap2MapONT, .minimap2MapHiFi, .minimap2MapPB:
+        case .defaultShortRead, .minimap2Asm5, .minimap2Splice, .minimap2MapONT, .minimap2MapHiFi, .minimap2MapPB:
             return .blocked("\(mode.displayName) mode is not available for BBMap.")
         }
     }

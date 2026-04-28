@@ -70,7 +70,8 @@ final class OperationChainTests: XCTestCase {
     func testOutputCoversAllOperationKinds() {
         for kind in FASTQDerivativeOperationKind.allCases {
             let output = OperationContract.output(for: kind, inputPairing: .single)
-            XCTAssertEqual(output.format, .fastq, "Unexpected format for \(kind)")
+            let expectedFormat = kind == .translate ? OperationOutput.DataFormat.fasta : .fastq
+            XCTAssertEqual(output.format, expectedFormat, "Unexpected format for \(kind)")
         }
     }
 

@@ -40,6 +40,9 @@ final class GUIRegressionTests: XCTestCase {
             "Mapping…",
             "Assembly…",
             "Classification…",
+            "",
+            "Reverse Complement Selection",
+            "Translate Selection…",
         ])
 
         let toolTitles = toolsMenu.items.map(\.title)
@@ -56,6 +59,7 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertEqual(visibleTitles, [
             "FASTQ/FASTA Operations",
             "Call Variants…",
+            "nf-core Workflows…",
             "Search Online Databases...",
             "Plugin Manager…",
         ])

@@ -11,7 +11,7 @@ import LungfishIO
 /// A SwiftUI sheet for importing results from the NVD (Novel Virus Diagnostics) pipeline.
 ///
 /// The dialog lets the user browse to an NVD run directory, previews what was found
-/// by scanning the `05_labkey_bundling/*_blast_concatenated.csv` file, and then
+/// by scanning the `05_labkey_bundling/*_blast_concatenated.csv(.gz)` file, and then
 /// triggers import into the current project.
 ///
 /// ## Layout
@@ -374,7 +374,7 @@ private func nvdScanDirectory(
     _ url: URL,
     lineProgress: @Sendable (Int) -> Void
 ) async throws -> NvdScanResult {
-    // Find the blast_concatenated.csv under 05_labkey_bundling/
+    // Find the blast_concatenated.csv(.gz) under 05_labkey_bundling/
     let labkeyDir = url.appendingPathComponent("05_labkey_bundling", isDirectory: true)
     guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
         throw NvdScanError.directoryNotFound("05_labkey_bundling/ not found in selected directory")
@@ -384,13 +384,15 @@ private func nvdScanDirectory(
         at: labkeyDir,
         includingPropertiesForKeys: nil
     )
-    guard let csvURL = contents.first(where: { $0.lastPathComponent.hasSuffix("_blast_concatenated.csv") }) else {
-        throw NvdScanError.csvNotFound("No *_blast_concatenated.csv found in 05_labkey_bundling/")
+    guard let csvURL = contents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+        throw NvdScanError.csvNotFound("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/")
     }
 
     // Fast-scan the CSV for counts (no full parse)
-    let csvContents = try String(contentsOf: csvURL, encoding: .utf8)
-    var lines = csvContents.components(separatedBy: "\n")
+    var lines: [String] = []
+    for try await line in csvURL.linesAutoDecompressing() {
+        lines.append(line)
+    }
     // Remove trailing empty lines
     while lines.last?.trimmingCharacters(in: .whitespaces).isEmpty == true {
         lines.removeLast()

@@ -366,10 +366,10 @@ final class ImportCenterViewModel {
         ImportCardInfo(
             id: "nvd",
             title: "NVD Results",
-            description: "Import Novel Virus Diagnostics (NVD) classification results. Parses blast_concatenated.csv with BLAST hit rankings and mapped reads.",
+            description: "Import Novel Virus Diagnostics (NVD) classification results. Parses blast_concatenated.csv or .csv.gz with BLAST hit rankings and mapped reads.",
             sfSymbol: "microscope",
             customImage: TextBadgeIcon.image(text: "NVD", size: NSSize(width: 28, height: 28)),
-            fileHint: "*_blast_concatenated.csv",
+            fileHint: "*_blast_concatenated.csv(.gz)",
             tab: .classificationResults,
             importKind: .wizardSheet(action: .nvd)
         ),

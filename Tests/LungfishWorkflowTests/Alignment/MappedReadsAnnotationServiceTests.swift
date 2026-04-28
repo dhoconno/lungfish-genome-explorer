@@ -150,6 +150,151 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         let manifest = try BundleManifest.load(from: fixture.bundleURL)
         XCTAssertEqual(manifest.annotations.filter { $0.id == "ann-mapped" }.count, 1)
     }
+
+    func testConvertBestMappedReadsKeepsLowestNMPerOverlappingIntervalInCopiedBundle() async throws {
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let mappingDirectory = tempDir.appendingPathComponent("mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+        let bamURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam")
+        let baiURL = mappingDirectory.appendingPathComponent("miseq.sorted.bam.bai")
+        FileManager.default.createFile(atPath: bamURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: baiURL.path, contents: Data("bai".utf8))
+        try MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 4,
+            mappedReads: 4,
+            unmappedReads: 0,
+            wallClockSeconds: 1.0,
+            contigs: []
+        ).save(to: mappingDirectory)
+
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        @HD\tVN:1.6\tSO:coordinate
+        @SQ\tSN:chr1\tLN:1000
+        worse-overlap\t0\tchr1\t101\t60\t20M\t*\t0\t0\tAAAAAAAAAAAAAAAAAAAA\tIIIIIIIIIIIIIIIIIIII\tNM:i:4
+        best-overlap\t0\tchr1\t105\t55\t20M\t*\t0\t0\tCCCCCCCCCCCCCCCCCCCC\tIIIIIIIIIIIIIIIIIIII\tNM:i:1
+        next-interval\t0\tchr1\t201\t60\t20M\t*\t0\t0\tGGGGGGGGGGGGGGGGGGGG\tIIIIIIIIIIIIIIIIIIII\tNM:i:2
+        secondary-skip\t256\tchr1\t205\t60\t20M\t*\t0\t0\tTTTTTTTTTTTTTTTTTTTT\tIIIIIIIIIIIIIIIIIIII\tNM:i:0
+        """)
+        let service = BestMappedReadsAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "ann-best" }
+        )
+        let outputBundleURL = tempDir.appendingPathComponent("BestMappedReads.lungfishref", isDirectory: true)
+
+        let result = try await service.convertBestMappedReads(
+            request: BestMappedReadsAnnotationRequest(
+                sourceBundleURL: fixture.bundleURL,
+                mappingResultURL: mappingDirectory,
+                outputBundleURL: outputBundleURL,
+                outputTrackName: "miSeq MHC",
+                primaryOnly: true
+            )
+        )
+
+        XCTAssertEqual(result.outputBundleURL, outputBundleURL)
+        XCTAssertEqual(result.annotationTrackInfo.id, "ann-best")
+        XCTAssertEqual(result.convertedRecordCount, 2)
+        XCTAssertEqual(result.selectedRecordCount, 2)
+        XCTAssertEqual(result.candidateRecordCount, 3)
+        XCTAssertEqual(result.skippedSecondarySupplementaryCount, 1)
+
+        let sourceManifest = try BundleManifest.load(from: fixture.bundleURL)
+        XCTAssertTrue(sourceManifest.annotations.isEmpty)
+        let manifest = try BundleManifest.load(from: outputBundleURL)
+        XCTAssertEqual(manifest.annotations.first?.name, "miSeq MHC")
+
+        let database = try AnnotationDatabase(
+            url: outputBundleURL.appendingPathComponent("annotations/ann-best.db")
+        )
+        let records = database.queryByRegion(chromosome: "chr1", start: 0, end: 300)
+        XCTAssertEqual(records.map(\.name).sorted(), ["best-overlap", "next-interval"])
+        let best = try XCTUnwrap(records.first { $0.name == "best-overlap" })
+        let bestAttributes = AnnotationDatabase.parseAttributes(try XCTUnwrap(best.attributes))
+        XCTAssertEqual(bestAttributes["tag_NM"], "1")
+        XCTAssertEqual(bestAttributes["best_interval_start"], "100")
+        XCTAssertEqual(bestAttributes["best_interval_end"], "124")
+        XCTAssertEqual(bestAttributes["best_interval_candidate_count"], "2")
+
+        let commands = await runner.commands
+        XCTAssertEqual(commands, [["view", "-h", bamURL.path]])
+    }
+
+    func testConvertBestCDSCreatesGeneAndCDSRowsFromSplicedModels() async throws {
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let mappingDirectory = tempDir.appendingPathComponent("cds-mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDirectory, withIntermediateDirectories: true)
+        let bamURL = mappingDirectory.appendingPathComponent("cds.sorted.bam")
+        let baiURL = mappingDirectory.appendingPathComponent("cds.sorted.bam.bai")
+        FileManager.default.createFile(atPath: bamURL.path, contents: Data("bam".utf8))
+        FileManager.default.createFile(atPath: baiURL.path, contents: Data("bai".utf8))
+        try MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.minimap2Splice.id,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 4,
+            mappedReads: 4,
+            unmappedReads: 0,
+            wallClockSeconds: 1.0,
+            contigs: []
+        ).save(to: mappingDirectory)
+
+        let sequence100 = String(repeating: "A", count: 100)
+        let quality100 = String(repeating: "I", count: 100)
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        @HD\tVN:1.6\tSO:coordinate
+        @SQ\tSN:chr1\tLN:1000
+        worse-allele\t0\tchr1\t101\t60\t50M100N50M\t*\t0\t0\t\(sequence100)\t\(quality100)\tNM:i:5
+        best-allele\t0\tchr1\t105\t55\t50M100N50M\t*\t0\t0\t\(sequence100)\t\(quality100)\tNM:i:1
+        next-locus\t16\tchr1\t501\t60\t30M40N70M\t*\t0\t0\t\(sequence100)\t\(quality100)\tNM:i:2
+        Mafa-A1*001:01\t0\tchr1\t101\t60\t50M200000N50M\t*\t0\t0\t\(sequence100)\t\(quality100)\tNM:i:0
+        partial-skip\t0\tchr1\t701\t60\t40M60S\t*\t0\t0\t\(String(repeating: "C", count: 100))\t\(String(repeating: "I", count: 100))\tNM:i:0
+        """)
+        let service = CDSBestAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "ann-cds-best" }
+        )
+        let outputBundleURL = tempDir.appendingPathComponent("CDSBest.lungfishref", isDirectory: true)
+
+        let result = try await service.convertBestCDS(
+            request: CDSBestAnnotationRequest(
+                sourceBundleURL: fixture.bundleURL,
+                mappingResultURL: mappingDirectory,
+                outputBundleURL: outputBundleURL,
+                outputTrackName: "IPD CDS best",
+                minimumQueryCoverage: 0.95
+            )
+        )
+
+        XCTAssertEqual(result.geneCount, 2)
+        XCTAssertEqual(result.cdsCount, 4)
+        XCTAssertEqual(result.candidateRecordCount, 3)
+        XCTAssertEqual(result.selectedLocusCount, 2)
+
+        let manifest = try BundleManifest.load(from: outputBundleURL)
+        XCTAssertEqual(manifest.annotations.first?.name, "IPD CDS best")
+        let database = try AnnotationDatabase(
+            url: outputBundleURL.appendingPathComponent("annotations/ann-cds-best.db")
+        )
+        let records = database.queryByRegion(chromosome: "chr1", start: 0, end: 900, limit: 100)
+        XCTAssertEqual(records.filter { $0.type == "gene" }.compactMap(\.geneName).sorted(), ["best-allele", "next-locus"])
+        XCTAssertEqual(records.filter { $0.type == "CDS" }.count, 4)
+
+        let bestGene = try XCTUnwrap(records.first { $0.type == "gene" && $0.geneName == "best-allele" })
+        XCTAssertEqual(bestGene.start, 104)
+        XCTAssertEqual(bestGene.end, 304)
+        let attributes = AnnotationDatabase.parseAttributes(try XCTUnwrap(bestGene.attributes))
+        XCTAssertEqual(attributes["nm"], "1")
+        XCTAssertEqual(attributes["cds_component_count"], "2")
+
+        let commands = await runner.commands
+        XCTAssertEqual(commands, [["view", "-h", bamURL.path]])
+    }
+
 }
 
 private struct MappedReadsAnnotationFixture {

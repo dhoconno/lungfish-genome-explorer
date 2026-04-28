@@ -175,9 +175,6 @@ struct NaoMgsCommand: AsyncParsableCommand {
         )
         var topN: Int = 20
 
-        @Option(name: .customLong("format"), help: "Output format: text, json, tsv")
-        var format: OutputFormat = .text
-
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let parser = NaoMgsResultParser()
@@ -210,7 +207,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
                 )
             }
 
-            switch format {
+            switch globalOptions.outputFormat {
             case .json:
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

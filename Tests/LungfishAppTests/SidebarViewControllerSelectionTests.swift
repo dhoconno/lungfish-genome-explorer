@@ -111,6 +111,15 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         )
     }
 
+    func testInternalDropWithNoDestinationTargetsProjectRoot() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+
+        XCTAssertEqual(
+            SidebarViewController.internalDropDestinationURL(projectURL: projectURL, destinationItem: nil),
+            projectURL.standardizedFileURL
+        )
+    }
+
     func testSelectItemFindsAnalysisWhenCallerUsesSymlinkedPath() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarSelection-\(UUID().uuidString)", isDirectory: true)

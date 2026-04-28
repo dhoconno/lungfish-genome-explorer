@@ -201,6 +201,10 @@ public enum MappingCommandBuilder {
         switch mode {
         case .defaultShortRead:
             return "ILLUMINA"
+        case .minimap2Asm5:
+            return "ASSEMBLY"
+        case .minimap2Splice:
+            return "CDNA"
         case .minimap2MapONT:
             return "ONT"
         case .minimap2MapHiFi, .minimap2MapPB, .bbmapPacBio:

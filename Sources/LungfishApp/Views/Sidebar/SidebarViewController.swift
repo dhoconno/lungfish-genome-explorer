@@ -2491,31 +2491,24 @@ extension SidebarViewController: NSOutlineViewDataSource {
             let sourceIdentifier = info.draggingPasteboard.string(forType: sidebarItemPasteboardType)
             let hasLocalSource = sourceIdentifier.flatMap { findItem(byPath: $0) } != nil
 
-            // For internal drags, only allow dropping into folders or projects
-            guard let dest = destinationItem else {
-                // Dropping at root level - not allowed for internal items
-                return []
-            }
-
-            // Can only drop into folders or projects
-            if dest.type != .folder && dest.type != .project {
+            guard Self.internalDropDestinationURL(projectURL: projectURL, destinationItem: destinationItem) != nil else {
                 return []
             }
 
             // Cross-window drags carry the internal type, but source items aren't
             // in this sidebar model. Treat these as copy imports.
             if !hasLocalSource {
-                logger.debug("validateDrop: Internal type from another window - COPY import to '\(dest.title, privacy: .public)'")
+                logger.debug("validateDrop: Internal type from another window - COPY import")
                 return .copy
             }
 
             // Check for Control key to copy, otherwise move
             let modifiers = NSEvent.modifierFlags
             if modifiers.contains(.control) || modifiers.contains(.option) {
-                logger.debug("validateDrop: Internal drag - COPY to '\(dest.title, privacy: .public)'")
+                logger.debug("validateDrop: Internal drag - COPY")
                 return .copy
             } else {
-                logger.debug("validateDrop: Internal drag - MOVE to '\(dest.title, privacy: .public)'")
+                logger.debug("validateDrop: Internal drag - MOVE")
                 return .move
             }
         } else {
@@ -2572,17 +2565,17 @@ extension SidebarViewController: NSOutlineViewDataSource {
             // Find the source item by its identifier
             let sourceItems = identifiers.compactMap { findItem(byPath: $0) }
             if !sourceItems.isEmpty,
-               let dest = destinationItem, (dest.type == .folder || dest.type == .project) {
+               let destinationURL = Self.internalDropDestinationURL(projectURL: projectURL, destinationItem: destinationItem) {
                 // Check modifier keys for copy vs move
                 let modifiers = NSEvent.modifierFlags
                 let isCopy = modifiers.contains(.control) || modifiers.contains(.option)
 
                 if isCopy {
                     // Copy the item
-                    return copyItems(sourceItems, to: dest, at: index)
+                    return copyItems(sourceItems, toFolderURL: destinationURL, at: index)
                 } else {
                     // Move the item
-                    return moveItems(sourceItems, to: dest, at: index)
+                    return moveItems(sourceItems, toFolderURL: destinationURL, at: index)
                 }
             }
 
@@ -2693,6 +2686,17 @@ extension SidebarViewController: NSOutlineViewDataSource {
             result.appendPathComponent(component, isDirectory: true)
         }
         return result.standardizedFileURL
+    }
+
+    static func internalDropDestinationURL(projectURL: URL?, destinationItem: SidebarItem?) -> URL? {
+        if let destinationItem {
+            guard destinationItem.type == .folder || destinationItem.type == .project else {
+                return nil
+            }
+            return destinationItem.url?.standardizedFileURL
+        }
+
+        return projectURL?.standardizedFileURL
     }
 
     // MARK: - Select All Siblings
@@ -2882,6 +2886,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return false
         }
 
+        return moveItems(sourceItems, toFolderURL: destFolderURL.standardizedFileURL, at: index)
+    }
+
+    private func moveItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
+        guard !sourceItems.isEmpty else { return false }
+
         var movedCount = 0
         for sourceItem in sourceItems {
             guard let sourceURL = sourceItem.url else {
@@ -2889,7 +2899,26 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 continue
             }
 
-            let destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
+            let standardizedSourceURL = sourceURL.standardizedFileURL
+            let standardizedDestinationFolderURL = destFolderURL.standardizedFileURL
+
+            if standardizedDestinationFolderURL == standardizedSourceURL ||
+                standardizedDestinationFolderURL.path.hasPrefix(standardizedSourceURL.path + "/") {
+                logger.warning("moveItems: Cannot move '\(sourceItem.title, privacy: .public)' into itself or a descendant")
+                continue
+            }
+
+            if standardizedSourceURL.deletingLastPathComponent() == standardizedDestinationFolderURL {
+                logger.debug("moveItems: '\(sourceItem.title, privacy: .public)' is already in destination")
+                movedCount += 1
+                continue
+            }
+
+            var destURL = standardizedDestinationFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
+            if FileManager.default.fileExists(atPath: destURL.path) {
+                destURL = uniqueDestinationURL(for: sourceURL, in: standardizedDestinationFolderURL)
+            }
+
             do {
                 try FileManager.default.moveItem(at: sourceURL, to: destURL)
                 movedCount += 1
@@ -2924,6 +2953,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return false
         }
 
+        return copyItems(sourceItems, toFolderURL: destFolderURL.standardizedFileURL, at: index)
+    }
+
+    private func copyItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
+        guard !sourceItems.isEmpty else { return false }
+
         var copiedCount = 0
         for sourceItem in sourceItems {
             guard let sourceURL = sourceItem.url else {
@@ -2931,17 +2966,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
                 continue
             }
 
-            var destURL = destFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
-            var counter = 1
-            let baseName = sourceURL.deletingPathExtension().lastPathComponent
-            let fileExtension = sourceURL.pathExtension
-
-            while FileManager.default.fileExists(atPath: destURL.path) {
-                let suffix = counter > 1 ? "_copy_\(counter)" : "_copy"
-                let newName = fileExtension.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(fileExtension)"
-                destURL = destFolderURL.appendingPathComponent(newName)
-                counter += 1
-            }
+            let destURL = uniqueDestinationURL(for: sourceURL, in: destFolderURL.standardizedFileURL, copyStyle: true)
 
             do {
                 try FileManager.default.copyItem(at: sourceURL, to: destURL)
@@ -2956,6 +2981,32 @@ extension SidebarViewController: NSOutlineViewDataSource {
             reloadFromFilesystem()
         }
         return copiedCount == sourceItems.count
+    }
+
+    private func uniqueDestinationURL(for sourceURL: URL, in destinationFolderURL: URL, copyStyle: Bool = false) -> URL {
+        var destURL = destinationFolderURL.appendingPathComponent(sourceURL.lastPathComponent)
+        guard FileManager.default.fileExists(atPath: destURL.path) else {
+            return destURL
+        }
+
+        var counter = copyStyle ? 1 : 2
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let fileExtension = sourceURL.pathExtension
+
+        while FileManager.default.fileExists(atPath: destURL.path) {
+            let suffix: String
+            if copyStyle {
+                suffix = counter > 1 ? "_copy_\(counter)" : "_copy"
+                counter += 1
+            } else {
+                suffix = " \(counter)"
+                counter += 1
+            }
+            let newName = fileExtension.isEmpty ? "\(baseName)\(suffix)" : "\(baseName)\(suffix).\(fileExtension)"
+            destURL = destinationFolderURL.appendingPathComponent(newName)
+        }
+
+        return destURL
     }
 }
 

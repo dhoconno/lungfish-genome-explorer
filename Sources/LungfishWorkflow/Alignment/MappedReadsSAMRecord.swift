@@ -32,6 +32,10 @@ public struct MappedReadsSAMRecord: Sendable, Equatable {
         start0 + referenceLength
     }
 
+    public var editDistance: Int? {
+        auxiliaryTags["NM"].flatMap(Int.init)
+    }
+
     public var isPaired: Bool { hasFlag(0x1) }
     public var isProperPair: Bool { hasFlag(0x2) }
     public var isUnmapped: Bool { hasFlag(0x4) }

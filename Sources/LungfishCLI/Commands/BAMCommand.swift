@@ -12,7 +12,7 @@ struct BAMCommand: AsyncParsableCommand {
             `lungfish bam annotate` to convert mapped reads into annotation tracks.
             Use `lungfish bam markdup` to mark duplicates in BAM workflows.
             """,
-        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self]
+        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self]
     )
 
     struct FilterEvent: Codable, Sendable {
@@ -44,6 +44,42 @@ struct BAMCommand: AsyncParsableCommand {
         let skippedSecondarySupplementaryCount: Int?
         let includedSequence: Bool?
         let includedQualities: Bool?
+    }
+
+    struct AnnotateBestEvent: Codable, Sendable {
+        let event: String
+        let progress: Double?
+        let message: String
+        let sourceBundlePath: String?
+        let mappingResultPath: String?
+        let outputBundlePath: String?
+        let outputAnnotationTrackID: String?
+        let outputAnnotationTrackName: String?
+        let databasePath: String?
+        let convertedRecordCount: Int?
+        let candidateRecordCount: Int?
+        let selectedRecordCount: Int?
+        let skippedUnmappedCount: Int?
+        let skippedSecondarySupplementaryCount: Int?
+    }
+
+    struct AnnotateCDSBestEvent: Codable, Sendable {
+        let event: String
+        let progress: Double?
+        let message: String
+        let sourceBundlePath: String?
+        let mappingResultPath: String?
+        let outputBundlePath: String?
+        let outputAnnotationTrackID: String?
+        let outputAnnotationTrackName: String?
+        let databasePath: String?
+        let geneCount: Int?
+        let cdsCount: Int?
+        let candidateRecordCount: Int?
+        let selectedLocusCount: Int?
+        let skippedUnmappedCount: Int?
+        let skippedSecondaryCount: Int?
+        let skippedSupplementaryCount: Int?
     }
 }
 
@@ -301,6 +337,541 @@ extension BAMCommand {
         }
 
         private func encode(event: BAMCommand.AnnotateEvent) -> String? {
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(event) else {
+                return nil
+            }
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
+    struct AnnotateBestSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "annotate-best",
+            abstract: "Create a new bundle with the best mapped read per overlapping genomic interval"
+        )
+
+        struct Runtime {
+            typealias AnnotateBestRunner = (BestMappedReadsAnnotationRequest) async throws -> BestMappedReadsAnnotationResult
+
+            let runAnnotateBest: AnnotateBestRunner
+
+            static func live() -> Runtime {
+                Runtime(
+                    runAnnotateBest: { request in
+                        try await BestMappedReadsAnnotationService().convertBestMappedReads(request: request)
+                    }
+                )
+            }
+        }
+
+        @Option(name: .customLong("bundle"), help: "Path to the source reference bundle directory")
+        var bundlePath: String
+
+        @Option(name: .customLong("mapping-result"), help: "Path to the mapping analysis directory")
+        var mappingResultPath: String
+
+        @Option(name: .customLong("output-bundle"), help: "Path for the new output reference bundle")
+        var outputBundlePath: String
+
+        @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
+        var outputTrackName: String
+
+        @Flag(name: .customLong("primary-only"), help: "Skip secondary and supplementary alignments")
+        var primaryOnly: Bool = false
+
+        @Flag(name: .customLong("replace"), help: "Replace an existing output bundle or track with the same name")
+        var replaceExisting: Bool = false
+
+        @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse bam annotate-best arguments.")
+            }
+            return parsed
+        }
+
+        func validate() throws {
+            if trimmedValue(bundlePath).isEmpty {
+                throw ValidationError("--bundle must not be empty.")
+            }
+            if trimmedValue(mappingResultPath).isEmpty {
+                throw ValidationError("--mapping-result must not be empty.")
+            }
+            if trimmedValue(outputBundlePath).isEmpty {
+                throw ValidationError("--output-bundle must not be empty.")
+            }
+            if trimmedValue(outputTrackName).isEmpty {
+                throw ValidationError("--output-track-name must not be empty.")
+            }
+        }
+
+        func run() async throws {
+            let resolvedGlobalOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
+            let emitLine: (String) -> Void = { line in
+                if resolvedGlobalOptions.outputFormat == .text && resolvedGlobalOptions.quiet {
+                    return
+                }
+                print(line)
+            }
+
+            _ = try await executeForCurrentFormat(
+                runtime: .live(),
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emitLine
+            )
+        }
+
+        func executeForTesting(
+            runtime: Runtime = .live(),
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> BestMappedReadsAnnotationResult {
+            try await executeForCurrentFormat(
+                runtime: runtime,
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emit
+            )
+        }
+
+        private func executeForCurrentFormat(
+            runtime: Runtime,
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> BestMappedReadsAnnotationResult {
+            let resolvedGlobalOptions = resolvedGlobalOptions
+                ?? (try? globalOptions.resolved())
+                ?? ResolvedTextAndJSONGlobalOptions(
+                    outputFormat: globalOptions.outputFormat,
+                    quiet: globalOptions.quiet
+                )
+
+            if resolvedGlobalOptions.outputFormat == .json {
+                return try await execute(runtime: runtime) { event in
+                    if let line = encode(event: event) {
+                        emit(line)
+                    }
+                }
+            }
+
+            return try await execute(runtime: runtime) { event in
+                for line in textLines(for: event) {
+                    emit(line)
+                }
+            }
+        }
+
+        private func execute(
+            runtime: Runtime,
+            emitEvent: @escaping (BAMCommand.AnnotateBestEvent) -> Void
+        ) async throws -> BestMappedReadsAnnotationResult {
+            let request = makeRequest()
+            emitEvent(
+                BAMCommand.AnnotateBestEvent(
+                    event: "runStart",
+                    progress: 0.0,
+                    message: "Selecting best mapped reads from '\(mappingResultPath)' into '\(normalizedOutputTrackName())'.",
+                    sourceBundlePath: request.sourceBundleURL.path,
+                    mappingResultPath: request.mappingResultURL.path,
+                    outputBundlePath: request.outputBundleURL.path,
+                    outputAnnotationTrackID: nil,
+                    outputAnnotationTrackName: normalizedOutputTrackName(),
+                    databasePath: nil,
+                    convertedRecordCount: nil,
+                    candidateRecordCount: nil,
+                    selectedRecordCount: nil,
+                    skippedUnmappedCount: nil,
+                    skippedSecondarySupplementaryCount: nil
+                )
+            )
+
+            do {
+                let result = try await runtime.runAnnotateBest(request)
+                emitEvent(makeRunCompleteEvent(from: result))
+                return result
+            } catch {
+                emitEvent(
+                    BAMCommand.AnnotateBestEvent(
+                        event: "runFailed",
+                        progress: nil,
+                        message: error.localizedDescription,
+                        sourceBundlePath: request.sourceBundleURL.path,
+                        mappingResultPath: request.mappingResultURL.path,
+                        outputBundlePath: request.outputBundleURL.path,
+                        outputAnnotationTrackID: nil,
+                        outputAnnotationTrackName: normalizedOutputTrackName(),
+                        databasePath: nil,
+                        convertedRecordCount: nil,
+                        candidateRecordCount: nil,
+                        selectedRecordCount: nil,
+                        skippedUnmappedCount: nil,
+                        skippedSecondarySupplementaryCount: nil
+                    )
+                )
+                throw error
+            }
+        }
+
+        private func makeRequest() -> BestMappedReadsAnnotationRequest {
+            BestMappedReadsAnnotationRequest(
+                sourceBundleURL: URL(fileURLWithPath: trimmedValue(bundlePath)),
+                mappingResultURL: URL(fileURLWithPath: trimmedValue(mappingResultPath)),
+                outputBundleURL: URL(fileURLWithPath: trimmedValue(outputBundlePath)),
+                outputTrackName: normalizedOutputTrackName(),
+                primaryOnly: primaryOnly,
+                replaceExisting: replaceExisting
+            )
+        }
+
+        private func normalizedOutputTrackName() -> String {
+            trimmedValue(outputTrackName)
+        }
+
+        private func trimmedValue(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func makeRunCompleteEvent(
+            from result: BestMappedReadsAnnotationResult
+        ) -> BAMCommand.AnnotateBestEvent {
+            BAMCommand.AnnotateBestEvent(
+                event: "runComplete",
+                progress: 1.0,
+                message: "Created annotation track '\(result.annotationTrackInfo.name)' (\(result.annotationTrackInfo.id)) in output bundle.",
+                sourceBundlePath: result.sourceBundleURL.path,
+                mappingResultPath: result.mappingResultURL.path,
+                outputBundlePath: result.outputBundleURL.path,
+                outputAnnotationTrackID: result.annotationTrackInfo.id,
+                outputAnnotationTrackName: result.annotationTrackInfo.name,
+                databasePath: absolutePath(for: result.databasePath, within: result.outputBundleURL),
+                convertedRecordCount: result.convertedRecordCount,
+                candidateRecordCount: result.candidateRecordCount,
+                selectedRecordCount: result.selectedRecordCount,
+                skippedUnmappedCount: result.skippedUnmappedCount,
+                skippedSecondarySupplementaryCount: result.skippedSecondarySupplementaryCount
+            )
+        }
+
+        private func absolutePath(for path: String, within bundleURL: URL) -> String {
+            let candidate = URL(fileURLWithPath: path)
+            if candidate.isFileURL && path.hasPrefix("/") {
+                return candidate.path
+            }
+            return bundleURL.appendingPathComponent(path).path
+        }
+
+        private func textLines(for event: BAMCommand.AnnotateBestEvent) -> [String] {
+            switch event.event {
+            case "runComplete":
+                var lines = [event.message]
+                if let outputBundlePath = event.outputBundlePath {
+                    lines.append("Output bundle: \(outputBundlePath)")
+                }
+                if let sourceBundlePath = event.sourceBundlePath {
+                    lines.append("Source bundle: \(sourceBundlePath)")
+                }
+                if let mappingResultPath = event.mappingResultPath {
+                    lines.append("Mapping result: \(mappingResultPath)")
+                }
+                if let databasePath = event.databasePath {
+                    lines.append("Database: \(databasePath)")
+                }
+                if let convertedRecordCount = event.convertedRecordCount {
+                    lines.append("Converted reads: \(convertedRecordCount)")
+                }
+                if let candidateRecordCount = event.candidateRecordCount {
+                    lines.append("Candidate reads: \(candidateRecordCount)")
+                }
+                if let skippedSecondarySupplementaryCount = event.skippedSecondarySupplementaryCount {
+                    lines.append("Skipped secondary/supplementary reads: \(skippedSecondarySupplementaryCount)")
+                }
+                return lines
+            default:
+                return [event.message]
+            }
+        }
+
+        private func encode(event: BAMCommand.AnnotateBestEvent) -> String? {
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(event) else {
+                return nil
+            }
+            return String(data: data, encoding: .utf8)
+        }
+    }
+
+    struct AnnotateCDSBestSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "annotate-cds-best",
+            abstract: "Create a new bundle with best CDS query gene and CDS annotations"
+        )
+
+        struct Runtime {
+            typealias AnnotateCDSBestRunner = (CDSBestAnnotationRequest) async throws -> CDSBestAnnotationResult
+
+            let runAnnotateCDSBest: AnnotateCDSBestRunner
+
+            static func live() -> Runtime {
+                Runtime(
+                    runAnnotateCDSBest: { request in
+                        try await CDSBestAnnotationService().convertBestCDS(request: request)
+                    }
+                )
+            }
+        }
+
+        @Option(name: .customLong("bundle"), help: "Path to the source reference bundle directory")
+        var bundlePath: String
+
+        @Option(name: .customLong("mapping-result"), help: "Path to the mapping analysis directory")
+        var mappingResultPath: String
+
+        @Option(name: .customLong("output-bundle"), help: "Path for the new output reference bundle")
+        var outputBundlePath: String
+
+        @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
+        var outputTrackName: String
+
+        @Flag(name: .customLong("include-secondary"), help: "Use secondary alignments as candidate duplicated loci")
+        var includeSecondary: Bool = false
+
+        @Flag(name: .customLong("include-supplementary"), help: "Use supplementary alignments as candidate CDS models")
+        var includeSupplementary: Bool = false
+
+        @Option(name: .customLong("min-query-cover"), help: "Minimum fraction of the CDS query covered by aligned components")
+        var minimumQueryCoverage: Double = 0.5
+
+        @Flag(name: .customLong("replace"), help: "Replace an existing output bundle or track with the same name")
+        var replaceExisting: Bool = false
+
+        @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse bam annotate-cds-best arguments.")
+            }
+            return parsed
+        }
+
+        func validate() throws {
+            if trimmedValue(bundlePath).isEmpty {
+                throw ValidationError("--bundle must not be empty.")
+            }
+            if trimmedValue(mappingResultPath).isEmpty {
+                throw ValidationError("--mapping-result must not be empty.")
+            }
+            if trimmedValue(outputBundlePath).isEmpty {
+                throw ValidationError("--output-bundle must not be empty.")
+            }
+            if trimmedValue(outputTrackName).isEmpty {
+                throw ValidationError("--output-track-name must not be empty.")
+            }
+            if !(0...1).contains(minimumQueryCoverage) {
+                throw ValidationError("--min-query-cover must be between 0 and 1.")
+            }
+        }
+
+        func run() async throws {
+            let resolvedGlobalOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
+            let emitLine: (String) -> Void = { line in
+                if resolvedGlobalOptions.outputFormat == .text && resolvedGlobalOptions.quiet {
+                    return
+                }
+                print(line)
+            }
+
+            _ = try await executeForCurrentFormat(
+                runtime: .live(),
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emitLine
+            )
+        }
+
+        func executeForTesting(
+            runtime: Runtime = .live(),
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> CDSBestAnnotationResult {
+            try await executeForCurrentFormat(
+                runtime: runtime,
+                resolvedGlobalOptions: resolvedGlobalOptions,
+                emit: emit
+            )
+        }
+
+        private func executeForCurrentFormat(
+            runtime: Runtime,
+            resolvedGlobalOptions: ResolvedTextAndJSONGlobalOptions? = nil,
+            emit: @escaping (String) -> Void
+        ) async throws -> CDSBestAnnotationResult {
+            let resolvedGlobalOptions = resolvedGlobalOptions
+                ?? (try? globalOptions.resolved())
+                ?? ResolvedTextAndJSONGlobalOptions(
+                    outputFormat: globalOptions.outputFormat,
+                    quiet: globalOptions.quiet
+                )
+
+            if resolvedGlobalOptions.outputFormat == .json {
+                return try await execute(runtime: runtime) { event in
+                    if let line = encode(event: event) {
+                        emit(line)
+                    }
+                }
+            }
+
+            return try await execute(runtime: runtime) { event in
+                for line in textLines(for: event) {
+                    emit(line)
+                }
+            }
+        }
+
+        private func execute(
+            runtime: Runtime,
+            emitEvent: @escaping (BAMCommand.AnnotateCDSBestEvent) -> Void
+        ) async throws -> CDSBestAnnotationResult {
+            let request = makeRequest()
+            emitEvent(
+                BAMCommand.AnnotateCDSBestEvent(
+                    event: "runStart",
+                    progress: 0.0,
+                    message: "Selecting best CDS models from '\(mappingResultPath)' into '\(normalizedOutputTrackName())'.",
+                    sourceBundlePath: request.sourceBundleURL.path,
+                    mappingResultPath: request.mappingResultURL.path,
+                    outputBundlePath: request.outputBundleURL.path,
+                    outputAnnotationTrackID: nil,
+                    outputAnnotationTrackName: normalizedOutputTrackName(),
+                    databasePath: nil,
+                    geneCount: nil,
+                    cdsCount: nil,
+                    candidateRecordCount: nil,
+                    selectedLocusCount: nil,
+                    skippedUnmappedCount: nil,
+                    skippedSecondaryCount: nil,
+                    skippedSupplementaryCount: nil
+                )
+            )
+
+            do {
+                let result = try await runtime.runAnnotateCDSBest(request)
+                emitEvent(makeRunCompleteEvent(from: result))
+                return result
+            } catch {
+                emitEvent(
+                    BAMCommand.AnnotateCDSBestEvent(
+                        event: "runFailed",
+                        progress: nil,
+                        message: error.localizedDescription,
+                        sourceBundlePath: request.sourceBundleURL.path,
+                        mappingResultPath: request.mappingResultURL.path,
+                        outputBundlePath: request.outputBundleURL.path,
+                        outputAnnotationTrackID: nil,
+                        outputAnnotationTrackName: normalizedOutputTrackName(),
+                        databasePath: nil,
+                        geneCount: nil,
+                        cdsCount: nil,
+                        candidateRecordCount: nil,
+                        selectedLocusCount: nil,
+                        skippedUnmappedCount: nil,
+                        skippedSecondaryCount: nil,
+                        skippedSupplementaryCount: nil
+                    )
+                )
+                throw error
+            }
+        }
+
+        private func makeRequest() -> CDSBestAnnotationRequest {
+            CDSBestAnnotationRequest(
+                sourceBundleURL: URL(fileURLWithPath: trimmedValue(bundlePath)),
+                mappingResultURL: URL(fileURLWithPath: trimmedValue(mappingResultPath)),
+                outputBundleURL: URL(fileURLWithPath: trimmedValue(outputBundlePath)),
+                outputTrackName: normalizedOutputTrackName(),
+                includeSecondary: includeSecondary,
+                includeSupplementary: includeSupplementary,
+                minimumQueryCoverage: minimumQueryCoverage,
+                replaceExisting: replaceExisting
+            )
+        }
+
+        private func normalizedOutputTrackName() -> String {
+            trimmedValue(outputTrackName)
+        }
+
+        private func trimmedValue(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private func makeRunCompleteEvent(
+            from result: CDSBestAnnotationResult
+        ) -> BAMCommand.AnnotateCDSBestEvent {
+            BAMCommand.AnnotateCDSBestEvent(
+                event: "runComplete",
+                progress: 1.0,
+                message: "Created CDS annotation track '\(result.annotationTrackInfo.name)' (\(result.annotationTrackInfo.id)) in output bundle.",
+                sourceBundlePath: result.sourceBundleURL.path,
+                mappingResultPath: result.mappingResultURL.path,
+                outputBundlePath: result.outputBundleURL.path,
+                outputAnnotationTrackID: result.annotationTrackInfo.id,
+                outputAnnotationTrackName: result.annotationTrackInfo.name,
+                databasePath: absolutePath(for: result.databasePath, within: result.outputBundleURL),
+                geneCount: result.geneCount,
+                cdsCount: result.cdsCount,
+                candidateRecordCount: result.candidateRecordCount,
+                selectedLocusCount: result.selectedLocusCount,
+                skippedUnmappedCount: result.skippedUnmappedCount,
+                skippedSecondaryCount: result.skippedSecondaryCount,
+                skippedSupplementaryCount: result.skippedSupplementaryCount
+            )
+        }
+
+        private func absolutePath(for path: String, within bundleURL: URL) -> String {
+            let candidate = URL(fileURLWithPath: path)
+            if candidate.isFileURL && path.hasPrefix("/") {
+                return candidate.path
+            }
+            return bundleURL.appendingPathComponent(path).path
+        }
+
+        private func textLines(for event: BAMCommand.AnnotateCDSBestEvent) -> [String] {
+            switch event.event {
+            case "runComplete":
+                var lines = [event.message]
+                if let outputBundlePath = event.outputBundlePath {
+                    lines.append("Output bundle: \(outputBundlePath)")
+                }
+                if let sourceBundlePath = event.sourceBundlePath {
+                    lines.append("Source bundle: \(sourceBundlePath)")
+                }
+                if let mappingResultPath = event.mappingResultPath {
+                    lines.append("Mapping result: \(mappingResultPath)")
+                }
+                if let databasePath = event.databasePath {
+                    lines.append("Database: \(databasePath)")
+                }
+                if let geneCount = event.geneCount {
+                    lines.append("Genes: \(geneCount)")
+                }
+                if let cdsCount = event.cdsCount {
+                    lines.append("CDS features: \(cdsCount)")
+                }
+                if let candidateRecordCount = event.candidateRecordCount {
+                    lines.append("Candidate CDS records: \(candidateRecordCount)")
+                }
+                return lines
+            default:
+                return [event.message]
+            }
+        }
+
+        private func encode(event: BAMCommand.AnnotateCDSBestEvent) -> String? {
             let encoder = JSONEncoder()
             guard let data = try? encoder.encode(event) else {
                 return nil

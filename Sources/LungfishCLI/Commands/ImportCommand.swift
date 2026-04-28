@@ -1174,7 +1174,7 @@ extension ImportCommand {
 
     /// Import NVD (Novel Virus Diagnostics) BLAST results into a Lungfish project.
     ///
-    /// Parses `*_blast_concatenated.csv` and writes a `manifest.json` summary
+    /// Parses `*_blast_concatenated.csv(.gz)` and writes a `manifest.json` summary
     /// into an `nvd-{experiment}` bundle directory.
     struct NvdSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -1208,7 +1208,7 @@ extension ImportCommand {
                 throw ExitCode.failure
             }
 
-            // Locate blast_concatenated.csv
+            // Locate blast_concatenated.csv(.gz)
             let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
             guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
                 print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
@@ -1219,8 +1219,8 @@ extension ImportCommand {
                 at: labkeyDir,
                 includingPropertiesForKeys: nil
             )
-            guard let csvURL = labkeyContents.first(where: { $0.lastPathComponent.hasSuffix("_blast_concatenated.csv") }) else {
-                print(formatter.error("No *_blast_concatenated.csv found in 05_labkey_bundling/"))
+            guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+                print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
                 throw ExitCode.failure
             }
 

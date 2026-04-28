@@ -20,6 +20,35 @@ final class NvdResultParserTests: XCTestCase {
         XCTAssertEqual(result.sampleIds, ["SampleA", "SampleB", "SampleC"])
     }
 
+    func testParseGzippedFixtureCSV() async throws {
+        let gzipURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_blast_concatenated_\(UUID().uuidString).csv.gz")
+        defer { try? FileManager.default.removeItem(at: gzipURL) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", TestFixtures.nvd.blastConcatenatedCSV.path]
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        XCTAssertEqual(process.terminationStatus, 0)
+        try data.write(to: gzipURL)
+
+        let result = try await parser.parse(at: gzipURL)
+
+        XCTAssertEqual(result.hits.count, 10, "Expected gzipped CSV to parse like the plain fixture")
+        XCTAssertEqual(result.experiment, "100")
+        XCTAssertEqual(result.sampleIds, ["SampleA", "SampleB", "SampleC"])
+    }
+
+    func testBlastConcatenatedCSVDetectionAcceptsPlainAndGzippedCSV() {
+        XCTAssertTrue(NvdResultParser.isBlastConcatenatedCSV(URL(fileURLWithPath: "100_blast_concatenated.csv")))
+        XCTAssertTrue(NvdResultParser.isBlastConcatenatedCSV(URL(fileURLWithPath: "100_blast_concatenated.csv.gz")))
+        XCTAssertFalse(NvdResultParser.isBlastConcatenatedCSV(URL(fileURLWithPath: "100_blast_concatenated.tsv.gz")))
+    }
+
     // MARK: - 2. All columns parsed for first hit
 
     func testParsesAllColumns() async throws {

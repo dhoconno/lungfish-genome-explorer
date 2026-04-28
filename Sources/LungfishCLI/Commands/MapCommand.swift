@@ -44,7 +44,7 @@ struct MapCommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("preset"),
-        help: "Mode/preset. minimap2: sr, map-ont, map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio."
+        help: "Mode/preset. minimap2: sr, asm5, splice, map-ont, map-hifi, map-pb. bbmap: bbmap-standard, bbmap-pacbio."
     )
     var preset: String?
 
@@ -221,9 +221,9 @@ struct MapCommand: AsyncParsableCommand {
     private func resolveMode(tool: MappingTool, preset: String?) throws -> MappingMode {
         switch tool {
         case .minimap2:
-            let rawValue = preset ?? MappingMode.defaultShortRead.rawValue
+            let rawValue = normalizedMinimap2Preset(preset)
             guard let mode = MappingMode(rawValue: rawValue), mode.isValid(for: tool) else {
-                throw ValidationError("Invalid minimap2 preset '\(rawValue)'. Use sr, map-ont, map-hifi, or map-pb.")
+                throw ValidationError("Invalid minimap2 preset '\(rawValue)'. Use sr, asm5, splice, map-ont, map-hifi, or map-pb.")
             }
             return mode
         case .bwaMem2, .bowtie2:
@@ -241,6 +241,19 @@ struct MapCommand: AsyncParsableCommand {
             default:
                 throw ValidationError("Invalid BBMap preset '\(normalized)'. Use bbmap-standard or bbmap-pacbio.")
             }
+        }
+    }
+
+    private func normalizedMinimap2Preset(_ preset: String?) -> String {
+        switch preset?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case nil, "", "sr":
+            return MappingMode.defaultShortRead.rawValue
+        case "asm5":
+            return MappingMode.minimap2Asm5.rawValue
+        case "splice":
+            return MappingMode.minimap2Splice.rawValue
+        case let value?:
+            return value
         }
     }
 

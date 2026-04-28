@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 /// Manage reference genome bundles (.lungfishref)
@@ -26,6 +27,7 @@ struct BundleCommand: AsyncParsableCommand {
         subcommands: [
             BundleInfoSubcommand.self,
             BundleCreateSubcommand.self,
+            BundleExtractAnnotationsSubcommand.self,
             BundleValidateSubcommand.self,
             BundleListSubcommand.self,
         ],
@@ -361,6 +363,156 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
     }
 }
 
+// MARK: - Extract Annotation Sequences Subcommand
+
+struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "extract-annotations",
+        abstract: "Extract annotation feature sequences into a new .lungfishref bundle"
+    )
+
+    @Option(name: .customLong("bundle"), help: "Source .lungfishref bundle containing sequence and annotations")
+    var bundlePath: String
+
+    @Option(name: .customLong("track"), help: "Annotation track id or name to extract from")
+    var trackID: String
+
+    @Option(name: .customLong("output-bundle"), help: "Output .lungfishref bundle path")
+    var outputBundlePath: String
+
+    @Option(name: .customLong("feature-type"), help: "Feature type to extract (default: gene)")
+    var featureType: String = "gene"
+
+    @Option(name: .customLong("name-prefix"), help: "Only extract features whose name or gene name starts with this prefix")
+    var namePrefix: String?
+
+    @Flag(name: .customLong("replace"), help: "Replace an existing output bundle")
+    var replace: Bool = false
+
+    @OptionGroup var globalOptions: GlobalOptions
+
+    func run() async throws {
+        let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        let sourceBundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
+        let outputBundleURL = URL(fileURLWithPath: outputBundlePath).standardizedFileURL
+        let outputDirectory = outputBundleURL.deletingLastPathComponent()
+        let outputName = outputBundleURL.deletingPathExtension().lastPathComponent
+
+        if FileManager.default.fileExists(atPath: outputBundleURL.path) {
+            guard replace else {
+                print(formatter.error("Output bundle already exists: \(outputBundleURL.path)"))
+                throw ExitCode.failure
+            }
+            try FileManager.default.removeItem(at: outputBundleURL)
+        }
+
+        let referenceBundle = try await ReferenceBundle(url: sourceBundleURL)
+        let manifest = referenceBundle.manifest
+        guard let track = manifest.annotations.first(where: { $0.id == trackID || $0.name == trackID }) else {
+            print(formatter.error("Annotation track not found: \(trackID)"))
+            throw ExitCode.failure
+        }
+
+        let databasePath = track.databasePath ?? track.path
+        let database = try AnnotationDatabase(url: sourceBundleURL.appendingPathComponent(databasePath))
+        let prefix = namePrefix?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let records = database.allChromosomes()
+            .flatMap { database.queryByRegion(chromosome: $0, start: 0, end: Int.max, limit: Int.max) }
+            .filter { $0.type == featureType }
+            .filter { record in
+                guard let prefix, !prefix.isEmpty else { return true }
+                return record.name.hasPrefix(prefix) || (record.geneName?.hasPrefix(prefix) ?? false)
+            }
+
+        guard !records.isEmpty else {
+            print(formatter.error("No \(featureType) features matched the requested filters."))
+            throw ExitCode.failure
+        }
+
+        let tempDirectory = try ProjectTempDirectory.createFromContext(
+            prefix: "lungfish-cli-annotation-sequences-",
+            contextURL: outputDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let fastaURL = tempDirectory.appendingPathComponent("annotation-sequences.fa")
+        try await writeAnnotationFASTA(records: records, bundle: referenceBundle, to: fastaURL)
+
+        let sourceInfo = SourceInfo(
+            organism: manifest.source.organism,
+            assembly: outputName,
+            database: "Annotation feature sequences",
+            sourceURL: sourceBundleURL,
+            downloadDate: Date(),
+            notes: "Extracted \(featureType) sequences from \(manifest.name) track \(track.name)"
+        )
+        let configuration = BuildConfiguration(
+            name: outputName,
+            identifier: "org.lungfish.cli.annotation-sequences.\(UUID().uuidString.lowercased())",
+            fastaURL: fastaURL,
+            annotationFiles: [],
+            outputDirectory: outputDirectory,
+            source: sourceInfo,
+            compressFASTA: true
+        )
+        let createdURL = try await NativeBundleBuilder().build(configuration: configuration)
+
+        print(formatter.header("Annotation Sequence Extraction"))
+        print("")
+        print(formatter.keyValueTable([
+            ("Source bundle", sourceBundleURL.lastPathComponent),
+            ("Source track", track.name),
+            ("Feature type", featureType),
+            ("Extracted features", String(records.count)),
+            ("Output bundle", createdURL.path),
+        ]))
+    }
+
+    private func writeAnnotationFASTA(records: [AnnotationDatabaseRecord], bundle: ReferenceBundle, to url: URL) async throws {
+        var output = ""
+        for record in records {
+            let region = GenomicRegion(chromosome: record.chromosome, start: record.start, end: record.end)
+            var sequence = try await bundle.fetchSequence(region: region)
+            if record.strand == "-" {
+                sequence = reverseComplement(sequence)
+            }
+            let name = record.geneName ?? record.name
+            output += ">\(name) source=\(record.chromosome):\(record.start + 1)-\(record.end) strand=\(record.strand)\n"
+            output += wrap(sequence, width: 70)
+            output += "\n"
+        }
+        try output.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func wrap(_ sequence: String, width: Int) -> String {
+        guard width > 0 else { return sequence }
+        var lines: [String] = []
+        var index = sequence.startIndex
+        while index < sequence.endIndex {
+            let end = sequence.index(index, offsetBy: width, limitedBy: sequence.endIndex) ?? sequence.endIndex
+            lines.append(String(sequence[index..<end]))
+            index = end
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func reverseComplement(_ sequence: String) -> String {
+        String(sequence.reversed().map { base in
+            switch base {
+            case "A": return "T"
+            case "C": return "G"
+            case "G": return "C"
+            case "T", "U": return "A"
+            case "a": return "t"
+            case "c": return "g"
+            case "g": return "c"
+            case "t", "u": return "a"
+            default: return "N"
+            }
+        })
+    }
+}
+
 // MARK: - Validate Subcommand
 
 /// Validate a bundle
@@ -623,5 +775,3 @@ struct BundleTrackList: Codable {
     let variants: [String]
     let signals: [String]
 }
-
-

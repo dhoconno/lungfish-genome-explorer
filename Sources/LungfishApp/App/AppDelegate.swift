@@ -5127,11 +5127,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let task = Task.detached { [weak self] in
             do {
-                // Step 1: Parse the blast_concatenated.csv
+                // Step 1: Parse the blast_concatenated.csv(.gz)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Finding NVD CSV...")
-                        OperationCenter.shared.log(id: opID, level: .info, message: "Locating blast_concatenated.csv in \(url.lastPathComponent)")
+                        OperationCenter.shared.log(id: opID, level: .info, message: "Locating blast_concatenated.csv(.gz) in \(url.lastPathComponent)")
                     }
                 }
 
@@ -5140,8 +5140,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     at: labkeyDir,
                     includingPropertiesForKeys: nil
                 )
-                guard let csvURL = labkeyContents.first(where: { $0.lastPathComponent.hasSuffix("_blast_concatenated.csv") }) else {
-                    throw NvdImportError.csvNotFound("No *_blast_concatenated.csv found in 05_labkey_bundling/")
+                guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+                    throw NvdImportError.csvNotFound("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/")
                 }
 
                 DispatchQueue.main.async {

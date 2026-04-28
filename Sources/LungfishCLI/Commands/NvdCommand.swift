@@ -8,7 +8,7 @@ import LungfishIO
 
 /// Import and inspect NVD (Novel Virus Diagnostics) pipeline BLAST results.
 ///
-/// The NVD Snakemake pipeline produces `*_blast_concatenated.csv` as its primary
+/// The NVD Snakemake pipeline produces `*_blast_concatenated.csv(.gz)` as its primary
 /// output, along with BAM alignment files and assembled FASTA sequences.
 ///
 /// This command imports those results into Lungfish by parsing the BLAST CSV and
@@ -24,7 +24,7 @@ import LungfishIO
 /// lungfish nvd import /path/to/nvd-output/ --output-dir ./project/Imports/
 ///
 /// # Show summary of a specific CSV
-/// lungfish nvd summary /path/to/100_blast_concatenated.csv
+/// lungfish nvd summary /path/to/100_blast_concatenated.csv.gz
 /// ```
 struct NvdCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -32,7 +32,7 @@ struct NvdCommand: AsyncParsableCommand {
         abstract: "Import and view NVD classification results",
         discussion: """
         Import results from the Novel Virus Diagnostics (NVD) Snakemake pipeline.
-        Parses *_blast_concatenated.csv files containing BLAST hit rankings and
+        Parses *_blast_concatenated.csv(.gz) files containing BLAST hit rankings and
         per-contig mapped read counts for wastewater viral surveillance.
         """,
         subcommands: [ImportSubcommand.self, SummarySubcommand.self],
@@ -84,8 +84,8 @@ struct NvdCommand: AsyncParsableCommand {
                 at: labkeyDir,
                 includingPropertiesForKeys: nil
             )
-            guard let csvURL = labkeyContents.first(where: { $0.lastPathComponent.hasSuffix("_blast_concatenated.csv") }) else {
-                print(formatter.error("No *_blast_concatenated.csv found in 05_labkey_bundling/"))
+            guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+                print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
                 throw ExitCode.failure
             }
 
@@ -203,7 +203,7 @@ struct NvdCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        @Argument(help: "Path to NVD results directory or *_blast_concatenated.csv file")
+        @Argument(help: "Path to NVD results directory or *_blast_concatenated.csv(.gz) file")
         var inputPath: String
 
         @Option(
@@ -211,9 +211,6 @@ struct NvdCommand: AsyncParsableCommand {
             help: "Number of top contigs to display (default: 20)"
         )
         var topN: Int = 20
-
-        @Option(name: .customLong("format"), help: "Output format: text, json, tsv")
-        var format: OutputFormat = .text
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -235,8 +232,8 @@ struct NvdCommand: AsyncParsableCommand {
                     at: labkeyDir,
                     includingPropertiesForKeys: nil
                 )
-                guard let found = contents.first(where: { $0.lastPathComponent.hasSuffix("_blast_concatenated.csv") }) else {
-                    print(formatter.error("No *_blast_concatenated.csv found in 05_labkey_bundling/"))
+                guard let found = contents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
+                    print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
                     throw ExitCode.failure
                 }
                 csvURL = found
@@ -247,7 +244,7 @@ struct NvdCommand: AsyncParsableCommand {
             let parser = NvdResultParser()
             let result = try await parser.parse(at: csvURL)
 
-            switch format {
+            switch globalOptions.outputFormat {
             case .json:
                 let encoder = JSONEncoder()
                 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

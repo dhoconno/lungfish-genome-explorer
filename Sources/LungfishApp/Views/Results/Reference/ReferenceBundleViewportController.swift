@@ -984,6 +984,11 @@ extension ReferenceBundleViewportController {
         configure(result: result, resultDirectoryURL: resultDirectoryURL)
     }
 
+    func reapplyMappingLayoutPreferenceForTesting() {
+        splitCoordinator.invalidateInitialSplitPosition()
+        applyLayoutPreference()
+    }
+
     var testDisplayedSequenceNames: [String] { sequenceTableView.displayedRows.map(\.name) }
     var testSelectedSequenceName: String? { currentSelectedSequence()?.name }
     var testSelectedContigName: String? { currentSelectedContig()?.contigName }

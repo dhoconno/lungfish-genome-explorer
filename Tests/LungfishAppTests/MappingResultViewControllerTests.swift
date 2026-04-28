@@ -10,6 +10,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
     override func setUpWithError() throws {
         try super.setUpWithError()
+        UserDefaults.standard.removeObject(forKey: "mappingPanelLayout")
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("mapping_result_view_tests_\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -358,6 +359,7 @@ final class MappingResultViewControllerTests: XCTestCase {
         vc.view.layoutSubtreeIfNeeded()
         vc.viewDidLayout()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        vc.reapplyMappingLayoutPreferenceForTesting()
 
         assertMappingLayout(
             vc,
@@ -369,6 +371,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         MappingPanelLayout.listLeading.persist()
         vc.view.layoutSubtreeIfNeeded()
+        vc.reapplyMappingLayoutPreferenceForTesting()
 
         assertMappingLayout(
             vc,
@@ -380,6 +383,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         MappingPanelLayout.stacked.persist()
         vc.view.layoutSubtreeIfNeeded()
+        vc.reapplyMappingLayoutPreferenceForTesting()
 
         assertMappingLayout(
             vc,
@@ -391,6 +395,7 @@ final class MappingResultViewControllerTests: XCTestCase {
 
         MappingPanelLayout.listLeading.persist()
         vc.view.layoutSubtreeIfNeeded()
+        vc.reapplyMappingLayoutPreferenceForTesting()
 
         assertMappingLayout(
             vc,

@@ -191,6 +191,8 @@ public enum MappingReadClass: String, CaseIterable, Codable, Sendable {
 
 public enum MappingMode: String, CaseIterable, Codable, Sendable, Identifiable {
     case defaultShortRead = "short-read-default"
+    case minimap2Asm5 = "asm5"
+    case minimap2Splice = "splice"
     case minimap2MapONT = "map-ont"
     case minimap2MapHiFi = "map-hifi"
     case minimap2MapPB = "map-pb"
@@ -202,6 +204,8 @@ public enum MappingMode: String, CaseIterable, Codable, Sendable, Identifiable {
     public var displayName: String {
         switch self {
         case .defaultShortRead: return "Short-read"
+        case .minimap2Asm5: return "Assembly-to-assembly"
+        case .minimap2Splice: return "Spliced CDS/cDNA"
         case .minimap2MapONT: return "Oxford Nanopore"
         case .minimap2MapHiFi: return "PacBio HiFi"
         case .minimap2MapPB: return "PacBio CLR"
@@ -213,6 +217,8 @@ public enum MappingMode: String, CaseIterable, Codable, Sendable, Identifiable {
     public var commandPresetValue: String? {
         switch self {
         case .defaultShortRead: return "sr"
+        case .minimap2Asm5: return "asm5"
+        case .minimap2Splice: return "splice"
         case .minimap2MapONT: return "map-ont"
         case .minimap2MapHiFi: return "map-hifi"
         case .minimap2MapPB: return "map-pb"
@@ -223,7 +229,7 @@ public enum MappingMode: String, CaseIterable, Codable, Sendable, Identifiable {
     public func isValid(for tool: MappingTool) -> Bool {
         switch tool {
         case .minimap2:
-            return [.defaultShortRead, .minimap2MapONT, .minimap2MapHiFi, .minimap2MapPB].contains(self)
+            return [.defaultShortRead, .minimap2Asm5, .minimap2Splice, .minimap2MapONT, .minimap2MapHiFi, .minimap2MapPB].contains(self)
         case .bwaMem2, .bowtie2:
             return self == .defaultShortRead
         case .bbmap:
