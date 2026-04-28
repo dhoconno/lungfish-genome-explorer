@@ -12,6 +12,8 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
     public let inputURLs: [URL]
     public let outputDirectory: URL
     public let params: [String: String]
+    public let resume: Bool
+    public let workDirectory: URL?
     public let presentationMode: NFCoreRunPresentationMode
 
     public var displayTitle: String {
@@ -32,6 +34,12 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         if !version.isEmpty {
             args += ["-r", version]
         }
+        if resume {
+            args.append("-resume")
+        }
+        if let workDirectory {
+            args += ["-work-dir", workDirectory.path]
+        }
         args += ["-profile", executor.rawValue]
 
         for key in effectiveParams.keys.sorted() {
@@ -46,6 +54,8 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             workflow: workflow,
             version: version,
             executor: executor,
+            resume: resume,
+            workDirectory: workDirectory,
             params: effectiveParams
         )
     }
@@ -72,6 +82,12 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             guard let value = params[key], !value.isEmpty else { continue }
             args += ["--param", "\(key)=\(value)"]
         }
+        if resume {
+            args.append("--resume")
+        }
+        if let workDirectory {
+            args += ["--workdir", workDirectory.path]
+        }
         if prepareOnly {
             args.append("--prepare-only")
         }
@@ -89,6 +105,8 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         inputURLs: [URL],
         outputDirectory: URL,
         params: [String: String] = [:],
+        resume: Bool = false,
+        workDirectory: URL? = nil,
         presentationMode: NFCoreRunPresentationMode = .genericReport
     ) {
         self.workflow = workflow
@@ -98,6 +116,8 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         self.inputURLs = inputURLs.map(\.standardizedFileURL)
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.params = params
+        self.resume = resume
+        self.workDirectory = workDirectory?.standardizedFileURL
         self.presentationMode = presentationMode
     }
 
@@ -109,6 +129,8 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             params: effectiveParams,
             outputDirectoryName: outputDirectory.lastPathComponent,
             workflowPinnedVersion: workflow.pinnedVersion,
+            resume: resume,
+            workDirectory: workDirectory,
             createdAt: createdAt
         )
     }

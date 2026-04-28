@@ -663,6 +663,8 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         }()
         titleField.stringValue = item.title
         titleField.font = .systemFont(ofSize: 12, weight: .medium)
+        titleField.setAccessibilityIdentifier("operations-title-\(accessibilitySlug(for: item.title))")
+        titleField.setAccessibilityLabel(item.title)
 
         // Detail field (tag 101)
         let detailField = cell.viewWithTag(101) as? NSTextField ?? {
@@ -768,8 +770,18 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         detailField.toolTip = isMultiLine ? item.detail : nil
         detailField.font = .systemFont(ofSize: 10)
         detailField.textColor = .secondaryLabelColor
+        detailField.setAccessibilityIdentifier("operations-detail-\(accessibilitySlug(for: item.title))")
+        detailField.setAccessibilityLabel(detailField.stringValue)
 
         return cell
+    }
+
+    private func accessibilitySlug(for value: String) -> String {
+        value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
     }
 
     // MARK: - Expanded Section Builders

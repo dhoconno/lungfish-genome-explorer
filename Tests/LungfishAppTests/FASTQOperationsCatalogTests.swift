@@ -70,6 +70,18 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(category.requiredPackIDs, ["read-mapping"])
     }
 
+    func testMappingCategoryIncludesViralReconBehindReadMappingPack() async throws {
+        let provider = StubPackStatusProvider(states: ["read-mapping": .ready])
+        let catalog = FASTQOperationsCatalog(statusProvider: provider)
+
+        let resolvedCategory = await catalog.category(id: .mapping)
+        let category = try XCTUnwrap(resolvedCategory)
+
+        XCTAssertTrue(category.isEnabled)
+        XCTAssertEqual(category.requiredPackIDs, ["read-mapping"])
+        XCTAssertTrue(FASTQOperationDialogState.toolIDs(for: .mapping).contains(.viralRecon))
+    }
+
     func testAssemblyCategoryUsesBuiltInPackNameForDisabledReason() async throws {
         let provider = StubPackStatusProvider(states: ["assembly": .needsInstall])
         let catalog = FASTQOperationsCatalog(statusProvider: provider)

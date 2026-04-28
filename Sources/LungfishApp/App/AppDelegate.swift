@@ -327,7 +327,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var aiAssistantService: AIAssistantService?
     private var helpWindowController: HelpWindowController?
     private var windowSizeDialogController: WindowSizeDialogController?
-    private var nfCoreWorkflowDialogController: NFCoreWorkflowDialogController?
 
     /// AI tool registry for the assistant
     private var aiToolRegistry: AIToolRegistry?
@@ -4854,26 +4853,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
-    @objc func showNFCoreWorkflows(_ sender: Any?) {
-        let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL
-        let service: NFCoreWorkflowExecutionService
-        if AppUITestConfiguration.current.isEnabled,
-           AppUITestConfiguration.current.backendMode == .deterministic {
-            service = NFCoreWorkflowExecutionService(processRunner: AppUITestNFCoreWorkflowProcessRunner())
-        } else {
-            service = NFCoreWorkflowExecutionService()
-        }
-        let controller = NFCoreWorkflowDialogController(projectURL: projectURL, executionService: service)
-        nfCoreWorkflowDialogController = controller
-        if let window = mainWindowController?.window {
-            window.beginSheet(controller.window!) { [weak self] _ in
-                self?.nfCoreWorkflowDialogController = nil
-            }
-        } else {
-            controller.showWindow(sender)
-        }
-    }
-
     func showFASTQOperationsDialog(
         _ sender: Any?,
         initialCategory: FASTQOperationCategoryID,
@@ -4906,6 +4885,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             onRun: { [weak self] state in
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
+
+                if let request = state.pendingViralReconRequest {
+                    let service: ViralReconWorkflowExecutionService
+                    if AppUITestConfiguration.current.isEnabled,
+                       AppUITestConfiguration.current.backendMode == .deterministic {
+                        service = ViralReconWorkflowExecutionService(processRunner: AppUITestViralReconWorkflowProcessRunner())
+                    } else {
+                        service = ViralReconWorkflowExecutionService()
+                    }
+                    let bundleRoot = currentProjectURL?
+                        .appendingPathComponent("Analyses", isDirectory: true)
+                        ?? request.outputDirectory.deletingLastPathComponent()
+                    Task {
+                        do {
+                            _ = try await service.run(request, bundleRoot: bundleRoot)
+                        } catch {
+                            debugLog("showFASTQOperationsDialog: Viral Recon failed to start: \(String(describing: error))")
+                        }
+                    }
+                    return
+                }
 
                 if let request = state.pendingMappingRequest {
                     self.runManagedMapping(request: request)
@@ -8459,5 +8459,23 @@ private enum NvdImportError: Error, LocalizedError {
         case .csvNotFound(let msg): return "NVD CSV not found: \(msg)"
         case .bundleCreationFailed(let msg): return "Failed to create NVD bundle: \(msg)"
         }
+    }
+}
+
+@MainActor
+private struct AppUITestViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> ViralReconWorkflowProcessResult {
+        AppUITestConfiguration.current.appendEvent("viralrecon.cli.invoked \(arguments.joined(separator: " "))")
+        outputHandler?(.standardOutput("deterministic Viral Recon completed"))
+        return ViralReconWorkflowProcessResult(
+            exitCode: 0,
+            standardOutput: "deterministic Viral Recon completed",
+            standardError: "",
+            didStreamOutput: true
+        )
     }
 }

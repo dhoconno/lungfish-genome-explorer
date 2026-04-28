@@ -2,53 +2,53 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class NFCoreRunRequestTests: XCTestCase {
-    func testRequestBuildsNextflowArgumentsAndManifestForCuratedWorkflow() throws {
-        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "fetchngs"))
+    func testRequestBuildsNextflowArgumentsAndManifestForViralRecon() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let request = NFCoreRunRequest(
             workflow: workflow,
-            version: "1.13.0",
+            version: "3.0.1",
             executor: .docker,
             inputURLs: [URL(fileURLWithPath: "/tmp/samples ids.csv")],
             outputDirectory: URL(fileURLWithPath: "/tmp/results"),
-            params: ["genome": "GRCh38"]
+            params: ["platform": "illumina"]
         )
 
-        XCTAssertEqual(request.displayTitle, "Run nf-core/fetchngs")
+        XCTAssertEqual(request.displayTitle, "Run nf-core/viralrecon")
         XCTAssertEqual(
             request.nextflowArguments,
             [
-                "run", "nf-core/fetchngs",
-                "-r", "1.13.0",
+                "run", "nf-core/viralrecon",
+                "-r", "3.0.1",
                 "-profile", "docker",
-                "--genome", "GRCh38",
                 "--input", "/tmp/samples ids.csv",
                 "--outdir", "/tmp/results",
+                "--platform", "illumina",
             ]
         )
 
         let manifest = request.manifest(createdAt: Date(timeIntervalSince1970: 0))
-        XCTAssertEqual(manifest.workflowName, "fetchngs")
+        XCTAssertEqual(manifest.workflowName, "viralrecon")
         XCTAssertEqual(manifest.workflowPinnedVersion, workflow.pinnedVersion)
         XCTAssertEqual(manifest.params["input"], "/tmp/samples ids.csv")
         XCTAssertEqual(manifest.params["outdir"], "/tmp/results")
+        XCTAssertEqual(manifest.params["platform"], "illumina")
         XCTAssertEqual(manifest.outputDirectoryName, "results")
-        XCTAssertTrue(manifest.commandPreview.contains("nextflow run nf-core/fetchngs"))
+        XCTAssertTrue(manifest.commandPreview.contains("nextflow run nf-core/viralrecon"))
     }
 
-    func testRequestCanRepresentHardFutureWorkflowWithoutGenericDialogAssumptions() throws {
-        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "scrnaseq"))
+    func testRequestCanRepresentViralReconCustomAdapterPresentation() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "nf-core/viralrecon"))
         let request = NFCoreRunRequest(
             workflow: workflow,
             version: "",
             executor: .conda,
-            inputURLs: [],
-            outputDirectory: URL(fileURLWithPath: "/tmp/scrna"),
-            params: ["input": "/tmp/samplesheet.csv"],
-            presentationMode: .customAdapter("single-cell-matrix")
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/viralrecon"),
+            presentationMode: .customAdapter("viralrecon")
         )
 
-        XCTAssertEqual(request.presentationMode, .customAdapter("single-cell-matrix"))
-        XCTAssertEqual(Array(request.nextflowArguments.prefix(4)), ["run", "nf-core/scrnaseq", "-r", workflow.pinnedVersion])
+        XCTAssertEqual(request.presentationMode, .customAdapter("viralrecon"))
+        XCTAssertEqual(Array(request.nextflowArguments.prefix(4)), ["run", "nf-core/viralrecon", "-r", workflow.pinnedVersion])
         XCTAssertTrue(request.nextflowArguments.contains("-profile"))
         XCTAssertTrue(request.nextflowArguments.contains("conda"))
         XCTAssertTrue(request.nextflowArguments.contains("--input"))

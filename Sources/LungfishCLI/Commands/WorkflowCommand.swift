@@ -39,15 +39,17 @@ struct RunSubcommand: AsyncParsableCommand {
         discussion: """
             Run a Nextflow or Snakemake workflow with the specified parameters.
             Workflows are executed using Apple Containerization (macOS 26+).
+            The only built-in nf-core workflow supported by this command is
+            nf-core/viralrecon, also accepted as viralrecon.
 
             Examples:
               lungfish workflow run pipeline.nf --param reads=data/*.fastq.gz
               lungfish workflow run Snakefile --cpus 8 --memory 16.GB
-              lungfish workflow run nf-core/rnaseq --params-file params.json
+              lungfish workflow run nf-core/viralrecon --input samplesheet.csv --param platform=illumina
             """
     )
 
-    @Argument(help: "Workflow file (*.nf, Snakefile) or nf-core pipeline name")
+    @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String
 
     @Option(
@@ -174,6 +176,20 @@ struct RunSubcommand: AsyncParsableCommand {
             }
         }
 
+        let isViralReconWorkflow = Self.normalizedViralReconWorkflowName(workflow) != nil
+        if workflow.contains("nf-core") || isViralReconWorkflow {
+            _ = try validateViralReconWorkflowName()
+            if timeout != nil {
+                throw CLIError.workflowFailed(reason: "--timeout is not supported for nf-core/viralrecon runs yet")
+            }
+            if let cpus {
+                workflowParams["max_cpus"] = String(cpus)
+            }
+            if let memory {
+                workflowParams["max_memory"] = memory
+            }
+        }
+
         if dryRun {
             print(formatter.info("Dry run - workflow would execute with:"))
             print("  Workflow: \(workflow)")
@@ -191,10 +207,10 @@ struct RunSubcommand: AsyncParsableCommand {
 
         // Determine workflow type
         let workflowURL = URL(fileURLWithPath: workflow)
-        let isNextflow = workflowURL.pathExtension == "nf" || workflow.contains("nf-core")
+        let isNextflow = workflowURL.pathExtension == "nf" || workflow.contains("nf-core") || isViralReconWorkflow
         let isSnakemake = workflowURL.lastPathComponent.lowercased().contains("snakefile")
 
-        if workflow.contains("nf-core") {
+        if workflow.contains("nf-core") || isViralReconWorkflow {
             try await runNFCoreWorkflow(
                 workflowParams: workflowParams,
                 formatter: formatter
@@ -219,11 +235,12 @@ struct RunSubcommand: AsyncParsableCommand {
         workflowParams: [String: String],
         formatter: TerminalFormatter
     ) async throws {
-        guard let supportedWorkflow = NFCoreSupportedWorkflowCatalog.workflow(named: workflow) else {
+        let normalizedWorkflow = try validateViralReconWorkflowName()
+        guard let supportedWorkflow = NFCoreSupportedWorkflowCatalog.workflow(named: normalizedWorkflow) else {
             throw CLIError.workflowFailed(reason: "Unsupported nf-core workflow: \(workflow)")
         }
-        guard !input.isEmpty else {
-            throw CLIError.workflowFailed(reason: "At least one --input file is required for nf-core workflows")
+        guard input.count == 1 else {
+            throw CLIError.workflowFailed(reason: "Exactly one --input samplesheet is required for nf-core/viralrecon")
         }
 
         let inputURLs = input.map { URL(fileURLWithPath: $0).standardizedFileURL }
@@ -238,7 +255,9 @@ struct RunSubcommand: AsyncParsableCommand {
             executor: executor,
             inputURLs: inputURLs,
             outputDirectory: outputURL,
-            params: workflowParams
+            params: workflowParams,
+            resume: resume,
+            workDirectory: workDir.map { URL(fileURLWithPath: $0) }
         )
         let runBundleURL = try resolveRunBundleURL(workflowName: supportedWorkflow.name)
         try NFCoreRunBundleStore.write(request.manifest(), to: runBundleURL)
@@ -261,6 +280,22 @@ struct RunSubcommand: AsyncParsableCommand {
             throw CLIError.workflowFailed(reason: "Nextflow exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)")
         }
         print(runBundleURL.path)
+    }
+
+    func validateViralReconWorkflowName() throws -> String {
+        guard let normalized = Self.normalizedViralReconWorkflowName(workflow) else {
+            throw CLIError.workflowFailed(reason: "Unsupported nf-core workflow: \(workflow). Only nf-core/viralrecon is supported.")
+        }
+        return normalized
+    }
+
+    private static func normalizedViralReconWorkflowName(_ workflow: String) -> String? {
+        switch workflow.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "viralrecon", "nf-core/viralrecon":
+            return "viralrecon"
+        default:
+            return nil
+        }
     }
 
     private func resolveRunBundleURL(workflowName: String) throws -> URL {
@@ -337,12 +372,12 @@ private struct NFCoreWorkflowProcessResult {
 struct ListSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List available workflows and pipelines"
+        abstract: "List available workflows"
     )
 
     @Flag(
         name: .customLong("nf-core"),
-        help: "List nf-core pipelines"
+        help: "List the supported nf-core Viral Recon pipeline"
     )
     var nfCore: Bool = false
 
@@ -352,12 +387,12 @@ struct ListSubcommand: AsyncParsableCommand {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         if nfCore {
-            print(formatter.header("Supported nf-core Pipelines"))
-            for workflow in NFCoreSupportedWorkflowCatalog.firstWave {
+            print(formatter.header("Supported nf-core Pipeline"))
+            if let workflow = NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon") {
                 print("  \(formatter.colored(workflow.fullName, .cyan)): \(workflow.description)")
             }
         } else {
-            print(formatter.info("Use --nf-core to list nf-core pipelines"))
+            print(formatter.info("Use --nf-core to list the supported nf-core Viral Recon pipeline"))
             print(formatter.info("Or provide a local workflow file path to 'workflow run'"))
         }
     }

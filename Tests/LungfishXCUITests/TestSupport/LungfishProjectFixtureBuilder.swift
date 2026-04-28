@@ -196,6 +196,32 @@ enum LungfishProjectFixtureBuilder {
         )
     }
 
+    static func makeViralReconIlluminaProject(named name: String = "ViralReconIlluminaFixture") throws -> URL {
+        let projectURL = try makeViralReconProjectScaffold(named: name)
+        try writeViralReconIlluminaBundle(projectURL: projectURL, sampleName: "SampleA")
+        try writeViralReconIlluminaBundle(projectURL: projectURL, sampleName: "SampleB")
+        try writeViralReconPrimerScheme(projectURL: projectURL)
+        return projectURL
+    }
+
+    static func makeViralReconONTProject(named name: String = "ViralReconONTFixture") throws -> URL {
+        let projectURL = try makeViralReconProjectScaffold(named: name)
+        try writeViralReconONTBundle(
+            projectURL: projectURL,
+            bundleName: "Barcode01",
+            sampleName: "Barcode01",
+            barcode: "barcode01"
+        )
+        try writeViralReconONTBundle(
+            projectURL: projectURL,
+            bundleName: "Barcode02",
+            sampleName: "Barcode02",
+            barcode: "barcode02"
+        )
+        try writeViralReconPrimerScheme(projectURL: projectURL)
+        return projectURL
+    }
+
     static func makePacBioHiFiAssemblyProject(named name: String = "HiFiAssemblyFixture") throws -> URL {
         try makeProject(
             named: name,
@@ -426,6 +452,192 @@ enum LungfishProjectFixtureBuilder {
         default:
             return []
         }
+    }
+
+    // MARK: - Viral Recon helpers
+
+    private static func makeViralReconProjectScaffold(named name: String) throws -> URL {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-xcui-project-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectURL = root.appendingPathComponent("\(name).lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            at: projectURL.appendingPathComponent("Primer Schemes", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try writeProjectMetadata(to: projectURL, name: name)
+        return projectURL
+    }
+
+    private static func writeViralReconIlluminaBundle(projectURL: URL, sampleName: String) throws {
+        let fileManager = FileManager.default
+        let bundleURL = projectURL.appendingPathComponent("\(sampleName).lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let r1 = bundleURL.appendingPathComponent("\(sampleName)_R1.fastq.gz")
+        let r2 = bundleURL.appendingPathComponent("\(sampleName)_R2.fastq.gz")
+        try fileManager.copyItem(
+            at: LungfishFixtureCatalog.sarscov2.appendingPathComponent("test_1.fastq.gz"),
+            to: r1
+        )
+        try fileManager.copyItem(
+            at: LungfishFixtureCatalog.sarscov2.appendingPathComponent("test_2.fastq.gz"),
+            to: r2
+        )
+
+        try writeFASTQSidecar(for: r1, assemblyReadType: "illuminaShortReads", platform: "illumina")
+        try writeFASTQSidecar(for: r2, assemblyReadType: "illuminaShortReads", platform: "illumina")
+        try writeFASTQMetadataCSV(
+            to: bundleURL,
+            rows: [
+                ("sample_name", sampleName),
+                ("sequencing_platform", "illumina"),
+            ]
+        )
+        try writeSourceFilesManifest(for: bundleURL, fastqURLs: [r1, r2])
+    }
+
+    private static func writeViralReconONTBundle(
+        projectURL: URL,
+        bundleName: String,
+        sampleName: String,
+        barcode: String
+    ) throws {
+        let fileManager = FileManager.default
+        let bundleURL = projectURL.appendingPathComponent("\(bundleName).lungfishfastq", isDirectory: true)
+        try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let reads = bundleURL.appendingPathComponent("reads.fastq")
+        try fileManager.copyItem(
+            at: LungfishFixtureCatalog.assemblyUI.appendingPathComponent("ont/reads.fastq"),
+            to: reads
+        )
+
+        try writeFASTQSidecar(for: reads, assemblyReadType: "ontReads", platform: "oxfordNanopore")
+        try writeFASTQMetadataCSV(
+            to: bundleURL,
+            rows: [
+                ("sample_name", sampleName),
+                ("sequencing_platform", "ont"),
+                ("barcode", barcode),
+            ]
+        )
+        try """
+        filename\tread_id
+        reads.fastq\t\(sampleName)-read-1
+        """.write(
+            to: bundleURL.appendingPathComponent("sequencing_summary.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private static func writeViralReconPrimerScheme(projectURL: URL) throws {
+        let schemeURL = projectURL
+            .appendingPathComponent("Primer Schemes", isDirectory: true)
+            .appendingPathComponent("A-UI-ViralRecon-SARS2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: schemeURL, withIntermediateDirectories: true)
+
+        let manifest: [String: Any] = [
+            "schema_version": 1,
+            "name": "a-ui-viralrecon-sars2",
+            "display_name": "A UI Viral Recon Project Scheme",
+            "description": "Deterministic SARS-CoV-2 primer scheme for Viral Recon UI tests.",
+            "organism": "Severe acute respiratory syndrome coronavirus 2",
+            "reference_accessions": [
+                ["accession": "MN908947.3", "canonical": true],
+                ["accession": "NC_045512.2", "equivalent": true],
+            ],
+            "primer_count": 2,
+            "amplicon_count": 1,
+            "source": "ui-test",
+            "version": "0.1.0",
+            "created": "2026-04-28T00:00:00Z",
+        ]
+        try writeJSONObject(manifest, to: schemeURL.appendingPathComponent("manifest.json"))
+        try """
+        # A UI Viral Recon Project Scheme
+
+        Deterministic SARS-CoV-2 primer scheme fixture for Viral Recon UI tests.
+        """.write(
+            to: schemeURL.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(
+            to: schemeURL.appendingPathComponent("primers.bed"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        >amplicon_1_LEFT
+        AAAA
+        >amplicon_1_RIGHT
+        CCCC
+        """.write(
+            to: schemeURL.appendingPathComponent("primers.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private static func writeFASTQSidecar(
+        for fastqURL: URL,
+        assemblyReadType: String,
+        platform: String
+    ) throws {
+        let metadata: [String: Any] = [
+            "assemblyReadType": assemblyReadType,
+            "sequencingPlatform": platform,
+        ]
+        try writeJSONObject(metadata, to: fastqURL.appendingPathExtension("lungfish-meta.json"))
+    }
+
+    private static func writeFASTQMetadataCSV(to bundleURL: URL, rows: [(String, String)]) throws {
+        var lines = ["key,value"]
+        lines += rows.map { "\($0.0),\($0.1)" }
+        try (lines.joined(separator: "\n") + "\n").write(
+            to: bundleURL.appendingPathComponent("metadata.csv"),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    private static func writeSourceFilesManifest(for bundleURL: URL, fastqURLs: [URL]) throws {
+        let entries: [[String: Any]] = try fastqURLs.map { fastqURL in
+            [
+                "filename": fastqURL.lastPathComponent,
+                "originalPath": fastqURL.path,
+                "sizeBytes": try fileSize(at: fastqURL),
+                "isSymlink": false,
+            ]
+        }
+        try writeJSONObject(
+            [
+                "version": 1,
+                "files": entries,
+            ],
+            to: bundleURL.appendingPathComponent("source-files.json")
+        )
+    }
+
+    private static func fileSize(at url: URL) throws -> Int64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        return (attributes[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private static func writeJSONObject(_ value: Any, to url: URL) throws {
+        let data = try JSONSerialization.data(
+            withJSONObject: value,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - Primer-trim helpers

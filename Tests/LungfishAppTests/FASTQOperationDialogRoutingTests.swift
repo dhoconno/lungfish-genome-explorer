@@ -539,8 +539,274 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testMappingCategoryExposesAllV1Mappers() {
         XCTAssertEqual(
             FASTQOperationDialogState.toolIDs(for: .mapping),
-            [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         )
+    }
+
+    func testViralReconAppearsInMappingTools() {
+        let mappingTools = FASTQOperationDialogState.toolIDs(for: .mapping)
+
+        XCTAssertTrue(mappingTools.contains(.viralRecon))
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .mapping)
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.title, "Viral Recon")
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.subtitle, "Run SARS-CoV-2 viral consensus and variant analysis.")
+        XCTAssertTrue(FASTQOperationToolID.viralRecon.usesEmbeddedConfiguration)
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.embeddedReadinessText, "Complete the viral recon settings to continue.")
+    }
+
+    func testViralReconPendingRequestControlsRunReadiness() throws {
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/A.lungfishfastq")]
+        )
+        state.selectTool(.viralRecon)
+
+        XCTAssertFalse(state.isRunEnabled)
+        state.captureViralReconRequest(try ViralReconAppTestFixtures.illuminaRequest(root: URL(fileURLWithPath: "/tmp")))
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertNotNil(state.pendingViralReconRequest)
+    }
+
+    func testViralReconPlatformOverrideDoesNotMaskMixedDetectedPlatforms() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconPlatformOverride-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let illuminaFASTQ = root.appendingPathComponent("illumina.fastq")
+        let nanoporeFASTQ = root.appendingPathComponent("nanopore.fastq")
+        try """
+        @A00488:17:H7WFLDMXX:1:1101:10000:1000 1:N:0:ATCACG
+        ACGT
+        +
+        !!!!
+        """.write(to: illuminaFASTQ, atomically: true, encoding: .utf8)
+        try """
+        @9b50942a-4ec6-48d2-8f3b-4ff4f63cb17a runid=2de0f6d4 sampleid=sample1 read=1 ch=12 start_time=2024-01-01T00:00:00Z flow_cell_id=FLO-MIN114
+        ACGT
+        +
+        !!!!
+        """.write(to: nanoporeFASTQ, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try ViralReconWizardInputPolicy.resolveInputs(
+                [illuminaFASTQ, nanoporeFASTQ],
+                platformOverride: .illumina
+            )
+        ) { error in
+            XCTAssertEqual(error as? ViralReconInputResolver.ResolveError, .mixedPlatforms)
+        }
+    }
+
+    func testViralReconPrimerCompatibilityRejectsIncompatibleGenomeAccession() {
+        let manifest = PrimerSchemeManifest(
+            schemaVersion: 1,
+            name: "qia-seq-direct-sars2",
+            displayName: "QIASeq DIRECT SARS-CoV-2",
+            referenceAccessions: [
+                PrimerSchemeManifest.ReferenceAccession(accession: "MN908947.3", canonical: true),
+                PrimerSchemeManifest.ReferenceAccession(accession: "NC_045512.2", equivalent: true),
+            ],
+            primerCount: 2,
+            ampliconCount: 1
+        )
+
+        XCTAssertThrowsError(
+            try ViralReconWizardPrimerCompatibility.validateGenomeAccession(
+                "MT192765.1",
+                manifest: manifest
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ViralReconWizardPrimerCompatibility.ValidationError,
+                .unknownAccession(requested: "MT192765.1", known: ["MN908947.3", "NC_045512.2"])
+            )
+        }
+    }
+
+    func testViralReconGenomePrimerDerivationKeepsBedAlignedToGenomeAccession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconGenomePrimerDerivation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let primerBundle = root.appendingPathComponent("sars2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primerBundle, withIntermediateDirectories: true)
+        let manifestData = try JSONEncoder().encode(Self.sarsCoV2PrimerManifest())
+        try manifestData.write(to: primerBundle.appendingPathComponent("manifest.json"))
+        try "Test primer scheme\n".write(
+            to: primerBundle.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+
+        let referenceFASTA = root.appendingPathComponent("local-reference.fasta")
+        try """
+        >NC_045512.2 local SARS-CoV-2 sequence source
+        AAAACCCCGGGGTTTT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let selection = try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
+            primerBundleURL: primerBundle,
+            sourceReferenceFASTAURL: referenceFASTA,
+            genomeAccession: "  MN908947.3  ",
+            destinationDirectory: root
+        )
+
+        XCTAssertTrue(selection.derivedFasta)
+        let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
+        XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
+        XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
+        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wizardSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(wizardSource.contains("genomeAccession: genomeReferenceName ?? genomeAccession"))
+    }
+
+    func testViralReconBundledPrimerFastaKeepsBedAlignedToEquivalentGenomeAccession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconBundledPrimerFasta-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let primerBundle = root.appendingPathComponent("sars2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primerBundle, withIntermediateDirectories: true)
+        let manifestData = try JSONEncoder().encode(Self.sarsCoV2PrimerManifest())
+        try manifestData.write(to: primerBundle.appendingPathComponent("manifest.json"))
+        try "Test primer scheme\n".write(
+            to: primerBundle.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+        try """
+        >amplicon_1_LEFT
+        AAAA
+        >amplicon_1_RIGHT
+        CCCC
+        """.write(to: primerBundle.appendingPathComponent("primers.fasta"), atomically: true, encoding: .utf8)
+
+        let selection = try ViralReconWizardPrimerStaging.stageBundledGenomePrimerSelection(
+            primerBundleURL: primerBundle,
+            genomeAccession: "NC_045512.2",
+            destinationDirectory: root
+        )
+
+        XCTAssertFalse(selection.derivedFasta)
+        let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
+        XCTAssertTrue(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
+        XCTAssertFalse(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let wizardSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(wizardSource.contains("stageBundledGenomePrimerSelection"))
+    }
+
+    func testViralReconReadinessRejectsBlankGenomeBeforeRun() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "  "),
+                primerRequiresLocalReference: false,
+                hasSelectedLocalReference: false
+            )
+        )
+
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(evaluation.message, "Enter a SARS-CoV-2 genome accession.")
+    }
+
+    func testViralReconReadinessRejectsIncompatibleGenomeBeforeRun() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "MT192765.1"),
+                primerRequiresLocalReference: false,
+                hasSelectedLocalReference: false
+            )
+        )
+
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(
+            evaluation.message,
+            "MT192765.1 is not compatible with this SARS-CoV-2 primer scheme. Expected MN908947.3, NC_045512.2."
+        )
+    }
+
+    func testViralReconReadinessStopsPromptingForPrimerDerivedReferenceAfterSelection() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "MN908947.3"),
+                primerRequiresLocalReference: true,
+                hasSelectedLocalReference: true
+            )
+        )
+
+        XCTAssertTrue(evaluation.canRun)
+        XCTAssertEqual(evaluation.message, "Ready to run Viral Recon.")
+    }
+
+    func testViralReconBuildFailureDoesNotForceParentReadinessFalse() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("onRunnerAvailabilityChange(false)"))
+        XCTAssertTrue(source.contains("onRunnerAvailabilityChange(canRun)"))
+        XCTAssertTrue(source.contains(".onChange(of: buildErrorRecoveryKey)"))
+        XCTAssertTrue(source.contains("clearBuildError()"))
     }
 
     func testMinimap2UsesGenericEmbeddedReadinessText() {
@@ -984,6 +1250,22 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(stateSource.contains("var embeddedRunTrigger"))
     }
 
+    func testDialogRunsWhenEmbeddedViralReconRequestIsCaptured() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let dialogSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(dialogSource.contains(".onChange(of: state.pendingViralReconRequest)"))
+        XCTAssertTrue(dialogSource.contains("state.selectedToolID == .viralRecon"))
+        XCTAssertTrue(dialogSource.contains("request != nil"))
+        XCTAssertTrue(dialogSource.contains("onRun()"))
+    }
+
     func testOperationsDialogRoutesCurrentWindowProjectIntoDialogState() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1076,6 +1358,20 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Tests/Fixtures/sarscov2/test_1.fastq.gz")
+    }
+
+    private static func sarsCoV2PrimerManifest() -> PrimerSchemeManifest {
+        PrimerSchemeManifest(
+            schemaVersion: 1,
+            name: "qia-seq-direct-sars2",
+            displayName: "QIASeq DIRECT SARS-CoV-2",
+            referenceAccessions: [
+                PrimerSchemeManifest.ReferenceAccession(accession: "MN908947.3", canonical: true),
+                PrimerSchemeManifest.ReferenceAccession(accession: "NC_045512.2", equivalent: true),
+            ],
+            primerCount: 2,
+            ampliconCount: 1
+        )
     }
 
     private func makeFASTQBundle(

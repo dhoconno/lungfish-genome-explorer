@@ -8,7 +8,7 @@ final class AboutAcknowledgementsTests: XCTestCase {
         let sections = AboutAcknowledgements.currentSections()
         let expectedTitles = ["Bundled Bootstrap", PluginPack.requiredSetupPack.name]
             + PluginPack.activeOptionalPacks.map(\.name)
-            + ["Supported nf-core Workflows"]
+            + ["Workflow Credits"]
 
         XCTAssertEqual(sections.map(\.title), expectedTitles)
 
@@ -75,15 +75,14 @@ final class AboutAcknowledgementsTests: XCTestCase {
         XCTAssertFalse(entryIDs.contains("nao-mgs"))
     }
 
-    func testCurrentSectionsAcknowledgeCuratedNFCoreWorkflows() throws {
+    func testCurrentSectionsAcknowledgeViralReconWithoutGenericNFCoreSection() throws {
         let sections = AboutAcknowledgements.currentSections()
-        let nfCore = try XCTUnwrap(sections.first(where: { $0.title == "Supported nf-core Workflows" }))
+        XCTAssertNil(sections.first(where: { $0.title == "Supported nf-core Workflows" }))
 
-        XCTAssertEqual(nfCore.entries.first?.id, "nf-core-fetchngs")
-        XCTAssertTrue(nfCore.entries.map(\.id).contains("nf-core-viralrecon"))
-        XCTAssertTrue(nfCore.entries.map(\.id).contains("nf-core-vipr"))
+        let workflowCredits = try XCTUnwrap(sections.first(where: { $0.title == "Workflow Credits" }))
+        XCTAssertEqual(workflowCredits.entries.map(\.id), ["nf-core-viralrecon"])
 
-        let viralrecon = try XCTUnwrap(nfCore.entries.first(where: { $0.id == "nf-core-viralrecon" }))
+        let viralrecon = try XCTUnwrap(workflowCredits.entries.first(where: { $0.id == "nf-core-viralrecon" }))
         XCTAssertEqual(viralrecon.displayName, "nf-core/viralrecon")
         XCTAssertEqual(viralrecon.detail, "Pinned 3.0.0")
         XCTAssertEqual(viralrecon.secondaryDetail, "Easy Nextflow workflow")

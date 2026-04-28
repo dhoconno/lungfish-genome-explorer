@@ -79,14 +79,13 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(callVariantsItem.identifier?.rawValue, MainMenuAccessibilityID.callVariants)
     }
 
-    func testToolsMenuExposesNFCoreWorkflowsAsDistinctWorkflowSurface() throws {
+    func testToolsMenuOmitsGenericNFCoreWorkflowSurface() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let nfCoreItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "nf-core Workflows…" }))
 
-        XCTAssertEqual(nfCoreItem.action, #selector(AppDelegate.showNFCoreWorkflows(_:)))
-        XCTAssertEqual(nfCoreItem.identifier?.rawValue, MainMenuAccessibilityID.nfCoreWorkflows)
+        XCTAssertNil(toolsMenu.items.first(where: { $0.title == "nf-core Workflows…" }))
+        XCTAssertFalse(toolsMenu.items.contains { $0.identifier?.rawValue == "tools-menu-nf-core-workflows" })
     }
 
     func testFASTQFASTAOperationsMenuIncludesSequenceTransformActions() throws {

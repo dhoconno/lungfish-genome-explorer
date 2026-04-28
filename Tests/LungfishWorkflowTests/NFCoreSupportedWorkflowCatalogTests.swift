@@ -2,44 +2,25 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class NFCoreSupportedWorkflowCatalogTests: XCTestCase {
-    func testFirstWaveWorkflowsAreCuratedAsEasyAndGenericAdapterCompatible() {
-        let expectedNames = [
-            "fetchngs",
-            "bamtofastq",
-            "fastqrepair",
-            "seqinspector",
-            "references",
-            "nanoseq",
-            "viralrecon",
-        ]
+    func testSupportedWorkflowCatalogExposesOnlyViralRecon() {
+        XCTAssertEqual(NFCoreSupportedWorkflowCatalog.supportedWorkflows.map(\.name), ["viralrecon"])
+        XCTAssertEqual(NFCoreSupportedWorkflowCatalog.firstWave.map(\.name), ["viralrecon"])
+        XCTAssertTrue(NFCoreSupportedWorkflowCatalog.legacyWorkflows.isEmpty)
+        XCTAssertTrue(NFCoreSupportedWorkflowCatalog.futureCustomInterfaceWorkflows.isEmpty)
 
-        XCTAssertEqual(NFCoreSupportedWorkflowCatalog.firstWave.map(\.name), expectedNames)
-
-        for workflow in NFCoreSupportedWorkflowCatalog.firstWave {
-            XCTAssertEqual(workflow.difficulty, .easy, "\(workflow.fullName) should be first-wave easy")
-            XCTAssertFalse(workflow.resultSurfaces.isEmpty, "\(workflow.fullName) should declare result surfaces")
-            XCTAssertTrue(
-                workflow.supportedAdapterIDs.contains("generic-report"),
-                "\(workflow.fullName) should always support the generic report adapter"
-            )
-        }
+        let workflow = NFCoreSupportedWorkflowCatalog.supportedWorkflows[0]
+        XCTAssertEqual(workflow.fullName, "nf-core/viralrecon")
+        XCTAssertEqual(workflow.pinnedVersion, "3.0.0")
+        XCTAssertEqual(workflow.difficulty, .easy)
+        XCTAssertTrue(workflow.resultSurfaces.contains(.variantTracks))
+        XCTAssertEqual(workflow.supportedAdapterIDs, ["viralrecon"])
     }
 
-    func testCatalogKeepsCustomInterfaceWorkflowsRepresentableForFutureAdapters() {
-        let scrnaseq = NFCoreSupportedWorkflowCatalog.workflow(named: "scrnaseq")
-
-        XCTAssertEqual(scrnaseq?.difficulty, .hard)
-        XCTAssertEqual(scrnaseq?.resultSurfaces, [.singleCell])
-        XCTAssertEqual(scrnaseq?.supportedAdapterIDs, ["generic-report"])
-    }
-
-    func testLegacyWorkflowsStayLookupableWithoutAppearingInFirstWave() {
-        XCTAssertFalse(NFCoreSupportedWorkflowCatalog.firstWave.map(\.name).contains("vipr"))
-        XCTAssertEqual(NFCoreSupportedWorkflowCatalog.legacyWorkflows.map(\.name), ["vipr"])
-
-        let workflow = NFCoreSupportedWorkflowCatalog.workflow(named: "nf-core/vipr")
-        XCTAssertEqual(workflow?.name, "vipr")
-        XCTAssertEqual(workflow?.isLegacy, true)
+    func testUnsupportedGenericNFCoreWorkflowsAreNotLookupable() {
+        XCTAssertNil(NFCoreSupportedWorkflowCatalog.workflow(named: "fetchngs"))
+        XCTAssertNil(NFCoreSupportedWorkflowCatalog.workflow(named: "nf-core/seqinspector"))
+        XCTAssertNil(NFCoreSupportedWorkflowCatalog.workflow(named: "scrnaseq"))
+        XCTAssertNil(NFCoreSupportedWorkflowCatalog.workflow(named: "vipr"))
     }
 
     func testWorkflowLookupAcceptsFullNFCoreNames() {

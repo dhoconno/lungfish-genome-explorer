@@ -117,7 +117,6 @@ enum MainMenuAccessibilityID {
     static let clearTemporaryFiles = "file-menu-clear-temporary-files"
 
     static let callVariants = "tools-menu-call-variants"
-    static let nfCoreWorkflows = "tools-menu-nf-core-workflows"
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"
     static let setWindowSize = "window-menu-set-size"
@@ -130,24 +129,15 @@ enum MainMenuAccessibilityID {
     static let reportIssue = "help-menu-report-issue"
 }
 
-enum NFCoreWorkflowAccessibilityID {
-    static let window = "nf-core-workflow-dialog"
-    static let workflowList = "nf-core-workflow-list"
-    static let workflowPicker = "nf-core-workflow-picker"
-    static let detailTitle = "nf-core-workflow-detail-title"
-    static let usageText = "nf-core-workflow-usage"
-    static let fetchngsUsageText = "nf-core-fetchngs-usage"
-    static let requiredInputsText = "nf-core-required-inputs"
-    static let expectedOutputsText = "nf-core-expected-outputs"
-    static let versionLabel = "nf-core-version-label"
-    static let executorPicker = "nf-core-executor-picker"
-    static let versionField = "nf-core-version-field"
-    static let parameterStack = "nf-core-parameter-stack"
-    static let commandPreview = "nf-core-command-preview"
-    static let inputTable = "nf-core-input-table"
-    static let selectAllButton = "nf-core-select-all-inputs"
-    static let clearButton = "nf-core-clear-inputs"
-    static let runButton = "nf-core-run-button"
-    static let cancelButton = "nf-core-cancel-button"
-    static let statusLabel = "nf-core-status-label"
+enum ViralReconAccessibilityID {
+    static let root = "viral-recon-root"
+    static let inputSummary = "viral-recon-input-summary"
+    static let platformPicker = "viral-recon-platform-picker"
+    static let primerPicker = "viral-recon-primer-picker"
+    static let referenceModePicker = "viral-recon-reference-mode-picker"
+    static let genomeField = "viral-recon-genome-field"
+    static let referencePicker = "viral-recon-reference-picker"
+    static let executorPicker = "viral-recon-executor-picker"
+    static let versionField = "viral-recon-version-field"
+    static let readinessLabel = "viral-recon-readiness-label"
 }

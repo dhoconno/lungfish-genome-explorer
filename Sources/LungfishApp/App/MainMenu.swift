@@ -698,15 +698,6 @@ public final class MainMenu {
 
         toolsMenu.addItem(.separator())
 
-        let nfCoreItem = toolsMenu.addItem(
-            withTitle: "nf-core Workflows\u{2026}",
-            action: #selector(ToolsMenuActions.showNFCoreWorkflows(_:)),
-            keyEquivalent: ""
-        )
-        nfCoreItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.nfCoreWorkflows)
-
-        toolsMenu.addItem(.separator())
-
         // Online databases
         let searchDatabasesItem = NSMenuItem(title: "Search Online Databases...", action: nil, keyEquivalent: "")
         let searchDatabasesMenu = NSMenu(title: "Search Online Databases")
@@ -997,7 +988,6 @@ public final class MainMenu {
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
     func showBAMVariantCalling(_ sender: Any?)
-    func showNFCoreWorkflows(_ sender: Any?)
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)

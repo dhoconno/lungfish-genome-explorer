@@ -34,6 +34,8 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
         workflowPinnedVersion: String? = nil,
         appVersion: String? = nil,
         appBuildVersion: String? = nil,
+        resume: Bool = false,
+        workDirectory: URL? = nil,
         createdAt: Date = Date()
     ) {
         self.schemaVersion = Self.schemaVersion
@@ -53,6 +55,8 @@ public struct NFCoreRunBundleManifest: Codable, Sendable, Equatable {
             workflow: workflow,
             version: version,
             executor: executor,
+            resume: resume,
+            workDirectory: workDirectory,
             params: params
         )
         self.createdAt = createdAt
@@ -72,11 +76,20 @@ public enum NFCoreRunCommandBuilder {
         workflow: NFCoreSupportedWorkflow,
         version: String,
         executor: NFCoreExecutor,
+        resume: Bool = false,
+        workDirectory: URL? = nil,
         params: [String: String]
     ) -> String {
         var parts = ["nextflow", "run", workflow.fullName]
         if !version.isEmpty {
             parts += ["-r", version]
+        }
+        if resume {
+            parts.append("-resume")
+        }
+        if let workDirectory {
+            parts.append("-work-dir")
+            parts.append(shellEscaped(workDirectory.path))
         }
         parts += ["-profile", executor.rawValue]
         for key in params.keys.sorted() {

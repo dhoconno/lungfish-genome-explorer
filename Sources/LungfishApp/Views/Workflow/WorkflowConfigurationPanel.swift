@@ -47,7 +47,7 @@ public protocol WorkflowConfigurationPanelDelegate: AnyObject {
 /// A sheet panel for configuring and launching workflow execution.
 ///
 /// `WorkflowConfigurationPanel` provides a complete interface for:
-/// - Selecting a workflow file or browsing nf-core pipelines
+/// - Selecting a workflow file
 /// - Loading and displaying the workflow schema
 /// - Configuring parameters via `ParameterFormView`
 /// - Selecting container runtime preferences
@@ -93,7 +93,6 @@ public class WorkflowConfigurationPanel: NSPanel {
     private var headerView: NSView!
     private var workflowPathControl: NSPathControl!
     private var browseButton: NSButton!
-    private var nfCoreBrowserButton: NSButton!
     private var loadingIndicator: NSProgressIndicator!
     private var loadingLabel: NSTextField!
     private var scrollView: NSScrollView!
@@ -198,14 +197,6 @@ public class WorkflowConfigurationPanel: NSPanel {
         browseButton.setAccessibilityLabel("Browse for workflow file")
         headerView.addSubview(browseButton)
 
-        // nf-core browser button
-        nfCoreBrowserButton = NSButton(title: "nf-core...", target: self, action: #selector(browseNfCore(_:)))
-        nfCoreBrowserButton.translatesAutoresizingMaskIntoConstraints = false
-        nfCoreBrowserButton.bezelStyle = .rounded
-        nfCoreBrowserButton.controlSize = .regular
-        nfCoreBrowserButton.setAccessibilityLabel("Browse nf-core pipelines")
-        headerView.addSubview(nfCoreBrowserButton)
-
         // Loading indicator
         loadingIndicator = NSProgressIndicator()
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -232,11 +223,8 @@ public class WorkflowConfigurationPanel: NSPanel {
             workflowPathControl.topAnchor.constraint(equalTo: headerView.topAnchor, constant: Self.baseSpacing),
             workflowPathControl.trailingAnchor.constraint(equalTo: browseButton.leadingAnchor, constant: -Self.baseSpacing),
 
-            browseButton.trailingAnchor.constraint(equalTo: nfCoreBrowserButton.leadingAnchor, constant: -Self.baseSpacing),
+            browseButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -Self.baseSpacing),
             browseButton.centerYAnchor.constraint(equalTo: workflowPathControl.centerYAnchor),
-
-            nfCoreBrowserButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -Self.baseSpacing),
-            nfCoreBrowserButton.centerYAnchor.constraint(equalTo: workflowPathControl.centerYAnchor),
 
             loadingIndicator.leadingAnchor.constraint(equalTo: workflowPathControl.leadingAnchor),
             loadingIndicator.topAnchor.constraint(equalTo: workflowPathControl.bottomAnchor, constant: 4),
@@ -423,14 +411,6 @@ public class WorkflowConfigurationPanel: NSPanel {
                 self?.setWorkflow(url)
             }
         }
-    }
-
-    @objc private func browseNfCore(_ sender: NSButton) {
-        logger.debug("browseNfCore: Opening nf-core browser")
-
-        // For now, open the nf-core website
-        // TODO: Implement proper nf-core pipeline browser UI
-        NSWorkspace.shared.open(URL(string: "https://nf-co.re/pipelines")!)
     }
 
     @objc private func browseOutput(_ sender: NSButton) {

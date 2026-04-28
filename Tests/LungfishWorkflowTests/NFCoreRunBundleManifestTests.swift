@@ -34,18 +34,18 @@ final class NFCoreRunBundleManifestTests: XCTestCase {
         XCTAssertTrue(roundTrip.commandPreview.contains("-profile docker"))
     }
 
-    func testManifestWritesArtifactFilesExpectedByEndToEndResultImport() throws {
-        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "seqinspector"))
+    func testManifestWritesArtifactFilesExpectedByViralReconResultImport() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("nfcore-artifact-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDirectory) }
 
-        let bundleURL = tempDirectory.appendingPathComponent("seqinspector.lungfishrun", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
         let manifest = NFCoreRunBundleManifest(
             workflow: workflow,
             version: "1.0.0",
             executor: .conda,
-            params: ["input": "reads.fastq.gz"],
+            params: ["input": "samplesheet.csv"],
             outputDirectoryName: "results"
         )
 

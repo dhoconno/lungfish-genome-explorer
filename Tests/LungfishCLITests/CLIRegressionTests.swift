@@ -524,34 +524,162 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertNotNil(WorkflowCommand.configuration.defaultSubcommand)
     }
 
-    func testRunSubcommandParsesNFCoreExecutionOptions() throws {
+    func testRunSubcommandAllowsOnlyViralReconNFCoreWorkflow() throws {
         let command = try RunSubcommand.parse([
-            "nf-core/seqinspector",
+            "nf-core/viralrecon",
             "--executor", "docker",
-            "--input", "/tmp/sample_R1.fastq.gz",
-            "--input", "/tmp/sample_R2.fastq.gz",
+            "--input", "/tmp/samplesheet.csv",
             "--results-dir", "/tmp/results",
-            "--bundle-root", "/tmp/project/Analyses",
-            "--version", "1.2.3",
+            "--bundle-path", "/tmp/viralrecon.lungfishrun",
+            "--version", "3.0.0",
+            "--param", "platform=illumina",
             "--prepare-only",
         ])
 
-        XCTAssertEqual(command.workflow, "nf-core/seqinspector")
-        XCTAssertEqual(command.executor, .docker)
-        XCTAssertEqual(command.input, ["/tmp/sample_R1.fastq.gz", "/tmp/sample_R2.fastq.gz"])
-        XCTAssertEqual(command.resultsDir, "/tmp/results")
-        XCTAssertEqual(command.bundleRoot, "/tmp/project/Analyses")
-        XCTAssertEqual(command.version, "1.2.3")
+        XCTAssertEqual(command.workflow, "nf-core/viralrecon")
+        XCTAssertEqual(command.input, ["/tmp/samplesheet.csv"])
+        XCTAssertEqual(command.version, "3.0.0")
         XCTAssertTrue(command.prepareOnly)
     }
 
+    func testUnsupportedNFCoreWorkflowIsRejected() throws {
+        let command = try RunSubcommand.parse([
+            "nf-core/fetchngs",
+            "--input", "/tmp/accessions.csv",
+            "--prepare-only",
+        ])
+
+        XCTAssertThrowsError(try command.validateViralReconWorkflowName())
+    }
+
+    func testBareViralReconPrepareOnlyWritesRunBundle() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viralrecon-cli-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheet = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,/tmp/S1_R1.fastq.gz,/tmp/S1_R2.fastq.gz\n"
+            .write(to: samplesheet, atomically: true, encoding: .utf8)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "viralrecon",
+            "--executor", "docker",
+            "--input", samplesheet.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--version", "3.0.0",
+            "--param", "platform=illumina",
+            "--param", "protocol=amplicon",
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.workflowName, "viralrecon")
+        XCTAssertEqual(manifest.workflowDisplayName, "nf-core/viralrecon")
+        XCTAssertEqual(manifest.version, "3.0.0")
+        XCTAssertEqual(manifest.workflowPinnedVersion, "3.0.0")
+        XCTAssertEqual(manifest.params["input"], samplesheet.path)
+        XCTAssertEqual(manifest.params["platform"], "illumina")
+        XCTAssertEqual(manifest.params["protocol"], "amplicon")
+        XCTAssertTrue(manifest.commandPreview.contains("nextflow run nf-core/viralrecon -r 3.0.0 -profile docker"))
+        XCTAssertTrue(manifest.commandPreview.contains("--input \(samplesheet.path)"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("logs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("reports").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("outputs").path))
+    }
+
+    func testViralReconRuntimeOptionsAreIncludedInPreparedNextflowCommand() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viralrecon-options-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheet = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,/tmp/S1_R1.fastq.gz,/tmp/S1_R2.fastq.gz\n"
+            .write(to: samplesheet, atomically: true, encoding: .utf8)
+        let workDirectory = tempDirectory.appendingPathComponent("nextflow-work", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "nf-core/viralrecon",
+            "--executor", "docker",
+            "--input", samplesheet.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--resume",
+            "--workdir", workDirectory.path,
+            "--cpus", "8",
+            "--memory", "16.GB",
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.params["max_cpus"], "8")
+        XCTAssertEqual(manifest.params["max_memory"], "16.GB")
+        XCTAssertTrue(manifest.commandPreview.contains("-resume"))
+        XCTAssertTrue(manifest.commandPreview.contains("-work-dir \(workDirectory.path)"))
+        XCTAssertTrue(manifest.commandPreview.contains("--max_cpus 8"))
+        XCTAssertTrue(manifest.commandPreview.contains("--max_memory 16.GB"))
+    }
+
+    func testViralReconTimeoutIsRejectedUntilRunnerSupportsIt() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viralrecon-timeout-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheet = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,/tmp/S1_R1.fastq.gz,/tmp/S1_R2.fastq.gz\n"
+            .write(to: samplesheet, atomically: true, encoding: .utf8)
+
+        let command = try RunSubcommand.parse([
+            "viralrecon",
+            "--input", samplesheet.path,
+            "--timeout", "30",
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected --timeout to be rejected for viralrecon runs")
+        } catch let error as CLIError {
+            XCTAssertEqual(error.exitCode, .workflowError)
+            XCTAssertTrue(error.localizedDescription.contains("--timeout"))
+        }
+    }
+
+    func testRunHelpAdvertisesOnlyViralReconNFCoreWorkflow() {
+        let help = RunSubcommand.helpMessage()
+
+        XCTAssertTrue(help.contains("nf-core/viralrecon"))
+        XCTAssertFalse(help.contains("nf-core/rnaseq"))
+    }
+
+    func testListNFCoreShowsOnlyViralRecon() async throws {
+        let command = try ListSubcommand.parse(["--nf-core"])
+
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("nf-core/viralrecon"))
+        XCTAssertFalse(output.contains("nf-core/fetchngs"))
+        XCTAssertFalse(output.contains("nf-core/seqinspector"))
+    }
+
     func testNFCoreRequestUsesPinnedVersionWhenVersionOmitted() throws {
-        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "seqinspector"))
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
         let request = NFCoreRunRequest(
             workflow: workflow,
             version: "",
             executor: .docker,
-            inputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq.gz")],
+            inputURLs: [URL(fileURLWithPath: "/tmp/samplesheet.csv")],
             outputDirectory: URL(fileURLWithPath: "/tmp/results")
         )
 
@@ -560,6 +688,28 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertTrue(request.nextflowArguments.contains("-r"))
         XCTAssertTrue(request.nextflowArguments.contains(workflow.pinnedVersion))
         XCTAssertTrue(request.cliArguments(bundlePath: URL(fileURLWithPath: "/tmp/run.lungfishrun")).contains(workflow.pinnedVersion))
+    }
+
+    private func captureStandardOutput(_ operation: () async throws -> Void) async throws -> String {
+        let pipe = Pipe()
+        let originalStdout = dup(STDOUT_FILENO)
+        dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+
+        do {
+            try await operation()
+            fflush(stdout)
+            dup2(originalStdout, STDOUT_FILENO)
+            close(originalStdout)
+            pipe.fileHandleForWriting.closeFile()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            fflush(stdout)
+            dup2(originalStdout, STDOUT_FILENO)
+            close(originalStdout)
+            pipe.fileHandleForWriting.closeFile()
+            throw error
+        }
     }
 }
 

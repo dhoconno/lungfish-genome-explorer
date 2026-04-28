@@ -28,6 +28,13 @@ struct FASTQOperationDialog: View {
 
             onRun()
         }
+        .onChange(of: state.pendingViralReconRequest) { _, request in
+            guard state.selectedToolID == .viralRecon, request != nil else {
+                return
+            }
+
+            onRun()
+        }
     }
 
     private var statusText: String {
