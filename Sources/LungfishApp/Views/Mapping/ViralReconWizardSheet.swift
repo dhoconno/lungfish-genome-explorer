@@ -67,18 +67,29 @@ struct ViralReconWizardSheet: View {
         return selectedPrimerOption.bundle.fastaURL == nil
     }
 
+    private var readinessEvaluation: ViralReconWizardReadiness.Evaluation {
+        ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: !inputFiles.isEmpty,
+                effectivePlatform: effectivePlatform,
+                inputError: inputError,
+                primerManifest: selectedPrimerOption?.bundle.manifest,
+                outputRootAvailable: outputRoot != nil,
+                version: version,
+                minimumMappedReads: minimumMappedReads,
+                maxCPUs: maxCPUs,
+                maxMemory: maxMemory,
+                reference: selectedReferenceMode == .sarsCoV2Genome
+                    ? .sarsCoV2Genome(accession: genomeAccession)
+                    : .localFASTA,
+                primerRequiresLocalReference: primerRequiresLocalReference,
+                hasSelectedLocalReference: selectedLocalReferenceURL != nil
+            )
+        )
+    }
+
     private var canRun: Bool {
-        !inputFiles.isEmpty
-            && effectivePlatform != nil
-            && inputError == nil
-            && selectedPrimerOption != nil
-            && outputRoot != nil
-            && !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && minimumMappedReads > 0
-            && maxCPUs > 0
-            && !maxMemory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (!primerRequiresLocalReference || selectedLocalReferenceURL != nil)
-            && (selectedReferenceMode == .sarsCoV2Genome || selectedLocalReferenceURL != nil)
+        readinessEvaluation.canRun
     }
 
     var body: some View {
@@ -309,28 +320,7 @@ struct ViralReconWizardSheet: View {
     }
 
     private var readinessText: String {
-        if inputFiles.isEmpty {
-            return "Select at least one FASTQ bundle."
-        }
-        if let inputError {
-            return inputError
-        }
-        if effectivePlatform == nil {
-            return "Select one platform for the selected FASTQ bundles."
-        }
-        if selectedPrimerOption == nil {
-            return "Select a SARS-CoV-2 primer scheme."
-        }
-        if selectedReferenceMode == .localFASTA, selectedLocalReferenceURL == nil {
-            return "Select a local SARS-CoV-2 reference FASTA."
-        }
-        if primerRequiresLocalReference {
-            return "Select a local SARS-CoV-2 reference FASTA to derive primer sequences."
-        }
-        if outputRoot == nil {
-            return "Choose a project or FASTQ location for outputs."
-        }
-        return "Ready to run Viral Recon."
+        readinessEvaluation.message
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -744,6 +734,89 @@ enum ViralReconWizardPrimerCompatibility {
         ([manifest.canonicalAccession] + manifest.equivalentAccessions)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+}
+
+enum ViralReconWizardReadiness {
+    struct State {
+        let hasInputFiles: Bool
+        let effectivePlatform: ViralReconPlatform?
+        let inputError: String?
+        let primerManifest: PrimerSchemeManifest?
+        let outputRootAvailable: Bool
+        let version: String
+        let minimumMappedReads: Int
+        let maxCPUs: Int
+        let maxMemory: String
+        let reference: Reference
+        let primerRequiresLocalReference: Bool
+        let hasSelectedLocalReference: Bool
+    }
+
+    enum Reference {
+        case sarsCoV2Genome(accession: String)
+        case localFASTA
+    }
+
+    struct Evaluation: Equatable {
+        let canRun: Bool
+        let message: String
+    }
+
+    static func evaluate(_ state: State) -> Evaluation {
+        if !state.hasInputFiles {
+            return .blocked("Select at least one FASTQ bundle.")
+        }
+        if let inputError = state.inputError {
+            return .blocked(inputError)
+        }
+        if state.effectivePlatform == nil {
+            return .blocked("Select one platform for the selected FASTQ bundles.")
+        }
+        guard let primerManifest = state.primerManifest else {
+            return .blocked("Select a SARS-CoV-2 primer scheme.")
+        }
+        switch state.reference {
+        case .sarsCoV2Genome(let accession):
+            let trimmed = accession.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                return .blocked("Enter a SARS-CoV-2 genome accession.")
+            }
+            do {
+                try ViralReconWizardPrimerCompatibility.validateGenomeAccession(trimmed, manifest: primerManifest)
+            } catch {
+                return .blocked(error.localizedDescription)
+            }
+        case .localFASTA:
+            if !state.hasSelectedLocalReference {
+                return .blocked("Select a local SARS-CoV-2 reference FASTA.")
+            }
+        }
+        if state.primerRequiresLocalReference && !state.hasSelectedLocalReference {
+            return .blocked("Select a local SARS-CoV-2 reference FASTA to derive primer sequences.")
+        }
+        if !state.outputRootAvailable {
+            return .blocked("Choose a project or FASTQ location for outputs.")
+        }
+        if state.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .blocked("Enter a Viral Recon version.")
+        }
+        if state.minimumMappedReads <= 0 {
+            return .blocked("Minimum mapped reads must be greater than zero.")
+        }
+        if state.maxCPUs <= 0 {
+            return .blocked("CPU count must be greater than zero.")
+        }
+        if state.maxMemory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .blocked("Enter a memory limit.")
+        }
+        return Evaluation(canRun: true, message: "Ready to run Viral Recon.")
+    }
+}
+
+private extension ViralReconWizardReadiness.Evaluation {
+    static func blocked(_ message: String) -> Self {
+        Self(canRun: false, message: message)
     }
 }
 

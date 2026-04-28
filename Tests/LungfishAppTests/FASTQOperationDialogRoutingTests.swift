@@ -624,6 +624,75 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         }
     }
 
+    func testViralReconReadinessRejectsBlankGenomeBeforeRun() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "  "),
+                primerRequiresLocalReference: false,
+                hasSelectedLocalReference: false
+            )
+        )
+
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(evaluation.message, "Enter a SARS-CoV-2 genome accession.")
+    }
+
+    func testViralReconReadinessRejectsIncompatibleGenomeBeforeRun() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "MT192765.1"),
+                primerRequiresLocalReference: false,
+                hasSelectedLocalReference: false
+            )
+        )
+
+        XCTAssertFalse(evaluation.canRun)
+        XCTAssertEqual(
+            evaluation.message,
+            "MT192765.1 is not compatible with this SARS-CoV-2 primer scheme. Expected MN908947.3, NC_045512.2."
+        )
+    }
+
+    func testViralReconReadinessStopsPromptingForPrimerDerivedReferenceAfterSelection() {
+        let evaluation = ViralReconWizardReadiness.evaluate(
+            ViralReconWizardReadiness.State(
+                hasInputFiles: true,
+                effectivePlatform: .illumina,
+                inputError: nil,
+                primerManifest: Self.sarsCoV2PrimerManifest(),
+                outputRootAvailable: true,
+                version: "3.0.0",
+                minimumMappedReads: 1000,
+                maxCPUs: 4,
+                maxMemory: "8.GB",
+                reference: .sarsCoV2Genome(accession: "MN908947.3"),
+                primerRequiresLocalReference: true,
+                hasSelectedLocalReference: true
+            )
+        )
+
+        XCTAssertTrue(evaluation.canRun)
+        XCTAssertEqual(evaluation.message, "Ready to run Viral Recon.")
+    }
+
     func testMinimap2UsesGenericEmbeddedReadinessText() {
         XCTAssertEqual(
             FASTQOperationToolID.minimap2.embeddedReadinessText,
@@ -1065,6 +1134,22 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(stateSource.contains("var embeddedRunTrigger"))
     }
 
+    func testDialogRunsWhenEmbeddedViralReconRequestIsCaptured() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let dialogSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(dialogSource.contains(".onChange(of: state.pendingViralReconRequest)"))
+        XCTAssertTrue(dialogSource.contains("state.selectedToolID == .viralRecon"))
+        XCTAssertTrue(dialogSource.contains("request != nil"))
+        XCTAssertTrue(dialogSource.contains("onRun()"))
+    }
+
     func testOperationsDialogRoutesCurrentWindowProjectIntoDialogState() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -1157,6 +1242,20 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Tests/Fixtures/sarscov2/test_1.fastq.gz")
+    }
+
+    private static func sarsCoV2PrimerManifest() -> PrimerSchemeManifest {
+        PrimerSchemeManifest(
+            schemaVersion: 1,
+            name: "qia-seq-direct-sars2",
+            displayName: "QIASeq DIRECT SARS-CoV-2",
+            referenceAccessions: [
+                PrimerSchemeManifest.ReferenceAccession(accession: "MN908947.3", canonical: true),
+                PrimerSchemeManifest.ReferenceAccession(accession: "NC_045512.2", equivalent: true),
+            ],
+            primerCount: 2,
+            ampliconCount: 1
+        )
     }
 
     private func makeFASTQBundle(
