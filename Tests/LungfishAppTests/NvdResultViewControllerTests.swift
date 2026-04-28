@@ -4,6 +4,48 @@ import XCTest
 
 @MainActor
 final class NvdResultViewControllerTests: XCTestCase {
+    func testSelectionSurvivesCachedReloadWithDuplicateContigAcrossSamples() {
+        let vc = NvdResultViewController()
+        _ = vc.view
+
+        let bundleURL = URL(fileURLWithPath: "/project/Analyses/nvd-run-a", isDirectory: true)
+        let manifest = NvdManifest(
+            experiment: "exp-duplicate-contigs",
+            sampleCount: 2,
+            contigCount: 2,
+            hitCount: 2,
+            blastDbVersion: "db",
+            snakemakeRunId: "run-a",
+            sourceDirectoryPath: "/project",
+            samples: [],
+            cachedTopContigs: nil
+        )
+
+        vc.configureWithCachedRows(
+            [
+                Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1"),
+                Self.contigRow(sampleId: "sample-B", qseqid: "NODE_1"),
+            ],
+            manifest: manifest,
+            bundleURL: bundleURL
+        )
+
+        vc.testSelectOutlineRow(1)
+        XCTAssertEqual(vc.testSelectedOutlineContigSamples(), ["sample-B"])
+
+        vc.configureWithCachedRows(
+            [
+                Self.contigRow(sampleId: "sample-B", qseqid: "NODE_1"),
+                Self.contigRow(sampleId: "sample-A", qseqid: "NODE_1"),
+            ],
+            manifest: manifest,
+            bundleURL: bundleURL
+        )
+
+        XCTAssertEqual(vc.testSelectedOutlineContigSamples(), ["sample-B"])
+        XCTAssertEqual(vc.testOutlineSelectedRowIndexes(), IndexSet(integer: 0))
+    }
+
     func testContextMenuExposesSharedFastaActionsWhenCallbacksPresent() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock {
@@ -38,6 +80,23 @@ final class NvdResultViewControllerTests: XCTestCase {
                 "View Accession on NCBI",
                 "Search PubMed",
             ]
+        )
+    }
+
+    private static func contigRow(sampleId: String, qseqid: String) -> NvdContigRow {
+        NvdContigRow(
+            sampleId: sampleId,
+            qseqid: qseqid,
+            qlen: 100,
+            adjustedTaxidName: "Example virus",
+            adjustedTaxidRank: "species",
+            sseqid: "NC_000001.1",
+            stitle: "Reference title",
+            pident: 99.5,
+            evalue: 1e-20,
+            bitscore: 120,
+            mappedReads: 10,
+            readsPerBillion: 10_000
         )
     }
 }

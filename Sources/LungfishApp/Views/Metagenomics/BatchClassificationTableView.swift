@@ -104,6 +104,17 @@ final class BatchClassificationTableView: BatchTableView<BatchClassificationRow>
 
     override func sampleId(for row: BatchClassificationRow) -> String? { row.sample }
 
+    override func rowIdentity(for row: BatchClassificationRow) -> String? {
+        [
+            "kraken2",
+            resultIdentity ?? "unknown-result",
+            row.sample,
+            String(row.taxId),
+            row.rank,
+            row.taxonName,
+        ].joined(separator: "\u{1F}")
+    }
+
     // MARK: - Public API
 
     override func configure(rows: [BatchClassificationRow]) {

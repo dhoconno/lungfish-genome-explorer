@@ -419,6 +419,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     public func configureFromDatabase(_ db: Kraken2Database) {
         self.kraken2Database = db
         self.isBatchMode = true
+        batchTableView.resultIdentity = db.databaseURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []

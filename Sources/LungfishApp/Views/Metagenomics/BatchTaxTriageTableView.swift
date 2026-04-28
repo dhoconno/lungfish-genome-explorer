@@ -121,6 +121,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     @objc private func contextBlastVerify(_ sender: Any?) {
         let clickedRow = tableView.clickedRow
         guard clickedRow >= 0, clickedRow < displayedRows.count else { return }
+        selectDisplayedRowForContextMenuIfNeeded(clickedRow)
         let metric = displayedRows[clickedRow]
 
         let popover = NSPopover()
@@ -194,6 +195,10 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     }
 
     @objc private func contextExtractReads(_ sender: Any?) {
+        let clickedRow = tableView.clickedRow
+        if clickedRow >= 0, clickedRow < displayedRows.count {
+            selectDisplayedRowForContextMenuIfNeeded(clickedRow)
+        }
         onExtractReadsRequested?()
     }
 
@@ -202,7 +207,7 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(contextBlastVerify(_:)) {
             // BLAST requires exactly one row (the clicked row).
-            return tableView.clickedRow >= 0 && tableView.selectedRowIndexes.count <= 1
+            return tableView.clickedRow >= 0 && selectedRowsByIdentity().count <= 1
         }
         if menuItem.action == #selector(contextCopyOrganism(_:))
             || menuItem.action == #selector(contextCopyTaxId(_:))
@@ -211,17 +216,14 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
             return tableView.clickedRow >= 0
         }
         if menuItem.action == #selector(contextExtractReads(_:)) {
-            return !tableView.selectedRowIndexes.isEmpty || tableView.clickedRow >= 0
+            return hasVisibleIdentitySelection() || tableView.clickedRow >= 0
         }
         return true
     }
 
     /// Returns the metrics for all currently selected rows.
     func selectedMetrics() -> [TaxTriageMetric] {
-        tableView.selectedRowIndexes.compactMap { index in
-            guard index < displayedRows.count else { return nil }
-            return displayedRows[index]
-        }
+        selectedRowsByIdentity()
     }
 
     // MARK: - Extra State
@@ -351,6 +353,17 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
     }
 
     override func sampleId(for row: TaxTriageMetric) -> String? { row.sample }
+
+    override func rowIdentity(for row: TaxTriageMetric) -> String? {
+        [
+            "taxtriage",
+            resultIdentity ?? "unknown-result",
+            row.sample ?? "unknown-sample",
+            row.taxId.map(String.init) ?? "unknown-taxid",
+            row.rank ?? "unknown-rank",
+            row.organism,
+        ].joined(separator: "\u{1F}")
+    }
 
     // MARK: - Empty Column Hiding
 

@@ -118,6 +118,16 @@ final class BatchEsVirituTableView: BatchTableView<BatchEsVirituRow> {
 
     override func sampleId(for row: BatchEsVirituRow) -> String? { row.sample }
 
+    override func rowIdentity(for row: BatchEsVirituRow) -> String? {
+        [
+            "esviritu",
+            resultIdentity ?? "unknown-result",
+            row.sample,
+            row.assembly,
+            row.virusName,
+        ].joined(separator: "\u{1F}")
+    }
+
     // MARK: - Public API
 
     override func configure(rows: [BatchEsVirituRow]) {

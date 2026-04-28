@@ -265,6 +265,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Selection Sync
 
     private var suppressSelectionSync = false
+    private var selectionIdentities = SelectionIdentityStore<String>()
 
     // MARK: - Sample Popover
 
@@ -343,6 +344,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
 
         outlineView.reloadData()
+        restoreSelectionAfterOutlineReload()
 
         // Update summary bar with cached counts
         summaryBar.update(
@@ -470,6 +472,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
 
         outlineView.reloadData()
+        restoreSelectionAfterOutlineReload()
     }
 
     // MARK: - Selection
@@ -482,6 +485,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
 
+        if let identity = selectionIdentity(for: item) {
+            selectionIdentities.select([identity])
+        }
         suppressSelectionSync = true
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         outlineView.scrollRowToVisible(row)
@@ -1181,9 +1187,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// per sample.
     private func buildNvdSelectors() -> [ClassifierRowSelector] {
         var bySample: [String: [String]] = [:]
-        for row in outlineView.selectedRowIndexes {
-            let item = outlineView.item(atRow: row) as? NvdOutlineItem
-            guard let (sampleId, qseqid) = item?.sampleContig else { continue }
+        for item in selectedOutlineItemsByIdentity() {
+            guard let (sampleId, qseqid) = item.sampleContig else { continue }
             bySample[sampleId, default: []].append(qseqid)
         }
         return bySample
@@ -1209,6 +1214,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         if outlineView.selectedRowIndexes.isEmpty,
            outlineView.clickedRow >= 0 {
             outlineView.selectRowIndexes(IndexSet(integer: outlineView.clickedRow), byExtendingSelection: false)
+            updateSelectionIdentitiesFromOutlineSelection()
         }
         presentUnifiedExtractionDialog()
     }
@@ -1615,8 +1621,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     private func selectedContigFASTARecords() -> [String] {
-        outlineView.selectedRowIndexes.compactMap { row in
-            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else { return nil }
+        selectedOutlineItemsByIdentity().compactMap { item in
             switch item {
             case .contig(let sampleId, let qseqid):
                 guard let hit = displayedContigs.first(where: { $0.sampleId == sampleId && $0.qseqid == qseqid }) else {
@@ -2125,15 +2130,98 @@ extension NvdResultViewController {
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelectionSync else { return }
+        updateSelectionIdentitiesFromOutlineSelection()
+        displaySelectionDetail(for: selectedOutlineItemsByIdentity())
+    }
 
-        let selectedIndexes = outlineView.selectedRowIndexes
-        if selectedIndexes.count > 1 {
-            showMultiSelectionPlaceholder(count: selectedIndexes.count)
+    private func updateSelectionIdentitiesFromOutlineSelection() {
+        let selected = selectedOutlineItemsFromCurrentIndexes()
+        let ids = selected.compactMap(selectionIdentity(for:))
+        if ids.count == selected.count, !ids.isEmpty {
+            selectionIdentities.select(ids)
+        } else {
+            selectionIdentities.clear()
+        }
+    }
+
+    private func restoreSelectionAfterOutlineReload() {
+        guard let visibleIDs = visibleSelectionIdentities() else { return }
+        let previousIDs = selectionIdentities.selectedIDs
+        guard !previousIDs.isEmpty else {
+            restoreOutlineSelection([])
             return
         }
 
-        let row = outlineView.selectedRow
-        guard row >= 0, let item = outlineView.item(atRow: row) as? NvdOutlineItem else {
+        selectionIdentities.removeSelectionsNotVisible(in: visibleIDs)
+        let selectedIndexes = selectionIdentities.visibleIndexes(in: visibleIDs)
+        restoreOutlineSelection(selectedIndexes)
+        displaySelectionDetail(for: selectedOutlineItemsByIdentity())
+    }
+
+    private func restoreOutlineSelection(_ indexes: IndexSet) {
+        suppressSelectionSync = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionSync = false
+    }
+
+    private func selectedOutlineItemsByIdentity() -> [NvdOutlineItem] {
+        guard let visible = visibleSelectionItemsAndIdentities(),
+              !selectionIdentities.selectedIDs.isEmpty else {
+            return selectedOutlineItemsFromCurrentIndexes()
+        }
+
+        let selectedIDs = selectionIdentities.selectedIDs
+        return visible.compactMap { item, identity in
+            selectedIDs.contains(identity) ? item : nil
+        }
+    }
+
+    private func selectedOutlineItemsFromCurrentIndexes() -> [NvdOutlineItem] {
+        outlineView.selectedRowIndexes.compactMap { row in
+            guard row >= 0 else { return nil }
+            return outlineView.item(atRow: row) as? NvdOutlineItem
+        }
+    }
+
+    private func visibleSelectionIdentities() -> [String]? {
+        visibleSelectionItemsAndIdentities()?.map(\.identity)
+    }
+
+    private func visibleSelectionItemsAndIdentities() -> [(item: NvdOutlineItem, identity: String)]? {
+        var visible: [(item: NvdOutlineItem, identity: String)] = []
+        visible.reserveCapacity(outlineView.numberOfRows)
+        for row in 0..<outlineView.numberOfRows {
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem,
+                  let identity = selectionIdentity(for: item) else {
+                return nil
+            }
+            visible.append((item, identity))
+        }
+        return visible
+    }
+
+    private func selectionIdentity(for item: NvdOutlineItem) -> String? {
+        let resultPath = database?.databaseURL.standardizedFileURL.path
+            ?? bundleURL?.standardizedFileURL.path
+            ?? manifest?.sourceDirectoryPath
+            ?? "unknown-result"
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            return ["nvd", resultPath, sampleId, qseqid].joined(separator: "\u{1F}")
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            return ["nvd", resultPath, sampleId, qseqid, String(hitRank)].joined(separator: "\u{1F}")
+        case .taxonGroup(let name):
+            return ["nvd", resultPath, "taxon-group", name].joined(separator: "\u{1F}")
+        }
+    }
+
+    private func displaySelectionDetail(for selected: [NvdOutlineItem]) {
+        if selected.count > 1 {
+            showMultiSelectionPlaceholder(count: selected.count)
+            return
+        }
+
+        guard let item = selected.first else {
             showOverview()
             return
         }
@@ -2180,6 +2268,21 @@ extension NvdResultViewController {
     var testOutlineContainer: NSView? { outlineContainer }
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
+
+    func testSelectOutlineRow(_ row: Int) {
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification, object: outlineView))
+    }
+
+    func testSelectedOutlineContigSamples() -> [String] {
+        selectedOutlineItemsByIdentity().compactMap { item in
+            item.sampleContig?.sampleId
+        }
+    }
+
+    func testOutlineSelectedRowIndexes() -> IndexSet {
+        outlineView.selectedRowIndexes
+    }
 
     func testContextMenuTitlesForFirstContig() -> [String] {
         guard !displayedContigs.isEmpty else { return [] }

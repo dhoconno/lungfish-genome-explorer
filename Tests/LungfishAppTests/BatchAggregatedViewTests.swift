@@ -534,6 +534,162 @@ final class BatchTaxTriageTableViewTests: XCTestCase {
     }
 }
 
+// MARK: - Batch Table Selection Identity Tests
+
+@MainActor
+final class BatchTableSelectionIdentityTests: XCTestCase {
+
+    func testKrakenBatchSelectionSurvivesSortWithDuplicateTaxonAcrossSamples() {
+        let view = BatchClassificationTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/kraken2-run-a"
+        view.configure(rows: [
+            BatchClassificationRow(
+                sample: "sample-A",
+                taxonName: "Escherichia coli",
+                taxId: 562,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 10,
+                readsClade: 10,
+                percentage: 1
+            ),
+            BatchClassificationRow(
+                sample: "sample-B",
+                taxonName: "Escherichia coli",
+                taxId: 562,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 90,
+                readsClade: 90,
+                percentage: 9
+            ),
+            BatchClassificationRow(
+                sample: "sample-C",
+                taxonName: "Homo sapiens",
+                taxId: 9606,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 50,
+                readsClade: 50,
+                percentage: 5
+            ),
+        ])
+
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.testTableView.sortDescriptors = [NSSortDescriptor(key: "readsDirect", ascending: true)]
+        view.tableView(view.testTableView, sortDescriptorsDidChange: [])
+
+        let selectedRows = view.selectedRowsByIdentity()
+        XCTAssertEqual(selectedRows.map(\.sample), ["sample-B"])
+        XCTAssertEqual(view.testTableView.selectedRowIndexes, IndexSet(integer: 2))
+    }
+
+    func testEsVirituBatchSelectionSurvivesReloadWithDuplicateAccessionAcrossRuns() {
+        let view = BatchEsVirituTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/esviritu-run-a"
+        view.configure(rows: [
+            BatchEsVirituRow(
+                sample: "sample-A",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 10,
+                uniqueReads: 9,
+                rpkmf: 1,
+                coverageBreadth: 0.1,
+                coverageDepth: 2
+            ),
+            BatchEsVirituRow(
+                sample: "sample-B",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 20,
+                uniqueReads: 18,
+                rpkmf: 2,
+                coverageBreadth: 0.2,
+                coverageDepth: 4
+            ),
+        ])
+
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.configure(rows: [
+            BatchEsVirituRow(
+                sample: "sample-B",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 25,
+                uniqueReads: 23,
+                rpkmf: 2.5,
+                coverageBreadth: 0.25,
+                coverageDepth: 5
+            ),
+            BatchEsVirituRow(
+                sample: "sample-A",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 15,
+                uniqueReads: 13,
+                rpkmf: 1.5,
+                coverageBreadth: 0.15,
+                coverageDepth: 3
+            ),
+        ])
+
+        let selectedRows = view.selectedRowsByIdentity()
+        XCTAssertEqual(selectedRows.map(\.sample), ["sample-B"])
+        XCTAssertEqual(view.testTableView.selectedRowIndexes, IndexSet(integer: 0))
+    }
+
+    func testTaxTriageBatchSelectionClearsWhenDuplicateOrganismFilteredOut() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/taxtriage-run-a"
+        view.configure(rows: [
+            TaxTriageMetric(
+                sample: "sample-A",
+                taxId: 562,
+                organism: "Escherichia coli",
+                reads: 10,
+                tassScore: 0.1
+            ),
+            TaxTriageMetric(
+                sample: "sample-B",
+                taxId: 562,
+                organism: "Escherichia coli",
+                reads: 20,
+                tassScore: 0.2
+            ),
+            TaxTriageMetric(
+                sample: "sample-C",
+                taxId: 10239,
+                organism: "Influenza A virus",
+                reads: 30,
+                tassScore: 0.3
+            ),
+        ])
+
+        var didClear = false
+        view.onSelectionCleared = {
+            didClear = true
+        }
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.setFilterText("Influenza")
+
+        XCTAssertTrue(didClear)
+        XCTAssertTrue(view.selectedRowsByIdentity().isEmpty)
+        XCTAssertTrue(view.selectedMetrics().isEmpty)
+        XCTAssertTrue(view.testTableView.selectedRowIndexes.isEmpty)
+    }
+}
+
 // MARK: - TaxonomyViewController Batch Mode Tests
 
 @MainActor

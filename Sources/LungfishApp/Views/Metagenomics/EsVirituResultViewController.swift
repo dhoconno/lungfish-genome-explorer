@@ -350,6 +350,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         self.batchURL = resultURL
         self.isBatchMode = true
         self.didLoadFromManifestCache = true
+        batchTableView.resultIdentity = resultURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []

@@ -2428,6 +2428,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         self.batchGroupURL = resultURL
         self.isBatchGroupMode = true
         self.didLoadFromManifestCache = true
+        batchFlatTableView.resultIdentity = resultURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -2657,6 +2658,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         organismTableView.isHidden = true
         batchFlatTableView.isHidden = false
         batchFlatTableView.metadataColumns.isMultiSampleMode = true
+        batchFlatTableView.resultIdentity = taxTriageConfig?.outputDirectory.standardizedFileURL.path
 
         // Use the already-populated `metrics` array as the flat table rows.
         allBatchGroupRows = metrics
