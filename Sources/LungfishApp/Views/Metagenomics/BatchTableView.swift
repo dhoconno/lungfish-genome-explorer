@@ -125,6 +125,15 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// Return `nil` if the row has no associated sample. The default returns `nil`.
     func sampleId(for row: Row) -> String? { nil }
 
+    /// Result/run identity to include in stable row IDs for duplicated biological names.
+    var resultIdentity: String?
+
+    /// Returns a stable biological identity for `row`.
+    ///
+    /// Subclasses that can display duplicate names after sort/filter/reload should
+    /// include result/run context, sample, and the tool-specific biological key.
+    func rowIdentity(for row: Row) -> String? { nil }
+
     /// Returns a string value for a column, used by per-column filtering.
     ///
     /// Subclasses should override to return the appropriate value for each column.
@@ -156,6 +165,12 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     /// Current filter text applied to rows.
     private var filterText: String = ""
+
+    /// Stable selection IDs for the current table.
+    private var selectionIdentities = SelectionIdentityStore<String>()
+
+    /// Suppresses delegate callbacks while programmatically restoring selection.
+    private var isRestoringSelection = false
 
     // MARK: - Callbacks
 
@@ -374,6 +389,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
         tableView.reloadData()
         ColumnFilter.updateColumnTitleIndicators(on: tableView, filters: columnFilters, originalTitles: &originalColumnTitles)
+        restoreSelectionByIdentityAfterDisplayedRowsChanged()
         didApplyDisplayedRows()
     }
 
@@ -465,11 +481,13 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
               let key = descriptor.key else {
             displayedRows = unsortedRows
             tableView.reloadData()
+            restoreSelectionByIdentityAfterDisplayedRowsChanged()
             return
         }
         let ascending = descriptor.ascending
         displayedRows = unsortedRows.sorted { compareRows($0, $1, by: key, ascending: ascending) }
         tableView.reloadData()
+        restoreSelectionByIdentityAfterDisplayedRowsChanged()
     }
 
     func tableView(_ tableView: NSTableView, didClick tableColumn: NSTableColumn) {
@@ -652,8 +670,11 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isRestoringSelection else { return }
+
         let selectedIndexes = tableView.selectedRowIndexes
         if selectedIndexes.isEmpty {
+            selectionIdentities.clear()
             onSelectionCleared?()
             return
         }
@@ -663,9 +684,100 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
             return displayedRows[idx]
         }
 
-        if selected.count == 1, let row = selected.first {
+        let ids = selected.compactMap { rowIdentity(for: $0) }
+        if ids.count == selected.count, !ids.isEmpty {
+            selectionIdentities.select(ids)
+        } else {
+            selectionIdentities.clear()
+        }
+
+        emitSelectionCallbacks(for: selected)
+    }
+
+    /// Returns selected visible rows using stable identity when available.
+    func selectedRowsByIdentity() -> [Row] {
+        guard let visibleIDs = displayedRowIdentities(),
+              !selectionIdentities.selectedIDs.isEmpty else {
+            return selectedRowsByCurrentIndexes()
+        }
+
+        let selectedIDs = selectionIdentities.selectedIDs
+        return displayedRows.enumerated().compactMap { index, row in
+            selectedIDs.contains(visibleIDs[index]) ? row : nil
+        }
+    }
+
+    /// Returns true when the current stable selection still maps to a visible row.
+    func hasVisibleIdentitySelection() -> Bool {
+        !selectedRowsByIdentity().isEmpty
+    }
+
+    /// Selects a clicked context-menu row through the same identity store as visible selection.
+    func selectDisplayedRowForContextMenuIfNeeded(_ rowIndex: Int) {
+        guard rowIndex >= 0, rowIndex < displayedRows.count else { return }
+        let row = displayedRows[rowIndex]
+
+        if let id = rowIdentity(for: row), !id.isEmpty {
+            selectionIdentities.select([id])
+            restoreTableSelection(IndexSet(integer: rowIndex))
+            emitSelectionCallbacks(for: [row])
+        } else {
+            tableView.selectRowIndexes(IndexSet(integer: rowIndex), byExtendingSelection: false)
+            tableViewSelectionDidChange(
+                Notification(name: NSTableView.selectionDidChangeNotification, object: tableView)
+            )
+        }
+    }
+
+    private func restoreSelectionByIdentityAfterDisplayedRowsChanged() {
+        guard let visibleIDs = displayedRowIdentities() else { return }
+
+        let previousIDs = selectionIdentities.selectedIDs
+        guard !previousIDs.isEmpty else {
+            restoreTableSelection([])
+            return
+        }
+
+        selectionIdentities.removeSelectionsNotVisible(in: visibleIDs)
+        let selectedIndexes = selectionIdentities.visibleIndexes(in: visibleIDs)
+        restoreTableSelection(selectedIndexes)
+
+        if selectionIdentities.selectedIDs.isEmpty {
+            onSelectionCleared?()
+        } else {
+            emitSelectionCallbacks(for: selectedRowsByIdentity())
+        }
+    }
+
+    private func displayedRowIdentities() -> [String]? {
+        var ids: [String] = []
+        ids.reserveCapacity(displayedRows.count)
+        for row in displayedRows {
+            guard let id = rowIdentity(for: row), !id.isEmpty else { return nil }
+            ids.append(id)
+        }
+        return ids
+    }
+
+    private func selectedRowsByCurrentIndexes() -> [Row] {
+        tableView.selectedRowIndexes.compactMap { index in
+            guard index >= 0, index < displayedRows.count else { return nil }
+            return displayedRows[index]
+        }
+    }
+
+    private func restoreTableSelection(_ indexes: IndexSet) {
+        isRestoringSelection = true
+        tableView.selectRowIndexes(indexes, byExtendingSelection: false)
+        isRestoringSelection = false
+    }
+
+    private func emitSelectionCallbacks(for selected: [Row]) {
+        if selected.isEmpty {
+            onSelectionCleared?()
+        } else if selected.count == 1, let row = selected.first {
             onRowSelected?(row)
-        } else if selected.count > 1 {
+        } else {
             onMultipleRowsSelected?(selected)
         }
     }

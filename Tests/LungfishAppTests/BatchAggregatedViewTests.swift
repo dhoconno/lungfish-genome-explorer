@@ -534,6 +534,357 @@ final class BatchTaxTriageTableViewTests: XCTestCase {
     }
 }
 
+// MARK: - Batch Table Selection Identity Tests
+
+@MainActor
+final class BatchTableSelectionIdentityTests: XCTestCase {
+
+    func testVisibleEsVirituSelectionSurvivesReloadWithDuplicateAssemblyAcrossSamples() {
+        let table = ViralDetectionTableView(frame: .zero)
+        table.resultIdentity = "/project/Analyses/esviritu-visible-run-a"
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(sampleId: "sample-A", assembly: "GCF_SHARED", accession: "NC_A", reads: 40),
+            Self.viralAssembly(sampleId: "sample-B", assembly: "GCF_SHARED", accession: "NC_B", reads: 10),
+        ])
+
+        let sampleBRow = Self.row(in: table.testOutlineView) { item in
+            guard let assemblyItem = item as? ViralDetectionTableView.ViralAssemblyItem else { return false }
+            return assemblyItem.assembly.contigs.first?.sampleId == "sample-B"
+        }
+        table.testOutlineView.selectRowIndexes(IndexSet(integer: sampleBRow), byExtendingSelection: false)
+        table.outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.testOutlineView))
+
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(sampleId: "sample-B", assembly: "GCF_SHARED", accession: "NC_B", reads: 80),
+            Self.viralAssembly(sampleId: "sample-A", assembly: "GCF_SHARED", accession: "NC_A", reads: 20),
+        ])
+
+        XCTAssertEqual(table.selectedSampleIDs(), ["sample-B"])
+        XCTAssertEqual(table.selectedAssemblyAccessions(), ["NC_B"])
+    }
+
+    func testEsVirituSelectorsPreserveSampleAccessionPairsForDuplicateAccessions() {
+        let viewController = EsVirituResultViewController()
+        _ = viewController.view
+        viewController.isBatchMode = true
+
+        let table = viewController.testDetectionTableView
+        table.resultIdentity = "/project/Analyses/esviritu-visible-run-a"
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(sampleId: "sample-A", assembly: "GCF_A", accession: "NC_DUP", reads: 40),
+            Self.viralAssembly(sampleId: "sample-B", assembly: "GCF_B", accession: "NC_DUP", reads: 20),
+        ])
+
+        let sampleARow = Self.row(in: table.testOutlineView) { item in
+            guard let assemblyItem = item as? ViralDetectionTableView.ViralAssemblyItem else { return false }
+            return assemblyItem.assembly.contigs.first?.sampleId == "sample-A"
+        }
+        let sampleBRow = Self.row(in: table.testOutlineView) { item in
+            guard let assemblyItem = item as? ViralDetectionTableView.ViralAssemblyItem else { return false }
+            return assemblyItem.assembly.contigs.first?.sampleId == "sample-B"
+        }
+        table.testOutlineView.selectRowIndexes(IndexSet([sampleARow, sampleBRow]), byExtendingSelection: false)
+        table.outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.testOutlineView))
+
+        XCTAssertEqual(
+            viewController.testBuildEsVirituSelectors(),
+            [
+                ClassifierRowSelector(sampleId: "sample-A", accessions: ["NC_DUP"], taxIds: []),
+                ClassifierRowSelector(sampleId: "sample-B", accessions: ["NC_DUP"], taxIds: []),
+            ]
+        )
+    }
+
+    func testVisibleKrakenSelectionSurvivesTreeReplacementWithDuplicateTaxonAcrossSamples() {
+        let table = TaxonomyTableView(frame: .zero)
+        table.resultIdentity = "/project/Analyses/kraken-visible-run-a"
+        table.tree = Self.krakenTree(sampleOrder: ["sample-A", "sample-B"])
+
+        let sampleBRow = Self.row(in: table.outlineView) { item in
+            guard let node = item as? TaxonNode else { return false }
+            return node.taxId == 562 && Self.sampleID(for: node) == "sample-B"
+        }
+        table.outlineView.selectRowIndexes(IndexSet(integer: sampleBRow), byExtendingSelection: false)
+        table.outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.outlineView))
+
+        table.tree = Self.krakenTree(sampleOrder: ["sample-B", "sample-A"])
+
+        XCTAssertEqual(table.selectedActionableNodesByIdentity().map { Self.sampleID(for: $0) }, ["sample-B"])
+        XCTAssertEqual(table.selectedActionableNodesByIdentity().map(\.taxId), [562])
+    }
+
+    func testKrakenBatchSelectionSurvivesSortWithDuplicateTaxonAcrossSamples() {
+        let view = BatchClassificationTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/kraken2-run-a"
+        view.configure(rows: [
+            BatchClassificationRow(
+                sample: "sample-A",
+                taxonName: "Escherichia coli",
+                taxId: 562,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 10,
+                readsClade: 10,
+                percentage: 1
+            ),
+            BatchClassificationRow(
+                sample: "sample-B",
+                taxonName: "Escherichia coli",
+                taxId: 562,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 90,
+                readsClade: 90,
+                percentage: 9
+            ),
+            BatchClassificationRow(
+                sample: "sample-C",
+                taxonName: "Homo sapiens",
+                taxId: 9606,
+                rank: "S",
+                rankDisplayName: "Species",
+                readsDirect: 50,
+                readsClade: 50,
+                percentage: 5
+            ),
+        ])
+
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.testTableView.sortDescriptors = [NSSortDescriptor(key: "readsDirect", ascending: true)]
+        view.tableView(view.testTableView, sortDescriptorsDidChange: [])
+
+        let selectedRows = view.selectedRowsByIdentity()
+        XCTAssertEqual(selectedRows.map(\.sample), ["sample-B"])
+        XCTAssertEqual(view.testTableView.selectedRowIndexes, IndexSet(integer: 2))
+    }
+
+    func testEsVirituBatchSelectionSurvivesReloadWithDuplicateAccessionAcrossRuns() {
+        let view = BatchEsVirituTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/esviritu-run-a"
+        view.configure(rows: [
+            BatchEsVirituRow(
+                sample: "sample-A",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 10,
+                uniqueReads: 9,
+                rpkmf: 1,
+                coverageBreadth: 0.1,
+                coverageDepth: 2
+            ),
+            BatchEsVirituRow(
+                sample: "sample-B",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 20,
+                uniqueReads: 18,
+                rpkmf: 2,
+                coverageBreadth: 0.2,
+                coverageDepth: 4
+            ),
+        ])
+
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.configure(rows: [
+            BatchEsVirituRow(
+                sample: "sample-B",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 25,
+                uniqueReads: 23,
+                rpkmf: 2.5,
+                coverageBreadth: 0.25,
+                coverageDepth: 5
+            ),
+            BatchEsVirituRow(
+                sample: "sample-A",
+                virusName: "Shared virus",
+                family: "Sharedviridae",
+                assembly: "NC_000001.1",
+                readCount: 15,
+                uniqueReads: 13,
+                rpkmf: 1.5,
+                coverageBreadth: 0.15,
+                coverageDepth: 3
+            ),
+        ])
+
+        let selectedRows = view.selectedRowsByIdentity()
+        XCTAssertEqual(selectedRows.map(\.sample), ["sample-B"])
+        XCTAssertEqual(view.testTableView.selectedRowIndexes, IndexSet(integer: 0))
+    }
+
+    func testTaxTriageBatchSelectionClearsWhenDuplicateOrganismFilteredOut() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        view.resultIdentity = "/project/Analyses/taxtriage-run-a"
+        view.configure(rows: [
+            TaxTriageMetric(
+                sample: "sample-A",
+                taxId: 562,
+                organism: "Escherichia coli",
+                reads: 10,
+                tassScore: 0.1
+            ),
+            TaxTriageMetric(
+                sample: "sample-B",
+                taxId: 562,
+                organism: "Escherichia coli",
+                reads: 20,
+                tassScore: 0.2
+            ),
+            TaxTriageMetric(
+                sample: "sample-C",
+                taxId: 10239,
+                organism: "Influenza A virus",
+                reads: 30,
+                tassScore: 0.3
+            ),
+        ])
+
+        var didClear = false
+        view.onSelectionCleared = {
+            didClear = true
+        }
+        view.testTableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+        view.tableViewSelectionDidChange(Notification(name: NSTableView.selectionDidChangeNotification, object: view.testTableView))
+
+        view.setFilterText("Influenza")
+
+        XCTAssertTrue(didClear)
+        XCTAssertTrue(view.selectedRowsByIdentity().isEmpty)
+        XCTAssertTrue(view.selectedMetrics().isEmpty)
+        XCTAssertTrue(view.testTableView.selectedRowIndexes.isEmpty)
+    }
+
+    private static func row(in outlineView: NSOutlineView, matching predicate: (Any) -> Bool) -> Int {
+        for row in 0..<outlineView.numberOfRows {
+            if let item = outlineView.item(atRow: row), predicate(item) {
+                return row
+            }
+        }
+        XCTFail("Expected matching row")
+        return 0
+    }
+
+    private static func esvirituResult(_ assemblies: [ViralAssembly]) -> LungfishIO.EsVirituResult {
+        LungfishIO.EsVirituResult(
+            sampleId: "visible-esviritu",
+            detections: assemblies.flatMap(\.contigs),
+            assemblies: assemblies,
+            taxProfile: [],
+            coverageWindows: [],
+            totalFilteredReads: 1_000,
+            detectedFamilyCount: 1,
+            detectedSpeciesCount: 1,
+            runtime: nil,
+            toolVersion: nil
+        )
+    }
+
+    private static func viralAssembly(sampleId: String, assembly: String, accession: String, reads: Int) -> ViralAssembly {
+        let detection = ViralDetection(
+            sampleId: sampleId,
+            name: "Shared virus",
+            description: "Shared virus \(sampleId)",
+            length: 100,
+            segment: nil,
+            accession: accession,
+            assembly: assembly,
+            assemblyLength: 100,
+            kingdom: "Viruses",
+            phylum: nil,
+            tclass: nil,
+            order: nil,
+            family: "Sharedviridae",
+            genus: nil,
+            species: "Shared virus",
+            subspecies: nil,
+            rpkmf: Double(reads),
+            readCount: reads,
+            coveredBases: 100,
+            meanCoverage: 1,
+            avgReadIdentity: 99,
+            pi: 0,
+            filteredReadsInSample: 1_000
+        )
+        return ViralAssembly(
+            assembly: assembly,
+            assemblyLength: 100,
+            name: "Shared virus",
+            family: "Sharedviridae",
+            genus: nil,
+            species: "Shared virus",
+            totalReads: reads,
+            rpkmf: Double(reads),
+            meanCoverage: 1,
+            avgReadIdentity: 99,
+            contigs: [detection]
+        )
+    }
+
+    private static func krakenTree(sampleOrder: [String]) -> TaxonTree {
+        let totalReads = sampleOrder.count * 100
+        let root = TaxonNode(
+            taxId: 1,
+            name: "Root",
+            rank: .root,
+            depth: 0,
+            readsDirect: 0,
+            readsClade: totalReads,
+            fractionClade: 1,
+            fractionDirect: 0,
+            parentTaxId: nil
+        )
+
+        for (index, sample) in sampleOrder.enumerated() {
+            let sampleNode = TaxonNode(
+                taxId: -index - 1,
+                name: sample,
+                rank: TaxonomicRank(code: "no rank"),
+                depth: 1,
+                readsDirect: 0,
+                readsClade: 100,
+                fractionClade: 0.5,
+                fractionDirect: 0,
+                parentTaxId: 1
+            )
+            let ecoli = TaxonNode(
+                taxId: 562,
+                name: "Escherichia coli",
+                rank: .species,
+                depth: 2,
+                readsDirect: 100 - index,
+                readsClade: 100 - index,
+                fractionClade: 0.5,
+                fractionDirect: 0.5,
+                parentTaxId: sampleNode.taxId
+            )
+            sampleNode.addChild(ecoli)
+            root.addChild(sampleNode)
+        }
+
+        return TaxonTree(root: root, unclassifiedNode: nil, totalReads: totalReads)
+    }
+
+    private static func sampleID(for node: TaxonNode) -> String {
+        var current: TaxonNode? = node
+        while let c = current {
+            if c.parent?.taxId == 1, c.taxId < 0 {
+                return c.name
+            }
+            current = c.parent
+        }
+        return ""
+    }
+}
+
 // MARK: - TaxonomyViewController Batch Mode Tests
 
 @MainActor

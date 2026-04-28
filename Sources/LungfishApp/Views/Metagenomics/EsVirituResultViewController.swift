@@ -350,6 +350,8 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         self.batchURL = resultURL
         self.isBatchMode = true
         self.didLoadFromManifestCache = true
+        batchTableView.resultIdentity = resultURL.standardizedFileURL.path
+        detectionTableView.resultIdentity = resultURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -674,6 +676,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
 
         esVirituResult = result
+        detectionTableView.resultIdentity = batchURL?.standardizedFileURL.path
         detectionTableView.result = result
         detectionTableView.coverageWindowsByAccession = coverageWindowsByAccession
         detectionTableView.uniqueReadCountsByAssembly = uniqueReadMaps.byAssembly
@@ -1202,10 +1205,20 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Builds per-sample selectors from the current detection-table selection.
     private func buildEsVirituSelectors() -> [ClassifierRowSelector] {
-        let accessions = detectionTableView.selectedAssemblyAccessions()
-        guard !accessions.isEmpty else { return [] }
-        let sampleId = isBatchMode ? detectionTableView.selectedSampleIDs().first : nil
-        return [ClassifierRowSelector(sampleId: sampleId, accessions: accessions, taxIds: [])]
+        let pairs = detectionTableView.selectedSampleAccessions()
+        guard !pairs.isEmpty else { return [] }
+
+        guard isBatchMode else {
+            return [ClassifierRowSelector(sampleId: nil, accessions: pairs.map(\.accession), taxIds: [])]
+        }
+
+        var bySample: [String: [String]] = [:]
+        for pair in pairs {
+            bySample[pair.sampleId, default: []].append(pair.accession)
+        }
+        return bySample
+            .map { ClassifierRowSelector(sampleId: $0.key, accessions: $0.value, taxIds: []) }
+            .sorted { ($0.sampleId ?? "") < ($1.sampleId ?? "") }
     }
 
     /// Presents the unified classifier extraction dialog for the current selection.
@@ -1718,6 +1731,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     /// Returns the detection table view for testing.
     var testDetectionTableView: ViralDetectionTableView { detectionTableView }
+
+    /// Builds the current extraction selectors for testing.
+    func testBuildEsVirituSelectors() -> [ClassifierRowSelector] {
+        buildEsVirituSelectors()
+    }
 
     /// Returns the right pane container for testing.
     var testRightPaneContainer: NSView { rightPaneContainer }

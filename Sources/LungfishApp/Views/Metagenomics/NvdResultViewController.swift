@@ -265,6 +265,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - Selection Sync
 
     private var suppressSelectionSync = false
+    private var selectionIdentities = SelectionIdentityStore<String>()
 
     // MARK: - Sample Popover
 
@@ -343,6 +344,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
 
         outlineView.reloadData()
+        restoreSelectionAfterOutlineReload()
 
         // Update summary bar with cached counts
         summaryBar.update(
@@ -470,6 +472,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         }
 
         outlineView.reloadData()
+        restoreSelectionAfterOutlineReload()
     }
 
     // MARK: - Selection
@@ -482,6 +485,9 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         let row = outlineView.row(forItem: item)
         guard row >= 0 else { return }
 
+        if let identity = selectionIdentity(for: item) {
+            selectionIdentities.select([identity])
+        }
         suppressSelectionSync = true
         outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         outlineView.scrollRowToVisible(row)
@@ -1181,9 +1187,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     /// per sample.
     private func buildNvdSelectors() -> [ClassifierRowSelector] {
         var bySample: [String: [String]] = [:]
-        for row in outlineView.selectedRowIndexes {
-            let item = outlineView.item(atRow: row) as? NvdOutlineItem
-            guard let (sampleId, qseqid) = item?.sampleContig else { continue }
+        for item in selectedOutlineItemsByIdentity() {
+            guard let (sampleId, qseqid) = item.sampleContig else { continue }
             bySample[sampleId, default: []].append(qseqid)
         }
         return bySample
@@ -1193,8 +1198,17 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
 
     /// Presents the unified classifier extraction dialog for the current selection.
     private func presentUnifiedExtractionDialog() {
+        presentUnifiedExtractionDialog(selectors: buildNvdSelectors())
+    }
+
+    private func presentUnifiedExtractionDialog(for hit: NvdBlastHit) {
+        presentUnifiedExtractionDialog(selectors: [
+            ClassifierRowSelector(sampleId: hit.sampleId, accessions: [hit.qseqid], taxIds: [])
+        ])
+    }
+
+    private func presentUnifiedExtractionDialog(selectors: [ClassifierRowSelector]) {
         guard let resultPath = database?.databaseURL else { return }
-        let selectors = buildNvdSelectors()
         guard !selectors.isEmpty else { return }
         let firstContig = selectors.first?.accessions.first ?? "extract"
         presentClassifierExtractionDialog(
@@ -1206,9 +1220,15 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     @objc private func contextExtractReadsUnified(_ sender: Any?) {
+        if let hit = (sender as? NSMenuItem)?.representedObject as? NvdBlastHit {
+            presentUnifiedExtractionDialog(for: hit)
+            return
+        }
+
         if outlineView.selectedRowIndexes.isEmpty,
            outlineView.clickedRow >= 0 {
             outlineView.selectRowIndexes(IndexSet(integer: outlineView.clickedRow), byExtendingSelection: false)
+            updateSelectionIdentitiesFromOutlineSelection()
         }
         presentUnifiedExtractionDialog()
     }
@@ -1429,22 +1449,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - BLAST Verification
 
     private func blastVerifySelectedContig() {
-        let selectedRow = outlineView.selectedRow
-        guard selectedRow >= 0 else { return }
-        guard let item = outlineView.item(atRow: selectedRow) as? NvdOutlineItem else { return }
-
-        let hit: NvdBlastHit?
-        switch item {
-        case .contig(let sampleId, let qseqid):
-            hit = displayedContigs.first { $0.sampleId == sampleId && $0.qseqid == qseqid }
-        case .childHit(let sampleId, let qseqid, let hitRank):
-            let key = "\(sampleId)\t\(qseqid)"
-            hit = childHitsCache[key]?.first { $0.hitRank == hitRank }
-        case .taxonGroup:
-            hit = nil
-        }
-
-        guard let hit, let bundleURL, let database else { return }
+        guard let hit = singleIdentityBackedSelectedHit() else { return }
+        guard let bundleURL, let database else { return }
 
         // Extract contig FASTA sequence
         do {
@@ -1555,25 +1561,30 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             keyEquivalent: ""
         )
         extractReadsItem.target = self
-        extractReadsItem.isEnabled = !outlineView.selectedRowIndexes.isEmpty || outlineView.clickedRow >= 0
+        extractReadsItem.representedObject = hit
+        extractReadsItem.isEnabled = database != nil
         menu.addItem(extractReadsItem)
         menu.addItem(NSMenuItem.separator())
 
+        let selectedHit = singleIdentityBackedSelectedHit(matching: hit)
+        let contextFASTARecord = contigFASTARecord(for: hit)
         let sharedItems = FASTASequenceActionMenuBuilder.buildItems(
-            selectionCount: outlineView.selectedRowIndexes.count,
+            selectionCount: contextFASTARecord == nil ? 0 : 1,
             handlers: FASTASequenceActionHandlers(
-                onExtractSequence: { [weak self] in self?.contextExtractSequence(nil) },
-                onBlast: (onBlastVerification != nil && database != nil && outlineView.selectedRowIndexes.count <= 1)
-                    ? { [weak self] in self?.performBlastVerification(for: hit) }
+                onExtractSequence: { [weak self] in self?.extractSequence(for: hit) },
+                onBlast: (onBlastVerification != nil && database != nil && selectedHit != nil)
+                    ? { [weak self] in
+                        self?.performBlastVerification(for: hit)
+                    }
                     : nil,
-                onCopy: contigFASTARecord(for: hit) == nil ? nil : { [weak self] in self?.copyContigSequence(hit) },
-                onExport: (onExportFASTARequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                onCopy: contextFASTARecord == nil ? nil : { [weak self] in self?.copyContigSequence(hit) },
+                onExport: (onExportFASTARequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
                     self?.exportContigSequence(hit)
                 },
-                onCreateBundle: (onCreateBundleRequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                onCreateBundle: (onCreateBundleRequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
                     self?.createBundle(for: hit)
                 },
-                onRunOperation: (onRunOperationRequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
+                onRunOperation: (onRunOperationRequested == nil || contextFASTARecord == nil) ? nil : { [weak self] in
                     self?.runOperation(for: hit)
                 }
             )
@@ -1615,8 +1626,7 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     }
 
     private func selectedContigFASTARecords() -> [String] {
-        outlineView.selectedRowIndexes.compactMap { row in
-            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem else { return nil }
+        selectedOutlineItemsByIdentity().compactMap { item in
             switch item {
             case .contig(let sampleId, let qseqid):
                 guard let hit = displayedContigs.first(where: { $0.sampleId == sampleId && $0.qseqid == qseqid }) else {
@@ -1628,6 +1638,16 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             case .taxonGroup:
                 return nil
             }
+        }
+    }
+
+    private func extractSequence(for hit: NvdBlastHit) {
+        guard let record = contigFASTARecord(for: hit) else { return }
+        let records = [record]
+        if let onExtractSequenceRequested {
+            onExtractSequenceRequested(records, suggestedSequenceName(for: records, fallback: "nvd-contig"))
+        } else {
+            presentUnifiedExtractionDialog(for: hit)
         }
     }
 
@@ -2125,15 +2145,130 @@ extension NvdResultViewController {
 
     public func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelectionSync else { return }
+        updateSelectionIdentitiesFromOutlineSelection()
+        displaySelectionDetail(for: selectedOutlineItemsByIdentity())
+    }
 
-        let selectedIndexes = outlineView.selectedRowIndexes
-        if selectedIndexes.count > 1 {
-            showMultiSelectionPlaceholder(count: selectedIndexes.count)
+    private func updateSelectionIdentitiesFromOutlineSelection() {
+        let selected = selectedOutlineItemsFromCurrentIndexes()
+        let ids = selected.compactMap(selectionIdentity(for:))
+        if ids.count == selected.count, !ids.isEmpty {
+            selectionIdentities.select(ids)
+        } else {
+            selectionIdentities.clear()
+        }
+    }
+
+    private func restoreSelectionAfterOutlineReload() {
+        guard let visibleIDs = visibleSelectionIdentities() else { return }
+        let previousIDs = selectionIdentities.selectedIDs
+        guard !previousIDs.isEmpty else {
+            restoreOutlineSelection([])
             return
         }
 
-        let row = outlineView.selectedRow
-        guard row >= 0, let item = outlineView.item(atRow: row) as? NvdOutlineItem else {
+        selectionIdentities.removeSelectionsNotVisible(in: visibleIDs)
+        let selectedIndexes = selectionIdentities.visibleIndexes(in: visibleIDs)
+        restoreOutlineSelection(selectedIndexes)
+        displaySelectionDetail(for: selectedOutlineItemsByIdentity())
+    }
+
+    private func restoreOutlineSelection(_ indexes: IndexSet) {
+        suppressSelectionSync = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionSync = false
+    }
+
+    private func selectedOutlineItemsByIdentity() -> [NvdOutlineItem] {
+        guard let visible = visibleSelectionItemsAndIdentities(),
+              !selectionIdentities.selectedIDs.isEmpty else {
+            return selectedOutlineItemsFromCurrentIndexes()
+        }
+
+        let selectedIDs = selectionIdentities.selectedIDs
+        return visible.compactMap { item, identity in
+            selectedIDs.contains(identity) ? item : nil
+        }
+    }
+
+    private func visibleIdentitySelectionCount() -> Int {
+        selectedOutlineItemsByIdentity().count
+    }
+
+    private func hasVisibleIdentitySelection() -> Bool {
+        visibleIdentitySelectionCount() > 0
+    }
+
+    private func singleIdentityBackedSelectedHit() -> NvdBlastHit? {
+        let selected = selectedOutlineItemsByIdentity()
+        guard selected.count == 1, let item = selected.first else { return nil }
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            return displayedContigs.first { $0.sampleId == sampleId && $0.qseqid == qseqid }
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            let key = "\(sampleId)\t\(qseqid)"
+            return childHitsCache[key]?.first { $0.hitRank == hitRank }
+        case .taxonGroup:
+            return nil
+        }
+    }
+
+    private func singleIdentityBackedSelectedHit(matching contextHit: NvdBlastHit) -> NvdBlastHit? {
+        guard let selected = singleIdentityBackedSelectedHit(),
+              selected.sampleId == contextHit.sampleId,
+              selected.qseqid == contextHit.qseqid,
+              selected.hitRank == contextHit.hitRank else {
+            return nil
+        }
+        return selected
+    }
+
+    private func selectedOutlineItemsFromCurrentIndexes() -> [NvdOutlineItem] {
+        outlineView.selectedRowIndexes.compactMap { row in
+            guard row >= 0 else { return nil }
+            return outlineView.item(atRow: row) as? NvdOutlineItem
+        }
+    }
+
+    private func visibleSelectionIdentities() -> [String]? {
+        visibleSelectionItemsAndIdentities()?.map(\.identity)
+    }
+
+    private func visibleSelectionItemsAndIdentities() -> [(item: NvdOutlineItem, identity: String)]? {
+        var visible: [(item: NvdOutlineItem, identity: String)] = []
+        visible.reserveCapacity(outlineView.numberOfRows)
+        for row in 0..<outlineView.numberOfRows {
+            guard let item = outlineView.item(atRow: row) as? NvdOutlineItem,
+                  let identity = selectionIdentity(for: item) else {
+                return nil
+            }
+            visible.append((item, identity))
+        }
+        return visible
+    }
+
+    private func selectionIdentity(for item: NvdOutlineItem) -> String? {
+        let resultPath = database?.databaseURL.standardizedFileURL.path
+            ?? bundleURL?.standardizedFileURL.path
+            ?? manifest?.sourceDirectoryPath
+            ?? "unknown-result"
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            return ["nvd", resultPath, sampleId, qseqid].joined(separator: "\u{1F}")
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            return ["nvd", resultPath, sampleId, qseqid, String(hitRank)].joined(separator: "\u{1F}")
+        case .taxonGroup(let name):
+            return ["nvd", resultPath, "taxon-group", name].joined(separator: "\u{1F}")
+        }
+    }
+
+    private func displaySelectionDetail(for selected: [NvdOutlineItem]) {
+        if selected.count > 1 {
+            showMultiSelectionPlaceholder(count: selected.count)
+            return
+        }
+
+        guard let item = selected.first else {
             showOverview()
             return
         }
@@ -2181,12 +2316,72 @@ extension NvdResultViewController {
     var testSplitView: NSSplitView { splitView }
     var testBlastDrawerContainer: BlastResultsDrawerContainerView? { blastDrawerContainer }
 
+    func testSelectOutlineRow(_ row: Int) {
+        outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        outlineViewSelectionDidChange(Notification(name: NSOutlineView.selectionDidChangeNotification, object: outlineView))
+    }
+
+    func testSelectedOutlineContigSamples() -> [String] {
+        selectedOutlineItemsByIdentity().compactMap { item in
+            item.sampleContig?.sampleId
+        }
+    }
+
+    func testOutlineSelectedRowIndexes() -> IndexSet {
+        outlineView.selectedRowIndexes
+    }
+
+    func testSelectOutlineRowsWithoutIdentitySync(_ indexes: IndexSet) {
+        suppressSelectionSync = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionSync = false
+    }
+
+    struct TestContextMenuActionState {
+        let identitySelectionCount: Int
+        let menuSelectionCount: Int
+        let blastEnabled: Bool
+    }
+
+    func testContextMenuActionStateForContig(at index: Int) -> TestContextMenuActionState {
+        guard displayedContigs.indices.contains(index) else {
+            return TestContextMenuActionState(identitySelectionCount: 0, menuSelectionCount: 0, blastEnabled: false)
+        }
+        let menu = NSMenu(title: "Test Menu")
+        populateContextMenu(menu, for: displayedContigs[index])
+        let blastItem = menu.items.first { $0.title == "Verify with BLAST\u{2026}" }
+        let count = visibleIdentitySelectionCount()
+        return TestContextMenuActionState(
+            identitySelectionCount: count,
+            menuSelectionCount: count,
+            blastEnabled: blastItem?.isEnabled == true
+        )
+    }
+
+    func testContextMenuActionStateForFirstContig() -> TestContextMenuActionState {
+        testContextMenuActionStateForContig(at: 0)
+    }
+
     func testContextMenuTitlesForFirstContig() -> [String] {
         guard !displayedContigs.isEmpty else { return [] }
         outlineView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
         let menu = NSMenu(title: "Test Menu")
         populateContextMenu(menu, for: displayedContigs[0])
         return menu.items.map(\.title)
+    }
+
+    func testInvokeContextMenuItem(title: String, forContigAt index: Int) -> Bool {
+        guard displayedContigs.indices.contains(index) else { return false }
+        let menu = NSMenu(title: "Test Menu")
+        populateContextMenu(menu, for: displayedContigs[index])
+        guard let item = menu.items.first(where: { $0.title == title }),
+              item.isEnabled,
+              let action = item.action,
+              let target = item.target else {
+            return false
+        }
+        NSApp.sendAction(action, to: target, from: item)
+        return true
     }
 }
 
