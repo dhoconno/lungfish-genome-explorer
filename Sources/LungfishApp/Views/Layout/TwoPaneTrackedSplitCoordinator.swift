@@ -8,7 +8,6 @@ final class TwoPaneTrackedSplitCoordinator {
     private var pendingInitialSplitValidation = false
     private var pendingInitialValidationLeadingExtent: CGFloat?
     private var isSynchronizingTrackedSplitPosition = false
-    private var isApplyingDefaultSplitResize = false
 
     func invalidateInitialSplitPosition() {
         didSetInitialSplitPosition = false
@@ -80,9 +79,9 @@ final class TwoPaneTrackedSplitCoordinator {
         let minimumRequiredExtent = minimumExtents.leading + minimumExtents.trailing + splitView.dividerThickness
         guard totalExtent >= minimumRequiredExtent else { return }
 
-        let clampedPosition = SplitPaneSizing.clampedDividerPosition(
+        let clampedPosition = clampedLeadingExtent(
+            in: splitView,
             proposed: defaultLeadingExtent ?? round(totalExtent * defaultLeadingFraction),
-            containerExtent: totalExtent,
             minimumLeadingExtent: minimumExtents.leading,
             minimumTrailingExtent: minimumExtents.trailing
         )
@@ -199,9 +198,9 @@ final class TwoPaneTrackedSplitCoordinator {
                 ? (desiredFirstPane === currentFirstPane ? currentFirstExtent : currentSecondExtent)
                 : resolvedDefaultLeadingExtent)
 
-        let clampedPosition = SplitPaneSizing.clampedDividerPosition(
+        let clampedPosition = clampedLeadingExtent(
+            in: splitView,
             proposed: leadingExtent,
-            containerExtent: totalExtent,
             minimumLeadingExtent: minimumExtents.leading,
             minimumTrailingExtent: minimumExtents.trailing
         )
@@ -226,28 +225,16 @@ final class TwoPaneTrackedSplitCoordinator {
         _ = oldSize
         guard splitView.arrangedSubviews.count == 2 else { return }
 
-        if !splitView.isVertical {
-            guard !isApplyingDefaultSplitResize else { return }
-            isApplyingDefaultSplitResize = true
-            let originalDelegate = splitView.delegate
-            splitView.delegate = nil
-            splitView.adjustSubviews()
-            splitView.delegate = originalDelegate
-            isApplyingDefaultSplitResize = false
-            afterResize?()
-            return
-        }
-
-        let totalExtent = splitView.bounds.width
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         guard totalExtent > 0 else { return }
 
         let proposedLeadingExtent = splitView.requestedDividerPosition(at: 0)
             ?? currentDividerPosition(in: splitView)
             ?? defaultLeadingExtent
             ?? round(totalExtent * defaultLeadingFraction)
-        let targetLeadingExtent = SplitPaneSizing.clampedDividerPosition(
+        let targetLeadingExtent = clampedLeadingExtent(
+            in: splitView,
             proposed: proposedLeadingExtent,
-            containerExtent: totalExtent,
             minimumLeadingExtent: minimumExtents.leading,
             minimumTrailingExtent: minimumExtents.trailing
         )
@@ -267,10 +254,9 @@ final class TwoPaneTrackedSplitCoordinator {
            let requestedPosition = splitView.requestedDividerPosition(at: 0),
            let currentPosition = currentDividerPosition(in: splitView),
            abs(currentPosition - requestedPosition) > 2 {
-            let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
-            let clampedPosition = SplitPaneSizing.clampedDividerPosition(
+            let clampedPosition = clampedLeadingExtent(
+                in: splitView,
                 proposed: requestedPosition,
-                containerExtent: totalExtent,
                 minimumLeadingExtent: minimumExtents.leading,
                 minimumTrailingExtent: minimumExtents.trailing
             )
@@ -332,5 +318,21 @@ final class TwoPaneTrackedSplitCoordinator {
                 height: trailingHeight
             )
         }
+    }
+
+    private func clampedLeadingExtent(
+        in splitView: NSSplitView,
+        proposed: CGFloat,
+        minimumLeadingExtent: CGFloat,
+        minimumTrailingExtent: CGFloat
+    ) -> CGFloat {
+        let totalExtent = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
+        let availablePaneExtent = max(0, totalExtent - splitView.dividerThickness)
+        return SplitPaneSizing.clampedDividerPosition(
+            proposed: proposed,
+            containerExtent: availablePaneExtent,
+            minimumLeadingExtent: minimumLeadingExtent,
+            minimumTrailingExtent: minimumTrailingExtent
+        )
     }
 }

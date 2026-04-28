@@ -144,6 +144,13 @@ public class InspectorViewController: NSViewController {
     /// Tracks last split-view visibility reported by MainSplitViewController.
     private var wasInspectorVisible = true
 
+    var windowStateScope: WindowStateScope? {
+        didSet {
+            viewModel.windowStateScope = windowStateScope
+        }
+    }
+    private var activeContentSelectionIdentity: ContentSelectionIdentity?
+
     // MARK: - Lifecycle
 
     public override func loadView() {
@@ -160,7 +167,7 @@ public class InspectorViewController: NSViewController {
 
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleMetadataImportRequested),
+            selector: #selector(handleMetadataImportRequested(_:)),
             name: .metagenomicsMetadataImportRequested,
             object: nil
         )
@@ -186,6 +193,23 @@ public class InspectorViewController: NSViewController {
     /// view model instances, restoring slider/toggle/picker interactivity.
     public func refreshHostingView() {
         hostingView.rootView = InspectorView(viewModel: viewModel)
+    }
+
+    var testingWindowStateScope: WindowStateScope? {
+        get { windowStateScope }
+        set { windowStateScope = newValue }
+    }
+
+    func testingHandleSidebarSelectionChanged(_ notification: Notification) {
+        selectionDidChange(notification)
+    }
+
+    func testingHandleBatchManifestCached(_ notification: Notification) {
+        handleBatchManifestCached(notification)
+    }
+
+    func testingHandleMetadataImportRequested(_ notification: Notification) -> Bool {
+        handleMetadataImportRequested(notification, shouldPresentPanel: false)
     }
 
     // MARK: - Setup
@@ -269,7 +293,7 @@ public class InspectorViewController: NSViewController {
         // Listen for batch manifest saved — transitions the status indicator from .building to .cached.
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleBatchManifestCached),
+            selector: #selector(handleBatchManifestCached(_:)),
             name: .batchManifestCached,
             object: nil
         )
@@ -297,53 +321,53 @@ public class InspectorViewController: NSViewController {
         viewModel.selectionSectionViewModel.onShowTranslation = { [weak self] annotation in
             self?.handleShowTranslationRequested(annotation)
         }
-        viewModel.selectionSectionViewModel.onExtractSequence = { annotation in
+        viewModel.selectionSectionViewModel.onExtractSequence = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .extractSequenceRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onCopyAsFASTA = { annotation in
+        viewModel.selectionSectionViewModel.onCopyAsFASTA = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .copyAnnotationAsFASTARequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onCopyTranslationAsFASTA = { annotation in
+        viewModel.selectionSectionViewModel.onCopyTranslationAsFASTA = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .copyTranslationAsFASTARequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onCopySequence = { annotation in
+        viewModel.selectionSectionViewModel.onCopySequence = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .copyAnnotationSequenceRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onCopyReverseComplement = { annotation in
+        viewModel.selectionSectionViewModel.onCopyReverseComplement = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .copyAnnotationReverseComplementRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onRunFASTAOperation = { annotation in
+        viewModel.selectionSectionViewModel.onRunFASTAOperation = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .runFASTAOperationOnAnnotationRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
-        viewModel.selectionSectionViewModel.onZoomToAnnotation = { annotation in
+        viewModel.selectionSectionViewModel.onZoomToAnnotation = { [weak self] annotation in
             NotificationCenter.default.post(
                 name: .zoomToAnnotationRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
 
@@ -363,7 +387,7 @@ public class InspectorViewController: NSViewController {
         }
 
         // Variant section callbacks
-        viewModel.variantSectionViewModel.onZoomToVariant = { variant in
+        viewModel.variantSectionViewModel.onZoomToVariant = { [weak self] variant in
             // Create a SequenceAnnotation from the variant for zoom navigation
             let annotation = SequenceAnnotation(
                 type: .snp,
@@ -376,7 +400,7 @@ public class InspectorViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .zoomToAnnotationRequested,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: self?.windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
 
@@ -432,11 +456,11 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .annotationSettingsChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 "showAnnotations": viewModel.annotationSectionViewModel.showAnnotations,
                 "annotationHeight": viewModel.annotationSectionViewModel.annotationHeight,
                 "annotationSpacing": viewModel.annotationSectionViewModel.annotationSpacing
-            ]
+            ])
         )
     }
 
@@ -448,10 +472,10 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .annotationFilterChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 "visibleTypes": visibleTypes,
                 "filterText": filterText
-            ]
+            ])
         )
     }
 
@@ -463,13 +487,18 @@ public class InspectorViewController: NSViewController {
     /// Document loading is handled exclusively by MainSplitViewController to avoid race conditions
     /// where both controllers attempt to load the same document concurrently.
     @objc private func selectionDidChange(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
+
         // Handle empty selection (items array is empty, no "item" key)
         if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
+            activeContentSelectionIdentity = nil
             clearTransientSelectionState()
             return
         }
 
         guard let item = notification.userInfo?["item"] as? SidebarItem else { return }
+        activeContentSelectionIdentity = notification.userInfo?[NotificationUserInfoKey.contentSelectionIdentity]
+            as? ContentSelectionIdentity
 
         // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
@@ -488,6 +517,7 @@ public class InspectorViewController: NSViewController {
     /// Resets the sidebar item display, annotation selection, variant details, document
     /// metadata, and read selection to their default empty states.
     private func clearTransientSelectionState() {
+        activeContentSelectionIdentity = nil
         // Clear sidebar selection display
         viewModel.selectedItem = nil
         viewModel.selectedType = nil
@@ -540,6 +570,7 @@ public class InspectorViewController: NSViewController {
     /// Updates the selection section with the newly selected annotation.
     /// Passing nil in userInfo clears the selection.
     @objc private func handleAnnotationSelected(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         let selectedAnnotation = notification.userInfo?[NotificationUserInfoKey.annotation] as? SequenceAnnotation
 
         // Translation track persists across annotation selection changes.
@@ -566,6 +597,7 @@ public class InspectorViewController: NSViewController {
 
     /// Handles variant selection notifications carrying row/track identity.
     @objc private func handleVariantSelected(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let result = notification.userInfo?[NotificationUserInfoKey.searchResult] as? AnnotationSearchIndex.SearchResult else {
             viewModel.variantSectionViewModel.clear()
             return
@@ -576,6 +608,7 @@ public class InspectorViewController: NSViewController {
 
     /// Handles read selection from the viewer.
     @objc private func handleReadSelected(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         let read = notification.userInfo?[NotificationUserInfoKey.alignedRead] as? AlignedRead
         viewModel.readStyleSectionViewModel.selectedRead = read
         if read != nil {
@@ -588,6 +621,7 @@ public class InspectorViewController: NSViewController {
     /// Extracts the manifest and bundle URL from the notification's userInfo
     /// and updates the document section view model.
     @objc private func handleBundleDidLoad(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else { return }
 
         let bundleURL = userInfo[NotificationUserInfoKey.bundleURL] as? URL
@@ -605,6 +639,7 @@ public class InspectorViewController: NSViewController {
 
     /// Handles requests to show/focus inspector with a specific tab.
     @objc private func handleShowInspectorRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         applyInspectorTabSelection(from: notification)
     }
 
@@ -613,6 +648,7 @@ public class InspectorViewController: NSViewController {
     /// Always switches to the Bundle tab when a chromosome is selected so the
     /// chromosome metadata is immediately visible in the inspector.
     @objc private func handleChromosomeInspectorRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         let chromosome = notification.userInfo?[NotificationUserInfoKey.chromosome] as? ChromosomeInfo
         updateSelectedChromosome(chromosome)
         if chromosome != nil {
@@ -621,6 +657,7 @@ public class InspectorViewController: NSViewController {
     }
 
     @objc private func handleFASTQDatasetLoaded(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let stats = notification.userInfo?["statistics"] as? FASTQDatasetStatistics else { return }
         viewModel.documentSectionViewModel.updateFASTQStatistics(stats)
 
@@ -674,6 +711,7 @@ public class InspectorViewController: NSViewController {
     /// for the new mode. If the current tab is no longer available, switches to the
     /// first available tab.
     @objc private func handleContentModeChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
               let mode = ViewportContentMode(rawValue: rawMode) else { return }
 
@@ -691,7 +729,8 @@ public class InspectorViewController: NSViewController {
     ///
     /// When a batch aggregated manifest is saved to disk (first-load slow path), this transitions
     /// the Inspector status indicator from `.building` to `.cached`.
-    @objc private func handleBatchManifestCached() {
+    @objc private func handleBatchManifestCached(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         if viewModel.documentSectionViewModel.batchManifestStatus == .building {
             viewModel.documentSectionViewModel.batchManifestStatus = .cached
         }
@@ -706,6 +745,21 @@ public class InspectorViewController: NSViewController {
         viewModel.selectedTab = tab
     }
 
+    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
+        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
+            return true
+        }
+        guard let windowStateScope else { return true }
+        return notificationScope == windowStateScope
+    }
+
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
+    }
+
     // MARK: - Annotation Editing Handlers
 
     /// Handles annotation updates from the SelectionSection.
@@ -718,10 +772,10 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .annotationUpdated,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.annotation: annotation,
                 NotificationUserInfoKey.changeSource: "inspector"
-            ]
+            ])
         )
     }
 
@@ -740,10 +794,10 @@ public class InspectorViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .annotationDeleted,
                 object: self,
-                userInfo: [
+                userInfo: windowScopedUserInfo([
                     NotificationUserInfoKey.annotation: annotation,
                     NotificationUserInfoKey.changeSource: "inspector"
-                ]
+                ])
             )
         }
     }
@@ -758,11 +812,11 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .annotationColorAppliedToType,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.annotationType: annotationType,
                 NotificationUserInfoKey.annotationColor: color,
                 NotificationUserInfoKey.changeSource: "inspector"
-            ]
+            ])
         )
     }
 
@@ -777,10 +831,10 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .showCDSTranslationRequested,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.annotation: annotation,
                 "visible": vm.isTranslationVisible,
-            ]
+            ])
         )
     }
 
@@ -832,9 +886,9 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .sampleDisplayStateChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.sampleDisplayState: state
-            ]
+            ])
         )
     }
 
@@ -873,28 +927,28 @@ public class InspectorViewController: NSViewController {
         NotificationCenter.default.post(
             name: .annotationSettingsChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 "showAnnotations": viewModel.annotationSectionViewModel.showAnnotations,
                 "annotationHeight": viewModel.annotationSectionViewModel.annotationHeight,
                 "annotationSpacing": viewModel.annotationSectionViewModel.annotationSpacing
-            ]
+            ])
         )
 
         // Post annotation filter changed notification
         NotificationCenter.default.post(
             name: .annotationFilterChanged,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 "visibleTypes": viewModel.annotationSectionViewModel.visibleTypes,
                 "filterText": viewModel.annotationSectionViewModel.filterText
-            ]
+            ])
         )
 
         // 6. Reset bundle view state (type color overrides, navigation, etc.)
         NotificationCenter.default.post(
             name: .bundleViewStateResetRequested,
             object: self,
-            userInfo: nil
+            userInfo: windowScopedUserInfo()
         )
 
         logger.info("handleResetAllAppearanceSettings: Posted all notifications for viewer update")
@@ -950,11 +1004,11 @@ public class InspectorViewController: NSViewController {
             artifactRows: assemblyArtifactRows(result: result)
         )
 
-        viewModel.documentSectionViewModel.navigateToSourceData = { url in
+        viewModel.documentSectionViewModel.navigateToSourceData = { [weak self] url in
             NotificationCenter.default.post(
                 name: .navigateToSidebarItem,
                 object: nil,
-                userInfo: ["url": url]
+                userInfo: self?.windowScopedUserInfo(["url": url])
             )
         }
         viewModel.documentSectionViewModel.updateAssemblyDocument(state)
@@ -964,11 +1018,11 @@ public class InspectorViewController: NSViewController {
     /// Updates the Document inspector with a prebuilt mapping document state.
     func updateMappingDocument(_ state: MappingDocumentState?) {
         if state != nil {
-            viewModel.documentSectionViewModel.navigateToSourceData = { url in
+            viewModel.documentSectionViewModel.navigateToSourceData = { [weak self] url in
                 NotificationCenter.default.post(
                     name: .navigateToSidebarItem,
                     object: nil,
-                    userInfo: ["url": url]
+                    userInfo: self?.windowScopedUserInfo(["url": url])
                 )
             }
         } else {
@@ -1038,7 +1092,23 @@ public class InspectorViewController: NSViewController {
 
     // MARK: - Metadata Import
 
-    @objc private func handleMetadataImportRequested() {
+    @objc private func handleMetadataImportRequested(_ notification: Notification) {
+        _ = handleMetadataImportRequested(notification, shouldPresentPanel: true)
+    }
+
+    @discardableResult
+    private func handleMetadataImportRequested(
+        _ notification: Notification,
+        shouldPresentPanel: Bool
+    ) -> Bool {
+        guard shouldAcceptScopedNotification(notification) else { return false }
+        guard shouldPresentPanel else { return true }
+
+        presentMetadataImportPanel()
+        return true
+    }
+
+    private func presentMetadataImportPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
         panel.allowsMultipleSelection = false
@@ -1551,7 +1621,9 @@ public class InspectorViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .readDisplaySettingsChanged,
                 object: self,
-                userInfo: self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel)
+                userInfo: self.windowScopedUserInfo(
+                    self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel)
+                )
             )
         }
 
@@ -2608,6 +2680,8 @@ public class InspectorViewController: NSViewController {
 public final class InspectorViewModel {
     // MARK: - Content Mode
 
+    var windowStateScope: WindowStateScope?
+
     /// The current viewport content mode, mirrored from ViewerViewController.
     var contentMode: ViewportContentMode = .empty
 
@@ -2714,6 +2788,12 @@ public final class InspectorViewModel {
         qualitySectionViewModel.isQualityOverlayEnabled = appearance.showQualityOverlay
     }
 
+    func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
+    }
 }
 
 // MARK: - InspectorView (SwiftUI)
@@ -2740,7 +2820,11 @@ public struct InspectorView: View {
         }
         .onChange(of: viewModel.selectedTab) { _, tab in
             guard tab == .ai, viewModel.aiAssistantService == nil else { return }
-            NotificationCenter.default.post(name: .showAIAssistantRequested, object: nil)
+            NotificationCenter.default.post(
+                name: .showAIAssistantRequested,
+                object: nil,
+                userInfo: viewModel.windowScopedUserInfo()
+            )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .controlBackgroundColor))
@@ -2834,7 +2918,10 @@ public struct InspectorView: View {
             FASTQMetadataSection(viewModel: viewModel.fastqMetadataSectionViewModel)
 
         case .resultSummary:
-            MetagenomicsResultSummarySection(viewModel: viewModel.documentSectionViewModel)
+            MetagenomicsResultSummarySection(
+                viewModel: viewModel.documentSectionViewModel,
+                windowStateScope: viewModel.windowStateScope
+            )
 
         case .ai:
             EmptyView()
@@ -3728,6 +3815,7 @@ private struct MappingViewSettingsSection: View {
 /// otherwise shows a "No result information" placeholder.
 private struct MetagenomicsResultSummarySection: View {
     @Bindable var viewModel: DocumentSectionViewModel
+    let windowStateScope: WindowStateScope?
     @State private var isSamplesExpanded = true
 
     var body: some View {
@@ -3812,7 +3900,11 @@ private struct MetagenomicsResultSummarySection: View {
                         )
                     }
                     .onChange(of: pickerState.selectedSamples) { _, _ in
-                        NotificationCenter.default.post(name: .metagenomicsSampleSelectionChanged, object: nil)
+                        NotificationCenter.default.post(
+                            name: .metagenomicsSampleSelectionChanged,
+                            object: nil,
+                            userInfo: windowScopedUserInfo()
+                        )
                     }
                 }
 
@@ -3822,7 +3914,8 @@ private struct MetagenomicsResultSummarySection: View {
                     Button("Import Metadata\u{2026}") {
                         NotificationCenter.default.post(
                             name: .metagenomicsMetadataImportRequested,
-                            object: nil
+                            object: nil,
+                            userInfo: windowScopedUserInfo()
                         )
                     }
                     .controlSize(.small)
@@ -3851,12 +3944,19 @@ private struct MetagenomicsResultSummarySection: View {
                         NotificationCenter.default.post(
                             name: .navigateToSidebarItem,
                             object: nil,
-                            userInfo: ["url": url]
+                            userInfo: windowScopedUserInfo(["url": url])
                         )
                     }
                 )
             }
         }
+    }
+
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
     }
 
     @ViewBuilder

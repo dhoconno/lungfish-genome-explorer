@@ -164,6 +164,55 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(inspectorWidth, 430)
     }
 
+    func testOrdinaryWindowResizeUsesCurrentSplitWidthWithoutPersistingClampedWidths() {
+        UserDefaults.standard.set(500, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
+        UserDefaults.standard.set(430, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
+
+        let (controller, window) = makeController()
+        controller.testingSetShellFrames(sidebarWidth: 500, inspectorWidth: 430, totalWidth: 1500)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingRestorePersistedShellLayout()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.splitView.bounds.size.width = 1000
+        controller.testingProcessShellResize()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(
+            controller.testingSidebarConstraintWidth + controller.testingInspectorConstraintWidth,
+            930,
+            "ordinary resize should immediately re-resolve side pane widths against the live split-view width"
+        )
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 500)
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 430)
+    }
+
+    func testStackedTrackedSplitResizeClampsRequestedExtent() {
+        let splitView = TrackedDividerSplitView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+        splitView.isVertical = false
+
+        let leadingView = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 320))
+        let trailingView = NSView(frame: NSRect(x: 0, y: 321, width: 600, height: 179))
+        splitView.addArrangedSubview(leadingView)
+        splitView.addArrangedSubview(trailingView)
+        splitView.setPosition(320, ofDividerAt: 0)
+
+        splitView.bounds.size.height = 420
+        let coordinator = TwoPaneTrackedSplitCoordinator()
+        coordinator.resizeSubviewsWithOldSize(
+            splitView,
+            oldSize: NSSize(width: 600, height: 500),
+            defaultLeadingFraction: 0.5,
+            minimumExtents: (leading: 160, trailing: 200)
+        )
+
+        XCTAssertLessThanOrEqual(leadingView.frame.height, 220.5)
+        XCTAssertGreaterThanOrEqual(trailingView.frame.height, 199.5)
+    }
+
     func testControllerReappliesPersistedSidebarWidthAfterHideThenShow() {
         UserDefaults.standard.set(320, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
 

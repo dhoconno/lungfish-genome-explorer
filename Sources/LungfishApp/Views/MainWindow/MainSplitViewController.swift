@@ -168,6 +168,10 @@ public class MainSplitViewController: NSSplitViewController {
     /// cannot repaint the viewport after a tool result is displayed.
     private var multiDocumentLoadTask: Task<Void, Never>?
 
+    private let windowStateScope = WindowStateScope()
+    private var activeContentSelectionIdentity: ContentSelectionIdentity?
+    private var displayRequestGate = AsyncRequestGate<ContentSelectionIdentity>()
+
     // MARK: - FASTQ Loading State
 
     /// Background task for FASTQ statistics/sample loading.
@@ -307,6 +311,8 @@ public class MainSplitViewController: NSSplitViewController {
 
         // Set up delegate for direct selection handling (avoids async Task issues)
         sidebarController.selectionDelegate = self
+        sidebarController.windowStateScope = windowStateScope
+        inspectorController.windowStateScope = windowStateScope
 
         // Create split view items with appropriate behaviors
 
@@ -419,10 +425,18 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc private func handleShowInspector(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         let tab = notification.userInfo?[NotificationUserInfoKey.inspectorTab] as? String
         logger.info("handleShowInspector: Showing inspector panel, tab=\(tab ?? "default", privacy: .public)")
         setInspectorVisible(true, animated: false, source: "notification.showInspectorRequested")
         // Tab switching is handled by InspectorViewController observing the same notification
+    }
+
+    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
+        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
+            return true
+        }
+        return notificationScope == windowStateScope
     }
 
     @objc private func handleBundleDidLoad(_ notification: Notification) {
@@ -1582,6 +1596,45 @@ public class MainSplitViewController: NSSplitViewController {
         }
     }
 
+    @discardableResult
+    private func reapplyResolvedShellWidthsForOrdinaryResize(
+        currentSidebarWidth: CGFloat,
+        currentInspectorWidth: CGFloat,
+        totalWidth: CGFloat
+    ) -> Bool {
+        ensureShellWidthConstraints()
+        let resolvedWidths = shellLayoutCoordinator.resolvedShellWidths(
+            currentSidebarWidth: currentSidebarWidth,
+            currentInspectorWidth: currentInspectorWidth,
+            totalWidth: totalWidth
+        )
+        let sidebarNeedsUpdate = !sidebarItem.isCollapsed
+            && abs((sidebarWidthConstraint?.constant ?? currentSidebarWidth) - resolvedWidths.sidebarWidth) > 0.5
+        let inspectorNeedsUpdate = !inspectorItem.isCollapsed
+            && abs((inspectorWidthConstraint?.constant ?? currentInspectorWidth) - resolvedWidths.inspectorWidth) > 0.5
+        guard sidebarNeedsUpdate || inspectorNeedsUpdate else { return false }
+
+        withProgrammaticShellResizeSuppression {
+            if !sidebarItem.isCollapsed {
+                sidebarWidthConstraint?.constant = resolvedWidths.sidebarWidth
+                setShellDividerPosition(resolvedWidths.sidebarWidth, ofDividerAt: 0)
+            }
+
+            if !inspectorItem.isCollapsed {
+                inspectorWidthConstraint?.constant = resolvedWidths.inspectorWidth
+                let inspectorDividerPosition = shellContainerWidth()
+                    - resolvedWidths.inspectorWidth
+                    - splitView.dividerThickness
+                setShellDividerPosition(inspectorDividerPosition, ofDividerAt: 1)
+            }
+
+            splitView.adjustSubviews()
+            splitView.layoutSubtreeIfNeeded()
+            view.layoutSubtreeIfNeeded()
+        }
+        return true
+    }
+
     private func reapplyPersistedShellLayoutForCurrentVisibility(scheduleAsync: Bool) {
         let restoreLayout = { [weak self] in
             guard let self else { return }
@@ -1831,8 +1884,11 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     private func shellContainerWidth() -> CGFloat {
+        if splitView.bounds.width > 0 {
+            return splitView.bounds.width
+        }
         let enclosingWidth = view.superview?.bounds.width ?? 0
-        return max(enclosingWidth, view.bounds.width, splitView.bounds.width)
+        return max(enclosingWidth, view.bounds.width)
     }
 
     private var isSuppressingProgrammaticShellResize: Bool {
@@ -2179,6 +2235,17 @@ public class MainSplitViewController: NSSplitViewController {
             savePanelState()
         }
 
+        if resizeEvent == .shellDidResize,
+           !isSuppressingProgrammaticShellResize,
+           reapplyResolvedShellWidthsForOrdinaryResize(
+                currentSidebarWidth: sidebarWidth,
+                currentInspectorWidth: inspectorWidth,
+                totalWidth: totalWidth
+           ) {
+            schedulePendingRevealRestoreIfNeeded()
+            return
+        }
+
         if !sidebarItem.isCollapsed {
             sidebarWidthCoordinator.noteObservedWidth(sidebarWidth)
             restoreSidebarWidthIfNeeded(currentWidth: sidebarWidth)
@@ -2212,6 +2279,14 @@ public class MainSplitViewController: NSSplitViewController {
 
     var testingSidebarConstraintWidth: CGFloat {
         sidebarWidthConstraint?.constant ?? 0
+    }
+
+    var testingInspectorConstraintWidth: CGFloat {
+        inspectorWidthConstraint?.constant ?? 0
+    }
+
+    var testingWindowStateScope: WindowStateScope {
+        windowStateScope
     }
 
     func testingSetShellFrames(
@@ -2260,6 +2335,46 @@ public class MainSplitViewController: NSSplitViewController {
         queuedInspectorCollapsedState = nil
         programmaticShellResizeSuppressionDepth = 1
     }
+
+    func testingBeginDisplayRequest(
+        identity: ContentSelectionIdentity
+    ) -> AsyncRequestToken<ContentSelectionIdentity> {
+        beginDisplayRequest(identity: identity)
+    }
+
+    func testingCanCommitDisplayRequest(
+        _ token: AsyncRequestToken<ContentSelectionIdentity>,
+        identity: ContentSelectionIdentity
+    ) -> Bool {
+        canCommitDisplayRequest(token, identity: identity)
+    }
+
+    func testingCommitDisplayRequest(
+        _ token: AsyncRequestToken<ContentSelectionIdentity>,
+        identity: ContentSelectionIdentity,
+        commit: () -> Void
+    ) {
+        guard canCommitDisplayRequest(token, identity: identity) else { return }
+        commit()
+    }
+
+    func testingBeginDatabaseBuildRequest(
+        tool: String,
+        resultURL: URL
+    ) -> (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>) {
+        beginDatabaseBuildRequest(tool: tool, resultURL: resultURL)
+    }
+
+    func testingCommitDatabaseBuildCompletion(
+        _ request: (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>),
+        commit: () -> Void
+    ) {
+        commitDatabaseBuildCompletion(request, commit: commit)
+    }
+
+    func testingRequestInspectorDocumentModeAfterDownload() {
+        requestInspectorDocumentModeAfterDownload()
+    }
 }
 
 // MARK: - SidebarSelectionDelegate
@@ -2301,6 +2416,49 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         if hideProgress {
             viewerController.hideProgress()
         }
+    }
+
+    private func contentSelectionIdentity(for item: SidebarItem) -> ContentSelectionIdentity {
+        ContentSelectionIdentity(
+            url: item.url,
+            kind: item.type.description,
+            resultID: item.title,
+            windowID: windowStateScope.id
+        )
+    }
+
+    private func contentSelectionIdentity(
+        url: URL,
+        kind: String,
+        resultID: String? = nil
+    ) -> ContentSelectionIdentity {
+        ContentSelectionIdentity(
+            url: url,
+            kind: kind,
+            resultID: resultID,
+            windowID: windowStateScope.id
+        )
+    }
+
+    @discardableResult
+    private func beginDisplayRequest(
+        identity: ContentSelectionIdentity
+    ) -> AsyncRequestToken<ContentSelectionIdentity> {
+        activeContentSelectionIdentity = identity
+        return displayRequestGate.begin(identity: identity)
+    }
+
+    private func invalidateDisplayRequest() {
+        activeContentSelectionIdentity = nil
+        displayRequestGate.invalidate()
+    }
+
+    private func canCommitDisplayRequest(
+        _ token: AsyncRequestToken<ContentSelectionIdentity>,
+        identity: ContentSelectionIdentity
+    ) -> Bool {
+        activeContentSelectionIdentity == identity
+            && displayRequestGate.isCurrent(token, expectedIdentity: identity)
     }
 
     /// Returns true when a non-genomics child controller currently owns the viewport.
@@ -2374,6 +2532,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         return
                     }
                     logger.info("sidebarDidSelectItem: Selection cleared, clearing viewer and inspector")
+                    self.invalidateDisplayRequest()
                     self.cancelFASTQLoadIfNeeded(hideProgress: true, reason: "selection cleared")
                     self.viewerController.clearViewport(statusMessage: "No sequence selected")
                     self.inspectorController.clearSelection()
@@ -2404,6 +2563,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 guard let self = self, self.selectionGeneration == generation else { return }
 
                 guard !displayableItems.isEmpty else {
+                    self.invalidateDisplayRequest()
                     self.cancelFASTQLoadIfNeeded(hideProgress: true, reason: "multi-select containers only")
                     self.viewerController.clearViewport(statusMessage: "No sequence selected")
                     self.inspectorController.clearSelection()
@@ -2427,6 +2587,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// avoiding Swift Task issues that occur when called from notification handlers.
     private func displayContent(for item: SidebarItem) {
         logger.info("displayContent: Selected '\(item.title, privacy: .public)' type=\(String(describing: item.type))")
+        let displayIdentity = contentSelectionIdentity(for: item)
+        let displayToken = beginDisplayRequest(identity: displayIdentity)
 
         let selectedFASTQURL: URL? = {
             guard let url = item.url else { return nil }
@@ -2469,7 +2631,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         // Reference genome bundles (.lungfishref)
         if item.type == .referenceBundle, let url = item.url {
-            displayReferenceBundleViewportFromSidebar(at: url)
+            displayReferenceBundleViewportFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
         }
 
@@ -2494,13 +2656,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         // NAO-MGS surveillance result bundles
         if item.type == .naoMgsResult, let url = item.url {
-            displayNaoMgsResultFromSidebar(at: url)
+            displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
         }
 
         // NVD result bundles
         if item.type == .nvdResult, let url = item.url {
-            displayNvdResultFromSidebar(at: url)
+            displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
         }
 
@@ -2519,9 +2681,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 ?? AnalysesFolder.readAnalysisMetadata(from: url)?.tool
                 ?? dirName
             if toolId.hasPrefix("naomgs") {
-                displayNaoMgsResultFromSidebar(at: url)
+                displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             } else if toolId.hasPrefix("nvd") {
-                displayNvdResultFromSidebar(at: url)
+                displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             } else if toolId.hasPrefix("spades")
                 || toolId.hasPrefix("megahit")
                 || toolId.hasPrefix("skesa")
@@ -2553,8 +2715,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     /// Display a direct reference bundle in the shared list/detail reference viewport.
-    private func displayReferenceBundleViewportFromSidebar(at url: URL, forceReload: Bool = false) {
+    private func displayReferenceBundleViewportFromSidebar(
+        at url: URL,
+        forceReload: Bool = false,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
         logger.info("displayReferenceBundleViewport: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "referenceBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
 
         activityIndicator.show(
             message: "Loading \(url.lastPathComponent)...",
@@ -2566,6 +2735,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 defer { self.activityIndicator.hide() }
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
                 do {
                     self.inspectorController.clearSelection()
@@ -2985,6 +3155,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     ///   - tool: Human-readable tool name (e.g. "TaxTriage").
     ///   - resultURL: The batch result directory URL.
     private func showDatabaseBuildPlaceholder(tool: String, resultURL: URL) {
+        let databaseBuildRequest = beginDatabaseBuildRequest(tool: tool, resultURL: resultURL)
+
         // Clear any existing viewport content so the placeholder is the only thing shown.
         viewerController.clearViewport(statusMessage: "")
 
@@ -3006,7 +3178,33 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         )
 
         // Auto-trigger the database build.
-        triggerDatabaseBuild(tool: tool, resultURL: resultURL, placeholder: placeholder)
+        triggerDatabaseBuild(
+            tool: tool,
+            resultURL: resultURL,
+            placeholder: placeholder,
+            request: databaseBuildRequest
+        )
+    }
+
+    private func beginDatabaseBuildRequest(
+        tool: String,
+        resultURL: URL
+    ) -> (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>) {
+        let identity = ContentSelectionIdentity(
+            url: resultURL,
+            kind: "databaseBuild:\(tool.lowercased())",
+            resultID: resultURL.lastPathComponent,
+            windowID: windowStateScope.id
+        )
+        return (identity, beginDisplayRequest(identity: identity))
+    }
+
+    private func commitDatabaseBuildCompletion(
+        _ request: (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>),
+        commit: () -> Void
+    ) {
+        guard canCommitDisplayRequest(request.token, identity: request.identity) else { return }
+        commit()
     }
 
     /// Runs `lungfish-cli build-db <tool> <resultDir>` via ``LungfishCLIRunner``.
@@ -3022,9 +3220,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     private func triggerDatabaseBuild(
         tool: String,
         resultURL: URL,
-        placeholder: DatabaseBuildPlaceholderView
+        placeholder: DatabaseBuildPlaceholderView,
+        request: (identity: ContentSelectionIdentity, token: AsyncRequestToken<ContentSelectionIdentity>)
     ) {
         let cliTool = tool.lowercased()
+        let requestIdentity = request.identity
+        let requestGeneration = request.token.generation
 
         // Show the "building" spinner state immediately so the user sees feedback.
         placeholder.showBuilding(tool: tool)
@@ -3036,9 +3237,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        placeholder.removeFromSuperview()
-                        // Re-display — the DB should now exist.
-                        self.displayBatchGroup(at: resultURL)
+                        let completionRequest = (
+                            identity: requestIdentity,
+                            token: AsyncRequestToken(generation: requestGeneration, identity: requestIdentity)
+                        )
+                        self.commitDatabaseBuildCompletion(completionRequest) {
+                            placeholder.removeFromSuperview()
+                            // Re-display — the DB should now exist.
+                            self.displayBatchGroup(at: resultURL)
+                        }
                     }
                 }
             } catch {
@@ -3046,22 +3253,28 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         guard let self else { return }
-                        placeholder.showError("Build failed: \(errorDescription)")
-                        // Ensure the placeholder is still in the viewport hierarchy so the error is visible.
-                        if placeholder.superview == nil {
-                            let contentView = self.viewerController.view
-                            contentView.addSubview(placeholder)
-                            placeholder.translatesAutoresizingMaskIntoConstraints = false
-                            NSLayoutConstraint.activate([
-                                placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
-                                placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                                placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                                placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-                            ])
-                        }
-                        placeholder.onRetry = { [weak self] in
-                            placeholder.removeFromSuperview()
-                            self?.showDatabaseBuildPlaceholder(tool: tool, resultURL: resultURL)
+                        let completionRequest = (
+                            identity: requestIdentity,
+                            token: AsyncRequestToken(generation: requestGeneration, identity: requestIdentity)
+                        )
+                        self.commitDatabaseBuildCompletion(completionRequest) {
+                            placeholder.showError("Build failed: \(errorDescription)")
+                            // Ensure the placeholder is still in the viewport hierarchy so the error is visible.
+                            if placeholder.superview == nil {
+                                let contentView = self.viewerController.view
+                                contentView.addSubview(placeholder)
+                                placeholder.translatesAutoresizingMaskIntoConstraints = false
+                                NSLayoutConstraint.activate([
+                                    placeholder.topAnchor.constraint(equalTo: contentView.topAnchor),
+                                    placeholder.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                                    placeholder.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                                    placeholder.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+                                ])
+                            }
+                            placeholder.onRetry = { [weak self] in
+                                placeholder.removeFromSuperview()
+                                self?.showDatabaseBuildPlaceholder(tool: tool, resultURL: resultURL)
+                            }
                         }
                     }
                 }
@@ -3190,8 +3403,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// original TSV if the cached JSON is missing.
     ///
     /// - Parameter url: The `naomgs-*` bundle directory.
-    private func displayNaoMgsResultFromSidebar(at url: URL) {
+    private func displayNaoMgsResultFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
         logger.info("displayNaoMgsResult: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "naoMgsResult")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
 
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NaoMgsResultViewController()
@@ -3220,6 +3439,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             guard let self else { return }
+                            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                             placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
                             self.inspectorController?.updateNaoMgsManifest(manifest)
                             logger.info("displayNaoMgsResult: Showing \(cachedRows.count) cached taxon rows instantly")
@@ -3239,6 +3459,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         // Full configure with database — enables detail queries, filtering, BLAST.
                         placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
@@ -3267,6 +3488,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         logger.error("displayNaoMgsResult: Failed - \(error.localizedDescription, privacy: .public)")
                         let alert = NSAlert()
                         alert.messageText = "Failed to Load NAO-MGS Result"
@@ -3388,8 +3610,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// then SQLite database (slower) for full detail queries.
     ///
     /// - Parameter url: The `nvd-*` bundle directory.
-    private func displayNvdResultFromSidebar(at url: URL) {
+    private func displayNvdResultFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
         logger.info("displayNvdResult: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "nvdResult")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
 
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NvdResultViewController()
@@ -3418,6 +3646,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     DispatchQueue.main.async { [weak self] in
                         MainActor.assumeIsolated {
                             guard let self else { return }
+                            guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                             placeholderVC.configureWithCachedRows(cachedRows, manifest: manifest, bundleURL: bundleURL)
                             self.inspectorController?.updateNvdManifest(manifest)
                             logger.info("displayNvdResult: Showing \(cachedRows.count) cached contig rows instantly")
@@ -3436,6 +3665,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         // Full configure with database — enables detail queries, filtering, BLAST.
                         placeholderVC.configure(database: database, manifest: manifest, bundleURL: bundleURL)
 
@@ -3464,6 +3694,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
                         logger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
                         let alert = NSAlert()
                         alert.messageText = "Failed to Load NVD Result"
@@ -4704,7 +4935,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: nil,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
+            userInfo: [
+                NotificationUserInfoKey.inspectorTab: "document",
+                NotificationUserInfoKey.windowStateScope: windowStateScope
+            ]
         )
     }
 
