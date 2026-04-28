@@ -375,6 +375,9 @@ public class ViewerViewController: NSViewController {
             logger.debug("viewDidLayout: Updated referenceFrame width to \(frame.pixelWidth) inset=\(frame.leadingInset)")
         }
 
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.needsDisplay = true
+
         // Coalesce rapid layout changes: schedule a deferred redraw that fires
         // 100ms after the last viewDidLayout call. This ensures that after
         // animation settles, any pending fetch callbacks that executed during
@@ -930,7 +933,9 @@ public class ViewerViewController: NSViewController {
         }
 
         // Force read refetch if fetch-time filters changed
-        if userInfo[NotificationUserInfoKey.minMapQ] != nil
+        if userInfo[NotificationUserInfoKey.showReads] != nil
+            || userInfo[NotificationUserInfoKey.limitReadRows] != nil
+            || userInfo[NotificationUserInfoKey.minMapQ] != nil
             || userInfo[NotificationUserInfoKey.consensusMinMapQ] != nil
             || userInfo[NotificationUserInfoKey.consensusMinBaseQ] != nil
             || userInfo[NotificationUserInfoKey.consensusMinDepth] != nil
@@ -940,9 +945,7 @@ public class ViewerViewController: NSViewController {
             || userInfo[NotificationUserInfoKey.excludeFlags] != nil
             || userInfo[NotificationUserInfoKey.selectedReadGroups] != nil
             || userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
-            viewerView.cachedReadRegion = nil
-            viewerView.cachedDepthRegion = nil
-            viewerView.cachedConsensusRegion = nil
+            viewerView.invalidateAlignmentFetchState()
         }
 
         viewerView.needsDisplay = true

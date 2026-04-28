@@ -22,10 +22,23 @@ struct AlignmentFileMenuEntry: Equatable {
     let url: URL
 }
 
+struct ViewerAlignmentFetchIdentity: Hashable, Sendable {
+    let bundlePath: String?
+    let trackID: String?
+    let chromosome: String
+    let start: Int
+    let end: Int
+    let settingsSignature: String
+}
+
 /// The main view for rendering sequence and track data.
 /// Note: Uses @MainActor for thread safety as it contains mutable UI state.
 @MainActor
 public class SequenceViewerView: NSView {
+
+#if DEBUG
+    private(set) var testDisplayInvalidationCount = 0
+#endif
 
     /// Reference to the parent controller
     weak var viewController: ViewerViewController?
@@ -198,6 +211,11 @@ public class SequenceViewerView: NSView {
 
     /// Generation counter for consensus fetches — prevents stale results from overwriting newer ones.
     private var consensusFetchGeneration: Int = 0
+
+    private var readFetchGate = AsyncRequestGate<ViewerAlignmentFetchIdentity>()
+    private var depthFetchGate = AsyncRequestGate<ViewerAlignmentFetchIdentity>()
+    private var consensusFetchGate = AsyncRequestGate<ViewerAlignmentFetchIdentity>()
+    private var activeAlignmentFetchIdentity: ViewerAlignmentFetchIdentity?
 
     /// Coverage stats from the currently cached depth points.
     private var cachedCoverageStats: ReadTrackRenderer.CoverageStats?
@@ -920,6 +938,13 @@ public class SequenceViewerView: NSView {
         setupAppearanceObserver()
     }
 
+    public override func setNeedsDisplay(_ invalidRect: NSRect) {
+#if DEBUG
+        testDisplayInvalidationCount += 1
+#endif
+        super.setNeedsDisplay(invalidRect)
+    }
+
     private func configureAccessibility() {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -1009,26 +1034,7 @@ public class SequenceViewerView: NSView {
 
         guard enteringCoverage else { return tier }
 
-        readFetchGeneration += 1
-        cachedAlignedReads = []
-        cachedPackedReads = []
-        cachedReadRegion = nil
-        cachedPackOverflow = 0
-        cachedPackScale = 0
-        cachedPackDataGeneration = -1
-        cachedPackViewportStart = 0
-        cachedPackViewportEnd = 0
-        readContentHeight = 0
-        readScrollOffset = 0
-        isFetchingReads = false
-        readFetchStartTime = nil
-        hoveredRead = nil
-        hoverTooltip.hide()
-        if !selectedReadIDs.isEmpty {
-            selectedReadIDs.removeAll()
-            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
-        }
-        updateSelectionStatus()
+        invalidateAlignmentFetchState(invalidateDepth: false, invalidateConsensus: false)
         return tier
     }
 
@@ -1053,6 +1059,7 @@ public class SequenceViewerView: NSView {
         }
 
         consensusFetchGeneration += 1
+        consensusFetchGate.invalidate()
         cachedConsensusSequence = nil
         cachedConsensusRegion = nil
         cachedConsensusOptionsSignature = ""
@@ -1060,9 +1067,180 @@ public class SequenceViewerView: NSView {
         return false
     }
 
+    func invalidateAlignmentFetchState() {
+        invalidateAlignmentFetchState(invalidateDepth: true, invalidateConsensus: true)
+    }
+
+    private func invalidateAlignmentFetchState(
+        invalidateDepth: Bool,
+        invalidateConsensus: Bool
+    ) {
+        readFetchGeneration += 1
+        readFetchGate.invalidate()
+        cachedAlignedReads = []
+        cachedReadRegion = nil
+        cachedPackedReads = []
+        cachedPackOverflow = 0
+        cachedPackScale = 0
+        cachedPackDataGeneration = -1
+        cachedPackViewportStart = 0
+        cachedPackViewportEnd = 0
+        readContentHeight = 0
+        readScrollOffset = 0
+        isFetchingReads = false
+        readFetchStartTime = nil
+        hoveredRead = nil
+        hoverTooltip.hide()
+
+        if invalidateDepth {
+            depthFetchGeneration += 1
+            depthFetchGate.invalidate()
+            cachedDepthPoints = []
+            cachedDepthRegion = nil
+            cachedCoverageStats = nil
+            isFetchingDepth = false
+            depthFetchStartTime = nil
+        }
+
+        if invalidateConsensus {
+            consensusFetchGeneration += 1
+            consensusFetchGate.invalidate()
+            cachedConsensusSequence = nil
+            cachedConsensusRegion = nil
+            cachedConsensusOptionsSignature = ""
+            isFetchingConsensus = false
+        }
+
+        activeAlignmentFetchIdentity = nil
+        if !selectedReadIDs.isEmpty {
+            selectedReadIDs.removeAll()
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+        }
+        updateSelectionStatus()
+    }
+
+    private func readSettingsSignature() -> String {
+        [
+            showReads ? "reads=1" : "reads=0",
+            "minMapQ=\(minMapQSetting)",
+            "consensusMinMapQ=\(consensusMinMapQSetting)",
+            "consensusMinBaseQ=\(consensusMinBaseQSetting)",
+            "consensusMinDepth=\(consensusMinDepthSetting)",
+            showConsensusTrackSetting ? "consensus=1" : "consensus=0",
+            "consensusMode=\(consensusModeSetting.rawValue)",
+            consensusUseAmbiguitySetting ? "ambiguity=1" : "ambiguity=0",
+            "excludeFlags=\(excludeFlagsSetting)",
+            limitReadRowsSetting ? "limitRows=1" : "limitRows=0",
+            "readGroups=\(selectedReadGroupsSetting.sorted().joined(separator: ","))",
+        ].joined(separator: "|")
+    }
+
+    private func alignmentFetchIdentity(
+        bundleURL: URL?,
+        trackID: String?,
+        region: GenomicRegion
+    ) -> ViewerAlignmentFetchIdentity {
+        ViewerAlignmentFetchIdentity(
+            bundlePath: bundleURL?.standardizedFileURL.path,
+            trackID: trackID,
+            chromosome: region.chromosome,
+            start: region.start,
+            end: region.end,
+            settingsSignature: readSettingsSignature()
+        )
+    }
+
+    private func beginReadFetch(
+        bundleURL: URL?,
+        trackID: String?,
+        region: GenomicRegion
+    ) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        let identity = alignmentFetchIdentity(bundleURL: bundleURL, trackID: trackID, region: region)
+        activeAlignmentFetchIdentity = identity
+        readFetchGeneration += 1
+        isFetchingReads = true
+        readFetchStartTime = Date()
+        return readFetchGate.begin(identity: identity)
+    }
+
+    private func beginDepthFetch(
+        bundleURL: URL?,
+        trackID: String?,
+        region: GenomicRegion
+    ) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        let identity = alignmentFetchIdentity(bundleURL: bundleURL, trackID: trackID, region: region)
+        activeAlignmentFetchIdentity = identity
+        depthFetchGeneration += 1
+        isFetchingDepth = true
+        depthFetchStartTime = Date()
+        return depthFetchGate.begin(identity: identity)
+    }
+
+    private func beginConsensusFetch(
+        bundleURL: URL?,
+        trackID: String?,
+        region: GenomicRegion
+    ) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        let identity = alignmentFetchIdentity(bundleURL: bundleURL, trackID: trackID, region: region)
+        activeAlignmentFetchIdentity = identity
+        consensusFetchGeneration += 1
+        isFetchingConsensus = true
+        return consensusFetchGate.begin(identity: identity)
+    }
+
+    @discardableResult
+    private func commitReadFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        reads: [AlignedRead],
+        region: GenomicRegion
+    ) -> Bool {
+        guard readFetchGate.isCurrent(token) else { return false }
+        cachedAlignedReads = reads
+        cachedReadRegion = region
+        isFetchingReads = false
+        readFetchStartTime = nil
+        return true
+    }
+
+    @discardableResult
+    private func commitDepthFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        points: [ReadTrackRenderer.CoveragePoint],
+        region: GenomicRegion
+    ) -> Bool {
+        guard depthFetchGate.isCurrent(token) else { return false }
+        cachedDepthPoints = points
+        cachedDepthRegion = region
+        cachedCoverageStats = ReadTrackRenderer.summarizeCoverage(
+            depthPoints: points,
+            regionStart: region.start,
+            regionEnd: region.end
+        )
+        isFetchingDepth = false
+        depthFetchStartTime = nil
+        return true
+    }
+
+    @discardableResult
+    private func commitConsensusFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        sequence: String?,
+        region: GenomicRegion,
+        optionsSignature: String
+    ) -> Bool {
+        guard consensusFetchGate.isCurrent(token) else { return false }
+        cachedConsensusSequence = sequence
+        cachedConsensusRegion = region
+        cachedConsensusOptionsSignature = optionsSignature
+        isFetchingConsensus = false
+        return true
+    }
+
 #if DEBUG
     var testReadFetchGeneration: Int { readFetchGeneration }
     var testCachedAlignedReads: [AlignedRead] { cachedAlignedReads }
+    var testCachedDepthPoints: [ReadTrackRenderer.CoveragePoint] { cachedDepthPoints }
+    var testCachedConsensusSequence: String? { cachedConsensusSequence }
     var testCachedPackedReads: [(Int, AlignedRead)] { cachedPackedReads }
     var testHoveredRead: AlignedRead? { hoveredRead }
     var testSelectedReadIDs: Set<UUID> { selectedReadIDs }
@@ -1070,6 +1248,9 @@ public class SequenceViewerView: NSView {
     var testHoverTooltipText: String { hoverTooltip.currentText }
     var testSelectionStatusText: String? { currentSelectionStatusText() }
     var testVisibleAlignmentTrackIDSetting: String? { visibleAlignmentTrackIDSetting }
+    var testIsFetchingReads: Bool { isFetchingReads }
+    var testIsFetchingDepth: Bool { isFetchingDepth }
+    var testIsFetchingConsensus: Bool { isFetchingConsensus }
 
     static func horizontalPanAmountForTesting(
         deltaX: CGFloat,
@@ -1123,6 +1304,55 @@ public class SequenceViewerView: NSView {
 
     func testApplyReadViewportPolicy(scale: Double) -> ReadTrackRenderer.ZoomTier {
         applyReadViewportPolicy(scale: scale)
+    }
+
+    func testInvalidateAlignmentFetchState(bundleURL: URL?, trackID: String?, region: GenomicRegion) {
+        activeAlignmentFetchIdentity = alignmentFetchIdentity(bundleURL: bundleURL, trackID: trackID, region: region)
+        invalidateAlignmentFetchState()
+    }
+
+    func testBeginReadFetch(bundleURL: URL?, trackID: String?, region: GenomicRegion) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        beginReadFetch(bundleURL: bundleURL, trackID: trackID, region: region)
+    }
+
+    func testBeginDepthFetch(bundleURL: URL?, trackID: String?, region: GenomicRegion) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        beginDepthFetch(bundleURL: bundleURL, trackID: trackID, region: region)
+    }
+
+    func testBeginConsensusFetch(bundleURL: URL?, trackID: String?, region: GenomicRegion) -> AsyncRequestToken<ViewerAlignmentFetchIdentity> {
+        beginConsensusFetch(bundleURL: bundleURL, trackID: trackID, region: region)
+    }
+
+    @discardableResult
+    func testCommitReadFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        reads: [AlignedRead],
+        region: GenomicRegion
+    ) -> Bool {
+        commitReadFetch(token, reads: reads, region: region)
+    }
+
+    @discardableResult
+    func testCommitDepthFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        points: [ReadTrackRenderer.CoveragePoint],
+        region: GenomicRegion
+    ) -> Bool {
+        commitDepthFetch(token, points: points, region: region)
+    }
+
+    @discardableResult
+    func testCommitConsensusFetch(
+        _ token: AsyncRequestToken<ViewerAlignmentFetchIdentity>,
+        sequence: String,
+        region: GenomicRegion
+    ) -> Bool {
+        commitConsensusFetch(
+            token,
+            sequence: sequence,
+            region: region,
+            optionsSignature: currentConsensusOptionsSignature()
+        )
     }
 #endif
 
@@ -1467,6 +1697,10 @@ public class SequenceViewerView: NSView {
         self.readFetchGeneration = 0
         self.depthFetchGeneration = 0
         self.consensusFetchGeneration = 0
+        self.readFetchGate.invalidate()
+        self.depthFetchGate.invalidate()
+        self.consensusFetchGate.invalidate()
+        self.activeAlignmentFetchIdentity = nil
         self.lastVariantBottomY = 0
         self.alignmentChromosomeAliasMap = [:]
         self.cachedPackedReads = []
@@ -1634,6 +1868,10 @@ public class SequenceViewerView: NSView {
         self.readFetchGeneration = 0
         self.depthFetchGeneration = 0
         self.consensusFetchGeneration = 0
+        self.readFetchGate.invalidate()
+        self.depthFetchGate.invalidate()
+        self.consensusFetchGate.invalidate()
+        self.activeAlignmentFetchIdentity = nil
         self.cachedSampleCount = 0
         self.variantChromosomeAliasMap = [:]
         self.variantTrackChromosomeMap = [:]
@@ -2745,11 +2983,6 @@ public class SequenceViewerView: NSView {
     private func fetchDepthAsync(bundle: ReferenceBundle, region: GenomicRegion) {
         guard !alignmentDataProviders.isEmpty else { return }
 
-        depthFetchGeneration += 1
-        let thisGeneration = depthFetchGeneration
-        isFetchingDepth = true
-        depthFetchStartTime = Date()
-
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
         let visibleSpan = region.end - region.start
         let expandAmount = max(5_000, visibleSpan) // 1x viewport padding for panning
@@ -2759,13 +2992,20 @@ public class SequenceViewerView: NSView {
 
         let providers = activeAlignmentProviders()
         guard !providers.isEmpty else { return }
+        let token = beginDepthFetch(
+            bundleURL: bundle.url,
+            trackID: visibleAlignmentTrackIDSetting,
+            region: expandedRegion
+        )
+        let tokenGeneration = token.generation
+        let tokenIdentity = token.identity
         let bamChromosome = alignmentChromosomeName(for: region.chromosome)
         let mapQFilter = max(0, max(minMapQSetting, consensusMinMapQSetting))
         let baseQFilter = max(0, consensusMinBaseQSetting)
         let excludeFlags = excludeFlagsSetting
 
         logger.info(
-            "fetchDepthAsync: gen=\(thisGeneration), Fetching depth for \(expandedRegion.description) (BAM chrom: \(bamChromosome), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), flags: 0x\(String(excludeFlags, radix: 16)))"
+            "fetchDepthAsync: gen=\(tokenGeneration), Fetching depth for \(expandedRegion.description) (BAM chrom: \(bamChromosome), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), flags: 0x\(String(excludeFlags, radix: 16)))"
         )
 
         Task.detached { [weak self] in
@@ -2815,19 +3055,11 @@ public class SequenceViewerView: NSView {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
-                    guard thisGeneration == viewer.depthFetchGeneration else {
-                        logger.info("fetchDepthAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.depthFetchGeneration))")
+                    let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    guard viewer.commitDepthFetch(token, points: mergedPoints, region: expandedRegion) else {
+                        logger.info("fetchDepthAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }
-                    viewer.cachedDepthPoints = mergedPoints
-                    viewer.cachedDepthRegion = expandedRegion
-                    viewer.cachedCoverageStats = ReadTrackRenderer.summarizeCoverage(
-                        depthPoints: mergedPoints,
-                        regionStart: expandedRegion.start,
-                        regionEnd: expandedRegion.end
-                    )
-                    viewer.isFetchingDepth = false
-                    viewer.depthFetchStartTime = nil
                     logger.info("fetchDepthAsync: Cached \(mergedPoints.count) depth points")
                     viewer.setNeedsDisplay(viewer.bounds)
                 }
@@ -2856,10 +3088,6 @@ public class SequenceViewerView: NSView {
             ?? (Double(max(region.end - region.start, 1)) / max(Double(max(bounds.width, 1)), 1.0))
         guard currentScale < showLettersThreshold else { return }
 
-        consensusFetchGeneration += 1
-        let thisGeneration = consensusFetchGeneration
-        isFetchingConsensus = true
-
         let chromLength = bundle.chromosomeLength(named: region.chromosome) ?? Int64(region.end + 1000)
         let visibleSpan = region.end - region.start
         let expandAmount = max(5_000, visibleSpan)
@@ -2869,6 +3097,13 @@ public class SequenceViewerView: NSView {
 
         let providers = activeAlignmentProviders()
         guard let provider = providers.first?.provider else { return }
+        let token = beginConsensusFetch(
+            bundleURL: bundle.url,
+            trackID: visibleAlignmentTrackIDSetting,
+            region: expandedRegion
+        )
+        let tokenGeneration = token.generation
+        let tokenIdentity = token.identity
         let bamChromosome = alignmentChromosomeName(for: region.chromosome)
         let mapQFilter = max(0, max(minMapQSetting, consensusMinMapQSetting))
         let baseQFilter = max(0, consensusMinBaseQSetting)
@@ -2879,7 +3114,7 @@ public class SequenceViewerView: NSView {
         let optionsSignature = currentConsensusOptionsSignature()
 
         logger.info(
-            "fetchConsensusAsync: gen=\(thisGeneration), Fetching consensus for \(expandedRegion.description) (BAM chrom: \(bamChromosome), mode: \(mode.rawValue), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), minDepth: \(minDepth))"
+            "fetchConsensusAsync: gen=\(tokenGeneration), Fetching consensus for \(expandedRegion.description) (BAM chrom: \(bamChromosome), mode: \(mode.rawValue), minMAPQ: \(mapQFilter), minBQ: \(baseQFilter), minDepth: \(minDepth))"
         )
 
         Task.detached { [weak self] in
@@ -2929,8 +3164,9 @@ public class SequenceViewerView: NSView {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
-                    guard thisGeneration == viewer.consensusFetchGeneration else {
-                        logger.info("fetchConsensusAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.consensusFetchGeneration))")
+                    let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    guard viewer.consensusFetchGate.isCurrent(token) else {
+                        logger.info("fetchConsensusAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }
                     // Determine the actual start position of the consensus output.
@@ -2957,25 +3193,33 @@ public class SequenceViewerView: NSView {
                         )
                     }
 
+                    let normalizedConsensus: String?
                     if consensus.isEmpty {
-                        viewer.cachedConsensusSequence = nil
+                        normalizedConsensus = nil
                     } else {
                         // Normalize to the requested window so consensus and reference rows
                         // always span identical genomic widths in the viewport.
-                        viewer.cachedConsensusSequence = viewer.normalizedConsensusSequence(
+                        normalizedConsensus = viewer.normalizedConsensusSequence(
                             consensus,
                             sourceStart: actualStart,
                             targetStart: expandedStart,
                             targetEnd: expandedEnd
                         )
                     }
-                    viewer.cachedConsensusRegion = GenomicRegion(
+                    let committedRegion = GenomicRegion(
                         chromosome: expandedRegion.chromosome,
                         start: expandedStart,
                         end: expandedEnd
                     )
-                    viewer.cachedConsensusOptionsSignature = optionsSignature
-                    viewer.isFetchingConsensus = false
+                    guard viewer.commitConsensusFetch(
+                        token,
+                        sequence: normalizedConsensus,
+                        region: committedRegion,
+                        optionsSignature: optionsSignature
+                    ) else {
+                        logger.info("fetchConsensusAsync: Discarding stale normalized result gen=\(token.generation)")
+                        return
+                    }
                     logger.info(
                         "fetchConsensusAsync: Cached consensus sourceStart=\(actualStart) sourceLength=\(consensus.count) normalizedLength=\(viewer.cachedConsensusSequence?.count ?? 0) headerStart=\(headerStart.map(String.init) ?? "nil")"
                     )
@@ -3123,10 +3367,6 @@ public class SequenceViewerView: NSView {
         guard ReadViewportPolicy.allowsIndividualReads(scale: currentScale) else { return }
 
         let tier = ReadViewportPolicy.zoomTier(scale: currentScale)
-        readFetchGeneration += 1
-        let thisGeneration = readFetchGeneration
-        isFetchingReads = true
-        readFetchStartTime = Date()
         let expandAmount: Int
         switch tier {
         case .coverage:
@@ -3142,6 +3382,13 @@ public class SequenceViewerView: NSView {
 
         let providers = activeAlignmentProviders()
         guard !providers.isEmpty else { return }
+        let token = beginReadFetch(
+            bundleURL: bundle.url,
+            trackID: visibleAlignmentTrackIDSetting,
+            region: expandedRegion
+        )
+        let tokenGeneration = token.generation
+        let tokenIdentity = token.identity
         // Translate reference chromosome name to BAM chromosome name (e.g., MN908947 → MN908947.3)
         let bamChromosome = alignmentChromosomeName(for: region.chromosome)
         let mapQFilter = minMapQSetting
@@ -3149,7 +3396,7 @@ public class SequenceViewerView: NSView {
         let readGroupFilter = selectedReadGroupsSetting
         let maxReadsPerTrack: Int = limitReadRowsSetting ? 250_000 : Int.max
 
-        logger.info("fetchReadsAsync: gen=\(thisGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), maxReads/track: \(maxReadsPerTrack), flags: 0x\(String(excludeFlags, radix: 16)))")
+        logger.info("fetchReadsAsync: gen=\(tokenGeneration), Fetching reads for \(expandedRegion.description) (BAM chrom: \(bamChromosome), tier: \(String(describing: tier)), minMAPQ: \(mapQFilter), maxReads/track: \(maxReadsPerTrack), flags: 0x\(String(excludeFlags, radix: 16)))")
 
         Task.detached { [weak self] in
             var allReads: [AlignedRead] = []
@@ -3189,14 +3436,11 @@ public class SequenceViewerView: NSView {
             DispatchQueue.main.async { [weak self] in
                 MainActor.assumeIsolated {
                     guard let viewer = self else { return }
-                    guard thisGeneration == viewer.readFetchGeneration else {
-                        logger.info("fetchReadsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.readFetchGeneration))")
+                    let token = AsyncRequestToken(generation: tokenGeneration, identity: tokenIdentity)
+                    guard viewer.commitReadFetch(token, reads: allReads, region: expandedRegion) else {
+                        logger.info("fetchReadsAsync: Discarding stale result gen=\(tokenGeneration)")
                         return
                     }
-                    viewer.cachedAlignedReads = allReads
-                    viewer.cachedReadRegion = expandedRegion
-                    viewer.isFetchingReads = false
-                    viewer.readFetchStartTime = nil
                     logger.info("fetchReadsAsync: Cached \(count) reads")
                     viewer.setNeedsDisplay(viewer.bounds)
                 }

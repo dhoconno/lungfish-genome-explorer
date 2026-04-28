@@ -97,4 +97,15 @@ final class ViewerViewportNotificationTests: XCTestCase {
         XCTAssertNil(viewer.viewerView.cachedDepthRegion)
         XCTAssertNil(viewer.viewerView.cachedConsensusRegion)
     }
+
+    func testLayoutMarksViewerForImmediateRedrawBeforeDeferredRedrawFires() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        let invalidationCount = viewer.viewerView.testDisplayInvalidationCount
+
+        viewer.view.setFrameSize(NSSize(width: 960, height: 540))
+        viewer.viewDidLayout()
+
+        XCTAssertEqual(viewer.viewerView.testDisplayInvalidationCount, invalidationCount + 1)
+    }
 }
