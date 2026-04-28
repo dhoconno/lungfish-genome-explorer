@@ -19,6 +19,16 @@ struct FASTQOperationToolPanes: View {
                 onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
             )
             .id(state.selectedToolID.rawValue)
+        case .viralRecon:
+            ViralReconWizardSheet(
+                inputFiles: state.selectedInputURLs,
+                projectURL: state.projectURL,
+                embeddedInOperationsDialog: true,
+                embeddedRunTrigger: state.embeddedRunTrigger,
+                onRun: state.captureViralReconRequest(_:),
+                onRunnerAvailabilityChange: readinessHandler(for: state.selectedToolID)
+            )
+            .id(state.selectedToolID.rawValue)
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             AssemblyWizardSheet(
                 inputFiles: state.selectedInputURLs,
@@ -384,7 +394,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
                 }
 
-            case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+            case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the dedicated embedded workflow pane or the fixed database chooser above.")
                     .foregroundStyle(.secondary)
             }
@@ -516,7 +526,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             case .removeHumanReads:
                 Text("Human read removal stays fixed to the selected database input.")
                     .foregroundStyle(.secondary)
-            case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+            case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
                 Text("This tool uses the embedded workflow pane.")
                     .foregroundStyle(.secondary)
             }

@@ -48,6 +48,7 @@ final class FASTQOperationDialogState {
     var pendingClassificationConfigs: [ClassificationConfig]
     var pendingEsVirituConfigs: [EsVirituConfig]
     var pendingTaxTriageConfig: TaxTriageConfig?
+    var pendingViralReconRequest: ViralReconRunRequest?
 
     // Honest derivative-tool state surfaced by the modal.
     var qualityTrimThreshold: Int
@@ -139,6 +140,7 @@ final class FASTQOperationDialogState {
         self.pendingClassificationConfigs = []
         self.pendingEsVirituConfigs = []
         self.pendingTaxTriageConfig = nil
+        self.pendingViralReconRequest = nil
         self.qualityTrimThreshold = 20
         self.qualityTrimWindowSize = 4
         self.qualityTrimMode = .cutRight
@@ -242,6 +244,7 @@ final class FASTQOperationDialogState {
     func prepareForRun() {
         if selectedToolID.usesEmbeddedConfiguration {
             pendingLaunchRequest = nil
+            pendingViralReconRequest = nil
             embeddedRunTrigger += 1
             return
         }
@@ -252,6 +255,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = launchRequestForSelectedTool()
     }
 
@@ -501,7 +505,7 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return nil
         }
     }
@@ -514,6 +518,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .map(
             inputURLs: config.inputFiles,
             referenceURL: config.referenceURL,
@@ -530,6 +535,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .map(
             inputURLs: request.inputFASTQURLs,
             referenceURL: request.referenceFASTAURL,
@@ -546,6 +552,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .assemble(
             request: request,
             outputMode: outputMode
@@ -567,6 +574,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = configs
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .classify(
             tool: .kraken2,
             inputURLs: configs.flatMap(\.inputFiles),
@@ -584,6 +592,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = configs
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .classify(
             tool: .esViritu,
             inputURLs: configs.flatMap(\.inputFiles),
@@ -602,6 +611,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = config
+        pendingViralReconRequest = nil
         pendingLaunchRequest = .classify(
             tool: .taxTriage,
             inputURLs: config.samples.flatMap { sample in
@@ -610,6 +620,18 @@ final class FASTQOperationDialogState {
             databaseName: config.kraken2DatabasePath?.lastPathComponent ?? ""
         )
         embeddedToolReady = true
+    }
+
+    func captureViralReconRequest(_ request: ViralReconRunRequest) {
+        pendingLaunchRequest = nil
+        pendingMinimap2Config = nil
+        pendingMappingRequest = nil
+        pendingAssemblyRequest = nil
+        pendingClassificationConfigs = []
+        pendingEsVirituConfigs = []
+        pendingTaxTriageConfig = nil
+        pendingViralReconRequest = request
+        updateEmbeddedReadiness(true, for: .viralRecon)
     }
 
     var visibleSections: [DatasetOperationSection] {
@@ -778,6 +800,8 @@ final class FASTQOperationDialogState {
             return "Configure Bowtie2 short-read mapping against a reference sequence."
         case .bbmap:
             return "Configure BBMap reference-guided mapping against a reference sequence."
+        case .viralRecon:
+            return "Configure SARS-CoV-2 viral consensus and variant analysis."
         case .spades:
             return "Configure a SPAdes assembly run."
         case .megahit:
@@ -831,7 +855,7 @@ final class FASTQOperationDialogState {
         case .searchSubsetting:
             return [.subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence]
         case .mapping:
-            return [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .classification:
@@ -959,7 +983,7 @@ final class FASTQOperationDialogState {
             }
             return nil
 
-        case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
+        case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil
         }
     }
@@ -980,6 +1004,7 @@ final class FASTQOperationDialogState {
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
+        pendingViralReconRequest = nil
         normalizeOutputMode()
     }
 
@@ -1192,6 +1217,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case bwaMem2 = "bwa-mem2"
     case bowtie2
     case bbmap
+    case viralRecon
     case spades
     case megahit
     case skesa
@@ -1228,6 +1254,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .bwaMem2: return "BWA-MEM2"
         case .bowtie2: return "Bowtie2"
         case .bbmap: return "BBMap"
+        case .viralRecon: return "Viral Recon"
         case .spades: return "SPAdes"
         case .megahit: return "MEGAHIT"
         case .skesa: return "SKESA"
@@ -1266,6 +1293,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
         case .bowtie2: return "Map Illumina short reads with Bowtie2."
         case .bbmap: return "Map reads to a reference sequence with BBMap."
+        case .viralRecon: return "Run SARS-CoV-2 viral consensus and variant analysis."
         case .spades: return "Assemble reads into contigs."
         case .megahit: return "Assemble short reads with a compact de Bruijn graph."
         case .skesa: return "Assemble isolate-focused short reads conservatively."
@@ -1291,7 +1319,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .readProcessing
         case .subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
             return .searchSubsetting
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return .assembly
@@ -1309,7 +1337,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
-             .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence,
+             .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .viralRecon,
              .spades, .megahit, .skesa, .flye, .hifiasm:
             return [.fastqDataset]
         case .primerTrimming:
@@ -1340,7 +1368,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var usesEmbeddedConfiguration: Bool {
         switch self {
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
         default:
             return false
@@ -1353,7 +1381,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var defaultEmbeddedReadiness: Bool {
         switch self {
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return false
         default:
             return true
@@ -1364,6 +1392,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return "Complete the mapping settings to continue."
+        case .viralRecon:
+            return "Complete the viral recon settings to continue."
         case .kraken2, .esViritu, .taxTriage:
             return "Complete the classifier settings to continue."
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -1405,7 +1435,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
         case .refreshQCSummary, .qualityTrim, .mergeOverlappingPairs,
-             .repairPairedEndFiles, .correctSequencingErrors:
+             .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
     }

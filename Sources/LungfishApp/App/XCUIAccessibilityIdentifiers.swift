@@ -151,3 +151,16 @@ enum NFCoreWorkflowAccessibilityID {
     static let cancelButton = "nf-core-cancel-button"
     static let statusLabel = "nf-core-status-label"
 }
+
+enum ViralReconAccessibilityID {
+    static let root = "viral-recon-root"
+    static let inputSummary = "viral-recon-input-summary"
+    static let platformPicker = "viral-recon-platform-picker"
+    static let primerPicker = "viral-recon-primer-picker"
+    static let referenceModePicker = "viral-recon-reference-mode-picker"
+    static let genomeField = "viral-recon-genome-field"
+    static let referencePicker = "viral-recon-reference-picker"
+    static let executorPicker = "viral-recon-executor-picker"
+    static let versionField = "viral-recon-version-field"
+    static let readinessLabel = "viral-recon-readiness-label"
+}

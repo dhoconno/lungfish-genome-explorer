@@ -539,8 +539,33 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testMappingCategoryExposesAllV1Mappers() {
         XCTAssertEqual(
             FASTQOperationDialogState.toolIDs(for: .mapping),
-            [.minimap2, .bwaMem2, .bowtie2, .bbmap]
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         )
+    }
+
+    func testViralReconAppearsInMappingTools() {
+        let mappingTools = FASTQOperationDialogState.toolIDs(for: .mapping)
+
+        XCTAssertTrue(mappingTools.contains(.viralRecon))
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.categoryID, .mapping)
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.title, "Viral Recon")
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.subtitle, "Run SARS-CoV-2 viral consensus and variant analysis.")
+        XCTAssertTrue(FASTQOperationToolID.viralRecon.usesEmbeddedConfiguration)
+        XCTAssertEqual(FASTQOperationToolID.viralRecon.embeddedReadinessText, "Complete the viral recon settings to continue.")
+    }
+
+    func testViralReconPendingRequestControlsRunReadiness() throws {
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/A.lungfishfastq")]
+        )
+        state.selectTool(.viralRecon)
+
+        XCTAssertFalse(state.isRunEnabled)
+        state.captureViralReconRequest(try ViralReconAppTestFixtures.illuminaRequest(root: URL(fileURLWithPath: "/tmp")))
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertNotNil(state.pendingViralReconRequest)
     }
 
     func testMinimap2UsesGenericEmbeddedReadinessText() {

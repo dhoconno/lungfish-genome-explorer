@@ -4907,6 +4907,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 guard let self else { return }
                 debugLog("showFASTQOperationsDialog: confirmed \(state.selectedToolID.rawValue) for \(state.selectedInputURLs.count) input(s)")
 
+                if let request = state.pendingViralReconRequest {
+                    let service: ViralReconWorkflowExecutionService
+                    if AppUITestConfiguration.current.isEnabled,
+                       AppUITestConfiguration.current.backendMode == .deterministic {
+                        service = ViralReconWorkflowExecutionService(processRunner: AppUITestViralReconWorkflowProcessRunner())
+                    } else {
+                        service = ViralReconWorkflowExecutionService()
+                    }
+                    let bundleRoot = currentProjectURL?
+                        .appendingPathComponent("Analyses", isDirectory: true)
+                        ?? request.outputDirectory.deletingLastPathComponent()
+                    Task {
+                        do {
+                            _ = try await service.run(request, bundleRoot: bundleRoot)
+                        } catch {
+                            debugLog("showFASTQOperationsDialog: Viral Recon failed to start: \(String(describing: error))")
+                        }
+                    }
+                    return
+                }
+
                 if let request = state.pendingMappingRequest {
                     self.runManagedMapping(request: request)
                     return
@@ -8459,5 +8480,23 @@ private enum NvdImportError: Error, LocalizedError {
         case .csvNotFound(let msg): return "NVD CSV not found: \(msg)"
         case .bundleCreationFailed(let msg): return "Failed to create NVD bundle: \(msg)"
         }
+    }
+}
+
+@MainActor
+private struct AppUITestViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> ViralReconWorkflowProcessResult {
+        AppUITestConfiguration.current.appendEvent("viralrecon.cli.invoked \(arguments.joined(separator: " "))")
+        outputHandler?(.standardOutput("deterministic Viral Recon completed"))
+        return ViralReconWorkflowProcessResult(
+            exitCode: 0,
+            standardOutput: "deterministic Viral Recon completed",
+            standardError: "",
+            didStreamOutput: true
+        )
     }
 }
