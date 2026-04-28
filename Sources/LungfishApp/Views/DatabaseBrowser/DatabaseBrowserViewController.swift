@@ -1244,7 +1244,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
             generation: token.generation,
             identity: token.identity
         )
-        guard searchValidationSession.shouldAccept(resultFor: requestToken) else { return }
+        guard searchValidationSession.shouldAccept(resultFor: requestToken),
+              token.identity == currentSearchIdentity()
+        else { return }
         objectWillChange.send()
         update()
     }

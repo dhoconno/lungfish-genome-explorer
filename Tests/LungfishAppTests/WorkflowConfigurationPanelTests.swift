@@ -11,8 +11,8 @@ final class WorkflowConfigurationPanelTests: XCTestCase {
             try await loader.load(url)
         })
 
-        let slowWorkflow = try makeWorkflowDirectory(named: "workflow-A")
-        let fastWorkflow = try makeWorkflowDirectory(named: "workflow-B")
+        let slowWorkflow = try makeWorkflowDirectory(named: "workflow-A", includeSchema: true)
+        let fastWorkflow = try makeWorkflowDirectory(named: "workflow-B", includeSchema: true)
 
         panel.setWorkflow(slowWorkflow)
         await loader.waitUntilStarted("workflow-A")
@@ -30,19 +30,66 @@ final class WorkflowConfigurationPanelTests: XCTestCase {
         XCTAssertEqual(panel.testingWorkflowPath, fastWorkflow.standardizedFileURL)
     }
 
-    private func makeWorkflowDirectory(named name: String) throws -> URL {
+    func testNoSchemaWorkflowCancelsPendingLoadAndHidesLoadingState() async throws {
+        let loader = DelayedWorkflowSchemaLoader()
+        let panel = WorkflowConfigurationPanel(schemaLoader: { url in
+            try await loader.load(url)
+        })
+
+        let slowWorkflow = try makeWorkflowDirectory(named: "workflow-A", includeSchema: true)
+        let noSchemaWorkflow = try makeWorkflowDirectory(named: "workflow-B", includeSchema: false)
+
+        panel.setWorkflow(slowWorkflow)
+        await loader.waitUntilStarted("workflow-A")
+        XCTAssertFalse(try loadingSchemaLabel(in: panel).isHidden)
+
+        panel.setWorkflow(noSchemaWorkflow)
+
+        XCTAssertTrue(try loadingSchemaLabel(in: panel).isHidden)
+
+        await loader.complete("workflow-A")
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertNil(panel.testingLoadedSchemaTitle)
+        XCTAssertEqual(panel.testingWorkflowPath, noSchemaWorkflow.standardizedFileURL)
+    }
+
+    private func makeWorkflowDirectory(named name: String, includeSchema: Bool) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkflowConfigurationPanelTests-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent(name, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let workflowURL = directory.appendingPathComponent("\(name).nf")
         try "nextflow.enable.dsl=2\n".write(to: workflowURL, atomically: true, encoding: .utf8)
-        try "{}\n".write(
-            to: directory.appendingPathComponent("nextflow_schema.json"),
-            atomically: true,
-            encoding: .utf8
-        )
+        if includeSchema {
+            try "{}\n".write(
+                to: directory.appendingPathComponent("nextflow_schema.json"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
         return workflowURL
+    }
+
+    private func loadingSchemaLabel(in panel: WorkflowConfigurationPanel) throws -> NSTextField {
+        guard let label = findLoadingSchemaLabel(in: panel.contentView) else {
+            XCTFail("Loading schema label was not found")
+            throw TestError.missingLoadingLabel
+        }
+        return label
+    }
+
+    private func findLoadingSchemaLabel(in view: NSView?) -> NSTextField? {
+        guard let view else { return nil }
+        if let label = view as? NSTextField, label.stringValue == "Loading schema..." {
+            return label
+        }
+        for subview in view.subviews {
+            if let label = findLoadingSchemaLabel(in: subview) {
+                return label
+            }
+        }
+        return nil
     }
 
     private func waitUntil(
@@ -59,6 +106,10 @@ final class WorkflowConfigurationPanelTests: XCTestCase {
         }
         XCTFail("Timed out waiting for condition", file: file, line: line)
     }
+}
+
+private enum TestError: Error {
+    case missingLoadingLabel
 }
 
 private actor DelayedWorkflowSchemaLoader {

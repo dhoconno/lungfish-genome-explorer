@@ -32,6 +32,30 @@ final class DatabaseSearchDialogStateTests: XCTestCase {
         XCTAssertEqual(viewModel.searchPhase, .complete(count: 1))
     }
 
+    func testInFlightSearchResponseCannotCommitAfterQueryAndFilterEdits() async throws {
+        let backend = DelayedDatabaseSearchBackend()
+        let state = DatabaseSearchDialogState(
+            automationBackend: DatabaseSearchAutomationBackend { request in
+                try await backend.search(request)
+            }
+        )
+        let viewModel = state.genBankGenomesViewModel
+
+        viewModel.searchText = "query-A"
+        viewModel.organismFilter = "Protopterus"
+        viewModel.performSearch()
+        await backend.waitUntilStarted("query-A")
+
+        viewModel.searchText = "query-edited"
+        viewModel.organismFilter = "Neoceratodus"
+
+        await backend.complete("query-A", accession: "A")
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertTrue(viewModel.results.isEmpty)
+        XCTAssertNotEqual(viewModel.searchPhase, .complete(count: 1))
+    }
+
     func testDestinationTitlesAndSubtitlesMatchApprovedCopy() {
         XCTAssertEqual(DatabaseSearchDestination.genBankGenomes.title, "GenBank & Genomes")
         XCTAssertEqual(

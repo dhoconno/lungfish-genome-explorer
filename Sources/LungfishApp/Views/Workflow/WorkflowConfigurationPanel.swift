@@ -514,6 +514,7 @@ public class WorkflowConfigurationPanel: NSPanel {
                 loadSchema(from: possibleSchemaPath)
             } else {
                 schemaValidationSession.cancel()
+                showLoading(false)
                 showNoSchemaPlaceholder()
             }
         }
