@@ -624,6 +624,48 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         }
     }
 
+    func testViralReconGenomePrimerDerivationKeepsBedAlignedToGenomeAccession() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconGenomePrimerDerivation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let primerBundle = root.appendingPathComponent("sars2.lungfishprimers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primerBundle, withIntermediateDirectories: true)
+        let manifestData = try JSONEncoder().encode(Self.sarsCoV2PrimerManifest())
+        try manifestData.write(to: primerBundle.appendingPathComponent("manifest.json"))
+        try "Test primer scheme\n".write(
+            to: primerBundle.appendingPathComponent("PROVENANCE.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        MN908947.3\t0\t4\tamplicon_1_LEFT\t1\t+
+        MN908947.3\t4\t8\tamplicon_1_RIGHT\t1\t-
+        """.write(to: primerBundle.appendingPathComponent("primers.bed"), atomically: true, encoding: .utf8)
+
+        let referenceFASTA = root.appendingPathComponent("local-reference.fasta")
+        try """
+        >NC_045512.2 local SARS-CoV-2 sequence source
+        AAAACCCCGGGGTTTT
+        """.write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let selection = try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
+            primerBundleURL: primerBundle,
+            sourceReferenceFASTAURL: referenceFASTA,
+            genomeAccession: "MN908947.3",
+            destinationDirectory: root
+        )
+
+        XCTAssertTrue(selection.derivedFasta)
+        let stagedBED = try String(contentsOf: selection.bedURL, encoding: .utf8)
+        XCTAssertTrue(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
+        XCTAssertFalse(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
+        let stagedFASTA = try String(contentsOf: selection.fastaURL, encoding: .utf8)
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
+        XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
+    }
+
     func testViralReconReadinessRejectsBlankGenomeBeforeRun() {
         let evaluation = ViralReconWizardReadiness.evaluate(
             ViralReconWizardReadiness.State(
@@ -691,6 +733,19 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
 
         XCTAssertTrue(evaluation.canRun)
         XCTAssertEqual(evaluation.message, "Ready to run Viral Recon.")
+    }
+
+    func testViralReconBuildFailureDoesNotForceParentReadinessFalse() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(source.contains("onRunnerAvailabilityChange(false)"))
     }
 
     func testMinimap2UsesGenericEmbeddedReadinessText() {

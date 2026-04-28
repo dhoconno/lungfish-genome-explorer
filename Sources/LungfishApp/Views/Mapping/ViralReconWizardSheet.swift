@@ -416,7 +416,6 @@ struct ViralReconWizardSheet: View {
             onRun(request)
         } catch {
             buildError = "Could not prepare Viral Recon: \(error.localizedDescription)"
-            onRunnerAvailabilityChange(false)
         }
     }
 
@@ -522,10 +521,10 @@ struct ViralReconWizardSheet: View {
         guard let selectedLocalReferenceURL else {
             throw WizardError.missingReferenceForPrimerFasta
         }
-        return try ViralReconPrimerStager.stage(
+        return try ViralReconWizardPrimerStaging.stageGenomePrimerSelection(
             primerBundleURL: option.bundle.url,
-            referenceFASTAURL: selectedLocalReferenceURL,
-            referenceName: Self.referenceName(from: selectedLocalReferenceURL, fallback: genomeAccession),
+            sourceReferenceFASTAURL: selectedLocalReferenceURL,
+            genomeAccession: genomeAccession,
             destinationDirectory: stagingDirectory
         )
     }
@@ -734,6 +733,62 @@ enum ViralReconWizardPrimerCompatibility {
         ([manifest.canonicalAccession] + manifest.equivalentAccessions)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+}
+
+enum ViralReconWizardPrimerStaging {
+    static func stageGenomePrimerSelection(
+        primerBundleURL: URL,
+        sourceReferenceFASTAURL: URL,
+        genomeAccession: String,
+        destinationDirectory: URL
+    ) throws -> ViralReconPrimerSelection {
+        let referenceName = genomeAccession.trimmingCharacters(in: .whitespacesAndNewlines)
+        let preparedReference = try referenceFASTA(
+            sourceURL: sourceReferenceFASTAURL,
+            referenceName: referenceName,
+            destinationDirectory: destinationDirectory
+        )
+        return try ViralReconPrimerStager.stage(
+            primerBundleURL: primerBundleURL,
+            referenceFASTAURL: preparedReference,
+            referenceName: referenceName,
+            destinationDirectory: destinationDirectory
+        )
+    }
+
+    private static func referenceFASTA(
+        sourceURL: URL,
+        referenceName: String,
+        destinationDirectory: URL
+    ) throws -> URL {
+        let contents = try String(contentsOf: sourceURL, encoding: .utf8)
+        let rewritten = rewriteFirstFASTAHeader(in: contents, referenceName: referenceName)
+        guard rewritten != contents else { return sourceURL }
+
+        let primersDirectory = destinationDirectory.appendingPathComponent("primers", isDirectory: true)
+        try FileManager.default.createDirectory(at: primersDirectory, withIntermediateDirectories: true)
+        let destination = primersDirectory.appendingPathComponent("reference-for-primer-derivation.fasta")
+        try rewritten.write(to: destination, atomically: true, encoding: .utf8)
+        return destination
+    }
+
+    private static func rewriteFirstFASTAHeader(in contents: String, referenceName: String) -> String {
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        guard let headerIndex = lines.firstIndex(where: { $0.hasPrefix(">") }) else {
+            return contents
+        }
+
+        let currentID = lines[headerIndex]
+            .dropFirst()
+            .split(whereSeparator: \.isWhitespace)
+            .first
+            .map(String.init)
+        guard currentID != referenceName else { return contents }
+
+        var rewritten = lines
+        rewritten[headerIndex] = ">\(referenceName)"
+        return rewritten.joined(separator: "\n")
     }
 }
 
