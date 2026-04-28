@@ -234,6 +234,32 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.logEntries.map(\.message).filter { $0 == "streamed stderr" }.count, 1)
     }
 
+    func testServiceDoesNotReplayReturnedOutputWhenResultReportsStreaming() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubViralReconProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "queued stdout\n",
+            standardError: "queued stderr\n",
+            didStreamOutput: true
+        ))
+        let service = ViralReconWorkflowExecutionService(operationCenter: operationCenter, processRunner: runner)
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        let item = try XCTUnwrap(operationCenter.items.first { $0.id == result.operationID })
+        let messages = item.logEntries.map { $0.message }
+        XCTAssertFalse(messages.contains("queued stdout"))
+        XCTAssertFalse(messages.contains("queued stderr"))
+    }
+
     func testConcreteRunnerStreamsOutputBeforeProcessReturns() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-runner-\(UUID().uuidString)", isDirectory: true)
@@ -262,6 +288,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(result.standardOutput.contains("stdout-ready"))
         XCTAssertTrue(result.standardOutput.contains("stdout-done"))
         XCTAssertTrue(result.standardError.contains("stderr-ready"))
+        XCTAssertTrue(result.didStreamOutput)
     }
 }
 
@@ -306,7 +333,12 @@ private final class StreamingStubViralReconProcessRunner: ViralReconWorkflowProc
     ) async throws -> ViralReconWorkflowProcessResult {
         outputHandler?(.standardOutput("streamed stdout"))
         outputHandler?(.standardError("streamed stderr"))
-        return result
+        return ViralReconWorkflowProcessResult(
+            exitCode: result.exitCode,
+            standardOutput: result.standardOutput,
+            standardError: result.standardError,
+            didStreamOutput: outputHandler != nil
+        )
     }
 }
 

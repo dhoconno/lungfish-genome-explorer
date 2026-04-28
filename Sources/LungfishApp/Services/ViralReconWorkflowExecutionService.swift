@@ -35,14 +35,12 @@ final class ViralReconWorkflowExecutionService {
             cliCommand: commandPreview
         )
         logPreparation(for: persistedRequest, bundleURL: bundleURL, commandPreview: commandPreview, operationID: operationID)
-        let outputReplayState = ViralReconProcessOutputReplayState()
 
         do {
             let processResult = try await processRunner.runLungfishCLI(
                 arguments: persistedRequest.cliArguments(bundlePath: bundleURL),
                 workingDirectory: bundleURL,
                 outputHandler: { [operationCenter] output in
-                    outputReplayState.didStreamOutput = true
                     switch output {
                     case .standardOutput(let line):
                         operationCenter.log(id: operationID, level: .info, message: line)
@@ -52,7 +50,7 @@ final class ViralReconWorkflowExecutionService {
                 }
             )
             try writeProcessLogs(processResult, to: bundleURL.appendingPathComponent("logs", isDirectory: true))
-            if !outputReplayState.didStreamOutput {
+            if !processResult.didStreamOutput {
                 logProcessOutput(processResult, operationID: operationID)
             }
 
@@ -318,11 +316,6 @@ final class ViralReconWorkflowExecutionService {
     }
 }
 
-@MainActor
-private final class ViralReconProcessOutputReplayState {
-    var didStreamOutput = false
-}
-
 enum ViralReconWorkflowCommandPreview {
     static func build(executableName: String, arguments: [String]) -> String {
         ([executableName] + arguments)
@@ -346,6 +339,19 @@ struct ViralReconWorkflowProcessResult: Sendable, Equatable {
     let exitCode: Int32
     let standardOutput: String
     let standardError: String
+    let didStreamOutput: Bool
+
+    init(
+        exitCode: Int32,
+        standardOutput: String,
+        standardError: String,
+        didStreamOutput: Bool = false
+    ) {
+        self.exitCode = exitCode
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.didStreamOutput = didStreamOutput
+    }
 }
 
 enum ViralReconWorkflowProcessOutput: Sendable, Equatable {
@@ -426,7 +432,8 @@ struct ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning 
         return ViralReconWorkflowProcessResult(
             exitCode: exitCode,
             standardOutput: collector.standardOutput,
-            standardError: collector.standardError
+            standardError: collector.standardError,
+            didStreamOutput: collector.didStreamOutput
         )
     }
 
@@ -453,6 +460,7 @@ private final class ProcessOutputCollector: @unchecked Sendable {
     private var standardErrorData = Data()
     private var pendingStandardOutput = ""
     private var pendingStandardError = ""
+    private var streamedOutput = false
     private let outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
 
     init(outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?) {
@@ -468,6 +476,12 @@ private final class ProcessOutputCollector: @unchecked Sendable {
     var standardError: String {
         lock.withLock {
             String(data: standardErrorData, encoding: .utf8) ?? ""
+        }
+    }
+
+    var didStreamOutput: Bool {
+        lock.withLock {
+            streamedOutput
         }
     }
 
@@ -516,6 +530,9 @@ private final class ProcessOutputCollector: @unchecked Sendable {
             output = .standardOutput(line)
         case .standardError:
             output = .standardError(line)
+        }
+        lock.withLock {
+            streamedOutput = true
         }
         Task { @MainActor in
             outputHandler(output)
