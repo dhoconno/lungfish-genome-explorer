@@ -1222,24 +1222,40 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         outlineView.menu
     }
 
-    /// Test-only: installs a minimal stub data source with `rowCount` rows so
-    /// `outlineView.selectedRowIndexes` can hold a non-empty selection, then
-    /// programmatically selects the given indices.
+    /// Test-only: installs a minimal taxonomy tree so
+    /// `outlineView.selectedRowIndexes` can hold a non-empty actionable
+    /// selection, then programmatically selects the given indices.
     ///
     /// Used by the Phase 6 I2 invariant test to exercise
     /// `validateMenuItem(_:)` when rows are selected, without needing a full
     /// Kraken2 classification result to back the table.
     public func setTestingSelection(indices: [Int]) {
         let rowCount = (indices.max() ?? -1) + 1
-        let stub = _TestingTaxonomyStubOutlineDataSource(rows: max(rowCount, 1))
-        objc_setAssociatedObject(
-            self,
-            &Self._testingStubKey,
-            stub,
-            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        let root = TaxonNode(
+            taxId: 1,
+            name: "root",
+            rank: .root,
+            depth: 0,
+            readsDirect: 0,
+            readsClade: max(rowCount, 1),
+            fractionClade: 1,
+            fractionDirect: 0,
+            parentTaxId: nil
         )
-        outlineView.dataSource = stub
-        outlineView.reloadData()
+        for index in 0..<max(rowCount, 1) {
+            root.addChild(TaxonNode(
+                taxId: 10_000 + index,
+                name: "taxon-\(index)",
+                rank: .species,
+                depth: 1,
+                readsDirect: 1,
+                readsClade: 1,
+                fractionClade: 1,
+                fractionDirect: 1,
+                parentTaxId: root.taxId
+            ))
+        }
+        tree = TaxonTree(root: root, unclassifiedNode: nil, totalReads: max(rowCount, 1))
         outlineView.selectRowIndexes(IndexSet(indices), byExtendingSelection: false)
     }
 
@@ -1254,31 +1270,8 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         reloadDataAndUpdateFilterIndicators()
     }
 
-    private static var _testingStubKey: UInt8 = 0
     #endif
 }
-
-#if DEBUG
-/// Minimal stub NSOutlineViewDataSource used by the Phase 6 I2 invariant
-/// test to seed a non-empty `selectedRowIndexes` without instantiating a
-/// real taxonomy tree.
-fileprivate final class _TestingTaxonomyStubOutlineDataSource: NSObject, NSOutlineViewDataSource {
-    let rows: Int
-    init(rows: Int) { self.rows = rows }
-
-    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
-        item == nil ? rows : 0
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
-        NSNumber(value: index)
-    }
-
-    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
-        false
-    }
-}
-#endif
 
 // MARK: - TaxonomyOutlineView
 

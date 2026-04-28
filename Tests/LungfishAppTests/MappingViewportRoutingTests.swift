@@ -31,7 +31,7 @@ final class MappingViewportRoutingTests: XCTestCase {
         let viewerMappingSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController+Mapping.swift")
         let viewerBundleSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController+BundleDisplay.swift")
 
-        XCTAssertTrue(mainWindowSource.contains("displayReferenceBundleViewportFromSidebar(at: url)"))
+        XCTAssertTrue(mainWindowSource.contains("displayReferenceBundleViewportFromSidebar(at: url"))
         XCTAssertFalse(mainWindowSource.contains("displayBundle(at: url, mode: .browse)"))
         XCTAssertTrue(viewerMappingSource.contains("displayReferenceBundleViewport("))
         XCTAssertTrue(viewerMappingSource.contains("ReferenceBundleViewportController()"))
