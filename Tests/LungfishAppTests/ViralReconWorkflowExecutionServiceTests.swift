@@ -271,7 +271,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
 
         let task = Task {
             try await runner.runLungfishCLI(
-                arguments: ["-c", "printf 'stdout-ready\\n'; printf 'stderr-ready\\n' >&2; sleep 1; printf 'stdout-done\\n'"],
+                arguments: ["-c", "printf 'stdout-ready\\n'; printf 'stderr-ready\\n' >&2; sleep 3; printf 'stdout-done\\n'"],
                 workingDirectory: temp,
                 outputHandler: { output in
                     received.append(output)
@@ -279,7 +279,12 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             )
         }
 
-        try await Task.sleep(nanoseconds: 500_000_000)
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline
+            && !(received.contains(.standardOutput("stdout-ready"))
+                 && received.contains(.standardError("stderr-ready"))) {
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
         XCTAssertTrue(received.contains(.standardOutput("stdout-ready")))
         XCTAssertTrue(received.contains(.standardError("stderr-ready")))
         XCTAssertFalse(received.contains(.standardOutput("stdout-done")))
