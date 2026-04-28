@@ -61,6 +61,9 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         }
     }
 
+    /// Result/run identity used to distinguish duplicated taxa across result sources.
+    public var resultIdentity: String?
+
     /// The currently selected node.
     ///
     /// Setting this property programmatically scrolls the outline view to the node.
@@ -151,6 +154,9 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     /// When true, programmatic selection changes don't fire the delegate callback.
     /// Prevents infinite loops when syncing selection between sunburst and table.
     private var suppressSelectionCallback = false
+
+    /// Stable selection IDs for sort/filter/tree replacement preservation.
+    private var selectionIdentities = SelectionIdentityStore<String>()
 
     // MARK: - Subviews
 
@@ -318,6 +324,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
                 outlineView.expandItem(child)
             }
         }
+        restoreSelectionAfterDisplayedNodesChanged()
     }
 
     private func updateCountLabel() {
@@ -366,6 +373,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         if filteredNodeIDs != nil, let root = tree?.root {
             expandFilteredNodes(from: root)
         }
+        restoreSelectionAfterDisplayedNodesChanged()
 
         // Notify listeners (e.g., sunburst chart) of the new filter state
         if let filteredNodeIDs, let tree {
@@ -400,6 +408,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     private func selectRowForNode(_ node: TaxonNode?) {
         guard let node else {
+            selectionIdentities.clear()
             suppressSelectionCallback = true
             outlineView.deselectAll(nil)
             suppressSelectionCallback = false
@@ -414,6 +423,9 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         let row = outlineView.row(forItem: node)
         if row >= 0 {
+            if let id = selectionIdentity(for: node) {
+                selectionIdentities.select([id])
+            }
             suppressSelectionCallback = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outlineView.scrollRowToVisible(row)
@@ -622,7 +634,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         if menuItem.action == #selector(contextBlastReads(_:)) {
             // BLAST requires exactly one selected row
-            return clickedNode != nil && outlineView.selectedRowIndexes.count <= 1
+            return clickedNode != nil && selectedActionableNodesByIdentity().count <= 1
         }
         if menuItem.action == #selector(contextOpenNCBITaxonomy(_:))
             || menuItem.action == #selector(contextOpenNCBIGenBank(_:))
@@ -632,21 +644,15 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             return clickedNode != nil
         }
         if menuItem.action == #selector(contextExtractReads(_:)) {
-            // Gate must mirror the handler's read source. `contextExtractReads`
-            // dispatches to `presentUnifiedExtractionDialog()`, which reads
-            // `selectedRowIndexes` (via `buildKraken2Selectors(explicit: nil)`).
-            // NSOutlineView's default right-click behavior auto-selects the
-            // clicked row before showing the menu, so `clickedNode` is
-            // already in `selectedRowIndexes` whenever the menu is shown —
-            // a `|| clickedNode != nil` clause would create an asymmetric
-            // gate that enables the item on a clicked row that the handler
-            // cannot see.
-            return !outlineView.selectedRowIndexes.isEmpty
+            return !selectedActionableNodesByIdentity().isEmpty || clickedNode != nil
         }
         return true
     }
 
     @objc private func contextExtractReads(_ sender: Any?) {
+        if selectedActionableNodesByIdentity().isEmpty {
+            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
+        }
         onExtractReadsRequested?()
     }
 
@@ -684,6 +690,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func contextBlastReads(_ sender: Any?) {
         guard let node = actionableNode(at: outlineView.clickedRow) else { return }
+        selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
         onBlastRequested?(node)
     }
 
@@ -745,6 +752,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         currentSortKey = key
         currentSortAscending = descriptor.ascending
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedNodesChanged()
     }
 
     // MARK: - Column Header Filter Menus
@@ -878,6 +886,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         currentSortKey = key
         currentSortAscending = true
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedNodesChanged()
     }
 
     @objc private func sortColumnDesc(_ sender: NSMenuItem) {
@@ -887,6 +896,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         currentSortKey = key
         currentSortAscending = false
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedNodesChanged()
     }
 
     @objc private func clearColumnFilter(_ sender: NSMenuItem) {
@@ -937,25 +947,121 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     public func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelectionCallback else { return }
 
-        let selectedRows = outlineView.selectedRowIndexes
-        if selectedRows.count == 1 {
-            let row = selectedRows.first!
-            guard let node = outlineView.item(atRow: row) as? TaxonNode else {
-                onNodeSelected?(tree!.root)
-                return
+        updateSelectionIdentitiesFromOutlineSelection()
+        emitSelectionCallbacks(for: selectedNodesByIdentity())
+    }
+
+    func selectedActionableNodesByIdentity() -> [TaxonNode] {
+        selectedNodesByIdentity().filter { actionableNode($0) != nil }
+    }
+
+    private func updateSelectionIdentitiesFromOutlineSelection() {
+        let selected = selectedNodesFromCurrentIndexes()
+        let ids = selected.compactMap(selectionIdentity(for:))
+        if ids.count == selected.count, !ids.isEmpty {
+            selectionIdentities.select(ids)
+        } else {
+            selectionIdentities.clear()
+        }
+    }
+
+    private func restoreSelectionAfterDisplayedNodesChanged() {
+        guard let visibleIDs = visibleSelectionIdentities() else { return }
+        let previousIDs = selectionIdentities.selectedIDs
+        guard !previousIDs.isEmpty else {
+            restoreOutlineSelection([])
+            return
+        }
+
+        selectionIdentities.removeSelectionsNotVisible(in: visibleIDs)
+        restoreOutlineSelection(selectionIdentities.visibleIndexes(in: visibleIDs))
+        if selectionIdentities.selectedIDs.isEmpty {
+            emitSelectionCallbacks(for: [])
+        } else {
+            emitSelectionCallbacks(for: selectedNodesByIdentity())
+        }
+    }
+
+    private func restoreOutlineSelection(_ indexes: IndexSet) {
+        suppressSelectionCallback = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionCallback = false
+    }
+
+    private func selectedNodesByIdentity() -> [TaxonNode] {
+        guard let visible = visibleSelectionNodesAndIdentities(),
+              !selectionIdentities.selectedIDs.isEmpty else {
+            return selectedNodesFromCurrentIndexes()
+        }
+
+        let selectedIDs = selectionIdentities.selectedIDs
+        return visible.compactMap { node, identity in
+            selectedIDs.contains(identity) ? node : nil
+        }
+    }
+
+    private func selectedNodesFromCurrentIndexes() -> [TaxonNode] {
+        outlineView.selectedRowIndexes.compactMap { row in
+            guard row >= 0 else { return nil }
+            return outlineView.item(atRow: row) as? TaxonNode
+        }
+    }
+
+    private func visibleSelectionIdentities() -> [String]? {
+        visibleSelectionNodesAndIdentities()?.map(\.identity)
+    }
+
+    private func visibleSelectionNodesAndIdentities() -> [(node: TaxonNode, identity: String)]? {
+        var visible: [(node: TaxonNode, identity: String)] = []
+        visible.reserveCapacity(outlineView.numberOfRows)
+        for row in 0..<outlineView.numberOfRows {
+            guard let node = outlineView.item(atRow: row) as? TaxonNode,
+                  let identity = selectionIdentity(for: node) else {
+                return nil
             }
+            visible.append((node, identity))
+        }
+        return visible
+    }
+
+    private func selectionIdentity(for node: TaxonNode) -> String? {
+        [
+            "kraken2",
+            resultIdentity ?? "unknown-result",
+            sampleID(for: node),
+            String(node.taxId),
+            node.rank.code,
+            node.name,
+        ].joined(separator: "\u{1F}")
+    }
+
+    private func actionableNode(_ node: TaxonNode) -> TaxonNode? {
+        node.taxId <= 1 ? nil : node
+    }
+
+    private func selectClickedRowForContextMenuIfNeeded(_ row: Int) {
+        guard let node = actionableNode(at: row) else { return }
+        if let id = selectionIdentity(for: node) {
+            selectionIdentities.select([id])
+            restoreOutlineSelection(IndexSet(integer: row))
+            emitSelectionCallbacks(for: [node])
+        }
+    }
+
+    private func emitSelectionCallbacks(for selectedNodes: [TaxonNode]) {
+        if selectedNodes.count == 1, let node = selectedNodes.first {
             selectedNode = node
             onNodeSelected?(node)
-        } else if selectedRows.count > 1 {
-            // Clear selectedNode WITHOUT triggering didSet (which calls
-            // selectRowForNode → deselectAll, destroying the multi-selection).
+        } else if selectedNodes.count > 1 {
             suppressSelectionCallback = true
             _selectedNode = nil
             suppressSelectionCallback = false
-            onMultipleNodesSelected?(selectedRows.count)
+            onMultipleNodesSelected?(selectedNodes.count)
         } else {
             selectedNode = nil
-            onNodeSelected?(tree!.root)
+            if let root = tree?.root {
+                onNodeSelected?(root)
+            }
         }
     }
 

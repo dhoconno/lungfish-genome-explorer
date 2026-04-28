@@ -1435,22 +1435,8 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
     // MARK: - BLAST Verification
 
     private func blastVerifySelectedContig() {
-        let selectedRow = outlineView.selectedRow
-        guard selectedRow >= 0 else { return }
-        guard let item = outlineView.item(atRow: selectedRow) as? NvdOutlineItem else { return }
-
-        let hit: NvdBlastHit?
-        switch item {
-        case .contig(let sampleId, let qseqid):
-            hit = displayedContigs.first { $0.sampleId == sampleId && $0.qseqid == qseqid }
-        case .childHit(let sampleId, let qseqid, let hitRank):
-            let key = "\(sampleId)\t\(qseqid)"
-            hit = childHitsCache[key]?.first { $0.hitRank == hitRank }
-        case .taxonGroup:
-            hit = nil
-        }
-
-        guard let hit, let bundleURL, let database else { return }
+        guard let hit = singleIdentityBackedSelectedHit() else { return }
+        guard let bundleURL, let database else { return }
 
         // Extract contig FASTA sequence
         do {
@@ -1561,16 +1547,20 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
             keyEquivalent: ""
         )
         extractReadsItem.target = self
-        extractReadsItem.isEnabled = !outlineView.selectedRowIndexes.isEmpty || outlineView.clickedRow >= 0
+        extractReadsItem.isEnabled = hasVisibleIdentitySelection() || outlineView.clickedRow >= 0
         menu.addItem(extractReadsItem)
         menu.addItem(NSMenuItem.separator())
 
+        let selectedHit = singleIdentityBackedSelectedHit()
         let sharedItems = FASTASequenceActionMenuBuilder.buildItems(
-            selectionCount: outlineView.selectedRowIndexes.count,
+            selectionCount: visibleIdentitySelectionCount(),
             handlers: FASTASequenceActionHandlers(
                 onExtractSequence: { [weak self] in self?.contextExtractSequence(nil) },
-                onBlast: (onBlastVerification != nil && database != nil && outlineView.selectedRowIndexes.count <= 1)
-                    ? { [weak self] in self?.performBlastVerification(for: hit) }
+                onBlast: (onBlastVerification != nil && database != nil && selectedHit != nil)
+                    ? { [weak self] in
+                        guard let hit = self?.singleIdentityBackedSelectedHit() else { return }
+                        self?.performBlastVerification(for: hit)
+                    }
                     : nil,
                 onCopy: contigFASTARecord(for: hit) == nil ? nil : { [weak self] in self?.copyContigSequence(hit) },
                 onExport: (onExportFASTARequested == nil || contigFASTARecord(for: hit) == nil) ? nil : { [weak self] in
@@ -2176,6 +2166,28 @@ extension NvdResultViewController {
         }
     }
 
+    private func visibleIdentitySelectionCount() -> Int {
+        selectedOutlineItemsByIdentity().count
+    }
+
+    private func hasVisibleIdentitySelection() -> Bool {
+        visibleIdentitySelectionCount() > 0
+    }
+
+    private func singleIdentityBackedSelectedHit() -> NvdBlastHit? {
+        let selected = selectedOutlineItemsByIdentity()
+        guard selected.count == 1, let item = selected.first else { return nil }
+        switch item {
+        case .contig(let sampleId, let qseqid):
+            return displayedContigs.first { $0.sampleId == sampleId && $0.qseqid == qseqid }
+        case .childHit(let sampleId, let qseqid, let hitRank):
+            let key = "\(sampleId)\t\(qseqid)"
+            return childHitsCache[key]?.first { $0.hitRank == hitRank }
+        case .taxonGroup:
+            return nil
+        }
+    }
+
     private func selectedOutlineItemsFromCurrentIndexes() -> [NvdOutlineItem] {
         outlineView.selectedRowIndexes.compactMap { row in
             guard row >= 0 else { return nil }
@@ -2282,6 +2294,33 @@ extension NvdResultViewController {
 
     func testOutlineSelectedRowIndexes() -> IndexSet {
         outlineView.selectedRowIndexes
+    }
+
+    func testSelectOutlineRowsWithoutIdentitySync(_ indexes: IndexSet) {
+        suppressSelectionSync = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionSync = false
+    }
+
+    struct TestContextMenuActionState {
+        let identitySelectionCount: Int
+        let menuSelectionCount: Int
+        let blastEnabled: Bool
+    }
+
+    func testContextMenuActionStateForFirstContig() -> TestContextMenuActionState {
+        guard !displayedContigs.isEmpty else {
+            return TestContextMenuActionState(identitySelectionCount: 0, menuSelectionCount: 0, blastEnabled: false)
+        }
+        let menu = NSMenu(title: "Test Menu")
+        populateContextMenu(menu, for: displayedContigs[0])
+        let blastItem = menu.items.first { $0.title == "Verify with BLAST\u{2026}" }
+        let count = visibleIdentitySelectionCount()
+        return TestContextMenuActionState(
+            identitySelectionCount: count,
+            menuSelectionCount: count,
+            blastEnabled: blastItem?.isEnabled == true
+        )
     }
 
     func testContextMenuTitlesForFirstContig() -> [String] {

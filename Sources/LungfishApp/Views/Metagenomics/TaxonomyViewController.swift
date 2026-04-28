@@ -344,6 +344,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     public func configure(result: ClassificationResult) {
         classificationResult = result
         tree = result.tree
+        taxonomyTableView.resultIdentity = result.config.outputDirectory.standardizedFileURL.path
 
         summaryBar.update(tree: result.tree)
         sunburstView.tree = result.tree
@@ -420,6 +421,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
         self.kraken2Database = db
         self.isBatchMode = true
         batchTableView.resultIdentity = db.databaseURL.standardizedFileURL.path
+        taxonomyTableView.resultIdentity = db.databaseURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -648,9 +650,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// table-view selection state so chart-menu handlers work for nodes
     /// hidden by an active filter.
     private func buildKraken2Selectors(explicit: [TaxonNode]? = nil) -> [ClassifierRowSelector] {
-        let nodes: [TaxonNode] = explicit ?? taxonomyTableView.outlineView.selectedRowIndexes.compactMap {
-            taxonomyTableView.outlineView.item(atRow: $0) as? TaxonNode
-        }
+        let nodes: [TaxonNode] = explicit ?? taxonomyTableView.selectedActionableNodesByIdentity()
         let actionable = nodes.filter { isActionableTaxonNode($0) }
         guard !actionable.isEmpty else { return [] }
 
@@ -894,7 +894,7 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             // Guard against intermediate selection notifications during Cmd+Click:
             // if the table already has multiple rows selected, defer to the
             // multi-selection callback instead.
-            if self.taxonomyTableView.outlineView.selectedRowIndexes.count > 1 { return }
+            if self.taxonomyTableView.selectedActionableNodesByIdentity().count > 1 { return }
             self.suppressSelectionSync = true
             self.sunburstView.selectedNode = node
             self.hideMultiSelectionPlaceholder()

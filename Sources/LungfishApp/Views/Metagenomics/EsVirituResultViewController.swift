@@ -351,6 +351,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         self.isBatchMode = true
         self.didLoadFromManifestCache = true
         batchTableView.resultIdentity = resultURL.standardizedFileURL.path
+        detectionTableView.resultIdentity = resultURL.standardizedFileURL.path
 
         // Fetch all samples from the DB.
         let sampleList = (try? db.fetchSamples()) ?? []
@@ -675,6 +676,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         )
 
         esVirituResult = result
+        detectionTableView.resultIdentity = batchURL?.standardizedFileURL.path
         detectionTableView.result = result
         detectionTableView.coverageWindowsByAccession = coverageWindowsByAccession
         detectionTableView.uniqueReadCountsByAssembly = uniqueReadMaps.byAssembly

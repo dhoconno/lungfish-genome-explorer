@@ -83,6 +83,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
     }
 
+    /// Result/run identity used to distinguish duplicated assemblies across result sources.
+    public var resultIdentity: String?
+
     /// Coverage windows indexed by accession for sparkline rendering.
     public var coverageWindowsByAccession: [String: [ViralCoverageWindow]] = [:]
 
@@ -143,8 +146,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// For detection (contig) rows, returns the contig accession directly.
     public func selectedAssemblyAccessions() -> [String] {
         var accessions: [String] = []
-        for row in outlineView.selectedRowIndexes {
-            guard let item = outlineView.item(atRow: row) else { continue }
+        for item in selectedVisibleItemsByIdentity() {
             if let assemblyItem = item as? ViralAssemblyItem {
                 // Expand assembly to its constituent contig accessions so they
                 // match the BAM reference names (GenBank accessions, not GCF).
@@ -163,8 +165,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// Detection rows contribute the detection's sample ID directly.
     public func selectedSampleIDs() -> [String] {
         var sampleIds: [String] = []
-        for row in outlineView.selectedRowIndexes {
-            guard let item = outlineView.item(atRow: row) else { continue }
+        for item in selectedVisibleItemsByIdentity() {
             if let assemblyItem = item as? ViralAssemblyItem {
                 if let sampleId = assemblyItem.assembly.contigs.first?.sampleId {
                     sampleIds.append(sampleId)
@@ -177,22 +178,10 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     private func reloadItemPreservingSelection(_ item: Any, reloadChildren: Bool) {
-        let selectedItems: [Any] = outlineView.selectedRowIndexes.compactMap { row in
-            let selected = outlineView.item(atRow: row)
-            return selected as Any
-        }
-
         suppressSelectionCallback = true
         outlineView.reloadItem(item, reloadChildren: reloadChildren)
-
-        let rowsToReselect = IndexSet(selectedItems.compactMap { selected in
-            let row = outlineView.row(forItem: selected)
-            return row >= 0 ? row : nil
-        })
-        if !rowsToReselect.isEmpty {
-            outlineView.selectRowIndexes(rowsToReselect, byExtendingSelection: false)
-        }
         suppressSelectionCallback = false
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     /// Called when the user selects an assembly row.
@@ -241,6 +230,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     /// Suppresses selection callback during programmatic selection changes.
     private var suppressSelectionCallback = false
+
+    /// Stable selection IDs for sort/filter/reload preservation.
+    private var selectionIdentities = SelectionIdentityStore<String>()
 
     /// Cached root items in their current sorted order.
     private var sortedDisplayItems: [ViralAssemblyItem] = []
@@ -494,6 +486,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         for item in sortedDisplayItems where item.children.count > 1 {
             outlineView.expandItem(item)
         }
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     private func updateCountLabel() {
@@ -544,6 +537,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 outlineView.expandItem(item)
             }
         }
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     // MARK: - Selection
@@ -556,6 +550,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
         let row = outlineView.row(forItem: item)
         if row >= 0 {
+            if let id = selectionIdentity(for: item) {
+                selectionIdentities.select([id])
+            }
             suppressSelectionCallback = true
             outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outlineView.scrollRowToVisible(row)
@@ -700,12 +697,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(contextBlastVerify(_:)) {
             // BLAST Verify requires exactly one selected row
-            return outlineView.clickedRow >= 0 && outlineView.selectedRowIndexes.count <= 1
+            return outlineView.clickedRow >= 0 && selectedVisibleItemsByIdentity().count <= 1
         }
         if menuItem.action == #selector(contextExtractReads(_:)) {
             // Extract Reads is a no-op on empty selection — disable instead
             // of presenting a blank dialog.
-            return !outlineView.selectedRowIndexes.isEmpty
+            return hasVisibleIdentitySelection() || outlineView.clickedRow >= 0
         }
         return true
     }
@@ -713,6 +710,9 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Context Menu Actions
 
     @objc private func contextExtractReads(_ sender: Any?) {
+        if !hasVisibleIdentitySelection(), outlineView.clickedRow >= 0 {
+            selectClickedRowForContextMenuIfNeeded(outlineView.clickedRow)
+        }
         onExtractReadsRequested?()
     }
 
@@ -721,14 +721,18 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// Called by the action bar BLAST button. If there is no single selection,
     /// this is a no-op.
     public func showBlastPopoverForSelectedRow() {
-        let row = outlineView.selectedRow
-        guard row >= 0, outlineView.selectedRowIndexes.count == 1 else { return }
-        showBlastPopover(forRow: row)
+        let selected = selectedVisibleItemsByIdentity()
+        guard selected.count == 1 else { return }
+        showBlastPopover(for: selected[0])
     }
 
     /// Shows the BLAST config popover anchored to the given row.
     private func showBlastPopover(forRow row: Int) {
-        let item = outlineView.item(atRow: row)
+        guard let item = outlineView.item(atRow: row) else { return }
+        showBlastPopover(for: item)
+    }
+
+    private func showBlastPopover(for item: Any) {
         let detection: ViralDetection
         let accessions: [String]
         let availableUniqueReads: Int
@@ -759,14 +763,16 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             }
         )
 
-        let rowRect = outlineView.rect(ofRow: row)
+        let row = outlineView.row(forItem: item)
+        let rowRect = row >= 0 ? outlineView.rect(ofRow: row) : outlineView.bounds
         popover.show(relativeTo: rowRect, of: outlineView, preferredEdge: .maxY)
     }
 
     @objc private func contextBlastVerify(_ sender: Any?) {
         let row = outlineView.clickedRow
         guard row >= 0 else { return }
-        showBlastPopover(forRow: row)
+        selectClickedRowForContextMenuIfNeeded(row)
+        showBlastPopoverForSelectedRow()
     }
 
     @objc private func contextCopyName(_ sender: Any?) {
@@ -959,6 +965,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortAscending = descriptor.ascending
         refreshSortedItems()
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     // MARK: - Column Header Filter Menus
@@ -1081,6 +1088,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             self.refreshSortedItems()
             ColumnFilter.updateColumnTitleIndicators(columns: self.outlineView.tableColumns, filters: self.columnFilters, originalTitles: &self.originalColumnTitles)
             self.outlineView.reloadData()
+            self.restoreSelectionAfterDisplayedItemsChanged()
         }
     }
 
@@ -1091,6 +1099,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortAscending = true
         refreshSortedItems()
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     @objc private func esvSortDesc(_ sender: NSMenuItem) {
@@ -1100,6 +1109,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         currentSortAscending = false
         refreshSortedItems()
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     @objc private func esvClearFilter(_ sender: NSMenuItem) {
@@ -1108,6 +1118,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     @objc private func esvClearAllFilters(_ sender: Any?) {
@@ -1115,6 +1126,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
         outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     /// Tests whether an assembly item passes all active column filters.
@@ -1204,25 +1216,24 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     public func outlineViewSelectionDidChange(_ notification: Notification) {
         guard !suppressSelectionCallback else { return }
 
-        let selectedRows = outlineView.selectedRowIndexes
-        if selectedRows.count > 1 {
-            onMultipleSelected?(selectedRows.count)
+        updateSelectionIdentitiesFromOutlineSelection()
+        let selectedItems = selectedVisibleItemsByIdentity()
+        if selectedItems.count > 1 {
+            onMultipleSelected?(selectedItems.count)
             return
         }
 
-        let row = outlineView.selectedRow
-        guard row >= 0 else {
+        guard let item = selectedItems.first else {
             // NSOutlineView may briefly report no selection during row reloads.
             // Defer nil callbacks to avoid transient "overview bounce" on segment selection.
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                guard !self.suppressSelectionCallback, self.outlineView.selectedRow < 0 else { return }
+                guard !self.suppressSelectionCallback, self.selectedVisibleItemsByIdentity().isEmpty else { return }
                 self.onAssemblySelected?(nil)
             }
             return
         }
 
-        let item = outlineView.item(atRow: row)
         if let assemblyItem = item as? ViralAssemblyItem {
             onAssemblySelected?(assemblyItem.assembly)
         } else if let detectionItem = item as? ViralDetectionItem {
@@ -1232,6 +1243,140 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 candidate.assembly.assembly == detectionItem.detection.assembly
             }) {
                 // Fallback by assembly accession if outline parent lookup is transiently unavailable.
+                onAssemblySelected?(assemblyItem.assembly)
+            }
+            onDetectionSelected?(detectionItem.detection)
+        }
+    }
+
+    private func updateSelectionIdentitiesFromOutlineSelection() {
+        let selected = selectedItemsFromCurrentIndexes()
+        let ids = selected.compactMap(selectionIdentity(for:))
+        if ids.count == selected.count, !ids.isEmpty {
+            selectionIdentities.select(ids)
+        } else {
+            selectionIdentities.clear()
+        }
+    }
+
+    private func restoreSelectionAfterDisplayedItemsChanged() {
+        guard let visibleIDs = visibleSelectionIdentities() else { return }
+        let previousIDs = selectionIdentities.selectedIDs
+        guard !previousIDs.isEmpty else {
+            restoreOutlineSelection([])
+            return
+        }
+
+        selectionIdentities.removeSelectionsNotVisible(in: visibleIDs)
+        restoreOutlineSelection(selectionIdentities.visibleIndexes(in: visibleIDs))
+        if selectionIdentities.selectedIDs.isEmpty {
+            onAssemblySelected?(nil)
+        } else {
+            emitSelectionCallbacks(for: selectedVisibleItemsByIdentity())
+        }
+    }
+
+    private func restoreOutlineSelection(_ indexes: IndexSet) {
+        suppressSelectionCallback = true
+        outlineView.selectRowIndexes(indexes, byExtendingSelection: false)
+        suppressSelectionCallback = false
+    }
+
+    private func selectedVisibleItemsByIdentity() -> [Any] {
+        guard let visible = visibleSelectionItemsAndIdentities(),
+              !selectionIdentities.selectedIDs.isEmpty else {
+            return selectedItemsFromCurrentIndexes()
+        }
+
+        let selectedIDs = selectionIdentities.selectedIDs
+        return visible.compactMap { item, identity in
+            selectedIDs.contains(identity) ? item : nil
+        }
+    }
+
+    private func hasVisibleIdentitySelection() -> Bool {
+        !selectedVisibleItemsByIdentity().isEmpty
+    }
+
+    private func selectedItemsFromCurrentIndexes() -> [Any] {
+        outlineView.selectedRowIndexes.compactMap { row in
+            guard row >= 0 else { return nil }
+            return outlineView.item(atRow: row)
+        }
+    }
+
+    private func visibleSelectionIdentities() -> [String]? {
+        visibleSelectionItemsAndIdentities()?.map(\.identity)
+    }
+
+    private func visibleSelectionItemsAndIdentities() -> [(item: Any, identity: String)]? {
+        var visible: [(item: Any, identity: String)] = []
+        visible.reserveCapacity(outlineView.numberOfRows)
+        for row in 0..<outlineView.numberOfRows {
+            guard let item = outlineView.item(atRow: row),
+                  let identity = selectionIdentity(for: item) else {
+                return nil
+            }
+            visible.append((item, identity))
+        }
+        return visible
+    }
+
+    private func selectionIdentity(for item: Any) -> String? {
+        let resultPath = resultIdentity ?? "unknown-result"
+        if let assemblyItem = item as? ViralAssemblyItem {
+            let assembly = assemblyItem.assembly
+            return [
+                "esviritu",
+                resultPath,
+                sampleID(for: assembly),
+                assembly.assembly,
+            ].joined(separator: "\u{1F}")
+        }
+        if let detectionItem = item as? ViralDetectionItem {
+            let detection = detectionItem.detection
+            return [
+                "esviritu",
+                resultPath,
+                detection.sampleId,
+                detection.assembly,
+                detection.accession,
+            ].joined(separator: "\u{1F}")
+        }
+        return nil
+    }
+
+    private func selectClickedRowForContextMenuIfNeeded(_ row: Int) {
+        guard row >= 0, let item = outlineView.item(atRow: row) else { return }
+        if let id = selectionIdentity(for: item) {
+            selectionIdentities.select([id])
+            restoreOutlineSelection(IndexSet(integer: row))
+            emitSelectionCallbacks(for: [item])
+        } else {
+            outlineView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            updateSelectionIdentitiesFromOutlineSelection()
+        }
+    }
+
+    private func emitSelectionCallbacks(for selectedItems: [Any]) {
+        if selectedItems.count > 1 {
+            onMultipleSelected?(selectedItems.count)
+            return
+        }
+
+        guard let item = selectedItems.first else {
+            onAssemblySelected?(nil)
+            return
+        }
+
+        if let assemblyItem = item as? ViralAssemblyItem {
+            onAssemblySelected?(assemblyItem.assembly)
+        } else if let detectionItem = item as? ViralDetectionItem {
+            if let parent = outlineView.parent(forItem: detectionItem) as? ViralAssemblyItem {
+                onAssemblySelected?(parent.assembly)
+            } else if let assemblyItem = sortedDisplayItems.first(where: { candidate in
+                candidate.assembly.assembly == detectionItem.detection.assembly
+            }) {
                 onAssemblySelected?(assemblyItem.assembly)
             }
             onDetectionSelected?(detectionItem.detection)

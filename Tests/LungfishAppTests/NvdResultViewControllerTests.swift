@@ -46,6 +46,28 @@ final class NvdResultViewControllerTests: XCTestCase {
         XCTAssertEqual(vc.testOutlineSelectedRowIndexes(), IndexSet(integer: 0))
     }
 
+    func testContextMenuValidationUsesIdentityBackedVisibleSelectionCount() throws {
+        let fixture = try NvdMenuFixture(duplicateContigs: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: fixture.rootURL)
+        }
+
+        let vc = NvdResultViewController()
+        vc.onBlastVerification = { _, _ in }
+        _ = vc.view
+        vc.configure(database: fixture.database, manifest: fixture.manifest, bundleURL: fixture.bundleURL)
+
+        vc.testSelectOutlineRow(1)
+        XCTAssertEqual(vc.testSelectedOutlineContigSamples(), ["sample2"])
+
+        vc.testSelectOutlineRowsWithoutIdentitySync(IndexSet([0, 1]))
+        let state = vc.testContextMenuActionStateForFirstContig()
+
+        XCTAssertEqual(state.identitySelectionCount, 1)
+        XCTAssertEqual(state.menuSelectionCount, 1)
+        XCTAssertTrue(state.blastEnabled)
+    }
+
     func testContextMenuExposesSharedFastaActionsWhenCallbacksPresent() throws {
         let fixture = try NvdMenuFixture()
         addTeardownBlock {
@@ -107,7 +129,7 @@ private struct NvdMenuFixture {
     let manifest: NvdManifest
     let database: NvdDatabase
 
-    init() throws {
+    init(duplicateContigs: Bool = false) throws {
         rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("nvd-menu-tests-\(UUID().uuidString)", isDirectory: true)
         bundleURL = rootURL.appendingPathComponent("fixture.nvd", isDirectory: true)
@@ -119,6 +141,12 @@ private struct NvdMenuFixture {
         >contig_1
         AACCGGTT
         """.write(to: fastaURL, atomically: true, encoding: .utf8)
+        let secondFastaRelativePath = "sample2.fasta"
+        let secondFastaURL = bundleURL.appendingPathComponent(secondFastaRelativePath)
+        try """
+        >contig_1
+        TTGGCCAA
+        """.write(to: secondFastaURL, atomically: true, encoding: .utf8)
 
         let hit = NvdBlastHit(
             experiment: "exp-1",
@@ -147,11 +175,38 @@ private struct NvdMenuFixture {
             hitRank: 1,
             readsPerBillion: 10_000_000
         )
+        let duplicateHit = NvdBlastHit(
+            experiment: "exp-1",
+            blastTask: "blastn",
+            sampleId: "sample2",
+            qseqid: "contig_1",
+            qlen: 8,
+            sseqid: "NC_000002.1",
+            stitle: "Reference title 2",
+            taxRank: "species",
+            length: 8,
+            pident: 99,
+            evalue: 0,
+            bitscore: 45,
+            sscinames: "Example virus",
+            staxids: "1234",
+            blastDbVersion: "db",
+            snakemakeRunId: "run-1",
+            mappedReads: 12,
+            totalReads: 1000,
+            statDbVersion: "stats-1",
+            adjustedTaxid: "1234",
+            adjustmentMethod: "dominant",
+            adjustedTaxidName: "Example virus",
+            adjustedTaxidRank: "species",
+            hitRank: 1,
+            readsPerBillion: 12_000_000
+        )
 
         let databaseURL = bundleURL.appendingPathComponent("nvd.sqlite")
         database = try NvdDatabase.create(
             at: databaseURL,
-            hits: [hit],
+            hits: duplicateContigs ? [hit, duplicateHit] : [hit],
             samples: [
                 NvdSampleMetadata(
                     sampleId: "sample1",
@@ -160,15 +215,24 @@ private struct NvdMenuFixture {
                     totalReads: 1000,
                     contigCount: 1,
                     hitCount: 1
-                )
-            ]
+                ),
+            ] + (duplicateContigs ? [
+                NvdSampleMetadata(
+                    sampleId: "sample2",
+                    bamPath: "sample2.bam",
+                    fastaPath: secondFastaRelativePath,
+                    totalReads: 1000,
+                    contigCount: 1,
+                    hitCount: 1
+                ),
+            ] : [])
         )
 
         manifest = NvdManifest(
             experiment: "exp-1",
-            sampleCount: 1,
-            contigCount: 1,
-            hitCount: 1,
+            sampleCount: duplicateContigs ? 2 : 1,
+            contigCount: duplicateContigs ? 2 : 1,
+            hitCount: duplicateContigs ? 2 : 1,
             blastDbVersion: "db",
             snakemakeRunId: "run-1",
             sourceDirectoryPath: rootURL.path,
@@ -180,8 +244,17 @@ private struct NvdMenuFixture {
                     totalReads: 1000,
                     bamRelativePath: "sample1.bam",
                     fastaRelativePath: fastaRelativePath
-                )
-            ],
+                ),
+            ] + (duplicateContigs ? [
+                NvdSampleSummary(
+                    sampleId: "sample2",
+                    contigCount: 1,
+                    hitCount: 1,
+                    totalReads: 1000,
+                    bamRelativePath: "sample2.bam",
+                    fastaRelativePath: secondFastaRelativePath
+                ),
+            ] : []),
             cachedTopContigs: nil
         )
     }
