@@ -568,6 +568,62 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertNotNil(state.pendingViralReconRequest)
     }
 
+    func testViralReconPlatformOverrideDoesNotMaskMixedDetectedPlatforms() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ViralReconPlatformOverride-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let illuminaFASTQ = root.appendingPathComponent("illumina.fastq")
+        let nanoporeFASTQ = root.appendingPathComponent("nanopore.fastq")
+        try """
+        @A00488:17:H7WFLDMXX:1:1101:10000:1000 1:N:0:ATCACG
+        ACGT
+        +
+        !!!!
+        """.write(to: illuminaFASTQ, atomically: true, encoding: .utf8)
+        try """
+        @9b50942a-4ec6-48d2-8f3b-4ff4f63cb17a runid=2de0f6d4 sampleid=sample1 read=1 ch=12 start_time=2024-01-01T00:00:00Z flow_cell_id=FLO-MIN114
+        ACGT
+        +
+        !!!!
+        """.write(to: nanoporeFASTQ, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(
+            try ViralReconWizardInputPolicy.resolveInputs(
+                [illuminaFASTQ, nanoporeFASTQ],
+                platformOverride: .illumina
+            )
+        ) { error in
+            XCTAssertEqual(error as? ViralReconInputResolver.ResolveError, .mixedPlatforms)
+        }
+    }
+
+    func testViralReconPrimerCompatibilityRejectsIncompatibleGenomeAccession() {
+        let manifest = PrimerSchemeManifest(
+            schemaVersion: 1,
+            name: "qia-seq-direct-sars2",
+            displayName: "QIASeq DIRECT SARS-CoV-2",
+            referenceAccessions: [
+                PrimerSchemeManifest.ReferenceAccession(accession: "MN908947.3", canonical: true),
+                PrimerSchemeManifest.ReferenceAccession(accession: "NC_045512.2", equivalent: true),
+            ],
+            primerCount: 2,
+            ampliconCount: 1
+        )
+
+        XCTAssertThrowsError(
+            try ViralReconWizardPrimerCompatibility.validateGenomeAccession(
+                "MT192765.1",
+                manifest: manifest
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? ViralReconWizardPrimerCompatibility.ValidationError,
+                .unknownAccession(requested: "MT192765.1", known: ["MN908947.3", "NC_045512.2"])
+            )
+        }
+    }
+
     func testMinimap2UsesGenericEmbeddedReadinessText() {
         XCTAssertEqual(
             FASTQOperationToolID.minimap2.embeddedReadinessText,

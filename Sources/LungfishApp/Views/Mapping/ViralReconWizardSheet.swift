@@ -58,15 +58,7 @@ struct ViralReconWizardSheet: View {
     }
 
     private var effectivePlatform: ViralReconPlatform? {
-        switch selectedPlatformOverride {
-        case .auto:
-            let platforms = Set(resolvedInputs.map(\.platform))
-            return platforms.count == 1 ? platforms.first : nil
-        case .illumina:
-            return .illumina
-        case .nanopore:
-            return .nanopore
-        }
+        try? ViralReconWizardInputPolicy.effectivePlatform(from: resolvedInputs)
     }
 
     private var primerRequiresLocalReference: Bool {
@@ -414,7 +406,10 @@ struct ViralReconWizardSheet: View {
     private func refreshResolvedInputs() {
         do {
             let platformOverride = selectedPlatformOverride.platform
-            let resolved = try Self.resolveInputs(inputFiles, platformOverride: platformOverride)
+            let resolved = try ViralReconWizardInputPolicy.resolveInputs(
+                inputFiles,
+                platformOverride: platformOverride
+            )
             resolvedInputs = resolved
             inputError = nil
         } catch {
@@ -506,6 +501,13 @@ struct ViralReconWizardSheet: View {
         reference: ViralReconReference,
         stagingDirectory: URL
     ) throws -> ViralReconPrimerSelection {
+        if case .genome(let accession) = reference {
+            try ViralReconWizardPrimerCompatibility.validateGenomeAccession(
+                accession,
+                manifest: option.bundle.manifest
+            )
+        }
+
         if case .local(let fastaURL, _) = reference {
             return try ViralReconPrimerStager.stage(
                 primerBundleURL: option.bundle.url,
@@ -590,14 +592,86 @@ struct ViralReconWizardSheet: View {
         return String(standardizedTarget.dropFirst(normalizedProjectPath.count))
     }
 
-    private static func resolveInputs(
+    private static func referenceName(from fastaURL: URL, fallback: String) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else {
+            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        defer { try? handle.close() }
+        let data = (try? handle.read(upToCount: 4096)) ?? Data()
+        guard let text = String(data: data, encoding: .utf8),
+              let header = text.split(separator: "\n").first(where: { $0.hasPrefix(">") }) else {
+            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return header
+            .dropFirst()
+            .split(whereSeparator: \.isWhitespace)
+            .first
+            .map(String.init)
+            ?? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func describeInputError(_ error: Error) -> String {
+        if let resolveError = error as? ViralReconInputResolver.ResolveError {
+            switch resolveError {
+            case .noInputs:
+                return "Select at least one FASTQ bundle."
+            case .noFASTQ(let url):
+                return "\(url.lastPathComponent) does not contain FASTQ reads."
+            case .unsupportedPlatform(let url):
+                return "Could not detect an Illumina or Oxford Nanopore platform for \(url.lastPathComponent)."
+            case .mixedPlatforms:
+                return "Selected bundles mix Illumina and Oxford Nanopore reads. Split the run by platform."
+            }
+        }
+        return error.localizedDescription
+    }
+
+    private static let browsedReferenceID = "__browsed__"
+    private static let executors: [NFCoreExecutor] = [.docker, .conda, .local]
+}
+
+enum ViralReconWizardInputPolicy {
+    static func effectivePlatform(from resolvedInputs: [ViralReconResolvedInput]) throws -> ViralReconPlatform? {
+        guard !resolvedInputs.isEmpty else { return nil }
+        let platforms = Set(resolvedInputs.map(\.platform))
+        guard platforms.count == 1 else {
+            throw ViralReconInputResolver.ResolveError.mixedPlatforms
+        }
+        return platforms.first
+    }
+
+    static func resolveInputs(
         _ urls: [URL],
         platformOverride: ViralReconPlatform?
     ) throws -> [ViralReconResolvedInput] {
-        if let platformOverride {
-            return try urls.map { try forceResolveInput($0, platform: platformOverride) }
+        guard platformOverride != nil else {
+            return try ViralReconInputResolver.resolveInputs(from: urls)
         }
-        return try ViralReconInputResolver.resolveInputs(from: urls)
+
+        let resolved = try urls.map { url in
+            try resolveInput(url, platformOverride: platformOverride)
+        }
+        _ = try effectivePlatform(from: resolved)
+        return resolved
+    }
+
+    private static func resolveInput(
+        _ url: URL,
+        platformOverride: ViralReconPlatform?
+    ) throws -> ViralReconResolvedInput {
+        do {
+            let resolved = try ViralReconInputResolver.resolveInputs(from: [url])
+            guard let first = resolved.first else {
+                throw ViralReconInputResolver.ResolveError.noInputs
+            }
+            return first
+        } catch let error as ViralReconInputResolver.ResolveError {
+            guard case .unsupportedPlatform = error,
+                  let platformOverride else {
+                throw error
+            }
+            return try forceResolveInput(url, platform: platformOverride)
+        }
     }
 
     private static func forceResolveInput(_ url: URL, platform: ViralReconPlatform) throws -> ViralReconResolvedInput {
@@ -641,43 +715,36 @@ struct ViralReconWizardSheet: View {
         }
         return nil
     }
+}
 
-    private static func referenceName(from fastaURL: URL, fallback: String) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: fastaURL) else {
-            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        defer { try? handle.close() }
-        let data = (try? handle.read(upToCount: 4096)) ?? Data()
-        guard let text = String(data: data, encoding: .utf8),
-              let header = text.split(separator: "\n").first(where: { $0.hasPrefix(">") }) else {
-            return fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return header
-            .dropFirst()
-            .split(whereSeparator: \.isWhitespace)
-            .first
-            .map(String.init)
-            ?? fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+enum ViralReconWizardPrimerCompatibility {
+    enum ValidationError: Error, LocalizedError, Equatable {
+        case unknownAccession(requested: String, known: [String])
 
-    private static func describeInputError(_ error: Error) -> String {
-        if let resolveError = error as? ViralReconInputResolver.ResolveError {
-            switch resolveError {
-            case .noInputs:
-                return "Select at least one FASTQ bundle."
-            case .noFASTQ(let url):
-                return "\(url.lastPathComponent) does not contain FASTQ reads."
-            case .unsupportedPlatform(let url):
-                return "Could not detect an Illumina or Oxford Nanopore platform for \(url.lastPathComponent)."
-            case .mixedPlatforms:
-                return "Selected bundles mix Illumina and Oxford Nanopore reads. Choose one platform override or split the run."
+        var errorDescription: String? {
+            switch self {
+            case .unknownAccession(let requested, let known):
+                return "\(requested) is not compatible with this SARS-CoV-2 primer scheme. Expected \(known.joined(separator: ", "))."
             }
         }
-        return error.localizedDescription
     }
 
-    private static let browsedReferenceID = "__browsed__"
-    private static let executors: [NFCoreExecutor] = [.docker, .conda, .local]
+    static func validateGenomeAccession(
+        _ accession: String,
+        manifest: PrimerSchemeManifest
+    ) throws {
+        let requested = accession.trimmingCharacters(in: .whitespacesAndNewlines)
+        let known = knownAccessions(for: manifest)
+        guard known.contains(requested) else {
+            throw ValidationError.unknownAccession(requested: requested, known: known)
+        }
+    }
+
+    private static func knownAccessions(for manifest: PrimerSchemeManifest) -> [String] {
+        ([manifest.canonicalAccession] + manifest.equivalentAccessions)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
 }
 
 private enum PlatformOverride: String, CaseIterable {
