@@ -954,10 +954,9 @@ public actor MetagenomicsDatabaseRegistry {
 
     /// Extracts a .tar.gz file to a destination directory.
     ///
-    /// Uses `CheckedContinuation` with `terminationHandler` and concurrent
-    /// pipe reading via `readabilityHandler` to avoid blocking the actor
-    /// thread and to prevent pipe deadlocks when tar produces large stderr
-    /// output.
+    /// Uses `CheckedContinuation` with `terminationHandler` and background
+    /// pipe draining to avoid blocking the actor thread and to prevent pipe
+    /// deadlocks when tar produces large output.
     private func extractTarball(_ tarball: URL, to destination: URL) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let process = Process()
@@ -968,36 +967,24 @@ public actor MetagenomicsDatabaseRegistry {
             process.arguments = ["xzf", tarball.path, "-C", destination.path]
 
             let stderrPipe = Pipe()
+            let stdoutPipe = Pipe()
             process.standardError = stderrPipe
+            process.standardOutput = stdoutPipe
 
-            nonisolated(unsafe) let stderrBuffer = NSMutableData()
-            nonisolated(unsafe) var continuationResumed = false
-
-            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stderrBuffer.append(data)
-                }
-            }
+            let processState = MetagenomicsProcessCompletionState()
+            let drainGroup = DispatchGroup()
+            drainGroup.enter()
+            drainGroup.enter()
 
             process.terminationHandler = { terminatedProcess in
-                // Small delay to let any remaining readabilityHandler
-                // callbacks drain before we read the final buffer contents.
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-                    guard !continuationResumed else { return }
-                    continuationResumed = true
+                drainGroup.notify(queue: .global(qos: .utility)) {
+                    guard processState.markCompleted() else { return }
 
                     if terminatedProcess.terminationStatus != 0 {
-                        let errorString = String(data: stderrBuffer as Data, encoding: .utf8)
-                            ?? "Unknown error"
                         continuation.resume(
                             throwing: MetagenomicsDatabaseRegistryError.downloadFailed(
                                 name: tarball.lastPathComponent,
-                                reason: "tar extraction failed: \(errorString)"
+                                reason: "tar extraction failed: \(processState.stderrText)"
                             )
                         )
                     } else {
@@ -1008,13 +995,53 @@ public actor MetagenomicsDatabaseRegistry {
 
             do {
                 try process.run()
+                DispatchQueue.global(qos: .utility).async {
+                    let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                    processState.appendStderr(data)
+                    drainGroup.leave()
+                }
+                DispatchQueue.global(qos: .utility).async {
+                    _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                    drainGroup.leave()
+                }
             } catch {
-                stderrPipe.fileHandleForReading.readabilityHandler = nil
-                guard !continuationResumed else { return }
-                continuationResumed = true
+                drainGroup.leave()
+                drainGroup.leave()
+                guard processState.markCompleted() else { return }
                 continuation.resume(throwing: error)
             }
         }
+    }
+}
+
+// MARK: - Process Completion State
+
+final class MetagenomicsProcessCompletionState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stderrData = Data()
+    private var completed = false
+
+    func appendStderr(_ data: Data) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        stderrData.append(data)
+    }
+
+    var stderrText: String {
+        lock.lock()
+        let data = stderrData
+        lock.unlock()
+        guard !data.isEmpty else { return "Unknown error" }
+        return String(data: data, encoding: .utf8) ?? "Unknown error"
+    }
+
+    func markCompleted() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !completed else { return false }
+        completed = true
+        return true
     }
 }
 
