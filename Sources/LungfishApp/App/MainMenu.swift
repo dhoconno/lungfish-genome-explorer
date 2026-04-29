@@ -1053,6 +1053,10 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 statusSymbol = "checkmark.circle"
                 statusAccessibility = "Completed"
                 progressText = ""
+            case .cancelled:
+                statusSymbol = "stop.circle"
+                statusAccessibility = "Cancelled"
+                progressText = ""
             case .failed:
                 statusSymbol = "xmark.circle"
                 statusAccessibility = "Failed"
@@ -1062,17 +1066,13 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
             let title = "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
-                action: op.state == .running
-                    ? #selector(OperationsMenuActions.cancelOperation(_:))
-                    : nil,
+                action: nil,
                 keyEquivalent: ""
             )
             menuItem.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusAccessibility)
             menuItem.tag = Self.dynamicTagBase + index + 1
             menuItem.representedObject = op.id
-            if op.state != .running {
-                menuItem.isEnabled = false
-            }
+            menuItem.isEnabled = false
             menuItem.toolTip = op.detail
             menu.insertItem(menuItem, at: index)
         }

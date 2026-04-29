@@ -618,6 +618,32 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertGreaterThan(statusLabels.count, 2,
             "Operations should have more than 2 possible states")
     }
+
+    func testOperationsMenuRunningRowsAreStatusItems() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let operationID = OperationCenter.shared.start(
+            title: "Reference download",
+            detail: "Downloading",
+            operationType: .download
+        )
+        defer {
+            OperationCenter.shared.cancel(id: operationID)
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let mainMenu = MainMenu.createMainMenu()
+        let operationsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Operations" }?.submenu)
+
+        OperationsMenuDelegate.shared.menuNeedsUpdate(operationsMenu)
+
+        let statusItem = try XCTUnwrap(operationsMenu.items.first)
+        XCTAssertEqual(statusItem.title, "Reference download (0%)")
+        XCTAssertNil(statusItem.action)
+        XCTAssertFalse(statusItem.isEnabled)
+        XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
+    }
 }
 
 // MARK: - 9. Sidebar Display Tests

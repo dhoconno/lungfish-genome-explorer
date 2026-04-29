@@ -202,6 +202,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(DownloadCenter.Item.State.running.rawValue, "running")
         XCTAssertEqual(DownloadCenter.Item.State.completed.rawValue, "completed")
         XCTAssertEqual(DownloadCenter.Item.State.failed.rawValue, "failed")
+        XCTAssertEqual(DownloadCenter.Item.State.cancelled.rawValue, "cancelled")
     }
 
     func testOperationTypesIncludeVariantCalling() {
@@ -406,7 +407,7 @@ final class DownloadCenterTests: XCTestCase {
 
     // MARK: - Cancel
 
-    func testCancelInvokesCallbackAndFails() {
+    func testCancelInvokesCallbackAndMarksCancelled() {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let id = center.start(
             title: "Import",
@@ -419,8 +420,9 @@ final class DownloadCenterTests: XCTestCase {
 
         XCTAssertTrue(cancelFlag.withLock { $0 })
         let item = center.items.first { $0.id == id }
-        XCTAssertEqual(item?.state, .failed)
+        XCTAssertEqual(item?.state, .cancelled)
         XCTAssertEqual(item?.detail, "Cancelled by user")
+        XCTAssertEqual(item?.displayStateLabel, "Cancelled")
     }
 
     func testCancelReleaseBundleLock() {

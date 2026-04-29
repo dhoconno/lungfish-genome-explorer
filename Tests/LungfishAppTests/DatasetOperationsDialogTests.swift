@@ -63,6 +63,17 @@ final class DatasetOperationsDialogTests: XCTestCase {
         XCTAssertEqual(dialog.primaryActionTitle, "Search")
     }
 
+    func testSharedDialogDeclaresStandardKeyboardActions() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Operations/DatasetOperationsDialog.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(".keyboardShortcut(.cancelAction)"))
+        XCTAssertTrue(source.contains(".keyboardShortcut(.defaultAction)"))
+    }
+
     @MainActor
     func testSelectingUnavailableToolDoesNotCallSelectionHandler() {
         var selectedToolIDs: [String] = []
@@ -138,5 +149,12 @@ final class DatasetOperationsDialogTests: XCTestCase {
 
         allowedDialog.runIfEnabled()
         XCTAssertEqual(allowedRunCount, 1)
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }

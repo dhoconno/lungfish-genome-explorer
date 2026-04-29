@@ -494,12 +494,14 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 progressBar.doubleValue = item.progress
                 progressBar.isHidden = false
                 statusLabel.isHidden = true
-            case .completed, .failed:
+            case .completed, .cancelled, .failed:
                 progressBar.isHidden = true
                 statusLabel.isHidden = false
                 statusLabel.stringValue = item.displayStateLabel
                 if item.state == .failed {
                     statusLabel.textColor = .systemRed
+                } else if item.state == .cancelled {
+                    statusLabel.textColor = .secondaryLabelColor
                 } else if item.hasWarnings {
                     statusLabel.textColor = .systemOrange
                 } else {
@@ -531,7 +533,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 let elapsed = Date().timeIntervalSince(item.startedAt)
                 textField.stringValue = formatElapsedTime(elapsed)
                 textField.textColor = .secondaryLabelColor
-            case .completed, .failed:
+            case .completed, .cancelled, .failed:
                 let elapsed = (item.finishedAt ?? Date()).timeIntervalSince(item.startedAt)
                 textField.stringValue = formatElapsedTime(elapsed)
                 textField.textColor = .tertiaryLabelColor
@@ -565,7 +567,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                     textField.stringValue = "—"
                 }
                 textField.textColor = .secondaryLabelColor
-            case .completed, .failed:
+            case .completed, .cancelled, .failed:
                 textField.stringValue = "—"
                 textField.textColor = .tertiaryLabelColor
             }
@@ -612,7 +614,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             case .failed:
                 cancelButton.isHidden = true
                 issueButton.isHidden = false
-            case .completed:
+            case .completed, .cancelled:
                 cancelButton.isHidden = true
                 issueButton.isHidden = true
             }

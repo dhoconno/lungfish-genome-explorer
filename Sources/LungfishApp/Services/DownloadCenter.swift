@@ -61,6 +61,7 @@ public final class OperationCenter: ObservableObject {
         public enum State: String, Sendable {
             case running
             case completed
+            case cancelled
             case failed
         }
 
@@ -101,6 +102,8 @@ public final class OperationCenter: ObservableObject {
                 return "Running"
             case .completed:
                 return hasWarnings ? "Completed with Warnings" : "Completed"
+            case .cancelled:
+                return "Cancelled"
             case .failed:
                 return "Failed"
             }
@@ -395,12 +398,21 @@ public final class OperationCenter: ObservableObject {
         postStateChangedNotification(id: id, state: .failed)
     }
 
-    /// Cancels a running operation by invoking its cancel callback and marking it failed.
+    /// Cancels a running operation by invoking its cancel callback and marking it cancelled.
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running else { return }
-        items[index].onCancel?()
-        fail(id: id, detail: "Cancelled by user")
+        let onCancel = items[index].onCancel
+        onCancel?()
+
+        guard let index = items.firstIndex(where: { $0.id == id }),
+              items[index].state == .running else { return }
+        items[index].state = .cancelled
+        items[index].detail = "Cancelled by user"
+        items[index].finishedAt = Date()
+        unlockBundle(for: id)
+        trimCompletedItemsIfNeeded()
+        postStateChangedNotification(id: id, state: .cancelled)
     }
 
     /// Cancels all running operations.
@@ -415,7 +427,7 @@ public final class OperationCenter: ObservableObject {
         items.removeAll { $0.state != .running }
     }
 
-    /// Removes a single completed or failed item by ID.
+    /// Removes a single finished item by ID.
     ///
     /// Running operations cannot be cleared — cancel them first.
     ///
