@@ -4,6 +4,7 @@
 
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
@@ -187,6 +188,33 @@ private func makeTestResult(tree: TaxonTree? = nil) -> ClassificationResult {
         runtime: 5.2,
         toolVersion: "2.1.3",
         provenanceId: nil
+    )
+}
+
+@MainActor
+private func makeTaxonomyBlastResult(
+    taxonName: String = "Escherichia coli",
+    taxId: Int = 562
+) -> BlastVerificationResult {
+    BlastVerificationResult(
+        taxonName: taxonName,
+        taxId: taxId,
+        readResults: [
+            BlastReadResult(
+                id: "read-1",
+                verdict: .verified,
+                topHitOrganism: taxonName,
+                topHitAccession: "NC_000001.1",
+                percentIdentity: 99.0,
+                eValue: 0.0,
+                matchesQueriedTaxon: true
+            )
+        ],
+        submittedAt: Date(),
+        completedAt: Date(),
+        rid: "RID123",
+        blastProgram: "megablast",
+        database: "core_nt"
     )
 }
 
@@ -606,6 +634,59 @@ final class TaxonomyViewControllerTests: XCTestCase {
 
         XCTAssertEqual(extractedNode?.taxId, 562)
         XCTAssertEqual(extractedIncludeChildren, true)
+    }
+
+    func testBlastResultsAreNotOverwrittenByLateLoadingUpdate() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        vc.configure(result: makeTestResult())
+
+        let result = makeTaxonomyBlastResult()
+        vc.showBlastResults(result)
+
+        XCTAssertEqual(vc.testBlastResultsTab?.currentResult?.taxonName, "Escherichia coli")
+        XCTAssertTrue(vc.testIsCollectionsDrawerOpen)
+
+        vc.showBlastLoading(phase: .waiting, requestId: nil)
+
+        XCTAssertEqual(
+            vc.testBlastResultsTab?.currentResult?.taxonName,
+            "Escherichia coli",
+            "A stale progress callback after completion must not replace completed BLAST results with loading UI"
+        )
+        XCTAssertEqual(vc.testCollectionsDrawer?.selectedTab, .blastResults)
+        XCTAssertTrue(vc.testIsCollectionsDrawerOpen)
+    }
+
+    func testBlastResultFromOlderRunDoesNotReplaceCurrentRun() throws {
+        let vc = TaxonomyViewController()
+        _ = vc.view
+        let classification = makeTestResult()
+        vc.configure(result: classification)
+
+        let ecoli = try XCTUnwrap(classification.tree.node(taxId: 562))
+        let klebsiella = try XCTUnwrap(classification.tree.node(taxId: 570))
+        let olderRun = vc.beginBlastVerification(for: ecoli)
+        let currentRun = vc.beginBlastVerification(for: klebsiella)
+
+        vc.showBlastLoading(phase: .waiting, requestId: nil, runID: currentRun)
+        vc.showBlastResults(
+            makeTaxonomyBlastResult(taxonName: "Escherichia coli", taxId: 562),
+            runID: olderRun
+        )
+
+        XCTAssertNil(
+            vc.testBlastResultsTab?.currentResult,
+            "A BLAST result from an older operation must not replace the current run's drawer state"
+        )
+
+        vc.showBlastResults(
+            makeTaxonomyBlastResult(taxonName: "Klebsiella", taxId: 570),
+            runID: currentRun
+        )
+
+        XCTAssertEqual(vc.testBlastResultsTab?.currentResult?.taxonName, "Klebsiella")
+        XCTAssertEqual(vc.testCollectionsDrawer?.selectedTab, .blastResults)
     }
 
     // MARK: - Breadcrumb Integration

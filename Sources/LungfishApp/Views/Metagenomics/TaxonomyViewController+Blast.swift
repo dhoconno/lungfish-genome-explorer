@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishIO
 import os.log
 
 private let blastVCLogger = Logger(subsystem: LogSubsystem.app, category: "TaxonomyBlast")
@@ -14,6 +15,22 @@ extension TaxonomyViewController {
 
     // MARK: - Public API
 
+    /// Starts a new BLAST display run.
+    ///
+    /// BLAST progress callbacks are delivered asynchronously and may arrive
+    /// after the final result callback. Clearing the previous result at the
+    /// beginning of a run lets loading/failure states show for new work while
+    /// still allowing completed results to ignore stale progress from the run
+    /// that just finished.
+    @discardableResult
+    func beginBlastVerification(for node: TaxonNode) -> UUID {
+        let runID = UUID()
+        currentBlastRunID = runID
+        lastBlastNode = node
+        lastBlastResult = nil
+        return runID
+    }
+
     /// Shows BLAST verification results in the drawer's BLAST tab.
     ///
     /// If the drawer is not yet created, it is lazily instantiated. If the drawer
@@ -21,7 +38,11 @@ extension TaxonomyViewController {
     /// and populates the results view.
     ///
     /// - Parameter result: The BLAST verification result to display.
-    func showBlastResults(_ result: BlastVerificationResult) {
+    func showBlastResults(_ result: BlastVerificationResult, runID: UUID? = nil) {
+        guard isCurrentBlastRun(runID) else {
+            blastVCLogger.info("Ignoring stale BLAST result from an older run")
+            return
+        }
         lastBlastResult = result
         ensureDrawerOpenOnBlastTab()
 
@@ -52,7 +73,15 @@ extension TaxonomyViewController {
     /// - Parameters:
     ///   - phase: The current BLAST job phase.
     ///   - requestId: The NCBI BLAST request ID, if available.
-    func showBlastLoading(phase: BlastJobPhase, requestId: String?) {
+    func showBlastLoading(phase: BlastJobPhase, requestId: String?, runID: UUID? = nil) {
+        guard isCurrentBlastRun(runID) else {
+            blastVCLogger.info("Ignoring stale BLAST loading update from an older run")
+            return
+        }
+        guard lastBlastResult == nil else {
+            blastVCLogger.info("Ignoring stale BLAST loading update after results were displayed")
+            return
+        }
         ensureDrawerOpenOnBlastTab()
         taxaCollectionsDrawerView?.blastResultsTab.showLoading(phase: phase, requestId: requestId)
     }
@@ -63,7 +92,15 @@ extension TaxonomyViewController {
     /// the failure message in place of the loading spinner.
     ///
     /// - Parameter message: User-facing error description.
-    func showBlastFailure(message: String) {
+    func showBlastFailure(message: String, runID: UUID? = nil) {
+        guard isCurrentBlastRun(runID) else {
+            blastVCLogger.info("Ignoring stale BLAST failure from an older run")
+            return
+        }
+        guard lastBlastResult == nil else {
+            blastVCLogger.info("Ignoring stale BLAST failure update after results were displayed")
+            return
+        }
         ensureDrawerOpenOnBlastTab()
         taxaCollectionsDrawerView?.blastResultsTab.showFailure(message: message)
         blastVCLogger.error("BLAST verification failed: \(message, privacy: .public)")
@@ -84,6 +121,7 @@ extension TaxonomyViewController {
             guard let self,
                   let node = self.lastBlastNode,
                   let result = self.lastBlastResult else { return }
+            self.beginBlastVerification(for: node)
             self.onBlastVerification?(node, result.totalReads)
         }
 
@@ -118,6 +156,11 @@ extension TaxonomyViewController {
         // Update toggle button states
         blastResultsToggleButton.state = .on
         collectionsToggleButton.state = .off
+    }
+
+    private func isCurrentBlastRun(_ runID: UUID?) -> Bool {
+        guard let runID else { return true }
+        return currentBlastRunID == runID
     }
 
     // MARK: - Testing Accessors

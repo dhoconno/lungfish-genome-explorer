@@ -270,6 +270,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
     /// The taxon node that was last sent to BLAST, for re-run support.
     var lastBlastNode: TaxonNode?
 
+    /// Identifier for the currently active BLAST drawer update stream.
+    var currentBlastRunID: UUID?
+
     // MARK: - Batch Mode
 
     /// Whether this view controller is displaying an aggregated batch result.
@@ -1435,8 +1438,9 @@ public final class TaxonomyViewController: NSViewController, NSSplitViewDelegate
             readsClade: node.readsClade
         ) { [weak self, weak popover] readCount in
             popover?.performClose(nil)
-            self?.lastBlastNode = node
-            self?.onBlastVerification?(node, readCount)
+            guard let self else { return }
+            self.beginBlastVerification(for: node)
+            self.onBlastVerification?(node, readCount)
         }
 
         popover.contentViewController = NSHostingController(rootView: configView)

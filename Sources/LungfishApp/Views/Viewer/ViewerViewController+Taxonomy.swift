@@ -155,6 +155,7 @@ extension ViewerViewController {
         let capturedTree = result.tree
 
         controller.onBlastVerification = { [weak controller] node, readCount in
+            let blastRunID = controller?.beginBlastVerification(for: node)
             nonisolated(unsafe) let weakController = controller
             let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
                 "--kreport", capturedOutputURL.path,
@@ -227,7 +228,7 @@ extension ViewerViewController {
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
                             )
-                            weakController?.showBlastLoading(phase: .submitting, requestId: nil)
+                            weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                         }
                     }
 
@@ -244,11 +245,11 @@ extension ViewerViewController {
                                     )
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
-                                        weakController?.showBlastLoading(phase: .waiting, requestId: nil)
+                                        weakController?.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
                                     } else if lower.contains("parsing") {
-                                        weakController?.showBlastLoading(phase: .parsing, requestId: nil)
+                                        weakController?.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
                                     } else {
-                                        weakController?.showBlastLoading(phase: .submitting, requestId: nil)
+                                        weakController?.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                                     }
                                 }
                             }
@@ -262,7 +263,7 @@ extension ViewerViewController {
                                 id: opID,
                                 detail: "\(capturedResult.verifiedCount)/\(capturedResult.readResults.count) reads verified"
                             )
-                            weakController?.showBlastResults(capturedResult)
+                            weakController?.showBlastResults(capturedResult, runID: blastRunID)
                         }
                     }
                 } catch {
@@ -273,7 +274,7 @@ extension ViewerViewController {
                                 id: opID,
                                 detail: errorDesc
                             )
-                            weakController?.showBlastFailure(message: errorDesc)
+                            weakController?.showBlastFailure(message: errorDesc, runID: blastRunID)
                             showBlastVerificationErrorAlert(errorDesc)
                         }
                     }
@@ -346,6 +347,7 @@ extension ViewerViewController {
         // to loading `classification-result.json` directly from `resultURL`.
         controller.onBlastVerification = { [weak controller] node, readCount in
             guard let controller else { return }
+            let blastRunID = controller.beginBlastVerification(for: node)
             let sampleResult: ClassificationResult
             if let manifest = MetagenomicsBatchResultStore.loadClassification(from: resultURL),
                let sampleId = controller.currentBatchSampleId,
@@ -423,7 +425,7 @@ extension ViewerViewController {
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
                             )
-                            weakController.showBlastLoading(phase: .submitting, requestId: nil)
+                            weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                         }
                     }
 
@@ -439,11 +441,11 @@ extension ViewerViewController {
                                     )
                                     let lower = message.lowercased()
                                     if lower.contains("waiting") {
-                                        weakController.showBlastLoading(phase: .waiting, requestId: nil)
+                                        weakController.showBlastLoading(phase: .waiting, requestId: nil, runID: blastRunID)
                                     } else if lower.contains("parsing") {
-                                        weakController.showBlastLoading(phase: .parsing, requestId: nil)
+                                        weakController.showBlastLoading(phase: .parsing, requestId: nil, runID: blastRunID)
                                     } else {
-                                        weakController.showBlastLoading(phase: .submitting, requestId: nil)
+                                        weakController.showBlastLoading(phase: .submitting, requestId: nil, runID: blastRunID)
                                     }
                                 }
                             }
@@ -456,7 +458,7 @@ extension ViewerViewController {
                                 id: opID,
                                 detail: "\(blastResult.verifiedCount)/\(blastResult.readResults.count) reads verified"
                             )
-                            weakController.showBlastResults(blastResult)
+                            weakController.showBlastResults(blastResult, runID: blastRunID)
                         }
                     }
                 } catch {
@@ -464,7 +466,7 @@ extension ViewerViewController {
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
                             OperationCenter.shared.fail(id: opID, detail: errorDesc)
-                            weakController.showBlastFailure(message: errorDesc)
+                            weakController.showBlastFailure(message: errorDesc, runID: blastRunID)
                             showBlastVerificationErrorAlert(errorDesc)
                         }
                     }
