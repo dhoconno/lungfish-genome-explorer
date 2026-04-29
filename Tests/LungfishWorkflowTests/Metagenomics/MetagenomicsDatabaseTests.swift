@@ -946,6 +946,36 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
     }
 
+    func testProcessCompletionStateOnlyCompletesOnceUnderConcurrentCalls() {
+        let state = MetagenomicsProcessCompletionState()
+        let successLock = NSLock()
+        var successfulCompletions = 0
+
+        DispatchQueue.concurrentPerform(iterations: 1_000) { _ in
+            if state.markCompleted() {
+                successLock.lock()
+                successfulCompletions += 1
+                successLock.unlock()
+            }
+        }
+
+        XCTAssertEqual(successfulCompletions, 1)
+    }
+
+    func testProcessCompletionStateAccumulatesStderrUnderConcurrentAppends() {
+        let state = MetagenomicsProcessCompletionState()
+        let chunks = (0..<250).map { "stderr-chunk-\($0)\n" }
+
+        DispatchQueue.concurrentPerform(iterations: chunks.count) { index in
+            state.appendStderr(Data(chunks[index].utf8))
+        }
+
+        let stderr = state.stderrText
+        for chunk in chunks {
+            XCTAssertTrue(stderr.contains(chunk), "Missing stderr chunk: \(chunk)")
+        }
+    }
+
     // MARK: - Helpers
 
     /// Creates a mock Kraken2 database directory with the three required files.
