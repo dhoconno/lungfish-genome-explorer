@@ -54,4 +54,27 @@ final class NFCoreRunRequestTests: XCTestCase {
         XCTAssertTrue(request.nextflowArguments.contains("--input"))
         XCTAssertTrue(request.nextflowArguments.contains(workflow.pinnedVersion))
     }
+
+    func testCLICommandPreviewQuotesEmptyExecutableAndShellMetacharacters() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let request = NFCoreRunRequest(
+            workflow: workflow,
+            version: "3.0.1",
+            executor: .docker,
+            inputURLs: [URL(fileURLWithPath: "/tmp/samples&ids.csv")],
+            outputDirectory: URL(fileURLWithPath: "/tmp/results"),
+            params: ["primer": "/tmp/O'Hara.bed"]
+        )
+
+        let preview = request.cliCommandPreview(
+            bundlePath: URL(fileURLWithPath: "/tmp/run;bundle.lungfishrun"),
+            executableName: ""
+        )
+
+        XCTAssertTrue(preview.hasPrefix("'' workflow run nf-core/viralrecon"))
+        XCTAssertTrue(preview.contains("--bundle-path '/tmp/run;bundle.lungfishrun'"))
+        XCTAssertTrue(preview.contains("--input '/tmp/samples&ids.csv'"))
+        XCTAssertTrue(preview.contains("--param 'primer=/tmp/O'\\''Hara.bed'"))
+        XCTAssertFalse(preview.contains("--input /tmp/samples&ids.csv"))
+    }
 }

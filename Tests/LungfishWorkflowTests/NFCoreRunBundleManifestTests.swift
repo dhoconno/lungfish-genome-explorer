@@ -57,4 +57,26 @@ final class NFCoreRunBundleManifestTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("logs").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("outputs").path))
     }
+
+    func testCommandPreviewQuotesShellMetacharactersWithoutWhitespace() throws {
+        let workflow = try XCTUnwrap(NFCoreSupportedWorkflowCatalog.workflow(named: "viralrecon"))
+        let manifest = NFCoreRunBundleManifest(
+            workflow: workflow,
+            version: "2.7.0",
+            executor: .docker,
+            params: [
+                "input": "/tmp/samples&ids.csv",
+                "outdir": "/tmp/results;rm",
+                "primer": "/tmp/O'Hara.bed",
+            ],
+            outputDirectoryName: "results",
+            workDirectory: URL(fileURLWithPath: "/tmp/work&cache")
+        )
+
+        XCTAssertTrue(manifest.commandPreview.contains("-work-dir '/tmp/work&cache'"))
+        XCTAssertTrue(manifest.commandPreview.contains("--input '/tmp/samples&ids.csv'"))
+        XCTAssertTrue(manifest.commandPreview.contains("--outdir '/tmp/results;rm'"))
+        XCTAssertTrue(manifest.commandPreview.contains("--primer '/tmp/O'\\''Hara.bed'"))
+        XCTAssertFalse(manifest.commandPreview.contains("--input /tmp/samples&ids.csv"))
+    }
 }

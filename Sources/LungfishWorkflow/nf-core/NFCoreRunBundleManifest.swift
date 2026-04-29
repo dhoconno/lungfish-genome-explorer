@@ -89,22 +89,15 @@ public enum NFCoreRunCommandBuilder {
         }
         if let workDirectory {
             parts.append("-work-dir")
-            parts.append(shellEscaped(workDirectory.path))
+            parts.append(shellEscape(workDirectory.path))
         }
         parts += ["-profile", executor.rawValue]
         for key in params.keys.sorted() {
             guard let value = params[key], !value.isEmpty else { continue }
             parts.append("--\(key)")
-            parts.append(shellEscaped(value))
+            parts.append(shellEscape(value))
         }
         return parts.joined(separator: " ")
-    }
-
-    private static func shellEscaped(_ value: String) -> String {
-        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil else {
-            return value
-        }
-        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 

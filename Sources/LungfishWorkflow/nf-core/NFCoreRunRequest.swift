@@ -95,7 +95,7 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
     }
 
     public func cliCommandPreview(bundlePath: URL, executableName: String = "lungfish-cli") -> String {
-        ([executableName] + cliArguments(bundlePath: bundlePath)).map(Self.shellEscaped).joined(separator: " ")
+        ([executableName] + cliArguments(bundlePath: bundlePath)).map(shellEscape).joined(separator: " ")
     }
 
     public init(
@@ -135,10 +135,4 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         )
     }
 
-    private static func shellEscaped(_ value: String) -> String {
-        guard value.rangeOfCharacter(from: .whitespacesAndNewlines) != nil else {
-            return value
-        }
-        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
-    }
 }

@@ -319,19 +319,8 @@ final class ViralReconWorkflowExecutionService {
 enum ViralReconWorkflowCommandPreview {
     static func build(executableName: String, arguments: [String]) -> String {
         ([executableName] + arguments)
-            .map(shellEscaped)
+            .map(shellEscape)
             .joined(separator: " ")
-    }
-
-    static func shellEscaped(_ value: String) -> String {
-        guard !value.isEmpty else {
-            return "''"
-        }
-        let safeCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_+-=.,/:@%")
-        if value.unicodeScalars.allSatisfy({ safeCharacters.contains($0) }) {
-            return value
-        }
-        return "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 }
 

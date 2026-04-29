@@ -592,6 +592,35 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("outputs").path))
     }
 
+    func testViralReconPrepareOnlyQuotesMetacharactersInPreparedCommand() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral&recon'\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheet = tempDirectory.appendingPathComponent("samples&ids.csv")
+        try "sample,fastq_1,fastq_2\nS1,/tmp/S1_R1.fastq.gz,/tmp/S1_R2.fastq.gz\n"
+            .write(to: samplesheet, atomically: true, encoding: .utf8)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "viralrecon",
+            "--executor", "docker",
+            "--input", samplesheet.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results;rm", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--version", "3.0.0",
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        let escapedSamplesheet = samplesheet.path.replacingOccurrences(of: "'", with: "'\\''")
+        XCTAssertTrue(manifest.commandPreview.contains("--input '\(escapedSamplesheet)'"))
+        XCTAssertFalse(manifest.commandPreview.contains("--input \(samplesheet.path)"))
+    }
+
     func testViralReconRuntimeOptionsAreIncludedInPreparedNextflowCommand() async throws {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("viralrecon-options-\(UUID().uuidString)", isDirectory: true)
