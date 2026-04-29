@@ -46,6 +46,22 @@ protocol ReferenceBundleWrapping: Sendable {
     ) async throws -> URL
 }
 
+protocol FASTQOutputIngesting: Sendable {
+    func ingest(
+        config: FASTQIngestionConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQIngestionResult
+}
+
+protocol FASTQOutputBundleWriting: Sendable {
+    func importFASTQOutput(
+        sourceURL: URL,
+        bundleURL: URL,
+        originalRequest: FASTQOperationLaunchRequest,
+        sourceInputURL: URL?
+    ) async throws -> URL
+}
+
 enum FASTQOperationExecutionError: Error, LocalizedError {
     case unsupportedAdapterTrim(String)
     case unsupportedPrimerRemoval(String)
@@ -1194,16 +1210,251 @@ private struct AppReferenceBundleWrapper: ReferenceBundleWrapping {
     }
 }
 
+struct AppFASTQOutputIngestor: FASTQOutputIngesting {
+    func ingest(
+        config: FASTQIngestionConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQIngestionResult {
+        try await FASTQIngestionPipeline().run(config: config, progress: progress)
+    }
+}
+
+struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
+    let ingestor: any FASTQOutputIngesting
+
+    init(ingestor: any FASTQOutputIngesting = AppFASTQOutputIngestor()) {
+        self.ingestor = ingestor
+    }
+
+    func importFASTQOutput(
+        sourceURL: URL,
+        bundleURL: URL,
+        originalRequest: FASTQOperationLaunchRequest,
+        sourceInputURL: URL?
+    ) async throws -> URL {
+        let pairingMode = pairingMode(for: sourceInputURL)
+        let stats = try await computeStatistics(from: sourceURL)
+
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let result = try await ingestor.ingest(
+            config: FASTQIngestionConfig(
+                inputFiles: [sourceURL],
+                pairingMode: ingestionPipelinePairingMode(for: pairingMode),
+                outputDirectory: bundleURL,
+                threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
+                deleteOriginals: true,
+                qualityBinning: .illumina4,
+                skipClumpify: false
+            ),
+            progress: { _, _ in }
+        )
+
+        var metadata = FASTQMetadataStore.load(for: result.outputFile) ?? PersistedFASTQMetadata()
+        metadata.ingestion = IngestionMetadata(
+            isClumpified: result.wasClumpified,
+            isCompressed: result.outputFile.pathExtension.lowercased() == "gz",
+            pairingMode: ingestionMetadataPairingMode(for: result.pairingMode),
+            qualityBinning: result.qualityBinning.rawValue,
+            originalFilenames: result.originalFilenames,
+            ingestionDate: Date(),
+            originalSizeBytes: result.originalSizeBytes
+        )
+        FASTQMetadataStore.save(metadata, for: result.outputFile)
+
+        try writeDerivedManifest(
+            for: result.outputFile,
+            in: bundleURL,
+            sourceURL: sourceURL,
+            originalRequest: originalRequest,
+            sourceInputURL: sourceInputURL,
+            stats: stats,
+            pairingMode: metadata.ingestion?.pairingMode
+        )
+
+        return bundleURL
+    }
+
+    private func computeStatistics(from sourceURL: URL) async throws -> FASTQDatasetStatistics {
+        let reader = FASTQReader(validateSequence: false)
+        return try await reader.computeStatistics(from: sourceURL, sampleLimit: 0).0
+    }
+
+    private func pairingMode(for sourceInputURL: URL?) -> IngestionMetadata.PairingMode {
+        guard let sourceInputURL else { return .singleEnd }
+
+        if FASTQBundle.isBundleURL(sourceInputURL),
+           let manifest = FASTQBundle.loadDerivedManifest(in: sourceInputURL),
+           let pairingMode = manifest.pairingMode {
+            return pairingMode
+        }
+
+        if let bundleURL = enclosingFASTQBundleURL(for: sourceInputURL),
+           let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL),
+           let pairingMode = manifest.pairingMode {
+            return pairingMode
+        }
+
+        let fastqURL: URL?
+        if FASTQBundle.isFASTQFileURL(sourceInputURL) {
+            fastqURL = sourceInputURL
+        } else if let bundleURL = enclosingFASTQBundleURL(for: sourceInputURL) {
+            fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL)
+        } else {
+            fastqURL = nil
+        }
+
+        return fastqURL
+            .flatMap { FASTQMetadataStore.load(for: $0)?.ingestion?.pairingMode }
+            ?? .singleEnd
+    }
+
+    private func ingestionPipelinePairingMode(
+        for pairingMode: IngestionMetadata.PairingMode
+    ) -> FASTQIngestionConfig.PairingMode {
+        switch pairingMode {
+        case .singleEnd:
+            return .singleEnd
+        case .pairedEnd, .interleaved:
+            return .interleaved
+        }
+    }
+
+    private func ingestionMetadataPairingMode(
+        for pairingMode: FASTQIngestionConfig.PairingMode
+    ) -> IngestionMetadata.PairingMode {
+        switch pairingMode {
+        case .singleEnd:
+            return .singleEnd
+        case .pairedEnd:
+            return .pairedEnd
+        case .interleaved:
+            return .interleaved
+        }
+    }
+
+    private func writeDerivedManifest(
+        for outputFASTQ: URL,
+        in bundleURL: URL,
+        sourceURL: URL,
+        originalRequest: FASTQOperationLaunchRequest,
+        sourceInputURL: URL?,
+        stats: FASTQDatasetStatistics,
+        pairingMode: IngestionMetadata.PairingMode?
+    ) throws {
+        let operation = derivativeOperation(
+            for: originalRequest,
+            sourceURL: sourceURL,
+            outputURL: outputFASTQ
+        )
+        let parentBundleURL = sourceInputURL.flatMap(enclosingFASTQBundleURL(for:))
+        let sourceManifest = parentBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
+        let rootBundleURL = sourceManifest
+            .map { FASTQBundle.resolveBundle(relativePath: $0.rootBundleRelativePath, from: parentBundleURL ?? bundleURL) }
+            ?? parentBundleURL
+            ?? bundleURL
+        let rootFASTQFilename = sourceManifest?.rootFASTQFilename
+            ?? parentBundleURL.flatMap { FASTQBundle.resolvePrimarySequenceURL(for: $0)?.lastPathComponent }
+            ?? outputFASTQ.lastPathComponent
+        let baseLineage = sourceManifest?.lineage ?? []
+        let checksum = try PayloadChecksum.sha256Hex(fileAt: outputFASTQ)
+
+        let parentRelativePath = parentBundleURL.map {
+            FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
+                ?? FASTQOperationExecutionService.relativePath(from: bundleURL, to: $0)
+                ?? "."
+        } ?? "."
+        let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
+            ?? FASTQOperationExecutionService.relativePath(from: bundleURL, to: rootBundleURL)
+            ?? "."
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: bundleURL.deletingPathExtension().lastPathComponent,
+            parentBundleRelativePath: parentRelativePath,
+            rootBundleRelativePath: rootRelativePath,
+            rootFASTQFilename: rootFASTQFilename,
+            payload: .full(fastqFilename: outputFASTQ.lastPathComponent),
+            lineage: baseLineage + [operation],
+            operation: operation,
+            cachedStatistics: stats,
+            pairingMode: pairingMode,
+            sequenceFormat: .fastq,
+            payloadChecksums: PayloadChecksum(checksums: [
+                outputFASTQ.lastPathComponent: checksum,
+            ]),
+            materializationState: .materialized(checksum: checksum)
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+    }
+
+    private func derivativeOperation(
+        for request: FASTQOperationLaunchRequest,
+        sourceURL: URL,
+        outputURL: URL
+    ) -> FASTQDerivativeOperation {
+        guard case .derivative(let derivativeRequest, _, _) = request else {
+            return FASTQDerivativeOperation(
+                kind: .deduplicate,
+                toolUsed: "lungfish",
+                toolCommand: "lungfish \(sourceURL.path) -o \(outputURL.path)"
+            )
+        }
+
+        let kind = FASTQDerivativeOperationKind(rawValue: derivativeRequest.operationKindString) ?? .deduplicate
+        switch derivativeRequest {
+        case .ribosomalRNAFilter(let retention, let ensure):
+            let outputRetention = riboDetectorRetention(for: outputURL, fallback: retention)
+            return FASTQDerivativeOperation(
+                kind: .ribosomalRNAFilter,
+                riboDetectorRetention: outputRetention,
+                riboDetectorEnsure: ensure,
+                toolUsed: "RiboDetector",
+                toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
+            )
+
+        default:
+            return FASTQDerivativeOperation(
+                kind: kind,
+                toolUsed: "lungfish-cli",
+                toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
+            )
+        }
+    }
+
+    private func riboDetectorRetention(
+        for outputURL: URL,
+        fallback: FASTQRiboDetectorRetention
+    ) -> FASTQRiboDetectorRetention {
+        let filename = outputURL.lastPathComponent.lowercased()
+        if filename.contains(".norrna.") || filename.contains("-norrna") || filename.contains("_norrna") {
+            return .nonRRNA
+        }
+        if filename.contains(".rrna.") || filename.contains("-rrna") || filename.contains("_rrna") {
+            return .rRNA
+        }
+        return fallback
+    }
+
+    private func enclosingFASTQBundleURL(for url: URL) -> URL? {
+        if FASTQBundle.isBundleURL(url) {
+            return url
+        }
+        return SequenceInputResolver.enclosingFASTQBundleURL(for: url)
+    }
+}
+
 struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
     let destinationDirectory: URL
     let referenceBundleWrapper: any ReferenceBundleWrapping
+    let fastqBundleWriter: any FASTQOutputBundleWriting
 
     init(
         destinationDirectory: URL,
-        referenceBundleWrapper: any ReferenceBundleWrapping = AppReferenceBundleWrapper()
+        referenceBundleWrapper: any ReferenceBundleWrapping = AppReferenceBundleWrapper(),
+        fastqBundleWriter: any FASTQOutputBundleWriting = AppFASTQOutputBundleWriter()
     ) {
         self.destinationDirectory = destinationDirectory
         self.referenceBundleWrapper = referenceBundleWrapper
+        self.fastqBundleWriter = fastqBundleWriter
     }
 
     func importOutputs(
@@ -1261,11 +1512,14 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
             }
 
             let bundleURL = uniqueBundleURL(named: bundleBaseName)
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-
-            let bundledFASTQURL = bundleURL.appendingPathComponent(outputURL.lastPathComponent)
-            try FileManager.default.moveItem(at: outputURL, to: bundledFASTQURL)
-            importedBundleURLs.append(bundleURL)
+            let sourceInputURL = sourceInputURL(forOutputAt: index, request: originalRequest)
+            let importedURL = try await fastqBundleWriter.importFASTQOutput(
+                sourceURL: outputURL,
+                bundleURL: bundleURL,
+                originalRequest: originalRequest,
+                sourceInputURL: sourceInputURL
+            )
+            importedBundleURLs.append(importedURL)
         }
 
         return importedBundleURLs
@@ -1276,11 +1530,40 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         outputURL: URL,
         index: Int
     ) -> String {
-        let inputStem = request.inputURLs[safe: index]
+        let inputStem = sourceInputURL(forOutputAt: index, request: request)
             .map(FASTQOperationExecutionService.sanitizedStem(for:))
             ?? FASTQOperationExecutionService.sanitizedStem(for: outputURL)
-        let operationStem = request.outputNameStem
+        let operationStem = operationStem(for: request, outputURL: outputURL)
         return "\(inputStem)-\(operationStem)"
+    }
+
+    private func sourceInputURL(
+        forOutputAt index: Int,
+        request: FASTQOperationLaunchRequest
+    ) -> URL? {
+        if request.inputURLs.count == 1 {
+            return request.inputURLs.first
+        }
+        return request.inputURLs[safe: index]
+    }
+
+    private func operationStem(
+        for request: FASTQOperationLaunchRequest,
+        outputURL: URL
+    ) -> String {
+        guard case .derivative(let derivativeRequest, _, _) = request,
+              case .ribosomalRNAFilter = derivativeRequest else {
+            return request.outputNameStem
+        }
+
+        let filename = outputURL.lastPathComponent.lowercased()
+        if filename.contains(".norrna.") || filename.contains("-norrna") || filename.contains("_norrna") {
+            return "ribodetector-norrna"
+        }
+        if filename.contains(".rrna.") || filename.contains("-rrna") || filename.contains("_rrna") {
+            return "ribodetector-rrna"
+        }
+        return request.outputNameStem
     }
 
     private func uniqueBundleURL(named baseName: String) -> URL {

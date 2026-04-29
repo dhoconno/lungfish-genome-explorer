@@ -3,7 +3,7 @@ import XCTest
 @testable import LungfishApp
 import LungfishCore
 @testable import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
     func testExecuteDerivativeDiscoversStagedFASTQFileAndImportsIt() async throws {
@@ -504,7 +504,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let stagedFASTQ = stagingDir.appendingPathComponent("filtered.fastq")
         try FASTQOperationTestHelper.writeSyntheticFASTQ(to: stagedFASTQ, readCount: 2, readLength: 14)
 
-        let importer = BundleFASTQOperationImporter(destinationDirectory: destinationDir)
+        let bundleWriter = SpyFASTQOutputBundleWriter(removeSource: true)
+        let importer = BundleFASTQOperationImporter(
+            destinationDirectory: destinationDir,
+            fastqBundleWriter: bundleWriter
+        )
         let request = FASTQOperationLaunchRequest.derivative(
             request: .lengthFilter(min: 10, max: 40),
             inputURLs: [sourceBundle.bundleURL],
@@ -521,9 +525,137 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(imported.count, 1)
         let bundleURL = try XCTUnwrap(imported.first)
         XCTAssertTrue(FASTQBundle.isBundleURL(bundleURL))
-        let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bundledFASTQ.path))
+        XCTAssertEqual(bundleWriter.calls.map(\.sourceURL), [stagedFASTQ])
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedFASTQ.path))
+    }
+
+    func testBundleImporterRoutesRiboDetectorFASTQOutputsThroughBundleWriter() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportRibo")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceBundle.fastqURL,
+            readCount: 4,
+            readLength: 20
+        )
+
+        let stagingDir = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let destinationDir = tempDir.appendingPathComponent("results", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+
+        let nonRRNAOutput = stagingDir.appendingPathComponent("source.norrna.fastq")
+        let rRNAOutput = stagingDir.appendingPathComponent("source.rrna.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: nonRRNAOutput, readCount: 2, readLength: 14)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: rRNAOutput, readCount: 1, readLength: 14)
+
+        let bundleWriter = SpyFASTQOutputBundleWriter()
+        let importer = BundleFASTQOperationImporter(
+            destinationDirectory: destinationDir,
+            fastqBundleWriter: bundleWriter
+        )
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .both, ensure: .rrna),
+            inputURLs: [sourceBundle.bundleURL],
+            outputMode: .perInput
+        )
+
+        let imported = try await importer.importOutputs(
+            at: [nonRRNAOutput, rRNAOutput],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: stagingDir
+        )
+
+        XCTAssertEqual(imported.map(\.lastPathComponent), [
+            "source-ribodetector-norrna.\(FASTQBundle.directoryExtension)",
+            "source-ribodetector-rrna.\(FASTQBundle.directoryExtension)",
+        ])
+        XCTAssertEqual(bundleWriter.calls.map(\.sourceURL), [nonRRNAOutput, rRNAOutput])
+        XCTAssertEqual(bundleWriter.calls.map(\.bundleURL.lastPathComponent), imported.map(\.lastPathComponent))
+        XCTAssertEqual(bundleWriter.calls.compactMap(\.sourceInputURL), [sourceBundle.bundleURL, sourceBundle.bundleURL])
+    }
+
+    func testAppFASTQOutputBundleWriterIngestsAndAnnotatesCompressedRiboDetectorOutput() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportRiboMetadata")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceBundle.fastqURL,
+            readCount: 4,
+            readLength: 20
+        )
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(
+                ingestion: IngestionMetadata(
+                    isClumpified: true,
+                    isCompressed: true,
+                    pairingMode: .interleaved,
+                    originalFilenames: [sourceBundle.fastqURL.lastPathComponent]
+                )
+            ),
+            for: sourceBundle.fastqURL
+        )
+
+        let stagedFASTQ = tempDir.appendingPathComponent("source.norrna.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: stagedFASTQ,
+            readCount: 2,
+            readLength: 14
+        )
+
+        let destinationBundle = tempDir.appendingPathComponent(
+            "source-ribodetector-norrna.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let ingestor = SpyFASTQOutputIngestor()
+        let writer = AppFASTQOutputBundleWriter(ingestor: ingestor)
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .nonRRNA, ensure: .rrna),
+            inputURLs: [sourceBundle.bundleURL],
+            outputMode: .perInput
+        )
+
+        let bundleURL = try await writer.importFASTQOutput(
+            sourceURL: stagedFASTQ,
+            bundleURL: destinationBundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+
+        XCTAssertEqual(bundleURL, destinationBundle)
+        let config = try XCTUnwrap(ingestor.configs.first)
+        XCTAssertEqual(config.inputFiles, [stagedFASTQ])
+        XCTAssertEqual(config.outputDirectory, destinationBundle)
+        XCTAssertFalse(config.skipClumpify)
+        XCTAssertTrue(config.deleteOriginals)
+        XCTAssertEqual(config.pairingMode.rawValue, FASTQIngestionConfig.PairingMode.interleaved.rawValue)
+
+        let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        XCTAssertEqual(bundledFASTQ.pathExtension, "gz")
+        let persisted = try XCTUnwrap(FASTQMetadataStore.load(for: bundledFASTQ))
+        let ingestion = try XCTUnwrap(persisted.ingestion)
+        XCTAssertTrue(ingestion.isCompressed)
+        XCTAssertTrue(ingestion.isClumpified)
+        XCTAssertEqual(ingestion.pairingMode, .interleaved)
+        XCTAssertEqual(ingestion.originalFilenames, [stagedFASTQ.lastPathComponent])
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        XCTAssertEqual(manifest.operation.kind, .ribosomalRNAFilter)
+        XCTAssertEqual(manifest.operation.riboDetectorRetention, .nonRRNA)
+        XCTAssertEqual(manifest.operation.riboDetectorEnsure, .rrna)
+        XCTAssertEqual(manifest.operation.toolUsed, "RiboDetector")
+        XCTAssertEqual(manifest.cachedStatistics.readCount, 2)
+        XCTAssertEqual(manifest.pairingMode, .interleaved)
+        XCTAssertEqual(manifest.sequenceFormat, .fastq)
+        XCTAssertEqual(manifest.parentBundleRelativePath, "../source.\(FASTQBundle.directoryExtension)")
+        if case .full(let fastqFilename) = manifest.payload {
+            XCTAssertEqual(fastqFilename, bundledFASTQ.lastPathComponent)
+        } else {
+            XCTFail("Expected materialized full FASTQ payload")
+        }
     }
 
     func testBundleImporterWrapsRawFASTAOutputsIntoReferenceBundles() async throws {
@@ -1493,6 +1625,77 @@ private final class SpyReferenceBundleWrapper: @unchecked Sendable, ReferenceBun
             ?? outputDirectory.appendingPathComponent("\(preferredBundleName ?? sourceURL.deletingPathExtension().lastPathComponent).lungfishref")
         try FileManager.default.createDirectory(at: resultURL, withIntermediateDirectories: true)
         return resultURL
+    }
+}
+
+private final class SpyFASTQOutputBundleWriter: @unchecked Sendable, FASTQOutputBundleWriting {
+    struct Call: Equatable {
+        let sourceURL: URL
+        let bundleURL: URL
+        let originalRequest: FASTQOperationLaunchRequest
+        let sourceInputURL: URL?
+    }
+
+    private(set) var calls: [Call] = []
+    private let removeSource: Bool
+
+    init(removeSource: Bool = false) {
+        self.removeSource = removeSource
+    }
+
+    func importFASTQOutput(
+        sourceURL: URL,
+        bundleURL: URL,
+        originalRequest: FASTQOperationLaunchRequest,
+        sourceInputURL: URL?
+    ) async throws -> URL {
+        calls.append(Call(
+            sourceURL: sourceURL,
+            bundleURL: bundleURL,
+            originalRequest: originalRequest,
+            sourceInputURL: sourceInputURL
+        ))
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        if removeSource {
+            try? FileManager.default.removeItem(at: sourceURL)
+        }
+        return bundleURL
+    }
+}
+
+private final class SpyFASTQOutputIngestor: @unchecked Sendable, FASTQOutputIngesting {
+    private(set) var configs: [FASTQIngestionConfig] = []
+
+    func ingest(
+        config: FASTQIngestionConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> FASTQIngestionResult {
+        configs.append(config)
+        progress(0.5, "ingesting")
+
+        let outputURL = config.outputDirectory
+            .appendingPathComponent(config.inputFiles[0].deletingPathExtension().lastPathComponent)
+            .appendingPathExtension("fastq")
+            .appendingPathExtension("gz")
+        try FileManager.default.createDirectory(
+            at: config.outputDirectory,
+            withIntermediateDirectories: true
+        )
+        try Data("compressed-fastq\n".utf8).write(to: outputURL)
+        if config.deleteOriginals {
+            try? FileManager.default.removeItem(at: config.inputFiles[0])
+        }
+
+        progress(1.0, "done")
+        return FASTQIngestionResult(
+            outputFile: outputURL,
+            wasClumpified: true,
+            qualityBinning: config.qualityBinning,
+            originalFilenames: config.inputFiles.map(\.lastPathComponent),
+            originalSizeBytes: 128,
+            finalSizeBytes: 16,
+            pairingMode: config.pairingMode
+        )
     }
 }
 
