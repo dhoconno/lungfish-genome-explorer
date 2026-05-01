@@ -4,13 +4,14 @@ Date: 2026-05-01
 
 ## Summary
 
-Add a new Import Center operation, "Import Geneious Export", for `.geneious` archives and Geneious-export folders. The importer will inventory the export, map supported contents to existing Lungfish Genome Explorer bundle types, preserve unsupported but meaningful payloads, and record reproducibility provenance for every created bundle or project artifact.
+Add a new Import Center operation, "Import Geneious Export", for `.geneious` archives and Geneious-export folders. The importer will inventory the export, create one new project-managed import folder or collection, map supported contents to existing Lungfish Genome Explorer bundle types, preserve unsupported archive members as binary artifacts, and record reproducibility provenance for every created bundle or project artifact.
 
 The first implementation should be Geneious-first but not Geneious-dependent. Users should be able to import or at least preserve a Geneious export on machines that do not have Geneious installed. Native decoding of Geneious sidecar payloads is technically feasible with the Geneious public API, but product packaging must be gated by legal and redistribution review before bundling any Geneious libraries.
 
 ## Goals
 
 - Add a dedicated Import Center workflow for `.geneious` archives and Geneious-export folders.
+- Create a new project subfolder or collection for each Geneious import so users can inspect all imported and preserved artifacts together.
 - Reuse existing LGE import paths for standard formats instead of creating parallel parsers.
 - Decode Geneious native sequence and annotation objects when a legally acceptable decoder path is available.
 - Provide a no-Geneious baseline that inventories exports, imports standard embedded files, and preserves unsupported native contents with warnings.
@@ -86,6 +87,18 @@ Add a new "Geneious Export" card in the Import Center. It should accept files or
 
 The preview should group results into supported imports, preserved unsupported files, warnings, and errors. It should also show the planned output bundle names before any data is written.
 
+### Output Collection
+
+Each completed Geneious import should create a single project-visible folder or collection named from the source export, such as `MCM_MHC_haplotypes-annotated Geneious Import`. That collection is the user's landing point for the import and should contain:
+
+- LGE-native bundles for every supported file or decoded Geneious document that LGE can parse without unacceptable loss.
+- Preserved binary artifacts for every unsupported or currently unparseable archive member.
+- A copy of the original Geneious archive or selected source folder manifest, unless the user explicitly disables raw-source preservation.
+- A machine-readable import inventory and a user-readable import report.
+- Provenance records that connect each final artifact back to the original Geneious source, archive member, scanner result, decoder result when applicable, and final stored payload.
+
+Supported standard files inside the archive should be parsed into native bundles rather than left only as attachments. Binary preservation is the fallback for unsupported Geneious-native data, unsupported standard formats, ambiguous content, and files that fail validation but can still be copied safely.
+
 ### Scanner
 
 The scanner is a Swift service that performs safe structural inspection without requiring Geneious:
@@ -141,12 +154,13 @@ Staging paths are implementation details. Final provenance must point at final s
    - Unsupported contents that will be preserved.
    - Warnings such as missing sidecars, unresolved source URNs, unsupported document classes, or native decoder unavailable.
 4. User chooses output options:
+   - Destination import folder name, defaulting to the source export name.
    - Combined reference bundle for sequence lists, default.
    - Split top-level sequence documents into separate bundles, optional.
    - Preserve raw Geneious export, default enabled.
    - Include unsupported standard/binary files as project attachments, default enabled.
 5. LGE imports supported data and writes an import report.
-6. The project sidebar shows created bundles and preserved files.
+6. The project sidebar shows the new Geneious import folder containing created bundles, preserved binary artifacts, and the import report.
 
 ## Metadata Preservation
 
@@ -240,6 +254,7 @@ Phase 4: Optional Geneious companion exporter.
 ## Acceptance Criteria
 
 - A user without Geneious can select a `.geneious` archive, see its inventory, import any standard files, preserve unsupported native payloads, and receive clear warnings.
+- Each import creates one project-visible folder or collection containing all native LGE bundles, preserved binary artifacts, inventory/report files, and provenance for that Geneious source.
 - A user with a supported native decoder can import decoded nucleotide sequences and annotations from the sample export into native LGE reference/annotation formats.
 - Existing LGE importers are reused for standard formats wherever possible.
 - Unsupported data is not silently discarded.
