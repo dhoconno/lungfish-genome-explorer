@@ -219,10 +219,11 @@ final class DownloadCenterTests: XCTestCase {
             .taxonomyExtraction,
             .classification,
             .blastVerification,
+            .applicationExportImport,
             .variantCalling,
         ]
 
-        XCTAssertEqual(allTypes.count, 13)
+        XCTAssertEqual(allTypes.count, 14)
         XCTAssertEqual(OperationType.variantCalling.rawValue, "Variant Calling")
     }
 
@@ -305,6 +306,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(OperationType.vcfImport.rawValue, "VCF Import")
         XCTAssertEqual(OperationType.bundleBuild.rawValue, "Bundle Build")
         XCTAssertEqual(OperationType.export.rawValue, "Export")
+        XCTAssertEqual(OperationType.applicationExportImport.rawValue, "Application Export")
     }
 
     // MARK: - Bundle Locking
@@ -482,8 +484,9 @@ final class DownloadCenterTests: XCTestCase {
             .download, .bamImport, .vcfImport, .bundleBuild, .export,
             .assembly, .ingestion, .fastqOperation, .qualityReport,
             .taxonomyExtraction, .classification, .blastVerification,
+            .applicationExportImport,
         ]
-        XCTAssertEqual(allTypes.count, 12, "Update this test when new OperationType cases are added")
+        XCTAssertEqual(allTypes.count, 13, "Update this test when new OperationType cases are added")
     }
 
     // MARK: - Byte-Level Progress Tracking

@@ -24,6 +24,7 @@ public enum OperationType: String, Sendable {
     case bamPrimerTrim = "Primer Trim"
     case variantCalling = "Variant Calling"
     case viralRecon = "Viral Recon"
+    case applicationExportImport = "Application Export"
 }
 
 /// A timestamped log entry recorded during an operation's lifecycle.

@@ -125,9 +125,51 @@ final class ImportCenterMenuTests: XCTestCase {
         let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "geneious-export" })
         XCTAssertEqual(card.title, "Geneious Export")
         XCTAssertEqual(card.importAction, .geneiousExport)
+        XCTAssertEqual(card.tab, .applicationExports)
         XCTAssertFalse(ids.contains("project-files"))
         XCTAssertFalse(ids.contains("bundle-sample-metadata"))
         XCTAssertFalse(ids.contains("project-sample-metadata"))
+    }
+
+    func testImportCenterHasApplicationExportsTab() {
+        XCTAssertTrue(ImportCenterViewModel.Tab.allCases.contains(.applicationExports))
+        XCTAssertEqual(ImportCenterViewModel.Tab.applicationExports.title, "Application Exports")
+    }
+
+    func testApplicationExportsTabContainsDocumentedCardsAndNoSangerCard() throws {
+        let viewModel = ImportCenterViewModel()
+        viewModel.selectedTab = .applicationExports
+        let ids = viewModel.visibleCards.map(\.id)
+
+        XCTAssertEqual(ids, [
+            "geneious-export",
+            "clc-workbench-export",
+            "dnastar-lasergene-export",
+            "benchling-bulk-export",
+            "sequence-design-library-export",
+            "alignment-tree-export",
+            "sequencing-platform-run-folder",
+            "phylogenetics-result-set",
+            "qiime2-archive",
+            "igv-session-track-set",
+        ])
+        XCTAssertFalse(viewModel.allCards.contains { $0.id.localizedCaseInsensitiveContains("sanger") })
+    }
+
+    func testApplicationExportCardsUseSingleSourceFileOrFolderPanels() throws {
+        let viewModel = ImportCenterViewModel()
+        let cards = viewModel.allCards.filter { $0.tab == .applicationExports }
+        XCTAssertEqual(cards.count, 10)
+
+        for card in cards {
+            guard case .openPanel(let config, _) = card.importKind else {
+                return XCTFail("\(card.id) must use an open panel")
+            }
+            XCTAssertTrue(config.canChooseFiles, card.id)
+            XCTAssertTrue(config.canChooseDirectories, card.id)
+            XCTAssertFalse(config.allowsMultipleSelection, card.id)
+            XCTAssertTrue(config.allowsOtherFileTypes, card.id)
+        }
     }
 
     func testGeneiousImportCardAcceptsArchivesAndFolders() throws {

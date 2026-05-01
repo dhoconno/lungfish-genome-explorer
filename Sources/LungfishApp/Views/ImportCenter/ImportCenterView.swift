@@ -75,6 +75,8 @@ struct ImportCenterView: View {
             return "Import metagenomic result files that Lungfish can open and analyze."
         case .references:
             return "Import reference sequences and create Lungfish reference bundles."
+        case .applicationExports:
+            return "Import migration exports from other bioinformatics applications into Lungfish collections."
         }
     }
 
