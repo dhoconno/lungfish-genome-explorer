@@ -119,7 +119,7 @@ final class GeneiousImportScannerTests: XCTestCase {
           <geneiousDocument class="com.biomatters.geneious.publicapi.documents.sequence.DefaultSequenceListDocument">
             <hiddenField name="cache_name">MCM MHC Haplotypes</hiddenField>
             <hiddenField name="override_cache_name">Ignored Override</hiddenField>
-            <excludedDocument class="urn:local:test"/>
+            <excludedDocument class="urn">urn:local:test</excludedDocument>
           </geneiousDocument>
         </geneious>
         """

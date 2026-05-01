@@ -251,6 +251,8 @@ private final class GeneiousXMLMetadataParser: NSObject, XMLParserDelegate {
     private(set) var metadata = GeneiousXMLMetadata()
     private var activeHiddenFieldName: String?
     private var activeHiddenFieldText = ""
+    private var isCollectingExcludedURN = false
+    private var activeExcludedURNText = ""
 
     func parser(
         _ parser: XMLParser,
@@ -268,6 +270,9 @@ private final class GeneiousXMLMetadataParser: NSObject, XMLParserDelegate {
         case "excludedDocument":
             if let value = attributeDict["class"], value.hasPrefix("urn:") {
                 appendUnique(value, to: &metadata.unresolvedURNs)
+            } else if attributeDict["class"] == "urn" {
+                isCollectingExcludedURN = true
+                activeExcludedURNText = ""
             }
         case "hiddenField":
             activeHiddenFieldName = attributeDict["name"]
@@ -281,6 +286,9 @@ private final class GeneiousXMLMetadataParser: NSObject, XMLParserDelegate {
         if activeHiddenFieldName != nil {
             activeHiddenFieldText += string
         }
+        if isCollectingExcludedURN {
+            activeExcludedURNText += string
+        }
     }
 
     func parser(
@@ -289,6 +297,16 @@ private final class GeneiousXMLMetadataParser: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
+        if elementName == "excludedDocument", isCollectingExcludedURN {
+            let value = activeExcludedURNText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.hasPrefix("urn:") {
+                appendUnique(value, to: &metadata.unresolvedURNs)
+            }
+            isCollectingExcludedURN = false
+            activeExcludedURNText = ""
+            return
+        }
+
         guard elementName == "hiddenField", let name = activeHiddenFieldName else { return }
         let value = activeHiddenFieldText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !value.isEmpty {
