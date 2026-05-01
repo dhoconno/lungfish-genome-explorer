@@ -94,3 +94,54 @@ public struct GeneiousImportInventory: Codable, Sendable, Equatable {
         self.warnings = warnings
     }
 }
+
+public struct GeneiousImportOptions: Sendable, Equatable {
+    public var collectionName: String?
+    public var preserveRawSource: Bool
+    public var importStandaloneReferences: Bool
+    public var preserveUnsupportedArtifacts: Bool
+
+    public init(
+        collectionName: String? = nil,
+        preserveRawSource: Bool = true,
+        importStandaloneReferences: Bool = true,
+        preserveUnsupportedArtifacts: Bool = true
+    ) {
+        self.collectionName = collectionName
+        self.preserveRawSource = preserveRawSource
+        self.importStandaloneReferences = importStandaloneReferences
+        self.preserveUnsupportedArtifacts = preserveUnsupportedArtifacts
+    }
+
+    public static let `default` = GeneiousImportOptions()
+}
+
+public struct GeneiousImportResult: Sendable, Equatable {
+    public let collectionURL: URL
+    public let inventoryURL: URL
+    public let reportURL: URL
+    public let provenanceURL: URL
+    public let nativeBundleURLs: [URL]
+    public let preservedArtifactURLs: [URL]
+    public let warnings: [String]
+
+    public init(
+        collectionURL: URL,
+        inventoryURL: URL,
+        reportURL: URL,
+        provenanceURL: URL,
+        nativeBundleURLs: [URL],
+        preservedArtifactURLs: [URL],
+        warnings: [String]
+    ) {
+        self.collectionURL = collectionURL
+        self.inventoryURL = inventoryURL
+        self.reportURL = reportURL
+        self.provenanceURL = provenanceURL
+        self.nativeBundleURLs = nativeBundleURLs
+        self.preservedArtifactURLs = preservedArtifactURLs
+        self.warnings = warnings
+    }
+
+    public var warningCount: Int { warnings.count }
+}
