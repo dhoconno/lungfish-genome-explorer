@@ -107,7 +107,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
     }
 
-    func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() {
+    func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() throws {
         let viewModel = ImportCenterViewModel()
         let ids = Set(viewModel.allCards.map(\.id))
 
@@ -121,9 +121,25 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertTrue(ids.contains("nvd"))
         XCTAssertTrue(ids.contains("fasta"))
         XCTAssertTrue(ids.contains("annotation-track"))
+        XCTAssertTrue(ids.contains("geneious-export"))
+        let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "geneious-export" })
+        XCTAssertEqual(card.title, "Geneious Export")
+        XCTAssertEqual(card.importAction, .geneiousExport)
         XCTAssertFalse(ids.contains("project-files"))
         XCTAssertFalse(ids.contains("bundle-sample-metadata"))
         XCTAssertFalse(ids.contains("project-sample-metadata"))
+    }
+
+    func testGeneiousImportCardAcceptsArchivesAndFolders() throws {
+        let viewModel = ImportCenterViewModel()
+        let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "geneious-export" })
+        guard case .openPanel(let config, let action) = card.importKind else {
+            return XCTFail("Geneious import must use an open panel")
+        }
+        XCTAssertEqual(action, .geneiousExport)
+        XCTAssertTrue(config.canChooseFiles)
+        XCTAssertTrue(config.canChooseDirectories)
+        XCTAssertFalse(config.allowsMultipleSelection)
     }
 
     func testImportCenterOmitsDeferredMetadataSection() {

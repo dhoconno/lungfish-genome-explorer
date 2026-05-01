@@ -1648,6 +1648,61 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    func importGeneiousExportFromURL(_ url: URL) {
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing a Geneious export.")
+            return
+        }
+
+        let opID = OperationCenter.shared.start(
+            title: "Geneious Import",
+            detail: "Importing \(url.lastPathComponent)...",
+            operationType: .ingestion,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: ["geneious", url.path, "--project", projectURL.path]
+            )
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let result = try await GeneiousImportCollectionService.default.importGeneiousExport(
+                    sourceURL: url,
+                    projectURL: projectURL,
+                    options: .default
+                ) { progress, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(id: opID, progress: progress, detail: message)
+                        }
+                    }
+                }
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let detail = result.warningCount == 0
+                            ? "Imported \(result.collectionURL.lastPathComponent)"
+                            : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
+                        if result.warningCount == 0 {
+                            OperationCenter.shared.complete(id: opID, detail: detail)
+                        } else {
+                            OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                        }
+                        self?.refreshSidebarAndSelectImportedURL(result.collectionURL)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
     private func chooseReferenceBundleForAnnotation(
         projectURL: URL,
         preferredBundleURL: URL?,

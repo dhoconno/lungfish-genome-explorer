@@ -93,6 +93,7 @@ struct ImportCardInfo: Identifiable, Sendable {
         case vcf
         case fasta
         case annotationTrack
+        case geneiousExport
         case bundleSampleMetadata
         case projectSampleMetadata
         case naoMgs
@@ -436,6 +437,27 @@ final class ImportCenterViewModel {
             )
         ),
         ImportCardInfo(
+            id: "geneious-export",
+            title: "Geneious Export",
+            description: "Import a Geneious archive or export folder into one Lungfish project collection with native bundles and preserved artifacts.",
+            sfSymbol: "shippingbox",
+            fileHint: ".geneious archive or Geneious export folder",
+            tab: .references,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "geneious") ?? .data,
+                        .folder,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .geneiousExport
+            )
+        ),
+        ImportCardInfo(
             id: "primer-scheme",
             title: "Primer Scheme",
             description: "Import a .lungfishprimers bundle authored from a BED (and optional FASTA) for use with iVar primer trimming.",
@@ -516,6 +538,7 @@ final class ImportCenterViewModel {
         case .vcf:      return "Select VCF variant files to import"
         case .fasta:    return "Select standalone reference sequence files (.fa/.fasta/.gb/.embl, optionally .gz) to import"
         case .annotationTrack: return "Select GTF, GFF, GFF3, or BED annotation files to attach to a reference bundle"
+        case .geneiousExport: return "Select a Geneious archive or export folder to import"
         case .bundleSampleMetadata:
             return "Select a CSV or TSV file with sample metadata for the selected dataset"
         case .projectSampleMetadata: return "Select project sample metadata"
@@ -561,6 +584,10 @@ final class ImportCenterViewModel {
             }
         case .annotationTrack:
             appDelegate.importAnnotationTracksFromURLs(urls)
+        case .geneiousExport:
+            for url in urls {
+                appDelegate.importGeneiousExportFromURL(url)
+            }
         case .bundleSampleMetadata:
             for url in urls {
                 appDelegate.importBundleSampleMetadataFromURL(url)
@@ -634,6 +661,7 @@ final class ImportCenterViewModel {
         case .vcf:      return "VCF"
         case .fasta:    return "FASTA"
         case .annotationTrack: return "Annotation Track"
+        case .geneiousExport: return "Geneious"
         case .bundleSampleMetadata: return "Bundle Metadata"
         case .projectSampleMetadata: return "Project Metadata"
         case .naoMgs:   return "NAO-MGS"
