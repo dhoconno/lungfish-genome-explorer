@@ -15,7 +15,7 @@ The first implementation should keep the Geneious card, but place it under a new
 - Preserve unsupported native files as binary artifacts with warnings rather than rejecting the whole import.
 - Create one project-visible import collection for every selected export source.
 - Reuse existing LGE importers for FASTA, FASTQ, GenBank, annotations, BAM/CRAM/SAM, VCF/BCF, signal tracks, metadata tables, and reports.
-- Gate new native data types behind separate specs: `.lungfishmsa`, `.lungfishtree`, Sanger trace/contig bundles, microbiome/table bundles, and large phylogenetics result bundles.
+- Gate new native data types behind separate specs: `.lungfishmsa`, `.lungfishtree`, microbiome/table bundles, and large phylogenetics result bundles.
 - Make provenance mandatory for every output bundle, preserved source artifact, generated report, and workflow-level inventory.
 
 ## Documentation Tiers
@@ -31,14 +31,12 @@ The first implementation should keep the Geneious card, but place it under a new
 
 | Source program or platform | Documentation status | Documented formats useful to LGE | Parser readiness |
 | --- | --- | --- | --- |
-| Geneious Prime | Ready for standard exports; native `.geneious` decoding remains separate. | FASTA, GenBank, CSV/TSV, ABI, FASTQ, QUAL, GFF, BED, Phylip, NEXUS, MEGA, ACE, SAM/BAM, VCF, Newick, WIG, PDF, EndNote, HTML, Geneious native. | Existing Geneious card plus future native decoder. |
-| QIAGEN CLC Genomics Workbench | Ready for standard exports; `.clc` is rich but proprietary. | FASTA, FASTQ, GenBank, EMBL, Nexus, PIR, Swiss-Prot, SAM/BAM/CRAM, ACE, AGP, coverage TSV, ClustalW, MSF, Phylip, Newick, BED, GFF3/GVF/GTF, VCF, Wiggle, CSV/XLS/XLSX, JSON, CLC `.clc`. | High priority card. Parse standards; preserve `.clc`. |
-| DNASTAR Lasergene, SeqMan, GenVision | Partial. Vendor has format lists, but native Lasergene files are not enough for no-app parsing. | SeqMan NGen `.sqd`, BAM, FASTA, TXT reports; GenVision BAM, GFF, VCF, images, `.gvp`; SeqMan Pro ACE; sequence export GenBank, FASTA, DNA Multi-Seq, `.seq`, `.pro`, ABI, EMBL. | High priority card. Parse standards; preserve native Lasergene files. |
+| Geneious Prime | Ready for standard exports; native `.geneious` decoding remains separate. | FASTA, GenBank, CSV/TSV, FASTQ, GFF, BED, Phylip, NEXUS, MEGA, SAM/BAM, VCF, Newick, WIG, PDF, EndNote, HTML, Geneious native. | Existing Geneious card plus future native decoder. |
+| QIAGEN CLC Genomics Workbench | Ready for standard exports; `.clc` is rich but proprietary. | FASTA, FASTQ, GenBank, EMBL, Nexus, PIR, Swiss-Prot, SAM/BAM/CRAM, AGP, coverage TSV, ClustalW, MSF, Phylip, Newick, BED, GFF3/GVF/GTF, VCF, Wiggle, CSV/XLS/XLSX, JSON, CLC `.clc`. | High priority card. Parse standards; preserve `.clc`. |
+| DNASTAR Lasergene and GenVision | Partial. Vendor has format lists, but native Lasergene files are not enough for no-app parsing. | BAM, FASTA, TXT reports; GenVision BAM, GFF, VCF, images, `.gvp`; sequence export GenBank, FASTA, DNA Multi-Seq, `.seq`, `.pro`, EMBL. | High priority card. Parse standards; preserve native Lasergene files. |
 | Benchling | Ready. Bulk export is well documented. | Multipart GenBank, individual GenBank ZIP, Multi-FASTA, CSV, SVG, SBOL RDF. | High priority card. Parse GenBank/FASTA/CSV; preserve SBOL/SVG until supported. |
 | SnapGene | Partial. Standard exports and `GenBank - SnapGene` qualifiers are documented; native `.dna` is not a vendor public interchange spec. | GenBank, FASTA, EMBL, multi-sequence collection exports, image exports, `GenBank - SnapGene` extra qualifiers; native `.dna`. | Medium priority card or merged sequence-design card. Parse GenBank-SnapGene; preserve `.dna` unless a supported decoder is approved. |
 | Vector NTI Express | Partial legacy documentation. | GenBank, DDBJ, FASTA, EMBL, GCG, ASCII, GenPept, SWISS-PROT, TrEMBL, oligo CSV, REBASE, contig `.cepx`, Vector NTI archives `.ma4`, `.pa4`, `.oa4`, `.ga4`, `.ba6`. | Medium priority migration card. Parse standard exports; preserve archives. |
-| CodonCode Aligner | Ready for exports. | FASTA plus QUAL, SCF, FASTQ, ACE, NEXUS/PAUP, Phylip, CSV feature tables. | High value for Sanger card. Needs Sanger trace/contig bundle for full fidelity. |
-| Sequencher | Partial. Current public pages document MSA exports; legacy manuals document broader sequence and trace exports that need fixture confirmation. | FASTA, MSF, Phylip, NEXUS; legacy documented formats include GenBank, EMBL, NBRF, SCF, CAF, and project files. | Medium value for Sanger card. Parse standard exports; preserve `.spf` and unverified project files. |
 | MacVector | Ready for standard sequence/alignment interchange. | GenBank, GenPept, EMBL, SWISS-PROT, PHYLIP, NEXUS, FASTA, Staden, GCG RSF/MSF, text, CODATA. | Medium priority, covered by Sequence Design and Alignment/Tree cards. |
 | MEGA | Ready for alignment/tree interchange, but needs LGE MSA/tree support. | MEGA, FASTA, PAUP/NEXUS, NBRF/PIR, Newick. | Deferred native MSA/tree card. |
 | Jalview | Ready. CLI docs list alignment output formats. | FASTA, PFAM, Stockholm, PIR, BLC, AMSA, JSON, PileUp, MSF, Clustal, Phylip, Jalview project, EPS/SVG/HTML/BioJS images. | Deferred native MSA card; parse sequence/alignment standards after `.lungfishmsa` exists. |
@@ -67,7 +65,7 @@ The first implementation should keep the Geneious card, but place it under a new
 - Card id: `clc-workbench-export`.
 - Operation family: `applicationExport`.
 - Accepted inputs: CLC export folders, ZIP archives, `.clc` files, and standard exported files from CLC.
-- Recognized standard files: FASTA/FASTQ, GenBank, EMBL, Nexus, SAM/BAM/CRAM, ACE, AGP, coverage TSV, ClustalW, MSF, Phylip, Newick, BED, GFF3/GVF/GTF, VCF, Wiggle, CSV/XLS/XLSX, JSON, PDF/SVG/PNG/JPEG/TIFF reports.
+- Recognized standard files: FASTA/FASTQ, GenBank, EMBL, Nexus, SAM/BAM/CRAM, AGP, coverage TSV, ClustalW, MSF, Phylip, Newick, BED, GFF3/GVF/GTF, VCF, Wiggle, CSV/XLS/XLSX, JSON, PDF/SVG/PNG/JPEG/TIFF reports.
 - Native handling: preserve `.clc` as a binary artifact with a warning that CLC's rich native object is not decoded.
 - Output collection: `<source> CLC Workbench Import`.
 - First native routes: references, reads, mappings, variants, annotation tracks, signal tracks, reports.
@@ -77,11 +75,11 @@ The first implementation should keep the Geneious card, but place it under a new
 
 - Card id: `dnastar-lasergene-export`.
 - Operation family: `applicationExport`.
-- Accepted inputs: Lasergene/SeqMan/GenVision export folders, ZIP archives, `.ace`, `.sqd`, `.seq`, `.pro`, `.sbd`, `.gvp`, `.bam`, `.fas`, `.gff`, `.vcf`, `.abi`, `.ab1`, `.embl`, `.gb`, `.txt`.
-- Standard routes: FASTA/GenBank/EMBL to reference bundles; BAM to mapping bundles; VCF to variant tracks; GFF to annotation tracks; ACE and ABI/AB1 to preserved artifacts until Sanger bundles exist.
-- Native handling: preserve `.sqd`, `.seq`, `.pro`, `.sbd`, and `.gvp` unless an approved parser is added.
+- Accepted inputs: Lasergene/GenVision export folders, ZIP archives, `.seq`, `.pro`, `.sbd`, `.gvp`, `.bam`, `.fas`, `.gff`, `.vcf`, `.embl`, `.gb`, `.txt`.
+- Standard routes: FASTA/GenBank/EMBL to reference bundles; BAM to mapping bundles; VCF to variant tracks; GFF to annotation tracks.
+- Native handling: preserve `.seq`, `.pro`, `.sbd`, and `.gvp` unless an approved parser is added.
 - Output collection: `<source> Lasergene Import`.
-- Deferred routes: Sanger contig, trace, and assembly bundle.
+- Excluded routes: legacy contig-project formats are outside this import family.
 
 ### Card: Benchling Bulk Export
 
@@ -104,22 +102,11 @@ The first implementation should keep the Geneious card, but place it under a new
 - Output collection: `<source> Sequence Library Import`.
 - Product reason: this card avoids one card per legacy plasmid editor while still helping users migrate sequence libraries.
 
-### Card: Sanger Assembly Project Export
-
-- Card id: `sanger-assembly-export`.
-- Operation family: `applicationExport`.
-- Source programs: CodonCode Aligner, Sequencher, DNASTAR SeqMan Pro, CLC Sanger workflows, Geneious trace exports.
-- Accepted inputs: ABI/AB1, SCF, PHD, QUAL, FASTA plus QUAL, FASTQ, ACE, Phylip, NEXUS/PAUP, MSF, CSV feature tables, Sequencher `.spf`, Lasergene `.sqd`.
-- First routes: consensus FASTA/GenBank to references; FASTQ to reads; CSV feature tables to attachments unless a reference can be resolved.
-- Native handling: preserve traces and project files until LGE has Sanger trace/contig bundles.
-- Output collection: `<source> Sanger Import`.
-- New LGE type dependency: `.lungfishtrace` or `.lungfishsanger` is required for full-fidelity trace chromatograms and contig assemblies.
-
 ### Card: Alignment And Tree Export
 
 - Card id: `alignment-tree-export`.
 - Operation family: `applicationExport`.
-- Source programs: MEGA, Jalview, UGENE, MacVector, CLC, Geneious, Sequencher, CodonCode.
+- Source programs: MEGA, Jalview, UGENE, MacVector, CLC, Geneious.
 - Accepted inputs: aligned FASTA, Clustal/ALN, MSF, Stockholm, PFAM, PIR/NBRF, Phylip, NEXUS/PAUP, MEGA, AMSA, PileUp, Jalview project, UGENE `.srfa`, Newick, Extended Newick/NHX, NEXUS trees, MEGA trees, SVG/PDF/HTML alignment or tree exports.
 - First behavior: inventory, validate, preserve, and import unaligned sequence content only when doing so is explicitly non-lossy.
 - Future routes: `.lungfishmsa` and `.lungfishtree`.
@@ -199,14 +186,13 @@ The shared parser should classify files by both extension and lightweight conten
 
 - Sequence: FASTA, FASTQ, GenBank/GenPept, EMBL, DDBJ, Swiss-Prot, PIR/NBRF, GCG, raw sequence.
 - Annotation: GFF2/GFF3, GTF, GVF, BED, feature CSV/TSV.
-- Mapping: SAM, BAM, CRAM, ACE, AGP, coverage TSV.
+- Mapping: SAM, BAM, CRAM, AGP, coverage TSV.
 - Variant: VCF, BCF, gVCF.
 - Signal: WIG, bedGraph, BigWig where supported.
 - MSA: aligned FASTA, Clustal, MSF, Stockholm, Phylip, NEXUS, MEGA, PFAM, AMSA, PileUp.
 - Tree: Newick, NEXUS tree blocks, MEGA trees, Auspice JSON, UShER MAT, Taxonium JSONL, BEAST `.trees`.
-- Sanger: ABI/AB1, SCF, PHD, QUAL, ACE.
 - Platform metadata: sample sheets, RunInfo.xml, RunParameters.xml, sequencing summary TSV, datastore JSON, report JSON/XML, InterOp, output hash files.
-- Project/native: `.geneious`, `.clc`, `.dna`, `.ma4`, `.pa4`, `.oa4`, `.sqd`, `.seq`, `.pro`, `.sbd`, `.gvp`, `.spf`, `.ugenedb`, `.jvp`, `.qza`, `.qzv`.
+- Project/native: `.geneious`, `.clc`, `.dna`, `.ma4`, `.pa4`, `.oa4`, `.seq`, `.pro`, `.sbd`, `.gvp`, `.ugenedb`, `.jvp`, `.qza`, `.qzv`.
 
 Parsing must be strict enough to avoid false native imports. If classification is uncertain, preserve the file and report it as `recognized-but-not-imported` or `unknown-preserved`.
 
@@ -215,7 +201,7 @@ Parsing must be strict enough to avoid false native imports. If classification i
 Warnings should be specific and action-oriented:
 
 - `native-format-preserved`: LGE preserved the native file but did not decode it.
-- `viewer-type-missing`: LGE recognized a tree, MSA, trace, or microbiome result but lacks the native bundle/viewer type.
+- `viewer-type-missing`: LGE recognized a tree, MSA, or microbiome result but lacks the native bundle/viewer type.
 - `standard-file-import-failed`: LGE tried an existing importer and preserved the original after validation failed.
 - `metadata-loss-risk`: a conversion would discard alignment, tree, mutation, primer, quality, color, or application-specific metadata.
 - `external-reference-missing`: a project/session file referenced a resource not present in the selected source.
@@ -245,7 +231,7 @@ Phase 1: Card family and common scanner.
 
 - Add `Application Exports` tab/group.
 - Keep Geneious as the first shipping card.
-- Add card metadata for CLC, DNASTAR, Benchling, Sequence Design Library, Sanger, Alignment/Tree, Sequencing Platform Run Folder, Phylogenetics, QIIME 2, and IGV Session.
+- Add card metadata for CLC, DNASTAR, Benchling, Sequence Design Library, Alignment/Tree, Sequencing Platform Run Folder, Phylogenetics, QIIME 2, and IGV Session.
 - Implement shared inventory, preservation, report, and provenance contract.
 
 Phase 2: Highest-value standard import routes.
@@ -260,7 +246,6 @@ Phase 3: New native bundle support.
 
 - `.lungfishmsa`.
 - `.lungfishtree`.
-- Sanger trace/contig bundle.
 - Track-set/session bundle.
 
 Phase 4: Large analysis and microbiome result sets.
@@ -286,8 +271,6 @@ Phase 4: Large analysis and microbiome result sets.
 - Benchling DNA and RNA sequence export documentation: https://help.benchling.com/hc/en-us/articles/39110680274189-DNA-and-RNA-sequence-overview
 - SnapGene import/export documentation and GenBank-SnapGene format notes: https://support.snapgene.com/hc/en-us/sections/10384241008404-Importing-and-Exporting
 - Vector NTI Express user guide: https://tools.thermofisher.com/content/sfs/manuals/VectorNTIExpressUG.pdf
-- CodonCode Aligner export documentation: https://www.codoncode.com/aligner/quicktour/export.htm
-- Sequencher alignment export documentation: https://www.genecodes.com/sequencher-features/sanger-sequencing/sequence-alignment
 - MacVector import/export format overview: https://macvector.com/getting-started/useful-workflows/importing-sequences-into-macvector/
 - Jalview command-line output formats: https://www.jalview.org/help/html/features/clarguments-basic.html
 - UGENE supported/native file formats: https://ugene.net/docs/appendixes/appendix-a-supported-file-formats/ugene-native-file-formats/
