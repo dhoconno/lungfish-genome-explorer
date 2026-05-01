@@ -112,11 +112,12 @@ Native Geneious decoding should be a separate helper boundary, not interleaved w
 
 The decoder must not call Geneious UI initialization. Proof-of-concept work showed that XML serializer initialization plus direct Geneious public API sequence document decoding can extract the sample sequences and annotations without launching the desktop app.
 
-Bundling or distributing Geneious API jars requires legal review. Until that review is complete, the product design should support three runtime modes:
+Bundling or distributing Geneious API jars requires legal review. Until that review is complete, the product design should support two runtime modes:
 
 - `inventory-only`: available to every user; scans, imports standard files, and preserves native contents.
 - `native-decoder-available`: uses the LGE-provided or locally configured decoder to stage canonical outputs.
-- `external-geneious-export`: accepts high-fidelity standard exports created by users who have Geneious.
+
+Standard files exported from Geneious should not require a special Geneious mode. They should enter through this workflow when they are inside a selected Geneious export folder, or through existing Import Center cards when users import them directly. This may sacrifice some Geneious-specific fidelity, but it avoids making Geneious desktop availability part of the LGE import contract.
 
 ### Staging and Existing Import Reuse
 
