@@ -110,6 +110,50 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(result.nativeBundleURLs.first?.lastPathComponent, "reference.lungfishref")
     }
 
+    func testImportDecodesPackedGeneiousNucleotideSequencesIntoReferenceBundle() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let source = root.appendingPathComponent("packed-source", isDirectory: true)
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        try writePackedGeneiousSequenceXML(to: source.appendingPathComponent("Example.geneious"))
+        try writePackedGeneiousSequence("ACGTACGT", to: source.appendingPathComponent("fileData.0"))
+        try writeFourBitPackedGeneiousSequence([0, 1, 2, 3, 5, 9], to: source.appendingPathComponent("fileData.1"))
+        let archiveURL = root.appendingPathComponent("Packed.geneious")
+        try runZip(workingDirectory: source, archiveURL: archiveURL, entries: ["Example.geneious", "fileData.0", "fileData.1"])
+        let capture = ReferenceImportCapture()
+        let service = GeneiousImportCollectionService(
+            scanner: GeneiousImportScanner(),
+            referenceImporter: { sourceURL, outputDirectory, preferredName in
+                await capture.record(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName)
+                let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
+            }
+        )
+
+        let result = try await service.importGeneiousExport(
+            sourceURL: archiveURL,
+            projectURL: projectURL,
+            options: .default
+        )
+
+        let calls = await capture.calls
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls.first?.preferredName, "Packed Haplotypes")
+        let generatedFASTA = try XCTUnwrap(calls.first?.sourceURL)
+        let fasta = try String(contentsOf: generatedFASTA, encoding: .utf8)
+        XCTAssertTrue(fasta.contains(">Seq One"))
+        XCTAssertTrue(fasta.contains("ACGTACGT"))
+        XCTAssertTrue(fasta.contains(">Seq Two"))
+        XCTAssertTrue(fasta.contains("ACGTNN"))
+        XCTAssertEqual(result.nativeBundleURLs.count, 1)
+        XCTAssertFalse(result.preservedArtifactURLs.contains { $0.lastPathComponent == "fileData.0" })
+        XCTAssertFalse(result.preservedArtifactURLs.contains { $0.lastPathComponent == "fileData.1" })
+        XCTAssertFalse(result.warnings.contains { $0.contains("fileData.0 contains native Geneious data") })
+        XCTAssertFalse(result.warnings.contains { $0.contains("fileData.1 contains native Geneious data") })
+    }
+
     func testImportFolderNameIsSanitizedAndUniqued() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
@@ -179,6 +223,92 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         </geneious>
         """
         try xml.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func writePackedGeneiousSequenceXML(to url: URL) throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <geneious version="2026.0.2" minimumVersion="2025.2">
+          <geneiousDocument class="com.biomatters.geneious.publicapi.documents.sequence.DefaultSequenceListDocument">
+            <hiddenFields>
+              <override_cache_name>Packed Haplotypes</override_cache_name>
+            </hiddenFields>
+            <originalElement>
+              <XMLSerialisableRootElement>
+                <nucleotideSequence type="DefaultNucleotideSequence">
+                  <fields>
+                    <cache_name>Seq One</cache_name>
+                    <sequence_length type="int">8</sequence_length>
+                  </fields>
+                  <name>Seq One</name>
+                  <charSequence xmlFileData="fileData.0" fileSize="12" length="8" />
+                </nucleotideSequence>
+                <nucleotideSequence type="DefaultNucleotideSequence">
+                  <fields>
+                    <cache_name>Seq Two</cache_name>
+                    <sequence_length type="int">6</sequence_length>
+                  </fields>
+                  <name>Seq Two</name>
+                  <charSequence xmlFileData="fileData.1" fileSize="12" length="6" />
+                </nucleotideSequence>
+              </XMLSerialisableRootElement>
+            </originalElement>
+          </geneiousDocument>
+        </geneious>
+        """
+        try xml.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func writePackedGeneiousSequence(_ sequence: String, to url: URL) throws {
+        let values = sequence.map { base -> UInt8 in
+            switch base {
+            case "A": return 0
+            case "C": return 1
+            case "G": return 2
+            case "T": return 3
+            default: return 0
+            }
+        }
+        var packed = Data()
+        var index = 0
+        while index < values.count {
+            var byte: UInt8 = 0
+            for offset in 0..<4 {
+                let value = index + offset < values.count ? values[index + offset] : 0
+                byte |= value << UInt8(6 - (offset * 2))
+            }
+            packed.append(byte)
+            index += 4
+        }
+
+        var payload = Data([0x20])
+        var packedLength = UInt32(packed.count).bigEndian
+        payload.append(Data(bytes: &packedLength, count: MemoryLayout<UInt32>.size))
+        payload.append(packed)
+
+        var stream = Data([0xAC, 0xED, 0x00, 0x05, 0x77, UInt8(payload.count)])
+        stream.append(payload)
+        try stream.write(to: url)
+    }
+
+    private func writeFourBitPackedGeneiousSequence(_ values: [UInt8], to url: URL) throws {
+        var packed = Data()
+        var index = 0
+        while index < values.count {
+            let first = values[index] & 0x0F
+            let second = index + 1 < values.count ? values[index + 1] & 0x0F : 0
+            packed.append((first << 4) | second)
+            index += 2
+        }
+
+        var payload = Data([0x30])
+        var packedLength = UInt32(packed.count).bigEndian
+        payload.append(Data(bytes: &packedLength, count: MemoryLayout<UInt32>.size))
+        payload.append(packed)
+
+        var stream = Data([0xAC, 0xED, 0x00, 0x05, 0x77, UInt8(payload.count)])
+        stream.append(payload)
+        try stream.write(to: url)
     }
 
     private func runZip(workingDirectory: URL, archiveURL: URL, entries: [String]) throws {

@@ -61,17 +61,59 @@ public struct GeneiousImportCollectionService: Sendable {
 
         var nativeBundleURLs: [URL] = []
         var preservedArtifactURLs: [URL] = []
+        var decodedFASTAURLs: [URL] = []
         var warnings = scannedInventory.warnings
         var processedItems: [GeneiousImportItem] = []
+        var decodedDestinations: [String: String] = [:]
+
+        progress?(0.16, "Decoding Geneious sequence payloads...")
+        let decodedSequenceSets = try GeneiousPackedSequenceExtractor()
+            .extractSequenceSets(rootURL: materialized.rootURL)
+        if !decodedSequenceSets.isEmpty {
+            let decodedFASTARoot = collectionURL.appendingPathComponent("Decoded FASTA", isDirectory: true)
+            try FileManager.default.createDirectory(at: decodedFASTARoot, withIntermediateDirectories: true)
+            for (index, sequenceSet) in decodedSequenceSets.enumerated() {
+                progress?(
+                    0.18 + (Double(index) / Double(max(decodedSequenceSets.count, 1))) * 0.10,
+                    "Decoding \(sequenceSet.documentName)..."
+                )
+                let preferredName = Self.sanitizedBaseName(sequenceSet.documentName)
+                let fastaURL = try writeDecodedFASTA(
+                    sequenceSet,
+                    preferredName: preferredName,
+                    outputDirectory: decodedFASTARoot
+                )
+                decodedFASTAURLs.append(fastaURL)
+                let result = try await referenceImporter(fastaURL, bundlesURL, preferredName)
+                nativeBundleURLs.append(result.bundleURL)
+                let destination = relativePath(from: collectionURL, to: result.bundleURL)
+                decodedDestinations[sequenceSet.documentRelativePath] = destination
+                for sidecarPath in sequenceSet.decodedSidecarPaths {
+                    decodedDestinations[sidecarPath] = destination
+                }
+                warnings.append(contentsOf: sequenceSet.warnings)
+                if !sequenceSet.annotationSidecarPaths.isEmpty || sequenceSet.hasInlineAnnotations {
+                    appendUnique(
+                        "\(sequenceSet.documentRelativePath) contains Geneious sequence annotations that are not yet translated to LGE annotation tracks.",
+                        to: &warnings
+                    )
+                }
+            }
+        }
 
         let totalItems = max(scannedInventory.items.count, 1)
         for (index, item) in scannedInventory.items.enumerated() {
-            progress?(0.18 + (Double(index) / Double(totalItems)) * 0.64, "Processing \(item.sourceRelativePath)...")
+            progress?(0.28 + (Double(index) / Double(totalItems)) * 0.54, "Processing \(item.sourceRelativePath)...")
             let sourceFileURL = sourceFileURL(for: item, sourceURL: sourceURL, materializedSource: materialized)
             var destination: String?
-            warnings.append(contentsOf: item.warnings)
+
+            if let decodedDestination = decodedDestinations[item.sourceRelativePath] {
+                processedItems.append(item.copy(lgeDestination: decodedDestination, warnings: []))
+                continue
+            }
 
             if item.kind == .standaloneReferenceSequence && options.importStandaloneReferences {
+                warnings.append(contentsOf: item.warnings)
                 let preferredName = Self.sanitizedBaseName(
                     URL(fileURLWithPath: item.sourceRelativePath).deletingPathExtension().lastPathComponent
                 )
@@ -79,6 +121,7 @@ public struct GeneiousImportCollectionService: Sendable {
                 nativeBundleURLs.append(result.bundleURL)
                 destination = relativePath(from: collectionURL, to: result.bundleURL)
             } else if options.preserveUnsupportedArtifacts {
+                warnings.append(contentsOf: item.warnings)
                 let artifactURL = artifactsURL.appendingPathComponent(item.sourceRelativePath)
                 try copyReplacingExistingItem(from: sourceFileURL, to: artifactURL)
                 preservedArtifactURLs.append(artifactURL)
@@ -127,6 +170,7 @@ public struct GeneiousImportCollectionService: Sendable {
             provenanceURL: provenanceURL,
             rawSourceOutputs: sourceCopyOutputs,
             preservedArtifactURLs: preservedArtifactURLs,
+            decodedFASTAURLs: decodedFASTAURLs,
             nativeBundleURLs: nativeBundleURLs,
             options: options,
             sourceKind: scannedInventory.sourceKind,
@@ -214,6 +258,36 @@ public struct GeneiousImportCollectionService: Sendable {
         try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
     }
 
+    private func writeDecodedFASTA(
+        _ sequenceSet: GeneiousDecodedSequenceSet,
+        preferredName: String,
+        outputDirectory: URL
+    ) throws -> URL {
+        let fastaURL = try uniqueFileURL(
+            baseName: preferredName.isEmpty ? "Geneious Sequences" : preferredName,
+            extension: "fasta",
+            in: outputDirectory
+        )
+        var text = ""
+        for record in sequenceSet.records {
+            text += ">\(Self.fastaEscapedHeader(record.name))\n"
+            text += Self.wrapFASTASequence(record.sequence)
+            text += "\n"
+        }
+        try text.write(to: fastaURL, atomically: true, encoding: .utf8)
+        return fastaURL
+    }
+
+    private func uniqueFileURL(baseName: String, extension fileExtension: String, in directory: URL) throws -> URL {
+        var candidate = directory.appendingPathComponent("\(Self.sanitizedBaseName(baseName)).\(fileExtension)")
+        var index = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = directory.appendingPathComponent("\(Self.sanitizedBaseName(baseName)) \(index).\(fileExtension)")
+            index += 1
+        }
+        return candidate
+    }
+
     private func warning(forPreservedItem item: GeneiousImportItem) -> String {
         switch item.kind {
         case .geneiousXML, .geneiousSidecar:
@@ -267,6 +341,7 @@ public struct GeneiousImportCollectionService: Sendable {
         provenanceURL: URL,
         rawSourceOutputs: [URL],
         preservedArtifactURLs: [URL],
+        decodedFASTAURLs: [URL],
         nativeBundleURLs: [URL],
         options: GeneiousImportOptions,
         sourceKind: GeneiousImportSourceKind,
@@ -282,6 +357,7 @@ public struct GeneiousImportCollectionService: Sendable {
         let provenanceRecord = FileRecord(path: provenanceURL.path, sha256: nil, sizeBytes: nil, format: .json, role: .output)
         let rawSourceRecords = rawSourceOutputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
         let artifactRecords = preservedArtifactURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
+        let decodedFASTARecords = decodedFASTAURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fasta, role: .output) }
         let bundleRecords = nativeBundleURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
 
         let scanStep = StepExecution(
@@ -317,7 +393,7 @@ public struct GeneiousImportCollectionService: Sendable {
             toolVersion: preserveToolVersion,
             command: preserveCommand,
             inputs: [sourceRecord],
-            outputs: rawSourceRecords + artifactRecords,
+            outputs: rawSourceRecords + artifactRecords + decodedFASTARecords,
             exitCode: 0,
             wallTime: referenceStarted.timeIntervalSince(preserveStarted),
             dependsOn: [scanStep.id],
@@ -421,6 +497,26 @@ public struct GeneiousImportCollectionService: Sendable {
             return "system"
         }
     }
+
+    private static func fastaEscapedHeader(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitized = trimmed
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+        return sanitized.isEmpty ? "Geneious Sequence" : sanitized
+    }
+
+    private static func wrapFASTASequence(_ sequence: String, width: Int = 80) -> String {
+        guard !sequence.isEmpty else { return "" }
+        var lines: [String] = []
+        var index = sequence.startIndex
+        while index < sequence.endIndex {
+            let end = sequence.index(index, offsetBy: width, limitedBy: sequence.endIndex) ?? sequence.endIndex
+            lines.append(String(sequence[index..<end]))
+            index = end
+        }
+        return lines.joined(separator: "\n")
+    }
 }
 
 private struct MaterializedGeneiousSource {
@@ -435,7 +531,7 @@ private struct MaterializedGeneiousSource {
 }
 
 private extension GeneiousImportItem {
-    func copy(lgeDestination: String?) -> GeneiousImportItem {
+    func copy(lgeDestination: String?, warnings: [String]? = nil) -> GeneiousImportItem {
         GeneiousImportItem(
             id: id,
             sourceRelativePath: sourceRelativePath,
@@ -446,7 +542,7 @@ private extension GeneiousImportItem {
             sha256: sha256,
             geneiousDocumentClass: geneiousDocumentClass,
             geneiousDocumentName: geneiousDocumentName,
-            warnings: warnings
+            warnings: warnings ?? self.warnings
         )
     }
 }
