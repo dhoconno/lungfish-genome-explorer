@@ -1655,29 +1655,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
+        let arguments = CLIApplicationExportImportRunner.buildGeneiousArguments(
+            sourceURL: url,
+            projectURL: projectURL
+        )
+        let runner = CLIApplicationExportImportRunner()
         let opID = OperationCenter.shared.start(
             title: "Geneious Import",
             detail: "Importing \(url.lastPathComponent)...",
             operationType: .applicationExportImport,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "import",
-                args: ["geneious", url.path, "--project", projectURL.path]
-            )
+                args: Array(arguments.dropFirst())
+            ),
+            onCancel: {
+                Task { await runner.cancel() }
+            }
         )
 
         Task.detached { [weak self] in
             do {
-                let result = try await GeneiousImportCollectionService.default.importGeneiousExport(
-                    sourceURL: url,
-                    projectURL: projectURL,
-                    options: .default
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: progress, detail: message)
-                        }
-                    }
-                }
+                let result = try await runner.run(arguments: arguments, operationID: opID)
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
@@ -1710,30 +1708,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
+        let arguments = CLIApplicationExportImportRunner.buildApplicationExportArguments(
+            sourceURL: url,
+            projectURL: projectURL,
+            kind: kind
+        )
+        let runner = CLIApplicationExportImportRunner()
         let opID = OperationCenter.shared.start(
             title: "\(kind.displayName) Import",
             detail: "Importing \(url.lastPathComponent)...",
             operationType: .applicationExportImport,
             cliCommand: OperationCenter.buildCLICommand(
                 subcommand: "import",
-                args: ["application-export", kind.cliArgument, url.path, "--project", projectURL.path]
-            )
+                args: Array(arguments.dropFirst())
+            ),
+            onCancel: {
+                Task { await runner.cancel() }
+            }
         )
 
         Task.detached { [weak self] in
             do {
-                let result = try await ApplicationExportImportCollectionService.default.importApplicationExport(
-                    sourceURL: url,
-                    projectURL: projectURL,
-                    kind: kind,
-                    options: .default
-                ) { progress, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: progress, detail: message)
-                        }
-                    }
-                }
+                let result = try await runner.run(arguments: arguments, operationID: opID)
 
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {

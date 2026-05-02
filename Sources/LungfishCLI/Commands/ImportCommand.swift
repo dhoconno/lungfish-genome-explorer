@@ -53,6 +53,8 @@ struct ImportCommand: AsyncParsableCommand {
             VCFSubcommand.self,
             FASTASubcommand.self,
             FastqSubcommand.self,
+            GeneiousSubcommand.self,
+            ApplicationExportSubcommand.self,
             SampleMetadataSubcommand.self,
             Kraken2Subcommand.self,
             EsVirituSubcommand.self,
