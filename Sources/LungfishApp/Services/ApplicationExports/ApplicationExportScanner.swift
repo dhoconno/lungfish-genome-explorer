@@ -11,15 +11,20 @@ public struct ApplicationExportScanner: Sendable {
 
     private var fileManager: FileManager { .default }
 
-    public func scan(sourceURL: URL, kind: ApplicationExportKind) async throws -> ApplicationExportImportInventory {
+    public func scan(
+        sourceURL: URL,
+        kind: ApplicationExportKind,
+        temporaryDirectory: URL? = nil
+    ) async throws -> ApplicationExportImportInventory {
         let sourceKind = try sourceKind(for: sourceURL)
         let scanRoot: URL
         let cleanupRoot: URL?
 
         switch sourceKind {
         case .archive:
-            let tempRoot = fileManager.temporaryDirectory
-                .appendingPathComponent("application-export-scan-\(UUID().uuidString)", isDirectory: true)
+            guard let tempRoot = temporaryDirectory else {
+                throw ApplicationExportScannerError.temporaryDirectoryRequired
+            }
             try archiveTool.extract(archiveURL: sourceURL, to: tempRoot)
             scanRoot = tempRoot
             cleanupRoot = tempRoot
@@ -210,4 +215,15 @@ public struct ApplicationExportScanner: Sendable {
         "runinfo.xml", "runparameters.xml", "sample_sheet.csv", "samplesheet.csv", "sequencing_summary.txt",
         "final_summary.txt", "datastore.json", "output_hash", "barcode_alignment_report.tsv",
     ]
+}
+
+public enum ApplicationExportScannerError: LocalizedError, Sendable, Equatable {
+    case temporaryDirectoryRequired
+
+    public var errorDescription: String? {
+        switch self {
+        case .temporaryDirectoryRequired:
+            return "Scanning an application export archive requires a project-local temporary directory."
+        }
+    }
 }

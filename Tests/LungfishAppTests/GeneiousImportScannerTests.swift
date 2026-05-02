@@ -27,8 +27,9 @@ final class GeneiousImportScannerTests: XCTestCase {
         )
         let archiveURL = root.appendingPathComponent("Example.geneious")
         try runZip(workingDirectory: source, archiveURL: archiveURL, entries: ["Example.geneious", "fileData.0", "reads/sample.fa"])
+        let scanTemp = try makeProjectTempDirectory(in: root, name: "scan")
 
-        let inventory = try await GeneiousImportScanner().scan(sourceURL: archiveURL)
+        let inventory = try await GeneiousImportScanner().scan(sourceURL: archiveURL, temporaryDirectory: scanTemp)
 
         XCTAssertEqual(inventory.sourceKind, .geneiousArchive)
         XCTAssertEqual(inventory.geneiousVersion, "2026.0.2")
@@ -47,6 +48,23 @@ final class GeneiousImportScannerTests: XCTestCase {
         XCTAssertEqual(itemsByPath["Example.geneious"]?.geneiousDocumentName, "MCM MHC Haplotypes")
         XCTAssertNotNil(itemsByPath["reads/sample.fa"]?.sha256)
         XCTAssertEqual(itemsByPath["reads/sample.fa"]?.sizeBytes, 13)
+        XCTAssertFalse(fileManager.fileExists(atPath: scanTemp.path))
+    }
+
+    func testArchiveScanRequiresExplicitProjectTempDirectory() async throws {
+        let root = try makeTempDirectory()
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        try writeGeneiousXML(to: source.appendingPathComponent("Example.geneious"))
+        let archiveURL = root.appendingPathComponent("Example.geneious")
+        try runZip(workingDirectory: source, archiveURL: archiveURL, entries: ["Example.geneious"])
+
+        do {
+            _ = try await GeneiousImportScanner().scan(sourceURL: archiveURL)
+            XCTFail("Archive scan should require an explicit project-local temp directory.")
+        } catch let error as GeneiousImportScannerError {
+            XCTAssertEqual(error, .temporaryDirectoryRequired)
+        }
     }
 
     func testScannerClassifiesStandardFilesInFolderExport() async throws {
@@ -96,7 +114,12 @@ final class GeneiousImportScannerTests: XCTestCase {
             throw XCTSkip("Set LUNGFISH_GENEIOUS_SAMPLE to run the external Geneious sample smoke test.")
         }
 
-        let inventory = try await GeneiousImportScanner().scan(sourceURL: URL(fileURLWithPath: path))
+        let root = try makeTempDirectory()
+        let scanTemp = try makeProjectTempDirectory(in: root, name: "external-scan")
+        let inventory = try await GeneiousImportScanner().scan(
+            sourceURL: URL(fileURLWithPath: path),
+            temporaryDirectory: scanTemp
+        )
 
         XCTAssertEqual(inventory.sourceKind, .geneiousArchive)
         XCTAssertEqual(inventory.items.filter { $0.kind == .geneiousXML }.count, 1)
@@ -109,6 +132,15 @@ final class GeneiousImportScannerTests: XCTestCase {
         let url = fileManager.temporaryDirectory.appendingPathComponent("geneious-scanner-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         tempRoots.append(url)
+        return url
+    }
+
+    private func makeProjectTempDirectory(in root: URL, name: String) throws -> URL {
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        let url = projectURL
+            .appendingPathComponent(".tmp", isDirectory: true)
+            .appendingPathComponent("\(name)-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
 

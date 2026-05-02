@@ -85,11 +85,17 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         let calls = await capture.calls
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(calls.first?.sourceURL.lastPathComponent, "reference.fa")
+        XCTAssertTrue(calls.first?.sourceURL.path.contains("/Project.lungfish/.tmp/application-export-import-") == true)
         XCTAssertEqual(calls.first?.outputDirectory.lastPathComponent, "LGE Bundles")
         XCTAssertEqual(calls.first?.preferredName, "reference")
         XCTAssertEqual(result.nativeBundleURLs.count, 1)
         XCTAssertTrue(result.preservedArtifactURLs.contains { $0.path.hasSuffix("reports/summary.tsv") })
         XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Binary Artifacts/reports/summary.tsv").path))
+        let tempChildren = (try? fileManager.contentsOfDirectory(
+            at: projectURL.appendingPathComponent(".tmp", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertFalse(tempChildren.contains { $0.lastPathComponent.hasPrefix("application-export-import-") })
     }
 
     func testArchiveImportRejectsUnsafeMembers() async throws {

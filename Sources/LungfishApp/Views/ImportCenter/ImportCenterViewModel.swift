@@ -455,7 +455,7 @@ final class ImportCenterViewModel {
         ImportCardInfo(
             id: "geneious-export",
             title: "Geneious Export",
-            description: "Import a Geneious archive or export folder into one Lungfish project collection with native bundles and preserved artifacts.",
+            description: "Import a Geneious archive or export folder into one Lungfish project collection with native reference and annotation bundles.",
             sfSymbol: "shippingbox",
             fileHint: ".geneious archive or Geneious export folder",
             tab: .applicationExports,

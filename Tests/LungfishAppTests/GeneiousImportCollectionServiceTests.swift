@@ -1,3 +1,4 @@
+import LungfishCore
 import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
@@ -29,12 +30,12 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
 
         XCTAssertEqual(result.collectionURL.lastPathComponent, "Example Geneious Import")
         XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("LGE Bundles").path))
-        XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Binary Artifacts").path))
-        XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Source").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Binary Artifacts").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Source").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Decoded FASTA").path))
         XCTAssertTrue(fileManager.fileExists(atPath: result.inventoryURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: result.reportURL.path))
         XCTAssertTrue(fileManager.fileExists(atPath: result.provenanceURL.path))
-        XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Source/Example.geneious").path))
 
         let inventoryData = try Data(contentsOf: result.inventoryURL)
         let inventoryDecoder = JSONDecoder()
@@ -59,7 +60,7 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertTrue(provenance.steps.contains { $0.toolName == "Geneious Import" })
     }
 
-    func testImportPreservesUnsupportedArchiveMembersAsBinaryArtifacts() async throws {
+    func testImportPreservesUnsupportedArchiveMembersAsBinaryArtifactsWhenRequested() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
         try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -68,10 +69,14 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         let result = try await makeService().importGeneiousExport(
             sourceURL: archiveURL,
             projectURL: projectURL,
-            options: .default
+            options: GeneiousImportOptions(
+                preserveRawSource: true,
+                preserveUnsupportedArtifacts: true
+            )
         )
 
         let artifactRoot = result.collectionURL.appendingPathComponent("Binary Artifacts", isDirectory: true)
+        XCTAssertTrue(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Source/Example.geneious").path))
         XCTAssertTrue(fileManager.fileExists(atPath: artifactRoot.appendingPathComponent("Example.geneious").path))
         XCTAssertTrue(fileManager.fileExists(atPath: artifactRoot.appendingPathComponent("fileData.0").path))
         XCTAssertTrue(fileManager.fileExists(atPath: artifactRoot.appendingPathComponent("docs/notes.txt").path))
@@ -122,13 +127,22 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         let archiveURL = root.appendingPathComponent("Packed.geneious")
         try runZip(workingDirectory: source, archiveURL: archiveURL, entries: ["Example.geneious", "fileData.0", "fileData.1"])
         let capture = ReferenceImportCapture()
+        let annotationCapture = AnnotationImportCapture()
         let service = GeneiousImportCollectionService(
             scanner: GeneiousImportScanner(),
             referenceImporter: { sourceURL, outputDirectory, preferredName in
-                await capture.record(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName)
+                await capture.record(
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory,
+                    preferredName: preferredName,
+                    fastaText: try? String(contentsOf: sourceURL, encoding: .utf8)
+                )
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
                 try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
+            },
+            annotationImporter: { gffURL, bundleURL in
+                try await annotationCapture.record(gffURL: gffURL, bundleURL: bundleURL)
             }
         )
 
@@ -141,8 +155,8 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         let calls = await capture.calls
         XCTAssertEqual(calls.count, 1)
         XCTAssertEqual(calls.first?.preferredName, "Packed Haplotypes")
-        let generatedFASTA = try XCTUnwrap(calls.first?.sourceURL)
-        let fasta = try String(contentsOf: generatedFASTA, encoding: .utf8)
+        let fasta = try XCTUnwrap(calls.first?.fastaText)
+        XCTAssertTrue(calls.first?.sourceURL.path.contains("/Project.lungfish/.tmp/geneious-import-") == true)
         XCTAssertTrue(fasta.contains(">Seq One"))
         XCTAssertTrue(fasta.contains("ACGTACGT"))
         XCTAssertTrue(fasta.contains(">Seq Two"))
@@ -152,6 +166,22 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertFalse(result.preservedArtifactURLs.contains { $0.lastPathComponent == "fileData.1" })
         XCTAssertFalse(result.warnings.contains { $0.contains("fileData.0 contains native Geneious data") })
         XCTAssertFalse(result.warnings.contains { $0.contains("fileData.1 contains native Geneious data") })
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Decoded FASTA").path))
+
+        let annotationCalls = await annotationCapture.calls
+        XCTAssertEqual(annotationCalls.count, 1)
+        let gff3 = try XCTUnwrap(annotationCalls.first?.gff3Text)
+        XCTAssertTrue(annotationCalls.first?.gffURL.path.contains("/Project.lungfish/.tmp/geneious-import-") == true)
+        XCTAssertTrue(gff3.contains("Seq One\tGeneious\tgene\t2\t5\t.\t+\t."))
+        XCTAssertTrue(gff3.contains("Name=Test%20gene"))
+        XCTAssertTrue(gff3.contains("Seq One\tGeneious\tCDS\t1\t2\t.\t+\t.\tID=geneious-2;part=1;Name=Split%20CDS"))
+        XCTAssertTrue(gff3.contains("Seq One\tGeneious\tCDS\t5\t6\t.\t+\t.\tID=geneious-2;part=2;Name=Split%20CDS"))
+        XCTAssertFalse(gff3.contains("Parent=geneious-2"))
+        let tempChildren = (try? fileManager.contentsOfDirectory(
+            at: projectURL.appendingPathComponent(".tmp", isDirectory: true),
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertFalse(tempChildren.contains { $0.lastPathComponent.hasPrefix("geneious-import-") })
     }
 
     func testImportFolderNameIsSanitizedAndUniqued() async throws {
@@ -241,6 +271,41 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
                     <sequence_length type="int">8</sequence_length>
                   </fields>
                   <name>Seq One</name>
+                  <sequenceAnnotations>
+                    <annotation>
+                      <description>Test gene</description>
+                      <type>gene</type>
+                      <intervals>
+                        <interval>
+                          <minimumIndex>1</minimumIndex>
+                          <maximumIndex>4</maximumIndex>
+                          <direction>leftToRight</direction>
+                        </interval>
+                      </intervals>
+                      <qualifiers>
+                        <qualifier>
+                          <name>note</name>
+                          <value>converted from Geneious</value>
+                        </qualifier>
+                      </qualifiers>
+                    </annotation>
+                    <annotation>
+                      <description>Split CDS</description>
+                      <type>CDS</type>
+                      <intervals>
+                        <interval>
+                          <minimumIndex>0</minimumIndex>
+                          <maximumIndex>1</maximumIndex>
+                          <direction>leftToRight</direction>
+                        </interval>
+                        <interval>
+                          <minimumIndex>4</minimumIndex>
+                          <maximumIndex>5</maximumIndex>
+                          <direction>leftToRight</direction>
+                        </interval>
+                      </intervals>
+                    </annotation>
+                  </sequenceAnnotations>
                   <charSequence xmlFileData="fileData.0" fileSize="12" length="8" />
                 </nucleotideSequence>
                 <nucleotideSequence type="DefaultNucleotideSequence">
@@ -327,13 +392,53 @@ private actor ReferenceImportCapture {
         let sourceURL: URL
         let outputDirectory: URL
         let preferredName: String
+        let fastaText: String?
     }
 
     private var storage: [Call] = []
 
     var calls: [Call] { storage }
 
-    func record(sourceURL: URL, outputDirectory: URL, preferredName: String) {
-        storage.append(Call(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName))
+    func record(
+        sourceURL: URL,
+        outputDirectory: URL,
+        preferredName: String,
+        fastaText: String? = nil
+    ) {
+        storage.append(Call(
+            sourceURL: sourceURL,
+            outputDirectory: outputDirectory,
+            preferredName: preferredName,
+            fastaText: fastaText
+        ))
+    }
+}
+
+private actor AnnotationImportCapture {
+    struct Call: Equatable {
+        let gffURL: URL
+        let bundleURL: URL
+        let gff3Text: String
+    }
+
+    private var storage: [Call] = []
+
+    var calls: [Call] { storage }
+
+    func record(gffURL: URL, bundleURL: URL) throws -> ReferenceBundleAnnotationImportResult {
+        let gff3Text = try String(contentsOf: gffURL, encoding: .utf8)
+        storage.append(Call(gffURL: gffURL, bundleURL: bundleURL, gff3Text: gff3Text))
+        return ReferenceBundleAnnotationImportResult(
+            bundleURL: bundleURL,
+            track: AnnotationTrackInfo(
+                id: "geneious_annotations",
+                name: "Geneious annotations",
+                path: "annotations/geneious_annotations.db",
+                annotationType: .custom,
+                featureCount: gff3Text.split(separator: "\n").filter { !$0.hasPrefix("#") }.count,
+                source: gffURL.path
+            ),
+            featureCount: gff3Text.split(separator: "\n").filter { !$0.hasPrefix("#") }.count
+        )
     }
 }

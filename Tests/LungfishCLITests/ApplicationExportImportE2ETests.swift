@@ -25,7 +25,11 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         ])
 
         XCTAssertEqual(result.exitCode, 0, result.stderr)
-        try assertCLIImportOutput(result.stdout, expectedCollectionName: "Representative Geneious Import")
+        try assertCLIImportOutput(
+            result.stdout,
+            expectedCollectionName: "Representative Geneious Import",
+            expectsBinaryArtifacts: false
+        )
     }
 
     func testApplicationExportCardsRunThroughCLIWithRepresentativeDatasets() throws {
@@ -61,6 +65,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         _ stdout: String,
         expectedCollectionName: String? = nil,
         expectedCollectionNamePrefix: String? = nil,
+        expectsBinaryArtifacts: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
@@ -93,7 +98,11 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.appendingPathComponent("import-report.md").path), file: file, line: line)
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.appendingPathComponent(".lungfish-provenance.json").path), file: file, line: line)
         XCTAssertFalse(try recursiveDirectories(at: collectionURL.appendingPathComponent("LGE Bundles")).filter { $0.pathExtension == "lungfishref" }.isEmpty, file: file, line: line)
-        XCTAssertFalse(try recursiveFiles(at: collectionURL.appendingPathComponent("Binary Artifacts")).isEmpty, file: file, line: line)
+        if expectsBinaryArtifacts {
+            XCTAssertFalse(try recursiveFiles(at: collectionURL.appendingPathComponent("Binary Artifacts")).isEmpty, file: file, line: line)
+        } else {
+            XCTAssertFalse(fileManager.fileExists(atPath: collectionURL.appendingPathComponent("Binary Artifacts").path), file: file, line: line)
+        }
     }
 
     private func makeApplicationExportFixture(

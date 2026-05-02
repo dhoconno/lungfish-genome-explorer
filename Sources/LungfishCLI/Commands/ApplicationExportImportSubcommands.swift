@@ -18,13 +18,19 @@ extension ImportCommand {
         @Option(name: .customLong("collection-name"), help: "Optional collection base name")
         var collectionName: String?
 
-        @Flag(name: .customLong("no-preserve-raw-source"), help: "Do not copy the original export into the collection")
+        @Flag(name: .customLong("preserve-raw-source"), help: "Copy the original export into the collection")
+        var preserveRawSource = false
+
+        @Flag(name: .customLong("no-preserve-raw-source"), help: .hidden)
         var noPreserveRawSource = false
 
         @Flag(name: .customLong("no-import-references"), help: "Preserve standalone references instead of converting them to .lungfishref bundles")
         var noImportReferences = false
 
-        @Flag(name: .customLong("no-preserve-unsupported"), help: "Skip unsupported artifacts instead of preserving them as binary files")
+        @Flag(name: .customLong("preserve-unsupported"), help: "Copy unsupported artifacts into Binary Artifacts")
+        var preserveUnsupported = false
+
+        @Flag(name: .customLong("no-preserve-unsupported"), help: .hidden)
         var noPreserveUnsupported = false
 
         @OptionGroup var globalOptions: GlobalOptions
@@ -37,9 +43,9 @@ extension ImportCommand {
 
             let options = GeneiousImportOptions(
                 collectionName: collectionName,
-                preserveRawSource: !noPreserveRawSource,
+                preserveRawSource: preserveRawSource && !noPreserveRawSource,
                 importStandaloneReferences: !noImportReferences,
-                preserveUnsupportedArtifacts: !noPreserveUnsupported
+                preserveUnsupportedArtifacts: preserveUnsupported && !noPreserveUnsupported
             )
 
             do {

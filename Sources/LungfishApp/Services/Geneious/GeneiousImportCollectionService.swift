@@ -1,8 +1,11 @@
 import Foundation
+import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 public typealias GeneiousImportProgress = @Sendable (Double, String) -> Void
 public typealias GeneiousReferenceImporter = @Sendable (URL, URL, String) async throws -> ReferenceBundleImportResult
+public typealias GeneiousAnnotationImporter = @Sendable (URL, URL) async throws -> ReferenceBundleAnnotationImportResult
 
 public struct GeneiousImportCollectionService: Sendable {
     public static let `default` = GeneiousImportCollectionService()
@@ -10,6 +13,7 @@ public struct GeneiousImportCollectionService: Sendable {
     private let scanner: GeneiousImportScanner
     private let archiveTool: GeneiousArchiveTool
     private let referenceImporter: GeneiousReferenceImporter
+    private let annotationImporter: GeneiousAnnotationImporter
 
     public init(
         scanner: GeneiousImportScanner = GeneiousImportScanner(),
@@ -20,11 +24,16 @@ public struct GeneiousImportCollectionService: Sendable {
                 outputDirectory: outputDirectory,
                 preferredBundleName: preferredName
             )
+        },
+        annotationImporter: @escaping GeneiousAnnotationImporter = { sourceURL, bundleURL in
+            let service = ReferenceBundleAnnotationImportService()
+            return try await service.attachAnnotationTrack(sourceURL: sourceURL, bundleURL: bundleURL)
         }
     ) {
         self.scanner = scanner
         self.archiveTool = archiveTool
         self.referenceImporter = referenceImporter
+        self.annotationImporter = annotationImporter
     }
 
     public func importGeneiousExport(
@@ -34,8 +43,14 @@ public struct GeneiousImportCollectionService: Sendable {
         progress: GeneiousImportProgress? = nil
     ) async throws -> GeneiousImportResult {
         let startedAt = Date()
+        let tempRunURL = try createProjectTempRunDirectory(projectURL: projectURL)
+        defer { try? FileManager.default.removeItem(at: tempRunURL) }
+
         progress?(0.02, "Scanning Geneious export...")
-        let scannedInventory = try await scanner.scan(sourceURL: sourceURL)
+        let scannedInventory = try await scanner.scan(
+            sourceURL: sourceURL,
+            temporaryDirectory: tempRunURL.appendingPathComponent("scan", isDirectory: true)
+        )
 
         let collectionURL = try createCollectionFolder(
             sourceURL: sourceURL,
@@ -43,25 +58,42 @@ public struct GeneiousImportCollectionService: Sendable {
             options: options
         )
         let bundlesURL = collectionURL.appendingPathComponent("LGE Bundles", isDirectory: true)
-        let artifactsURL = collectionURL.appendingPathComponent("Binary Artifacts", isDirectory: true)
-        let rawSourceURL = collectionURL.appendingPathComponent("Source", isDirectory: true)
         try FileManager.default.createDirectory(at: bundlesURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: rawSourceURL, withIntermediateDirectories: true)
+
+        let artifactsURL = options.preserveUnsupportedArtifacts
+            ? collectionURL.appendingPathComponent("Binary Artifacts", isDirectory: true)
+            : nil
+        if let artifactsURL {
+            try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
+        }
+
+        let rawSourceURL = options.preserveRawSource
+            ? collectionURL.appendingPathComponent("Source", isDirectory: true)
+            : nil
+        if let rawSourceURL {
+            try FileManager.default.createDirectory(at: rawSourceURL, withIntermediateDirectories: true)
+        }
 
         var sourceCopyOutputs: [URL] = []
-        if options.preserveRawSource {
+        if options.preserveRawSource, let rawSourceURL {
             progress?(0.12, "Preserving original Geneious source...")
             let copied = try preserveRawSource(sourceURL: sourceURL, destinationDirectory: rawSourceURL)
             sourceCopyOutputs.append(copied)
         }
 
-        let materialized = try materializeSourceIfNeeded(sourceURL: sourceURL, sourceKind: scannedInventory.sourceKind)
+        let materialized = try materializeSourceIfNeeded(
+            sourceURL: sourceURL,
+            sourceKind: scannedInventory.sourceKind,
+            tempRunURL: tempRunURL
+        )
         defer { materialized.cleanup() }
+
+        let stagingURL = tempRunURL.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
 
         var nativeBundleURLs: [URL] = []
         var preservedArtifactURLs: [URL] = []
-        var decodedFASTAURLs: [URL] = []
+        let decodedFASTAURLs: [URL] = []
         var warnings = scannedInventory.warnings
         var processedItems: [GeneiousImportItem] = []
         var decodedDestinations: [String: String] = [:]
@@ -70,8 +102,10 @@ public struct GeneiousImportCollectionService: Sendable {
         let decodedSequenceSets = try GeneiousPackedSequenceExtractor()
             .extractSequenceSets(rootURL: materialized.rootURL)
         if !decodedSequenceSets.isEmpty {
-            let decodedFASTARoot = collectionURL.appendingPathComponent("Decoded FASTA", isDirectory: true)
+            let decodedFASTARoot = stagingURL.appendingPathComponent("Decoded FASTA", isDirectory: true)
+            let annotationRoot = stagingURL.appendingPathComponent("Geneious Annotations", isDirectory: true)
             try FileManager.default.createDirectory(at: decodedFASTARoot, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: annotationRoot, withIntermediateDirectories: true)
             for (index, sequenceSet) in decodedSequenceSets.enumerated() {
                 progress?(
                     0.18 + (Double(index) / Double(max(decodedSequenceSets.count, 1))) * 0.10,
@@ -83,8 +117,18 @@ public struct GeneiousImportCollectionService: Sendable {
                     preferredName: preferredName,
                     outputDirectory: decodedFASTARoot
                 )
-                decodedFASTAURLs.append(fastaURL)
                 let result = try await referenceImporter(fastaURL, bundlesURL, preferredName)
+                if let gffURL = try writeGeneiousAnnotationsGFF3(
+                    sequenceSet,
+                    preferredName: preferredName,
+                    outputDirectory: annotationRoot
+                ) {
+                    _ = try await annotationImporter(gffURL, result.bundleURL)
+                }
+                try rehydrateGeneiousBundleManifest(
+                    bundleURL: result.bundleURL,
+                    sourceURL: sourceURL
+                )
                 nativeBundleURLs.append(result.bundleURL)
                 let destination = relativePath(from: collectionURL, to: result.bundleURL)
                 decodedDestinations[sequenceSet.documentRelativePath] = destination
@@ -92,7 +136,8 @@ public struct GeneiousImportCollectionService: Sendable {
                     decodedDestinations[sidecarPath] = destination
                 }
                 warnings.append(contentsOf: sequenceSet.warnings)
-                if !sequenceSet.annotationSidecarPaths.isEmpty || sequenceSet.hasInlineAnnotations {
+                if (!sequenceSet.annotationSidecarPaths.isEmpty || sequenceSet.hasInlineAnnotations)
+                    && sequenceSet.records.allSatisfy({ $0.annotations.isEmpty }) {
                     appendUnique(
                         "\(sequenceSet.documentRelativePath) contains Geneious sequence annotations that are not yet translated to LGE annotation tracks.",
                         to: &warnings
@@ -118,10 +163,15 @@ public struct GeneiousImportCollectionService: Sendable {
                     URL(fileURLWithPath: item.sourceRelativePath).deletingPathExtension().lastPathComponent
                 )
                 let result = try await referenceImporter(sourceFileURL, bundlesURL, preferredName)
+                try rehydrateGeneiousBundleManifest(
+                    bundleURL: result.bundleURL,
+                    sourceURL: sourceURL
+                )
                 nativeBundleURLs.append(result.bundleURL)
                 destination = relativePath(from: collectionURL, to: result.bundleURL)
             } else if options.preserveUnsupportedArtifacts {
                 warnings.append(contentsOf: item.warnings)
+                guard let artifactsURL else { continue }
                 let artifactURL = artifactsURL.appendingPathComponent(item.sourceRelativePath)
                 try copyReplacingExistingItem(from: sourceFileURL, to: artifactURL)
                 preservedArtifactURLs.append(artifactURL)
@@ -174,6 +224,7 @@ public struct GeneiousImportCollectionService: Sendable {
             nativeBundleURLs: nativeBundleURLs,
             options: options,
             sourceKind: scannedInventory.sourceKind,
+            tempRunURL: tempRunURL,
             startedAt: startedAt
         )
         try writeJSON(provenance, to: provenanceURL)
@@ -190,18 +241,29 @@ public struct GeneiousImportCollectionService: Sendable {
         )
     }
 
-    private func materializeSourceIfNeeded(sourceURL: URL, sourceKind: GeneiousImportSourceKind) throws -> MaterializedGeneiousSource {
+    private func materializeSourceIfNeeded(
+        sourceURL: URL,
+        sourceKind: GeneiousImportSourceKind,
+        tempRunURL: URL
+    ) throws -> MaterializedGeneiousSource {
         switch sourceKind {
         case .geneiousArchive:
-            let tempRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("geneious-import-\(UUID().uuidString)", isDirectory: true)
+            let tempRoot = tempRunURL.appendingPathComponent("archive", isDirectory: true)
             try archiveTool.extract(archiveURL: sourceURL, to: tempRoot)
-            return MaterializedGeneiousSource(rootURL: tempRoot, cleanupURL: tempRoot)
+            return MaterializedGeneiousSource(rootURL: tempRoot, cleanupURL: nil)
         case .folder:
             return MaterializedGeneiousSource(rootURL: sourceURL, cleanupURL: nil)
         case .file:
             return MaterializedGeneiousSource(rootURL: sourceURL, cleanupURL: nil)
         }
+    }
+
+    private func createProjectTempRunDirectory(projectURL: URL) throws -> URL {
+        try ProjectTempDirectory.create(
+            prefix: "geneious-import-",
+            contextURL: projectURL,
+            policy: .requireProjectContext
+        )
     }
 
     private func sourceFileURL(
@@ -278,6 +340,121 @@ public struct GeneiousImportCollectionService: Sendable {
         return fastaURL
     }
 
+    private func writeGeneiousAnnotationsGFF3(
+        _ sequenceSet: GeneiousDecodedSequenceSet,
+        preferredName: String,
+        outputDirectory: URL
+    ) throws -> URL? {
+        var lines = ["##gff-version 3"]
+        var featureIndex = 1
+
+        for record in sequenceSet.records {
+            for annotation in record.annotations where !annotation.intervals.isEmpty {
+                let annotationID = "geneious-\(featureIndex)"
+                let featureType = Self.gff3FeatureType(annotation.type)
+                for (partIndex, interval) in annotation.intervals.enumerated() {
+                    let start = min(interval.minimumIndex, interval.maximumIndex) + 1
+                    let end = max(interval.minimumIndex, interval.maximumIndex) + 1
+                    guard start > 0, end >= start else { continue }
+
+                    var attributes: [(String, String)] = [
+                        ("ID", annotationID),
+                    ]
+                    if annotation.intervals.count > 1 {
+                        attributes.append(("part", "\(partIndex + 1)"))
+                    }
+                    if !annotation.description.isEmpty {
+                        attributes.append(("Name", annotation.description))
+                    }
+                    if featureType != annotation.type {
+                        attributes.append(("geneious_type", annotation.type))
+                    }
+                    for qualifier in annotation.qualifiers {
+                        let key = Self.gff3AttributeKey(qualifier.name)
+                        guard !key.isEmpty, key != "ID", key != "Parent", key != "Name" else { continue }
+                        attributes.append((key, qualifier.value))
+                    }
+
+                    let attributeText = attributes
+                        .map { "\($0.0)=\(Self.gff3EscapedAttributeValue($0.1))" }
+                        .joined(separator: ";")
+                    lines.append([
+                        record.name,
+                        "Geneious",
+                        featureType,
+                        "\(start)",
+                        "\(end)",
+                        ".",
+                        Self.gff3Strand(interval.direction),
+                        ".",
+                        attributeText,
+                    ].joined(separator: "\t"))
+                }
+                featureIndex += 1
+            }
+        }
+
+        guard lines.count > 1 else { return nil }
+        let gffURL = try uniqueFileURL(
+            baseName: "\(preferredName.isEmpty ? "Geneious Sequences" : preferredName) annotations",
+            extension: "gff3",
+            in: outputDirectory
+        )
+        try (lines.joined(separator: "\n") + "\n").write(to: gffURL, atomically: true, encoding: .utf8)
+        return gffURL
+    }
+
+    private func rehydrateGeneiousBundleManifest(bundleURL: URL, sourceURL: URL) throws {
+        guard let manifest = try? BundleManifest.load(from: bundleURL) else {
+            return
+        }
+
+        let source = SourceInfo(
+            organism: manifest.source.organism,
+            commonName: manifest.source.commonName,
+            taxonomyId: manifest.source.taxonomyId,
+            assembly: manifest.source.assembly,
+            assemblyAccession: manifest.source.assemblyAccession,
+            database: "Geneious Export",
+            sourceURL: sourceURL,
+            downloadDate: manifest.source.downloadDate,
+            notes: "Imported from Geneious export \(sourceURL.lastPathComponent)"
+        )
+
+        let annotations = manifest.annotations.map { track in
+            AnnotationTrackInfo(
+                id: track.id,
+                name: track.name,
+                description: track.description,
+                path: track.path,
+                databasePath: track.databasePath,
+                annotationType: track.annotationType,
+                featureCount: track.featureCount,
+                source: sourceURL.path,
+                version: track.version
+            )
+        }
+
+        let updated = BundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            identifier: manifest.identifier,
+            description: manifest.description,
+            originBundlePath: manifest.originBundlePath,
+            createdDate: manifest.createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: manifest.genome,
+            annotations: annotations,
+            variants: manifest.variants,
+            tracks: manifest.tracks,
+            alignments: manifest.alignments,
+            metadata: manifest.metadata,
+            browserSummary: manifest.browserSummary
+        )
+        try updated.save(to: bundleURL)
+    }
+
     private func uniqueFileURL(baseName: String, extension fileExtension: String, in directory: URL) throws -> URL {
         var candidate = directory.appendingPathComponent("\(Self.sanitizedBaseName(baseName)).\(fileExtension)")
         var index = 2
@@ -286,6 +463,59 @@ public struct GeneiousImportCollectionService: Sendable {
             index += 1
         }
         return candidate
+    }
+
+    private static func gff3FeatureType(_ value: String) -> String {
+        let sanitized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .unicodeScalars
+            .map { scalar -> Character in
+                CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._:-")).contains(scalar)
+                    ? Character(scalar)
+                    : "_"
+            }
+        let collapsed = String(sanitized)
+            .split(separator: "_", omittingEmptySubsequences: true)
+            .joined(separator: "_")
+        return collapsed.isEmpty ? "region" : collapsed
+    }
+
+    private static func gff3AttributeKey(_ value: String) -> String {
+        let sanitized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .unicodeScalars
+            .map { scalar -> Character in
+                CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_")).contains(scalar)
+                    ? Character(scalar)
+                    : "_"
+            }
+        return String(sanitized)
+            .split(separator: "_", omittingEmptySubsequences: true)
+            .joined(separator: "_")
+    }
+
+    private static func gff3EscapedAttributeValue(_ value: String) -> String {
+        var escaped = ""
+        for scalar in value.unicodeScalars {
+            switch scalar {
+            case " ", ";", "=", "\t", "\n", "\r", "%", ",":
+                escaped += String(format: "%%%02X", scalar.value)
+            default:
+                escaped.unicodeScalars.append(scalar)
+            }
+        }
+        return escaped
+    }
+
+    private static func gff3Strand(_ direction: String) -> String {
+        switch direction {
+        case "leftToRight":
+            return "+"
+        case "rightToLeft":
+            return "-"
+        default:
+            return "."
+        }
     }
 
     private func warning(forPreservedItem item: GeneiousImportItem) -> String {
@@ -345,6 +575,7 @@ public struct GeneiousImportCollectionService: Sendable {
         nativeBundleURLs: [URL],
         options: GeneiousImportOptions,
         sourceKind: GeneiousImportSourceKind,
+        tempRunURL: URL,
         startedAt: Date
     ) -> WorkflowRun {
         let scanStarted = startedAt
@@ -382,11 +613,14 @@ public struct GeneiousImportCollectionService: Sendable {
         if sourceKind == .geneiousArchive {
             preserveToolName = "unzip"
             preserveToolVersion = Self.unzipVersion()
-            preserveCommand = ["/usr/bin/unzip", "-qq", sourceURL.path, "-d", collectionURL.path]
+            preserveCommand = [
+                "/usr/bin/unzip", "-qq", sourceURL.path,
+                "-d", tempRunURL.appendingPathComponent("archive", isDirectory: true).path,
+            ]
         } else {
             preserveToolName = "Geneious Import"
             preserveToolVersion = WorkflowRun.currentAppVersion
-            preserveCommand = ["copy", sourceURL.path, collectionURL.path]
+            preserveCommand = ["stage", sourceURL.path, tempRunURL.path]
         }
         let preserveStep = StepExecution(
             toolName: preserveToolName,
@@ -433,6 +667,7 @@ public struct GeneiousImportCollectionService: Sendable {
                 "importStandaloneReferences": .boolean(options.importStandaloneReferences),
                 "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
                 "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
+                "temporaryDirectory": .file(tempRunURL),
             ]
         )
     }

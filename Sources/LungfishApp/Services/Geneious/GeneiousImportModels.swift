@@ -103,9 +103,9 @@ public struct GeneiousImportOptions: Sendable, Equatable {
 
     public init(
         collectionName: String? = nil,
-        preserveRawSource: Bool = true,
+        preserveRawSource: Bool = false,
         importStandaloneReferences: Bool = true,
-        preserveUnsupportedArtifacts: Bool = true
+        preserveUnsupportedArtifacts: Bool = false
     ) {
         self.collectionName = collectionName
         self.preserveRawSource = preserveRawSource

@@ -11,7 +11,7 @@ public struct GeneiousImportScanner: Sendable {
 
     private var fileManager: FileManager { .default }
 
-    public func scan(sourceURL: URL) async throws -> GeneiousImportInventory {
+    public func scan(sourceURL: URL, temporaryDirectory: URL? = nil) async throws -> GeneiousImportInventory {
         let sourceKind = try sourceKind(for: sourceURL)
         var warnings: [String] = []
         let scanRoot: URL
@@ -19,8 +19,9 @@ public struct GeneiousImportScanner: Sendable {
 
         switch sourceKind {
         case .geneiousArchive:
-            let tempRoot = fileManager.temporaryDirectory
-                .appendingPathComponent("geneious-scan-\(UUID().uuidString)", isDirectory: true)
+            guard let tempRoot = temporaryDirectory else {
+                throw GeneiousImportScannerError.temporaryDirectoryRequired
+            }
             try archiveTool.extract(archiveURL: sourceURL, to: tempRoot)
             scanRoot = tempRoot
             cleanupRoot = tempRoot
@@ -326,5 +327,16 @@ private final class GeneiousXMLMetadataParser: NSObject, XMLParserDelegate {
     private func appendUnique(_ value: String?, to values: inout [String]) {
         guard let value, !values.contains(value) else { return }
         values.append(value)
+    }
+}
+
+public enum GeneiousImportScannerError: LocalizedError, Sendable, Equatable {
+    case temporaryDirectoryRequired
+
+    public var errorDescription: String? {
+        switch self {
+        case .temporaryDirectoryRequired:
+            return "Scanning a Geneious archive requires a project-local temporary directory."
+        }
     }
 }

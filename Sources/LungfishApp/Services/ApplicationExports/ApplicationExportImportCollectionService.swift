@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 public typealias ApplicationExportImportProgress = @Sendable (Double, String) -> Void
@@ -35,8 +36,15 @@ public struct ApplicationExportImportCollectionService: Sendable {
         progress: ApplicationExportImportProgress? = nil
     ) async throws -> ApplicationExportImportResult {
         let startedAt = Date()
+        let tempRunURL = try createProjectTempRunDirectory(projectURL: projectURL)
+        defer { try? FileManager.default.removeItem(at: tempRunURL) }
+
         progress?(0.02, "Scanning \(kind.displayName) export...")
-        let scannedInventory = try await scanner.scan(sourceURL: sourceURL, kind: kind)
+        let scannedInventory = try await scanner.scan(
+            sourceURL: sourceURL,
+            kind: kind,
+            temporaryDirectory: tempRunURL.appendingPathComponent("scan", isDirectory: true)
+        )
 
         let collectionURL = try createCollectionFolder(
             sourceURL: sourceURL,
@@ -59,7 +67,8 @@ public struct ApplicationExportImportCollectionService: Sendable {
 
         let materialized = try materializeSourceIfNeeded(
             sourceURL: sourceURL,
-            sourceKind: scannedInventory.sourceKind
+            sourceKind: scannedInventory.sourceKind,
+            tempRunURL: tempRunURL
         )
         defer { materialized.cleanup() }
 
@@ -132,6 +141,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
             options: options,
             applicationKind: kind,
             sourceKind: scannedInventory.sourceKind,
+            tempRunURL: tempRunURL,
             startedAt: startedAt
         )
         try writeJSON(provenance, to: provenanceURL)
@@ -150,19 +160,27 @@ public struct ApplicationExportImportCollectionService: Sendable {
 
     private func materializeSourceIfNeeded(
         sourceURL: URL,
-        sourceKind: ApplicationExportImportSourceKind
+        sourceKind: ApplicationExportImportSourceKind,
+        tempRunURL: URL
     ) throws -> MaterializedApplicationExportSource {
         switch sourceKind {
         case .archive:
-            let tempRoot = FileManager.default.temporaryDirectory
-                .appendingPathComponent("application-export-import-\(UUID().uuidString)", isDirectory: true)
+            let tempRoot = tempRunURL.appendingPathComponent("archive", isDirectory: true)
             try archiveTool.extract(archiveURL: sourceURL, to: tempRoot)
-            return MaterializedApplicationExportSource(rootURL: tempRoot, cleanupURL: tempRoot)
+            return MaterializedApplicationExportSource(rootURL: tempRoot, cleanupURL: nil)
         case .folder:
             return MaterializedApplicationExportSource(rootURL: sourceURL, cleanupURL: nil)
         case .file:
             return MaterializedApplicationExportSource(rootURL: sourceURL, cleanupURL: nil)
         }
+    }
+
+    private func createProjectTempRunDirectory(projectURL: URL) throws -> URL {
+        try ProjectTempDirectory.create(
+            prefix: "application-export-import-",
+            contextURL: projectURL,
+            policy: .requireProjectContext
+        )
     }
 
     private func sourceFileURL(
@@ -277,6 +295,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         options: ApplicationExportImportOptions,
         applicationKind: ApplicationExportKind,
         sourceKind: ApplicationExportImportSourceKind,
+        tempRunURL: URL,
         startedAt: Date
     ) -> WorkflowRun {
         let scanStarted = startedAt
@@ -313,7 +332,10 @@ public struct ApplicationExportImportCollectionService: Sendable {
         if sourceKind == .archive {
             preserveToolName = "unzip"
             preserveToolVersion = Self.unzipVersion()
-            preserveCommand = ["/usr/bin/unzip", "-qq", sourceURL.path, "-d", collectionURL.path]
+            preserveCommand = [
+                "/usr/bin/unzip", "-qq", sourceURL.path,
+                "-d", tempRunURL.appendingPathComponent("archive", isDirectory: true).path,
+            ]
         } else {
             preserveToolName = "Application Export Import"
             preserveToolVersion = WorkflowRun.currentAppVersion
@@ -365,6 +387,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
                 "importStandaloneReferences": .boolean(options.importStandaloneReferences),
                 "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
                 "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
+                "temporaryDirectory": .file(tempRunURL),
             ]
         )
     }
