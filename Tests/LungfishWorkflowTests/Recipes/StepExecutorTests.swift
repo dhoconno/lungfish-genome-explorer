@@ -92,6 +92,33 @@ final class StepExecutorTests: XCTestCase {
         XCTAssertEqual(step.databaseID, DeaconPanhumanDatabaseInstaller.databaseID)
     }
 
+    // MARK: - DeaconRiboFilterStep
+
+    func testDeaconRiboFilterTypeID() {
+        XCTAssertEqual(DeaconRiboFilterStep.typeID, "deacon-ribo-filter")
+    }
+
+    func testDeaconRiboFilterDefaults() throws {
+        let step = try DeaconRiboFilterStep(params: nil)
+        XCTAssertEqual(step.databaseID, DeaconRibokmersDatabaseInstaller.databaseID)
+        XCTAssertEqual(step.absoluteThreshold, 1)
+        XCTAssertEqual(step.relativeThreshold, 0)
+        XCTAssertEqual(step.inputFormat, .pairedR1R2)
+        XCTAssertEqual(step.outputFormat, .pairedR1R2)
+    }
+
+    func testDeaconRiboFilterCustomThresholds() throws {
+        let step = try DeaconRiboFilterStep(params: [
+            "database": .string("custom-ribo"),
+            "absoluteThreshold": .int(2),
+            "relativeThreshold": .double(0.01),
+        ])
+
+        XCTAssertEqual(step.databaseID, "custom-ribo")
+        XCTAssertEqual(step.absoluteThreshold, 2)
+        XCTAssertEqual(step.relativeThreshold, 0.01)
+    }
+
     // MARK: - FastpMergeStep
 
     func testFastpMergeTypeID() {

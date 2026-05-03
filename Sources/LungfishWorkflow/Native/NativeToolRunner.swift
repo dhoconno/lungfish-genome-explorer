@@ -111,90 +111,8 @@ private enum ProcessCancellationReason {
     case timeout
 }
 
-private func processExists(pid: Int32) -> Bool {
-    guard pid > 0 else { return false }
-    if kill(pid, 0) == 0 {
-        return true
-    }
-    return errno != ESRCH
-}
-
-private func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
-    guard rootPID > 0 else { return [] }
-
-    let ps = Process()
-    ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-    ps.arguments = ["-Ao", "pid=,ppid="]
-
-    let stdoutPipe = Pipe()
-    ps.standardOutput = stdoutPipe
-    ps.standardError = Pipe()
-
-    do {
-        try ps.run()
-    } catch {
-        return []
-    }
-
-    let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
-    ps.waitUntilExit()
-
-    guard ps.terminationStatus == 0, let output = String(data: data, encoding: .utf8) else {
-        return []
-    }
-
-    var childrenByParent: [Int32: [Int32]] = [:]
-    for line in output.split(separator: "\n") {
-        let fields = line.split(whereSeparator: \.isWhitespace)
-        guard fields.count == 2,
-              let pid = Int32(fields[0]),
-              let ppid = Int32(fields[1]) else {
-            continue
-        }
-        childrenByParent[ppid, default: []].append(pid)
-    }
-
-    var descendants: [Int32] = []
-    var queue: [Int32] = [rootPID]
-    var seen: Set<Int32> = [rootPID]
-
-    while !queue.isEmpty {
-        let parent = queue.removeFirst()
-        for child in childrenByParent[parent, default: []] where seen.insert(child).inserted {
-            descendants.append(child)
-            queue.append(child)
-        }
-    }
-
-    return descendants
-}
-
 private func terminateProcessTree(rootProcess: Process) {
-    let rootPID = rootProcess.processIdentifier
-    guard rootPID > 0 else {
-        if rootProcess.isRunning {
-            rootProcess.terminate()
-        }
-        return
-    }
-
-    var orderedPIDs = descendantProcessIDs(of: rootPID)
-    orderedPIDs.append(rootPID)
-
-    var seen = Set<Int32>()
-    orderedPIDs = orderedPIDs.filter { pid in
-        pid > 0 && seen.insert(pid).inserted
-    }
-
-    for pid in orderedPIDs.reversed() where processExists(pid: pid) {
-        kill(pid, SIGTERM)
-    }
-
-    usleep(200_000)
-
-    for pid in orderedPIDs.reversed() where processExists(pid: pid) {
-        kill(pid, SIGKILL)
-    }
+    ProcessTreeTerminator.terminate(rootProcess: rootProcess)
 }
 
 private final class ProcessCancellationState: @unchecked Sendable {
@@ -210,8 +128,22 @@ private final class ProcessCancellationState: @unchecked Sendable {
         let shouldCancel = cancelled
         lock.unlock()
 
+        NativeProcessRegistry.shared.register(process)
+
         if shouldCancel {
             terminateProcessTree(rootProcess: process)
+        }
+    }
+
+    func unregisterAllProcesses() {
+        let processesToUnregister: [Process]
+        lock.lock()
+        processesToUnregister = processes
+        processes.removeAll()
+        lock.unlock()
+
+        for process in processesToUnregister {
+            NativeProcessRegistry.shared.unregister(process)
         }
     }
 
@@ -291,6 +223,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case fastp
     case vsearch
     case cutadapt
+    case ribodetector
     case clumpify
     case bbduk
     case bbmerge
@@ -322,6 +255,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
         case .cutadapt: return "cutadapt"
+        case .ribodetector: return "ribodetector_cpu"
         case .clumpify: return "clumpify.sh"
         case .bbduk: return "bbduk.sh"
         case .bbmerge: return "bbmerge.sh"
@@ -350,6 +284,10 @@ public enum NativeTool: String, CaseIterable, Sendable {
             // iVar rejects `--version` as "Unknown command" but accepts the
             // `version` subcommand (and `-v`) and prints "iVar version 1.4.4".
             return ["version"]
+        case .seqkit:
+            return ["version"]
+        case .ribodetector:
+            return ["-v"]
         default:
             return ["--version"]
         }
@@ -379,6 +317,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "vsearch", executableName: "vsearch")
         case .cutadapt:
             return .managed(environment: "cutadapt", executableName: "cutadapt")
+        case .ribodetector:
+            return .managed(environment: "ribodetector", executableName: "ribodetector_cpu")
         case .clumpify:
             return .managed(environment: "bbtools", executableName: "clumpify.sh")
         case .bbduk:
@@ -460,6 +400,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .fastp: return "fastp"
         case .vsearch: return "vsearch"
         case .cutadapt: return "cutadapt"
+        case .ribodetector: return "ribodetector"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio: return "bbmap"
         case .fasterqDump, .prefetch: return "sra-tools"
         case .deacon: return "deacon"
@@ -496,6 +437,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "GPL-3.0 or BSD-2-Clause (dual)"
         case .cutadapt:
             return "MIT License"
+        case .ribodetector:
+            return "GPL-3.0-or-later"
         case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio:
             return "BBMap License"
         case .fasterqDump, .prefetch:
@@ -776,16 +719,24 @@ public actor NativeToolRunner {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
             cancellationState.register(process: process)
+            defer { cancellationState.unregisterAllProcesses() }
 
-            // Timeout handling
-            let timeoutWorkItem = DispatchWorkItem {
-                cancellationState.cancelForTimeout()
+            // Timeout handling. Infinite timeout is used by recipe workflows for
+            // very large scientific datasets where wall time is data-dependent.
+            let timeoutWorkItem: DispatchWorkItem?
+            if actualTimeout.isFinite {
+                let workItem = DispatchWorkItem {
+                    cancellationState.cancelForTimeout()
+                }
+                cancellationState.register(timeoutWorkItem: workItem)
+                DispatchQueue.global().asyncAfter(
+                    deadline: .now() + actualTimeout,
+                    execute: workItem
+                )
+                timeoutWorkItem = workItem
+            } else {
+                timeoutWorkItem = nil
             }
-            cancellationState.register(timeoutWorkItem: timeoutWorkItem)
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + actualTimeout,
-                execute: timeoutWorkItem
-            )
 
             do {
                 if cancellationState.isCancelled {
@@ -822,7 +773,7 @@ public actor NativeToolRunner {
 
                 process.waitUntilExit()
                 drainGroup.wait()
-                timeoutWorkItem.cancel()
+                timeoutWorkItem?.cancel()
 
                 if cancellationState.didTimeOut {
                     continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
@@ -852,14 +803,14 @@ public actor NativeToolRunner {
                 continuation.resume(returning: result)
 
             } catch is CancellationError {
-                timeoutWorkItem.cancel()
+                timeoutWorkItem?.cancel()
                 if cancellationState.didTimeOut {
                     continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
                     return
                 }
                 continuation.resume(throwing: CancellationError())
             } catch {
-                timeoutWorkItem.cancel()
+                timeoutWorkItem?.cancel()
                 if cancellationState.isCancelled {
                     if cancellationState.didTimeOut {
                         continuation.resume(throwing: NativeToolError.timeout(name, actualTimeout))
@@ -944,6 +895,7 @@ public actor NativeToolRunner {
             let stderrPipe = Pipe()
             process.standardError = stderrPipe
             cancellationState.register(process: process)
+            defer { cancellationState.unregisterAllProcesses() }
 
             let timeoutWorkItem = DispatchWorkItem {
                 cancellationState.cancelForTimeout()
@@ -1259,6 +1211,7 @@ extension NativeToolRunner {
                 processes.append(process)
                 cancellationState.register(process: process)
             }
+            defer { cancellationState.unregisterAllProcesses() }
 
             // Timeout for the whole pipeline
             let timeoutWorkItem = DispatchWorkItem {
@@ -1444,6 +1397,7 @@ extension NativeToolRunner {
                 processes.append(process)
                 cancellationState.register(process: process)
             }
+            defer { cancellationState.unregisterAllProcesses() }
 
             let timeoutWorkItem = DispatchWorkItem {
                 cancellationState.cancelForTimeout()

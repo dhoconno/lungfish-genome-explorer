@@ -301,7 +301,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(runner.invocations.count, 1)
     }
 
-    func testExecuteRiboDetectorPreservesFASTAInputAndDiscoversFASTAOutputs() async throws {
+    func testExecuteDeaconRiboPreservesFASTAInputAndDiscoversFASTAOutputs() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecRiboFASTA")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -316,14 +316,14 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
 
         let runner = SpyCommandRunner { invocation, outputDirectory in
             XCTAssertEqual(invocation.subcommand, "fastq")
-            XCTAssertEqual(invocation.arguments.first, "ribodetector")
+            XCTAssertEqual(invocation.arguments.first, "deacon-ribo")
             let resolvedInputURL = URL(fileURLWithPath: try XCTUnwrap(invocation.arguments[safe: 1]))
             XCTAssertEqual(SequenceFormat.from(url: resolvedInputURL), .fasta)
             XCTAssertFalse(resolvedInputURL.lastPathComponent.hasSuffix(".fastq"))
-            XCTAssertEqual(invocation.arguments[safe: 2], "--retain")
-            XCTAssertEqual(invocation.arguments[safe: 3], "both")
-            XCTAssertEqual(invocation.arguments[safe: 4], "--ensure")
-            XCTAssertEqual(invocation.arguments[safe: 5], "rrna")
+            XCTAssertEqual(invocation.arguments[safe: 2], "--database-id")
+            XCTAssertEqual(invocation.arguments[safe: 3], "deacon-ribokmers")
+            XCTAssertEqual(invocation.arguments[safe: 4], "--retain")
+            XCTAssertEqual(invocation.arguments[safe: 5], "both")
 
             guard
                 let outputIndex = invocation.arguments.firstIndex(of: "-o"),
@@ -333,7 +333,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 throw NSError(
                     domain: "FASTQOperationExecutionServiceTests",
                     code: 3,
-                    userInfo: [NSLocalizedDescriptionKey: "Missing -o output directory in RiboDetector invocation"]
+                    userInfo: [NSLocalizedDescriptionKey: "Missing -o output directory in Deacon rRNA invocation"]
                 )
             }
             XCTAssertEqual(URL(fileURLWithPath: outputPath), outputDirectory)
@@ -529,7 +529,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagedFASTQ.path))
     }
 
-    func testBundleImporterRoutesRiboDetectorFASTQOutputsThroughBundleWriter() async throws {
+    func testBundleImporterRoutesDeaconRiboFASTQOutputsThroughBundleWriter() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportRibo")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -569,15 +569,15 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         XCTAssertEqual(imported.map(\.lastPathComponent), [
-            "source-ribodetector-norrna.\(FASTQBundle.directoryExtension)",
-            "source-ribodetector-rrna.\(FASTQBundle.directoryExtension)",
+            "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
+            "source-deacon-ribo-rrna.\(FASTQBundle.directoryExtension)",
         ])
         XCTAssertEqual(bundleWriter.calls.map(\.sourceURL), [nonRRNAOutput, rRNAOutput])
         XCTAssertEqual(bundleWriter.calls.map(\.bundleURL.lastPathComponent), imported.map(\.lastPathComponent))
         XCTAssertEqual(bundleWriter.calls.compactMap(\.sourceInputURL), [sourceBundle.bundleURL, sourceBundle.bundleURL])
     }
 
-    func testAppFASTQOutputBundleWriterIngestsAndAnnotatesCompressedRiboDetectorOutput() async throws {
+    func testAppFASTQOutputBundleWriterIngestsAndAnnotatesCompressedDeaconRiboOutput() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportRiboMetadata")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -607,7 +607,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let destinationBundle = tempDir.appendingPathComponent(
-            "source-ribodetector-norrna.\(FASTQBundle.directoryExtension)",
+            "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
             isDirectory: true
         )
         let ingestor = SpyFASTQOutputIngestor()
@@ -646,7 +646,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(manifest.operation.kind, .ribosomalRNAFilter)
         XCTAssertEqual(manifest.operation.riboDetectorRetention, .nonRRNA)
         XCTAssertEqual(manifest.operation.riboDetectorEnsure, .rrna)
-        XCTAssertEqual(manifest.operation.toolUsed, "RiboDetector")
+        XCTAssertEqual(manifest.operation.toolUsed, "deacon")
         XCTAssertEqual(manifest.cachedStatistics.readCount, 2)
         XCTAssertEqual(manifest.pairingMode, .interleaved)
         XCTAssertEqual(manifest.sequenceFormat, .fastq)
@@ -658,7 +658,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testAppFASTQOutputBundleWriterPreservesRiboDetectorProvenanceInImportedBundle() async throws {
+    func testAppFASTQOutputBundleWriterPreservesDeaconRiboProvenanceInImportedBundle() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportRiboProvenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -679,26 +679,28 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
         try writeSyntheticProvenance(
             to: stagingDir,
-            name: "RiboDetector FASTQ filter",
-            toolName: "RiboDetector",
-            toolVersion: "0.3.3",
+            name: "Deacon rRNA FASTQ filter",
+            toolName: "deacon",
+            toolVersion: "0.15.0",
             command: [
-                "micromamba", "run", "-n", "ribodetector", "ribodetector_cpu",
-                "-t", "4", "-l", "20", "-i", sourceBundle.fastqURL.path,
-                "-e", "rrna", "-o", stagedFASTQ.path,
+                "micromamba", "run", "-n", "deacon", "deacon",
+                "filter", "--deplete", "-a", "1", "-r", "0",
+                "/data/deacon-ribokmers/ribokmers.k31w15.idx",
+                sourceBundle.fastqURL.path, "-o", stagedFASTQ.path, "-t", "4",
             ],
             inputURL: sourceBundle.fastqURL,
             outputURL: stagedFASTQ,
             parameters: [
                 "retain": .string("norrna"),
-                "ensure": .string("rrna"),
-                "readLength": .integer(20),
+                "databaseID": .string("deacon-ribokmers"),
+                "absoluteThreshold": .integer(1),
+                "relativeThreshold": .number(0),
                 "threads": .integer(4),
             ]
         )
 
         let destinationBundle = tempDir.appendingPathComponent(
-            "source-ribodetector-norrna.\(FASTQBundle.directoryExtension)",
+            "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
             isDirectory: true
         )
         let writer = AppFASTQOutputBundleWriter(ingestor: SpyFASTQOutputIngestor())
@@ -718,11 +720,11 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
         let step = try XCTUnwrap(provenance.steps.first)
-        XCTAssertEqual(provenance.name, "RiboDetector FASTQ filter")
+        XCTAssertEqual(provenance.name, "Deacon rRNA FASTQ filter")
         XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(step.toolName, "RiboDetector")
-        XCTAssertEqual(step.toolVersion, "0.3.3")
-        XCTAssertEqual(step.command.prefix(5), ["micromamba", "run", "-n", "ribodetector", "ribodetector_cpu"])
+        XCTAssertEqual(step.toolName, "deacon")
+        XCTAssertEqual(step.toolVersion, "0.15.0")
+        XCTAssertEqual(step.command.prefix(5), ["micromamba", "run", "-n", "deacon", "deacon"])
         XCTAssertEqual(step.outputs.map(\.filename), [bundledFASTQ.lastPathComponent])
         XCTAssertEqual(step.outputs.first?.format, .fastq)
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: bundledFASTQ))
@@ -792,7 +794,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         try ">seq1\nAACCGGTTAACC\n".write(to: stagedFASTA, atomically: true, encoding: .utf8)
 
         let referenceWrapper = SpyReferenceBundleWrapper()
-        let importedReferenceBundle = destinationDir.appendingPathComponent("source-ribodetector-rrna.lungfishref", isDirectory: true)
+        let importedReferenceBundle = destinationDir.appendingPathComponent("source-deacon-ribo-rrna.lungfishref", isDirectory: true)
         referenceWrapper.resultURLs = [importedReferenceBundle]
         let importer = BundleFASTQOperationImporter(
             destinationDirectory: destinationDir,
@@ -814,7 +816,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(imported, [importedReferenceBundle])
         XCTAssertEqual(referenceWrapper.calls.map(\.sourceURL), [stagedFASTA])
         XCTAssertEqual(referenceWrapper.calls.map(\.outputDirectory), [destinationDir])
-        XCTAssertEqual(referenceWrapper.calls.map(\.preferredBundleName), ["source-ribodetector-rrna"])
+        XCTAssertEqual(referenceWrapper.calls.map(\.preferredBundleName), ["source-deacon-ribo-rrna"])
     }
 
     func testBundleImporterRefreshesDerivedManifestStatisticsFromQCSummary() async throws {

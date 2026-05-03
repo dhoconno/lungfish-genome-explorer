@@ -56,7 +56,11 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
 
         args += [input.r1.path, "-o", output.path]
 
-        let result = try await context.runner.run(.seqkit, arguments: args)
+        let result = try await context.runner.run(
+            .seqkit,
+            arguments: args,
+            timeout: context.recipeToolTimeout(for: .seqkit, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "seqkit", step: Self.typeID, stderr: result.stderr ?? "")

@@ -286,6 +286,29 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertEqual(ids, ["deacon-panhuman"])
     }
 
+    func testRequiredManagedDatabaseIDsIncludesDeaconRibokmersRecipeDatabase() throws {
+        let recipe = Recipe(
+            formatVersion: 1,
+            id: "test-ribo",
+            name: "Deacon rRNA",
+            platforms: [.illumina],
+            requiredInput: .paired,
+            steps: [
+                RecipeStep(
+                    type: "deacon-ribo-filter",
+                    params: ["database": .string("deacon-ribokmers")]
+                ),
+            ]
+        )
+
+        let ids = ImportCommand.FastqSubcommand.requiredManagedDatabaseIDs(
+            legacyRecipe: nil,
+            newRecipe: recipe
+        )
+
+        XCTAssertEqual(ids, ["deacon-ribokmers"])
+    }
+
     func testInstallRequiredManagedDatabasesInstallsMissingHumanScrubber() async throws {
         let registry = StubManagedDatabaseRegistry()
         let sink = StubLineSink()

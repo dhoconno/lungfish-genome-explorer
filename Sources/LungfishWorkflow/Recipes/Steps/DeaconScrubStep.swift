@@ -64,7 +64,11 @@ public struct DeaconScrubStep: RecipeStepExecutor {
             "-t", "\(context.threads)",
         ]
 
-        let result = try await context.runner.run(.deacon, arguments: args)
+        let result = try await context.runner.run(
+            .deacon,
+            arguments: args,
+            timeout: context.recipeToolTimeout(for: .deacon, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "deacon", step: Self.typeID, stderr: result.stderr)

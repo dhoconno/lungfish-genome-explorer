@@ -52,7 +52,11 @@ public struct FastpDedupStep: FastpFusible {
             "-h", "/dev/null",
         ]
 
-        let result = try await context.runner.run(.fastp, arguments: args)
+        let result = try await context.runner.run(
+            .fastp,
+            arguments: args,
+            timeout: context.recipeToolTimeout(for: .fastp, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "fastp", step: Self.typeID, stderr: result.stderr ?? "")

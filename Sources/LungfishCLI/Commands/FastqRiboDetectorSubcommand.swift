@@ -4,10 +4,10 @@ import LungfishIO
 import LungfishWorkflow
 
 struct RiboDetectorOutputPlan: Sendable, Equatable {
-    let nonRRNAOutputURL: URL
-    let rRNAOutputURL: URL?
+    let nonRRNAOutputURLs: [URL]
+    let rRNAOutputURLs: [URL]?
     let retainedOutputURLs: [URL]
-    let removeNonRRNAOutputAfterRun: Bool
+    let removeNonRRNAOutputsAfterRun: Bool
 }
 
 struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
@@ -16,8 +16,8 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         abstract: "Detect and remove ribosomal RNA sequences with RiboDetector CPU mode"
     )
 
-    @Argument(help: "Input FASTA or FASTQ file")
-    var input: String
+    @Argument(help: "Input FASTA/FASTQ file, or paired R1/R2 FASTQ files")
+    var inputs: [String]
 
     @Option(name: .customLong("retain"), help: "Read classes to retain: norrna, rrna, or both")
     var retain: String = FASTQRiboDetectorRetention.nonRRNA.rawValue
@@ -28,23 +28,24 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("read-length"), help: "Mean sequencing read length. Inferred from input when omitted.")
     var readLength: Int?
 
-    @Option(name: .customLong("threads"), help: "CPU threads to use. Defaults to the active processor count.")
-    var threads: Int?
+    @OptionGroup var globalOptions: GlobalOptions
+
+    var threads: Int? { globalOptions.threads }
 
     @Option(name: [.customLong("output"), .customShort("o")], help: "Output directory")
     var outputDirectory: String
 
     func run() async throws {
-        let inputURL = try validateInput(input)
+        let inputURLs = try validateInputs(inputs)
         let outputDirectoryURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirectoryURL, withIntermediateDirectories: true)
 
         let retention = try parsedRetention(retain)
         let ensureMode = try parsedEnsure(ensure)
-        let effectiveReadLength = try await resolvedReadLength(for: inputURL)
+        let effectiveReadLength = try await resolvedReadLength(for: inputURLs[0])
         let effectiveThreads = max(1, threads ?? ProcessInfo.processInfo.activeProcessorCount)
         let outputs = try Self.plannedOutputs(
-            inputURL: inputURL,
+            inputURLs: inputURLs,
             outputDirectory: outputDirectoryURL,
             retention: retention
         )
@@ -52,12 +53,16 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         var arguments = [
             "-t", "\(effectiveThreads)",
             "-l", "\(effectiveReadLength)",
-            "-i", inputURL.path,
-            "-e", ensureMode.rawValue,
-            "-o", outputs.nonRRNAOutputURL.path,
+            "-i",
         ]
-        if let rRNAOutputURL = outputs.rRNAOutputURL {
-            arguments += ["-r", rRNAOutputURL.path]
+        arguments += inputURLs.map(\.path)
+        arguments += [
+            "-e", ensureMode.rawValue,
+            "-o",
+        ]
+        arguments += outputs.nonRRNAOutputURLs.map(\.path)
+        if let rRNAOutputURLs = outputs.rRNAOutputURLs {
+            arguments += ["-r"] + rRNAOutputURLs.map(\.path)
         }
 
         let provenanceCommand = CLIProvenanceSupport.condaCommand(
@@ -82,7 +87,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         let wallTime = Date().timeIntervalSince(startedAt)
         guard result.exitCode == 0 else {
             try? await recordProvenance(
-                inputURL: inputURL,
+                inputURLs: inputURLs,
                 outputDirectoryURL: outputDirectoryURL,
                 retention: retention,
                 ensureMode: ensureMode,
@@ -99,12 +104,14 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: "RiboDetector failed: \(result.stderr)")
         }
 
-        if outputs.removeNonRRNAOutputAfterRun {
-            try? FileManager.default.removeItem(at: outputs.nonRRNAOutputURL)
+        if outputs.removeNonRRNAOutputsAfterRun {
+            for outputURL in outputs.nonRRNAOutputURLs {
+                try? FileManager.default.removeItem(at: outputURL)
+            }
         }
 
         try await recordProvenance(
-            inputURL: inputURL,
+            inputURLs: inputURLs,
             outputDirectoryURL: outputDirectoryURL,
             retention: retention,
             ensureMode: ensureMode,
@@ -124,7 +131,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     }
 
     private func recordProvenance(
-        inputURL: URL,
+        inputURLs: [URL],
         outputDirectoryURL: URL,
         retention: FASTQRiboDetectorRetention,
         ensureMode: FASTQRiboDetectorEnsure,
@@ -138,7 +145,7 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         stderr: String,
         status: RunStatus
     ) async throws {
-        let format = SequenceFormat.from(url: inputURL)
+        let format = SequenceFormat.from(url: inputURLs[0])
         let fileFormat: FileFormat = {
             switch format {
             case .fastq:
@@ -153,7 +160,8 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "RiboDetector FASTQ filter",
             parameters: [
-                "input": .file(inputURL),
+                "input": .file(inputURLs[0]),
+                "inputs": .array(inputURLs.map { .file($0) }),
                 "outputDirectory": .file(outputDirectoryURL),
                 "retain": .string(retention.rawValue),
                 "ensure": .string(ensureMode.rawValue),
@@ -164,9 +172,9 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
             toolName: "RiboDetector",
             toolVersion: toolVersion,
             command: command,
-            inputs: [
-                ProvenanceRecorder.fileRecord(url: inputURL, format: fileFormat, role: .input),
-            ],
+            inputs: inputURLs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .input)
+            },
             outputs: outputs.map {
                 ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .output)
             },
@@ -179,43 +187,72 @@ struct FastqRiboDetectorSubcommand: AsyncParsableCommand {
     }
 
     static func plannedOutputs(
-        inputURL: URL,
+        inputURLs: [URL],
         outputDirectory: URL,
         retention: FASTQRiboDetectorRetention
     ) throws -> RiboDetectorOutputPlan {
-        guard let format = SequenceFormat.from(url: inputURL) else {
-            throw ValidationError("RiboDetector input must be FASTA or FASTQ: \(inputURL.path)")
+        guard !inputURLs.isEmpty, inputURLs.count <= 2 else {
+            throw ValidationError("RiboDetector requires one input file or one paired-end R1/R2 input pair.")
         }
 
-        let stem = sequenceStem(for: inputURL)
-        let ext = format.fileExtension
-        let normalNonRRNA = outputDirectory.appendingPathComponent("\(stem).norrna.\(ext)")
-        let hiddenNonRRNA = outputDirectory.appendingPathComponent(".\(stem).norrna.discarded.\(ext)")
-        let rRNAOutput = outputDirectory.appendingPathComponent("\(stem).rrna.\(ext)")
+        let formats = try inputURLs.map { inputURL -> SequenceFormat in
+            guard let format = SequenceFormat.from(url: inputURL) else {
+                throw ValidationError("RiboDetector input must be FASTA or FASTQ: \(inputURL.path)")
+            }
+            return format
+        }
+        guard Set(formats.map(\.rawValue)).count == 1 else {
+            throw ValidationError("RiboDetector paired inputs must use the same sequence format.")
+        }
+
+        let ext = formats[0].fileExtension
+        let normalNonRRNA = inputURLs.map { inputURL in
+            outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).norrna.\(ext)")
+        }
+        let hiddenNonRRNA = inputURLs.map { inputURL in
+            outputDirectory.appendingPathComponent(".\(sequenceStem(for: inputURL)).norrna.discarded.\(ext)")
+        }
+        let rRNAOutputs = inputURLs.map { inputURL in
+            outputDirectory.appendingPathComponent("\(sequenceStem(for: inputURL)).rrna.\(ext)")
+        }
 
         switch retention {
         case .nonRRNA:
             return RiboDetectorOutputPlan(
-                nonRRNAOutputURL: normalNonRRNA,
-                rRNAOutputURL: nil,
-                retainedOutputURLs: [normalNonRRNA],
-                removeNonRRNAOutputAfterRun: false
+                nonRRNAOutputURLs: normalNonRRNA,
+                rRNAOutputURLs: nil,
+                retainedOutputURLs: normalNonRRNA,
+                removeNonRRNAOutputsAfterRun: false
             )
         case .rRNA:
             return RiboDetectorOutputPlan(
-                nonRRNAOutputURL: hiddenNonRRNA,
-                rRNAOutputURL: rRNAOutput,
-                retainedOutputURLs: [rRNAOutput],
-                removeNonRRNAOutputAfterRun: true
+                nonRRNAOutputURLs: hiddenNonRRNA,
+                rRNAOutputURLs: rRNAOutputs,
+                retainedOutputURLs: rRNAOutputs,
+                removeNonRRNAOutputsAfterRun: true
             )
         case .both:
             return RiboDetectorOutputPlan(
-                nonRRNAOutputURL: normalNonRRNA,
-                rRNAOutputURL: rRNAOutput,
-                retainedOutputURLs: [normalNonRRNA, rRNAOutput],
-                removeNonRRNAOutputAfterRun: false
+                nonRRNAOutputURLs: normalNonRRNA,
+                rRNAOutputURLs: rRNAOutputs,
+                retainedOutputURLs: normalNonRRNA + rRNAOutputs,
+                removeNonRRNAOutputsAfterRun: false
             )
         }
+    }
+
+    private func validateInputs(_ inputPaths: [String]) throws -> [URL] {
+        guard !inputPaths.isEmpty, inputPaths.count <= 2 else {
+            throw ValidationError("RiboDetector requires one input file or one paired-end R1/R2 input pair.")
+        }
+
+        let urls = try inputPaths.map { try validateInput($0) }
+        _ = try Self.plannedOutputs(
+            inputURLs: urls,
+            outputDirectory: FileManager.default.temporaryDirectory,
+            retention: .nonRRNA
+        )
+        return urls
     }
 
     private func parsedRetention(_ value: String) throws -> FASTQRiboDetectorRetention {

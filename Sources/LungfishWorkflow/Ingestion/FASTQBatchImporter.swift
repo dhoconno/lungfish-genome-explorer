@@ -698,9 +698,9 @@ public enum FASTQBatchImporter {
             ))
             recipeStepResults.append(RecipeStepResult(
                 stepName: clumpifyLabel,
-                tool: config.optimizeStorage ? "clumpify.sh" : "reformat.sh",
-                toolVersion: nil,
-                commandLine: nil,
+                tool: ingestionResult.processingTool ?? (config.optimizeStorage ? "clumpify.sh" : "compression"),
+                toolVersion: ingestionResult.processingToolVersion,
+                commandLine: ingestionResult.processingCommandLine,
                 inputReadCount: nil,
                 outputReadCount: nil,
                 durationSeconds: Date().timeIntervalSince(clumpifyStart)

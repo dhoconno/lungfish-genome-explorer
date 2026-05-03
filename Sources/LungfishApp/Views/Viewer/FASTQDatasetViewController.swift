@@ -2721,8 +2721,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
         case .humanReadScrub(let databaseID, _):
             return "Human read removal (db: \(canonicalHumanReadRemovalDatabaseID(for: databaseID)))"
-        case .ribosomalRNAFilter(let retention, let ensure):
-            return "RiboDetector (retain: \(retention.displayName), ensure: \(ensure.rawValue))"
+        case .ribosomalRNAFilter(let retention, _):
+            return "Deacon rRNA filter (retain: \(retention.displayName))"
         }
     }
 

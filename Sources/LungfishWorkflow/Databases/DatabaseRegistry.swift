@@ -78,6 +78,27 @@ public actor DeaconPanhumanDatabaseInstaller {
     }
 }
 
+// MARK: - DeaconRibokmersDatabaseInstaller
+
+/// Focused installer for the managed Deacon ribosomal k-mer depletion index.
+public actor DeaconRibokmersDatabaseInstaller {
+    public static let databaseID = "deacon-ribokmers"
+    public static let shared = DeaconRibokmersDatabaseInstaller()
+
+    private let registry: DatabaseRegistry
+
+    public init(registry: DatabaseRegistry = .shared) {
+        self.registry = registry
+    }
+
+    public func install(
+        reinstall: Bool = false,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        try await registry.installManagedDatabase(Self.databaseID, reinstall: reinstall, progress: progress)
+    }
+}
+
 // MARK: - BundledDatabase
 
 /// Metadata for a reference database advertised by the app bundle.
@@ -135,12 +156,15 @@ public actor DatabaseRegistry {
     public static let shared = DatabaseRegistry()
     private static let databaseIDAliases: [String: String] = [
         "deacon": "deacon-panhuman",
+        "bbmap-ribokmers": "deacon-ribokmers",
+        "ribokmers": "deacon-ribokmers",
         "sra-human-scrubber": "human-scrubber",
     ]
 
     private static let managedUserDataIDs: Set<String> = [
         "human-scrubber",
         "deacon-panhuman",
+        "deacon-ribokmers",
     ]
 
     /// Loaded manifests indexed by database ID.
@@ -177,6 +201,7 @@ public actor DatabaseRegistry {
     public static let knownIDs: [String] = [
         "human-scrubber",
         "deacon-panhuman",
+        "deacon-ribokmers",
     ]
 
     public nonisolated static func managedStorageAvailability(
@@ -361,6 +386,12 @@ public actor DatabaseRegistry {
             )
         case DeaconPanhumanDatabaseInstaller.databaseID:
             return try await installDeaconManagedDatabase(
+                databaseID: resolvedID,
+                manifest: manifest,
+                progress: progress
+            )
+        case DeaconRibokmersDatabaseInstaller.databaseID:
+            return try await installDeaconRibokmersDatabase(
                 databaseID: resolvedID,
                 manifest: manifest,
                 progress: progress
@@ -580,6 +611,197 @@ public actor DatabaseRegistry {
         }
     }
 
+    private func installDeaconRibokmersDatabase(
+        databaseID: String,
+        manifest: BundledDatabase,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> URL {
+        guard let installDirectory = managedDatabaseDirectory(for: databaseID) else {
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
+                displayName: manifest.displayName,
+                reason: "No writable database storage location is configured"
+            )
+        }
+        guard let sourceURL = URL(string: manifest.sourceUrl) else {
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
+                displayName: manifest.displayName,
+                reason: "Invalid source URL: \(manifest.sourceUrl)"
+            )
+        }
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: installDirectory, withIntermediateDirectories: true, attributes: nil)
+
+        let destinationURL = installDirectory.appendingPathComponent(manifest.filename)
+        let tempOutputURL = installDirectory.appendingPathComponent("\(manifest.filename).partial")
+        let referenceURL = installDirectory.appendingPathComponent("ribokmers.fa.gz")
+        let tempReferenceURL = installDirectory.appendingPathComponent("ribokmers.fa.gz.download")
+
+        try? fileManager.removeItem(at: tempOutputURL)
+        try? fileManager.removeItem(at: tempReferenceURL)
+
+        progress?(0.02, "Preparing \(manifest.displayName)…")
+        let totalStart = Date()
+        var downloadWallTime: TimeInterval = 0
+        let downloadExitCode: Int32 = 0
+        var buildWallTime: TimeInterval = 0
+        var buildExitCode: Int32 = 1
+        var buildStderr = ""
+        let buildArgs = [
+            "index", "build",
+            "-k", "31",
+            "-w", "15",
+            referenceURL.path,
+            "-o", tempOutputURL.path,
+            "-t", "0",
+        ]
+
+        do {
+            progress?(0.08, "Downloading \(manifest.displayName)…")
+            let downloadStarted = Date()
+            let downloadedURL = try await downloadFile(from: sourceURL) { fraction, bytesWritten, totalBytes in
+                let scaled = 0.08 + (fraction * 0.52)
+                progress?(
+                    scaled,
+                    "Downloading \(manifest.displayName)… \(Self.formatByteCount(bytesWritten)) of \(Self.formatByteCount(totalBytes))"
+                )
+            }
+            downloadWallTime = Date().timeIntervalSince(downloadStarted)
+
+            if fileManager.fileExists(atPath: referenceURL.path) {
+                try fileManager.removeItem(at: referenceURL)
+            }
+            try fileManager.moveItem(at: downloadedURL, to: tempReferenceURL)
+            try fileManager.moveItem(at: tempReferenceURL, to: referenceURL)
+
+            progress?(0.64, "Building \(manifest.displayName)…")
+            let buildStarted = Date()
+            let buildResult = try await CondaManager.shared.runTool(
+                name: "deacon",
+                arguments: buildArgs,
+                environment: "deacon",
+                timeout: 7200
+            )
+            buildWallTime = Date().timeIntervalSince(buildStarted)
+            buildExitCode = buildResult.exitCode
+            buildStderr = buildResult.stderr
+            guard buildResult.exitCode == 0 else {
+                let message = buildResult.stderr.isEmpty ? buildResult.stdout : buildResult.stderr
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: message.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+
+            guard fileManager.fileExists(atPath: tempOutputURL.path) else {
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: "Deacon did not create the ribokmers index"
+                )
+            }
+
+            progress?(0.88, "Checking \(manifest.displayName)…")
+            let infoResult = try await CondaManager.shared.runTool(
+                name: "deacon",
+                arguments: ["index", "info", tempOutputURL.path],
+                environment: "deacon",
+                timeout: 300
+            )
+            guard infoResult.exitCode == 0 else {
+                throw HumanScrubberDatabaseError.installationFailed(
+                    databaseID: databaseID,
+                    displayName: manifest.displayName,
+                    reason: infoResult.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+
+            progress?(0.96, "Saving \(manifest.displayName)…")
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.moveItem(at: tempOutputURL, to: destinationURL)
+            UserDefaults.standard.set(
+                manifest.filename,
+                forKey: overrideFilenameKey(for: databaseID)
+            )
+            try writeDeaconRibokmersInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                sourceURL: sourceURL,
+                referenceURL: referenceURL,
+                indexURL: destinationURL,
+                downloadExitCode: downloadExitCode,
+                downloadWallTime: downloadWallTime,
+                buildArgs: buildArgs,
+                buildExitCode: buildExitCode,
+                buildWallTime: buildWallTime,
+                buildStderr: buildStderr,
+                totalWallTime: Date().timeIntervalSince(totalStart)
+            )
+            progress?(1.0, "Installed \(manifest.displayName)")
+            return destinationURL
+        } catch is CancellationError {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempReferenceURL)
+            throw HumanScrubberDatabaseError.installationCancelled(
+                databaseID: databaseID,
+                displayName: manifest.displayName
+            )
+        } catch let error as HumanScrubberDatabaseError {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempReferenceURL)
+            if fileManager.fileExists(atPath: referenceURL.path), !fileManager.fileExists(atPath: destinationURL.path) {
+                try? fileManager.removeItem(at: referenceURL)
+            }
+            try? writeDeaconRibokmersInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                sourceURL: sourceURL,
+                referenceURL: referenceURL,
+                indexURL: destinationURL,
+                downloadExitCode: downloadExitCode,
+                downloadWallTime: downloadWallTime,
+                buildArgs: buildArgs,
+                buildExitCode: buildExitCode,
+                buildWallTime: buildWallTime,
+                buildStderr: buildStderr,
+                totalWallTime: Date().timeIntervalSince(totalStart),
+                status: .failed
+            )
+            throw error
+        } catch {
+            try? fileManager.removeItem(at: tempOutputURL)
+            try? fileManager.removeItem(at: tempReferenceURL)
+            if fileManager.fileExists(atPath: referenceURL.path), !fileManager.fileExists(atPath: destinationURL.path) {
+                try? fileManager.removeItem(at: referenceURL)
+            }
+            try? writeDeaconRibokmersInstallProvenance(
+                installDirectory: installDirectory,
+                manifest: manifest,
+                sourceURL: sourceURL,
+                referenceURL: referenceURL,
+                indexURL: destinationURL,
+                downloadExitCode: downloadExitCode,
+                downloadWallTime: downloadWallTime,
+                buildArgs: buildArgs,
+                buildExitCode: buildExitCode,
+                buildWallTime: buildWallTime,
+                buildStderr: buildStderr,
+                totalWallTime: Date().timeIntervalSince(totalStart),
+                status: .failed
+            )
+            throw HumanScrubberDatabaseError.installationFailed(
+                databaseID: databaseID,
+                displayName: manifest.displayName,
+                reason: error.localizedDescription
+            )
+        }
+    }
+
     // MARK: - Private Helpers
 
     private func bundledManifestURL(for id: String) -> URL? {
@@ -604,6 +826,11 @@ public actor DatabaseRegistry {
         // Check UserDefaults for a specific override filename
         let overrideKey = overrideFilenameKey(for: id)
         if let filename = UserDefaults.standard.string(forKey: overrideKey) {
+            let url = dir.appendingPathComponent(filename)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+
+        if let filename = manifest(for: id)?.filename {
             let url = dir.appendingPathComponent(filename)
             if FileManager.default.fileExists(atPath: url.path) { return url }
         }
@@ -668,6 +895,94 @@ public actor DatabaseRegistry {
             databaseID: "human-scrubber",
             displayName: "Human Read Scrubber Database",
             reason: "Could not parse MD5 file \(md5URL.lastPathComponent)"
+        )
+    }
+
+    private func writeDeaconRibokmersInstallProvenance(
+        installDirectory: URL,
+        manifest: BundledDatabase,
+        sourceURL: URL,
+        referenceURL: URL,
+        indexURL: URL,
+        downloadExitCode: Int32,
+        downloadWallTime: TimeInterval,
+        buildArgs: [String],
+        buildExitCode: Int32,
+        buildWallTime: TimeInterval,
+        buildStderr: String,
+        totalWallTime: TimeInterval,
+        status: RunStatus = .completed
+    ) throws {
+        let now = Date()
+        var steps: [StepExecution] = [
+            StepExecution(
+                toolName: "URLSession",
+                toolVersion: "Foundation",
+                command: ["download", sourceURL.absoluteString, "-o", referenceURL.path],
+                inputs: [
+                    FileRecord(
+                        path: sourceURL.absoluteString,
+                        sha256: nil,
+                        sizeBytes: nil,
+                        format: .fasta,
+                        role: .reference
+                    ),
+                ],
+                outputs: FileManager.default.fileExists(atPath: referenceURL.path)
+                    ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
+                    : [],
+                exitCode: downloadExitCode,
+                wallTime: downloadWallTime,
+                stderr: nil,
+                endTime: now
+            ),
+        ]
+
+        let buildCommand = ["micromamba", "run", "-n", "deacon", "deacon"] + buildArgs
+        steps.append(
+            StepExecution(
+                toolName: "deacon",
+                toolVersion: "0.15.0",
+                command: buildCommand,
+                inputs: FileManager.default.fileExists(atPath: referenceURL.path)
+                    ? [ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)]
+                    : [],
+                outputs: FileManager.default.fileExists(atPath: indexURL.path)
+                    ? [ProvenanceRecorder.fileRecord(url: indexURL, format: .unknown, role: .index)]
+                    : [],
+                exitCode: buildExitCode,
+                wallTime: buildWallTime,
+                stderr: buildStderr,
+                endTime: now
+            )
+        )
+
+        let run = WorkflowRun(
+            name: "Deacon ribokmers database install",
+            endTime: now,
+            status: status,
+            steps: steps,
+            parameters: [
+                "workflow": .string("managed-database-install"),
+                "databaseID": .string(manifest.id),
+                "displayName": .string(manifest.displayName),
+                "version": .string(manifest.version),
+                "sourceUrl": .string(sourceURL.absoluteString),
+                "indexFilename": .string(manifest.filename),
+                "kmerLength": .integer(31),
+                "windowSize": .integer(15),
+                "condaEnvironment": .string("deacon"),
+                "totalWallTimeSeconds": .number(totalWallTime),
+            ]
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(run)
+        try data.write(
+            to: installDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
         )
     }
 

@@ -44,4 +44,20 @@ final class RecipeStepExecutorTests: XCTestCase {
         XCTAssertEqual(output.readCount, 1000)
         XCTAssertNil(output.r2)
     }
+
+    func testRiboDetectorStepParsesPairedParameters() throws {
+        let step = try RiboDetectorStep(params: [
+            "retain": .string("norrna"),
+            "ensure": .string("rrna"),
+            "readLength": .int(151),
+            "chunkSize": .int(200),
+        ])
+
+        XCTAssertEqual(step.retention, .nonRRNA)
+        XCTAssertEqual(step.ensureMode, .rrna)
+        XCTAssertEqual(step.readLength, 151)
+        XCTAssertEqual(step.chunkSize, 200)
+        XCTAssertEqual(step.inputFormat, .pairedR1R2)
+        XCTAssertEqual(step.outputFormat, .pairedR1R2)
+    }
 }

@@ -311,6 +311,7 @@ public actor ProcessManager: ProcessManaging {
         process.terminationHandler = { [weak self, logger, handleId] terminatedProcess in
             let exitCode = terminatedProcess.terminationStatus
             logger.info("Process \(handleId) terminated with exit code: \(exitCode)")
+            NativeProcessRegistry.shared.unregister(terminatedProcess)
 
             capturedTerminationContinuation.yield(exitCode)
             capturedTerminationContinuation.finish()
@@ -350,6 +351,7 @@ public actor ProcessManager: ProcessManaging {
                 underlying: error
             )
         }
+        NativeProcessRegistry.shared.register(process)
 
         // Update handle with actual PID and store
         let updatedHandle = ProcessHandle(
@@ -412,6 +414,7 @@ public actor ProcessManager: ProcessManaging {
     /// Called when a process terminates.
     private func processDidTerminate(handleId: UUID) {
         guard let entry = activeProcesses[handleId] else { return }
+        NativeProcessRegistry.shared.unregister(entry.process)
 
         // Finish the continuations
         entry.stdoutContinuation?.finish()
@@ -442,17 +445,7 @@ public actor ProcessManager: ProcessManaging {
 
         logger.info("Terminating process: PID=\(pid), handle=\(id)")
 
-        // Send SIGTERM first
-        process.terminate()
-
-        // Wait briefly for graceful termination
-        try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-
-        // Check if still running and force kill if necessary
-        if process.isRunning {
-            logger.warning("Process \(pid) did not terminate gracefully, sending SIGKILL")
-            kill(pid, SIGKILL)
-        }
+        ProcessTreeTerminator.terminate(rootProcess: process)
 
         // Clean up will happen in terminationHandler
     }

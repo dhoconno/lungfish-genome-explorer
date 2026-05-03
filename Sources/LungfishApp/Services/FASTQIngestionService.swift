@@ -276,12 +276,11 @@ public enum FASTQIngestionService {
     ) {
         let title = "FASTQ Import: \(bundleName)"
 
-        let cliCmd: String = {
-            var args = ["lungfish-cli", "import", "fastq", pair.r1.path]
-            if let r2 = pair.r2 { args.append(r2.path) }
-            args += ["--project", projectDirectory.path, "--format", "json"]
-            return args.joined(separator: " ")
-        }()
+        let cliCmd = cliImportCommandPreview(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            importConfig: importConfig
+        )
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing import workspace\u{2026}",
@@ -406,46 +405,11 @@ public enum FASTQIngestionService {
         operationID opID: UUID
     ) async -> Result<URL, Error> {
         do {
-            // 1. Map GUI platform to CLI string
-            let platformStr: String
-            switch importConfig.confirmedPlatform {
-            case .illumina:       platformStr = "illumina"
-            case .oxfordNanopore: platformStr = "ont"
-            case .pacbio:         platformStr = "pacbio"
-            case .ultima:         platformStr = "ultima"
-            default:              platformStr = "illumina"
-            }
-
-            // 2. Resolve recipe name — prefer V2 recipeName, fall back to legacy postImportRecipe
-            let recipeName: String? = {
-                if let name = importConfig.recipeName {
-                    return name
-                }
-                guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
-                if recipe.name.lowercased().contains("vsp2") {
-                    if let nr = RecipeRegistryV2.allRecipes().first(where: { $0.name.lowercased().contains("vsp2") }) {
-                        return nr.id
-                    }
-                }
-                return recipe.name.lowercased()
-            }()
-
-            // 3. Resolve compression level
-            let compressionStr = importConfig.compressionLevel?.rawValue ?? "balanced"
-
-            // 4. Build CLI arguments
-            let qualityBinning = importConfig.qualityBinning.rawValue
-            let optimizeStorage = !importConfig.skipClumpify
-
-            let args = CLIImportRunner.buildCLIArguments(
-                r1: pair.r1,
-                r2: pair.r2,
+            let recipeName = resolvedRecipeName(for: importConfig)
+            let args = cliImportArguments(
+                pair: pair,
                 projectDirectory: projectDirectory,
-                platform: platformStr,
-                recipeName: recipeName,
-                qualityBinning: qualityBinning,
-                optimizeStorage: optimizeStorage,
-                compressionLevel: compressionStr
+                importConfig: importConfig
             )
 
             // 5. Spawn CLI runner
@@ -509,6 +473,64 @@ public enum FASTQIngestionService {
             logger.error("ingestAndBundle: \(error)")
             return .failure(error)
         }
+    }
+
+    nonisolated static func cliImportCommandPreview(
+        pair: FASTQFilePair,
+        projectDirectory: URL,
+        importConfig: FASTQImportConfiguration
+    ) -> String {
+        CLIImportRunner.commandLine(
+            arguments: cliImportArguments(
+                pair: pair,
+                projectDirectory: projectDirectory,
+                importConfig: importConfig
+            )
+        )
+    }
+
+    nonisolated static func cliImportArguments(
+        pair: FASTQFilePair,
+        projectDirectory: URL,
+        importConfig: FASTQImportConfiguration
+    ) -> [String] {
+        CLIImportRunner.buildCLIArguments(
+            r1: pair.r1,
+            r2: pair.r2,
+            projectDirectory: projectDirectory,
+            platform: cliPlatformString(for: importConfig.confirmedPlatform),
+            recipeName: resolvedRecipeName(for: importConfig),
+            qualityBinning: importConfig.qualityBinning.rawValue,
+            optimizeStorage: !importConfig.skipClumpify,
+            compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
+        )
+    }
+
+    nonisolated private static func cliPlatformString(for platform: LungfishIO.SequencingPlatform) -> String {
+        switch platform {
+        case .illumina:
+            return "illumina"
+        case .oxfordNanopore:
+            return "ont"
+        case .pacbio:
+            return "pacbio"
+        case .ultima:
+            return "ultima"
+        default:
+            return "illumina"
+        }
+    }
+
+    nonisolated private static func resolvedRecipeName(for importConfig: FASTQImportConfiguration) -> String? {
+        if let name = importConfig.recipeName {
+            return name
+        }
+        guard let recipe = importConfig.postImportRecipe, !recipe.steps.isEmpty else { return nil }
+        if recipe.name.lowercased().contains("vsp2"),
+           let nr = RecipeRegistryV2.allRecipes().first(where: { $0.name.lowercased().contains("vsp2") }) {
+            return nr.id
+        }
+        return recipe.name.lowercased()
     }
 
     nonisolated private static func writeImportManifest(

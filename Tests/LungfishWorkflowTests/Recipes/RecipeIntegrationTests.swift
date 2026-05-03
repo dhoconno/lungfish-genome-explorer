@@ -45,6 +45,48 @@ final class RecipeIntegrationTests: XCTestCase {
         XCTAssertThrowsError(try engine.validate(recipe: vsp2, inputFormat: .single))
     }
 
+    func testWastewaterMetagenomicsRecipeLoadsAndValidates() throws {
+        let recipes = RecipeRegistryV2.builtinRecipes()
+        let wastewater = try XCTUnwrap(recipes.first { $0.id == "wastewater-metagenomics" })
+        let engine = RecipeEngine()
+
+        XCTAssertEqual(wastewater.name, "Wastewater metagenomics")
+        XCTAssertNoThrow(try engine.validate(recipe: wastewater, inputFormat: .pairedR1R2))
+        XCTAssertFalse(
+            wastewater.steps.contains { $0.type == "fastp-dedup" },
+            "Wastewater metagenomics should preserve abundance by default instead of deduplicating reads"
+        )
+    }
+
+    func testWastewaterMetagenomicsRecipeUsesDeaconRiboFilterBeforeMerge() throws {
+        let recipes = RecipeRegistryV2.builtinRecipes()
+        let wastewater = try XCTUnwrap(recipes.first { $0.id == "wastewater-metagenomics" })
+        let engine = RecipeEngine()
+        let plan = try engine.plan(recipe: wastewater, inputFormat: .pairedR1R2)
+
+        XCTAssertEqual(plan.count, 6)
+        XCTAssertGreaterThan(wastewater.steps.count, 2)
+        XCTAssertEqual(wastewater.steps[2].type, "deacon-ribo-filter")
+        XCTAssertEqual(wastewater.steps[2].params?["database"]?.stringValue, "deacon-ribokmers")
+
+        guard case .singleStep(let riboFilter, let riboLabel) = plan[2] else {
+            return XCTFail("Expected paired Deacon rRNA filter at plan index 2, got \(plan[2])")
+        }
+        XCTAssertTrue(riboFilter is DeaconRiboFilterStep)
+        XCTAssertEqual(riboLabel, "Remove ribosomal RNA")
+
+        guard case .singleStep(let merge, _) = plan[3] else {
+            return XCTFail("Expected merge after Deacon rRNA filter, got \(plan[3])")
+        }
+        XCTAssertTrue(merge is FastpMergeStep)
+
+        guard case .formatConversion(let from, let to) = plan[4] else {
+            return XCTFail("Expected merged-to-single conversion before length filtering, got \(plan[4])")
+        }
+        XCTAssertEqual(from, .merged)
+        XCTAssertEqual(to, .single)
+    }
+
     // MARK: - Tool Execution Tests
 
     /// Check if a tool binary exists.
@@ -139,6 +181,40 @@ final class RecipeIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.r1.path), "Merged output")
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.r2!.path), "Unmerged R1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.r3!.path), "Unmerged R2")
+    }
+
+    func testExecutePairedRiboDetectorOnFixtures() async throws {
+        guard await toolAvailable(.ribodetector) else { throw XCTSkip("RiboDetector not available") }
+        guard let fixtures = fixturesDir else { throw XCTSkip("Test fixtures not found") }
+
+        let r1 = fixtures.appendingPathComponent("test_1.fastq.gz")
+        let r2 = fixtures.appendingPathComponent("test_2.fastq.gz")
+        let workspace = try makeWorkspace()
+        defer { try? FileManager.default.removeItem(at: workspace) }
+
+        let step = try RiboDetectorStep(params: [
+            "retain": .string("norrna"),
+            "ensure": .string("rrna"),
+            "readLength": .int(151),
+            "chunkSize": .int(2),
+        ])
+        let input = StepInput(r1: r1, r2: r2, format: .pairedR1R2)
+        let context = StepContext(
+            workspace: workspace,
+            threads: 2,
+            sampleName: "sarscov2-ribodetector",
+            runner: NativeToolRunner.shared,
+            progress: { _, _ in }
+        )
+
+        let output = try await step.execute(input: input, context: context)
+
+        XCTAssertEqual(output.format, .pairedR1R2)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.r1.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.r2!.path))
+        XCTAssertEqual(output.tool, .ribodetector)
+        let argumentPrefix = output.arguments.map { Array($0.prefix(6)) } ?? []
+        XCTAssertEqual(argumentPrefix, ["-t", "2", "-l", "151", "-i", r1.path])
     }
 
     func testExecuteSeqkitLengthFilterOnFixtures() async throws {

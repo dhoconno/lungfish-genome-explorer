@@ -1,0 +1,11 @@
+{
+  "id": "deacon-ribokmers",
+  "displayName": "Ribosomal RNA Removal Data",
+  "tool": "deacon",
+  "version": "bbmap-ribokmers-k31w15",
+  "filename": "ribokmers.k31w15.idx",
+  "releaseDate": "2026-04-29",
+  "description": "Deacon minimizer index built from BBMap's ribokmers.fa.gz ribosomal k-mer depletion reference for fast rRNA removal.",
+  "sourceUrl": "https://bbmap.org/resources/ribokmers.fa.gz",
+  "releasesUrl": "https://bbmap.org/resources/"
+}

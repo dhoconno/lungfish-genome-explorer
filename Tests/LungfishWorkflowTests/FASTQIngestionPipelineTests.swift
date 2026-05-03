@@ -45,6 +45,11 @@ final class FASTQIngestionPipelineTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: outputURL.path), "Pipeline should write final output into the spaced project directory")
         XCTAssertGreaterThan(fileSize(at: outputURL), 0, "Output FASTQ should not be empty")
         XCTAssertEqual(result.pairingMode, .interleaved)
+        XCTAssertEqual(result.processingTool, "clumpify.sh")
+        XCTAssertEqual(result.processingToolVersion, "39.80")
+        XCTAssertNotNil(result.processingCommandLine)
+        XCTAssertTrue(result.processingCommandLine?.contains("threads=1") == true)
+        XCTAssertTrue(result.processingCommandLine?.contains("quantize=0,8,13,22,27,32,37") == true)
         XCTAssertTrue(fm.fileExists(atPath: r1URL.path), "Original inputs should remain when deleteOriginals=false")
         XCTAssertTrue(fm.fileExists(atPath: r2URL.path), "Original inputs should remain when deleteOriginals=false")
     }

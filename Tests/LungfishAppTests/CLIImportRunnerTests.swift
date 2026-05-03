@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import Darwin
+import LungfishIO
+import LungfishWorkflow
 @testable import LungfishApp
 
 final class CLIImportRunnerTests: XCTestCase {
@@ -184,6 +187,133 @@ final class CLIImportRunnerTests: XCTestCase {
         XCTAssertTrue(args.contains("fast"))
     }
 
+    func testCommandLineShellQuotesArguments() {
+        let args = CLIImportRunner.buildCLIArguments(
+            r1: URL(fileURLWithPath: "/Volumes/iWES WNPRC/ww test/Sample R1.fastq.gz"),
+            r2: URL(fileURLWithPath: "/Volumes/iWES WNPRC/ww test/Sample R2.fastq.gz"),
+            projectDirectory: URL(fileURLWithPath: "/Volumes/iWES WNPRC/ww test/ww.lungfish"),
+            platform: "illumina",
+            recipeName: "wastewater-metagenomics",
+            qualityBinning: "illumina4",
+            optimizeStorage: true,
+            compressionLevel: "balanced"
+        )
+
+        let command = CLIImportRunner.commandLine(arguments: args)
+
+        XCTAssertTrue(command.hasPrefix("lungfish-cli import fastq "))
+        XCTAssertTrue(command.contains("'/Volumes/iWES WNPRC/ww test/Sample R1.fastq.gz'"))
+        XCTAssertTrue(command.contains("--recipe wastewater-metagenomics"))
+        XCTAssertTrue(command.contains("--platform illumina"))
+        XCTAssertTrue(command.contains("--quality-binning illumina4"))
+        XCTAssertTrue(command.contains("--compression balanced"))
+    }
+
+    func testFASTQIngestionOperationCommandPreviewMatchesCLIArguments() {
+        let pair = FASTQFilePair(
+            r1: URL(fileURLWithPath: "/Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz"),
+            r2: URL(fileURLWithPath: "/Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz")
+        )
+        let project = URL(fileURLWithPath: "/Volumes/iWES_WNPRC/ww_test/ww.lungfish")
+        let config = FASTQImportConfiguration(
+            inputFiles: [pair.r1, pair.r2!],
+            detectedPlatform: .illumina,
+            confirmedPlatform: .illumina,
+            pairingMode: .pairedEnd,
+            qualityBinning: .illumina4,
+            skipClumpify: false,
+            deleteOriginals: false,
+            postImportRecipe: nil,
+            resolvedPlaceholders: [:],
+            recipeName: "wastewater-metagenomics",
+            compressionLevel: .balanced
+        )
+
+        let command = FASTQIngestionService.cliImportCommandPreview(
+            pair: pair,
+            projectDirectory: project,
+            importConfig: config
+        )
+
+        XCTAssertEqual(
+            command,
+            "lungfish-cli import fastq /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R1.fastq.gz /Volumes/iWES_WNPRC/ww_test/WI_Madison_MMSD_20260414_S7_R2.fastq.gz --project /Volumes/iWES_WNPRC/ww_test/ww.lungfish --platform illumina --format json --quality-binning illumina4 --compression balanced --force --recipe wastewater-metagenomics"
+        )
+    }
+
+    func testCancelTerminatesCLIProcessTree() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let childPIDFile = tempDir.appendingPathComponent("child.pid")
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        /bin/sh -c 'trap "" TERM HUP INT; echo $$ > "$LUNGFISH_TEST_CHILD_PID_FILE"; while true; do sleep 1; done' &
+        echo '{"event":"importStart","sampleCount":1,"recipeName":"test"}'
+        while true; do sleep 1; done
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let priorCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        let priorPIDFile = ProcessInfo.processInfo.environment["LUNGFISH_TEST_CHILD_PID_FILE"]
+        setenv("LUNGFISH_CLI_PATH", fakeCLI.path, 1)
+        setenv("LUNGFISH_TEST_CHILD_PID_FILE", childPIDFile.path, 1)
+        defer {
+            if let priorCLIPath {
+                setenv("LUNGFISH_CLI_PATH", priorCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+            if let priorPIDFile {
+                setenv("LUNGFISH_TEST_CHILD_PID_FILE", priorPIDFile, 1)
+            } else {
+                unsetenv("LUNGFISH_TEST_CHILD_PID_FILE")
+            }
+        }
+
+        let operationID = await MainActor.run {
+            OperationCenter.shared.start(
+                title: "FASTQ Import: cancellation test",
+                detail: "Starting",
+                operationType: .ingestion
+            )
+        }
+        addTeardownBlock {
+            await MainActor.run {
+                OperationCenter.shared.clearItem(id: operationID)
+            }
+        }
+
+        let runner = CLIImportRunner()
+        let runTask = Task {
+            await runner.run(
+                arguments: [],
+                operationID: operationID,
+                projectDirectory: tempDir,
+                onBundleCreated: { _ in },
+                onError: { _ in }
+            )
+        }
+
+        let childPID = try await waitForPIDFile(childPIDFile)
+        addTeardownBlock {
+            if Self.isProcessRunning(pid: childPID) {
+                kill(childPID, SIGKILL)
+            }
+        }
+        XCTAssertTrue(Self.isProcessRunning(pid: childPID))
+
+        await runner.cancel()
+
+        let childExited = await Self.waitUntilProcessExits(pid: childPID, timeout: 2.0)
+        XCTAssertTrue(childExited, "Cancelling the CLI import must terminate child tool processes, not only lungfish-cli")
+
+        if !childExited {
+            kill(childPID, SIGKILL)
+        }
+        _ = await runTask.value
+    }
+
     func testResolveCLIPathPrefersBundledSiblingExecutable() throws {
         let tempDir = try makeTemporaryDirectory()
         let executableDir = tempDir.appendingPathComponent("Lungfish.app/Contents/MacOS", isDirectory: true)
@@ -254,5 +384,41 @@ final class CLIImportRunnerTests: XCTestCase {
             try? FileManager.default.removeItem(at: url)
         }
         return url
+    }
+
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 2.0) async throws -> Int32 {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let contents = try? String(contentsOf: url, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               let pid = Int32(contents) {
+                return pid
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw NSError(
+            domain: "CLIImportRunnerTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for fake CLI child PID"]
+        )
+    }
+
+    private static func waitUntilProcessExits(pid: Int32, timeout: TimeInterval) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !isProcessRunning(pid: pid) {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return !isProcessRunning(pid: pid)
+    }
+
+    private static func isProcessRunning(pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        if kill(pid, 0) == 0 {
+            return true
+        }
+        return errno != ESRCH
     }
 }

@@ -66,6 +66,24 @@ final class NativeToolRunnerTests: XCTestCase {
         }
     }
 
+    func testRiboDetectorResolvesFromManagedLungfishEnvironment() {
+        switch NativeTool.ribodetector.location {
+        case .managed(let environment, let executableName):
+            XCTAssertEqual(environment, "ribodetector")
+            XCTAssertEqual(executableName, "ribodetector_cpu")
+        default:
+            XCTFail("RiboDetector should resolve from a managed tool environment")
+        }
+
+        XCTAssertEqual(NativeTool.ribodetector.versionArguments, ["-v"])
+        XCTAssertEqual(NativeTool.ribodetector.sourcePackage, "ribodetector")
+        XCTAssertEqual(NativeTool.ribodetector.license, "GPL-3.0-or-later")
+    }
+
+    func testSeqkitUsesVersionSubcommandForProvenanceProbe() {
+        XCTAssertEqual(NativeTool.seqkit.versionArguments, ["version"])
+    }
+
     func testBBMapToolsResolveFromManagedBBToolsEnvironment() {
         switch NativeTool.bbmap.location {
         case .managed(let environment, let executableName):
@@ -614,7 +632,7 @@ final class NativeToolRunnerTests: XCTestCase {
     func testAllCasesCount() {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers and the viral variant callers are both part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 25, "Should include BBTools wrappers and viral variant callers in the managed tool surface")
+        XCTAssertEqual(NativeTool.allCases.count, 26, "Should include BBTools wrappers and viral variant callers in the managed tool surface")
     }
 
     // MARK: - Error Tests

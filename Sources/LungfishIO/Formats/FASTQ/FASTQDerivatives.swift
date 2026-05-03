@@ -309,7 +309,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     // Human read removal using NCBI sra-human-scrubber
     case humanReadScrub
 
-    // Ribosomal RNA classification/removal using RiboDetector
+    // Ribosomal RNA classification/removal using Deacon
     case ribosomalRNAFilter
 
     /// Whether this operation produces a subset (read IDs) or trim (positions).
@@ -477,10 +477,10 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
     /// Database ID to use (default "human-scrubber"). Resolves via DatabaseRegistry.
     public var humanScrubDatabaseID: String?
 
-    // RiboDetector parameters
-    /// Which RiboDetector read class outputs were retained.
+    // Ribosomal RNA filter parameters
+    /// Which rRNA filter read class outputs were retained.
     public var riboDetectorRetention: FASTQRiboDetectorRetention?
-    /// Conservative class-assurance mode passed to RiboDetector.
+    /// Legacy assurance setting preserved for bundle compatibility.
     public var riboDetectorEnsure: FASTQRiboDetectorEnsure?
 
     // Orient parameters
@@ -735,7 +735,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             return "human-scrub-\(dbID)-\(mode)"
         case .ribosomalRNAFilter:
             let retention = riboDetectorRetention ?? .nonRRNA
-            return "ribodetector-\(retention.rawValue)"
+            return "deacon-ribo-\(retention.rawValue)"
         }
     }
 
@@ -879,7 +879,7 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             return "Human read scrub (\(mode), db: \(dbID))"
         case .ribosomalRNAFilter:
             let retention = riboDetectorRetention ?? .nonRRNA
-            return "RiboDetector (retain: \(retention.displayName))"
+            return "Deacon rRNA filter (retain: \(retention.displayName))"
         }
     }
 }
@@ -1640,7 +1640,7 @@ extension FASTQDerivativeOperation {
 
         case .ribosomalRNAFilter:
             let retention = riboDetectorRetention ?? .nonRRNA
-            return "Ribosomal RNA sequences were classified\(tool), retaining \(retention.displayName) reads."
+            return "Ribosomal RNA sequences were filtered\(tool) with Deacon ribokmers, retaining \(retention.displayName) reads."
         }
     }
 }

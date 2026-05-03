@@ -1,0 +1,53 @@
+{
+    "formatVersion": 1,
+    "id": "wastewater-metagenomics",
+    "name": "Wastewater metagenomics",
+    "description": "Wastewater metagenomics import: trim reads, remove human reads, remove ribosomal RNA with Deacon and BBMap ribokmers, merge overlapping pairs, and length-filter the final FASTQ stream. Deduplication is intentionally omitted to preserve abundance.",
+    "author": "Lungfish Built-in",
+    "tags": ["illumina", "wastewater", "metagenomics", "paired-end", "ribodepletion"],
+    "platforms": ["illumina"],
+    "requiredInput": "paired",
+    "qualityBinning": "illumina4",
+    "steps": [
+        {
+            "type": "fastp-trim",
+            "label": "Adapter + quality trim",
+            "params": {
+                "detectAdapter": true,
+                "quality": 15,
+                "window": 5,
+                "cutMode": "right"
+            }
+        },
+        {
+            "type": "deacon-scrub",
+            "label": "Remove human reads",
+            "params": {
+                "database": "deacon-panhuman"
+            }
+        },
+        {
+            "type": "deacon-ribo-filter",
+            "label": "Remove ribosomal RNA",
+            "params": {
+                "database": "deacon-ribokmers",
+                "absoluteThreshold": 1,
+                "relativeThreshold": 0
+            }
+        },
+        {
+            "type": "fastp-merge",
+            "label": "Merge overlapping pairs",
+            "params": {
+                "minOverlap": 15
+            }
+        },
+        {
+            "type": "seqkit-length-filter",
+            "label": "Remove short reads",
+            "params": {
+                "minLength": 50
+            }
+        }
+    ]
+}

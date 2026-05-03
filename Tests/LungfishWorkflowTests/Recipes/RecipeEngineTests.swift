@@ -117,4 +117,73 @@ final class RecipeEngineTests: XCTestCase {
             XCTFail("Expected .formatConversion at index 1, got \(plan[1])")
         }
     }
+
+    func testPlanSupportsPairedRiboDetectorBeforeMerge() throws {
+        let recipe = makeRecipe(steps: [
+            RecipeStep(type: "deacon-scrub"),
+            RecipeStep(
+                type: "ribodetector-filter",
+                label: "Remove ribosomal RNA",
+                params: [
+                    "retain": .string("norrna"),
+                    "ensure": .string("rrna"),
+                    "readLength": .int(151),
+                    "chunkSize": .int(200),
+                ]
+            ),
+            RecipeStep(type: "fastp-merge", params: ["minOverlap": .int(15)]),
+        ])
+        let engine = RecipeEngine()
+        let plan = try engine.plan(recipe: recipe, inputFormat: .pairedR1R2)
+
+        XCTAssertEqual(plan.count, 3)
+        guard case .singleStep(let executor, let label) = plan[1] else {
+            return XCTFail("Expected RiboDetector single step at index 1, got \(plan[1])")
+        }
+        XCTAssertTrue(executor is RiboDetectorStep)
+        XCTAssertEqual(label, "Remove ribosomal RNA")
+    }
+
+    func testRecipeToolTimeoutDisablesTimeoutForFullSizeFastpInputs() {
+        let timeout = StepContext.recipeToolTimeout(
+            for: .fastp,
+            inputBytes: 100_000_000_000
+        )
+
+        XCTAssertTrue(timeout.isInfinite, "Full-size FASTQ recipe steps should not time out")
+    }
+
+    func testRecipeToolTimeoutDisablesTimeoutForSlowRiboDetectorOnLargeInputs() {
+        let inputBytes: Int64 = 100_000_000_000
+        let riboDetectorTimeout = StepContext.recipeToolTimeout(for: .ribodetector, inputBytes: inputBytes)
+
+        XCTAssertTrue(riboDetectorTimeout.isInfinite, "Large paired RiboDetector jobs should not time out")
+    }
+
+    func testRecipeToolTimeoutDisablesTimeoutForLargeSeqkitLengthFilterInputs() {
+        let observedTimedOutInputBytes: Int64 = 27_360_000_000
+        let timeout = StepContext.recipeToolTimeout(for: .seqkit, inputBytes: observedTimedOutInputBytes)
+
+        XCTAssertTrue(timeout.isInfinite, "Large gzipped seqkit length filters should not time out")
+    }
+
+    func testRecipeStreamConcatenationPreservesSourceBytes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RecipeEngineConcat-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let first = root.appendingPathComponent("first.fq.gz")
+        let second = root.appendingPathComponent("second.fq.gz")
+        let output = root.appendingPathComponent("combined.fq.gz")
+
+        let firstBytes = Data([0x1f, 0x8b, 0x08, 0x01])
+        let secondBytes = Data([0x1f, 0x8b, 0x08, 0x02, 0x03])
+        try firstBytes.write(to: first)
+        try secondBytes.write(to: second)
+
+        try RecipeEngine.concatenateStreams([first, second], to: output)
+
+        XCTAssertEqual(try Data(contentsOf: output), firstBytes + secondBytes)
+    }
 }

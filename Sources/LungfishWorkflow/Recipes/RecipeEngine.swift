@@ -53,6 +53,8 @@ public final class RecipeEngine: Sendable {
             FastpDedupStep.self,
             FastpTrimStep.self,
             DeaconScrubStep.self,
+            DeaconRiboFilterStep.self,
+            RiboDetectorStep.self,
             FastpMergeStep.self,
             SeqkitLengthFilterStep.self,
         ]
@@ -366,7 +368,11 @@ public final class RecipeEngine: Sendable {
             "-h", "/dev/null",
         ]
 
-        let result = try await context.runner.run(.fastp, arguments: args)
+        let result = try await context.runner.run(
+            .fastp,
+            arguments: args,
+            timeout: context.recipeToolTimeout(for: .fastp, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "fastp", step: "fused-fastp(\(label))", stderr: result.stderr)
@@ -422,7 +428,11 @@ public final class RecipeEngine: Sendable {
         ]
 
         let result = try await context.runner.run(
-            .reformat, arguments: args, environment: env)
+            .reformat,
+            arguments: args,
+            environment: env,
+            timeout: context.recipeToolTimeout(for: .reformat, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "reformat.sh", step: "format-conversion(pairedR1R2→interleaved)",
@@ -452,7 +462,11 @@ public final class RecipeEngine: Sendable {
         ]
 
         let result = try await context.runner.run(
-            .reformat, arguments: args, environment: env)
+            .reformat,
+            arguments: args,
+            environment: env,
+            timeout: context.recipeToolTimeout(for: .reformat, input: input)
+        )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
                 tool: "reformat.sh", step: "format-conversion(interleaved→pairedR1R2)",
@@ -475,14 +489,26 @@ public final class RecipeEngine: Sendable {
 
         let sources = [input.r1, input.r2, input.r3].compactMap { $0 }
 
-        var combined = Data()
-        for url in sources {
-            let chunk = try Data(contentsOf: url)
-            combined.append(chunk)
-        }
-        try combined.write(to: output)
+        try Self.concatenateStreams(sources, to: output)
 
         return StepOutput(r1: output, format: .single)
+    }
+
+    static func concatenateStreams(_ sources: [URL], to output: URL) throws {
+        FileManager.default.createFile(atPath: output.path, contents: nil)
+        let outputHandle = try FileHandle(forWritingTo: output)
+        defer { try? outputHandle.close() }
+
+        for source in sources {
+            let inputHandle = try FileHandle(forReadingFrom: source)
+            defer { try? inputHandle.close() }
+
+            while true {
+                let chunk = try inputHandle.read(upToCount: 8 * 1024 * 1024) ?? Data()
+                if chunk.isEmpty { break }
+                try outputHandle.write(contentsOf: chunk)
+            }
+        }
     }
 
     private func bbToolsEnvironment() async -> [String: String] {

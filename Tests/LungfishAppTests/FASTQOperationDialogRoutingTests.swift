@@ -405,7 +405,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testRiboDetectorDefaultsToRetainingNonRRNAWithConservativeEnsureMode() throws {
+    func testRibosomalRNAFilterDefaultsToDeaconRiboDepletion() throws {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(
             initialCategory: .decontamination,
@@ -436,19 +436,19 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(
             invocation.arguments,
             [
-                "ribodetector",
+                "deacon-ribo",
                 "/tmp/sample.lungfishfastq",
+                "--database-id",
+                "deacon-ribokmers",
                 "--retain",
                 "norrna",
-                "--ensure",
-                "rrna",
                 "-o",
                 "<derived>",
             ]
         )
     }
 
-    func testRiboDetectorCanRetainBothRRNAAndNonRRNA() {
+    func testRibosomalRNAFilterCanRetainBothRRNAAndNonRRNA() {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(
             initialCategory: .decontamination,

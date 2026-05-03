@@ -20,6 +20,7 @@
     { "id": "ucsc-bedgraphtobigwig", "environment": "ucsc-bedgraphtobigwig", "packageSpec": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0", "executables": ["bedGraphToBigWig"], "version": "482", "license": "Varies; see https://genome.ucsc.edu/license", "sourceUrl": "https://genome.ucsc.edu/goldenPath/help/bigWig.html" }
   ],
   "managedData": [
-    { "id": "deacon-panhuman", "displayName": "Human Read Removal Data" }
+    { "id": "deacon-panhuman", "displayName": "Human Read Removal Data" },
+    { "id": "deacon-ribokmers", "displayName": "Ribosomal RNA Removal Data" }
   ]
 }

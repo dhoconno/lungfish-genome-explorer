@@ -28,7 +28,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
             "vsearch", "pigz", "sra-tools", "ucsc-bedtobigbed", "ucsc-bedgraphtobigwig",
-            "deacon-panhuman",
+            "deacon-panhuman", "deacon-ribokmers",
         ])
         XCTAssertEqual(pack.estimatedSizeMB, 2600)
         XCTAssertEqual(
@@ -46,6 +46,11 @@ final class PluginPackRegistryTests: XCTestCase {
             "Human Read Removal Data"
         )
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "deacon-panhuman" })?.executables, [])
+        XCTAssertEqual(
+            pack.toolRequirements.first(where: { $0.environment == "deacon-ribokmers" })?.displayName,
+            "Ribosomal RNA Removal Data"
+        )
+        XCTAssertEqual(pack.toolRequirements.first(where: { $0.environment == "deacon-ribokmers" })?.executables, [])
     }
 
     func testRequiredSetupPackMatchesPinnedManagedToolLock() throws {
@@ -57,7 +62,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
         XCTAssertEqual(lock.tools.count, 15)
-        XCTAssertEqual(lock.managedData.count, 1)
+        XCTAssertEqual(lock.managedData.count, 2)
     }
 
     func testRequiredSetupPackExposesPinnedAboutMetadata() throws {

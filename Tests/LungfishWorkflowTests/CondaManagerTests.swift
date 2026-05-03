@@ -194,7 +194,7 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(lock.version, "0.4.0-alpha.5")
         XCTAssertEqual(lock.tools.count, 15)
-        XCTAssertEqual(lock.managedData.count, 1)
+        XCTAssertEqual(lock.managedData.count, 2)
 
         let expectedSpecs: [String: String] = [
             "nextflow": "bioconda::nextflow=25.10.4=h2a3209d_0",
@@ -216,8 +216,8 @@ final class CondaManagerTests: XCTestCase {
 
         let actualSpecs: [String: String] = Dictionary(uniqueKeysWithValues: lock.tools.map { ($0.id, $0.packageSpec) })
         XCTAssertEqual(actualSpecs, expectedSpecs)
-        XCTAssertEqual(lock.managedData.first?.id, "deacon-panhuman")
-        XCTAssertEqual(lock.managedData.first?.displayName, "Human Read Removal Data")
+        XCTAssertEqual(lock.managedData.map(\.id), ["deacon-panhuman", "deacon-ribokmers"])
+        XCTAssertEqual(lock.managedData.map(\.displayName), ["Human Read Removal Data", "Ribosomal RNA Removal Data"])
     }
 
     func testMicromambaBundledResourceIsResolvable() throws {

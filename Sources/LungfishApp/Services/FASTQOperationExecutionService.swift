@@ -866,14 +866,14 @@ struct FASTQOperationExecutionService {
                 outputTarget,
             ]
 
-        case .ribosomalRNAFilter(let retention, let ensure):
+        case .ribosomalRNAFilter(let retention, _):
             return [
-                "ribodetector",
+                "deacon-ribo",
                 inputURL.path,
+                "--database-id",
+                DeaconRibokmersDatabaseInstaller.databaseID,
                 "--retain",
                 retention.rawValue,
-                "--ensure",
-                ensure.rawValue,
                 "-o",
                 outputTarget,
             ]
@@ -1525,7 +1525,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 kind: .ribosomalRNAFilter,
                 riboDetectorRetention: outputRetention,
                 riboDetectorEnsure: ensure,
-                toolUsed: "RiboDetector",
+                toolUsed: "deacon",
                 toolCommand: derivativeRequest.cliCommand(inputPath: sourceURL.path, outputPath: outputURL.path)
             )
 
@@ -1676,10 +1676,10 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
 
         let filename = outputURL.lastPathComponent.lowercased()
         if filename.contains(".norrna.") || filename.contains("-norrna") || filename.contains("_norrna") {
-            return "ribodetector-norrna"
+            return "deacon-ribo-norrna"
         }
         if filename.contains(".rrna.") || filename.contains("-rrna") || filename.contains("_rrna") {
-            return "ribodetector-rrna"
+            return "deacon-ribo-rrna"
         }
         return request.outputNameStem
     }
@@ -1965,7 +1965,7 @@ private extension FASTQDerivativeRequest {
     var outputNameStem: String {
         switch self {
         case .ribosomalRNAFilter(let retention, _):
-            return "ribodetector-\(retention.rawValue)"
+            return "deacon-ribo-\(retention.rawValue)"
         default:
             return operationKindString
         }

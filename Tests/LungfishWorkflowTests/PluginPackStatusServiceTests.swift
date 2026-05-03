@@ -37,13 +37,13 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
     func testStatusForPackReusesPerPackCachedResultWithinTTL() async throws {
         actor DatabaseRecorder {
-            var callCount = 0
+            var calls: [String] = []
 
-            func recordCall() {
-                callCount += 1
+            func recordCall(_ databaseID: String) {
+                calls.append(databaseID)
             }
 
-            func recordedCallCount() -> Int { callCount }
+            func recordedCalls() -> [String] { calls }
         }
 
         let recorder = DatabaseRecorder()
@@ -55,8 +55,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         let service = PluginPackStatusService(
             condaManager: manager,
-            databaseInstalledCheck: { _ in
-                await recorder.recordCall()
+            databaseInstalledCheck: { databaseID in
+                await recorder.recordCall(databaseID)
                 return false
             },
             cacheLifetime: 60
@@ -65,8 +65,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await service.status(for: .requiredSetupPack)
         _ = await service.status(for: .requiredSetupPack)
 
-        let callCount = await recorder.recordedCallCount()
-        XCTAssertEqual(callCount, 1)
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
     }
 
     func testVisibleStatusesReuseCachedResultWithinTTL() async throws {
@@ -74,10 +74,15 @@ final class PluginPackStatusServiceTests: XCTestCase {
             var callCount = 0
             private let lock = NSLock()
             private var continuation: CheckedContinuation<Void, Never>?
+            private var released = false
 
             func waitForRelease() async {
-                lock.withLock {
+                let shouldWait = lock.withLock {
                     callCount += 1
+                    return !released
+                }
+                guard shouldWait else {
+                    return
                 }
                 await withCheckedContinuation { continuation in
                     lock.withLock {
@@ -88,6 +93,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
             func release() {
                 let continuation = lock.withLock {
+                    self.released = true
                     let continuation = self.continuation
                     self.continuation = nil
                     return continuation
@@ -125,18 +131,18 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await service.visibleStatuses()
 
         let finalCallCount = gate.recordedCallCount()
-        XCTAssertEqual(finalCallCount, 1)
+        XCTAssertEqual(finalCallCount, 2)
     }
 
     func testVisibleStatusesUsePersistedSnapshotAcrossServiceInstancesWithinTTL() async throws {
         actor DatabaseRecorder {
-            var callCount = 0
+            var calls: [String] = []
 
-            func recordCall() {
-                callCount += 1
+            func recordCall(_ databaseID: String) {
+                calls.append(databaseID)
             }
 
-            func recordedCallCount() -> Int { callCount }
+            func recordedCalls() -> [String] { calls }
         }
 
         let rootPrefix = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -149,8 +155,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let recorder = DatabaseRecorder()
         let firstService = PluginPackStatusService(
             condaManager: manager,
-            databaseInstalledCheck: { _ in
-                await recorder.recordCall()
+            databaseInstalledCheck: { databaseID in
+                await recorder.recordCall(databaseID)
                 return false
             },
             cacheLifetime: 60
@@ -172,8 +178,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let elapsed = Date().timeIntervalSince(started)
 
         XCTAssertLessThan(elapsed, 1.0)
-        let callCount = await recorder.recordedCallCount()
-        XCTAssertEqual(callCount, 1)
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
     }
 
     func testVisibleStatusesRetryTransientSmokeFailuresBeforeSurfacingReinstall() async throws {
@@ -309,13 +315,13 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
     func testVisibleStatusesAreInvalidatedAfterExplicitCacheClear() async throws {
         actor DatabaseRecorder {
-            var callCount = 0
+            var calls: [String] = []
 
-            func recordCall() {
-                callCount += 1
+            func recordCall(_ databaseID: String) {
+                calls.append(databaseID)
             }
 
-            func recordedCallCount() -> Int { callCount }
+            func recordedCalls() -> [String] { calls }
         }
 
         let recorder = DatabaseRecorder()
@@ -327,8 +333,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
         let service = PluginPackStatusService(
             condaManager: manager,
-            databaseInstalledCheck: { _ in
-                await recorder.recordCall()
+            databaseInstalledCheck: { databaseID in
+                await recorder.recordCall(databaseID)
                 return false
             },
             cacheLifetime: 60
@@ -339,8 +345,13 @@ final class PluginPackStatusServiceTests: XCTestCase {
         await service.invalidateVisibleStatusesCache()
         _ = await service.visibleStatuses()
 
-        let callCount = await recorder.recordedCallCount()
-        XCTAssertEqual(callCount, 2)
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls, [
+            "deacon-panhuman",
+            "deacon-ribokmers",
+            "deacon-panhuman",
+            "deacon-ribokmers",
+        ])
     }
 
     func testVisibleStatusesShareInFlightRefreshWork() async throws {
@@ -348,10 +359,15 @@ final class PluginPackStatusServiceTests: XCTestCase {
             var callCount = 0
             private let lock = NSLock()
             private var continuation: CheckedContinuation<Void, Never>?
+            private var released = false
 
             func waitForRelease() async {
-                lock.withLock {
+                let shouldWait = lock.withLock {
                     callCount += 1
+                    return !released
+                }
+                guard shouldWait else {
+                    return
                 }
                 await withCheckedContinuation { continuation in
                     lock.withLock {
@@ -362,6 +378,7 @@ final class PluginPackStatusServiceTests: XCTestCase {
 
             func release() {
                 let continuation = lock.withLock {
+                    self.released = true
                     let continuation = self.continuation
                     self.continuation = nil
                     return continuation
@@ -400,18 +417,18 @@ final class PluginPackStatusServiceTests: XCTestCase {
         _ = await secondStatuses
 
         let finalCallCount = gate.recordedCallCount()
-        XCTAssertEqual(finalCallCount, 1)
+        XCTAssertEqual(finalCallCount, 2)
     }
 
     func testStatusForPackUsesPersistedSnapshotAcrossServiceInstancesWithinTTL() async throws {
         actor DatabaseRecorder {
-            var callCount = 0
+            var calls: [String] = []
 
-            func recordCall() {
-                callCount += 1
+            func recordCall(_ databaseID: String) {
+                calls.append(databaseID)
             }
 
-            func recordedCallCount() -> Int { callCount }
+            func recordedCalls() -> [String] { calls }
         }
 
         let rootPrefix = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -424,8 +441,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let recorder = DatabaseRecorder()
         let firstService = PluginPackStatusService(
             condaManager: manager,
-            databaseInstalledCheck: { _ in
-                await recorder.recordCall()
+            databaseInstalledCheck: { databaseID in
+                await recorder.recordCall(databaseID)
                 return false
             },
             cacheLifetime: 60
@@ -447,8 +464,8 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let elapsed = Date().timeIntervalSince(started)
 
         XCTAssertLessThan(elapsed, 1.0)
-        let callCount = await recorder.recordedCallCount()
-        XCTAssertEqual(callCount, 1)
+        let calls = await recorder.recordedCalls()
+        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
     }
 
     func testStatusForPackUsesPersistedSnapshotBeyondTTLWhenFingerprintUnchanged() async throws {
@@ -1106,13 +1123,18 @@ final class PluginPackStatusServiceTests: XCTestCase {
         }
 
         let calls = await recorder.recordedCalls()
-        XCTAssertEqual(calls, ["deacon-panhuman"])
+        XCTAssertEqual(calls, ["deacon-panhuman", "deacon-ribokmers"])
         let fractions = await recorder.recordedFractions()
-        XCTAssertEqual(fractions, [0.55])
+        XCTAssertEqual(fractions, [0.55, 0.55])
         let events = eventRecorder.recordedEvents()
         XCTAssertTrue(events.contains {
             $0.requirementID == "deacon-panhuman"
                 && $0.requirementDisplayName == "Human Read Removal Data"
+                && abs($0.itemFraction - 0.55) < 0.0001
+        })
+        XCTAssertTrue(events.contains {
+            $0.requirementID == "deacon-ribokmers"
+                && $0.requirementDisplayName == "Ribosomal RNA Removal Data"
                 && abs($0.itemFraction - 0.55) < 0.0001
         })
     }

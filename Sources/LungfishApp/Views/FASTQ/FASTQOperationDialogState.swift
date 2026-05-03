@@ -776,7 +776,7 @@ final class FASTQOperationDialogState {
         case .removeHumanReads:
             return "Filter reads that match the configured human database."
         case .removeRibosomalRNA:
-            return "Run RiboDetector in CPU mode and retain selected rRNA read classes."
+            return "Run Deacon against the managed ribokmers database and retain selected rRNA read classes."
         case .removeContaminants:
             return "Filter reads that match a contaminant reference."
         case .removeDuplicates:
@@ -1292,7 +1292,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .trimFixedBases: return "Remove a fixed number of bases from either end."
         case .filterByReadLength: return "Keep reads in a requested length range."
         case .removeHumanReads: return "Remove reads against a human database."
-        case .removeRibosomalRNA: return "Run RiboDetector in CPU mode and retain non-rRNA, rRNA, or both read classes."
+        case .removeRibosomalRNA: return "Run Deacon against the managed ribokmers database and retain non-rRNA, rRNA, or both read classes."
         case .removeContaminants: return "Remove spike-ins or other contaminant sequences."
         case .removeDuplicates: return "Collapse duplicate reads."
         case .mergeOverlappingPairs: return "Merge overlapping paired-end reads."

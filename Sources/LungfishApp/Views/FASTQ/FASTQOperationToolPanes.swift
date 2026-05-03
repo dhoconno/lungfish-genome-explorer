@@ -502,7 +502,7 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 Text("Custom contaminant mode expects the reference FASTA in the Inputs section.")
                     .foregroundStyle(.secondary)
             case .removeRibosomalRNA:
-                Text("RiboDetector runs in CPU mode with conservative rRNA assurance; additional parameters remain unexposed pending expert review.")
+                Text("Deacon uses the managed BBMap ribokmers index with sensitive minimizer thresholds.")
                     .foregroundStyle(.secondary)
             case .removeDuplicates:
                 Text("The deduplication preset selects the CLI-compatible parameter set.")

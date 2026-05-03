@@ -347,9 +347,13 @@ extension ImportCommand {
             }
 
             for step in newRecipe?.steps ?? [] {
-                guard Self.newRecipeStepRequiresHumanScrubber(step) else { continue }
-                let configuredID = step.params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
-                ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: configuredID))
+                if Self.newRecipeStepRequiresHumanScrubber(step) {
+                    let configuredID = step.params?["database"]?.stringValue ?? DeaconPanhumanDatabaseInstaller.databaseID
+                    ids.insert(Self.canonicalHumanReadRemovalDatabaseID(for: configuredID))
+                } else if Self.newRecipeStepRequiresRibokmers(step) {
+                    let configuredID = step.params?["database"]?.stringValue ?? DeaconRibokmersDatabaseInstaller.databaseID
+                    ids.insert(DatabaseRegistry.canonicalDatabaseID(for: configuredID))
+                }
             }
 
             return ids.sorted()
@@ -500,6 +504,13 @@ extension ImportCommand {
                 || type == "human-scrub"
                 || type == "sra-human-scrubber"
                 || type == "deacon-scrub"
+        }
+
+        private static func newRecipeStepRequiresRibokmers(_ step: RecipeStep) -> Bool {
+            let type = step.type.lowercased()
+            return type == "deacon-ribo-filter"
+                || type == "deacon-ribo"
+                || type == "ribokmers"
         }
     }
 }

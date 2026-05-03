@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "CLIImportRunner")
@@ -213,6 +214,12 @@ public actor CLIImportRunner {
         return args
     }
 
+    /// Builds the display form of a `lungfish-cli` command using the same
+    /// argument array passed to ``run(arguments:operationID:projectDirectory:onBundleCreated:onError:)``.
+    public nonisolated static func commandLine(arguments: [String]) -> String {
+        (["lungfish-cli"] + arguments).map { shellEscape($0) }.joined(separator: " ")
+    }
+
     // MARK: - Static: Event Parsing
 
     /// Parses a single JSON line from the CLI stdout into a ``CLIImportEvent``.
@@ -336,6 +343,13 @@ public actor CLIImportRunner {
         proc.standardError = stderrPipe
 
         self.process = proc
+        NativeProcessRegistry.shared.register(proc)
+        defer {
+            NativeProcessRegistry.shared.unregister(proc)
+            if self.process === proc {
+                self.process = nil
+            }
+        }
 
         // Update status before launching so the user sees we're past the slot wait
         let opID = operationID
@@ -349,205 +363,209 @@ public actor CLIImportRunner {
             }
         }
 
-        do {
-            try proc.run()
-        } catch {
-            let msg = "Failed to launch CLI process: \(error.localizedDescription)"
-            logger.error("\(msg, privacy: .public)")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
+        await withTaskCancellationHandler {
+            do {
+                try proc.run()
+            } catch {
+                let msg = "Failed to launch CLI process: \(error.localizedDescription)"
+                logger.error("\(msg, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: msg, errorMessage: msg)
+                    }
                 }
+                onError(msg)
+                return
             }
-            onError(msg)
-            return
-        }
 
-        // Stream stdout line-by-line for real-time progress updates.
-        // We use readabilityHandler on a GCD dispatch source so events
-        // reach OperationCenter as the CLI emits them, not after exit.
-        let stdoutHandle = stdoutPipe.fileHandleForReading
+            // Stream stdout line-by-line for real-time progress updates.
+            // We use readabilityHandler on a GCD dispatch source so events
+            // reach OperationCenter as the CLI emits them, not after exit.
+            let stdoutHandle = stdoutPipe.fileHandleForReading
 
-        // Mutable state shared across the @Sendable readabilityHandler callback.
-        final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
-            var totalSamples = 1
-        }
-        let state = StreamState()
+            // Mutable state shared across the @Sendable readabilityHandler callback.
+            final class StreamState: @unchecked Sendable {
+                var stdoutBuffer = Data()
+                var stderrBuffer = Data()
+                var totalSamples = 1
+            }
+            let state = StreamState()
 
-        // Collect stderr in background to avoid pipe deadlock
-        let stderrHandle = stderrPipe.fileHandleForReading
-        stderrHandle.readabilityHandler = { handle in
-            let chunk = handle.availableData
-            if !chunk.isEmpty { state.stderrBuffer.append(chunk) }
-        }
-
-        // Process stdout lines as they arrive
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            // Guard against double-resume: readabilityHandler may deliver EOF more than once
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-
-            stdoutHandle.readabilityHandler = { handle in
+            // Collect stderr in background to avoid pipe deadlock
+            let stderrHandle = stderrPipe.fileHandleForReading
+            stderrHandle.readabilityHandler = { handle in
                 let chunk = handle.availableData
-                guard !chunk.isEmpty else {
-                    // EOF — process closed stdout
-                    stdoutHandle.readabilityHandler = nil
-                    let alreadyResumed = resumed.withLock { val -> Bool in
-                        if val { return true }
-                        val = true
-                        return false
-                    }
-                    if !alreadyResumed { continuation.resume() }
-                    return
-                }
-                state.stdoutBuffer.append(chunk)
+                if !chunk.isEmpty { state.stderrBuffer.append(chunk) }
+            }
 
-                // Process complete lines
-                while let newlineRange = state.stdoutBuffer.range(of: Data("\n".utf8)) {
-                    let lineData = state.stdoutBuffer.subdata(in: state.stdoutBuffer.startIndex..<newlineRange.lowerBound)
-                    state.stdoutBuffer.removeSubrange(state.stdoutBuffer.startIndex..<newlineRange.upperBound)
+            // Process stdout lines as they arrive
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                // Guard against double-resume: readabilityHandler may deliver EOF more than once
+                let resumed = OSAllocatedUnfairLock(initialState: false)
 
-                    guard let lineStr = String(data: lineData, encoding: .utf8),
-                          !lineStr.isEmpty else { continue }
-
-                    do {
-                        guard let event = try Self.parseEvent(from: lineStr) else { continue }
-
-                        switch event {
-                        case let .importStart(sampleCount, _):
-                            state.totalSamples = max(sampleCount, 1)
-
-                        case let .sampleStart(sample, index, total, _, _):
-                            state.totalSamples = max(total, 1)
-                            let progress = Double(index) / Double(state.totalSamples)
-                            let currentTotal = state.totalSamples
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: progress * 0.05,
-                                        detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
-                                    )
-                                }
-                            }
-
-                        case let .stepStart(sample, step, stepIndex, totalSteps):
-                            // stepIndex is 1-based from the CLI
-                            let fraction = Double(stepIndex) / Double(max(1, totalSteps))
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
-                                        id: opID,
-                                        progress: fraction * 0.80,
-                                        detail: "\(sample): \(step)"
-                                    )
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .info,
-                                        message: "\(sample) — step \(stepIndex)/\(totalSteps): \(step)"
-                                    )
-                                }
-                            }
-
-                        case let .stepComplete(sample, step, durationSeconds):
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .info,
-                                        message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
-                                    )
-                                }
-                            }
-
-                        case let .sampleComplete(sample, bundle, _, _, _):
-                            let bundleURL = projectDirectory
-                                .appendingPathComponent("Imports")
-                                .appendingPathComponent(bundle)
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .info,
-                                        message: "\(sample) — bundle created"
-                                    )
-                                }
-                            }
-                            onBundleCreated(bundleURL)
-
-                        case let .sampleSkip(sample, reason):
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .warning,
-                                        message: "\(sample) skipped: \(reason)"
-                                    )
-                                }
-                            }
-
-                        case let .sampleFailed(sample, error):
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .error,
-                                        message: "\(sample) failed: \(error)"
-                                    )
-                                }
-                            }
-                            onError("\(sample): \(error)")
-
-                        case let .importComplete(completed, skipped, failed, totalDurationSeconds):
-                            DispatchQueue.main.async {
-                                MainActor.assumeIsolated {
-                                    OperationCenter.shared.log(
-                                        id: opID,
-                                        level: .info,
-                                        message: "Import complete — \(completed) done, \(skipped) skipped, \(failed) failed (\(String(format: "%.1f", totalDurationSeconds))s)"
-                                    )
-                                }
-                            }
+                stdoutHandle.readabilityHandler = { handle in
+                    let chunk = handle.availableData
+                    guard !chunk.isEmpty else {
+                        // EOF — process closed stdout
+                        stdoutHandle.readabilityHandler = nil
+                        let alreadyResumed = resumed.withLock { val -> Bool in
+                            if val { return true }
+                            val = true
+                            return false
                         }
-                    } catch {
-                        logger.warning("Failed to parse CLI event: \(error.localizedDescription, privacy: .public)")
+                        if !alreadyResumed { continuation.resume() }
+                        return
+                    }
+                    state.stdoutBuffer.append(chunk)
+
+                    // Process complete lines
+                    while let newlineRange = state.stdoutBuffer.range(of: Data("\n".utf8)) {
+                        let lineData = state.stdoutBuffer.subdata(in: state.stdoutBuffer.startIndex..<newlineRange.lowerBound)
+                        state.stdoutBuffer.removeSubrange(state.stdoutBuffer.startIndex..<newlineRange.upperBound)
+
+                        guard let lineStr = String(data: lineData, encoding: .utf8),
+                              !lineStr.isEmpty else { continue }
+
+                        do {
+                            guard let event = try Self.parseEvent(from: lineStr) else { continue }
+
+                            switch event {
+                            case let .importStart(sampleCount, _):
+                                state.totalSamples = max(sampleCount, 1)
+
+                            case let .sampleStart(sample, index, total, _, _):
+                                state.totalSamples = max(total, 1)
+                                let progress = Double(index) / Double(state.totalSamples)
+                                let currentTotal = state.totalSamples
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: progress * 0.05,
+                                            detail: "Importing \(sample) (\(index + 1)/\(currentTotal))"
+                                        )
+                                    }
+                                }
+
+                            case let .stepStart(sample, step, stepIndex, totalSteps):
+                                // stepIndex is 1-based from the CLI
+                                let fraction = Double(stepIndex) / Double(max(1, totalSteps))
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.update(
+                                            id: opID,
+                                            progress: fraction * 0.80,
+                                            detail: "\(sample): \(step)"
+                                        )
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .info,
+                                            message: "\(sample) — step \(stepIndex)/\(totalSteps): \(step)"
+                                        )
+                                    }
+                                }
+
+                            case let .stepComplete(sample, step, durationSeconds):
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .info,
+                                            message: "\(sample) — \(step) completed (\(String(format: "%.1f", durationSeconds))s)"
+                                        )
+                                    }
+                                }
+
+                            case let .sampleComplete(sample, bundle, _, _, _):
+                                let bundleURL = projectDirectory
+                                    .appendingPathComponent("Imports")
+                                    .appendingPathComponent(bundle)
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .info,
+                                            message: "\(sample) — bundle created"
+                                        )
+                                    }
+                                }
+                                onBundleCreated(bundleURL)
+
+                            case let .sampleSkip(sample, reason):
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .warning,
+                                            message: "\(sample) skipped: \(reason)"
+                                        )
+                                    }
+                                }
+
+                            case let .sampleFailed(sample, error):
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .error,
+                                            message: "\(sample) failed: \(error)"
+                                        )
+                                    }
+                                }
+                                onError("\(sample): \(error)")
+
+                            case let .importComplete(completed, skipped, failed, totalDurationSeconds):
+                                DispatchQueue.main.async {
+                                    MainActor.assumeIsolated {
+                                        OperationCenter.shared.log(
+                                            id: opID,
+                                            level: .info,
+                                            message: "Import complete — \(completed) done, \(skipped) skipped, \(failed) failed (\(String(format: "%.1f", totalDurationSeconds))s)"
+                                        )
+                                    }
+                                }
+                            }
+                        } catch {
+                            logger.warning("Failed to parse CLI event: \(error.localizedDescription, privacy: .public)")
+                        }
                     }
                 }
             }
-        }
 
-        proc.waitUntilExit()
-        stderrHandle.readabilityHandler = nil
+            proc.waitUntilExit()
+            stderrHandle.readabilityHandler = nil
 
-        // Handle non-zero exit
-        let exitStatus = proc.terminationStatus
-        if exitStatus != 0 {
-            let stderrOutput = String(data: state.stderrBuffer, encoding: .utf8) ?? "Unknown error"
-            let msg = "CLI exited with status \(exitStatus)"
-            logger.error("\(msg, privacy: .public): \(stderrOutput, privacy: .public)")
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    OperationCenter.shared.fail(
-                        id: opID,
-                        detail: msg,
-                        errorMessage: msg,
-                        errorDetail: stderrOutput
-                    )
+            // Handle non-zero exit
+            let exitStatus = proc.terminationStatus
+            if exitStatus != 0 {
+                let stderrOutput = String(data: state.stderrBuffer, encoding: .utf8) ?? "Unknown error"
+                let msg = "CLI exited with status \(exitStatus)"
+                logger.error("\(msg, privacy: .public): \(stderrOutput, privacy: .public)")
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: msg,
+                            errorMessage: msg,
+                            errorDetail: stderrOutput
+                        )
+                    }
                 }
+                onError("\(msg): \(stderrOutput)")
             }
-            onError("\(msg): \(stderrOutput)")
+        } onCancel: {
+            Task {
+                await self.cancel()
+            }
         }
-
-        self.process = nil
     }
 
     // MARK: - Instance: Cancel
 
-    /// Sends SIGTERM to the running CLI process, if any.
+    /// Terminates the running CLI process tree, if any.
     public func cancel() {
-        guard let proc = process, proc.isRunning else { return }
-        logger.info("Sending SIGTERM to CLI process \(proc.processIdentifier, privacy: .public)")
-        proc.terminate()
+        guard let proc = process else { return }
+        logger.info("Terminating CLI process tree rooted at \(proc.processIdentifier, privacy: .public)")
+        ProcessTreeTerminator.terminate(rootProcess: proc)
     }
 }

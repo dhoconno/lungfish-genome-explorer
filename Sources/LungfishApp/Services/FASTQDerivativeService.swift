@@ -69,7 +69,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     // but the managed Deacon path always removes matched reads.
     case humanReadScrub(databaseID: String, removeReads: Bool)
 
-    // RiboDetector CPU operation for retaining non-rRNA, rRNA, or both classes.
+    // Deacon rRNA operation for retaining non-rRNA, rRNA, or both classes.
     case ribosomalRNAFilter(retention: FASTQRiboDetectorRetention, ensure: FASTQRiboDetectorEnsure)
 
     /// Human-readable label for this operation, used in the Operations panel.
@@ -271,7 +271,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .humanReadScrub(let databaseID, _):
             return ["databaseID": Self.canonicalHumanScrubDatabaseID(for: databaseID)]
         case .ribosomalRNAFilter(let retention, let ensure):
-            return ["retention": retention.rawValue, "ensure": ensure.rawValue]
+            return [
+                "tool": "deacon",
+                "databaseID": DeaconRibokmersDatabaseInstaller.databaseID,
+                "retention": retention.rawValue,
+                "ensure": ensure.rawValue,
+            ]
         }
     }
 }
@@ -479,11 +484,11 @@ extension FASTQDerivativeRequest {
                 "deacon", "filter", "-d", resolvedDatabaseID, inputPath, "-o", outputPath,
             ])
 
-        case .ribosomalRNAFilter(let retention, let ensure):
-            return buildLungfishCommand(subcommand: "fastq ribodetector", args: [
+        case .ribosomalRNAFilter(let retention, _):
+            return buildLungfishCommand(subcommand: "fastq deacon-ribo", args: [
                 inputPath,
+                "--database-id", DeaconRibokmersDatabaseInstaller.databaseID,
                 "--retain", retention.rawValue,
-                "--ensure", ensure.rawValue,
                 "-o", outputPath,
             ])
         }
@@ -2069,7 +2074,7 @@ public actor FASTQDerivativeService {
 
         case .ribosomalRNAFilter:
             throw FASTQDerivativeError.invalidOperation(
-                "RiboDetector is handled by FASTQOperationExecutionService."
+                "Deacon rRNA filtering is handled by FASTQOperationExecutionService."
             )
         }
     }

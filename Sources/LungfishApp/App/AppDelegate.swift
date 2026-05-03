@@ -590,6 +590,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// This approach follows professional genome browser patterns (IGV, UCSC) and:
     public func applicationWillTerminate(_ notification: Notification) {
+        // Ensure app-managed imports/workflows and any native tool descendants
+        // are stopped before AppKit tears down the process.
+        OperationCenter.shared.cancelAll()
+        NativeProcessRegistry.shared.terminateAll(gracePeriod: 0.5)
+
         // Save application state
         saveApplicationState()
 

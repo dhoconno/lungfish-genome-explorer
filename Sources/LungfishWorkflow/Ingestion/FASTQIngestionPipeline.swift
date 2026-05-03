@@ -95,6 +95,43 @@ public struct FASTQIngestionResult: Sendable {
     public let finalSizeBytes: Int64
     /// Pairing mode of the output.
     public let pairingMode: FASTQIngestionConfig.PairingMode
+    /// Tool used for the final storage-optimization/compression step.
+    public let processingTool: String?
+    /// Version of ``processingTool`` captured at execution time.
+    public let processingToolVersion: String?
+    /// Command line used for the final storage-optimization/compression step.
+    public let processingCommandLine: String?
+
+    public init(
+        outputFile: URL,
+        wasClumpified: Bool,
+        qualityBinning: QualityBinningScheme,
+        originalFilenames: [String],
+        originalSizeBytes: Int64,
+        finalSizeBytes: Int64,
+        pairingMode: FASTQIngestionConfig.PairingMode,
+        processingTool: String? = nil,
+        processingToolVersion: String? = nil,
+        processingCommandLine: String? = nil
+    ) {
+        self.outputFile = outputFile
+        self.wasClumpified = wasClumpified
+        self.qualityBinning = qualityBinning
+        self.originalFilenames = originalFilenames
+        self.originalSizeBytes = originalSizeBytes
+        self.finalSizeBytes = finalSizeBytes
+        self.pairingMode = pairingMode
+        self.processingTool = processingTool
+        self.processingToolVersion = processingToolVersion
+        self.processingCommandLine = processingCommandLine
+    }
+}
+
+private struct FASTQProcessingRecord: Sendable {
+    let url: URL
+    let tool: String
+    let toolVersion: String?
+    let commandLine: String
 }
 
 // MARK: - FASTQIngestionError
@@ -187,6 +224,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         // Step 1: Clumpify + quality bin (50% of progress)
         let clumpifiedFile: URL
         let wasClumpified: Bool
+        var processingRecord: FASTQProcessingRecord?
 
         if config.skipClumpify {
             logger.info("Clumpify skipped (disabled in preferences)")
@@ -196,13 +234,15 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         } else {
             progress(0.0, "Sorting reads by k-mer similarity...")
             do {
-                clumpifiedFile = try await clumpify(
+                let record = try await clumpify(
                     config: config,
                     outputFile: outputFile,
                     progress: { fraction, msg in
                         progress(fraction * 0.5, msg)
                     }
                 )
+                clumpifiedFile = record.url
+                processingRecord = record
                 wasClumpified = true
             } catch {
                 // Clumpify is mandatory for imported FASTQ workflows.
@@ -225,7 +265,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             compressedFile = clumpifiedFile
             progress(0.85, "Already compressed")
         } else {
-            compressedFile = try await compress(
+            let record = try await compress(
                 inputFile: clumpifiedFile,
                 outputFile: outputFile,
                 threads: config.threads,
@@ -233,6 +273,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                     progress(0.5 + fraction * 0.35, msg)
                 }
             )
+            compressedFile = record.url
+            processingRecord = record
         }
 
         // Delete originals if requested
@@ -267,7 +309,10 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             originalFilenames: originalFilenames,
             originalSizeBytes: originalSize,
             finalSizeBytes: finalSize,
-            pairingMode: outputPairingMode
+            pairingMode: outputPairingMode,
+            processingTool: processingRecord?.tool,
+            processingToolVersion: processingRecord?.toolVersion,
+            processingCommandLine: processingRecord?.commandLine
         )
     }
 
@@ -281,7 +326,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         config: FASTQIngestionConfig,
         outputFile: URL,
         progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> URL {
+    ) async throws -> FASTQProcessingRecord {
         let inputFile = config.inputFiles[0]
         let inputFile2 = config.pairingMode == .pairedEnd ? config.inputFiles[1] : nil
         let clumpifyScript = try await runner.toolPath(for: .clumpify)
@@ -379,7 +424,13 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         progress(1.0, "clumpify.sh complete")
         logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
 
-        return outputFile
+        let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: "clumpify.sh",
+            toolVersion: toolVersion,
+            commandLine: "clumpify.sh \(args.joined(separator: " "))"
+        )
     }
 
     /// Returns a space-free path for BBTools by symlinking if needed.
@@ -438,7 +489,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         outputFile: URL,
         threads: Int,
         progress: @escaping @Sendable (Double, String) -> Void
-    ) async throws -> URL {
+    ) async throws -> FASTQProcessingRecord {
         let tool: NativeTool
         let args: [String]
 
@@ -472,7 +523,30 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         }
 
         progress(1.0, "Compression complete")
-        return outputFile
+        let toolVersion = await runner.getToolVersion(tool) ?? Self.pinnedVersion(for: tool)
+        return FASTQProcessingRecord(
+            url: outputFile,
+            tool: tool.executableName,
+            toolVersion: toolVersion,
+            commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)"
+        )
+    }
+
+    private static func pinnedVersion(for tool: NativeTool) -> String? {
+        switch tool {
+        case .clumpify, .bbduk, .bbmerge, .repair, .tadpole, .reformat, .bbmap, .mapPacBio:
+            return pinnedManagedToolVersion(named: "bbtools")
+        case .bgzip:
+            return pinnedManagedToolVersion(named: "htslib")
+        case .pigz:
+            return pinnedManagedToolVersion(named: "pigz")
+        default:
+            return nil
+        }
+    }
+
+    private static func pinnedManagedToolVersion(named id: String) -> String? {
+        (try? ManagedToolLock.loadFromBundle().tool(named: id)?.version) ?? nil
     }
 
     // MARK: - Helpers
