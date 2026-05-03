@@ -24,6 +24,7 @@ public enum AnalysesFolder {
     public static let knownTools: Set<String> = [
         "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
         "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd",
+        "mafft",
     ]
 
     /// Tools whose imported results use `{tool}-{sampleName}` naming
@@ -92,6 +93,7 @@ public enum AnalysesFolder {
         case "bbmap": return "BBMap"
         case "naomgs": return "NAO-MGS"
         case "nvd": return "NVD"
+        case "mafft": return "MAFFT"
         default: return tool.capitalized
         }
     }
@@ -297,6 +299,8 @@ public enum AnalysesFolder {
         let classificationResult = url.appendingPathComponent("classification-result.json")
         let assemblyResult = url.appendingPathComponent("assembly-result.json")
         let mappingResult = url.appendingPathComponent("mapping-result.json")
+        let msaManifest = url.appendingPathComponent("manifest.json")
+        let alignedFASTA = url.appendingPathComponent("alignment/primary.aligned.fasta")
 
         // Kraken2: has classification-result.json
         if fm.fileExists(atPath: classificationResult.path) {
@@ -325,6 +329,16 @@ public enum AnalysesFolder {
            let mapper = json["mapper"] as? String,
            knownTools.contains(mapper) {
             return mapper
+        }
+
+        // MAFFT/native MSA bundle: manifest declares the bundle kind and
+        // alignment/primary.aligned.fasta provides the native payload.
+        if fm.fileExists(atPath: msaManifest.path),
+           fm.fileExists(atPath: alignedFASTA.path),
+           let data = fm.contents(atPath: msaManifest.path),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           json["bundleKind"] as? String == "multiple-sequence-alignment" {
+            return "mafft"
         }
 
         // NAO-MGS vs NVD: both have manifest.json + hits.sqlite.

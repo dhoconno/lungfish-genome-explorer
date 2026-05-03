@@ -1,0 +1,47 @@
+[
+  {
+    "originalName" : "sarscov2_fixture_A_source",
+    "rowID" : "row-000001-2b51078631",
+    "rowName" : "sarscov2_fixture_A_source",
+    "sourceChecksumSHA256" : "a2b20227b6e0915e7e7cc5ae8eeb066ff5f9be3b6aa383662cda2e2314cb771d",
+    "sourceFilePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "sourceFormat" : "fasta",
+    "sourceSequenceName" : "sarscov2_fixture_A_source"
+  },
+  {
+    "originalName" : "sarscov2_fixture_B_snp_set",
+    "rowID" : "row-000002-48921db6ab",
+    "rowName" : "sarscov2_fixture_B_snp_set",
+    "sourceChecksumSHA256" : "3355f9c4c6eeca0da8d186b90e2b777b2d11de932daecc606769bd37e7706542",
+    "sourceFilePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "sourceFormat" : "fasta",
+    "sourceSequenceName" : "sarscov2_fixture_B_snp_set"
+  },
+  {
+    "originalName" : "sarscov2_fixture_C_short_deletion",
+    "rowID" : "row-000003-70819dc0f1",
+    "rowName" : "sarscov2_fixture_C_short_deletion",
+    "sourceChecksumSHA256" : "620b88343b4ac01b9a9fea9e8acce67b2a49de70a48b3860fc49ac331f90ac08",
+    "sourceFilePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "sourceFormat" : "fasta",
+    "sourceSequenceName" : "sarscov2_fixture_C_short_deletion"
+  },
+  {
+    "originalName" : "sarscov2_fixture_D_insertion",
+    "rowID" : "row-000004-355c01836c",
+    "rowName" : "sarscov2_fixture_D_insertion",
+    "sourceChecksumSHA256" : "882e352086703b024869577311bc9183218541542759cc8743353d85c90817c0",
+    "sourceFilePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "sourceFormat" : "fasta",
+    "sourceSequenceName" : "sarscov2_fixture_D_insertion"
+  },
+  {
+    "originalName" : "sarscov2_fixture_E_mixed_variation",
+    "rowID" : "row-000005-ab497b6bc4",
+    "rowName" : "sarscov2_fixture_E_mixed_variation",
+    "sourceChecksumSHA256" : "5fda467b875a92d5907b90975e49fd3355b9f59c9d74e8adc2f0c6c3a2252cde",
+    "sourceFilePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "sourceFormat" : "fasta",
+    "sourceSequenceName" : "sarscov2_fixture_E_mixed_variation"
+  }
+]

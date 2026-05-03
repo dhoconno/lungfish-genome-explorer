@@ -4,7 +4,7 @@ import XCTest
 struct BundleBrowserRobot {
     let app: XCUIApplication
 
-    init(app: XCUIApplication = XCUIApplication()) {
+    init(app: XCUIApplication = XCUIApplication(bundleIdentifier: "com.lungfish.browser")) {
         self.app = app
     }
 
@@ -128,6 +128,27 @@ struct BundleBrowserRobot {
         XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: timeout), .completed, file: file, line: line)
     }
 
+    func waitForMultipleSequenceAlignmentViewer(
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(msaRowTable.waitForExistence(timeout: timeout), file: file, line: line)
+        XCTAssertTrue(msaTextView.waitForExistence(timeout: timeout), file: file, line: line)
+        XCTAssertTrue(msaSelectedCell.waitForExistence(timeout: timeout), file: file, line: line)
+        XCTAssertTrue(app.staticTexts["MHC-A"].firstMatch.waitForExistence(timeout: timeout), file: file, line: line)
+    }
+
+    func waitForPhylogeneticTreeViewer(
+        timeout: TimeInterval = 10,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(treeNodeTable.waitForExistence(timeout: timeout), file: file, line: line)
+        XCTAssertTrue(treeCanvasView.waitForExistence(timeout: timeout), file: file, line: line)
+        XCTAssertTrue(app.staticTexts["MHC-B"].firstMatch.waitForExistence(timeout: timeout), file: file, line: line)
+    }
+
     var browserView: XCUIElement {
         app.otherElements["bundle-browser-view"]
     }
@@ -142,5 +163,35 @@ struct BundleBrowserRobot {
 
     var backButton: XCUIElement {
         app.buttons["viewer-back-navigation-button"]
+    }
+
+    var msaRowTable: XCUIElement {
+        app.descendants(matching: .any)["multiple-sequence-alignment-row-gutter"]
+    }
+
+    var msaTextView: XCUIElement {
+        app.descendants(matching: .any)["multiple-sequence-alignment-text-view"]
+    }
+
+    var msaSelectedCell: XCUIElement {
+        app.descendants(matching: .any)["multiple-sequence-alignment-cell-MHC-A-column-1"].firstMatch
+    }
+
+    var msaAnnotationTrack: XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH %@", "multiple-sequence-alignment-annotation-track-MHC-A-"))
+            .firstMatch
+    }
+
+    var msaAnnotationDrawer: XCUIElement {
+        app.descendants(matching: .any)["annotation-table-drawer"]
+    }
+
+    var treeNodeTable: XCUIElement {
+        app.descendants(matching: .any)["phylogenetic-tree-node-table"]
+    }
+
+    var treeCanvasView: XCUIElement {
+        app.descendants(matching: .any)["phylogenetic-tree-canvas-view"]
     }
 }

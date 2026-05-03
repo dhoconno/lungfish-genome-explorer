@@ -29,6 +29,15 @@ public enum ApplicationExportKind: String, Codable, Sendable, CaseIterable, Equa
 
     public var collectionSuffix: String { displayName }
 
+    public var importsNativeBundlesOnly: Bool {
+        switch self {
+        case .alignmentTree, .phylogeneticsResultSet:
+            return true
+        default:
+            return false
+        }
+    }
+
     public var cliArgument: String {
         switch self {
         case .clcWorkbench: return "clc-workbench"
@@ -57,6 +66,8 @@ public enum ApplicationExportImportItemKind: String, Codable, Sendable {
     case alignmentTrack
     case fastq
     case signalTrack
+    case multipleSequenceAlignment
+    case phylogeneticTree
     case treeOrAlignment
     case phylogeneticsArtifact
     case platformMetadata

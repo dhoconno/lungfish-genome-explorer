@@ -1,0 +1,158 @@
+{
+  "argv" : [
+    "lungfish",
+    "align",
+    "mafft",
+    "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta",
+    "--project",
+    "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish",
+    "--output",
+    "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa",
+    "--name",
+    "sars-cov-2-genomes-mafft",
+    "--strategy",
+    "auto",
+    "--output-order",
+    "input",
+    "--sequence-type",
+    "auto",
+    "--adjust-direction",
+    "off",
+    "--symbols",
+    "strict",
+    "--threads",
+    "2",
+    "--format",
+    "json"
+  ],
+  "createdAt" : "2026-05-03T20:53:06Z",
+  "exitStatus" : 0,
+  "externalToolInvocations" : [
+    {
+      "argv" : [
+        "mafft",
+        "--auto",
+        "--thread",
+        "2",
+        "--threadit",
+        "0",
+        "--inputorder",
+        "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/input.unaligned.fasta"
+      ],
+      "condaEnvironment" : "mafft",
+      "executablePath" : "\/Users\/dho\/.lungfish\/conda\/envs\/mafft\/bin\/mafft",
+      "exitStatus" : 0,
+      "name" : "mafft",
+      "reproducibleCommand" : "mafft --auto --thread 2 --threadit 0 --inputorder '\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/input.unaligned.fasta' > '\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/primary.aligned.fasta'",
+      "stderr" : "nthread = 2\nnthreadpair = 2\nnthreadtb = 2\nppenalty_ex = 0\nstacksize: 8176 kb\ngenerating a scoring matrix for nucleotide (dist=200) ... done\nGap Penalty = -1.53, +0.00, +0.00\n\n\n\nMaking a distance matrix ..\n\r    1 \/ 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=0) ... \n\r    0 \/ 5\ndone.\n\nProgressive alignment 1\/2... \n\rSTEP     1 \/ 4 (thread    1) f\b\b\rSTEP     2 \/ 4 (thread    0) f\b\b\rSTEP     3 \/ 4 (thread    1) f\b\b\rSTEP     4 \/ 4 (thread    0) f\b\b\ndone.\n\nMaking a distance matrix from msa.. \n\r    0 \/ 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=1) ... \n\r    0 \/ 5\ndone.\n\nProgressive alignment 2\/2... \n\rSTEP     1 \/ 4 (thread    1) f\b\b\rSTEP     2 \/ 4 (thread    0) f\b\b\rSTEP     3 \/ 4 (thread    1) f\b\b\rSTEP     4 \/ 4 (thread    0) f\b\b\ndone.\n\ndisttbfast (nuc) Version 7.526\nalg=A, model=DNA200 (2), 1.53 (4.59), -0.00 (-0.00), noshift, amax=0.0\n2 thread(s)\n\n\nStrategy:\n FFT-NS-2 (Fast but rough)\n Progressive method (guide trees were built 2 times.)\n\nIf unsure which option to use, try 'mafft --auto input > output'.\nFor more information, see 'mafft --help', 'mafft --man' and the mafft page.\n\nThe default gap scoring scheme has been changed in version 7.110 (2013 Oct).\nIt tends to insert more gaps into gap-rich regions than previous versions.\nTo disable this change, add the --leavegappyregion option.\n\n",
+      "version" : "7.526",
+      "wallTimeSeconds" : 1.7744510173797607
+    }
+  ],
+  "files" : {
+    ".viewstate.json" : {
+      "checksumSHA256" : "43d7a353088790b99f13c72738e8468902a66cf310a9915a24cb0d2a0d3df885",
+      "fileSize" : 287,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/.viewstate.json"
+    },
+    "alignment\/input.unaligned.fasta" : {
+      "checksumSHA256" : "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
+      "fileSize" : 151156,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/input.unaligned.fasta"
+    },
+    "alignment\/primary.aligned.fasta" : {
+      "checksumSHA256" : "ce110e98e830e47ba7e1c468993898b21a88e7a6d26c7f11e302a258705265ad",
+      "fileSize" : 149331,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/primary.aligned.fasta"
+    },
+    "alignment\/source.original" : {
+      "checksumSHA256" : "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
+      "fileSize" : 151816,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/source.original"
+    },
+    "analysis-metadata.json" : {
+      "checksumSHA256" : "f6029d765f82a6c698b21a14dcc0b97aa8b7dd4cb9ac3e3163da2498b84275f9",
+      "fileSize" : 81,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/analysis-metadata.json"
+    },
+    "cache\/alignment-index.sqlite" : {
+      "checksumSHA256" : "fcb16906765f5fec3c8036bfbba3cc254d67a0299a9fbd154dfe22623669de8c",
+      "fileSize" : 692224,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/cache\/alignment-index.sqlite"
+    },
+    "manifest.json" : {
+      "checksumSHA256" : "efada128616ffd71f968e2dad84aa6f61b57eba440eaca77b968d2988056c5c6",
+      "fileSize" : 32248,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/manifest.json"
+    },
+    "metadata\/annotations.json" : {
+      "checksumSHA256" : "407835b2433df20817e59ff239df8ed899c8760e5bec4b04e2899df2b9ccad26",
+      "fileSize" : 92,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/metadata\/annotations.json"
+    },
+    "metadata\/annotations.sqlite" : {
+      "checksumSHA256" : "d7f066cf5e2a2904b062cbe9889f9ec33d21b4670e9fddf7fd774a6ef79f4717",
+      "fileSize" : 32768,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/metadata\/annotations.sqlite"
+    },
+    "metadata\/coordinate-maps.json" : {
+      "checksumSHA256" : "fa1948feb3a7d922e28e7236df940451e9c20588dee46fd16ba20b89c9806c4d",
+      "fileSize" : 3767968,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/metadata\/coordinate-maps.json"
+    },
+    "metadata\/rows.json" : {
+      "checksumSHA256" : "872f59a07ce20aeca71912dc594484384b849477b6577768c31e944de79f953f",
+      "fileSize" : 2071,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/metadata\/rows.json"
+    },
+    "metadata\/source-row-map.json" : {
+      "checksumSHA256" : "8060056d2e8b9c356bae358b53289f392fc257c6c57a97f3010559c9fb9f810c",
+      "fileSize" : 2705,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/metadata\/source-row-map.json"
+    }
+  },
+  "input" : {
+    "checksumSHA256" : "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
+    "fileSize" : 151816,
+    "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa\/alignment\/source.original"
+  },
+  "inputFiles" : [
+    {
+      "checksumSHA256" : "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
+      "fileSize" : 151156,
+      "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta"
+    }
+  ],
+  "options" : {
+    "gapAlphabet" : [
+      "-",
+      "."
+    ],
+    "name" : "sars-cov-2-genomes-mafft",
+    "resolvedSourceFormat" : "aligned-fasta",
+    "sourceFormat" : "aligned-fasta",
+    "writeSQLiteIndex" : true,
+    "writeViewState" : true
+  },
+  "output" : {
+    "checksumSHA256" : "c19079fd9fd14709ff142cc9f4b1fe833ee7863e03437a91e2738ff07e7263d0",
+    "fileSize" : 4982460,
+    "path" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa"
+  },
+  "reproducibleCommand" : "lungfish align mafft \/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Inputs\/sars-cov-2-genomes.fasta --project \/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish --output '\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/Tests\/Fixtures\/alignment\/sarscov2-mafft-e2e.lungfish\/Multiple Sequence Alignments\/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json",
+  "runtimeIdentity" : {
+    "condaEnvironment" : "base",
+    "executablePath" : "\/Users\/dho\/Documents\/lungfish-genome-explorer\/.worktrees\/alignment-tree-viewers\/.build\/debug\/lungfish-cli",
+    "operatingSystemVersion" : "Version 26.4.1 (Build 25E253)",
+    "processIdentifier" : 78305
+  },
+  "schemaVersion" : 1,
+  "stderr" : "nthread = 2\nnthreadpair = 2\nnthreadtb = 2\nppenalty_ex = 0\nstacksize: 8176 kb\ngenerating a scoring matrix for nucleotide (dist=200) ... done\nGap Penalty = -1.53, +0.00, +0.00\n\n\n\nMaking a distance matrix ..\n\r    1 \/ 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=0) ... \n\r    0 \/ 5\ndone.\n\nProgressive alignment 1\/2... \n\rSTEP     1 \/ 4 (thread    1) f\b\b\rSTEP     2 \/ 4 (thread    0) f\b\b\rSTEP     3 \/ 4 (thread    1) f\b\b\rSTEP     4 \/ 4 (thread    0) f\b\b\ndone.\n\nMaking a distance matrix from msa.. \n\r    0 \/ 5 (thread    0)\ndone.\n\nConstructing a UPGMA tree (efffree=1) ... \n\r    0 \/ 5\ndone.\n\nProgressive alignment 2\/2... \n\rSTEP     1 \/ 4 (thread    1) f\b\b\rSTEP     2 \/ 4 (thread    0) f\b\b\rSTEP     3 \/ 4 (thread    1) f\b\b\rSTEP     4 \/ 4 (thread    0) f\b\b\ndone.\n\ndisttbfast (nuc) Version 7.526\nalg=A, model=DNA200 (2), 1.53 (4.59), -0.00 (-0.00), noshift, amax=0.0\n2 thread(s)\n\n\nStrategy:\n FFT-NS-2 (Fast but rough)\n Progressive method (guide trees were built 2 times.)\n\nIf unsure which option to use, try 'mafft --auto input > output'.\nFor more information, see 'mafft --help', 'mafft --man' and the mafft page.\n\nThe default gap scoring scheme has been changed in version 7.110 (2013 Oct).\nIt tends to insert more gaps into gap-rich regions than previous versions.\nTo disable this change, add the --leavegappyregion option.\n\n",
+  "toolName" : "lungfish align mafft",
+  "toolVersion" : "0.1.0",
+  "wallTimeSeconds" : 1.7888590097427368,
+  "warnings" : [
+
+  ],
+  "workflowName" : "multiple-sequence-alignment-mafft"
+}

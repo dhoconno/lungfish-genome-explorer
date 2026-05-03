@@ -7,6 +7,7 @@ import Testing
 import LungfishIO
 @testable import LungfishWorkflow
 
+@Suite(.serialized)
 struct MetagenomicsImportServiceTests {
     @Test
     func kraken2ImportCreatesCanonicalResultDirectory() throws {

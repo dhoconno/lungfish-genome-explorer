@@ -44,6 +44,7 @@ final class FASTQOperationDialogState {
     var pendingLaunchRequest: FASTQOperationLaunchRequest?
     var pendingMinimap2Config: Minimap2Config?
     var pendingMappingRequest: MappingRunRequest?
+    var pendingMSAAlignmentRequest: MSAAlignmentRunRequest?
     var pendingAssemblyRequest: AssemblyRunRequest?
     var pendingClassificationConfigs: [ClassificationConfig]
     var pendingEsVirituConfigs: [EsVirituConfig]
@@ -115,6 +116,10 @@ final class FASTQOperationDialogState {
     var demultiplexErrorRate: Double
     var demultiplexTrimBarcodes: Bool
 
+    var mafftAdvancedOptionsExpanded: Bool
+    var mafftExtraOptionsText: String
+    var mafftAllowFASTQAssemblyInputs: Bool
+
     private var embeddedToolReady: Bool
 
     init(
@@ -137,6 +142,7 @@ final class FASTQOperationDialogState {
         self.pendingLaunchRequest = nil
         self.pendingMinimap2Config = nil
         self.pendingMappingRequest = nil
+        self.pendingMSAAlignmentRequest = nil
         self.pendingAssemblyRequest = nil
         self.pendingClassificationConfigs = []
         self.pendingEsVirituConfigs = []
@@ -191,6 +197,9 @@ final class FASTQOperationDialogState {
         self.demultiplexMaxDistanceFrom3Prime = 0
         self.demultiplexErrorRate = 0.15
         self.demultiplexTrimBarcodes = true
+        self.mafftAdvancedOptionsExpanded = false
+        self.mafftExtraOptionsText = ""
+        self.mafftAllowFASTQAssemblyInputs = false
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
 
         if initialCategory == .assembly {
@@ -253,11 +262,21 @@ final class FASTQOperationDialogState {
 
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
+        if selectedToolID == .mafft {
+            guard selectedToolConfigurationIsReady else {
+                pendingLaunchRequest = nil
+                return
+            }
+            pendingMSAAlignmentRequest = makeMSAAlignmentRequest()
+            pendingLaunchRequest = nil
+            return
+        }
         pendingLaunchRequest = launchRequestForSelectedTool()
     }
 
@@ -514,15 +533,38 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
+        case .mafft, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return nil
         }
+    }
+
+    private func makeMSAAlignmentRequest() -> MSAAlignmentRunRequest? {
+        guard let projectURL else { return nil }
+        guard let extraArguments = try? AdvancedCommandLineOptions.parse(mafftExtraOptionsText) else {
+            return nil
+        }
+        let sourceName = selectedInputURLs.first?.deletingPathExtension().lastPathComponent ?? "MAFFT Alignment"
+        let outputURL = MSAAlignmentRunRequest.uniqueDefaultOutputBundleURL(projectURL: projectURL, name: sourceName)
+        let name = outputURL.deletingPathExtension().lastPathComponent
+        return MSAAlignmentRunRequest(
+            tool: .mafft,
+            inputSequenceURLs: selectedInputURLs,
+            projectURL: projectURL,
+            outputBundleURL: outputURL,
+            name: name,
+            threads: nil,
+            strategy: .auto,
+            outputOrder: .input,
+            extraArguments: extraArguments,
+            allowFASTQAssemblyInputs: mafftAllowFASTQAssemblyInputs
+        )
     }
 
     func captureMinimap2Config(_ config: Minimap2Config) {
         setAuxiliaryInput(config.referenceURL, for: .referenceSequence)
         pendingMinimap2Config = config
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -540,6 +582,7 @@ final class FASTQOperationDialogState {
         setAuxiliaryInput(request.referenceFASTAURL, for: .referenceSequence)
         pendingMinimap2Config = nil
         pendingMappingRequest = request
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -557,6 +600,7 @@ final class FASTQOperationDialogState {
         outputDirectoryURL = request.outputDirectory
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = request
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -579,6 +623,7 @@ final class FASTQOperationDialogState {
         setAuxiliaryInput(first.databasePath, for: .database)
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = configs
         pendingEsVirituConfigs = []
@@ -597,6 +642,7 @@ final class FASTQOperationDialogState {
         setAuxiliaryInput(first.databasePath, for: .database)
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = configs
@@ -616,6 +662,7 @@ final class FASTQOperationDialogState {
         }
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -635,6 +682,7 @@ final class FASTQOperationDialogState {
         pendingLaunchRequest = nil
         pendingMinimap2Config = nil
         pendingMappingRequest = nil
+        pendingMSAAlignmentRequest = nil
         pendingAssemblyRequest = nil
         pendingClassificationConfigs = []
         pendingEsVirituConfigs = []
@@ -803,6 +851,8 @@ final class FASTQOperationDialogState {
             return "Extract reads containing the requested motif."
         case .selectReadsBySequence:
             return "Keep reads matching a target sequence."
+        case .mafft:
+            return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:
             return "Configure minimap2 mapping against a reference sequence."
         case .bwaMem2:
@@ -865,6 +915,8 @@ final class FASTQOperationDialogState {
             return [.mergeOverlappingPairs, .repairPairedEndFiles, .reverseComplement, .translate, .orientReads, .correctSequencingErrors]
         case .searchSubsetting:
             return [.subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence]
+        case .alignment:
+            return [.mafft]
         case .mapping:
             return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         case .assembly:
@@ -996,6 +1048,18 @@ final class FASTQOperationDialogState {
                 return "\(assemblyTool.displayName) is not available for \(detectedAssemblyReadType.displayName) in v1."
             }
             return nil
+
+        case .mafft:
+            if selectedInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fastq }),
+               !mafftAllowFASTQAssemblyInputs {
+                return "Confirm FASTQ inputs are assembled or consensus sequences before aligning with MAFFT."
+            }
+            do {
+                _ = try AdvancedCommandLineOptions.parse(mafftExtraOptionsText)
+                return nil
+            } catch {
+                return "Advanced options are not valid: \(error.localizedDescription)"
+            }
 
         case .refreshQCSummary, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .kraken2, .esViritu, .taxTriage, .removeHumanReads:
             return nil
@@ -1228,6 +1292,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case extractReadsByID
     case extractReadsByMotif
     case selectReadsBySequence
+    case mafft
     case minimap2
     case bwaMem2 = "bwa-mem2"
     case bowtie2
@@ -1266,6 +1331,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Extract Reads by ID"
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
+        case .mafft: return "MAFFT"
         case .minimap2: return "minimap2"
         case .bwaMem2: return "BWA-MEM2"
         case .bowtie2: return "Bowtie2"
@@ -1306,6 +1372,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Select reads matching identifiers."
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
+        case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
         case .minimap2: return "Map reads to a reference sequence with minimap2."
         case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
         case .bowtie2: return "Map Illumina short reads with Bowtie2."
@@ -1336,6 +1403,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .readProcessing
         case .subsampleByProportion, .subsampleByCount, .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
             return .searchSubsetting
+        case .mafft:
+            return .alignment
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -1354,7 +1423,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeRibosomalRNA, .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
-             .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .viralRecon,
+             .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .mafft, .viralRecon,
              .spades, .megahit, .skesa, .flye, .hifiasm:
             return [.fastqDataset]
         case .primerTrimming:
@@ -1369,7 +1438,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     }
 
     var defaultOutputMode: FASTQOperationOutputMode {
-        categoryID == .classification ? .fixedBatch : .perInput
+        if self == .mafft { return .fixedBatch }
+        return categoryID == .classification ? .fixedBatch : .perInput
     }
 
     func sidebarItem(
@@ -1393,7 +1463,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     }
 
     var supportsConfigurableOutput: Bool {
-        categoryID != .classification && self != .removeRibosomalRNA
+        if self == .mafft { return false }
+        return categoryID != .classification && self != .removeRibosomalRNA
     }
 
     var defaultEmbeddedReadiness: Bool {
@@ -1447,7 +1518,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .trimFixedBases, .filterByReadLength, .removeHumanReads,
              .removeRibosomalRNA, .removeContaminants, .removeDuplicates, .reverseComplement, .translate, .orientReads,
              .subsampleByProportion, .subsampleByCount, .extractReadsByID,
-             .extractReadsByMotif, .selectReadsBySequence, .minimap2,
+             .extractReadsByMotif, .selectReadsBySequence, .mafft, .minimap2,
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
@@ -1567,6 +1638,8 @@ extension FASTQOperationCategoryID {
             return .mergeOverlappingPairs
         case .searchSubsetting:
             return .subsampleByProportion
+        case .alignment:
+            return .mafft
         case .mapping:
             return .minimap2
         case .assembly:

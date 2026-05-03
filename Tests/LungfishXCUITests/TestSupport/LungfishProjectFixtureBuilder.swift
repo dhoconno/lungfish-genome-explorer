@@ -187,6 +187,62 @@ enum LungfishProjectFixtureBuilder {
         )
     }
 
+    static func makeAlignmentTreeBundleProject(named name: String = "AlignmentTreeFixture") throws -> URL {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "lungfish-xcui-project-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let projectURL = root.appendingPathComponent("\(name).lungfish", isDirectory: true)
+        let stagingURL = projectURL.appendingPathComponent(".tmp/alignment-tree-fixture", isDirectory: true)
+        try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+        try writeProjectMetadata(to: projectURL, name: name)
+
+        let alignmentURL = stagingURL.appendingPathComponent("mhc.aln")
+        try """
+        CLUSTAL W
+
+        MHC-A ACGT-A
+        MHC-B ACGTTA
+        MHC-C AC-TTA
+        """.write(to: alignmentURL, atomically: true, encoding: .utf8)
+
+        let treeURL = stagingURL.appendingPathComponent("mhc.nwk")
+        try "((MHC-A:0.1,MHC-B:0.2)97:0.3,MHC-C:0.4);\n"
+            .write(to: treeURL, atomically: true, encoding: .utf8)
+
+        let msaBundleURL = projectURL.appendingPathComponent("MHC Alignment.lungfishmsa", isDirectory: true)
+        try runLungfishCLI([
+            "import", "msa", alignmentURL.path,
+            "--project", projectURL.path,
+            "--output", msaBundleURL.path,
+            "--name", "MHC Alignment",
+            "--source-format", "clustal",
+            "--format", "json",
+        ])
+        try runLungfishCLI([
+            "msa", "annotate", "add", msaBundleURL.path,
+            "--row", "MHC-A",
+            "--columns", "2-4",
+            "--name", "MHC-domain",
+            "--type", "gene",
+            "--qualifier", "source=xcui",
+            "--format", "json",
+        ])
+
+        let treeBundleURL = projectURL.appendingPathComponent("MHC Tree.lungfishtree", isDirectory: true)
+        try runLungfishCLI([
+            "import", "tree", treeURL.path,
+            "--project", projectURL.path,
+            "--output", treeBundleURL.path,
+            "--name", "MHC Tree",
+            "--source-format", "newick",
+            "--format", "json",
+        ])
+
+        return projectURL
+    }
+
     static func makeOntAssemblyProject(named name: String = "OntAssemblyFixture") throws -> URL {
         try makeProject(
             named: name,
@@ -432,6 +488,50 @@ enum LungfishProjectFixtureBuilder {
             manifest,
             to: bundleURL.appendingPathComponent("manifest.json")
         )
+    }
+
+    private static func runLungfishCLI(_ arguments: [String]) throws {
+        guard let binaryURL = cliBinaryURL else {
+            throw NSError(
+                domain: "LungfishProjectFixtureBuilder",
+                code: 1,
+                userInfo: [
+                    NSLocalizedDescriptionKey: "lungfish-cli is not built in .build/debug or platform-specific debug output."
+                ]
+            )
+        }
+
+        let process = Process()
+        process.executableURL = binaryURL
+        process.currentDirectoryURL = LungfishFixtureCatalog.repoRoot
+        process.arguments = arguments
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            throw NSError(
+                domain: "LungfishProjectFixtureBuilder",
+                code: Int(process.terminationStatus),
+                userInfo: [
+                    NSLocalizedDescriptionKey: "lungfish-cli failed with status \(process.terminationStatus): \(stderr)\n\(stdout)"
+                ]
+            )
+        }
+    }
+
+    private static var cliBinaryURL: URL? {
+        let candidates = [
+            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
+            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
+            LungfishFixtureCatalog.repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     private static func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

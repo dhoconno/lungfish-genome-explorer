@@ -4,6 +4,8 @@ import LungfishWorkflow
 
 public typealias ApplicationExportImportProgress = @Sendable (Double, String) -> Void
 public typealias ApplicationExportReferenceImporter = @Sendable (URL, URL, String) async throws -> ReferenceBundleImportResult
+public typealias ApplicationExportMSAImporter = @Sendable (URL, URL) throws -> URL
+public typealias ApplicationExportTreeImporter = @Sendable (URL, URL) throws -> URL
 
 public struct ApplicationExportImportCollectionService: Sendable {
     public static let `default` = ApplicationExportImportCollectionService()
@@ -11,6 +13,8 @@ public struct ApplicationExportImportCollectionService: Sendable {
     private let scanner: ApplicationExportScanner
     private let archiveTool: GeneiousArchiveTool
     private let referenceImporter: ApplicationExportReferenceImporter
+    private let msaImporter: ApplicationExportMSAImporter
+    private let treeImporter: ApplicationExportTreeImporter
 
     public init(
         scanner: ApplicationExportScanner = ApplicationExportScanner(),
@@ -21,11 +25,19 @@ public struct ApplicationExportImportCollectionService: Sendable {
                 outputDirectory: outputDirectory,
                 preferredBundleName: preferredName
             )
+        },
+        msaImporter: @escaping ApplicationExportMSAImporter = { sourceURL, bundleURL in
+            try MultipleSequenceAlignmentBundle.importAlignment(from: sourceURL, to: bundleURL).url
+        },
+        treeImporter: @escaping ApplicationExportTreeImporter = { sourceURL, bundleURL in
+            try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL).url
         }
     ) {
         self.scanner = scanner
         self.archiveTool = archiveTool
         self.referenceImporter = referenceImporter
+        self.msaImporter = msaImporter
+        self.treeImporter = treeImporter
     }
 
     public func importApplicationExport(
@@ -55,12 +67,18 @@ public struct ApplicationExportImportCollectionService: Sendable {
         let bundlesURL = collectionURL.appendingPathComponent("LGE Bundles", isDirectory: true)
         let artifactsURL = collectionURL.appendingPathComponent("Binary Artifacts", isDirectory: true)
         let rawSourceURL = collectionURL.appendingPathComponent("Source", isDirectory: true)
+        let effectivePreserveRawSource = options.preserveRawSource && !kind.importsNativeBundlesOnly
+        let effectivePreserveUnsupportedArtifacts = options.preserveUnsupportedArtifacts && !kind.importsNativeBundlesOnly
         try FileManager.default.createDirectory(at: bundlesURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: rawSourceURL, withIntermediateDirectories: true)
+        if effectivePreserveUnsupportedArtifacts {
+            try FileManager.default.createDirectory(at: artifactsURL, withIntermediateDirectories: true)
+        }
+        if effectivePreserveRawSource {
+            try FileManager.default.createDirectory(at: rawSourceURL, withIntermediateDirectories: true)
+        }
 
         var sourceCopyOutputs: [URL] = []
-        if options.preserveRawSource {
+        if effectivePreserveRawSource {
             progress?(0.12, "Preserving original \(kind.displayName) source...")
             sourceCopyOutputs.append(try preserveRawSource(sourceURL: sourceURL, destinationDirectory: rawSourceURL))
         }
@@ -91,12 +109,46 @@ public struct ApplicationExportImportCollectionService: Sendable {
                 let result = try await referenceImporter(sourceFileURL, bundlesURL, preferredName)
                 nativeBundleURLs.append(result.bundleURL)
                 destination = relativePath(from: collectionURL, to: result.bundleURL)
-            } else if options.preserveUnsupportedArtifacts {
+            } else if item.kind == .multipleSequenceAlignment {
+                let preferredName = Self.sanitizedBaseName(
+                    URL(fileURLWithPath: item.sourceRelativePath).deletingPathExtension().lastPathComponent
+                )
+                let bundleURL = uniqueBundleURL(
+                    in: bundlesURL,
+                    preferredName: preferredName,
+                    pathExtension: MultipleSequenceAlignmentBundle.directoryExtension
+                )
+                do {
+                    let importedURL = try msaImporter(sourceFileURL, bundleURL)
+                    nativeBundleURLs.append(importedURL)
+                    destination = relativePath(from: collectionURL, to: importedURL)
+                } catch {
+                    appendUnique("\(item.sourceRelativePath) could not be parsed as a native MSA bundle: \(error.localizedDescription)", to: &warnings)
+                }
+            } else if item.kind == .phylogeneticTree {
+                let preferredName = Self.sanitizedBaseName(
+                    URL(fileURLWithPath: item.sourceRelativePath).deletingPathExtension().lastPathComponent
+                )
+                let bundleURL = uniqueBundleURL(
+                    in: bundlesURL,
+                    preferredName: preferredName,
+                    pathExtension: "lungfishtree"
+                )
+                do {
+                    let importedURL = try treeImporter(sourceFileURL, bundleURL)
+                    nativeBundleURLs.append(importedURL)
+                    destination = relativePath(from: collectionURL, to: importedURL)
+                } catch {
+                    appendUnique("\(item.sourceRelativePath) could not be parsed as a native tree bundle: \(error.localizedDescription)", to: &warnings)
+                }
+            } else if effectivePreserveUnsupportedArtifacts {
                 let artifactURL = artifactsURL.appendingPathComponent(item.sourceRelativePath)
                 try copyReplacingExistingItem(from: sourceFileURL, to: artifactURL)
                 preservedArtifactURLs.append(artifactURL)
                 destination = relativePath(from: collectionURL, to: artifactURL)
                 appendUnique(warning(forPreservedItem: item), to: &warnings)
+            } else {
+                appendUnique(warning(forSkippedItem: item), to: &warnings)
             }
 
             processedItems.append(item.copy(lgeDestination: destination))
@@ -139,6 +191,8 @@ public struct ApplicationExportImportCollectionService: Sendable {
             preservedArtifactURLs: preservedArtifactURLs,
             nativeBundleURLs: nativeBundleURLs,
             options: options,
+            effectivePreserveRawSource: effectivePreserveRawSource,
+            effectivePreserveUnsupportedArtifacts: effectivePreserveUnsupportedArtifacts,
             applicationKind: kind,
             sourceKind: scannedInventory.sourceKind,
             tempRunURL: tempRunURL,
@@ -242,12 +296,24 @@ public struct ApplicationExportImportCollectionService: Sendable {
         switch item.kind {
         case .standaloneReferenceSequence:
             return "\(item.sourceRelativePath) is a standalone reference sequence but reference import was disabled; preserved as a binary artifact."
-        case .annotationTrack, .variantTrack, .alignmentTrack, .fastq, .signalTrack, .treeOrAlignment, .phylogeneticsArtifact, .platformMetadata, .report:
+        case .annotationTrack, .variantTrack, .alignmentTrack, .fastq, .signalTrack, .multipleSequenceAlignment,
+             .phylogeneticTree, .treeOrAlignment, .phylogeneticsArtifact, .platformMetadata, .report:
             return "\(item.sourceRelativePath) is recognized as \(item.kind.rawValue) but is not auto-routed in the application export baseline; preserved as a binary artifact."
         case .nativeProject:
             return "\(item.sourceRelativePath) contains native application project data that is preserved but not decoded in the no-vendor-app baseline."
         case .binaryArtifact, .unsupported:
             return "\(item.sourceRelativePath) is not supported directly by LGE; preserved as a binary artifact."
+        }
+    }
+
+    private func warning(forSkippedItem item: ApplicationExportImportItem) -> String {
+        switch item.kind {
+        case .multipleSequenceAlignment, .phylogeneticTree:
+            return "\(item.sourceRelativePath) was recognized as \(item.kind.rawValue) but was not imported."
+        case .unsupported, .binaryArtifact:
+            return "\(item.sourceRelativePath) is not supported directly by LGE and was skipped."
+        default:
+            return "\(item.sourceRelativePath) is recognized as \(item.kind.rawValue) but is not imported by this native-only operation."
         }
     }
 
@@ -293,6 +359,8 @@ public struct ApplicationExportImportCollectionService: Sendable {
         preservedArtifactURLs: [URL],
         nativeBundleURLs: [URL],
         options: ApplicationExportImportOptions,
+        effectivePreserveRawSource: Bool,
+        effectivePreserveUnsupportedArtifacts: Bool,
         applicationKind: ApplicationExportKind,
         sourceKind: ApplicationExportImportSourceKind,
         tempRunURL: URL,
@@ -355,10 +423,10 @@ public struct ApplicationExportImportCollectionService: Sendable {
         )
 
         let referenceStep = StepExecution(
-            toolName: "ReferenceBundleImportService",
+            toolName: "Application Export Native Bundle Import",
             toolVersion: WorkflowRun.currentAppVersion,
             command: [
-                "lungfish", "import", "fasta",
+                "lungfish", "import", "application-export", applicationKind.cliArgument,
                 "--application-export-source", sourceURL.path,
                 "--output-dir", collectionURL.appendingPathComponent("LGE Bundles", isDirectory: true).path,
             ],
@@ -384,8 +452,10 @@ public struct ApplicationExportImportCollectionService: Sendable {
                 "collection": .file(collectionURL),
                 "sourceKind": .string(sourceKind.rawValue),
                 "preserveRawSource": .boolean(options.preserveRawSource),
+                "effectivePreserveRawSource": .boolean(effectivePreserveRawSource),
                 "importStandaloneReferences": .boolean(options.importStandaloneReferences),
                 "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
+                "effectivePreserveUnsupportedArtifacts": .boolean(effectivePreserveUnsupportedArtifacts),
                 "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
                 "temporaryDirectory": .file(tempRunURL),
             ]
@@ -415,6 +485,16 @@ public struct ApplicationExportImportCollectionService: Sendable {
         let prefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
         guard filePath.hasPrefix(prefix) else { return fileURL.lastPathComponent }
         return String(filePath.dropFirst(prefix.count))
+    }
+
+    private func uniqueBundleURL(in outputDirectory: URL, preferredName: String, pathExtension: String) -> URL {
+        var candidate = outputDirectory.appendingPathComponent("\(preferredName).\(pathExtension)", isDirectory: true)
+        var index = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = outputDirectory.appendingPathComponent("\(preferredName) \(index).\(pathExtension)", isDirectory: true)
+            index += 1
+        }
+        return candidate
     }
 
     private static func defaultCollectionBaseName(for sourceURL: URL) -> String {

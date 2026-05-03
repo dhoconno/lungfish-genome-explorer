@@ -659,6 +659,11 @@ public final class MainMenu {
             keyEquivalent: ""
         )
         fastqOperationsMenu.addItem(
+            withTitle: "Multiple Sequence Alignment…",
+            action: #selector(ToolsMenuActions.showFASTQAlignmentOperations(_:)),
+            keyEquivalent: ""
+        )
+        fastqOperationsMenu.addItem(
             withTitle: "Mapping…",
             action: #selector(ToolsMenuActions.showFASTQMappingOperations(_:)),
             keyEquivalent: ""
@@ -984,6 +989,7 @@ public final class MainMenu {
     func showFASTQDecontaminationOperations(_ sender: Any?)
     func showFASTQReadProcessingOperations(_ sender: Any?)
     func showFASTQSearchSubsettingOperations(_ sender: Any?)
+    func showFASTQAlignmentOperations(_ sender: Any?)
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)

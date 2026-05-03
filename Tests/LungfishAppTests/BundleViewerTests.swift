@@ -32,6 +32,11 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
                        "lungfishReferenceBundle should have exactly 1 extension")
     }
 
+    func testAlignmentAndTreeBundleExtensions() {
+        XCTAssertEqual(AppDocumentType.lungfishMultipleSequenceAlignmentBundle.extensions, ["lungfishmsa"])
+        XCTAssertEqual(AppDocumentType.lungfishPhylogeneticTreeBundle.extensions, ["lungfishtree"])
+    }
+
     // MARK: - Detection Tests
 
     func testDetectLungfishRefFromURL() {
@@ -69,6 +74,17 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
                        "Should detect .lungfishReferenceBundle even with spaces in path")
     }
 
+    func testDetectAlignmentAndTreeBundles() {
+        XCTAssertEqual(
+            AppDocumentType.detect(from: URL(fileURLWithPath: "/Users/lab/My Alignments/MHC.lungfishmsa")),
+            .lungfishMultipleSequenceAlignmentBundle
+        )
+        XCTAssertEqual(
+            AppDocumentType.detect(from: URL(fileURLWithPath: "/Users/lab/My Trees/MHC.lungfishtree")),
+            .lungfishPhylogeneticTreeBundle
+        )
+    }
+
     func testDetectLungfishRefGzippedReturnsNil() {
         // .lungfishref.gz does not make sense (it is a directory format), so gzip
         // stripping should reveal "lungfishref" but the detection should still work
@@ -89,6 +105,11 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
     func testLungfishProjectIsDirectoryFormat() {
         XCTAssertTrue(AppDocumentType.lungfishProject.isDirectoryFormat,
                       ".lungfishProject should be a directory format")
+    }
+
+    func testAlignmentAndTreeBundlesAreDirectoryFormats() {
+        XCTAssertTrue(AppDocumentType.lungfishMultipleSequenceAlignmentBundle.isDirectoryFormat)
+        XCTAssertTrue(AppDocumentType.lungfishPhylogeneticTreeBundle.isDirectoryFormat)
     }
 
     func testFastaIsNotDirectoryFormat() {
@@ -126,12 +147,14 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
                        ".bam should NOT be a directory format")
     }
 
-    func testOnlyTwoDirectoryFormats() {
+    func testOnlyNativeBundlesAreDirectoryFormats() {
         let directoryTypes = AppDocumentType.allCases.filter { $0.isDirectoryFormat }
-        XCTAssertEqual(directoryTypes.count, 2,
-                       "Exactly two types should be directory formats: lungfishProject and lungfishReferenceBundle")
+        XCTAssertEqual(directoryTypes.count, 4,
+                       "Exactly four types should be directory formats: project, reference, MSA, and tree bundles")
         XCTAssertTrue(directoryTypes.contains(.lungfishProject))
         XCTAssertTrue(directoryTypes.contains(.lungfishReferenceBundle))
+        XCTAssertTrue(directoryTypes.contains(.lungfishMultipleSequenceAlignmentBundle))
+        XCTAssertTrue(directoryTypes.contains(.lungfishPhylogeneticTreeBundle))
     }
 
     // MARK: - Raw Value Tests
@@ -153,6 +176,10 @@ final class DocumentTypeReferenceBundleTests: XCTestCase {
         let supported = DocumentManager.supportedExtensions
         XCTAssertTrue(supported.contains("lungfishref"),
                       "supportedExtensions should include 'lungfishref'")
+        XCTAssertTrue(supported.contains("lungfishmsa"),
+                      "supportedExtensions should include 'lungfishmsa'")
+        XCTAssertTrue(supported.contains("lungfishtree"),
+                      "supportedExtensions should include 'lungfishtree'")
     }
 
     // MARK: - Extension Uniqueness
@@ -995,6 +1022,25 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(embeddedViewer.referenceFrame?.chromosome, "chr2")
     }
 
+    func testReferenceBundleViewportExposesEmbeddedUserSelectionForAnnotationAuthoring() throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeReferenceBundle(chromosomes: ["chr1", "chr2"])
+
+        try vc.displayBundle(at: bundleURL, mode: .browse)
+        let viewport = try XCTUnwrap(vc.referenceBundleViewportController)
+        let embeddedViewer = try XCTUnwrap(viewport.children.compactMap { $0 as? ViewerViewController }.first)
+
+        embeddedViewer.viewerView.testSetUserSelectionRange(10..<25)
+
+        XCTAssertNil(vc.viewerView.selectionRange)
+        let selection = try XCTUnwrap(vc.currentSequenceAnnotationDraftContext())
+        XCTAssertEqual(selection.bundleURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(selection.chromosome, "chr1")
+        XCTAssertEqual(selection.range, 10..<25)
+        XCTAssertEqual(selection.sequenceLength, 100)
+    }
+
     func testReferenceViewportFocusedDetailAndBackRestoresListDetailState() throws {
         let vc = ViewerViewController()
         _ = vc.view
@@ -1033,6 +1079,535 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertNil(vc.referenceFrame)
     }
 
+    func testDisplayMultipleSequenceAlignmentBundleInstallsNativeViewport() throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try vc.displayMultipleSequenceAlignmentBundle(at: bundleURL)
+
+        XCTAssertNotNil(vc.multipleSequenceAlignmentViewController)
+        XCTAssertNil(vc.phylogeneticTreeViewController)
+        XCTAssertNil(vc.referenceBundleViewportController)
+        XCTAssertNil(vc.currentBundleURL)
+        XCTAssertEqual(vc.contentMode, .genomics)
+    }
+
+    func testMultipleSequenceAlignmentViewportRendersAlignmentMatrix() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingRenderedRowNames, ["seq1", "seq2", "seq3"])
+        XCTAssertEqual(
+            controller.testingAlignmentMatrixPreview(rowCount: 3, columnCount: 6),
+            [
+                "seq1 ACGT-A",
+                "seq2 ACCTTA",
+                "seq3 ACGTTA",
+            ]
+        )
+        XCTAssertEqual(controller.testingDisplayedAlignmentColumnCount, 6)
+        XCTAssertEqual(controller.testingConsensusPreview, "ACGTTA")
+    }
+
+    func testMultipleSequenceAlignmentViewportCanFocusVariableSitesAndSelections() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSetVariableSitesOnly(true)
+        controller.testingSelect(row: 1, displayedColumn: 0)
+
+        XCTAssertEqual(controller.testingDisplayedAlignmentColumnCount, 1)
+        XCTAssertEqual(controller.testingSelectedRowName, "seq2")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 3)
+        XCTAssertEqual(controller.testingSelectedResidue, "C")
+
+        controller.testingSetSearchText("seq3")
+        controller.testingPerformSearch()
+
+        XCTAssertEqual(controller.testingSelectedRowName, "seq3")
+    }
+
+    func testMultipleSequenceAlignmentMatrixSupportsKeyboardNavigationAndRangeExtension() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let matrixView = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-matrix-view")
+        )
+        XCTAssertTrue(matrixView.acceptsFirstResponder)
+
+        matrixView.keyDown(with: .testingMSAKey(.right))
+        XCTAssertEqual(controller.testingSelectedRowName, "seq1")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 2)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 2...2)
+
+        matrixView.keyDown(with: .testingMSAKey(.down))
+        XCTAssertEqual(controller.testingSelectedRowName, "seq2")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 2)
+
+        matrixView.keyDown(with: .testingMSAKey(.right, modifiers: [.shift]))
+        XCTAssertEqual(controller.testingSelectedRowName, "seq2")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 3)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 2...3)
+
+        matrixView.keyDown(with: .testingMSAKey(.end))
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 6)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 6...6)
+
+        matrixView.keyDown(with: .testingMSAKey(.home))
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 1)
+
+        matrixView.keyDown(with: .testingMSAKey(.pageDown))
+        XCTAssertEqual(controller.testingSelectedRowName, "seq3")
+
+        matrixView.keyDown(with: .testingMSAKey(.pageUp))
+        XCTAssertEqual(controller.testingSelectedRowName, "seq1")
+    }
+
+    func testMultipleSequenceAlignmentMatrixExposesKeyboardTestHook() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        controller.testingMoveActiveCell(.right)
+        controller.testingMoveActiveCell(.down)
+        controller.testingMoveActiveCell(.right, extendingSelection: true)
+
+        XCTAssertEqual(controller.testingSelectedRowName, "seq2")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 3)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 2...3)
+    }
+
+    func testMultipleSequenceAlignmentViewportShowsOverviewAndColorSchemeSelector() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let overview = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-overview-signal")
+        )
+        XCTAssertEqual(overview.accessibilityLabel(), "Alignment conservation overview")
+        XCTAssertEqual(controller.testingOverviewSignalSummary, "6 columns, 1 variable, 1 gap-bearing")
+
+        let colorScheme = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-color-scheme")
+        ) as? NSSegmentedControl
+        XCTAssertEqual(colorScheme?.label(forSegment: colorScheme?.selectedSegment ?? -1), "Nucleotide")
+
+        controller.testingSetColorScheme(.conservation)
+
+        XCTAssertEqual(colorScheme?.label(forSegment: colorScheme?.selectedSegment ?? -1), "Conservation")
+        XCTAssertEqual(controller.testingColorSchemeName, "Conservation")
+    }
+
+    func testMultipleSequenceAlignmentViewportUsesFullCanvasAndAnnotationDrawer() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let matrixView = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-matrix-view")
+        )
+        let rowGutter = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-row-gutter")
+        )
+        let columnHeader = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-column-header")
+        )
+        let annotationDrawer = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "annotation-table-drawer")
+        )
+
+        XCTAssertNil(controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-list-pane"))
+        XCTAssertNil(controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-detail-visualization-pane"))
+        XCTAssertNil(controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-detail"))
+        XCTAssertGreaterThan(matrixView.frame.width, 900)
+        XCTAssertGreaterThan(matrixView.frame.height, 400)
+        XCTAssertGreaterThanOrEqual(rowGutter.frame.width, 150)
+        XCTAssertGreaterThanOrEqual(columnHeader.frame.height, 42)
+        XCTAssertGreaterThanOrEqual(annotationDrawer.frame.height, 110)
+    }
+
+    func testMultipleSequenceAlignmentSelectionContextMenuUsesFASTAExtractionActions() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelect(row: 1, displayedColumn: 0)
+
+        XCTAssertEqual(
+            controller.testingSelectionContextMenuTitles,
+            [
+                "Extract Sequence…",
+                "Copy FASTA",
+                "Export FASTA…",
+                "Create Bundle…",
+                "Run Operation…",
+                "Build Tree with IQ-TREE…",
+                "Add Annotation from Selection…",
+                "Apply Annotation to Selected Rows",
+            ]
+        )
+        XCTAssertEqual(controller.testingSelectedFASTARecords, [">seq2\nACCTTA\n"])
+    }
+
+    func testMultipleSequenceAlignmentBlockSelectionExportsSelectedColumnsAndShowsAnnotations() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+
+        XCTAssertEqual(controller.testingSelectedRowName, "2 rows")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 2)
+        XCTAssertEqual(
+            controller.testingSelectedFASTARecords,
+            [
+                ">seq1_columns_2-5\nCGT\n",
+                ">seq2_columns_2-5\nCCTT\n",
+            ]
+        )
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "1 annotation")
+        XCTAssertEqual(controller.testingAnnotationDrawerRows, ["seq1\tgene-alpha\tgene\t2-4"])
+    }
+
+    func testMultipleSequenceAlignmentCreateBundleUsesCLIReferenceExtractionRequest() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+        var capturedRequest: MultipleSequenceAlignmentSelectionExportRequest?
+        controller.onExportMSASelectionRequested = { request in
+            capturedRequest = request
+        }
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+        controller.testingCreateBundleFromSelectedSequences()
+
+        let request = try XCTUnwrap(capturedRequest)
+        XCTAssertEqual(request.bundleURL, bundleURL)
+        XCTAssertEqual(request.outputKind, "reference")
+        XCTAssertEqual(request.columns, "2-5")
+        XCTAssertEqual(request.suggestedName, "seq1.lungfishref")
+        XCTAssertTrue(request.rows?.isEmpty == false)
+    }
+
+    func testMultipleSequenceAlignmentContextMenuRequestsIQTreeInference() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        var capturedRequest: MultipleSequenceAlignmentTreeInferenceRequest?
+        controller.onInferTreeRequested = { request in
+            capturedRequest = request
+        }
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+        controller.testingInferTreeFromAlignment()
+
+        let request = try XCTUnwrap(capturedRequest)
+        XCTAssertEqual(request.bundleURL, bundleURL)
+        XCTAssertTrue(request.rows?.isEmpty == false)
+        XCTAssertEqual(request.columns, "2-5")
+        XCTAssertEqual(request.suggestedName, "alignment.lungfishtree")
+        XCTAssertEqual(request.displayName, "alignment")
+    }
+
+    func testMultipleSequenceAlignmentDrawerShowsRetainedAnnotationsOutsideSelection() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 1)
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "1 annotation")
+        XCTAssertEqual(controller.testingAnnotationDrawerRows, ["seq1\tgene-alpha\tgene\t2-4"])
+    }
+
+    func testMultipleSequenceAlignmentUsesReferenceAnnotationDrawerWithAlignmentMetadata() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let drawer = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "annotation-table-drawer") as? AnnotationTableDrawerView
+        )
+        XCTAssertNil(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-annotation-drawer")
+        )
+        XCTAssertEqual(drawer.displayedAnnotations.count, 1)
+        XCTAssertEqual(drawer.displayedAnnotations.first?.name, "gene-alpha")
+        XCTAssertEqual(drawer.displayedAnnotations.first?.attributes?["source_coordinates"], "seq1:2-4")
+        XCTAssertEqual(drawer.displayedAnnotations.first?.attributes?["alignment_columns"], "2-4")
+        XCTAssertEqual(drawer.displayedAnnotations.first?.attributes?["consensus_columns"], "2-4")
+        XCTAssertTrue(drawer.tableView.tableColumns.map(\.title).contains("Source Coordinates"))
+        XCTAssertTrue(drawer.tableView.tableColumns.map(\.title).contains("Alignment Columns"))
+        XCTAssertTrue(drawer.tableView.tableColumns.map(\.title).contains("Consensus Columns"))
+    }
+
+    func testMultipleSequenceAlignmentViewportExposesVisibleAnnotationTracks() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingAnnotationTrackRows, ["seq1\tGenes\tgene-alpha\t2-4"])
+        XCTAssertEqual(
+            controller.testingAnnotationContextMenuTitles(named: "gene-alpha"),
+            ["Select Annotation", "Center on Annotation", "Zoom to Annotation"]
+        )
+    }
+
+    func testMultipleSequenceAlignmentAnnotationTracksExposeAccessibilityElements() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+        let matrixView = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-matrix-view")
+        )
+        let elements = matrixView.accessibilityChildren() ?? []
+        let annotationElement = try XCTUnwrap(elements.compactMap { $0 as? NSView }.first {
+            $0.accessibilityIdentifier() == "multiple-sequence-alignment-annotation-track-seq1-gene-alpha"
+        })
+
+        XCTAssertEqual(
+            annotationElement.accessibilityLabel(),
+            "Annotation gene-alpha, type gene, row seq1, alignment columns 2-4, source coordinates 2-4"
+        )
+    }
+
+    func testMultipleSequenceAlignmentSelectedCellExposesAccessibilityElement() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelect(row: 1, displayedColumn: 2)
+
+        let matrixView = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-matrix-view")
+        )
+        let elements = matrixView.accessibilityChildren() ?? []
+        let selectedCell = try XCTUnwrap(elements.compactMap { $0 as? NSView }.first {
+            $0.accessibilityIdentifier() == "multiple-sequence-alignment-cell-seq2-column-3"
+        })
+
+        XCTAssertEqual(selectedCell.accessibilityLabel(), "seq2, alignment column 3, residue C")
+        XCTAssertEqual(selectedCell.accessibilityHelp(), "Selected alignment cell. Use arrow keys or drag to adjust the selection.")
+        XCTAssertNotNil(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-cell-seq2-column-3"),
+            "Selected alignment cell should also be a concrete accessibility subview for XCUI."
+        )
+    }
+
+    func testMultipleSequenceAlignmentAnnotationDrawerSelectionNavigatesAlignmentColumns() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+        let drawer = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "annotation-table-drawer") as? AnnotationTableDrawerView
+        )
+        let annotation = try XCTUnwrap(drawer.displayedAnnotations.first)
+
+        controller.annotationDrawer(drawer, didSelectAnnotation: annotation)
+
+        XCTAssertEqual(controller.testingSelectedRowName, "seq1")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 2)
+        XCTAssertEqual(controller.testingAnnotationDrawerRows, ["seq1\tgene-alpha\tgene\t2-4"])
+    }
+
+    func testMultipleSequenceAlignmentAnnotationTrackSelectionCentersAndZoomsToAnnotation() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+
+        try controller.displayBundle(at: bundleURL)
+        let initialColumnWidth = controller.testingAlignmentColumnWidth
+
+        controller.testingSelectAnnotationTrack(named: "gene-alpha")
+
+        XCTAssertEqual(controller.testingSelectedRowName, "seq1")
+        XCTAssertEqual(controller.testingSelectedAlignmentColumn, 2)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 2...4)
+
+        controller.testingZoomToAnnotationTrack(named: "gene-alpha")
+
+        XCTAssertGreaterThan(controller.testingAlignmentColumnWidth, initialColumnWidth)
+        XCTAssertEqual(controller.testingSelectedAlignmentColumnRange, 2...4)
+    }
+
+    func testMultipleSequenceAlignmentCanAuthorAndProjectAnnotationFromSelectedColumns() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...0, displayedColumnRange: 1...4)
+        try controller.testingAddAnnotationFromSelection(name: "selection-feature", type: "gene")
+
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "1 annotation")
+        XCTAssertEqual(controller.testingAnnotationDrawerRows, ["seq1\tselection-feature\tgene\t2-4"])
+
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+        try controller.testingApplySelectedAnnotationsToSelectedRows()
+
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "2 annotations")
+        XCTAssertEqual(
+            controller.testingAnnotationDrawerRows,
+            [
+                "seq1\tselection-feature\tgene\t2-4",
+                "seq2\tselection-feature\tgene\t2-4",
+            ]
+        )
+
+        let persisted = try MultipleSequenceAlignmentBundle.load(from: bundleURL).loadAnnotationStore()
+        XCTAssertEqual(persisted.sourceAnnotations.count, 1)
+        XCTAssertEqual(persisted.projectedAnnotations.count, 1)
+        XCTAssertEqual(persisted.projectedAnnotations.first?.rowName, "seq2")
+    }
+
+    func testMultipleSequenceAlignmentAnnotationAuthoringRequestsCLIWhenCallbackInstalled() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+        var capturedRequest: MultipleSequenceAlignmentAnnotationAddRequest?
+        controller.onAddAnnotationRequested = { request in
+            capturedRequest = request
+        }
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...0, displayedColumnRange: 1...4)
+        try controller.testingAddAnnotationFromSelection(name: "selection-feature", type: "gene")
+
+        let request = try XCTUnwrap(capturedRequest)
+        XCTAssertEqual(request.bundleURL, bundleURL)
+        XCTAssertEqual(request.columns, "2-5")
+        XCTAssertEqual(request.name, "selection-feature")
+        XCTAssertEqual(request.type, "gene")
+        XCTAssertEqual(request.strand, ".")
+        XCTAssertEqual(request.qualifiers, ["created_by=lungfish-gui"])
+        XCTAssertFalse(request.row.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "0 annotations")
+    }
+
+    func testMultipleSequenceAlignmentAnnotationProjectionRequestsCLIWhenCallbackInstalled() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundleWithAnnotations()
+        var capturedRequests: [MultipleSequenceAlignmentAnnotationProjectionRequest] = []
+        controller.onProjectAnnotationRequested = { request in
+            capturedRequests.append(request)
+        }
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+        try controller.testingApplySelectedAnnotationsToSelectedRows()
+
+        let request = try XCTUnwrap(capturedRequests.first)
+        XCTAssertEqual(capturedRequests.count, 1)
+        XCTAssertEqual(request.bundleURL, bundleURL)
+        XCTAssertFalse(request.sourceAnnotationID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertFalse(request.targetRows.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        XCTAssertEqual(request.conflictPolicy, "append")
+        XCTAssertEqual(request.displayName, "gene-alpha")
+        XCTAssertEqual(controller.testingAnnotationDrawerSummary, "1 annotation")
+    }
+
+    func testMultipleSequenceAlignmentExtractionCarriesProjectedAnnotations() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectBlock(rowRange: 0...0, displayedColumnRange: 1...4)
+        try controller.testingAddAnnotationFromSelection(name: "selection-feature", type: "gene")
+        controller.testingSelectBlock(rowRange: 0...1, displayedColumnRange: 1...4)
+        try controller.testingApplySelectedAnnotationsToSelectedRows()
+
+        XCTAssertEqual(
+            controller.testingSelectedFASTARecords,
+            [
+                ">seq1_columns_2-5\nCGT\n",
+                ">seq2_columns_2-5\nCCTT\n",
+            ]
+        )
+        let annotations = controller.testingSelectedExtractionAnnotationsByRecord
+        XCTAssertEqual(Set(annotations.keys), ["seq1_columns_2-5", "seq2_columns_2-5"])
+        XCTAssertEqual(annotations["seq1_columns_2-5"]?.first?.intervals, [AnnotationInterval(start: 0, end: 3)])
+        XCTAssertEqual(annotations["seq2_columns_2-5"]?.first?.intervals, [AnnotationInterval(start: 0, end: 3)])
+        XCTAssertEqual(annotations["seq1_columns_2-5"]?.first?.chromosome, "seq1_columns_2-5")
+        XCTAssertEqual(annotations["seq2_columns_2-5"]?.first?.chromosome, "seq2_columns_2-5")
+    }
+
+    func testDisplayPhylogeneticTreeBundleInstallsNativeViewport() throws {
+        let vc = ViewerViewController()
+        _ = vc.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try vc.displayPhylogeneticTreeBundle(at: bundleURL)
+
+        XCTAssertNotNil(vc.phylogeneticTreeViewController)
+        XCTAssertNil(vc.multipleSequenceAlignmentViewController)
+        XCTAssertNil(vc.referenceBundleViewportController)
+        XCTAssertNil(vc.currentBundleURL)
+        XCTAssertEqual(vc.contentMode, .genomics)
+    }
+
+    func testPhylogeneticTreeViewportRendersInteractiveRectangularCanvas() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-canvas-view"))
+        XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-search-field"))
+        XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-fit-button"))
+        XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-reset-button"))
+        XCTAssertGreaterThanOrEqual(controller.testingCanvasNodeCount, 5)
+        XCTAssertEqual(controller.testingRenderedTipLabels, ["A", "B", "C"])
+        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Fit"))
+        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Reset"))
+        XCTAssertGreaterThan(
+            controller.testingCanvasViewportFrame.width,
+            300,
+            "frames: \(controller.testingTreeLayoutFrames)"
+        )
+
+        controller.testingSelectNode(label: "B")
+
+        XCTAssertEqual(controller.testingSelectedNodeLabel, "B")
+        XCTAssertTrue(controller.testingDetailText.contains("B"))
+        XCTAssertTrue(controller.testingDetailText.contains("branch"))
+    }
+
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
         let bundleURL = tempDir.appendingPathComponent("\(UUID().uuidString).lungfishref", isDirectory: true)
         let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
@@ -1062,6 +1637,137 @@ final class ViewerBundleRoutingTests: XCTestCase {
 
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func makeMultipleSequenceAlignmentBundle() throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("alignment.fa")
+        try """
+        >seq1
+        ACGT-A
+        >seq2
+        ACCTTA
+        >seq3
+        ACGTTA
+        """.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("alignment.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(from: sourceURL, to: bundleURL)
+        return bundleURL
+    }
+
+    private func makeMultipleSequenceAlignmentBundleWithAnnotations() throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("annotated-alignment.fa")
+        try """
+        >seq1
+        ACGT-A
+        >seq2
+        ACCTTA
+        >seq3
+        ACGTTA
+        """.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("annotated-alignment.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: sourceURL,
+            to: bundleURL,
+            options: .init(
+                sourceAnnotations: [
+                    MultipleSequenceAlignmentBundle.SourceAnnotationInput(
+                        rowName: "seq1",
+                        sourceSequenceName: "seq1",
+                        sourceFilePath: sourceURL.path,
+                        sourceTrackID: "genes",
+                        sourceTrackName: "Genes",
+                        sourceAnnotationID: "gene-alpha",
+                        name: "gene-alpha",
+                        type: "gene",
+                        strand: "+",
+                        intervals: [AnnotationInterval(start: 1, end: 4)]
+                    ),
+                ]
+            )
+        )
+        return bundleURL
+    }
+
+    private func makePhylogeneticTreeBundle() throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("tree.nwk")
+        try "((A:0.1,B:0.2)90:0.3,C:0.4);\n".write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("tree.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
+        return bundleURL
+    }
+}
+
+private extension NSView {
+    func testingDescendant(accessibilityIdentifier target: String) -> NSView? {
+        if accessibilityIdentifier() == target {
+            return self
+        }
+        for subview in subviews {
+            if let found = subview.testingDescendant(accessibilityIdentifier: target) {
+                return found
+            }
+        }
+        return nil
+    }
+}
+
+private enum MSATestingKey {
+    case up
+    case down
+    case left
+    case right
+    case home
+    case end
+    case pageUp
+    case pageDown
+}
+
+private extension NSEvent {
+    static func testingMSAKey(
+        _ key: MSATestingKey,
+        modifiers: NSEvent.ModifierFlags = []
+    ) -> NSEvent {
+        let specialKey: Int
+        let keyCode: UInt16
+        switch key {
+        case .up:
+            specialKey = NSUpArrowFunctionKey
+            keyCode = 126
+        case .down:
+            specialKey = NSDownArrowFunctionKey
+            keyCode = 125
+        case .left:
+            specialKey = NSLeftArrowFunctionKey
+            keyCode = 123
+        case .right:
+            specialKey = NSRightArrowFunctionKey
+            keyCode = 124
+        case .home:
+            specialKey = NSHomeFunctionKey
+            keyCode = 115
+        case .end:
+            specialKey = NSEndFunctionKey
+            keyCode = 119
+        case .pageUp:
+            specialKey = NSPageUpFunctionKey
+            keyCode = 116
+        case .pageDown:
+            specialKey = NSPageDownFunctionKey
+            keyCode = 121
+        }
+        let characters = String(Character(UnicodeScalar(specialKey)!))
+        return NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: characters,
+            isARepeat: false,
+            keyCode: keyCode
+        )!
     }
 }
 

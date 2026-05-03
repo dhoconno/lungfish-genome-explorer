@@ -65,6 +65,7 @@ geneious/
 # Test outputs
 *.xcresult/
 coverage/
+.tmp/
 
 # Claude/AI session files
 .claude/

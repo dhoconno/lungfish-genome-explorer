@@ -40,7 +40,7 @@ public struct ApplicationExportScanner: Sendable {
         }
 
         var warnings: [String] = []
-        let items = try scanItems(rootURL: scanRoot, sourceKind: sourceKind)
+        let items = try scanItems(rootURL: scanRoot, sourceKind: sourceKind, applicationKind: kind)
         if sourceKind == .archive && items.isEmpty {
             warnings.append("The application export archive did not contain any importable file entries.")
         }
@@ -69,7 +69,11 @@ public struct ApplicationExportScanner: Sendable {
         return .file
     }
 
-    private func scanItems(rootURL: URL, sourceKind: ApplicationExportImportSourceKind) throws -> [ApplicationExportImportItem] {
+    private func scanItems(
+        rootURL: URL,
+        sourceKind: ApplicationExportImportSourceKind,
+        applicationKind: ApplicationExportKind
+    ) throws -> [ApplicationExportImportItem] {
         var isDirectory: ObjCBool = false
         guard fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDirectory) else {
             return []
@@ -77,7 +81,12 @@ public struct ApplicationExportScanner: Sendable {
 
         if !isDirectory.boolValue {
             let relativePath = rootURL.lastPathComponent
-            return [try scanFile(url: rootURL, relativePath: relativePath, sourceKind: sourceKind)]
+            return [try scanFile(
+                url: rootURL,
+                relativePath: relativePath,
+                sourceKind: sourceKind,
+                applicationKind: applicationKind
+            )]
         }
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .fileSizeKey]
@@ -100,7 +109,12 @@ public struct ApplicationExportScanner: Sendable {
             }
             guard values.isRegularFile == true else { continue }
             let relativePath = Self.relativePath(from: rootURL, to: fileURL)
-            scanned.append(try scanFile(url: fileURL, relativePath: relativePath, sourceKind: sourceKind))
+            scanned.append(try scanFile(
+                url: fileURL,
+                relativePath: relativePath,
+                sourceKind: sourceKind,
+                applicationKind: applicationKind
+            ))
         }
 
         return scanned.sorted {
@@ -111,9 +125,10 @@ public struct ApplicationExportScanner: Sendable {
     private func scanFile(
         url: URL,
         relativePath: String,
-        sourceKind: ApplicationExportImportSourceKind
+        sourceKind: ApplicationExportImportSourceKind,
+        applicationKind: ApplicationExportKind
     ) throws -> ApplicationExportImportItem {
-        let kind = classify(url: url, relativePath: relativePath)
+        let kind = classify(url: url, relativePath: relativePath, applicationKind: applicationKind)
         return ApplicationExportImportItem(
             sourceRelativePath: relativePath,
             stagedRelativePath: sourceKind == .archive ? relativePath : nil,
@@ -124,7 +139,23 @@ public struct ApplicationExportScanner: Sendable {
         )
     }
 
-    private func classify(url: URL, relativePath: String) -> ApplicationExportImportItemKind {
+    private func classify(
+        url: URL,
+        relativePath: String,
+        applicationKind: ApplicationExportKind
+    ) -> ApplicationExportImportItemKind {
+        let normalizedExtension = ReferenceBundleImportService.normalizedExtension(for: url)
+
+        if applicationKind.importsNativeBundlesOnly {
+            if Self.fastaLikeAlignmentExtensions.contains(normalizedExtension),
+               Self.looksLikeAlignedFASTA(url) {
+                return .multipleSequenceAlignment
+            }
+            if let nativeKind = classifyAlignmentOrTree(url: url, normalizedExtension: normalizedExtension) {
+                return nativeKind
+            }
+        }
+
         if FASTQBundle.isFASTQFileURL(url) {
             return .fastq
         }
@@ -142,13 +173,15 @@ public struct ApplicationExportScanner: Sendable {
             break
         }
 
-        let normalizedExtension = ReferenceBundleImportService.normalizedExtension(for: url)
         let lowerName = URL(fileURLWithPath: relativePath).lastPathComponent.lowercased()
         if Self.nativeProjectExtensions.contains(normalizedExtension) {
             return .nativeProject
         }
         if Self.platformMetadataNames.contains(lowerName) || Self.platformMetadataExtensions.contains(normalizedExtension) {
             return .platformMetadata
+        }
+        if let nativeKind = classifyAlignmentOrTree(url: url, normalizedExtension: normalizedExtension) {
+            return nativeKind
         }
         if Self.phylogeneticsExtensions.contains(normalizedExtension) {
             return .phylogeneticsArtifact
@@ -165,12 +198,35 @@ public struct ApplicationExportScanner: Sendable {
         return .unsupported
     }
 
+    private func classifyAlignmentOrTree(
+        url: URL,
+        normalizedExtension: String
+    ) -> ApplicationExportImportItemKind? {
+        if Self.nativeTreeExtensions.contains(normalizedExtension) {
+            return .phylogeneticTree
+        }
+        if Self.nativeMSAExtensions.contains(normalizedExtension) {
+            return .multipleSequenceAlignment
+        }
+        if Self.nexusExtensions.contains(normalizedExtension) {
+            let lower = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").lowercased()
+            if lower.contains("begin trees") || lower.contains("begin taxa") && lower.contains("tree ") {
+                return .phylogeneticTree
+            }
+            if lower.contains("matrix") || lower.contains("begin data") || lower.contains("begin characters") {
+                return .multipleSequenceAlignment
+            }
+            return .treeOrAlignment
+        }
+        return nil
+    }
+
     private func warnings(for kind: ApplicationExportImportItemKind) -> [String] {
         switch kind {
         case .nativeProject:
             return ["Native application project data is preserved but not decoded in the no-vendor-app baseline."]
         case .treeOrAlignment:
-            return ["Alignment or tree content is preserved until native LGE MSA/tree bundles are available."]
+            return ["Alignment or tree content could not be assigned to a native LGE MSA/tree bundle format."]
         case .phylogeneticsArtifact:
             return ["Phylogenetics result content is preserved until native LGE phylogenetics bundles are available."]
         default:
@@ -202,9 +258,17 @@ public struct ApplicationExportScanner: Sendable {
         "ba6", "clc", "dna", "ga4", "gvp", "jvp", "ma4", "oa4", "pa4", "pro", "sbd", "seq", "ugenedb",
     ]
     private static let treeOrAlignmentExtensions: Set<String> = [
-        "aln", "amsa", "clustal", "maf", "mega", "msf", "nex", "nexus", "nwk", "phy", "phylip", "pir",
+        "amsa", "maf", "mega", "msf", "pir",
         "pfam", "pileup", "sto", "stockholm", "tree", "tre",
     ]
+    private static let nativeMSAExtensions: Set<String> = [
+        "aln", "clustal", "phy", "phylip", "sto", "stockholm", "a2m", "a3m",
+    ]
+    private static let nativeTreeExtensions: Set<String> = [
+        "contree", "newick", "nwk", "tree", "treefile", "tre",
+    ]
+    private static let nexusExtensions: Set<String> = ["nex", "nexus"]
+    private static let fastaLikeAlignmentExtensions: Set<String> = ["fa", "fasta", "fas", "fna", "faa"]
     private static let phylogeneticsExtensions: Set<String> = ["jsonl", "mat", "ndjson", "pb", "trees"]
     private static let signalTrackExtensions: Set<String> = ["bedgraph", "bigwig", "bw", "tdf", "wig", "wiggle"]
     private static let reportExtensions: Set<String> = [
@@ -215,6 +279,40 @@ public struct ApplicationExportScanner: Sendable {
         "runinfo.xml", "runparameters.xml", "sample_sheet.csv", "samplesheet.csv", "sequencing_summary.txt",
         "final_summary.txt", "datastore.json", "output_hash", "barcode_alignment_report.tsv",
     ]
+
+    private static func looksLikeAlignedFASTA(_ url: URL) -> Bool {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return false }
+        var lengths: [Int] = []
+        var currentLength = 0
+        var sawHeader = false
+        var sawGap = false
+
+        for line in text.split(whereSeparator: \.isNewline) {
+            if line.hasPrefix(">") {
+                if sawHeader {
+                    lengths.append(currentLength)
+                }
+                sawHeader = true
+                currentLength = 0
+            } else if sawHeader {
+                let sequenceLine = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+                currentLength += sequenceLine.count
+                if sequenceLine.contains("-") || sequenceLine.contains(".") {
+                    sawGap = true
+                }
+            }
+        }
+        if sawHeader {
+            lengths.append(currentLength)
+        }
+        guard lengths.count >= 2, let first = lengths.first else { return false }
+        return lengths.allSatisfy { $0 == first } && (sawGap || applicationExportAlignmentNameHint(url))
+    }
+
+    private static func applicationExportAlignmentNameHint(_ url: URL) -> Bool {
+        let lower = url.lastPathComponent.lowercased()
+        return lower.contains("align") || lower.contains("msa") || lower.contains("mafft") || lower.contains("muscle")
+    }
 }
 
 public enum ApplicationExportScannerError: LocalizedError, Sendable, Equatable {

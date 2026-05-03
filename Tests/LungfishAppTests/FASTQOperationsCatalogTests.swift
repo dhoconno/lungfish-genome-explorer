@@ -43,6 +43,7 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "DECONTAMINATION",
                 "READ PROCESSING",
                 "SEARCH & SUBSETTING",
+                "ALIGNMENT",
                 "MAPPING",
                 "ASSEMBLY",
                 "CLASSIFICATION",
@@ -92,6 +93,105 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertEqual(category.disabledReason, "Requires Genome Assembly Pack")
     }
 
+    func testAlignmentCategoryRequiresMSAPackAndContainsMAFFT() async throws {
+        let provider = StubPackStatusProvider(states: ["multiple-sequence-alignment": .ready])
+        let catalog = FASTQOperationsCatalog(statusProvider: provider)
+
+        let resolvedCategory = await catalog.category(id: .alignment)
+        let category = try XCTUnwrap(resolvedCategory)
+
+        XCTAssertTrue(category.isEnabled)
+        XCTAssertEqual(category.requiredPackIDs, ["multiple-sequence-alignment"])
+        XCTAssertEqual(FASTQOperationCategoryID.alignment.defaultToolID, .mafft)
+        XCTAssertTrue(FASTQOperationDialogState.toolIDs(for: .alignment).contains(.mafft))
+    }
+
+    func testMAFFTToolBuildsPendingMSARequest() throws {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.tool, .mafft)
+        XCTAssertEqual(request.inputSequenceURLs, [input])
+        XCTAssertEqual(request.projectURL, project)
+        XCTAssertEqual(request.strategy, .auto)
+        XCTAssertEqual(request.outputOrder, .input)
+        XCTAssertEqual(request.extraArguments, [])
+        XCTAssertNil(request.threads)
+        XCTAssertNil(state.pendingLaunchRequest)
+    }
+
+    func testMAFFTToolParsesAdvancedOptionsIntoPendingRequest() throws {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+        state.mafftExtraOptionsText = #"--op 1.53 --treeout --retree "2""#
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.extraArguments, ["--op", "1.53", "--treeout", "--retree", "2"])
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
+    func testMAFFTToolBlocksInvalidAdvancedOptions() {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+        state.mafftExtraOptionsText = #"--op "1.53" --label "unfinished"#
+
+        state.prepareForRun()
+
+        XCTAssertNil(state.pendingMSAAlignmentRequest)
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertTrue(state.readinessText.contains("Advanced options"))
+    }
+
+    func testMAFFTToolRequiresExplicitFASTQAssemblyConfirmationForFASTQInput() {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("assembled-contigs.fastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+
+        state.prepareForRun()
+
+        XCTAssertNil(state.pendingMSAAlignmentRequest)
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertTrue(state.readinessText.contains("assembled or consensus sequences"))
+
+        state.mafftAllowFASTQAssemblyInputs = true
+        state.prepareForRun()
+
+        XCTAssertEqual(state.pendingMSAAlignmentRequest?.allowFASTQAssemblyInputs, true)
+        XCTAssertTrue(state.isRunEnabled)
+    }
+
     func testAllRequiredPackIDsResolveToBuiltInPacks() {
         let requiredPackIDs = FASTQOperationCategoryID.allCases
             .flatMap(\.requiredPackIDs)
@@ -110,6 +210,13 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertTrue(readProcessingTools.contains(.translate))
         XCTAssertTrue(FASTQOperationToolID.reverseComplement.supportsFASTA)
         XCTAssertTrue(FASTQOperationToolID.translate.supportsFASTA)
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     func testPackLookupReturnsNilForUnknownPackID() async {

@@ -318,6 +318,9 @@ public class InspectorViewController: NSViewController {
         viewModel.selectionSectionViewModel.onAddAnnotationRequested = { [weak self] in
             self?.handleAddAnnotationRequested()
         }
+        viewModel.selectionSectionViewModel.onApplyAlignmentAnnotationRequested = { [weak self] in
+            self?.handleApplyAlignmentAnnotationRequested()
+        }
         viewModel.selectionSectionViewModel.onShowTranslation = { [weak self] annotation in
             self?.handleShowTranslationRequested(annotation)
         }
@@ -843,6 +846,11 @@ public class InspectorViewController: NSViewController {
         _ = NSApp.sendAction(#selector(AppDelegate.addAnnotation(_:)), to: nil, from: self)
     }
 
+    /// Applies the current MSA annotation selection to the selected alignment rows.
+    private func handleApplyAlignmentAnnotationRequested() {
+        _ = NSApp.sendAction(#selector(AppDelegate.applyAlignmentAnnotationToSelection(_:)), to: nil, from: self)
+    }
+
     // MARK: - Appearance Handlers
 
     /// Handles appearance setting changes.
@@ -1031,6 +1039,65 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.updateMappingDocument(state)
         if state != nil {
             viewModel.selectedTab = .bundle
+        }
+    }
+
+    /// Updates the Document inspector with multiple-sequence-alignment bundle statistics.
+    func updateMultipleSequenceAlignmentDocument(_ bundle: MultipleSequenceAlignmentBundle) {
+        let manifest = bundle.manifest
+        let state = MultipleSequenceAlignmentDocumentState(
+            title: manifest.name,
+            subtitle: "\(manifest.sourceFormat.rawValue) • \(manifest.alphabet)",
+            summary: "\(manifest.rowCount) sequences • \(manifest.alignedLength) aligned columns",
+            contextRows: [
+                ("Sequences", "\(manifest.rowCount)"),
+                ("Aligned Columns", "\(manifest.alignedLength)"),
+                ("Alphabet", manifest.alphabet),
+                ("Variable Sites", "\(manifest.variableSiteCount)"),
+                ("Parsimony Informative", "\(manifest.parsimonyInformativeSiteCount)"),
+                ("Source Format", manifest.sourceFormat.rawValue),
+                ("Source File", manifest.sourceFileName),
+            ],
+            warningRows: manifest.warnings,
+            artifactRows: [
+                MultipleSequenceAlignmentDocumentArtifactRow(
+                    label: "Aligned FASTA",
+                    fileURL: bundle.url.appendingPathComponent("alignment/primary.aligned.fasta")
+                ),
+                MultipleSequenceAlignmentDocumentArtifactRow(
+                    label: "Row Metadata",
+                    fileURL: bundle.url.appendingPathComponent("metadata/rows.json")
+                ),
+                MultipleSequenceAlignmentDocumentArtifactRow(
+                    label: "Alignment Index",
+                    fileURL: bundle.url.appendingPathComponent("cache/alignment-index.sqlite")
+                ),
+                MultipleSequenceAlignmentDocumentArtifactRow(
+                    label: "Provenance",
+                    fileURL: bundle.url.appendingPathComponent(".lungfish-provenance.json")
+                ),
+            ],
+            consensusPreview: String(manifest.consensus.prefix(160))
+        )
+        viewModel.documentSectionViewModel.updateMultipleSequenceAlignmentDocument(state)
+        viewModel.selectedTab = .bundle
+    }
+
+    /// Updates the Selected Item inspector with MSA row/site/range metadata.
+    func updateMultipleSequenceAlignmentSelection(_ state: MultipleSequenceAlignmentSelectionState?) {
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(multipleSequenceAlignmentSelection: state)
+        if state != nil {
+            viewModel.selectedTab = .selectedItem
+        }
+    }
+
+    /// Updates the Selected Item inspector with sequence/reference range metadata.
+    func updateSequenceRegionSelection(_ state: SequenceRegionSelectionState?) {
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(sequenceRegionSelection: state)
+        if state != nil {
+            viewModel.selectedTab = .selectedItem
         }
     }
 
@@ -4056,6 +4123,8 @@ extension SidebarItemType: CustomStringConvertible {
         case .image: return "Image"
         case .unknown: return "File"
         case .referenceBundle: return "Reference Bundle"
+        case .multipleSequenceAlignmentBundle: return "Multiple Sequence Alignment"
+        case .phylogeneticTreeBundle: return "Phylogenetic Tree"
         case .fastqBundle: return "FASTQ Bundle"
         case .primerSchemeBundle: return "Primer Scheme"
         case .batchGroup: return "Batch Operation"

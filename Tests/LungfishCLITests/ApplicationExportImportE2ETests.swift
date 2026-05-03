@@ -38,9 +38,23 @@ final class ApplicationExportImportE2ETests: XCTestCase {
             .init(kindArgument: "dnastar-lasergene", sourceName: "Lasergene Export", nativeRelativePath: "native/project.pro", archiveExtension: nil),
             .init(kindArgument: "benchling-bulk", sourceName: "Benchling Bulk Export", nativeRelativePath: "benchling_export.json", archiveExtension: "zip"),
             .init(kindArgument: "sequence-design-library", sourceName: "Sequence Library Export", nativeRelativePath: "designs/library.dna", archiveExtension: nil),
-            .init(kindArgument: "alignment-tree", sourceName: "Alignment Tree Export", nativeRelativePath: "alignments/example.aln", archiveExtension: nil),
+            .init(
+                kindArgument: "alignment-tree",
+                sourceName: "Alignment Tree Export",
+                nativeRelativePath: "alignments/example.aln",
+                archiveExtension: nil,
+                expectedBundleExtensions: ["lungfishmsa"],
+                expectsBinaryArtifacts: false
+            ),
             .init(kindArgument: "sequencing-platform-run-folder", sourceName: "Sequencing Run Export", nativeRelativePath: "RunInfo.xml", archiveExtension: nil),
-            .init(kindArgument: "phylogenetics-result-set", sourceName: "Phylogenetics Export", nativeRelativePath: "usher/tree.nwk", archiveExtension: "zip"),
+            .init(
+                kindArgument: "phylogenetics-result-set",
+                sourceName: "Phylogenetics Export",
+                nativeRelativePath: "usher/tree.nwk",
+                archiveExtension: "zip",
+                expectedBundleExtensions: ["lungfishtree"],
+                expectsBinaryArtifacts: false
+            ),
             .init(kindArgument: "qiime2-archive", sourceName: "QIIME2 Export", nativeRelativePath: "metadata.yaml", archiveExtension: "qza"),
             .init(kindArgument: "igv-session-track-set", sourceName: "IGV Session Export", nativeRelativePath: "session.xml", archiveExtension: nil),
         ]
@@ -57,7 +71,12 @@ final class ApplicationExportImportE2ETests: XCTestCase {
             ])
 
             XCTAssertEqual(result.exitCode, 0, "\(fixture.kindArgument) stderr: \(result.stderr)")
-            try assertCLIImportOutput(result.stdout, expectedCollectionNamePrefix: fixture.sourceName)
+            try assertCLIImportOutput(
+                result.stdout,
+                expectedCollectionNamePrefix: fixture.sourceName,
+                expectedBundleExtensions: fixture.expectedBundleExtensions,
+                expectsBinaryArtifacts: fixture.expectsBinaryArtifacts
+            )
         }
     }
 
@@ -65,6 +84,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         _ stdout: String,
         expectedCollectionName: String? = nil,
         expectedCollectionNamePrefix: String? = nil,
+        expectedBundleExtensions: Set<String> = ["lungfishref"],
         expectsBinaryArtifacts: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -97,7 +117,8 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.appendingPathComponent("inventory.json").path), file: file, line: line)
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.appendingPathComponent("import-report.md").path), file: file, line: line)
         XCTAssertTrue(fileManager.fileExists(atPath: collectionURL.appendingPathComponent(".lungfish-provenance.json").path), file: file, line: line)
-        XCTAssertFalse(try recursiveDirectories(at: collectionURL.appendingPathComponent("LGE Bundles")).filter { $0.pathExtension == "lungfishref" }.isEmpty, file: file, line: line)
+        let importedExtensions = Set(try recursiveDirectories(at: collectionURL.appendingPathComponent("LGE Bundles")).map(\.pathExtension))
+        XCTAssertTrue(expectedBundleExtensions.isSubset(of: importedExtensions), file: file, line: line)
         if expectsBinaryArtifacts {
             XCTAssertFalse(try recursiveFiles(at: collectionURL.appendingPathComponent("Binary Artifacts")).isEmpty, file: file, line: line)
         } else {
@@ -150,7 +171,19 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         )
         let nativeURL = source.appendingPathComponent(nativeRelativePath)
         try fileManager.createDirectory(at: nativeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "representative native export artifact\n".write(to: nativeURL, atomically: true, encoding: .utf8)
+        switch nativeURL.pathExtension.lowercased() {
+        case "aln", "clustal":
+            try """
+            CLUSTAL W
+
+            seq1 ACGT-A
+            seq2 AC-TTA
+            """.write(to: nativeURL, atomically: true, encoding: .utf8)
+        case "nwk", "newick", "tree", "tre":
+            try "((A:0.1,B:0.2)90:0.3,C:0.4);\n".write(to: nativeURL, atomically: true, encoding: .utf8)
+        default:
+            try "representative native export artifact\n".write(to: nativeURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private func parseJSONLineEvents(_ stdout: String) throws -> [[String: Any]] {
@@ -254,4 +287,6 @@ private struct RepresentativeApplicationExportFixture {
     let sourceName: String
     let nativeRelativePath: String
     let archiveExtension: String?
+    var expectedBundleExtensions: Set<String> = ["lungfishref"]
+    var expectsBinaryArtifacts = true
 }

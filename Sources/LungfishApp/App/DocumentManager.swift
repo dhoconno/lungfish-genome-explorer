@@ -56,6 +56,8 @@ public enum DocumentType: String, CaseIterable, Sendable {
     case bam
     case lungfishProject         // Native .lungfish project format
     case lungfishReferenceBundle // .lungfishref reference genome bundle
+    case lungfishMultipleSequenceAlignmentBundle // .lungfishmsa MSA bundle
+    case lungfishPhylogeneticTreeBundle // .lungfishtree tree bundle
 
     /// File extensions for this document type.
     public var extensions: [String] {
@@ -69,13 +71,16 @@ public enum DocumentType: String, CaseIterable, Sendable {
         case .bam: return ["bam", "cram", "sam"]
         case .lungfishProject: return ["lungfish"]
         case .lungfishReferenceBundle: return ["lungfishref"]
+        case .lungfishMultipleSequenceAlignmentBundle: return [MultipleSequenceAlignmentBundle.directoryExtension]
+        case .lungfishPhylogeneticTreeBundle: return ["lungfishtree"]
         }
     }
 
     /// Whether this is a directory-based format
     public var isDirectoryFormat: Bool {
         switch self {
-        case .lungfishProject, .lungfishReferenceBundle:
+        case .lungfishProject, .lungfishReferenceBundle, .lungfishMultipleSequenceAlignmentBundle,
+             .lungfishPhylogeneticTreeBundle:
             return true
         default:
             return false
@@ -361,6 +366,12 @@ public final class DocumentManager {
             case .lungfishReferenceBundle:
                 logger.info("loadDocument: Loading reference bundle...")
                 try loadReferenceBundle(into: document)
+            case .lungfishMultipleSequenceAlignmentBundle:
+                logger.info("loadDocument: MSA bundles are displayed by the native bundle viewer")
+                throw DocumentLoadError.unsupportedFormat("Use the MSA bundle viewer for .lungfishmsa bundles")
+            case .lungfishPhylogeneticTreeBundle:
+                logger.info("loadDocument: Tree bundles are displayed by the native bundle viewer")
+                throw DocumentLoadError.unsupportedFormat("Use the tree bundle viewer for .lungfishtree bundles")
             }
         } catch {
             logger.error("loadDocument: Load failed with error: \(error.localizedDescription, privacy: .public)")

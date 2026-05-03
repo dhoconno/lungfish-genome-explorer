@@ -255,7 +255,14 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
-        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
+        XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
+            "read-mapping",
+            "variant-calling",
+            "assembly",
+            "multiple-sequence-alignment",
+            "phylogenetics",
+            "metagenomics",
+        ])
     }
 
     func testActiveMetagenomicsPackUsesUnifiedClassifierDescription() throws {
@@ -268,6 +275,62 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testVisibleCLIPacksIncludeRequiredAndActiveOptional() {
-        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), ["lungfish-tools", "read-mapping", "variant-calling", "assembly", "metagenomics"])
+        XCTAssertEqual(PluginPack.visibleForCLI.map(\.id), [
+            "lungfish-tools",
+            "read-mapping",
+            "variant-calling",
+            "assembly",
+            "multiple-sequence-alignment",
+            "phylogenetics",
+            "metagenomics",
+        ])
+    }
+
+    func testMultipleSequenceAlignmentPackDefinesNativeArm64Tools() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "multiple-sequence-alignment" }))
+
+        XCTAssertEqual(pack.name, "Multiple Sequence Alignment")
+        XCTAssertEqual(pack.packages, ["mafft", "muscle", "clustalo", "famsa", "trimal", "clipkit", "goalign"])
+        XCTAssertEqual(pack.category, "Phylogenetics")
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["mafft", "muscle", "clustalo", "famsa", "trimal", "clipkit", "goalign"])
+        XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
+
+        let mafft = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "mafft" }))
+        XCTAssertEqual(mafft.installPackages, ["conda-forge::mafft=7.526"])
+        XCTAssertEqual(mafft.version, "7.526")
+        XCTAssertEqual(mafft.license, "BSD-3-Clause")
+
+        let muscle = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "muscle" }))
+        XCTAssertEqual(muscle.installPackages, ["bioconda::muscle=5.3"])
+        XCTAssertEqual(muscle.version, "5.3")
+        XCTAssertEqual(muscle.license, "GPL-3.0-only")
+
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "seqkit" }))
+    }
+
+    func testPhylogeneticsPackDefinesGenericNativeArm64Tools() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "phylogenetics" }))
+
+        XCTAssertEqual(pack.description, "Infer, annotate, and inspect native Apple Silicon phylogenetic trees")
+        XCTAssertEqual(pack.packages, ["iqtree", "fasttree", "raxml-ng", "treetime", "gotree", "treeswift"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["iqtree", "fasttree", "raxml-ng", "treetime", "gotree", "treeswift"])
+        XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "newick_utils" }))
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "nextclade" }))
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "usher" }))
+
+        let iqtree = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "iqtree" }))
+        XCTAssertEqual(iqtree.installPackages, ["bioconda::iqtree=3.1.1"])
+        XCTAssertEqual(iqtree.version, "3.1.1")
+        XCTAssertEqual(iqtree.license, "GPL-2.0-or-later")
+
+        let fasttree = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "fasttree" }))
+        XCTAssertEqual(fasttree.installPackages, ["bioconda::fasttree=2.2.0"])
+        XCTAssertEqual(fasttree.executables, ["FastTree"])
+
+        let treeswift = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "treeswift" }))
+        XCTAssertEqual(treeswift.installPackages, ["bioconda::treeswift=1.1.45"])
+        XCTAssertEqual(treeswift.executables, ["python"])
+        XCTAssertEqual(treeswift.smokeTest?.arguments, ["-c", "import treeswift; print('treeswift')"])
     }
 }

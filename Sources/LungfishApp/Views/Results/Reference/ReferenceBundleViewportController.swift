@@ -156,6 +156,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private var sequenceRows: [BundleBrowserSequenceSummary] = []
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
+    var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
 
     private let embeddedViewerController = ViewerViewController()
     private let splitCoordinator = TwoPaneTrackedSplitCoordinator()
@@ -387,6 +388,9 @@ public class ReferenceBundleViewportController: NSViewController {
         }
         sequenceTableView.onDisplayedRowsChanged = { [weak self] in
             self?.reconcileSequenceSelectionAfterDisplayedRowsChanged()
+        }
+        embeddedViewerController.onSequenceRegionSelectionChanged = { [weak self] state in
+            self?.onSequenceSelectionStateChanged?(state)
         }
 
         NotificationCenter.default.addObserver(
@@ -670,6 +674,14 @@ public class ReferenceBundleViewportController: NSViewController {
         if let bundle = embeddedViewerController.viewerView.currentReferenceBundle {
             onEmbeddedReferenceBundleLoaded?(bundle)
         }
+    }
+
+    func currentSequenceAnnotationDraftContext() -> SequenceAnnotationDraftContext? {
+        embeddedViewerController.localSequenceAnnotationDraftContext
+    }
+
+    func notifySequenceSelectionStateIfAvailable() {
+        onSequenceSelectionStateChanged?(embeddedViewerController.currentSequenceRegionSelectionState())
     }
 
     func buildConsensusExportPayload() async throws -> (records: [String], suggestedName: String) {

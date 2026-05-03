@@ -98,6 +98,42 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertFalse(tempChildren.contains { $0.lastPathComponent.hasPrefix("application-export-import-") })
     }
 
+    func testAlignmentTreeImportRoutesNativeBundlesAndSkipsBinaryArtifacts() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let sourceURL = try makeAlignmentTreeExportFolder(root: root)
+        let service = makeService()
+
+        let result = try await service.importApplicationExport(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            kind: .alignmentTree,
+            options: .default
+        )
+
+        XCTAssertEqual(Set(result.nativeBundleURLs.map(\.pathExtension)), ["lungfishmsa", "lungfishtree"])
+        XCTAssertTrue(result.preservedArtifactURLs.isEmpty)
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Binary Artifacts").path))
+        XCTAssertFalse(fileManager.fileExists(atPath: result.collectionURL.appendingPathComponent("Source").path))
+        XCTAssertTrue(result.warnings.contains { $0.contains("notes.txt") && $0.contains("not imported") })
+
+        let inventoryData = try Data(contentsOf: result.inventoryURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let inventory = try decoder.decode(ApplicationExportImportInventory.self, from: inventoryData)
+        XCTAssertEqual(inventory.applicationKind, .alignmentTree)
+        XCTAssertTrue(inventory.items.contains {
+            $0.kind == .multipleSequenceAlignment && ($0.lgeDestination?.hasSuffix(".lungfishmsa") ?? false)
+        })
+        XCTAssertTrue(inventory.items.contains {
+            $0.kind == .phylogeneticTree && ($0.lgeDestination?.hasSuffix(".lungfishtree") ?? false)
+        })
+        XCTAssertTrue(inventory.items.contains {
+            $0.kind == .report && $0.lgeDestination == nil
+        })
+    }
+
     func testArchiveImportRejectsUnsafeMembers() async throws {
         let root = try makeTempDirectory()
         let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
@@ -164,6 +200,30 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         let archiveURL = root.appendingPathComponent("Unsafe.zip")
         try runZip(workingDirectory: child, archiveURL: archiveURL, entries: ["../escape.fa"])
         return archiveURL
+    }
+
+    private func makeAlignmentTreeExportFolder(root: URL) throws -> URL {
+        let source = root.appendingPathComponent("alignment-tree-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: source.appendingPathComponent("alignments", isDirectory: true), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: source.appendingPathComponent("trees", isDirectory: true), withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: source.appendingPathComponent("reports", isDirectory: true), withIntermediateDirectories: true)
+        try """
+        CLUSTAL W
+
+        seq1 ACGT-A
+        seq2 AC-TTA
+        """.write(to: source.appendingPathComponent("alignments/mhc.aln"), atomically: true, encoding: .utf8)
+        try "((A:0.1,B:0.2)90:0.3,C:0.4);\n".write(
+            to: source.appendingPathComponent("trees/mhc.nwk"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "not imported\n".write(
+            to: source.appendingPathComponent("reports/notes.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        return source
     }
 
     private func runZip(workingDirectory: URL, archiveURL: URL, entries: [String]) throws {

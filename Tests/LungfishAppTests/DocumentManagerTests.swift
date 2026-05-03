@@ -131,6 +131,17 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertEqual(detected, .lungfishProject)
     }
 
+    func testDetectNativeAlignmentAndTreeBundles() {
+        XCTAssertEqual(
+            AppDocumentType.detect(from: URL(fileURLWithPath: "/tmp/example.lungfishmsa")),
+            .lungfishMultipleSequenceAlignmentBundle
+        )
+        XCTAssertEqual(
+            AppDocumentType.detect(from: URL(fileURLWithPath: "/tmp/example.lungfishtree")),
+            .lungfishPhylogeneticTreeBundle
+        )
+    }
+
     func testDetectGzipCompressed() {
         // .fasta.gz should strip .gz and detect .fasta
         let url = URL(fileURLWithPath: "/tmp/test.fasta.gz")
@@ -174,9 +185,15 @@ final class DocumentManagerTests: XCTestCase {
     // MARK: - 2. DocumentType Property Tests
 
     func testIsDirectoryFormat() {
-        // Only .lungfishProject should return true
+        // Native LGE packages should return true
         XCTAssertTrue(AppDocumentType.lungfishProject.isDirectoryFormat,
                        ".lungfishProject should be a directory format")
+        XCTAssertTrue(AppDocumentType.lungfishReferenceBundle.isDirectoryFormat,
+                       ".lungfishReferenceBundle should be a directory format")
+        XCTAssertTrue(AppDocumentType.lungfishMultipleSequenceAlignmentBundle.isDirectoryFormat,
+                       ".lungfishMultipleSequenceAlignmentBundle should be a directory format")
+        XCTAssertTrue(AppDocumentType.lungfishPhylogeneticTreeBundle.isDirectoryFormat,
+                       ".lungfishPhylogeneticTreeBundle should be a directory format")
 
         // All other types should return false
         let nonDirectoryTypes: [AppDocumentType] = [.fasta, .fastq, .genbank, .gff3, .bed, .vcf, .bam]
@@ -197,7 +214,11 @@ final class DocumentManagerTests: XCTestCase {
     func testAllCasesPresent() {
         // Verify we have all expected cases
         let expectedCases: Set<AppDocumentType> = [
-            .fasta, .fastq, .genbank, .gff3, .bed, .vcf, .bam, .lungfishProject, .lungfishReferenceBundle
+            .fasta, .fastq, .genbank, .gff3, .bed, .vcf, .bam,
+            .lungfishProject,
+            .lungfishReferenceBundle,
+            .lungfishMultipleSequenceAlignmentBundle,
+            .lungfishPhylogeneticTreeBundle,
         ]
         let actualCases = Set(AppDocumentType.allCases)
         XCTAssertEqual(actualCases, expectedCases, "DocumentType should have exactly the expected cases")
@@ -217,6 +238,9 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertTrue(supported.contains("vcf"), "supportedExtensions should include 'vcf'")
         XCTAssertTrue(supported.contains("bam"), "supportedExtensions should include 'bam'")
         XCTAssertTrue(supported.contains("lungfish"), "supportedExtensions should include 'lungfish'")
+        XCTAssertTrue(supported.contains("lungfishref"), "supportedExtensions should include 'lungfishref'")
+        XCTAssertTrue(supported.contains("lungfishmsa"), "supportedExtensions should include 'lungfishmsa'")
+        XCTAssertTrue(supported.contains("lungfishtree"), "supportedExtensions should include 'lungfishtree'")
 
         // Verify total count matches sum of all type extensions
         let expectedCount = AppDocumentType.allCases.reduce(0) { $0 + $1.extensions.count }

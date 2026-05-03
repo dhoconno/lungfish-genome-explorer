@@ -130,6 +130,14 @@ final class PluginPackVisibilityTests: XCTestCase {
             XCTFail("Expected active assembly pack")
             return
         }
+        guard let msa = PluginPack.activeOptionalPacks.first(where: { $0.id == "multiple-sequence-alignment" }) else {
+            XCTFail("Expected active multiple sequence alignment pack")
+            return
+        }
+        guard let phylogenetics = PluginPack.activeOptionalPacks.first(where: { $0.id == "phylogenetics" }) else {
+            XCTFail("Expected active phylogenetics pack")
+            return
+        }
         guard let metagenomics = PluginPack.activeOptionalPacks.first(where: { $0.id == "metagenomics" }) else {
             XCTFail("Expected active metagenomics pack")
             return
@@ -158,6 +166,18 @@ final class PluginPackVisibilityTests: XCTestCase {
             toolStatuses: [],
             failureMessage: nil
         )
+        let msaStatus = PluginPackStatus(
+            pack: msa,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let phylogeneticsStatus = PluginPackStatus(
+            pack: phylogenetics,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
         let metagenomicsStatus = PluginPackStatus(
             pack: metagenomics,
             state: .needsInstall,
@@ -170,6 +190,8 @@ final class PluginPackVisibilityTests: XCTestCase {
                 readMappingStatus,
                 variantCallingStatus,
                 assemblyStatus,
+                msaStatus,
+                phylogeneticsStatus,
                 metagenomicsStatus,
             ])
         )
@@ -177,7 +199,14 @@ final class PluginPackVisibilityTests: XCTestCase {
         await viewModel.loadPackStatuses()
 
         XCTAssertEqual(viewModel.requiredSetupPack?.pack.id, "lungfish-tools")
-        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "variant-calling", "assembly", "metagenomics"])
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), [
+            "read-mapping",
+            "variant-calling",
+            "assembly",
+            "multiple-sequence-alignment",
+            "phylogenetics",
+            "metagenomics",
+        ])
     }
 
     func testFocusPackSelectsPacksTabAndStoresPackID() {

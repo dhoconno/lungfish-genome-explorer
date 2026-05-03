@@ -37,6 +37,7 @@ final class GUIRegressionTests: XCTestCase {
             "Decontamination…",
             "Read Processing…",
             "Search & Subsetting…",
+            "Multiple Sequence Alignment…",
             "Mapping…",
             "Assembly…",
             "Classification…",
@@ -643,6 +644,23 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertNil(statusItem.action)
         XCTAssertFalse(statusItem.isEnabled)
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
+    }
+
+    func testOperationsPanelHasOutputFileExpansionSection() throws {
+        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
+            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
+        ))
+
+        XCTAssertTrue(source.contains("ops-expansion-outputs"))
+        XCTAssertTrue(source.contains("item.outputURLs"))
+        XCTAssertTrue(source.contains("Output Files"))
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 }
 

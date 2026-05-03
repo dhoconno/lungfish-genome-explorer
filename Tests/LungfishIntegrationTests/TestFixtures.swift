@@ -130,6 +130,49 @@ public enum TestFixtures {
         }
     }
 
+    /// SARS-CoV-2 multiple-sequence alignment fixture project.
+    ///
+    /// Contains a deterministic five-genome FASTA input derived from the
+    /// `sarscov2` reference fixture and the native MAFFT `.lungfishmsa` bundle
+    /// generated from that input.
+    public enum sarscov2Alignment {
+        private static let dir = "alignment/sarscov2-mafft-e2e.lungfish"
+
+        /// Fixture project directory.
+        public static var project: URL {
+            let url = fixturesBaseURL.appendingPathComponent(dir, isDirectory: true)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir). Run the SARS-CoV-2 alignment fixture generator."
+            )
+            return url
+        }
+
+        /// Unaligned FASTA containing five deterministic SARS-CoV-2 genomes.
+        public static var unalignedGenomes: URL {
+            fixture("Inputs/sars-cov-2-genomes.fasta")
+        }
+
+        /// Per-record source and synthetic-edit metadata for the unaligned FASTA.
+        public static var sourceMetadata: URL {
+            fixture("Inputs/source-metadata.tsv")
+        }
+
+        /// Native MAFFT alignment bundle generated from ``unalignedGenomes``.
+        public static var mafftBundle: URL {
+            fixture("Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa")
+        }
+
+        private static func fixture(_ name: String) -> URL {
+            let url = project.appendingPathComponent(name)
+            precondition(
+                FileManager.default.fileExists(atPath: url.path),
+                "Test fixture missing: \(dir)/\(name). Run the SARS-CoV-2 alignment fixture generator."
+            )
+            return url
+        }
+    }
+
     /// Canonical QIAseq Direct SARS-CoV-2 primer scheme bundle.
     ///
     /// The fixture entry is a symlink pointing into

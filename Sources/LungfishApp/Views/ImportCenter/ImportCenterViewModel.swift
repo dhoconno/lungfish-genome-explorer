@@ -93,6 +93,8 @@ struct ImportCardInfo: Identifiable, Sendable {
         case vcf
         case fasta
         case annotationTrack
+        case multipleSequenceAlignment
+        case phylogeneticTree
         case geneiousExport
         case clcWorkbenchExport
         case dnastarLasergeneExport
@@ -281,6 +283,66 @@ final class ImportCenterViewModel {
                     allowsMultipleSelection: true
                 ),
                 action: .bam
+            )
+        ),
+        ImportCardInfo(
+            id: "multiple-sequence-alignment",
+            title: "Multiple Sequence Alignments",
+            description: "Import aligned FASTA, CLUSTAL, PHYLIP, NEXUS, Stockholm, A2M, or A3M files as native .lungfishmsa bundles.",
+            sfSymbol: "rectangle.grid.1x2",
+            fileHint: ".fa, .fasta, .aln, .clustal, .phy, .phylip, .nex, .nexus, .sto, .stockholm, .a2m, .a3m",
+            tab: .alignments,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "fa") ?? .data,
+                        UTType(filenameExtension: "fasta") ?? .data,
+                        UTType(filenameExtension: "fas") ?? .data,
+                        UTType(filenameExtension: "fna") ?? .data,
+                        UTType(filenameExtension: "faa") ?? .data,
+                        UTType(filenameExtension: "aln") ?? .data,
+                        UTType(filenameExtension: "clustal") ?? .data,
+                        UTType(filenameExtension: "clw") ?? .data,
+                        UTType(filenameExtension: "phy") ?? .data,
+                        UTType(filenameExtension: "phylip") ?? .data,
+                        UTType(filenameExtension: "nex") ?? .data,
+                        UTType(filenameExtension: "nexus") ?? .data,
+                        UTType(filenameExtension: "sto") ?? .data,
+                        UTType(filenameExtension: "stockholm") ?? .data,
+                        UTType(filenameExtension: "a2m") ?? .data,
+                        UTType(filenameExtension: "a3m") ?? .data,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: true
+                ),
+                action: .multipleSequenceAlignment
+            )
+        ),
+        ImportCardInfo(
+            id: "phylogenetic-tree",
+            title: "Phylogenetic Trees",
+            description: "Import Newick, NEXUS, IQ-TREE, RAxML-NG, or FastTree outputs as native .lungfishtree bundles.",
+            sfSymbol: "tree",
+            fileHint: ".nwk, .newick, .tree, .tre, .treefile, .contree, .nex, .nexus",
+            tab: .alignments,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "nwk") ?? .data,
+                        UTType(filenameExtension: "newick") ?? .data,
+                        UTType(filenameExtension: "tree") ?? .data,
+                        UTType(filenameExtension: "tre") ?? .data,
+                        UTType(filenameExtension: "treefile") ?? .data,
+                        UTType(filenameExtension: "contree") ?? .data,
+                        UTType(filenameExtension: "nex") ?? .data,
+                        UTType(filenameExtension: "nexus") ?? .data,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: true
+                ),
+                action: .phylogeneticTree
             )
         ),
 
@@ -736,6 +798,8 @@ final class ImportCenterViewModel {
         case .vcf:      return "Select VCF variant files to import"
         case .fasta:    return "Select standalone reference sequence files (.fa/.fasta/.gb/.embl, optionally .gz) to import"
         case .annotationTrack: return "Select GTF, GFF, GFF3, or BED annotation files to attach to a reference bundle"
+        case .multipleSequenceAlignment: return "Select multiple sequence alignment files to import"
+        case .phylogeneticTree: return "Select phylogenetic tree files to import"
         case .geneiousExport: return "Select a Geneious archive or export folder to import"
         case .clcWorkbenchExport: return "Select a CLC Workbench export folder, archive, or native project file"
         case .dnastarLasergeneExport: return "Select a DNASTAR Lasergene or GenVision export folder or file"
@@ -791,6 +855,14 @@ final class ImportCenterViewModel {
             }
         case .annotationTrack:
             appDelegate.importAnnotationTracksFromURLs(urls)
+        case .multipleSequenceAlignment:
+            for url in urls {
+                appDelegate.importMultipleSequenceAlignmentFromURL(url)
+            }
+        case .phylogeneticTree:
+            for url in urls {
+                appDelegate.importPhylogeneticTreeFromURL(url)
+            }
         case .geneiousExport:
             for url in urls {
                 appDelegate.importGeneiousExportFromURL(url)
@@ -896,6 +968,8 @@ final class ImportCenterViewModel {
         case .vcf:      return "VCF"
         case .fasta:    return "FASTA"
         case .annotationTrack: return "Annotation Track"
+        case .multipleSequenceAlignment: return "MSA"
+        case .phylogeneticTree: return "Phylogenetic Tree"
         case .geneiousExport: return "Geneious"
         case .clcWorkbenchExport: return "CLC Workbench"
         case .dnastarLasergeneExport: return "DNASTAR Lasergene"
