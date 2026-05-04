@@ -1593,8 +1593,8 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-reset-button"))
         XCTAssertGreaterThanOrEqual(controller.testingCanvasNodeCount, 5)
         XCTAssertEqual(controller.testingRenderedTipLabels, ["A", "B", "C"])
-        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Fit"))
-        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Reset"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Fit tree"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Reset tree"))
         XCTAssertGreaterThan(
             controller.testingCanvasViewportFrame.width,
             300,
@@ -1606,6 +1606,32 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingSelectedNodeLabel, "B")
         XCTAssertTrue(controller.testingDetailText.contains("B"))
         XCTAssertTrue(controller.testingDetailText.contains("branch"))
+    }
+
+    func testPhylogeneticTreeViewportKeepsControlsInsideNarrowVisualizationArea() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let layoutFrames = controller.testingTreeLayoutFrames
+        let rootFrame = try XCTUnwrap(layoutFrames["rootView"])
+        let canvasFrame = try XCTUnwrap(layoutFrames["treeScrollView"])
+        XCTAssertGreaterThan(canvasFrame.width, 560, "frames: \(layoutFrames)")
+        XCTAssertGreaterThan(canvasFrame.height, 300, "frames: \(layoutFrames)")
+
+        for frame in controller.testingToolbarControlFrames.values {
+            XCTAssertGreaterThanOrEqual(frame.minX, rootFrame.minX, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertLessThanOrEqual(frame.maxX, rootFrame.maxX, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertGreaterThanOrEqual(frame.minY, rootFrame.minY, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertLessThanOrEqual(frame.maxY, rootFrame.maxY, "toolbar frame \(frame) escaped root \(rootFrame)")
+        }
+
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Fit tree"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Zoom in"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Zoom out"))
     }
 
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {

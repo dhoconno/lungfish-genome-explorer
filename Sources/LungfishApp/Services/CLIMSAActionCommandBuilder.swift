@@ -131,9 +131,14 @@ enum CLIMSAActionCommandBuilder {
         columns: String? = nil,
         name: String?,
         model: String,
+        sequenceType: String? = nil,
         bootstrap: Int?,
+        alrt: Int? = nil,
         seed: Int?,
         threads: Int?,
+        safeMode: Bool = false,
+        keepIdenticalSequences: Bool = false,
+        extraIQTreeOptions: String? = nil,
         iqtreePath: String?,
         force: Bool
     ) -> [String] {
@@ -157,14 +162,32 @@ enum CLIMSAActionCommandBuilder {
             args += ["--name", name]
         }
         args += ["--model", model]
+        if let sequenceType,
+           sequenceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+           sequenceType.lowercased() != "auto" {
+            args += ["--sequence-type", sequenceType]
+        }
         if let bootstrap {
             args += ["--bootstrap", String(bootstrap)]
+        }
+        if let alrt {
+            args += ["--alrt", String(alrt)]
         }
         if let seed {
             args += ["--seed", String(seed)]
         }
         if let threads {
             args += ["--threads", String(threads)]
+        }
+        if safeMode {
+            args.append("--safe")
+        }
+        if keepIdenticalSequences {
+            args.append("--keep-identical")
+        }
+        if let extraIQTreeOptions,
+           extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            args += ["--extra-iqtree-options", extraIQTreeOptions]
         }
         if let iqtreePath, iqtreePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--iqtree-path", iqtreePath]

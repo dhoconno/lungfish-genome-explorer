@@ -20,10 +20,22 @@ final class AlignmentTreeBundleXCUITests: XCTestCase {
         XCTAssertTrue(robot.msaAnnotationDrawer.waitForExistence(timeout: 5))
         XCTAssertTrue(robot.app.staticTexts["MHC-domain"].firstMatch.waitForExistence(timeout: 5))
         robot.msaSelectedCell.rightClick()
-        XCTAssertTrue(robot.app.menuItems["Build Tree with IQ-TREE…"].firstMatch.waitForExistence(timeout: 5))
-        robot.app.typeKey(.escape, modifierFlags: [])
+        let buildTreeMenuItem = robot.app.menuItems["Build Tree with IQ-TREE…"].firstMatch
+        XCTAssertTrue(buildTreeMenuItem.waitForExistence(timeout: 5))
+        buildTreeMenuItem.click()
+        XCTAssertTrue(robot.iqTreeOptionsDialog.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.iqTreeAdvancedOptionsButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.app.staticTexts["Sequence Type"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.app.staticTexts["Branch Support"].firstMatch.waitForExistence(timeout: 5))
+        robot.iqTreeAdvancedOptionsButton.click()
+        XCTAssertTrue(robot.iqTreeAdvancedParametersField.waitForExistence(timeout: 5))
+        robot.iqTreeCancelButton.click()
 
         robot.openBundle(named: "MHC Tree.lungfishtree")
         robot.waitForPhylogeneticTreeViewer()
+        XCTAssertTrue(robot.treeFitButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.treeZoomInButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.treeZoomOutButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(robot.treeLayoutModeControl.waitForExistence(timeout: 5))
     }
 }

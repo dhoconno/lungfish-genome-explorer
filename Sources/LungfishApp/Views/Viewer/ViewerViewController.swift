@@ -1648,11 +1648,28 @@ public class ViewerViewController: NSViewController {
             return
         }
 
+        IQTreeInferenceOptionsDialog.present(
+            suggestedOutputName: request.suggestedName,
+            window: view.window
+        ) { [weak self] options in
+            guard let self, let options else { return }
+            self.runIQTreeInferenceViaCLI(request, projectURL: projectURL, options: options)
+        }
+    }
+
+    private func runIQTreeInferenceViaCLI(
+        _ request: MultipleSequenceAlignmentTreeInferenceRequest,
+        projectURL: URL,
+        options: IQTreeInferenceOptions
+    ) {
         do {
             let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
             try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
+            let suggestedName = options.outputName.hasSuffix(".lungfishtree")
+                ? options.outputName
+                : "\(options.outputName).lungfishtree"
             let outputURL = Self.nextAvailableBundleURL(
-                suggestedName: request.suggestedName,
+                suggestedName: suggestedName,
                 pathExtension: "lungfishtree",
                 in: treeDirectory
             )
@@ -1664,10 +1681,15 @@ public class ViewerViewController: NSViewController {
                 rows: request.rows,
                 columns: request.columns,
                 name: outputName,
-                model: "MFP",
-                bootstrap: nil,
-                seed: 1,
-                threads: nil,
+                model: options.model,
+                sequenceType: options.sequenceType,
+                bootstrap: options.bootstrap,
+                alrt: options.alrt,
+                seed: options.seed,
+                threads: options.threads,
+                safeMode: options.safeMode,
+                keepIdenticalSequences: options.keepIdenticalSequences,
+                extraIQTreeOptions: options.extraIQTreeOptions,
                 iqtreePath: nil,
                 force: false
             )

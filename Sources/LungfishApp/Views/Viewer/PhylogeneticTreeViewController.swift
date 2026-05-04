@@ -13,6 +13,9 @@ private enum PhylogeneticTreeAccessibilityID {
     static let searchField = "phylogenetic-tree-search-field"
     static let fitButton = "phylogenetic-tree-fit-button"
     static let resetButton = "phylogenetic-tree-reset-button"
+    static let zoomInButton = "phylogenetic-tree-zoom-in-button"
+    static let zoomOutButton = "phylogenetic-tree-zoom-out-button"
+    static let layoutMode = "phylogenetic-tree-layout-mode"
     static let colorMode = "phylogenetic-tree-color-mode"
     static let detail = "phylogenetic-tree-detail"
 }
@@ -34,8 +37,16 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 
     private let summaryLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
-    private let fitButton = NSButton(title: "Fit", target: nil, action: nil)
-    private let resetButton = NSButton(title: "Reset", target: nil, action: nil)
+    private let fitButton = NSButton(title: "", target: nil, action: nil)
+    private let resetButton = NSButton(title: "", target: nil, action: nil)
+    private let zoomOutButton = NSButton(title: "", target: nil, action: nil)
+    private let zoomInButton = NSButton(title: "", target: nil, action: nil)
+    private let layoutModeControl = NSSegmentedControl(
+        labels: ["Phylogram", "Cladogram"],
+        trackingMode: .selectOne,
+        target: nil,
+        action: nil
+    )
     private let colorModeControl = NSSegmentedControl(
         labels: ["None", "Support", "Branch"],
         trackingMode: .selectOne,
@@ -111,25 +122,11 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     }
 
     private func configureLayout() {
-        let root = NSStackView()
-        root.orientation = .vertical
-        root.alignment = .width
-        root.spacing = 0
-        root.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(root)
-
         summaryLabel.font = .systemFont(ofSize: 12, weight: .semibold)
         summaryLabel.lineBreakMode = .byTruncatingMiddle
         summaryLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         summaryLabel.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.summary)
-        root.addArrangedSubview(paddedContainer(summaryLabel, top: 10, bottom: 8, leading: 12, trailing: 12))
-
-        root.addArrangedSubview(configureToolbar())
-
-        let splitView = NSSplitView()
-        splitView.isVertical = true
-        splitView.dividerStyle = .thin
-        splitView.translatesAutoresizingMaskIntoConstraints = false
+        summaryLabel.translatesAutoresizingMaskIntoConstraints = false
 
         nodeTableView.headerView = NSTableHeaderView()
         nodeTableView.usesAlternatingRowBackgroundColors = true
@@ -145,9 +142,9 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 
         let tableScroll = NSScrollView()
         tableScroll.hasVerticalScroller = true
+        tableScroll.hasHorizontalScroller = true
         tableScroll.documentView = nodeTableView
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
-        tableScroll.widthAnchor.constraint(equalToConstant: 420).isActive = true
 
         treeCanvasView.onNodeSelected = { [weak self] nodeID in
             self?.selectNode(id: nodeID, center: false)
@@ -163,24 +160,61 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         treeScrollView.setAccessibilityLabel("Phylogenetic tree canvas")
         treeScrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        splitView.addArrangedSubview(tableScroll)
-        splitView.addArrangedSubview(treeScrollView)
-        root.addArrangedSubview(splitView)
-
         detailLabel.font = .systemFont(ofSize: 11)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.lineBreakMode = .byTruncatingMiddle
         detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailLabel.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.detail)
-        root.addArrangedSubview(paddedContainer(detailLabel, top: 8, bottom: 10, leading: 12, trailing: 12))
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let toolbar = configureToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        let nodeDrawer = NSView()
+        nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
+        nodeDrawer.wantsLayer = true
+        nodeDrawer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
+        nodeDrawerTitle.font = .systemFont(ofSize: 11, weight: .semibold)
+        nodeDrawerTitle.textColor = .secondaryLabelColor
+        nodeDrawerTitle.translatesAutoresizingMaskIntoConstraints = false
+        nodeDrawer.addSubview(nodeDrawerTitle)
+        nodeDrawer.addSubview(tableScroll)
+
+        view.addSubview(treeScrollView)
+        view.addSubview(summaryLabel)
+        view.addSubview(toolbar)
+        view.addSubview(detailLabel)
+        view.addSubview(nodeDrawer)
 
         NSLayoutConstraint.activate([
-            root.topAnchor.constraint(equalTo: view.topAnchor),
-            root.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            root.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            root.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            splitView.widthAnchor.constraint(equalTo: root.widthAnchor),
-            splitView.heightAnchor.constraint(greaterThanOrEqualToConstant: 300),
+            treeScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            treeScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            treeScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            treeScrollView.bottomAnchor.constraint(equalTo: nodeDrawer.topAnchor),
+
+            summaryLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 10),
+            summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.leadingAnchor, constant: -12),
+
+            toolbar.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            toolbar.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 12),
+
+            detailLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
+            detailLabel.bottomAnchor.constraint(equalTo: nodeDrawer.topAnchor, constant: -8),
+
+            nodeDrawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            nodeDrawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            nodeDrawer.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            nodeDrawer.heightAnchor.constraint(equalToConstant: 132),
+
+            nodeDrawerTitle.topAnchor.constraint(equalTo: nodeDrawer.topAnchor, constant: 7),
+            nodeDrawerTitle.leadingAnchor.constraint(equalTo: nodeDrawer.leadingAnchor, constant: 12),
+            tableScroll.topAnchor.constraint(equalTo: nodeDrawerTitle.bottomAnchor, constant: 5),
+            tableScroll.leadingAnchor.constraint(equalTo: nodeDrawer.leadingAnchor),
+            tableScroll.trailingAnchor.constraint(equalTo: nodeDrawer.trailingAnchor),
+            tableScroll.bottomAnchor.constraint(equalTo: nodeDrawer.bottomAnchor),
         ])
     }
 
@@ -190,17 +224,53 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         searchField.action = #selector(searchFieldSubmitted(_:))
         searchField.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        searchField.widthAnchor.constraint(equalToConstant: 180).isActive = true
 
         fitButton.target = self
         fitButton.action = #selector(fitTreeToViewport(_:))
-        fitButton.bezelStyle = .rounded
+        configureIconButton(
+            fitButton,
+            symbolName: "arrow.up.left.and.arrow.down.right",
+            fallbackTitle: "Fit",
+            accessibilityLabel: "Fit tree"
+        )
         fitButton.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.fitButton)
 
         resetButton.target = self
         resetButton.action = #selector(resetTreeView(_:))
-        resetButton.bezelStyle = .rounded
+        configureIconButton(
+            resetButton,
+            symbolName: "arrow.counterclockwise",
+            fallbackTitle: "Reset",
+            accessibilityLabel: "Reset tree"
+        )
         resetButton.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.resetButton)
+
+        zoomOutButton.target = self
+        zoomOutButton.action = #selector(zoomOutTree(_:))
+        configureIconButton(
+            zoomOutButton,
+            symbolName: "minus.magnifyingglass",
+            fallbackTitle: "-",
+            accessibilityLabel: "Zoom out"
+        )
+        zoomOutButton.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.zoomOutButton)
+
+        zoomInButton.target = self
+        zoomInButton.action = #selector(zoomInTree(_:))
+        configureIconButton(
+            zoomInButton,
+            symbolName: "plus.magnifyingglass",
+            fallbackTitle: "+",
+            accessibilityLabel: "Zoom in"
+        )
+        zoomInButton.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.zoomInButton)
+
+        layoutModeControl.selectedSegment = 0
+        layoutModeControl.target = self
+        layoutModeControl.action = #selector(layoutModeChanged(_:))
+        layoutModeControl.segmentStyle = .rounded
+        layoutModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.layoutMode)
 
         colorModeControl.selectedSegment = 0
         colorModeControl.target = self
@@ -210,8 +280,11 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 
         let toolbar = NSStackView(views: [
             searchField,
+            zoomOutButton,
+            zoomInButton,
             fitButton,
             resetButton,
+            layoutModeControl,
             colorModeControl,
         ])
         toolbar.orientation = .horizontal
@@ -219,6 +292,29 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         toolbar.spacing = 8
         toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 6, right: 12)
         return toolbar
+    }
+
+    private func configureIconButton(
+        _ button: NSButton,
+        symbolName: String,
+        fallbackTitle: String,
+        accessibilityLabel: String
+    ) {
+        button.bezelStyle = .rounded
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel)
+        if button.image == nil {
+            button.title = fallbackTitle
+            button.imagePosition = .noImage
+        } else {
+            button.imagePosition = .imageOnly
+        }
+        button.toolTip = accessibilityLabel
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            button.widthAnchor.constraint(equalToConstant: 30),
+            button.heightAnchor.constraint(equalToConstant: 26),
+        ])
     }
 
     @objc private func searchFieldSubmitted(_ sender: NSSearchField) {
@@ -240,6 +336,21 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 
     @objc private func resetTreeView(_ sender: Any?) {
         treeCanvasView.resetView()
+        centerSelectedNode()
+    }
+
+    @objc private func zoomOutTree(_ sender: Any?) {
+        treeCanvasView.zoom(by: 0.8)
+        centerSelectedNode()
+    }
+
+    @objc private func zoomInTree(_ sender: Any?) {
+        treeCanvasView.zoom(by: 1.25)
+        centerSelectedNode()
+    }
+
+    @objc private func layoutModeChanged(_ sender: NSSegmentedControl) {
+        treeCanvasView.layoutMode = sender.selectedSegment == 1 ? .cladogram : .phylogram
         centerSelectedNode()
     }
 
@@ -393,6 +504,24 @@ extension PhylogeneticTreeViewController {
         [fitButton.title, resetButton.title]
     }
 
+    var testingCanvasCommandAccessibilityLabels: [String] {
+        [fitButton, resetButton, zoomOutButton, zoomInButton].compactMap { $0.accessibilityLabel() }
+    }
+
+    var testingToolbarControlFrames: [String: NSRect] {
+        [
+            "search": searchField,
+            "zoomOut": zoomOutButton,
+            "zoomIn": zoomInButton,
+            "fit": fitButton,
+            "reset": resetButton,
+            "layout": layoutModeControl,
+            "color": colorModeControl,
+        ].reduce(into: [String: NSRect]()) { result, pair in
+            result[pair.key] = view.convert(pair.value.bounds, from: pair.value)
+        }
+    }
+
     var testingCanvasViewportFrame: NSRect {
         treeScrollView.frame
     }
@@ -425,6 +554,11 @@ private enum PhylogeneticTreeCanvasColorMode {
     case branchLength
 }
 
+private enum PhylogeneticTreeCanvasLayoutMode {
+    case phylogram
+    case cladogram
+}
+
 private struct PhylogeneticTreeCanvasNodeLayout {
     let node: PhylogeneticTreeNormalizedNode
     let point: NSPoint
@@ -438,12 +572,21 @@ private final class PhylogeneticTreeCanvasView: NSView {
     var colorMode: PhylogeneticTreeCanvasColorMode = .none {
         didSet { needsDisplay = true }
     }
+    var layoutMode: PhylogeneticTreeCanvasLayoutMode = .phylogram {
+        didSet {
+            recomputeLayout()
+            needsDisplay = true
+        }
+    }
 
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
     private var layoutByID: [String: PhylogeneticTreeCanvasNodeLayout] = [:]
     private var zoomScale: CGFloat = 1
     private var baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)
+    private var labelWidth: CGFloat = 180
+    private var pointsPerBranchLengthUnit: CGFloat?
+    private var maxBranchLengthUnits: CGFloat = 0
 
     var testingNodeCount: Int { nodes.count }
 
@@ -503,6 +646,12 @@ private final class PhylogeneticTreeCanvasView: NSView {
         needsDisplay = true
     }
 
+    func zoom(by factor: CGFloat) {
+        zoomScale = min(4, max(0.25, zoomScale * factor))
+        updateFrameSize()
+        needsDisplay = true
+    }
+
     func rectForNode(id: String) -> NSRect? {
         guard let layout = layoutByID[id] else { return nil }
         let point = scaled(layout.point)
@@ -524,6 +673,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
 
         drawEdges()
         drawNodesAndLabels()
+        drawScaleBar()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -536,6 +686,8 @@ private final class PhylogeneticTreeCanvasView: NSView {
         guard !nodes.isEmpty else {
             layoutByID = [:]
             baseSize = NSSize(width: PhylogeneticTreeCanvasMetrics.minimumWidth, height: PhylogeneticTreeCanvasMetrics.minimumHeight)
+            pointsPerBranchLengthUnit = nil
+            maxBranchLengthUnits = 0
             updateFrameSize()
             return
         }
@@ -553,7 +705,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
 
         var rawXByID: [String: CGFloat] = [:]
         for node in nodes {
-            if let divergence = node.cumulativeDivergence, divergence > 0 {
+            if layoutMode == .phylogram, let divergence = node.cumulativeDivergence, divergence > 0 {
                 rawXByID[node.id] = CGFloat(divergence)
             } else {
                 rawXByID[node.id] = CGFloat(depthByID[node.id] ?? 0)
@@ -561,12 +713,23 @@ private final class PhylogeneticTreeCanvasView: NSView {
         }
         let maxRawX = max(rawXByID.values.max() ?? 1, 1)
         let tipCount = max(nodes.filter(\.isTip).count, 1)
+        labelWidth = min(
+            320,
+            max(
+                180,
+                nodes.filter(\.isTip).map {
+                    (($0.displayLabel as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width) + 18
+                }.max() ?? 180
+            )
+        )
         baseSize = NSSize(
-            width: max(PhylogeneticTreeCanvasMetrics.minimumWidth, CGFloat(nodes.count) * 72),
+            width: max(PhylogeneticTreeCanvasMetrics.minimumWidth, CGFloat(nodes.count) * 72 + labelWidth),
             height: max(PhylogeneticTreeCanvasMetrics.minimumHeight, CGFloat(tipCount) * PhylogeneticTreeCanvasMetrics.tipSpacing + 80)
         )
-        let drawableWidth = max(320, baseSize.width - PhylogeneticTreeCanvasMetrics.marginX * 2 - 180)
+        let drawableWidth = max(320, baseSize.width - PhylogeneticTreeCanvasMetrics.marginX * 2 - labelWidth)
         let xScale = drawableWidth / maxRawX
+        pointsPerBranchLengthUnit = layoutMode == .phylogram ? xScale : nil
+        maxBranchLengthUnits = maxRawX
 
         var nextTipY = PhylogeneticTreeCanvasMetrics.marginY
         var pointByID: [String: NSPoint] = [:]
@@ -634,7 +797,7 @@ private final class PhylogeneticTreeCanvasView: NSView {
                     in: NSRect(
                         x: point.x + PhylogeneticTreeCanvasMetrics.labelGap,
                         y: point.y - 8,
-                        width: 180,
+                        width: labelWidth,
                         height: 18
                     ),
                     color: .labelColor,
@@ -649,6 +812,60 @@ private final class PhylogeneticTreeCanvasView: NSView {
                 )
             }
         }
+    }
+
+    private func drawScaleBar() {
+        guard layoutMode == .phylogram,
+              let pointsPerBranchLengthUnit,
+              pointsPerBranchLengthUnit > 0,
+              maxBranchLengthUnits > 0 else {
+            return
+        }
+        let targetPixels = min(max(bounds.width * 0.18, 72), 150)
+        let targetUnits = targetPixels / (pointsPerBranchLengthUnit * zoomScale)
+        let scaleUnits = niceScaleLength(near: targetUnits)
+        let pixelLength = scaleUnits * pointsPerBranchLengthUnit * zoomScale
+        guard pixelLength.isFinite, pixelLength > 12 else { return }
+
+        let origin = NSPoint(
+            x: PhylogeneticTreeCanvasMetrics.marginX * zoomScale,
+            y: max(24, bounds.height - 30)
+        )
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.move(to: origin)
+        path.line(to: NSPoint(x: origin.x + pixelLength, y: origin.y))
+        path.move(to: NSPoint(x: origin.x, y: origin.y - 4))
+        path.line(to: NSPoint(x: origin.x, y: origin.y + 4))
+        path.move(to: NSPoint(x: origin.x + pixelLength, y: origin.y - 4))
+        path.line(to: NSPoint(x: origin.x + pixelLength, y: origin.y + 4))
+        NSColor.secondaryLabelColor.setStroke()
+        path.stroke()
+
+        drawTreeText(
+            String(format: "%.3g substitutions/site", Double(scaleUnits)),
+            in: NSRect(x: origin.x, y: origin.y + 6, width: 180, height: 16),
+            color: .secondaryLabelColor,
+            font: .systemFont(ofSize: 9)
+        )
+    }
+
+    private func niceScaleLength(near value: CGFloat) -> CGFloat {
+        guard value.isFinite, value > 0 else { return 0.1 }
+        let exponent = floor(log10(Double(value)))
+        let base = CGFloat(pow(10.0, exponent))
+        let fraction = value / base
+        let niceFraction: CGFloat
+        if fraction <= 1 {
+            niceFraction = 1
+        } else if fraction <= 2 {
+            niceFraction = 2
+        } else if fraction <= 5 {
+            niceFraction = 5
+        } else {
+            niceFraction = 10
+        }
+        return niceFraction * base
     }
 
     private func nodeColor(for node: PhylogeneticTreeNormalizedNode) -> NSColor {

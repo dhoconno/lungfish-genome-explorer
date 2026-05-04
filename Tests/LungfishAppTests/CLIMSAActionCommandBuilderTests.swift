@@ -69,6 +69,51 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
         )
     }
 
+    func testBuildIQTreeInferenceArgumentsPassCuratedAndAdvancedOptions() {
+        let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
+        let project = URL(fileURLWithPath: "/project", isDirectory: true)
+        let output = URL(fileURLWithPath: "/project/Phylogenetic Trees/example.lungfishtree", isDirectory: true)
+
+        let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+            bundleURL: bundle,
+            projectURL: project,
+            outputURL: output,
+            rows: "row-a,row-b",
+            columns: "10-50",
+            name: "example tree",
+            model: "JC",
+            sequenceType: "DNA",
+            bootstrap: 1000,
+            alrt: 1000,
+            seed: 12345,
+            threads: 2,
+            safeMode: true,
+            keepIdenticalSequences: true,
+            extraIQTreeOptions: "-bnni --pathogen",
+            iqtreePath: nil,
+            force: false
+        )
+
+        XCTAssertEqual(args, [
+            "tree", "infer", "iqtree", bundle.path,
+            "--project", project.path,
+            "--output", output.path,
+            "--rows", "row-a,row-b",
+            "--columns", "10-50",
+            "--name", "example tree",
+            "--model", "JC",
+            "--sequence-type", "DNA",
+            "--bootstrap", "1000",
+            "--alrt", "1000",
+            "--seed", "12345",
+            "--threads", "2",
+            "--safe",
+            "--keep-identical",
+            "--extra-iqtree-options", "-bnni --pathogen",
+            "--format", "json",
+        ])
+    }
+
     func testBuildAnnotationAddArgumentsUseCLIAnnotationSubcommandAndJSONProgress() {
         let bundle = URL(fileURLWithPath: "/project/Multiple Sequence Alignments/example.lungfishmsa", isDirectory: true)
 

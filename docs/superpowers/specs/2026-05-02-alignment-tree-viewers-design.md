@@ -195,6 +195,36 @@ Use a dedicated AppKit canvas rather than recursive SwiftUI node views. Include:
 - Subtree export.
 - View state for layout, collapsed clades, color mode, zoom, selected node, and visible metadata columns.
 
+#### IQ-TREE Operation and Tree Viewport Update
+
+Evolutionary biology consensus for the first IQ-TREE workflow is that users need
+an explicit setup dialog before inference, then a viewer that supports common
+tree-inspection moves immediately after the output bundle opens. The initial
+dialog should expose the options most users can reason about without reading the
+full IQ-TREE manual:
+
+- output name
+- model string, defaulting to `MFP`
+- sequence type: Auto, DNA, AA, CODON, BIN, MORPH, NT2AA
+- branch-support toggles for ultrafast bootstrap and SH-aLRT replicate counts
+- seed and thread count
+- safe numerical mode
+- whether identical sequences should be retained
+- an Advanced Options disclosure for additional IQ-TREE parameters
+
+The tree viewport P0 interaction set is:
+
+- search/select tips and internal nodes
+- pan/scroll, zoom in/out, fit, and reset
+- phylogram/cladogram display switch
+- support and branch-length coloring
+- branch-length scale bar in phylogram mode
+- selected node detail and node table in a bottom drawer, leaving the central
+  viewport for the tree canvas
+
+P1 follow-on actions remain collapse/expand clade, reroot, rotate/ladderize,
+subtree export, metadata coloring, and linked tree/alignment selection.
+
 ## Plugin Packs
 
 Create two active optional packs.
