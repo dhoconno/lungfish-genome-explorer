@@ -1135,6 +1135,12 @@ public class SidebarViewController: NSViewController {
                 if url.pathExtension.lowercased() == "lungfishref" {
                     itemType = .referenceBundle
                     icon = "cylinder.split.1x2"  // Database-like icon for genome bundles
+                } else if url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension {
+                    itemType = .multipleSequenceAlignmentBundle
+                    icon = "rectangle.grid.1x2"
+                } else if url.pathExtension.lowercased() == "lungfishtree" {
+                    itemType = .phylogeneticTreeBundle
+                    icon = "point.3.connected.trianglepath.dotted"
                 } else if url.pathExtension.lowercased() == "lungfishprimers" {
                     itemType = .primerSchemeBundle
                     icon = "line.horizontal.3.decrease.circle"
@@ -1154,7 +1160,11 @@ public class SidebarViewController: NSViewController {
         }
 
         // Create the item (strip bundle extension for display)
-        let displayName = (itemType == .referenceBundle || itemType == .fastqBundle || itemType == .primerSchemeBundle)
+        let displayName = (itemType == .referenceBundle
+            || itemType == .multipleSequenceAlignmentBundle
+            || itemType == .phylogeneticTreeBundle
+            || itemType == .fastqBundle
+            || itemType == .primerSchemeBundle)
             ? url.deletingPathExtension().lastPathComponent
             : filename
 
@@ -1753,6 +1763,7 @@ public class SidebarViewController: NSViewController {
         case "esviritu": return "e.circle"
         case "kraken2": return "k.circle"
         case "taxtriage": return "t.circle"
+        case "mafft": return "rectangle.grid.1x2"
         case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle"
         case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle"
         case "naomgs": return "n.circle"
@@ -1761,7 +1772,10 @@ public class SidebarViewController: NSViewController {
     }
 
     private func analysisDisplayTitle(for info: AnalysesFolder.AnalysisDirectoryInfo) -> String {
-        info.url.lastPathComponent
+        if analysisItemType(for: info.tool).isBundle {
+            return info.url.deletingPathExtension().lastPathComponent
+        }
+        return info.url.lastPathComponent
     }
 
     /// Maps an analysis tool name to the correct SidebarItemType so that
@@ -1772,6 +1786,7 @@ public class SidebarViewController: NSViewController {
         case "esviritu": return .esvirituResult
         case "kraken2": return .classificationResult
         case "taxtriage": return .taxTriageResult
+        case "mafft": return .multipleSequenceAlignmentBundle
         case "naomgs": return .naoMgsResult
         case "nvd": return .nvdResult
         default: return .analysisResult
@@ -2019,6 +2034,10 @@ public class SidebarViewController: NSViewController {
             return (.sequence, "folder.badge.gearshape")
         case .lungfishReferenceBundle:
             return (.referenceBundle, "cylinder.split.1x2")
+        case .lungfishMultipleSequenceAlignmentBundle:
+            return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
+        case .lungfishPhylogeneticTreeBundle:
+            return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
         }
     }
 
@@ -3272,6 +3291,8 @@ public enum SidebarItemType {
     case image     // Image files - uses QuickLook preview
     case unknown   // Unknown file type - uses QuickLook preview
     case referenceBundle  // .lungfishref reference genome bundle
+    case multipleSequenceAlignmentBundle  // .lungfishmsa alignment bundle
+    case phylogeneticTreeBundle  // .lungfishtree tree bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
     case primerSchemeBundle  // .lungfishprimers primer-scheme bundle
     case batchGroup   // Virtual node representing a batch operation across multiple bundles
@@ -3295,6 +3316,8 @@ public enum SidebarItemType {
         case .image: return .systemPink
         case .unknown: return .tertiaryLabelColor
         case .referenceBundle: return .systemIndigo
+        case .multipleSequenceAlignmentBundle: return .systemPurple
+        case .phylogeneticTreeBundle: return .systemMint
         case .fastqBundle: return .systemGreen
         case .primerSchemeBundle: return .systemYellow
         case .batchGroup: return .systemCyan
@@ -3320,7 +3343,8 @@ public enum SidebarItemType {
     /// Whether this item type is a bundle that should appear as a single item
     var isBundle: Bool {
         switch self {
-        case .referenceBundle, .fastqBundle, .primerSchemeBundle:
+        case .referenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
+             .fastqBundle, .primerSchemeBundle:
             return true
         default:
             return false
@@ -3399,7 +3423,13 @@ extension SidebarViewController: NSMenuDelegate {
         guard !items.isEmpty else { return }
 
         // Check what types we have selected
-        let hasFiles = items.contains { $0.type != .group && $0.type != .project && $0.type != .folder && $0.type != .referenceBundle && $0.type != .fastqBundle && $0.type != .batchGroup }
+        let hasFiles = items.contains {
+            $0.type != .group
+                && $0.type != .project
+                && $0.type != .folder
+                && !$0.type.isBundle
+                && $0.type != .batchGroup
+        }
         let hasFolders = items.contains { $0.type == .folder || $0.type == .project }
         let hasGroups = items.contains { $0.type == .group }
         let hasDeletable = items.contains { item in

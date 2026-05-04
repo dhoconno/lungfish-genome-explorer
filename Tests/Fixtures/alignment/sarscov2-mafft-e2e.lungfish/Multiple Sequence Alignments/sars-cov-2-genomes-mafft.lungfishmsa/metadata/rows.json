@@ -1,0 +1,77 @@
+[
+  {
+    "alignedLength" : 29834,
+    "alphabet" : "dna",
+    "ambiguousCount" : 0,
+    "checksumSHA256" : "9de0f484c40f29148ab0ce14b30aed1b3d8b1c8c119c697ce3ebc7d15c13d7f4",
+    "displayName" : "sarscov2_fixture_A_source",
+    "gapCount" : 5,
+    "id" : "row-000001-2b51078631",
+    "metadata" : {
+
+    },
+    "order" : 0,
+    "sourceName" : "sarscov2_fixture_A_source",
+    "ungappedLength" : 29829
+  },
+  {
+    "alignedLength" : 29834,
+    "alphabet" : "dna",
+    "ambiguousCount" : 0,
+    "checksumSHA256" : "24da42bad48610ea806aed1a87a21fd255377148dfbb32e420b6cf9f9a9548d5",
+    "displayName" : "sarscov2_fixture_B_snp_set",
+    "gapCount" : 5,
+    "id" : "row-000002-48921db6ab",
+    "metadata" : {
+
+    },
+    "order" : 1,
+    "sourceName" : "sarscov2_fixture_B_snp_set",
+    "ungappedLength" : 29829
+  },
+  {
+    "alignedLength" : 29834,
+    "alphabet" : "dna",
+    "ambiguousCount" : 0,
+    "checksumSHA256" : "27f40fc75696d137f31acea3cf738a9f766c6ffa3e691ffaebc00ca4ba10b27c",
+    "displayName" : "sarscov2_fixture_C_short_deletion",
+    "gapCount" : 11,
+    "id" : "row-000003-70819dc0f1",
+    "metadata" : {
+
+    },
+    "order" : 2,
+    "sourceName" : "sarscov2_fixture_C_short_deletion",
+    "ungappedLength" : 29823
+  },
+  {
+    "alignedLength" : 29834,
+    "alphabet" : "dna",
+    "ambiguousCount" : 0,
+    "checksumSHA256" : "be71954fd05f956ead7e679d3e10a351fc527e4ff8a18b1b3882acb37de9613d",
+    "displayName" : "sarscov2_fixture_D_insertion",
+    "gapCount" : 2,
+    "id" : "row-000004-355c01836c",
+    "metadata" : {
+
+    },
+    "order" : 3,
+    "sourceName" : "sarscov2_fixture_D_insertion",
+    "ungappedLength" : 29832
+  },
+  {
+    "alignedLength" : 29834,
+    "alphabet" : "dna",
+    "ambiguousCount" : 0,
+    "checksumSHA256" : "dbeb4e6024ebb15a6694732a50706d0729eff2e17d81989ff389bd9a1ca189fe",
+    "displayName" : "sarscov2_fixture_E_mixed_variation",
+    "gapCount" : 12,
+    "id" : "row-000005-ab497b6bc4",
+    "metadata" : {
+
+    },
+    "order" : 4,
+    "sourceName" : "sarscov2_fixture_E_mixed_variation",
+    "ungappedLength" : 29822
+  }
+]

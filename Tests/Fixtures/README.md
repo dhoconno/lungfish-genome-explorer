@@ -27,6 +27,18 @@ annotations match the genome — so you can test the full pipeline end-to-end.
 
 **Total: ~85 KB** — small enough to commit to git.
 
+## alignment/
+
+Reusable multiple-sequence alignment fixtures.
+
+| Path | Description |
+|------|-------------|
+| `sarscov2-mafft-e2e.lungfish/` | Project-style artifact with five SARS-CoV-2 genome records derived from `sarscov2/genome.fasta`, source/edit metadata, fixture-generation provenance, and a native MAFFT `.lungfishmsa` bundle for end-to-end alignment/import/viewer tests |
+
+The first record in `Inputs/sars-cov-2-genomes.fasta` is the local
+`MT192765.1` fixture sequence. Records B-E are deterministic synthetic
+derivatives for testing only and are not biological observations.
+
 ## analyses/
 
 Reusable imported-analysis fixtures for UI, integration, and sidebar tests.

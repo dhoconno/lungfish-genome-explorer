@@ -1,0 +1,60 @@
+{
+  "argv": [
+    "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+  ],
+  "createdAt": "2026-05-03T20:52:54Z",
+  "exitStatus": 0,
+  "files": {
+    "Inputs/sars-cov-2-genomes.fasta": {
+      "checksumSHA256": "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
+      "fileSize": 151156,
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta"
+    },
+    "Inputs/source-metadata.tsv": {
+      "checksumSHA256": "27add1f5e7c574adf82a0d600cceda41052585a1e8e750eb6819bd54c6803772",
+      "fileSize": 1407,
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/source-metadata.tsv"
+    },
+    "README.md": {
+      "checksumSHA256": "45c22b12cbdf25ef0f787ce71b9b01da50576e94af8ea1373d5be95669137b05",
+      "fileSize": 1145,
+      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/README.md"
+    }
+  },
+  "input": {
+    "checksumSHA256": "1833c8720be7a62a4f132beefb68d2cbc32c3e20bd85a8939dba178850ba1ba4",
+    "fileSize": 30322,
+    "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/sarscov2/genome.fasta"
+  },
+  "options": {
+    "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
+    "outputDirectory": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+    "recordCount": 5,
+    "sourceAccession": "MT192765.1",
+    "sourceFasta": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/sarscov2/genome.fasta"
+  },
+  "output": {
+    "checksumSHA256": "a071efe872a83d584d0ea2822dc8b4a73f02eb7801673e36eea0e3ecc2d461cf",
+    "fileSize": 153708,
+    "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
+  },
+  "reproducibleCommand": "'/opt/homebrew/opt/python@3.14/bin/python3.14' /Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+  "runtimeIdentity": {
+    "condaEnvironment": "base",
+    "containerImage": null,
+    "executablePath": "/opt/homebrew/opt/python@3.14/bin/python3.14",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+    "processIdentifier": 78002,
+    "pythonVersion": "3.14.3"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "toolName": "create_sarscov2_alignment_fixture.py",
+  "toolVersion": "0.1.0",
+  "wallTimeSeconds": 0.059105750027811155,
+  "warnings": [
+    "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
+  ],
+  "workflowName": "sars-cov-2-alignment-fixture-generation"
+}

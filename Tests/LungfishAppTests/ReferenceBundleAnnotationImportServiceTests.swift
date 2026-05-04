@@ -75,6 +75,42 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         )
     }
 
+    func testManualAnnotationServicePersistsSelectionTrackAndProvenance() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "selection-feature",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 2, end: 9)],
+            strand: .forward
+        )
+
+        let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+            annotation,
+            toBundleAt: bundleURL
+        )
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(result.featureCount, 1)
+        XCTAssertEqual(manifest.annotations.map(\.id), ["manual_annotations"])
+        XCTAssertEqual(manifest.annotations.first?.featureCount, 1)
+        XCTAssertEqual(manifest.annotations.first?.databasePath, "annotations/manual_annotations.db")
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/manual_annotations.db")
+        let db = try AnnotationDatabase(url: dbURL)
+        let records = db.queryByRegion(chromosome: "chr1", start: 0, end: 16)
+        XCTAssertEqual(records.map(\.name), ["selection-feature"])
+        XCTAssertEqual(records.first?.type, "gene")
+        XCTAssertEqual(records.first?.start, 2)
+        XCTAssertEqual(records.first?.end, 9)
+
+        let provenanceURL = bundleURL.appendingPathComponent("annotations/manual-annotation-provenance.json")
+        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertTrue(provenance.contains("\"workflowName\" : \"lungfish manual annotation\""))
+        XCTAssertTrue(provenance.contains(bundleURL.path))
+        XCTAssertTrue(provenance.contains("manual_annotations.db"))
+    }
+
     private func makeBundle(named name: String, relativePath: String? = nil) throws -> URL {
         let bundleURL = tempRoot.appendingPathComponent(relativePath ?? "\(name).lungfishref", isDirectory: true)
         try FileManager.default.createDirectory(

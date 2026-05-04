@@ -93,6 +93,18 @@ struct ImportCardInfo: Identifiable, Sendable {
         case vcf
         case fasta
         case annotationTrack
+        case multipleSequenceAlignment
+        case phylogeneticTree
+        case geneiousExport
+        case clcWorkbenchExport
+        case dnastarLasergeneExport
+        case benchlingBulkExport
+        case sequenceDesignLibraryExport
+        case alignmentTreeExport
+        case sequencingPlatformRunFolder
+        case phylogeneticsResultSet
+        case qiime2Archive
+        case igvSessionTrackSet
         case bundleSampleMetadata
         case projectSampleMetadata
         case naoMgs
@@ -133,6 +145,7 @@ final class ImportCenterViewModel {
         case variants
         case classificationResults
         case references
+        case applicationExports
 
         /// Human-readable tab title for the segmented control.
         var title: String {
@@ -142,6 +155,7 @@ final class ImportCenterViewModel {
             case .variants:              return "Variants"
             case .classificationResults: return "Classification Results"
             case .references:            return "Reference Sequences"
+            case .applicationExports:    return "Application Exports"
             }
         }
 
@@ -153,6 +167,7 @@ final class ImportCenterViewModel {
             case .variants:              return "diamond.fill"
             case .classificationResults: return "chart.bar.doc.horizontal"
             case .references:            return "doc.text"
+            case .applicationExports:    return "shippingbox"
             }
         }
 
@@ -200,6 +215,10 @@ final class ImportCenterViewModel {
     }
 
     // MARK: - Card Catalog
+
+    private static func importContentTypes(_ extensions: [String]) -> [UTType] {
+        extensions.map { UTType(filenameExtension: $0) ?? .data } + [.folder]
+    }
 
     /// All importable data type cards, organized by tab.
     let allCards: [ImportCardInfo] = [
@@ -264,6 +283,66 @@ final class ImportCenterViewModel {
                     allowsMultipleSelection: true
                 ),
                 action: .bam
+            )
+        ),
+        ImportCardInfo(
+            id: "multiple-sequence-alignment",
+            title: "Multiple Sequence Alignments",
+            description: "Import aligned FASTA, CLUSTAL, PHYLIP, NEXUS, Stockholm, A2M, or A3M files as native .lungfishmsa bundles.",
+            sfSymbol: "rectangle.grid.1x2",
+            fileHint: ".fa, .fasta, .aln, .clustal, .phy, .phylip, .nex, .nexus, .sto, .stockholm, .a2m, .a3m",
+            tab: .alignments,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "fa") ?? .data,
+                        UTType(filenameExtension: "fasta") ?? .data,
+                        UTType(filenameExtension: "fas") ?? .data,
+                        UTType(filenameExtension: "fna") ?? .data,
+                        UTType(filenameExtension: "faa") ?? .data,
+                        UTType(filenameExtension: "aln") ?? .data,
+                        UTType(filenameExtension: "clustal") ?? .data,
+                        UTType(filenameExtension: "clw") ?? .data,
+                        UTType(filenameExtension: "phy") ?? .data,
+                        UTType(filenameExtension: "phylip") ?? .data,
+                        UTType(filenameExtension: "nex") ?? .data,
+                        UTType(filenameExtension: "nexus") ?? .data,
+                        UTType(filenameExtension: "sto") ?? .data,
+                        UTType(filenameExtension: "stockholm") ?? .data,
+                        UTType(filenameExtension: "a2m") ?? .data,
+                        UTType(filenameExtension: "a3m") ?? .data,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: true
+                ),
+                action: .multipleSequenceAlignment
+            )
+        ),
+        ImportCardInfo(
+            id: "phylogenetic-tree",
+            title: "Phylogenetic Trees",
+            description: "Import Newick, NEXUS, IQ-TREE, RAxML-NG, or FastTree outputs as native .lungfishtree bundles.",
+            sfSymbol: "tree",
+            fileHint: ".nwk, .newick, .tree, .tre, .treefile, .contree, .nex, .nexus",
+            tab: .alignments,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "nwk") ?? .data,
+                        UTType(filenameExtension: "newick") ?? .data,
+                        UTType(filenameExtension: "tree") ?? .data,
+                        UTType(filenameExtension: "tre") ?? .data,
+                        UTType(filenameExtension: "treefile") ?? .data,
+                        UTType(filenameExtension: "contree") ?? .data,
+                        UTType(filenameExtension: "nex") ?? .data,
+                        UTType(filenameExtension: "nexus") ?? .data,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: true
+                ),
+                action: .phylogeneticTree
             )
         ),
 
@@ -436,6 +515,209 @@ final class ImportCenterViewModel {
             )
         ),
         ImportCardInfo(
+            id: "geneious-export",
+            title: "Geneious Export",
+            description: "Import a Geneious archive or export folder into one Lungfish project collection with native reference and annotation bundles.",
+            sfSymbol: "shippingbox",
+            fileHint: ".geneious archive or Geneious export folder",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [
+                        UTType(filenameExtension: "geneious") ?? .data,
+                        .folder,
+                    ],
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .geneiousExport
+            )
+        ),
+        ImportCardInfo(
+            id: "clc-workbench-export",
+            title: "CLC Workbench Export",
+            description: "Import a CLC Workbench export folder, archive, or native project file into an LGE collection with parseable references and preserved artifacts.",
+            sfSymbol: "shippingbox",
+            fileHint: ".zip, .clc, FASTA/FASTQ, GenBank, BAM/CRAM, VCF, GFF/GTF, Newick/NEXUS",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "clc", "fa", "fasta", "fastq", "fq", "gb", "gbk", "embl", "bam", "cram", "sam",
+                        "vcf", "gff", "gff3", "gtf", "bed", "wig", "bw", "nex", "nexus", "nwk", "newick",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .clcWorkbenchExport
+            )
+        ),
+        ImportCardInfo(
+            id: "dnastar-lasergene-export",
+            title: "DNASTAR Lasergene Export",
+            description: "Import modern Lasergene or GenVision standard exports while preserving native project files that LGE cannot decode directly.",
+            sfSymbol: "shippingbox",
+            fileHint: ".zip, .seq, .pro, .sbd, .gvp, FASTA, GenBank, EMBL, BAM, VCF, GFF",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "seq", "pro", "sbd", "gvp", "fa", "fasta", "fas", "gb", "gbk", "embl",
+                        "bam", "vcf", "gff", "gff3", "txt",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .dnastarLasergeneExport
+            )
+        ),
+        ImportCardInfo(
+            id: "benchling-bulk-export",
+            title: "Benchling Bulk Export",
+            description: "Import Benchling ZIP exports, GenBank, Multi-FASTA, CSV metadata, SVG maps, and SBOL RDF as a project migration collection.",
+            sfSymbol: "shippingbox",
+            fileHint: ".zip, .gb, .gbk, .fasta, .fa, .csv, .svg, .rdf",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes(["zip", "gb", "gbk", "genbank", "fa", "fasta", "csv", "svg", "rdf"]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .benchlingBulkExport
+            )
+        ),
+        ImportCardInfo(
+            id: "sequence-design-library-export",
+            title: "Sequence Design Library Export",
+            description: "Import sequence library exports from SnapGene, Vector NTI, MacVector, and similar tools using standard files where available.",
+            sfSymbol: "square.stack.3d.up",
+            fileHint: ".zip, GenBank, FASTA, EMBL, DDBJ, GCG, .dna, Vector NTI archives",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "dna", "gb", "gbk", "genbank", "fa", "fasta", "embl", "ddbj", "gcg",
+                        "ma4", "pa4", "oa4", "ga4", "ba6", "csv",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .sequenceDesignLibraryExport
+            )
+        ),
+        ImportCardInfo(
+            id: "alignment-tree-export",
+            title: "Alignment and Tree Export",
+            description: "Inventory and preserve MSA and tree exports from MEGA, Jalview, UGENE, MacVector, CLC, and Geneious for future native viewers.",
+            sfSymbol: "point.3.connected.trianglepath.dotted",
+            fileHint: ".aln, .msf, .stockholm, .phylip, .nexus, .mega, .nwk, .newick",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "aln", "clustal", "msf", "sto", "stockholm", "phy", "phylip", "nex", "nexus",
+                        "mega", "nwk", "newick", "tree", "tre", "svg", "pdf", "html",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .alignmentTreeExport
+            )
+        ),
+        ImportCardInfo(
+            id: "sequencing-platform-run-folder",
+            title: "Sequencing Platform Run Folder",
+            description: "Import platform run folders from Illumina, Oxford Nanopore, PacBio, or Ion Torrent while preserving run metadata and raw-signal artifacts.",
+            sfSymbol: "externaldrive.connected.to.line.below",
+            fileHint: "Run folder, .zip, FASTQ, BAM/CRAM/SAM, VCF/gVCF, POD5, XML/CSV/JSON reports",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "fastq", "fq", "gz", "bam", "cram", "sam", "vcf", "gvcf", "bcf",
+                        "bed", "gff", "csv", "tsv", "json", "xml", "pod5", "fast5", "pbi",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .sequencingPlatformRunFolder
+            )
+        ),
+        ImportCardInfo(
+            id: "phylogenetics-result-set",
+            title: "Phylogenetics Result Set",
+            description: "Preserve Nextclade, Nextstrain, UShER, Taxonium, and related result folders without reducing rich tree metadata to plain Newick.",
+            sfSymbol: "tree",
+            fileHint: ".zip, aligned FASTA, TSV/CSV, JSON/NDJSON, Auspice JSON, Newick, .pb, .jsonl",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "zip", "fa", "fasta", "tsv", "csv", "json", "ndjson", "jsonl", "gz", "nwk",
+                        "newick", "pb", "mat", "trees",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .phylogeneticsResultSet
+            )
+        ),
+        ImportCardInfo(
+            id: "qiime2-archive",
+            title: "QIIME 2 Archive",
+            description: "Import QIIME 2 archives and exported folders into a preserved collection while routing compatible FASTA, Newick, and TSV files.",
+            sfSymbol: "archivebox",
+            fileHint: ".qza, .qzv, .zip, exported QIIME 2 folders",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes(["qza", "qzv", "zip", "fa", "fasta", "nwk", "newick", "tsv", "biom"]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .qiime2Archive
+            )
+        ),
+        ImportCardInfo(
+            id: "igv-session-track-set",
+            title: "IGV Session or Track Set",
+            description: "Import local track files referenced by IGV sessions where possible and preserve the session file for future track-set support.",
+            sfSymbol: "rectangle.stack.badge.play",
+            fileHint: ".xml, .json, folders containing BAM/CRAM, VCF, BED/GFF, WIG/BigWig tracks",
+            tab: .applicationExports,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: ImportCenterViewModel.importContentTypes([
+                        "xml", "json", "bam", "cram", "sam", "vcf", "bed", "gff", "gff3", "gtf", "wig", "bw", "bigwig",
+                    ]),
+                    canChooseFiles: true,
+                    canChooseDirectories: true,
+                    allowsMultipleSelection: false,
+                    allowsOtherFileTypes: true
+                ),
+                action: .igvSessionTrackSet
+            )
+        ),
+        ImportCardInfo(
             id: "primer-scheme",
             title: "Primer Scheme",
             description: "Import a .lungfishprimers bundle authored from a BED (and optional FASTA) for use with iVar primer trimming.",
@@ -516,6 +798,18 @@ final class ImportCenterViewModel {
         case .vcf:      return "Select VCF variant files to import"
         case .fasta:    return "Select standalone reference sequence files (.fa/.fasta/.gb/.embl, optionally .gz) to import"
         case .annotationTrack: return "Select GTF, GFF, GFF3, or BED annotation files to attach to a reference bundle"
+        case .multipleSequenceAlignment: return "Select multiple sequence alignment files to import"
+        case .phylogeneticTree: return "Select phylogenetic tree files to import"
+        case .geneiousExport: return "Select a Geneious archive or export folder to import"
+        case .clcWorkbenchExport: return "Select a CLC Workbench export folder, archive, or native project file"
+        case .dnastarLasergeneExport: return "Select a DNASTAR Lasergene or GenVision export folder or file"
+        case .benchlingBulkExport: return "Select a Benchling bulk export archive, folder, or standard exported file"
+        case .sequenceDesignLibraryExport: return "Select a sequence design library export folder, archive, or file"
+        case .alignmentTreeExport: return "Select an alignment or phylogenetic tree export"
+        case .sequencingPlatformRunFolder: return "Select a sequencing platform run folder or downloaded analysis export"
+        case .phylogeneticsResultSet: return "Select a phylogenetics result folder, archive, or file"
+        case .qiime2Archive: return "Select a QIIME 2 archive or exported folder"
+        case .igvSessionTrackSet: return "Select an IGV session file or local track-set folder"
         case .bundleSampleMetadata:
             return "Select a CSV or TSV file with sample metadata for the selected dataset"
         case .projectSampleMetadata: return "Select project sample metadata"
@@ -561,6 +855,31 @@ final class ImportCenterViewModel {
             }
         case .annotationTrack:
             appDelegate.importAnnotationTracksFromURLs(urls)
+        case .multipleSequenceAlignment:
+            for url in urls {
+                appDelegate.importMultipleSequenceAlignmentFromURL(url)
+            }
+        case .phylogeneticTree:
+            for url in urls {
+                appDelegate.importPhylogeneticTreeFromURL(url)
+            }
+        case .geneiousExport:
+            for url in urls {
+                appDelegate.importGeneiousExportFromURL(url)
+            }
+        case .clcWorkbenchExport,
+             .dnastarLasergeneExport,
+             .benchlingBulkExport,
+             .sequenceDesignLibraryExport,
+             .alignmentTreeExport,
+             .sequencingPlatformRunFolder,
+             .phylogeneticsResultSet,
+             .qiime2Archive,
+             .igvSessionTrackSet:
+            guard let kind = applicationExportKind(for: action) else { break }
+            for url in urls {
+                appDelegate.importApplicationExportFromURL(url, kind: kind)
+            }
         case .bundleSampleMetadata:
             for url in urls {
                 appDelegate.importBundleSampleMetadataFromURL(url)
@@ -622,6 +941,21 @@ final class ImportCenterViewModel {
         }
     }
 
+    private func applicationExportKind(for action: ImportCardInfo.ImportAction) -> ApplicationExportKind? {
+        switch action {
+        case .clcWorkbenchExport: return .clcWorkbench
+        case .dnastarLasergeneExport: return .dnastarLasergene
+        case .benchlingBulkExport: return .benchlingBulk
+        case .sequenceDesignLibraryExport: return .sequenceDesignLibrary
+        case .alignmentTreeExport: return .alignmentTree
+        case .sequencingPlatformRunFolder: return .sequencingPlatformRunFolder
+        case .phylogeneticsResultSet: return .phylogeneticsResultSet
+        case .qiime2Archive: return .qiime2Archive
+        case .igvSessionTrackSet: return .igvSessionTrackSet
+        default: return nil
+        }
+    }
+
     // MARK: - History Management
 
     /// Returns the human-readable label stored in ``ImportHistoryEntry/importAction``
@@ -634,6 +968,18 @@ final class ImportCenterViewModel {
         case .vcf:      return "VCF"
         case .fasta:    return "FASTA"
         case .annotationTrack: return "Annotation Track"
+        case .multipleSequenceAlignment: return "MSA"
+        case .phylogeneticTree: return "Phylogenetic Tree"
+        case .geneiousExport: return "Geneious"
+        case .clcWorkbenchExport: return "CLC Workbench"
+        case .dnastarLasergeneExport: return "DNASTAR Lasergene"
+        case .benchlingBulkExport: return "Benchling Bulk"
+        case .sequenceDesignLibraryExport: return "Sequence Library"
+        case .alignmentTreeExport: return "Alignment Tree"
+        case .sequencingPlatformRunFolder: return "Sequencing Run"
+        case .phylogeneticsResultSet: return "Phylogenetics"
+        case .qiime2Archive: return "QIIME 2"
+        case .igvSessionTrackSet: return "IGV Session"
         case .bundleSampleMetadata: return "Bundle Metadata"
         case .projectSampleMetadata: return "Project Metadata"
         case .naoMgs:   return "NAO-MGS"

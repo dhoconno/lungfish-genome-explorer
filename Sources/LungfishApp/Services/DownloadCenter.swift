@@ -24,6 +24,12 @@ public enum OperationType: String, Sendable {
     case bamPrimerTrim = "Primer Trim"
     case variantCalling = "Variant Calling"
     case viralRecon = "Viral Recon"
+    case applicationExportImport = "Application Export"
+    case multipleSequenceAlignmentImport = "MSA Import"
+    case multipleSequenceAlignmentGeneration = "MSA Generation"
+    case multipleSequenceAlignmentAction = "MSA Action"
+    case phylogeneticTreeImport = "Tree Import"
+    case phylogeneticTreeInference = "Tree Inference"
 }
 
 /// A timestamped log entry recorded during an operation's lifecycle.
@@ -76,6 +82,9 @@ public final class OperationCenter: ObservableObject {
         /// File URLs produced by this operation (e.g. .lungfishref bundle paths).
         /// Set when the operation completes via ``complete(id:detail:bundleURLs:)``.
         public var bundleURLs: [URL]
+        /// Non-bundle file URLs produced by this operation (e.g. exported FASTA or TSV files).
+        /// These are surfaced in the Operations Panel but are not routed through bundle import.
+        public var outputURLs: [URL]
         /// The bundle this operation is targeting, used for bundle locking.
         public var targetBundleURL: URL?
         /// Callback invoked when the user cancels this operation.
@@ -126,6 +135,7 @@ public final class OperationCenter: ObservableObject {
             startedAt: Date = Date(),
             finishedAt: Date? = nil,
             bundleURLs: [URL] = [],
+            outputURLs: [URL] = [],
             targetBundleURL: URL? = nil,
             onCancel: (@Sendable () -> Void)? = nil,
             cliCommand: String? = nil
@@ -139,6 +149,7 @@ public final class OperationCenter: ObservableObject {
             self.startedAt = startedAt
             self.finishedAt = finishedAt
             self.bundleURLs = bundleURLs
+            self.outputURLs = outputURLs
             self.targetBundleURL = targetBundleURL
             self.onCancel = onCancel
             self.cliCommand = cliCommand
@@ -363,6 +374,7 @@ public final class OperationCenter: ObservableObject {
         items[index].progress = 1
         items[index].detail = detail
         items[index].bundleURLs = bundleURLs
+        items[index].outputURLs = []
         items[index].finishedAt = Date()
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
@@ -377,6 +389,30 @@ public final class OperationCenter: ObservableObject {
     public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL]) {
         log(id: id, level: .warning, message: detail)
         complete(id: id, detail: detail, bundleURLs: bundleURLs)
+    }
+
+    /// Completes an operation and records non-bundle file outputs.
+    ///
+    /// Unlike ``complete(id:detail:bundleURLs:)``, these URLs are not sent to
+    /// `onBundleReady` because they are user-facing files rather than project
+    /// bundles that should be imported into the sidebar.
+    public func complete(id: UUID, detail: String, outputURLs: [URL]) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].state = .completed
+        items[index].progress = 1
+        items[index].detail = detail
+        items[index].bundleURLs = []
+        items[index].outputURLs = outputURLs
+        items[index].finishedAt = Date()
+        unlockBundle(for: id)
+        trimCompletedItemsIfNeeded()
+        postStateChangedNotification(id: id, state: .completed)
+    }
+
+    /// Completes an operation in the warning state and records non-bundle file outputs.
+    public func completeWithWarning(id: UUID, detail: String, outputURLs: [URL]) {
+        log(id: id, level: .warning, message: detail)
+        complete(id: id, detail: detail, outputURLs: outputURLs)
     }
 
     /// Marks an operation as failed.

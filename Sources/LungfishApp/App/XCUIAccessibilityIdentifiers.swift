@@ -82,6 +82,8 @@ enum ImportCenterAccessibilityID {
             "import-center-tab-classification-results"
         case .references:
             "import-center-tab-references"
+        case .applicationExports:
+            "import-center-tab-application-exports"
         }
     }
 

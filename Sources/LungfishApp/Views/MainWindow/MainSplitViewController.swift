@@ -2635,6 +2635,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        if item.type == .multipleSequenceAlignmentBundle, let url = item.url {
+            displayMultipleSequenceAlignmentBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
+        if item.type == .phylogeneticTreeBundle, let url = item.url {
+            displayPhylogeneticTreeBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         // Classification results (Kraken2 kreport/kraken output)
         if item.type == .classificationResult, let url = item.url {
             routeClassifierDisplay(url: url)
@@ -2714,6 +2724,72 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    private func displayMultipleSequenceAlignmentBundleFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        logger.info("displayMultipleSequenceAlignmentBundle: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "multipleSequenceAlignmentBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+
+        activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                defer { self.activityIndicator.hide() }
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
+                do {
+                    self.inspectorController.clearSelection()
+                    let bundle = try MultipleSequenceAlignmentBundle.load(from: url)
+                    self.inspectorController.updateMultipleSequenceAlignmentDocument(bundle)
+                    try self.viewerController.displayMultipleSequenceAlignmentBundle(at: url)
+                    if let controller = self.viewerController.multipleSequenceAlignmentViewController {
+                        controller.onSelectionStateChanged = { [weak self] state in
+                            self?.inspectorController.updateMultipleSequenceAlignmentSelection(state)
+                        }
+                        controller.notifySelectionStateIfAvailable()
+                    }
+                } catch {
+                    logger.error(
+                        "displayMultipleSequenceAlignmentBundle: Failed - \(error.localizedDescription, privacy: .public)"
+                    )
+                    self.viewerController.clearViewport(statusMessage: "Unable to load alignment bundle.")
+                }
+            }
+        }
+    }
+
+    private func displayPhylogeneticTreeBundleFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        logger.info("displayPhylogeneticTreeBundle: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "phylogeneticTreeBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+
+        activityIndicator.show(message: "Loading \(url.lastPathComponent)...", style: .indeterminate)
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                defer { self.activityIndicator.hide() }
+                guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
+                do {
+                    self.inspectorController.clearSelection()
+                    try self.viewerController.displayPhylogeneticTreeBundle(at: url)
+                } catch {
+                    logger.error(
+                        "displayPhylogeneticTreeBundle: Failed - \(error.localizedDescription, privacy: .public)"
+                    )
+                    self.viewerController.clearViewport(statusMessage: "Unable to load tree bundle.")
+                }
+            }
+        }
+    }
+
     /// Display a direct reference bundle in the shared list/detail reference viewport.
     private func displayReferenceBundleViewportFromSidebar(
         at url: URL,
@@ -2766,7 +2842,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             )
         }
+        controller.onSequenceSelectionStateChanged = { [weak self] state in
+            self?.inspectorController.updateSequenceRegionSelection(state)
+        }
         controller.notifyEmbeddedReferenceBundleLoadedIfAvailable()
+        controller.notifySequenceSelectionStateIfAvailable()
     }
 
     private func wireMappingReferenceViewportInspectorUpdates() {

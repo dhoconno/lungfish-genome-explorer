@@ -15,6 +15,36 @@ public enum ColorApplyMode: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+struct MultipleSequenceAlignmentSelectionState: Equatable {
+    let title: String
+    let subtitle: String?
+    let detailRows: [(String, String)]
+
+    static func == (
+        lhs: MultipleSequenceAlignmentSelectionState,
+        rhs: MultipleSequenceAlignmentSelectionState
+    ) -> Bool {
+        lhs.title == rhs.title &&
+            lhs.subtitle == rhs.subtitle &&
+            lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 })
+    }
+}
+
+struct SequenceRegionSelectionState: Equatable {
+    let title: String
+    let subtitle: String?
+    let detailRows: [(String, String)]
+
+    static func == (
+        lhs: SequenceRegionSelectionState,
+        rhs: SequenceRegionSelectionState
+    ) -> Bool {
+        lhs.title == rhs.title &&
+            lhs.subtitle == rhs.subtitle &&
+            lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 })
+    }
+}
+
 /// View model for the selection section.
 ///
 /// Manages the state of the currently selected annotation for editing.
@@ -23,6 +53,12 @@ public enum ColorApplyMode: String, CaseIterable, Identifiable {
 public final class SelectionSectionViewModel {
     /// The currently selected annotation, if any
     public var selectedAnnotation: SequenceAnnotation?
+
+    /// The currently selected MSA row/site/range item, if any.
+    var multipleSequenceAlignmentSelection: MultipleSequenceAlignmentSelectionState?
+
+    /// The currently selected sequence/reference region, if any.
+    var sequenceRegionSelection: SequenceRegionSelectionState?
 
     /// Editable name binding
     public var name: String = ""
@@ -55,6 +91,9 @@ public final class SelectionSectionViewModel {
 
     /// Callback to create a new annotation from current viewer selection.
     public var onAddAnnotationRequested: (() -> Void)?
+
+    /// Callback to project an MSA annotation from the current row onto selected rows.
+    public var onApplyAlignmentAnnotationRequested: (() -> Void)?
 
     /// Callback to show/compute translation in the viewer for a CDS annotation.
     public var onShowTranslation: ((SequenceAnnotation) -> Void)?
@@ -150,6 +189,8 @@ public final class SelectionSectionViewModel {
         let previousAnnotationID = selectedAnnotation?.id
 
         // @Observable automatically tracks property changes, no manual refresh needed
+        multipleSequenceAlignmentSelection = nil
+        sequenceRegionSelection = nil
         selectedAnnotation = annotation
         if let annotation = annotation {
             // Reset translation visibility when switching to a different annotation.
@@ -186,6 +227,44 @@ public final class SelectionSectionViewModel {
             fullTranslation = nil
             isTranslationVisible = false
         }
+    }
+
+    /// Updates the view model with a multiple-sequence-alignment selection.
+    func select(multipleSequenceAlignmentSelection selection: MultipleSequenceAlignmentSelectionState?) {
+        isUpdatingFromSelection = true
+        defer { isUpdatingFromSelection = false }
+
+        selectedAnnotation = nil
+        sequenceRegionSelection = nil
+        multipleSequenceAlignmentSelection = selection
+        name = ""
+        type = .region
+        notes = ""
+        color = .blue
+        colorApplyMode = .thisOnly
+        qualifierPairs = []
+        dbxrefLinks = []
+        fullTranslation = nil
+        isTranslationVisible = false
+    }
+
+    /// Updates the view model with a sequence/reference region selection.
+    func select(sequenceRegionSelection selection: SequenceRegionSelectionState?) {
+        isUpdatingFromSelection = true
+        defer { isUpdatingFromSelection = false }
+
+        selectedAnnotation = nil
+        multipleSequenceAlignmentSelection = nil
+        sequenceRegionSelection = selection
+        name = ""
+        type = .region
+        notes = ""
+        color = .blue
+        colorApplyMode = .thisOnly
+        qualifierPairs = []
+        dbxrefLinks = []
+        fullTranslation = nil
+        isTranslationVisible = false
     }
 
     /// Extracts all qualifier data from the annotation and optional SQLite database.
@@ -442,7 +521,11 @@ public struct SelectionSection: View {
 
     public var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
-            if viewModel.selectedAnnotation != nil {
+            if let selection = viewModel.multipleSequenceAlignmentSelection {
+                multipleSequenceAlignmentSelectionView(selection)
+            } else if let selection = viewModel.sequenceRegionSelection {
+                sequenceRegionSelectionView(selection)
+            } else if viewModel.selectedAnnotation != nil {
                 annotationEditor
             } else {
                 noSelectionView
@@ -451,6 +534,92 @@ public struct SelectionSection: View {
             Text("Selection")
                 .font(.headline)
         }
+    }
+
+    @ViewBuilder
+    private func multipleSequenceAlignmentSelectionView(
+        _ selection: MultipleSequenceAlignmentSelectionState
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(selection.title)
+                    .font(.callout.weight(.semibold))
+                    .textSelection(.enabled)
+                if let subtitle = selection.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
+                    LabeledContent(row.0, value: row.1)
+                        .font(.callout)
+                }
+            }
+
+            Divider()
+
+            Button {
+                viewModel.onAddAnnotationRequested?()
+            } label: {
+                Label("Add Annotation from Selection...", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Button {
+                viewModel.onApplyAlignmentAnnotationRequested?()
+            } label: {
+                Label("Apply Annotation to Selected Rows", systemImage: "arrow.triangle.branch")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+        }
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func sequenceRegionSelectionView(
+        _ selection: SequenceRegionSelectionState
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(selection.title)
+                    .font(.callout.weight(.semibold))
+                    .textSelection(.enabled)
+                if let subtitle = selection.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
+                    LabeledContent(row.0, value: row.1)
+                        .font(.callout)
+                }
+            }
+
+            Divider()
+
+            Button {
+                viewModel.onAddAnnotationRequested?()
+            } label: {
+                Label("Add Annotation from Selection...", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+        }
+        .padding(.top, 8)
     }
 
     // MARK: - Annotation Editor

@@ -1330,6 +1330,76 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(dialogSource.contains("onRun()"))
     }
 
+    func testAppDelegateRoutesPendingMSAAlignmentRequestToMAFFTRunner() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let appDelegateSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(appDelegateSource.contains("state.pendingMSAAlignmentRequest"))
+        XCTAssertTrue(appDelegateSource.contains("self.runMAFFTAlignment(request: request)"))
+        XCTAssertTrue(appDelegateSource.contains("CLIMSAAlignmentRunner.buildArguments"))
+        XCTAssertTrue(appDelegateSource.contains("operationType: .multipleSequenceAlignmentGeneration"))
+    }
+
+    func testMAFFTToolPaneExposesAdvancedOptionsDisclosure() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let toolPanesSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(toolPanesSource.contains(#"DisclosureGroup("Advanced Options""#))
+        XCTAssertTrue(toolPanesSource.contains("$state.mafftAdvancedOptionsExpanded"))
+        XCTAssertTrue(toolPanesSource.contains("$state.mafftExtraOptionsText"))
+    }
+
+    func testMAFFTRequestUsesAnalysesMSAFolderAndAvoidsExistingBundle() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scratch = root
+            .appendingPathComponent(".build/test-scratch/FASTQOperationDialogRoutingTests-\(UUID().uuidString)", isDirectory: true)
+        let project = scratch.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let input = project
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("sars-cov-2-genomes.lungfishref", isDirectory: true)
+        let existingOutput = project
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("Multiple Sequence Alignments", isDirectory: true)
+            .appendingPathComponent("sars-cov-2-genomes.lungfishmsa", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: existingOutput, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(
+            request.outputBundleURL,
+            project
+                .appendingPathComponent("Analyses", isDirectory: true)
+                .appendingPathComponent("Multiple Sequence Alignments", isDirectory: true)
+                .appendingPathComponent("sars-cov-2-genomes-2.lungfishmsa", isDirectory: true)
+        )
+        XCTAssertEqual(request.name, "sars-cov-2-genomes-2")
+    }
+
     func testOperationsDialogRoutesCurrentWindowProjectIntoDialogState() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

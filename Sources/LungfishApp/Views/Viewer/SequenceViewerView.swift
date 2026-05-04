@@ -1252,6 +1252,15 @@ public class SequenceViewerView: NSView {
     var testIsFetchingDepth: Bool { isFetchingDepth }
     var testIsFetchingConsensus: Bool { isFetchingConsensus }
 
+    func testSetUserSelectionRange(_ range: Range<Int>) {
+        selectionRange = range
+        selectionStartBase = range.lowerBound
+        isSelecting = false
+        isUserColumnSelection = true
+        setNeedsDisplay(bounds)
+        updateSelectionStatus()
+    }
+
     static func horizontalPanAmountForTesting(
         deltaX: CGFloat,
         scale: Double,
@@ -7251,13 +7260,14 @@ public class SequenceViewerView: NSView {
     }
 
     /// Updates the status bar with selection info.
-    private func updateSelectionStatus() {
+    func updateSelectionStatus() {
         let selectionText = currentSelectionStatusText()
         viewController?.statusBar.update(
             position: viewController?.statusBar.positionLabel.stringValue,
             selection: selectionText,
             scale: viewController?.referenceFrame?.scale ?? 1.0
         )
+        viewController?.notifySequenceRegionSelectionIfAvailable()
     }
 
     private func currentSelectionStatusText() -> String? {

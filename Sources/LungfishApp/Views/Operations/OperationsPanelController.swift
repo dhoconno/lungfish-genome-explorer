@@ -45,6 +45,7 @@ final class OperationsPanelController: NSWindowController {
 /// NSView.tag is read-only on macOS 26, so we use accessibilityIdentifier instead.
 private enum ExpansionSectionID {
     static let cliCommand = "ops-expansion-cli"
+    static let outputFiles = "ops-expansion-outputs"
     static let logEntries = "ops-expansion-log"
     static let errorBox = "ops-expansion-error"
 }
@@ -370,6 +371,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     private func removeExpansionSubviews(from cell: NSTableCellView) {
         let expansionIDs: Set<String> = [
             ExpansionSectionID.cliCommand,
+            ExpansionSectionID.outputFiles,
             ExpansionSectionID.logEntries,
             ExpansionSectionID.errorBox,
         ]
@@ -397,6 +399,12 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         if item.cliCommand != nil {
             // Label (14pt) + spacing (4pt) + command box (~28pt) + spacing (6pt)
             extraHeight += 52
+        }
+
+        // Output files section
+        if !item.outputURLs.isEmpty {
+            let outputHeight = min(88, max(28, CGFloat(item.outputURLs.count) * 16))
+            extraHeight += 14 + 4 + outputHeight + 6
         }
 
         // Log entries section
@@ -703,7 +711,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         moreButton.setAccessibilityHelp("Shows or hides the CLI command, logs, and error details for this operation.")
 
         let isMultiLine = item.detail.contains("\n") || item.detail.count > 60
-        let hasExpandableContent = isMultiLine || item.cliCommand != nil || !item.logEntries.isEmpty
+        let hasExpandableContent = isMultiLine || item.cliCommand != nil || !item.outputURLs.isEmpty || !item.logEntries.isEmpty
             || (item.state == .failed && item.errorMessage != nil)
 
         if isExpanded {
@@ -726,6 +734,22 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                     section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
                     section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
                     section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                ])
+                lastAnchor = section.bottomAnchor
+            }
+
+            // Output files section
+            if !item.outputURLs.isEmpty {
+                let section = buildOutputFilesSection(outputURLs: item.outputURLs)
+                section.setAccessibilityIdentifier(ExpansionSectionID.outputFiles)
+                section.translatesAutoresizingMaskIntoConstraints = false
+                cell.addSubview(section)
+                let outputHeight = min(88, max(28, CGFloat(item.outputURLs.count) * 16))
+                NSLayoutConstraint.activate([
+                    section.topAnchor.constraint(equalTo: lastAnchor, constant: 6),
+                    section.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
+                    section.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -4),
+                    section.heightAnchor.constraint(equalToConstant: outputHeight + 18),
                 ])
                 lastAnchor = section.bottomAnchor
             }
@@ -849,6 +873,73 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         guard row >= 0, row < items.count, let cmd = items[row].cliCommand else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cmd, forType: .string)
+    }
+
+    private func buildOutputFilesSection(outputURLs: [URL]) -> NSView {
+        let container = NSView()
+
+        let label = NSTextField(labelWithString: "Output Files")
+        label.font = .systemFont(ofSize: 10, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(label)
+
+        let box = NSView()
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.wantsLayer = true
+        box.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        box.layer?.cornerRadius = 4
+        container.addSubview(box)
+
+        let outputText = outputURLs.map(\.path).joined(separator: "\n")
+        let outputField = NSTextField(labelWithString: outputText)
+        outputField.font = NSFont(name: "Menlo", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .regular)
+        outputField.textColor = .labelColor
+        outputField.lineBreakMode = .byTruncatingMiddle
+        outputField.maximumNumberOfLines = 4
+        outputField.isSelectable = true
+        outputField.translatesAutoresizingMaskIntoConstraints = false
+        outputField.setAccessibilityIdentifier("operations-output-files")
+        outputField.setAccessibilityLabel("Output files")
+        box.addSubview(outputField)
+
+        let revealButton = NSButton(title: "Reveal", target: self, action: #selector(revealOutputFromButton(_:)))
+        revealButton.bezelStyle = .rounded
+        revealButton.controlSize = .mini
+        revealButton.font = .systemFont(ofSize: 9)
+        revealButton.translatesAutoresizingMaskIntoConstraints = false
+        revealButton.setAccessibilityIdentifier("operations-output-reveal-button")
+        revealButton.setAccessibilityLabel("Reveal output file")
+        container.addSubview(revealButton)
+
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+
+            box.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
+            box.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            box.trailingAnchor.constraint(equalTo: revealButton.leadingAnchor, constant: -4),
+            box.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            outputField.topAnchor.constraint(equalTo: box.topAnchor, constant: 3),
+            outputField.leadingAnchor.constraint(equalTo: box.leadingAnchor, constant: 6),
+            outputField.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: -6),
+            outputField.bottomAnchor.constraint(lessThanOrEqualTo: box.bottomAnchor, constant: -3),
+
+            revealButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            revealButton.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+            revealButton.widthAnchor.constraint(equalToConstant: 52),
+        ])
+
+        return container
+    }
+
+    @objc private func revealOutputFromButton(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard row >= 0,
+              row < items.count,
+              let outputURL = items[row].outputURLs.first else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([outputURL])
     }
 
     /// Builds the log entries section with a scrollable list of timestamped entries.

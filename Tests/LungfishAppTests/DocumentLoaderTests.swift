@@ -7,6 +7,8 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishApp
 
+private typealias AppDocumentType = LungfishApp.DocumentType
+
 /// Tests for DocumentLoader three-phase loading architecture.
 ///
 /// Tests verify:
@@ -376,6 +378,60 @@ final class DocumentLoaderTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
+    }
+
+    func testLoadNativeAlignmentAndTreeBundlesThrows() async {
+        let cases: [(URL, AppDocumentType, String)] = [
+            (tempDir.appendingPathComponent("test.lungfishmsa", isDirectory: true), .lungfishMultipleSequenceAlignmentBundle, "MSA bundle viewer"),
+            (tempDir.appendingPathComponent("test.lungfishtree", isDirectory: true), .lungfishPhylogeneticTreeBundle, "tree bundle viewer"),
+        ]
+
+        for (url, type, expectedMessage) in cases {
+            try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            do {
+                _ = try await DocumentLoader.loadFile(at: url, type: type)
+                XCTFail("Expected unsupportedFormat error for \(type.rawValue)")
+            } catch let error as DocumentLoadError {
+                if case .unsupportedFormat(let msg) = error {
+                    XCTAssertTrue(msg.contains(expectedMessage), "Unexpected message: \(msg)")
+                } else {
+                    XCTFail("Expected unsupportedFormat, got \(error)")
+                }
+            } catch {
+                XCTFail("Unexpected error: \(error)")
+            }
+        }
+    }
+
+    func testScanFolderTreatsNativeAlignmentAndTreeBundlesAsLeafPackages() throws {
+        let msaURL = tempDir.appendingPathComponent("example.lungfishmsa", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: msaURL.appendingPathComponent("alignment", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try ">seq1\nACGT\n".write(
+            to: msaURL.appendingPathComponent("alignment/primary.aligned.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let treeURL = tempDir.appendingPathComponent("example.lungfishtree", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: treeURL.appendingPathComponent("tree", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "(A:1,B:1);".write(
+            to: treeURL.appendingPathComponent("tree/primary.nwk"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let results = try DocumentLoader.scanFolder(at: tempDir)
+
+        XCTAssertEqual(Set(results.map(\.type)), [
+            .lungfishMultipleSequenceAlignmentBundle,
+            .lungfishPhylogeneticTreeBundle,
+        ])
+        XCTAssertEqual(Set(results.map { $0.url.lastPathComponent }), ["example.lungfishmsa", "example.lungfishtree"])
     }
 
     // MARK: - Gzip Extension Detection Tests

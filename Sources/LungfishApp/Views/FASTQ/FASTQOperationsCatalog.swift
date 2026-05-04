@@ -8,6 +8,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
     case decontamination
     case readProcessing
     case searchSubsetting
+    case alignment
     case mapping
     case assembly
     case classification
@@ -20,6 +21,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         case .decontamination: return "DECONTAMINATION"
         case .readProcessing: return "READ PROCESSING"
         case .searchSubsetting: return "SEARCH & SUBSETTING"
+        case .alignment: return "ALIGNMENT"
         case .mapping: return "MAPPING"
         case .assembly: return "ASSEMBLY"
         case .classification: return "CLASSIFICATION"
@@ -30,6 +32,8 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         switch self {
         case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting:
             return []
+        case .alignment:
+            return ["multiple-sequence-alignment"]
         case .mapping:
             return ["read-mapping"]
         case .assembly:

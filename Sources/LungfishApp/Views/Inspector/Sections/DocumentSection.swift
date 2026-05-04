@@ -39,6 +39,9 @@ public final class DocumentSectionViewModel {
     /// Assembly-result document state shown when an assembly viewport is active.
     var assemblyDocument: AssemblyDocumentState?
 
+    /// MSA bundle document state shown when a multiple sequence alignment viewport is active.
+    var multipleSequenceAlignmentDocument: MultipleSequenceAlignmentDocumentState?
+
     /// Callback for project-backed source data rows to navigate in the sidebar.
     var navigateToSourceData: ((URL) -> Void)?
 
@@ -59,6 +62,7 @@ public final class DocumentSectionViewModel {
     func update(manifest: BundleManifest?, bundleURL: URL?) {
         mappingDocument = nil
         assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
         navigateToSourceData = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -95,6 +99,7 @@ public final class DocumentSectionViewModel {
     func updateFASTQStatistics(_ stats: FASTQDatasetStatistics) {
         mappingDocument = nil
         assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
         navigateToSourceData = nil
         self.fastqStatistics = stats
         // Clear bundle-related data since this is a standalone FASTQ
@@ -130,6 +135,7 @@ public final class DocumentSectionViewModel {
     func updateNaoMgsManifest(_ manifest: NaoMgsManifest?) {
         mappingDocument = nil
         assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
         self.naoMgsManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -144,6 +150,7 @@ public final class DocumentSectionViewModel {
     func updateNvdManifest(_ manifest: NvdManifest?) {
         mappingDocument = nil
         assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
         self.nvdManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -155,6 +162,7 @@ public final class DocumentSectionViewModel {
         guard state != nil else { return }
 
         assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -175,6 +183,7 @@ public final class DocumentSectionViewModel {
         guard state != nil else { return }
 
         mappingDocument = nil
+        multipleSequenceAlignmentDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -187,6 +196,28 @@ public final class DocumentSectionViewModel {
         naoMgsManifest = nil
         nvdManifest = nil
         analysisManifestEntries = []
+    }
+
+    /// Updates the view model with MSA-document data and clears other document modes.
+    func updateMultipleSequenceAlignmentDocument(_ state: MultipleSequenceAlignmentDocumentState?) {
+        multipleSequenceAlignmentDocument = state
+        guard state != nil else { return }
+
+        mappingDocument = nil
+        assemblyDocument = nil
+        manifest = nil
+        bundleURL = nil
+        selectedChromosome = nil
+        referenceTrackCapabilities = nil
+        fastqStatistics = nil
+        sraRunInfo = nil
+        enaReadRecord = nil
+        ingestionMetadata = nil
+        fastqDerivativeManifest = nil
+        naoMgsManifest = nil
+        nvdManifest = nil
+        analysisManifestEntries = []
+        clearAlignmentTrackInventory()
     }
 
     func updateAlignmentTrackInventory(
@@ -287,6 +318,7 @@ public final class DocumentSectionViewModel {
     var hasAnyContent: Bool {
         mappingDocument != nil ||
             assemblyDocument != nil ||
+            multipleSequenceAlignmentDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
             sraRunInfo != nil ||
@@ -385,6 +417,8 @@ public struct DocumentSection: View {
             MappingDocumentSection(viewModel: viewModel)
         } else if viewModel.assemblyDocument != nil {
             AssemblyDocumentSection(viewModel: viewModel)
+        } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
+            MultipleSequenceAlignmentDocumentSection(state: multipleSequenceAlignmentDocument)
         } else if let manifest = viewModel.manifest {
             bundleContent(manifest)
                 .onChange(of: manifest.modifiedDate) { _, _ in

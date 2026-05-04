@@ -668,6 +668,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         return f
     }()
 
+    /// Whether the drawer should expose mutating annotation actions in its context menu.
+    ///
+    /// Native reference bundles use the database-backed editing path. Other callers can
+    /// provide read-only, in-memory annotation rows while retaining search, filters,
+    /// sorting, selection, copy, and extraction behaviors.
+    var allowsAnnotationEditing = true
+
     // MARK: - Initialization
 
     override init(frame frameRect: NSRect) {
@@ -1840,6 +1847,13 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     private static let promotedAnnotationAttributeKeys = [
+        "source_coordinates",
+        "alignment_columns",
+        "consensus_columns",
+        "alignment_row",
+        "source_sequence",
+        "source_track",
+        "origin",
         "read_name",
         "mapq",
         "cigar",
@@ -1872,9 +1886,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     private func addAnnotationAttributeColumn(_ key: String) {
         let identifier = NSUserInterfaceItemIdentifier("attr_\(key)")
         let col = NSTableColumn(identifier: identifier)
-        col.title = key
-        col.headerToolTip = "Annotation attribute: \(key)"
-        col.width = max(70, CGFloat(key.count + 2) * 7)
+        let title = Self.annotationAttributeDisplayTitle(for: key)
+        col.title = title
+        col.headerToolTip = "Annotation attribute: \(title)"
+        col.width = max(70, CGFloat(title.count + 2) * 7)
         col.minWidth = 40
         col.resizingMask = [.autoresizingMask, .userResizingMask]
         col.sortDescriptorPrototype = NSSortDescriptor(
@@ -1882,6 +1897,27 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             selector: #selector(NSString.localizedCaseInsensitiveCompare(_:))
         )
         tableView.addTableColumn(col)
+    }
+
+    private static func annotationAttributeDisplayTitle(for key: String) -> String {
+        switch key {
+        case "source_coordinates": return "Source Coordinates"
+        case "alignment_columns": return "Alignment Columns"
+        case "consensus_columns": return "Consensus Columns"
+        case "alignment_row": return "Alignment Row"
+        case "source_sequence": return "Source Sequence"
+        case "source_track": return "Source Track"
+        case "source_file": return "Source File"
+        case "row_id": return "Row ID"
+        default:
+            return key
+                .replacingOccurrences(of: "_", with: " ")
+                .split(separator: " ")
+                .map { word in
+                    word.count <= 3 ? word.uppercased() : word.prefix(1).uppercased() + word.dropFirst()
+                }
+                .joined(separator: " ")
+        }
     }
 
     private func metadataFieldsWithValues() -> Set<String> {
@@ -5963,19 +5999,20 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         // --- Editing ---
         let addItem = NSMenuItem(title: "Add Annotation\u{2026}", action: #selector(addAnnotationAction(_:)), keyEquivalent: "")
         addItem.target = self
-        addItem.isEnabled = searchIndex?.hasDatabaseBackend ?? true
+        addItem.isEnabled = allowsAnnotationEditing && (searchIndex?.hasDatabaseBackend ?? true)
         menu.addItem(addItem)
 
         let editItem = NSMenuItem(title: "Edit Annotation\u{2026}", action: #selector(editAnnotationAction(_:)), keyEquivalent: "")
         editItem.target = self
         editItem.representedObject = annotation
-        editItem.isEnabled = selectedCount == 1 && annotation.annotationRowId != nil
+        editItem.isEnabled = allowsAnnotationEditing && selectedCount == 1 && annotation.annotationRowId != nil
         menu.addItem(editItem)
 
         let deleteTitle = selectedCount > 1 ? "Delete \(selectedCount) Selected Annotations" : "Delete Annotation"
         let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedAnnotationsAction(_:)), keyEquivalent: "")
         deleteItem.target = self
         deleteItem.representedObject = annotation
+        deleteItem.isEnabled = allowsAnnotationEditing
         menu.addItem(deleteItem)
 
         let relatedItem = NSMenuItem(title: "Select Related Gene Features", action: #selector(selectRelatedGeneFeaturesAction(_:)), keyEquivalent: "")

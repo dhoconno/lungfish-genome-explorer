@@ -219,10 +219,18 @@ final class DownloadCenterTests: XCTestCase {
             .taxonomyExtraction,
             .classification,
             .blastVerification,
+            .bamPrimerTrim,
+            .applicationExportImport,
+            .multipleSequenceAlignmentImport,
+            .multipleSequenceAlignmentGeneration,
+            .multipleSequenceAlignmentAction,
+            .phylogeneticTreeImport,
+            .phylogeneticTreeInference,
             .variantCalling,
+            .viralRecon,
         ]
 
-        XCTAssertEqual(allTypes.count, 13)
+        XCTAssertEqual(allTypes.count, 21)
         XCTAssertEqual(OperationType.variantCalling.rawValue, "Variant Calling")
     }
 
@@ -267,6 +275,24 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertFalse(callbackFired)
     }
 
+    func testCompleteWithOutputURLsStoresURLsWithoutImportingBundles() {
+        var callbackFired = false
+        center.onBundleReady = { _ in
+            callbackFired = true
+        }
+
+        let id = center.start(title: "Export Alignment", detail: "Starting...")
+        let urls = [URL(fileURLWithPath: "/project/exports/alignment.fasta")]
+
+        center.complete(id: id, detail: "Exported alignment", outputURLs: urls)
+
+        let item = center.items.first
+        XCTAssertEqual(item?.state, .completed)
+        XCTAssertEqual(item?.outputURLs.map(\.lastPathComponent), ["alignment.fasta"])
+        XCTAssertEqual(item?.bundleURLs, [])
+        XCTAssertFalse(callbackFired, "Plain file outputs should not be routed through bundle import callbacks")
+    }
+
     func testCompleteWithoutBundleURLsDoesNotFireCallback() {
         var callbackFired = false
         center.onBundleReady = { _ in
@@ -305,6 +331,12 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(OperationType.vcfImport.rawValue, "VCF Import")
         XCTAssertEqual(OperationType.bundleBuild.rawValue, "Bundle Build")
         XCTAssertEqual(OperationType.export.rawValue, "Export")
+        XCTAssertEqual(OperationType.applicationExportImport.rawValue, "Application Export")
+        XCTAssertEqual(OperationType.multipleSequenceAlignmentImport.rawValue, "MSA Import")
+        XCTAssertEqual(OperationType.multipleSequenceAlignmentGeneration.rawValue, "MSA Generation")
+        XCTAssertEqual(OperationType.multipleSequenceAlignmentAction.rawValue, "MSA Action")
+        XCTAssertEqual(OperationType.phylogeneticTreeImport.rawValue, "Tree Import")
+        XCTAssertEqual(OperationType.phylogeneticTreeInference.rawValue, "Tree Inference")
     }
 
     // MARK: - Bundle Locking
@@ -481,9 +513,13 @@ final class DownloadCenterTests: XCTestCase {
         let allTypes: [OperationType] = [
             .download, .bamImport, .vcfImport, .bundleBuild, .export,
             .assembly, .ingestion, .fastqOperation, .qualityReport,
-            .taxonomyExtraction, .classification, .blastVerification,
+            .taxonomyExtraction, .classification, .blastVerification, .bamPrimerTrim,
+            .variantCalling, .viralRecon, .applicationExportImport,
+            .multipleSequenceAlignmentImport, .multipleSequenceAlignmentGeneration,
+            .multipleSequenceAlignmentAction, .phylogeneticTreeImport,
+            .phylogeneticTreeInference,
         ]
-        XCTAssertEqual(allTypes.count, 12, "Update this test when new OperationType cases are added")
+        XCTAssertEqual(allTypes.count, 21, "Update this test when new OperationType cases are added")
     }
 
     // MARK: - Byte-Level Progress Tracking

@@ -23,6 +23,7 @@ extension ViewerViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
         clearBundleDisplay()
         hideCollectionBackButton()
         contentMode = .assembly

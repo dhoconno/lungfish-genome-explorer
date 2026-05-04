@@ -106,6 +106,8 @@ public enum DocumentLoader {
             // Treat custom package directories as leaf documents and skip descendants.
             if isDirectory.boolValue,
                (fileURL.pathExtension.lowercased() == "lungfishref" ||
+                fileURL.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension ||
+                fileURL.pathExtension.lowercased() == "lungfishtree" ||
                 fileURL.pathExtension.lowercased() == FASTQBundle.directoryExtension) {
                 if let type = DocumentType.detect(from: fileURL) {
                     results.append(FileScanResult(url: fileURL, type: type))
@@ -185,6 +187,12 @@ public enum DocumentLoader {
 
         case .lungfishReferenceBundle:
             throw DocumentLoadError.unsupportedFormat("Use displayBundle for .lungfishref bundles")
+
+        case .lungfishMultipleSequenceAlignmentBundle:
+            throw DocumentLoadError.unsupportedFormat("Use the MSA bundle viewer for .lungfishmsa bundles")
+
+        case .lungfishPhylogeneticTreeBundle:
+            throw DocumentLoadError.unsupportedFormat("Use the tree bundle viewer for .lungfishtree bundles")
         }
 
         return FileLoadResult(

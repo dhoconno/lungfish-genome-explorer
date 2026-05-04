@@ -83,11 +83,20 @@ public class ViewerViewController: NSViewController {
     /// Shared reference bundle viewport (shown for direct `.lungfishref` bundle opens)
     var referenceBundleViewportController: ReferenceBundleViewportController?
 
+    /// Native multiple-sequence alignment bundle viewport.
+    var multipleSequenceAlignmentViewController: MultipleSequenceAlignmentViewController?
+
+    /// Native phylogenetic tree bundle viewport.
+    var phylogeneticTreeViewController: PhylogeneticTreeViewController?
+
     /// Whether this viewer should publish app-wide viewport notifications.
     ///
     /// Embedded viewers, such as the mapping detail viewer, use the same
     /// rendering stack but must not overwrite the main inspector or toolbar state.
     var publishesGlobalViewportNotifications = true
+
+    /// Callback used by container viewports to forward explicit sequence-region selections.
+    var onSequenceRegionSelectionChanged: ((SequenceRegionSelectionState?) -> Void)?
 
     // MARK: - State
 
@@ -1006,6 +1015,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
         contentMode = .fastq
 
         let controller = FASTQDatasetViewController()
@@ -1138,6 +1148,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
 
         let controller = VCFDatasetViewController()
         controller.onDownloadReferenceRequested = onDownloadReference
@@ -1233,6 +1244,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
 
         let controller = FASTACollectionViewController()
         addChild(controller)
@@ -1474,6 +1486,276 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    func exportMSASelectionViaCLI(_ request: MultipleSequenceAlignmentSelectionExportRequest) {
+        guard let window = view.window else { return }
+        let savePanelPresenter = DefaultSavePanelPresenter()
+        Task {
+            guard let destination = await savePanelPresenter.present(
+                suggestedName: request.suggestedName,
+                on: window
+            ) else {
+                return
+            }
+
+            let outputName = destination.deletingPathExtension().lastPathComponent
+            let args = CLIMSAActionCommandBuilder.buildExtractArguments(
+                bundleURL: request.bundleURL,
+                outputURL: destination,
+                outputKind: request.outputKind,
+                rows: request.rows,
+                columns: request.columns,
+                name: outputName,
+                force: true
+            )
+            let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
+            let isBundleOutput = ["reference", "msa"].contains(request.outputKind)
+            let opID = OperationCenter.shared.start(
+                title: isBundleOutput ? "Create MSA Selection Bundle" : "Export MSA Selection",
+                detail: isBundleOutput ? "Creating bundle from \(request.displayName)..." : "Exporting \(request.displayName)...",
+                operationType: .multipleSequenceAlignmentAction,
+                targetBundleURL: request.bundleURL,
+                cliCommand: cliCommand
+            )
+            let runner = CLIMSAActionRunner()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                Task {
+                    await runner.cancel()
+                }
+            }
+
+            Task.detached {
+                do {
+                    _ = try await runner.run(arguments: args, operationID: opID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(
+                                id: opID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func addMSAAnnotationViaCLI(
+        _ request: MultipleSequenceAlignmentAnnotationAddRequest,
+        refreshing controller: MultipleSequenceAlignmentViewController?
+    ) {
+        let args = CLIMSAActionCommandBuilder.buildAnnotationAddArguments(
+            bundleURL: request.bundleURL,
+            row: request.row,
+            columns: request.columns,
+            name: request.name,
+            type: request.type,
+            strand: request.strand,
+            note: request.note,
+            qualifiers: request.qualifiers
+        )
+        runMSAInPlaceAnnotationAction(
+            title: "Add MSA Annotation",
+            detail: "Adding \(request.displayName) to the alignment...",
+            arguments: args,
+            targetBundleURL: request.bundleURL,
+            refreshing: controller
+        )
+    }
+
+    func projectMSAAnnotationViaCLI(
+        _ request: MultipleSequenceAlignmentAnnotationProjectionRequest,
+        refreshing controller: MultipleSequenceAlignmentViewController?
+    ) {
+        let args = CLIMSAActionCommandBuilder.buildAnnotationProjectArguments(
+            bundleURL: request.bundleURL,
+            sourceAnnotationID: request.sourceAnnotationID,
+            targetRows: request.targetRows,
+            conflictPolicy: request.conflictPolicy
+        )
+        runMSAInPlaceAnnotationAction(
+            title: "Apply MSA Annotation",
+            detail: "Projecting \(request.displayName) to selected rows...",
+            arguments: args,
+            targetBundleURL: request.bundleURL,
+            refreshing: controller
+        )
+    }
+
+    private func runMSAInPlaceAnnotationAction(
+        title: String,
+        detail: String,
+        arguments: [String],
+        targetBundleURL: URL,
+        refreshing controller: MultipleSequenceAlignmentViewController?
+    ) {
+        let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: arguments)
+        let opID = OperationCenter.shared.start(
+            title: title,
+            detail: detail,
+            operationType: .multipleSequenceAlignmentAction,
+            targetBundleURL: targetBundleURL,
+            cliCommand: cliCommand
+        )
+        let runner = CLIMSAActionRunner()
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            Task {
+                await runner.cancel()
+            }
+        }
+
+        Task.detached {
+            do {
+                _ = try await runner.run(arguments: arguments, operationID: opID)
+                await MainActor.run {
+                    guard let controller, controller.bundleURL == targetBundleURL else { return }
+                    do {
+                        try controller.displayBundle(at: targetBundleURL)
+                    } catch {
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .warning,
+                            message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
+                        )
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    func inferTreeFromMSAViaCLI(_ request: MultipleSequenceAlignmentTreeInferenceRequest) {
+        guard let projectURL = DocumentManager.shared.activeProject?.url
+                ?? Self.enclosingProjectURL(for: request.bundleURL) else {
+            presentBlockingAlert(
+                title: "No Project",
+                message: "Open a Lungfish project before building a tree from this alignment."
+            )
+            return
+        }
+
+        do {
+            let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
+            try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
+            let outputURL = Self.nextAvailableBundleURL(
+                suggestedName: request.suggestedName,
+                pathExtension: "lungfishtree",
+                in: treeDirectory
+            )
+            let outputName = outputURL.deletingPathExtension().lastPathComponent
+            let args = CLIMSAActionCommandBuilder.buildIQTreeInferenceArguments(
+                bundleURL: request.bundleURL,
+                projectURL: projectURL,
+                outputURL: outputURL,
+                rows: request.rows,
+                columns: request.columns,
+                name: outputName,
+                model: "MFP",
+                bootstrap: nil,
+                seed: 1,
+                threads: nil,
+                iqtreePath: nil,
+                force: false
+            )
+            let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
+            let opID = OperationCenter.shared.start(
+                title: "Build Tree with IQ-TREE",
+                detail: "Inferring tree from \(request.displayName)...",
+                operationType: .phylogeneticTreeInference,
+                targetBundleURL: request.bundleURL,
+                cliCommand: cliCommand
+            )
+            let runner = CLITreeInferenceRunner()
+            OperationCenter.shared.setCancelCallback(for: opID) {
+                Task {
+                    await runner.cancel()
+                }
+            }
+
+            Task.detached {
+                do {
+                    _ = try await runner.run(arguments: args, operationID: opID)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.fail(
+                                id: opID,
+                                detail: error.localizedDescription,
+                                errorMessage: error.localizedDescription
+                            )
+                        }
+                    }
+                }
+            }
+        } catch {
+            presentBlockingAlert(
+                title: "Tree Inference Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func presentBlockingAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private static func enclosingProjectURL(for url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        while current.path != "/" {
+            if current.pathExtension.lowercased() == "lungfish" {
+                return current
+            }
+            current.deleteLastPathComponent()
+        }
+        return nil
+    }
+
+    private static func nextAvailableBundleURL(
+        suggestedName: String,
+        pathExtension: String,
+        in directory: URL
+    ) -> URL {
+        let rawStem = suggestedName.lowercased().hasSuffix(".\(pathExtension)")
+            ? String(suggestedName.dropLast(pathExtension.count + 1))
+            : suggestedName
+        let stem = sanitizedFilesystemStem(rawStem)
+        let fm = FileManager.default
+        var index = 1
+        while true {
+            let suffix = index == 1 ? "" : "-\(index)"
+            let candidate = directory.appendingPathComponent("\(stem)\(suffix).\(pathExtension)", isDirectory: true)
+            if fm.fileExists(atPath: candidate.path) == false {
+                return candidate
+            }
+            index += 1
+        }
+    }
+
     func createReferenceBundle(from records: [String], suggestedName: String) {
         guard !records.isEmpty else { return }
         let projectURL = DocumentManager.shared.activeProject?.url
@@ -1489,6 +1771,96 @@ public class ViewerViewController: NSViewController {
         let normalized = records.joined(separator: "")
         try? normalized.write(to: sourceURL, atomically: true, encoding: .utf8)
         AppDelegate.shared?.importFASTAFromURL(sourceURL)
+    }
+
+    func createReferenceBundle(
+        from records: [String],
+        suggestedName: String,
+        annotationsByRecord: [String: [SequenceAnnotation]],
+        sourceAlignmentBundleURL: URL? = nil
+    ) {
+        guard !annotationsByRecord.isEmpty else {
+            createReferenceBundle(from: records, suggestedName: suggestedName)
+            return
+        }
+        guard !records.isEmpty,
+              let projectURL = DocumentManager.shared.activeProject?.url,
+              let refsDir = try? ReferenceSequenceFolder.ensureFolder(in: projectURL),
+              let tempDirectory = try? ProjectTempDirectory.create(prefix: "fasta-bundle-source-", in: projectURL) else {
+            createReferenceBundle(from: records, suggestedName: suggestedName)
+            return
+        }
+
+        let stem = Self.sanitizedFilesystemStem(suggestedName)
+        let sourceURL = tempDirectory.appendingPathComponent("\(stem).fasta")
+        let annotationURL = tempDirectory.appendingPathComponent("\(stem).bed")
+        do {
+            try records.joined(separator: "").write(to: sourceURL, atomically: true, encoding: .utf8)
+            try Self.writeAnnotationBED(annotationsByRecord, to: annotationURL)
+        } catch {
+            logger.error("createReferenceBundle: Could not stage annotated MSA extraction - \(error.localizedDescription, privacy: .public)")
+            return
+        }
+
+        let cliCmd = OperationCenter.buildCLICommand(
+            subcommand: "import",
+            args: ["fasta", sourceURL.path, "--output-dir", refsDir.path]
+        )
+        let opID = OperationCenter.shared.start(
+            title: "Annotated Reference Import",
+            detail: "Creating \(stem).lungfishref...",
+            operationType: .bundleBuild,
+            cliCommand: cliCmd
+        )
+
+        Task.detached {
+            do {
+                let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+                    sourceURL: sourceURL,
+                    outputDirectory: refsDir
+                ) { progress, message in
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(
+                                id: opID,
+                                progress: min(0.82, progress * 0.82),
+                                detail: message
+                            )
+                        }
+                    }
+                }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.update(id: opID, progress: 0.88, detail: "Attaching projected annotations...")
+                    }
+                }
+                let annotationResult = try await ReferenceBundleAnnotationImportService()
+                    .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: result.bundleURL)
+                try Self.writeMSAExtractionAnnotationProvenance(
+                    bundleURL: result.bundleURL,
+                    sourceAlignmentBundleURL: sourceAlignmentBundleURL,
+                    sourceFASTAURL: sourceURL,
+                    sourceAnnotationURL: annotationURL,
+                    annotationResult: annotationResult
+                )
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)"
+                        )
+                        AppDelegate.shared?.importReadyBundles([result.bundleURL])
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                    }
+                }
+                logger.error("createReferenceBundle: Annotated bundle creation failed - \(error.localizedDescription, privacy: .public)")
+            }
+        }
     }
 
     func shareFASTARecords(_ records: [String], suggestedName: String) {
@@ -1510,6 +1882,15 @@ public class ViewerViewController: NSViewController {
     }
 
     func presentFASTASequenceExtractionDialog(records: [String], suggestedName: String) {
+        presentFASTASequenceExtractionDialog(records: records, suggestedName: suggestedName, annotationsByRecord: [:])
+    }
+
+    func presentFASTASequenceExtractionDialog(
+        records: [String],
+        suggestedName: String,
+        annotationsByRecord: [String: [SequenceAnnotation]],
+        sourceAlignmentBundleURL: URL? = nil
+    ) {
         guard !records.isEmpty, let window = view.window, window.attachedSheet == nil else { return }
 
         let model = FASTASequenceExtractionDialogModel(
@@ -1539,7 +1920,12 @@ public class ViewerViewController: NSViewController {
                 let baseName = requestedName.isEmpty ? suggestedName : requestedName
                 switch model.destination {
                 case .bundle:
-                    self.createReferenceBundle(from: records, suggestedName: baseName)
+                    self.createReferenceBundle(
+                        from: records,
+                        suggestedName: baseName,
+                        annotationsByRecord: annotationsByRecord,
+                        sourceAlignmentBundleURL: sourceAlignmentBundleURL
+                    )
                 case .file:
                     self.exportFASTARecords(records, suggestedName: Self.fileName(for: baseName))
                 case .clipboard:
@@ -1552,6 +1938,97 @@ public class ViewerViewController: NSViewController {
 
         sheetWindow.contentViewController = NSHostingController(rootView: dialog)
         window.beginSheet(sheetWindow)
+    }
+
+    nonisolated private static func writeAnnotationBED(
+        _ annotationsByRecord: [String: [SequenceAnnotation]],
+        to url: URL
+    ) throws {
+        let lines = annotationsByRecord.keys.sorted().flatMap { recordName -> [String] in
+            annotationsByRecord[recordName, default: []].compactMap { annotation in
+                guard !annotation.intervals.isEmpty else { return nil }
+                let start = annotation.intervals.map(\.start).min() ?? 0
+                let end = annotation.intervals.map(\.end).max() ?? start
+                guard end > start else { return nil }
+                let blockSizes = annotation.intervals.map { "\($0.length)" }.joined(separator: ",") + ","
+                let blockStarts = annotation.intervals.map { "\($0.start - start)" }.joined(separator: ",") + ","
+                let attributes = annotation.qualifiers
+                    .map { key, qualifier in
+                        "\(escapeBEDAttribute(key))=\(qualifier.values.map(escapeBEDAttribute).joined(separator: ","))"
+                    }
+                    .sorted()
+                    .joined(separator: ";")
+                return [
+                    sanitizeBEDField(recordName),
+                    "\(start)",
+                    "\(end)",
+                    sanitizeBEDField(annotation.name),
+                    "0",
+                    annotation.strand.rawValue,
+                    "\(start)",
+                    "\(end)",
+                    "0,0,0",
+                    "\(annotation.intervals.count)",
+                    blockSizes,
+                    blockStarts,
+                    annotation.type.rawValue,
+                    attributes,
+                ].joined(separator: "\t")
+            }
+        }
+        try (lines.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    nonisolated private static func writeMSAExtractionAnnotationProvenance(
+        bundleURL: URL,
+        sourceAlignmentBundleURL: URL?,
+        sourceFASTAURL: URL,
+        sourceAnnotationURL: URL,
+        annotationResult: ReferenceBundleAnnotationImportResult
+    ) throws {
+        let provenanceURL = bundleURL
+            .appendingPathComponent("annotations", isDirectory: true)
+            .appendingPathComponent("msa-extraction-annotations-provenance.json")
+        var payload: [String: Any] = [
+            "schemaVersion": 1,
+            "workflowName": "msa-selection-reference-bundle-extraction",
+            "toolName": "lungfish-gui msa extract annotated bundle",
+            "toolVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "debug",
+            "argv": [
+                "lungfish-gui",
+                "msa",
+                "extract-annotated-bundle",
+                "--source-fasta", sourceFASTAURL.path,
+                "--source-annotations", sourceAnnotationURL.path,
+                "--output", bundleURL.path,
+            ],
+            "inputPaths": sourceAlignmentBundleURL.map { [$0.path] } ?? [sourceFASTAURL.path, sourceAnnotationURL.path],
+            "stagedInputPaths": [sourceFASTAURL.path, sourceAnnotationURL.path],
+            "outputBundlePath": bundleURL.path,
+            "outputAnnotationTrackID": annotationResult.track.id,
+            "outputAnnotationTrackName": annotationResult.track.name,
+            "featureCount": annotationResult.featureCount,
+            "exitStatus": 0,
+            "createdAt": ISO8601DateFormatter().string(from: Date()),
+        ]
+        if let sourceAlignmentBundleURL {
+            payload["sourceAlignmentBundlePath"] = sourceAlignmentBundleURL.path
+        }
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: provenanceURL, options: .atomic)
+    }
+
+    nonisolated private static func sanitizeBEDField(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\t", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    nonisolated private static func escapeBEDAttribute(_ value: String) -> String {
+        sanitizeBEDField(value)
+            .replacingOccurrences(of: ";", with: "%3B")
+            .replacingOccurrences(of: "=", with: "%3D")
     }
 
     func presentFASTAOperationDialog(
@@ -1798,6 +2275,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
 
         // Clear bundle display state (chromosome navigator, data provider)
         clearBundleDisplay()
@@ -1864,6 +2342,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
 
         // Clear any stale reference bundle state so the viewer uses
         // the document's sequences instead of trying to fetch from a bundle
@@ -1980,6 +2459,7 @@ public class ViewerViewController: NSViewController {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
 
         // Hide the progress overlay first - it may be covering the view area
         hideProgress()

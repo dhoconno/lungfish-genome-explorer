@@ -127,6 +127,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         hideNvdView()
         hideAssemblyView()
         hideMappingView()
+        hideAlignmentTreeBundleViews()
     }
 
     private func displayBundleSequence(

@@ -35,6 +35,7 @@
 		F1E2D3C4B5A69788776655A0 /* MappingXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A1 /* MappingXCUITests.swift */; };
 		F1E2D3C4B5A69788776655A2 /* MappingRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A3 /* MappingRobot.swift */; };
 		F1E2D3C4B5A69788776655A4 /* BundleBrowserXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A5 /* BundleBrowserXCUITests.swift */; };
+		F1E2D3C4B5A69788776655B0 /* AlignmentTreeBundleXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655B1 /* AlignmentTreeBundleXCUITests.swift */; };
 		F1E2D3C4B5A69788776655A6 /* BundleBrowserRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A7 /* BundleBrowserRobot.swift */; };
 		F1E2D3C4B5A69788776655A8 /* PrimerTrimXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */; };
 		F1E2D3C4B5A69788776655AE /* ViralReconXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A69788776655AF /* ViralReconXCUITests.swift */; };
@@ -60,6 +61,7 @@
 		F1E2D3C4B5A69788776655A1 /* MappingXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/MappingXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655A3 /* MappingRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/MappingRobot.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655A5 /* BundleBrowserXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/BundleBrowserXCUITests.swift; sourceTree = SOURCE_ROOT; };
+		F1E2D3C4B5A69788776655B1 /* AlignmentTreeBundleXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/AlignmentTreeBundleXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655A7 /* BundleBrowserRobot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/TestSupport/BundleBrowserRobot.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655A9 /* PrimerTrimXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/PrimerTrim/PrimerTrimXCUITests.swift; sourceTree = SOURCE_ROOT; };
 		F1E2D3C4B5A69788776655AB /* VariantCallingAutoConfirmXCUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tests/LungfishXCUITests/PrimerTrim/VariantCallingAutoConfirmXCUITests.swift; sourceTree = SOURCE_ROOT; };
@@ -123,6 +125,7 @@
 		F1E2D3C4B5A6978877665578 /* LungfishXCUITests */ = {
 			isa = PBXGroup;
 			children = (
+				F1E2D3C4B5A69788776655B1 /* AlignmentTreeBundleXCUITests.swift */,
 				F1E2D3C4B5A697887766559D /* AssemblyXCUITests.swift */,
 				F1E2D3C4B5A69788776655A5 /* BundleBrowserXCUITests.swift */,
 				F1E2D3C4B5A6978877665573 /* DatabaseSearchXCUITests.swift */,
@@ -351,6 +354,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F1E2D3C4B5A69788776655B0 /* AlignmentTreeBundleXCUITests.swift in Sources */,
 				F1E2D3C4B5A697887766559C /* AssemblyXCUITests.swift in Sources */,
 				F1E2D3C4B5A697887766559E /* AssemblyRobot.swift in Sources */,
 				F1E2D3C4B5A69788776655A4 /* BundleBrowserXCUITests.swift in Sources */,
@@ -506,6 +510,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = Lungfish;
+				UITargetAppPath = "$(BUILT_PRODUCTS_DIR)/Lungfish.app";
 			};
 			name = Debug;
 		};
@@ -527,6 +532,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 6.0;
 				TEST_TARGET_NAME = Lungfish;
+				UITargetAppPath = "$(BUILT_PRODUCTS_DIR)/Lungfish.app";
 			};
 			name = Release;
 		};

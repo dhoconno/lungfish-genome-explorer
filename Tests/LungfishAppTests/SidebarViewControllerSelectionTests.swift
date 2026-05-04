@@ -182,4 +182,40 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertTrue(sidebar.selectItem(forURL: analysisURL))
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), analysisURL.resolvingSymlinksInPath())
     }
+
+    func testSelectItemRoutesMAFFTAnalysisBundleAsMultipleSequenceAlignment() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let scratch = repositoryRoot
+            .appendingPathComponent(".build/test-scratch/SidebarMAFFTAnalysis-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = scratch.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let analysisURL = projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("Multiple Sequence Alignments", isDirectory: true)
+            .appendingPathComponent("sars-cov-2-genomes.lungfishmsa", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: analysisURL, withIntermediateDirectories: true)
+        try AnalysesFolder.writeAnalysisMetadata(
+            .init(tool: "mafft", isBatch: false, created: Date(timeIntervalSince1970: 1_776_000_000)),
+            to: analysisURL
+        )
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: scratch)
+        }
+
+        sidebar.openProject(at: projectURL)
+
+        XCTAssertTrue(sidebar.selectItem(forURL: analysisURL))
+        let item = try XCTUnwrap(sidebar.selectedItems().first)
+        XCTAssertEqual(item.type, .multipleSequenceAlignmentBundle)
+        XCTAssertEqual(item.title, "sars-cov-2-genomes")
+        XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), analysisURL.resolvingSymlinksInPath())
+    }
 }

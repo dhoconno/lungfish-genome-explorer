@@ -1,0 +1,16 @@
+{
+  "colorScheme" : "nucleotide",
+  "filters" : {
+
+  },
+  "referenceRowID" : "row-000001-2b51078631",
+  "schemaVersion" : 1,
+  "scrollColumn" : 0,
+  "scrollRow" : 0,
+  "selection" : null,
+  "showConsensus" : true,
+  "showVariableSites" : true,
+  "visibleTracks" : [
+    "consensus"
+  ]
+}

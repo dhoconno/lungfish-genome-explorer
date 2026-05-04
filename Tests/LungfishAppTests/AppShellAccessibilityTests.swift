@@ -87,6 +87,29 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertNotNil(root.descendant(matching: "third-party-licenses-scroll-view"))
         XCTAssertNotNil(root.descendant(matching: "third-party-licenses-text-view"))
     }
+
+    func testAlignmentAndTreeViewersExposeStableAccessibilityIdentifiers() throws {
+        let alignmentController = MultipleSequenceAlignmentViewController()
+        let alignmentView = alignmentController.view
+        XCTAssertEqual(alignmentView.accessibilityIdentifier(), "multiple-sequence-alignment-bundle-view")
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-text-view"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-matrix-view"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-row-gutter"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-column-header"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "annotation-table-drawer"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-search-field"))
+        XCTAssertNotNil(alignmentView.descendant(matching: "multiple-sequence-alignment-site-mode"))
+        XCTAssertNil(alignmentView.descendant(matching: "multiple-sequence-alignment-detail"))
+
+        let treeController = PhylogeneticTreeViewController()
+        let treeView = treeController.view
+        XCTAssertEqual(treeView.accessibilityIdentifier(), "phylogenetic-tree-bundle-view")
+        XCTAssertNotNil(treeView.descendant(matching: "phylogenetic-tree-summary"))
+        XCTAssertNotNil(treeView.descendant(matching: "phylogenetic-tree-node-table"))
+        XCTAssertNotNil(treeView.descendant(matching: "phylogenetic-tree-canvas-view"))
+        XCTAssertNotNil(treeView.descendant(matching: "phylogenetic-tree-search-field"))
+        XCTAssertNotNil(treeView.descendant(matching: "phylogenetic-tree-detail"))
+    }
 }
 
 private extension NSView {

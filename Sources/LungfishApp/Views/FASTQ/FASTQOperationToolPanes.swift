@@ -370,6 +370,10 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Toggle("Keep Matched Reads", isOn: $state.selectReadsBySequenceKeepMatched)
                 Toggle("Search Reverse Complement", isOn: $state.selectReadsBySequenceSearchReverseComplement)
 
+            case .mafft:
+                Text("MAFFT will use automatic strategy selection, deterministic threading, and input-order output.")
+                    .foregroundStyle(.secondary)
+
             case .demultiplexBarcodes:
                 Picker("Barcode Source", selection: $state.demultiplexBarcodeSource) {
                     Text("Built-In Kit").tag(FASTQDemultiplexBarcodeSource.builtinKit)
@@ -531,6 +535,17 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             case .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence:
                 Text("Search and sequence filtering use the literal values entered above.")
                     .foregroundStyle(.secondary)
+            case .mafft:
+                DisclosureGroup("Advanced Options", isExpanded: $state.mafftAdvancedOptionsExpanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Toggle("Treat FASTQ records as assembled or consensus sequences", isOn: $state.mafftAllowFASTQAssemblyInputs)
+                        labeledTextField("MAFFT Parameters", text: $state.mafftExtraOptionsText)
+                        Text("These arguments are passed directly to MAFFT after the selected strategy.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
             case .demultiplexBarcodes:
                 Text("Demultiplexing uses either a built-in kit or a custom barcode definition from the Inputs section.")
                     .foregroundStyle(.secondary)
@@ -541,6 +556,15 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 Text("This tool uses the embedded workflow pane.")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func labeledTextField(_ title: String, text: Binding<String>) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .frame(width: 180, alignment: .leading)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
         }
     }
 }

@@ -1085,6 +1085,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let controller = ensureMainWindowForDocumentOpen()
         let viewerController = controller.mainSplitViewController?.viewerController
 
+        if type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle {
+            Task { @MainActor in
+                viewerController?.showProgress("Loading \(url.lastPathComponent)...")
+                do {
+                    switch type {
+                    case .lungfishMultipleSequenceAlignmentBundle:
+                        try viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
+                    case .lungfishPhylogeneticTreeBundle:
+                        try viewerController?.displayPhylogeneticTreeBundle(at: url)
+                    default:
+                        break
+                    }
+                    viewerController?.hideProgress()
+                } catch {
+                    viewerController?.hideProgress()
+                    let alert = NSAlert()
+                    alert.messageText = "Failed to Open Bundle"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .warning
+                    alert.addButton(withTitle: "OK")
+                    if let window = self.mainWindowController?.window ?? NSApp.keyWindow {
+                        await alert.beginSheetModal(for: window)
+                    }
+                }
+            }
+            return true
+        }
+
         Task { @MainActor in
             // Show progress indicator
             viewerController?.showProgress("Loading \(url.lastPathComponent)...")
@@ -1647,6 +1675,186 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             title: "Reference Import Failed",
                             message: error.localizedDescription
                         )
+                    }
+                }
+            }
+        }
+    }
+
+    func importGeneiousExportFromURL(_ url: URL) {
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing a Geneious export.")
+            return
+        }
+
+        let arguments = CLIApplicationExportImportRunner.buildGeneiousArguments(
+            sourceURL: url,
+            projectURL: projectURL
+        )
+        let runner = CLIApplicationExportImportRunner()
+        let opID = OperationCenter.shared.start(
+            title: "Geneious Import",
+            detail: "Importing \(url.lastPathComponent)...",
+            operationType: .applicationExportImport,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: Array(arguments.dropFirst())
+            ),
+            onCancel: {
+                Task { await runner.cancel() }
+            }
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let result = try await runner.run(arguments: arguments, operationID: opID)
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let detail = result.warningCount == 0
+                            ? "Imported \(result.collectionURL.lastPathComponent)"
+                            : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
+                        if result.warningCount == 0 {
+                            OperationCenter.shared.complete(id: opID, detail: detail)
+                        } else {
+                            OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                        }
+                        self?.refreshSidebarAndSelectImportedURL(result.collectionURL)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        self?.showAlert(title: "Geneious Import Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    func importApplicationExportFromURL(_ url: URL, kind: ApplicationExportKind) {
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing an application export.")
+            return
+        }
+
+        let arguments = CLIApplicationExportImportRunner.buildApplicationExportArguments(
+            sourceURL: url,
+            projectURL: projectURL,
+            kind: kind
+        )
+        let runner = CLIApplicationExportImportRunner()
+        let opID = OperationCenter.shared.start(
+            title: "\(kind.displayName) Import",
+            detail: "Importing \(url.lastPathComponent)...",
+            operationType: .applicationExportImport,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: Array(arguments.dropFirst())
+            ),
+            onCancel: {
+                Task { await runner.cancel() }
+            }
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let result = try await runner.run(arguments: arguments, operationID: opID)
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let detail = result.warningCount == 0
+                            ? "Imported \(result.collectionURL.lastPathComponent)"
+                            : "Imported \(result.collectionURL.lastPathComponent) with \(result.warningCount) warnings"
+                        if result.warningCount == 0 {
+                            OperationCenter.shared.complete(id: opID, detail: detail)
+                        } else {
+                            OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
+                        }
+                        self?.refreshSidebarAndSelectImportedURL(result.collectionURL)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        self?.showAlert(title: "\(kind.displayName) Import Failed", message: error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    func importMultipleSequenceAlignmentFromURL(_ url: URL) {
+        importNativeBundleFromURL(url, kind: .msa)
+    }
+
+    func importPhylogeneticTreeFromURL(_ url: URL) {
+        importNativeBundleFromURL(url, kind: .tree)
+    }
+
+    private func importNativeBundleFromURL(_ url: URL, kind: CLINativeBundleImportRunner.BundleKind) {
+        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing \(kind.operationTitle.lowercased()).")
+            return
+        }
+
+        let arguments = CLINativeBundleImportRunner.buildArguments(
+            sourceURL: url,
+            projectURL: projectURL,
+            kind: kind
+        )
+        let runner = CLINativeBundleImportRunner()
+        let operationType: OperationType = kind == .msa
+            ? .multipleSequenceAlignmentImport
+            : .phylogeneticTreeImport
+        let opID = OperationCenter.shared.start(
+            title: kind.operationTitle,
+            detail: "Importing \(url.lastPathComponent)...",
+            operationType: operationType,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "import",
+                args: Array(arguments.dropFirst())
+            ),
+            onCancel: {
+                Task { await runner.cancel() }
+            }
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let result = try await runner.run(arguments: arguments, operationID: opID)
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let detail = result.warningCount == 0
+                            ? "Imported \(result.bundleURL.lastPathComponent)"
+                            : "Imported \(result.bundleURL.lastPathComponent) with \(result.warningCount) warnings"
+                        if result.warningCount == 0 {
+                            OperationCenter.shared.complete(
+                                id: opID,
+                                detail: detail,
+                                bundleURLs: [result.bundleURL]
+                            )
+                        } else {
+                            OperationCenter.shared.completeWithWarning(
+                                id: opID,
+                                detail: detail,
+                                bundleURLs: [result.bundleURL]
+                            )
+                        }
+                        self?.refreshSidebarAndSelectImportedURL(result.bundleURL)
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+                        self?.showAlert(title: "\(kind.operationTitle) Failed", message: error.localizedDescription)
                     }
                 }
             }
@@ -4708,16 +4916,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Access the viewer view to get selection range
-        guard let selectionRange = viewerController.viewerView?.selectionRange else {
+        if let alignmentController = viewerController.multipleSequenceAlignmentViewController {
+            alignmentController.presentAddAnnotationDialog(window: mainWindowController?.window ?? NSApp.keyWindow)
+            return
+        }
+
+        // Access the active sequence viewport to get the explicit user selection range.
+        guard let selectionContext = viewerController.currentSequenceAnnotationDraftContext() else {
             showAlert(title: "No Selection", message: "Please select a region of the sequence first.")
             return
         }
+        let selectionRange = selectionContext.range
 
         // Show the annotation dialog
         let alert = NSAlert()
         alert.messageText = "Add Annotation"
-        alert.informativeText = "Add an annotation for the selected region (\(selectionRange.lowerBound + 1)-\(selectionRange.upperBound))"
+        alert.informativeText = "Add an annotation for \(selectionContext.chromosome):\(selectionRange.lowerBound + 1)-\(selectionRange.upperBound)"
         alert.addButton(withTitle: "Add")
         alert.addButton(withTitle: "Cancel")
 
@@ -4771,12 +4985,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let annotation = SequenceAnnotation(
                     type: annotationType,
                     name: name,
+                    chromosome: selectionContext.chromosome,
                     intervals: [AnnotationInterval(start: selectionRange.lowerBound, end: selectionRange.upperBound)],
                     strand: strand
                 )
 
-                // Add to the current document
-                if let document = DocumentManager.shared.activeDocument {
+                if let bundleURL = selectionContext.bundleURL {
+                    await self.persistManualReferenceAnnotation(
+                        annotation,
+                        bundleURL: bundleURL,
+                        viewerController: viewerController
+                    )
+                } else if let document = DocumentManager.shared.activeDocument {
                     document.annotations.append(annotation)
 
                     // Refresh the viewer to show the new annotation
@@ -4785,6 +5005,64 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     debugLog("Added annotation: \(name) (\(typeString)) at \(selectionRange)")
                 }
             }
+        }
+    }
+
+    private func persistManualReferenceAnnotation(
+        _ annotation: SequenceAnnotation,
+        bundleURL: URL,
+        viewerController: ViewerViewController
+    ) async {
+        let opID = OperationCenter.shared.start(
+            title: "Add Annotation",
+            detail: "Adding \(annotation.name)...",
+            operationType: .bundleBuild,
+            cliCommand: nil
+        )
+
+        do {
+            let result = try await ReferenceBundleManualAnnotationService().addAnnotation(
+                annotation,
+                toBundleAt: bundleURL
+            )
+            OperationCenter.shared.complete(
+                id: opID,
+                detail: "Added annotation to \(result.track.name)"
+            )
+            if let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController {
+                sidebarController.reloadFromFilesystem()
+                _ = sidebarController.selectItem(forURL: bundleURL)
+            }
+
+            if let referenceViewport = viewerController.referenceBundleViewportController,
+               referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try referenceViewport.reloadViewerBundleForInspectorChanges()
+                mainWindowController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
+            } else if viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try viewerController.displayBundle(at: bundleURL)
+            }
+        } catch {
+            OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
+            showAlert(title: "Add Annotation Failed", message: error.localizedDescription)
+        }
+    }
+
+    @objc func applyAlignmentAnnotationToSelection(_ sender: Any?) {
+        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+              let alignmentController = viewerController.multipleSequenceAlignmentViewController else {
+            showAlert(title: "No Alignment Viewer", message: "Open a multiple sequence alignment before applying annotations.")
+            return
+        }
+        do {
+            let projected = try alignmentController.applySelectedAnnotationsToSelectedRows()
+            if projected.isEmpty {
+                showAlert(
+                    title: "No Annotation to Apply",
+                    message: "Select an annotated alignment range and at least one additional target row."
+                )
+            }
+        } catch {
+            showAlert(title: "Apply Annotation Failed", message: error.localizedDescription)
         }
     }
 
@@ -4831,6 +5109,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func showFASTQSearchSubsettingOperations(_ sender: Any?) {
         showFASTQOperationsDialog(sender, initialCategory: .searchSubsetting)
+    }
+
+    @objc func showFASTQAlignmentOperations(_ sender: Any?) {
+        showFASTQOperationsDialog(sender, initialCategory: .alignment)
     }
 
     @objc func showFASTQMappingOperations(_ sender: Any?) {
@@ -4914,6 +5196,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                 if let request = state.pendingMappingRequest {
                     self.runManagedMapping(request: request)
+                    return
+                }
+
+                if let request = state.pendingMSAAlignmentRequest {
+                    self.runMAFFTAlignment(request: request)
                     return
                 }
 
@@ -5808,6 +6095,62 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.fail(id: opID, detail: "\(error)")
+                }}
+            }
+        }
+    }
+
+    private func runMAFFTAlignment(request: MSAAlignmentRunRequest) {
+        let outputURL = request.resolvedOutputBundleURL
+        let cliArgs = CLIMSAAlignmentRunner.buildArguments(
+            inputURLs: request.inputSequenceURLs,
+            projectURL: request.projectURL,
+            outputURL: outputURL,
+            name: request.name,
+            strategy: request.strategy.rawValue,
+            outputOrder: request.outputOrder.rawValue,
+            threads: request.threads,
+            sequenceType: request.sequenceType.rawValue,
+            adjustDirection: request.directionAdjustment.rawValue,
+            symbols: request.symbolPolicy.rawValue,
+            allowNondeterministicThreads: !request.deterministicThreads,
+            allowFASTQAssemblyInputs: request.allowFASTQAssemblyInputs,
+            extraArguments: request.extraArguments
+        )
+        let cliCommand = OperationCenter.buildCLICommand(
+            subcommand: "align",
+            args: Array(cliArgs.dropFirst())
+        )
+        let opID = OperationCenter.shared.start(
+            title: "Align Sequences (MAFFT)",
+            detail: "Preparing MAFFT alignment...",
+            operationType: .multipleSequenceAlignmentGeneration,
+            cliCommand: cliCommand
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let result = try await CLIMSAAlignmentRunner().run(
+                    arguments: cliArgs,
+                    operationID: opID
+                )
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
+                        bundleURLs: [result.bundleURL]
+                    )
+                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                        .sidebarController.reloadFromFilesystem()
+                }}
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: error.localizedDescription,
+                        errorMessage: error.localizedDescription,
+                        errorDetail: "\(error)"
+                    )
                 }}
             }
         }

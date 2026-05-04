@@ -281,6 +281,32 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <string>org.lungfish.vcf</string>
             </array>
         </dict>
+        <!-- Multiple sequence alignment bundle -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish Multiple Sequence Alignment Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.msa-bundle</string>
+            </array>
+        </dict>
+        <!-- Phylogenetic tree bundle -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish Phylogenetic Tree Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.tree-bundle</string>
+            </array>
+        </dict>
     </array>
 
     <!-- Exported Type Declarations (Custom UTIs) -->
@@ -404,6 +430,44 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <key>public.filename-extension</key>
                 <array>
                     <string>vcf</string>
+                </array>
+            </dict>
+        </dict>
+        <!-- Multiple sequence alignment bundle -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.msa-bundle</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish Multiple Sequence Alignment Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishmsa</string>
+                </array>
+            </dict>
+        </dict>
+        <!-- Phylogenetic tree bundle -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.tree-bundle</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish Phylogenetic Tree Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishtree</string>
                 </array>
             </dict>
         </dict>

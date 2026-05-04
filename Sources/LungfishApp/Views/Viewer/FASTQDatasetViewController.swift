@@ -2304,6 +2304,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Read Processing"
         case .searchSubsetting:
             return "Search & Subsetting"
+        case .alignment:
+            return "Alignment"
         case .mapping:
             return "Mapping"
         case .assembly:
@@ -2327,6 +2329,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "arrow.trianglehead.2.clockwise.rotate.90"
         case .searchSubsetting:
             return "line.3.horizontal.decrease.circle"
+        case .alignment:
+            return "text.line.first.and.arrowtriangle.forward"
         case .mapping:
             return "arrow.left.and.right.text.vertical"
         case .assembly:
@@ -2350,6 +2354,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Open the FASTQ/FASTA operations dialog with read processing tools selected."
         case .searchSubsetting:
             return "Open the FASTQ/FASTA operations dialog with search and subsetting tools selected."
+        case .alignment:
+            return "Open the FASTQ/FASTA operations dialog with alignment tools selected."
         case .mapping:
             return "Open the FASTQ/FASTA operations dialog with mapping tools selected."
         case .assembly:
