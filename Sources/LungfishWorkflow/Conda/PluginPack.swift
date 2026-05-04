@@ -465,7 +465,7 @@ public extension PluginPack {
             name: "Multiple Sequence Alignment",
             description: "Build, trim, and inspect nucleotide or protein multiple sequence alignments",
             sfSymbol: "rectangle.grid.1x2",
-            packages: ["mafft", "muscle", "clustalo", "famsa", "trimal", "clipkit", "goalign"],
+            packages: ["mafft"],
             category: "Phylogenetics",
             isActive: true,
             requirements: [
@@ -486,113 +486,15 @@ public extension PluginPack {
                     license: "BSD-3-Clause",
                     sourceURL: "https://mafft.cbrc.jp/alignment/software/"
                 ),
-                PackToolRequirement(
-                    id: "muscle",
-                    displayName: "MUSCLE",
-                    environment: "muscle",
-                    installPackages: ["bioconda::muscle=5.3"],
-                    executables: ["muscle"],
-                    smokeTest: .command(
-                        executable: "muscle",
-                        arguments: ["-version"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "muscle"
-                    ),
-                    version: "5.3",
-                    license: "GPL-3.0-only",
-                    sourceURL: "https://github.com/rcedgar/muscle"
-                ),
-                PackToolRequirement(
-                    id: "clustalo",
-                    displayName: "Clustal Omega",
-                    environment: "clustalo",
-                    installPackages: ["bioconda::clustalo=1.2.4"],
-                    executables: ["clustalo"],
-                    smokeTest: .command(
-                        executable: "clustalo",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "Clustal"
-                    ),
-                    version: "1.2.4",
-                    license: "GPL-2.0-or-later",
-                    sourceURL: "http://www.clustal.org/omega/"
-                ),
-                PackToolRequirement(
-                    id: "famsa",
-                    displayName: "FAMSA",
-                    environment: "famsa",
-                    installPackages: ["bioconda::famsa=2.4.1"],
-                    executables: ["famsa"],
-                    smokeTest: .command(
-                        executable: "famsa",
-                        arguments: ["-help"],
-                        timeoutSeconds: 10,
-                        acceptedExitCodes: [0, 1],
-                        requiredOutputSubstring: "FAMSA"
-                    ),
-                    version: "2.4.1",
-                    license: "GPL-3.0-or-later",
-                    sourceURL: "https://github.com/refresh-bio/FAMSA"
-                ),
-                PackToolRequirement(
-                    id: "trimal",
-                    displayName: "trimAl",
-                    environment: "trimal",
-                    installPackages: ["bioconda::trimal=1.5.1"],
-                    executables: ["trimal"],
-                    smokeTest: .command(
-                        executable: "trimal",
-                        arguments: ["-h"],
-                        timeoutSeconds: 10,
-                        acceptedExitCodes: [0, 1],
-                        requiredOutputSubstring: "trimAl"
-                    ),
-                    version: "1.5.1",
-                    license: "GPL-3.0-or-later",
-                    sourceURL: "https://github.com/inab/trimal"
-                ),
-                PackToolRequirement(
-                    id: "clipkit",
-                    displayName: "ClipKIT",
-                    environment: "clipkit",
-                    installPackages: ["bioconda::clipkit=2.12.0"],
-                    executables: ["clipkit"],
-                    smokeTest: .command(
-                        executable: "clipkit",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "usage:"
-                    ),
-                    version: "2.12.0",
-                    license: "MIT",
-                    sourceURL: "https://github.com/JLSteenwyk/ClipKIT"
-                ),
-                PackToolRequirement(
-                    id: "goalign",
-                    displayName: "Goalign",
-                    environment: "goalign",
-                    installPackages: ["bioconda::goalign=0.4.0"],
-                    executables: ["goalign"],
-                    smokeTest: .command(
-                        executable: "goalign",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "goalign"
-                    ),
-                    version: "0.4.0",
-                    license: "GPL-2.0",
-                    sourceURL: "https://github.com/evolbioinfo/goalign"
-                ),
             ],
-            estimatedSizeMB: 500
+            estimatedSizeMB: 120
         ),
         PluginPack(
             id: "phylogenetics",
             name: "Phylogenetics",
             description: "Infer, annotate, and inspect native Apple Silicon phylogenetic trees",
             sfSymbol: "tree",
-            packages: ["iqtree", "fasttree", "raxml-ng", "treetime", "gotree", "treeswift"],
+            packages: ["iqtree"],
             category: "Phylogenetics",
             isActive: true,
             requirements: [
@@ -612,89 +514,8 @@ public extension PluginPack {
                     license: "GPL-2.0-or-later",
                     sourceURL: "https://github.com/iqtree/iqtree3"
                 ),
-                PackToolRequirement(
-                    id: "fasttree",
-                    displayName: "FastTree",
-                    environment: "fasttree",
-                    installPackages: ["bioconda::fasttree=2.2.0"],
-                    executables: ["FastTree"],
-                    smokeTest: .command(
-                        executable: "FastTree",
-                        arguments: ["-help"],
-                        timeoutSeconds: 10,
-                        acceptedExitCodes: [0, 1],
-                        requiredOutputSubstring: "FastTree"
-                    ),
-                    version: "2.2.0",
-                    license: "GPL-2.0-or-later",
-                    sourceURL: "http://www.microbesonline.org/fasttree/"
-                ),
-                PackToolRequirement(
-                    id: "raxml-ng",
-                    displayName: "RAxML-NG",
-                    environment: "raxml-ng",
-                    installPackages: ["bioconda::raxml-ng=2.0.1"],
-                    executables: ["raxml-ng"],
-                    smokeTest: .command(
-                        executable: "raxml-ng",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "RAxML-NG"
-                    ),
-                    version: "2.0.1",
-                    license: "AGPL-3.0-or-later",
-                    sourceURL: "https://github.com/amkozlov/raxml-ng"
-                ),
-                PackToolRequirement(
-                    id: "treetime",
-                    displayName: "TreeTime",
-                    environment: "treetime",
-                    installPackages: ["bioconda::treetime=0.12.1"],
-                    executables: ["treetime"],
-                    smokeTest: .command(
-                        executable: "treetime",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "TreeTime"
-                    ),
-                    version: "0.12.1",
-                    license: "MIT",
-                    sourceURL: "https://github.com/neherlab/treetime"
-                ),
-                PackToolRequirement(
-                    id: "gotree",
-                    displayName: "Gotree",
-                    environment: "gotree",
-                    installPackages: ["bioconda::gotree=0.5.1"],
-                    executables: ["gotree"],
-                    smokeTest: .command(
-                        executable: "gotree",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "gotree"
-                    ),
-                    version: "0.5.1",
-                    license: "GPL-2.0-or-later",
-                    sourceURL: "https://github.com/evolbioinfo/gotree"
-                ),
-                PackToolRequirement(
-                    id: "treeswift",
-                    displayName: "TreeSwift",
-                    environment: "treeswift",
-                    installPackages: ["bioconda::treeswift=1.1.45"],
-                    executables: ["python"],
-                    smokeTest: .command(
-                        executable: "python",
-                        arguments: ["-c", "import treeswift; print('treeswift')"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "treeswift"
-                    ),
-                    version: "1.1.45",
-                    license: "MIT",
-                    sourceURL: "https://github.com/niemasd/TreeSwift"
-                ),
             ],
-            estimatedSizeMB: 620
+            estimatedSizeMB: 180
         ),
         PluginPack(
             id: "metagenomics",
