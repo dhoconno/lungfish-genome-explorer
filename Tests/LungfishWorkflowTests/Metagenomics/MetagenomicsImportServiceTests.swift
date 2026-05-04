@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import Testing
 import LungfishIO
 @testable import LungfishWorkflow
@@ -116,7 +117,7 @@ struct MetagenomicsImportServiceTests {
         """.write(to: sourceFile, atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: sourceFile,
             outputDirectory: outputDirectory,
             sampleName: "SAMPLE_A",
@@ -157,6 +158,45 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
         .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func importNaoMgsForTesting(
+    inputURL: URL,
+    outputDirectory: URL,
+    sampleName: String? = nil,
+    minIdentity: Double = 0,
+    fetchReferences: Bool = true,
+    preferredName: String? = nil,
+    progress: (@Sendable (Double, String) -> Void)? = nil
+) async throws -> NaoMgsImportResult {
+    try await withNaoMgsImportLock {
+        try await MetagenomicsImportService.importNaoMgs(
+            inputURL: inputURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            minIdentity: minIdentity,
+            fetchReferences: fetchReferences,
+            preferredName: preferredName,
+            progress: progress
+        )
+    }
+}
+
+private func withNaoMgsImportLock<T>(_ body: () async throws -> T) async throws -> T {
+    let lockURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lungfish-naomgs-import-tests.lock")
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { close(descriptor) }
+
+    guard flock(descriptor, LOCK_EX) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { flock(descriptor, LOCK_UN) }
+
+    return try await body()
 }
 
 private func esVirituDetectionFixture() -> String {

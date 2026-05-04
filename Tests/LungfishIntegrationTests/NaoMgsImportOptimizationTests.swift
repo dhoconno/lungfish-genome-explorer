@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import Darwin
 import Testing
 import LungfishIO
 @testable import LungfishWorkflow
@@ -131,7 +132,7 @@ struct NaoMgsImportOptimizationTests {
         let url = TestFixtures.naomgs.virusHitsTsvGz
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
 
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: url,
             outputDirectory: outputDirectory,
             sampleName: "CASPER_TEST",
@@ -241,7 +242,7 @@ struct NaoMgsImportOptimizationTests {
         let url = TestFixtures.naomgs.virusHitsTsvGz
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
 
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: url,
             outputDirectory: outputDirectory,
             sampleName: "FILTER_TEST",
@@ -273,7 +274,7 @@ struct NaoMgsImportOptimizationTests {
         try tsvContent.write(to: sourceFile, atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: sourceFile,
             outputDirectory: outputDirectory,
             sampleName: "MULTI_TEST",
@@ -396,7 +397,7 @@ struct NaoMgsImportOptimizationTests {
         try tsvContent.write(to: sourceFile, atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("analyses", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: sourceFile,
             outputDirectory: outputDirectory,
             sampleName: "PURGE_TEST",
@@ -451,7 +452,7 @@ struct NaoMgsImportOptimizationTests {
         let url = TestFixtures.naomgs.virusHitsTsvGz
         let outputDirectory = workspace.appendingPathComponent("analyses", isDirectory: true)
 
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: url,
             outputDirectory: outputDirectory,
             sampleName: "ACC_SUMMARY_TEST",
@@ -509,7 +510,7 @@ struct NaoMgsImportOptimizationTests {
         try lane2.write(to: inputDir.appendingPathComponent("run.sample_L002_virus_hits.tsv"), atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("analyses", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: inputDir,
             outputDirectory: outputDirectory,
             sampleName: "MULTIFILE_TEST",
@@ -646,7 +647,7 @@ struct NaoMgsImportOptimizationTests {
         try tsvContent.write(to: sourceFile, atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("analyses", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: sourceFile,
             outputDirectory: outputDirectory,
             sampleName: "R2ONLY_TEST",
@@ -708,7 +709,7 @@ struct NaoMgsImportOptimizationTests {
         try tsvContent.write(to: sourceFile, atomically: true, encoding: .utf8)
 
         let outputDirectory = workspace.appendingPathComponent("analyses", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: sourceFile,
             outputDirectory: outputDirectory,
             sampleName: "ACCUM_TEST",
@@ -762,7 +763,7 @@ struct NaoMgsImportOptimizationTests {
         let outputDirectory = workspace.appendingPathComponent("imports", isDirectory: true)
 
         do {
-            _ = try await MetagenomicsImportService.importNaoMgs(
+            _ = try await importNaoMgsForTesting(
                 inputURL: sourceFile,
                 outputDirectory: outputDirectory,
                 sampleName: "ABORT_TEST",
@@ -979,7 +980,7 @@ struct NaoMgsImportOptimizationTests {
             .write(to: inputDir.appendingPathComponent("lane2_virus_hits.tsv"), atomically: true, encoding: .utf8)
 
         let outputDir = workspace.appendingPathComponent("imports", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: inputDir,
             outputDirectory: outputDir,
             fetchReferences: false
@@ -1006,7 +1007,7 @@ struct NaoMgsImportOptimizationTests {
         defer { try? FileManager.default.removeItem(at: workspace) }
 
         let outputDir = workspace.appendingPathComponent("imports", isDirectory: true)
-        let result = try await MetagenomicsImportService.importNaoMgs(
+        let result = try await importNaoMgsForTesting(
             inputURL: TestFixtures.naomgs.virusHitsTsvGz,
             outputDirectory: outputDir,
             fetchReferences: false
@@ -1051,4 +1052,43 @@ private func makeTemporaryDirectory(prefix: String) -> URL {
         .appendingPathComponent("\(prefix)\(UUID().uuidString)", isDirectory: true)
     try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func importNaoMgsForTesting(
+    inputURL: URL,
+    outputDirectory: URL,
+    sampleName: String? = nil,
+    minIdentity: Double = 0,
+    fetchReferences: Bool = true,
+    preferredName: String? = nil,
+    progress: (@Sendable (Double, String) -> Void)? = nil
+) async throws -> NaoMgsImportResult {
+    try await withNaoMgsImportLock {
+        try await MetagenomicsImportService.importNaoMgs(
+            inputURL: inputURL,
+            outputDirectory: outputDirectory,
+            sampleName: sampleName,
+            minIdentity: minIdentity,
+            fetchReferences: fetchReferences,
+            preferredName: preferredName,
+            progress: progress
+        )
+    }
+}
+
+private func withNaoMgsImportLock<T>(_ body: () async throws -> T) async throws -> T {
+    let lockURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lungfish-naomgs-import-tests.lock")
+    let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard descriptor >= 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { close(descriptor) }
+
+    guard flock(descriptor, LOCK_EX) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    defer { flock(descriptor, LOCK_UN) }
+
+    return try await body()
 }
