@@ -3,6 +3,25 @@ import XCTest
 @testable import LungfishIO
 
 final class TreeCommandTests: XCTestCase {
+    func testInferIQTreeResolverFindsManagedPluginPackExecutableWhenPathDoesNotIncludeIt() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandManagedIQTreeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        let managedBin = homeDirectory
+            .appendingPathComponent(".lungfish/conda/envs/iqtree/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedBin, withIntermediateDirectories: true)
+        let managedIQTree = try writeFakeIQTreeExecutable(in: managedBin)
+
+        let resolved = try TreeCommand.InferIQTreeSubcommand.resolveIQTreeExecutableForTesting(
+            iqtreePath: nil,
+            environment: ["PATH": "/usr/bin:/bin"],
+            managedHomeDirectory: homeDirectory
+        )
+
+        XCTAssertEqual(resolved.path, managedIQTree.standardizedFileURL.path)
+    }
+
     func testInferIQTreeCreatesNativeTreeBundleArtifactsAndProvenance() async throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/TreeCommandTests-\(UUID().uuidString)", isDirectory: true)

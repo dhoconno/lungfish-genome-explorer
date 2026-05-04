@@ -2,6 +2,7 @@ import ArgumentParser
 import CryptoKit
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 struct TreeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -457,7 +458,23 @@ struct TreeCommand: AsyncParsableCommand {
             return argv
         }
 
-        private func resolveIQTreeExecutable() throws -> URL {
+        static func resolveIQTreeExecutableForTesting(
+            iqtreePath: String?,
+            environment: [String: String],
+            managedHomeDirectory: URL
+        ) throws -> URL {
+            try resolveIQTreeExecutable(
+                iqtreePath: iqtreePath,
+                environment: environment,
+                managedHomeDirectory: managedHomeDirectory
+            )
+        }
+
+        private static func resolveIQTreeExecutable(
+            iqtreePath: String?,
+            environment: [String: String],
+            managedHomeDirectory: URL
+        ) throws -> URL {
             if let iqtreePath {
                 let url = URL(fileURLWithPath: iqtreePath).standardizedFileURL
                 guard FileManager.default.isExecutableFile(atPath: url.path) else {
@@ -465,13 +482,23 @@ struct TreeCommand: AsyncParsableCommand {
                 }
                 return url
             }
-            if let envPath = ProcessInfo.processInfo.environment["LUNGFISH_IQTREE_PATH"], !envPath.isEmpty {
+            if let envPath = environment["LUNGFISH_IQTREE_PATH"], !envPath.isEmpty {
                 let url = URL(fileURLWithPath: envPath).standardizedFileURL
                 if FileManager.default.isExecutableFile(atPath: url.path) {
                     return url
                 }
             }
-            let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            for executable in ["iqtree3", "iqtree"] {
+                let managedURL = CoreToolLocator.managedExecutableURL(
+                    environment: "iqtree",
+                    executableName: executable,
+                    homeDirectory: managedHomeDirectory
+                )
+                if FileManager.default.isExecutableFile(atPath: managedURL.path) {
+                    return managedURL.standardizedFileURL
+                }
+            }
+            let pathEntries = (environment["PATH"] ?? "")
                 .split(separator: ":")
                 .map(String.init)
             for executable in ["iqtree3", "iqtree"] {
@@ -483,6 +510,14 @@ struct TreeCommand: AsyncParsableCommand {
                 }
             }
             throw ValidationError("IQ-TREE executable not found. Install the Phylogenetics plugin pack or pass --iqtree-path.")
+        }
+
+        private func resolveIQTreeExecutable() throws -> URL {
+            try Self.resolveIQTreeExecutable(
+                iqtreePath: iqtreePath,
+                environment: ProcessInfo.processInfo.environment,
+                managedHomeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
         }
     }
 }
