@@ -117,6 +117,13 @@ final class FASTQOperationDialogState {
     var demultiplexTrimBarcodes: Bool
 
     var mafftAdvancedOptionsExpanded: Bool
+    var mafftStrategy: MAFFTAlignmentStrategy
+    var mafftOutputOrder: MSAAlignmentOutputOrder
+    var mafftSequenceType: MSASequenceType
+    var mafftDirectionAdjustment: MAFFTDirectionAdjustment
+    var mafftSymbolPolicy: MSASymbolPolicy
+    var mafftDeterministicThreads: Bool
+    var mafftThreads: Int?
     var mafftExtraOptionsText: String
     var mafftAllowFASTQAssemblyInputs: Bool
 
@@ -198,6 +205,13 @@ final class FASTQOperationDialogState {
         self.demultiplexErrorRate = 0.15
         self.demultiplexTrimBarcodes = true
         self.mafftAdvancedOptionsExpanded = false
+        self.mafftStrategy = .auto
+        self.mafftOutputOrder = .input
+        self.mafftSequenceType = .auto
+        self.mafftDirectionAdjustment = .off
+        self.mafftSymbolPolicy = .strict
+        self.mafftDeterministicThreads = true
+        self.mafftThreads = nil
         self.mafftExtraOptionsText = ""
         self.mafftAllowFASTQAssemblyInputs = false
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
@@ -552,9 +566,13 @@ final class FASTQOperationDialogState {
             projectURL: projectURL,
             outputBundleURL: outputURL,
             name: name,
-            threads: nil,
-            strategy: .auto,
-            outputOrder: .input,
+            threads: mafftThreads,
+            strategy: mafftStrategy,
+            outputOrder: mafftOutputOrder,
+            sequenceType: mafftSequenceType,
+            directionAdjustment: mafftDirectionAdjustment,
+            symbolPolicy: mafftSymbolPolicy,
+            deterministicThreads: mafftDeterministicThreads,
             extraArguments: extraArguments,
             allowFASTQAssemblyInputs: mafftAllowFASTQAssemblyInputs
         )
@@ -1053,6 +1071,9 @@ final class FASTQOperationDialogState {
             if selectedInputURLs.contains(where: { SequenceInputResolver.inputSequenceFormat(for: $0) == .fastq }),
                !mafftAllowFASTQAssemblyInputs {
                 return "Confirm FASTQ inputs are assembled or consensus sequences before aligning with MAFFT."
+            }
+            if let mafftThreads, mafftThreads <= 0 {
+                return "Enter a positive thread count or leave Threads blank for automatic selection."
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(mafftExtraOptionsText)

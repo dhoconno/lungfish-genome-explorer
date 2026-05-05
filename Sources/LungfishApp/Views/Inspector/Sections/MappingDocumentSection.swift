@@ -236,7 +236,6 @@ struct MappingDocumentSection: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 92, alignment: .trailing)
                 .lineLimit(2)
-                .minimumScaleFactor(0.8)
 
             Text(value)
                 .font(.caption)

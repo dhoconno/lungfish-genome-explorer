@@ -9,6 +9,7 @@ struct FASTASequenceActionHandlers {
     var onCopy: (() -> Void)?
     var onExport: (() -> Void)?
     var onCreateBundle: (() -> Void)?
+    var onAlignWithMAFFT: (() -> Void)?
     var onRunOperation: (() -> Void)?
 
     static let noop = FASTASequenceActionHandlers(
@@ -17,6 +18,7 @@ struct FASTASequenceActionHandlers {
         onCopy: {},
         onExport: {},
         onCreateBundle: {},
+        onAlignWithMAFFT: {},
         onRunOperation: {}
     )
 }
@@ -84,10 +86,16 @@ enum FASTASequenceActionMenuBuilder {
             to: &items
         )
 
-        if handlers.onRunOperation != nil && !items.isEmpty {
+        if (handlers.onAlignWithMAFFT != nil || handlers.onRunOperation != nil) && !items.isEmpty {
             items.append(.separator())
         }
 
+        addItem(
+            titled: "Align with MAFFT…",
+            handler: handlers.onAlignWithMAFFT,
+            enabled: isEnabled,
+            to: &items
+        )
         addItem(
             titled: "Run Operation…",
             handler: handlers.onRunOperation,

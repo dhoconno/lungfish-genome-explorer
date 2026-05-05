@@ -4,6 +4,7 @@
 
 import AppKit
 import LungfishIO
+import UniformTypeIdentifiers
 
 private enum PhylogeneticTreeAccessibilityID {
     static let root = "phylogenetic-tree-bundle-view"
@@ -34,6 +35,7 @@ private enum PhylogeneticTreeCanvasMetrics {
 final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSource, NSTableViewDelegate {
     private(set) var bundleURL: URL?
     private(set) var bundle: PhylogeneticTreeBundle?
+    var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
 
     private let summaryLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
@@ -57,6 +59,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     private let treeCanvasView = PhylogeneticTreeCanvasView()
     private let treeScrollView = NSScrollView()
     private let detailLabel = NSTextField(labelWithString: "")
+    private let toolbarContainer = NSView()
 
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
     private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
@@ -169,6 +172,12 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 
         let toolbar = configureToolbar()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
+        toolbarContainer.wantsLayer = true
+        toolbarContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        toolbarContainer.addSubview(summaryLabel)
+        toolbarContainer.addSubview(toolbar)
+
         let nodeDrawer = NSView()
         nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
         nodeDrawer.wantsLayer = true
@@ -180,25 +189,30 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         nodeDrawer.addSubview(nodeDrawerTitle)
         nodeDrawer.addSubview(tableScroll)
 
+        view.addSubview(toolbarContainer)
         view.addSubview(treeScrollView)
-        view.addSubview(summaryLabel)
-        view.addSubview(toolbar)
         view.addSubview(detailLabel)
         view.addSubview(nodeDrawer)
 
         NSLayoutConstraint.activate([
-            treeScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            toolbarContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            toolbarContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            toolbarContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            toolbarContainer.heightAnchor.constraint(equalToConstant: 76),
+
+            summaryLabel.leadingAnchor.constraint(equalTo: toolbarContainer.leadingAnchor, constant: 12),
+            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: toolbarContainer.trailingAnchor, constant: -12),
+            summaryLabel.topAnchor.constraint(equalTo: toolbarContainer.topAnchor, constant: 8),
+
+            toolbar.topAnchor.constraint(equalTo: summaryLabel.bottomAnchor, constant: 7),
+            toolbar.leadingAnchor.constraint(equalTo: toolbarContainer.leadingAnchor, constant: 12),
+            toolbar.trailingAnchor.constraint(lessThanOrEqualTo: toolbarContainer.trailingAnchor, constant: -12),
+            toolbar.bottomAnchor.constraint(lessThanOrEqualTo: toolbarContainer.bottomAnchor, constant: -7),
+
+            treeScrollView.topAnchor.constraint(equalTo: toolbarContainer.bottomAnchor),
             treeScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             treeScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             treeScrollView.bottomAnchor.constraint(equalTo: nodeDrawer.topAnchor),
-
-            summaryLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 10),
-            summaryLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: toolbar.leadingAnchor, constant: -12),
-
-            toolbar.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            toolbar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            toolbar.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 12),
 
             detailLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
             detailLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -12),
@@ -222,9 +236,16 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         searchField.placeholderString = "Find tip or node"
         searchField.target = self
         searchField.action = #selector(searchFieldSubmitted(_:))
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: searchField)
         searchField.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        let searchIdealWidth = searchField.widthAnchor.constraint(equalToConstant: 180)
+        searchIdealWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            searchIdealWidth,
+            searchField.widthAnchor.constraint(greaterThanOrEqualToConstant: 140),
+            searchField.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+        ])
 
         fitButton.target = self
         fitButton.action = #selector(fitTreeToViewport(_:))
@@ -269,13 +290,13 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         layoutModeControl.selectedSegment = 0
         layoutModeControl.target = self
         layoutModeControl.action = #selector(layoutModeChanged(_:))
-        layoutModeControl.segmentStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: layoutModeControl)
         layoutModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.layoutMode)
 
         colorModeControl.selectedSegment = 0
         colorModeControl.target = self
         colorModeControl.action = #selector(colorModeChanged(_:))
-        colorModeControl.segmentStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: colorModeControl)
         colorModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.colorMode)
 
         let toolbar = NSStackView(views: [
@@ -290,7 +311,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
         toolbar.spacing = 8
-        toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 6, right: 12)
+        toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
         return toolbar
     }
 
@@ -300,21 +321,12 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         fallbackTitle: String,
         accessibilityLabel: String
     ) {
-        button.bezelStyle = .rounded
-        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityLabel)
-        if button.image == nil {
-            button.title = fallbackTitle
-            button.imagePosition = .noImage
-        } else {
-            button.imagePosition = .imageOnly
-        }
-        button.toolTip = accessibilityLabel
-        button.setAccessibilityLabel(accessibilityLabel)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            button.widthAnchor.constraint(equalToConstant: 30),
-            button.heightAnchor.constraint(equalToConstant: 26),
-        ])
+        LungfishAppKitControlStyle.configureInspectorIconButton(
+            button,
+            symbolName: symbolName,
+            fallbackTitle: fallbackTitle,
+            accessibilityLabel: accessibilityLabel
+        )
     }
 
     @objc private func searchFieldSubmitted(_ sender: NSSearchField) {
@@ -386,6 +398,42 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         if center {
             centerSelectedNode()
         }
+        refreshNodeContextMenu()
+        notifySelectionStateIfAvailable()
+    }
+
+    func notifySelectionStateIfAvailable() {
+        onSelectionStateChanged?(selectionState())
+    }
+
+    private func selectionState() -> PhylogeneticTreeSelectionState? {
+        guard let selectedNodeID,
+              let node = nodesByID[selectedNodeID] else {
+            return nil
+        }
+        var rows: [(String, String)] = [
+            ("Node", node.displayLabel),
+            ("Type", node.isTip ? "Tip" : "Internal"),
+            ("Descendant Tips", "\(node.descendantTipCount)"),
+        ]
+        if let branchLength = node.branchLength {
+            rows.append(("Branch Length", String(format: "%.6g", branchLength)))
+        }
+        if let cumulativeDivergence = node.cumulativeDivergence {
+            rows.append(("Cumulative Divergence", String(format: "%.6g", cumulativeDivergence)))
+        }
+        if let support = node.support {
+            rows.append(("Support", support.rawValue))
+            rows.append(("Support Type", support.interpretation))
+        }
+        for key in node.metadata.keys.sorted() {
+            rows.append((key, node.metadata[key] ?? ""))
+        }
+        return PhylogeneticTreeSelectionState(
+            title: node.displayLabel,
+            subtitle: node.isTip ? "tip" : "internal node",
+            detailRows: rows
+        )
     }
 
     private func centerSelectedNode() {
@@ -419,6 +467,119 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
             parts.append(metadata)
         }
         return parts.joined(separator: "   ")
+    }
+
+    private func refreshNodeContextMenu() {
+        let menu = nodeContextMenu()
+        nodeTableView.menu = menu
+        treeCanvasView.menu = menu
+    }
+
+    private func nodeContextMenu() -> NSMenu {
+        let menu = NSMenu(title: "Tree Node")
+        let showItem = NSMenuItem(
+            title: "Show in Inspector",
+            action: #selector(showSelectedNodeInInspector(_:)),
+            keyEquivalent: ""
+        )
+        showItem.target = self
+        showItem.isEnabled = selectedNodeID != nil
+        menu.addItem(showItem)
+
+        let copyLabelItem = NSMenuItem(
+            title: "Copy Node Label",
+            action: #selector(copySelectedNodeLabel(_:)),
+            keyEquivalent: ""
+        )
+        copyLabelItem.target = self
+        copyLabelItem.isEnabled = selectedNodeID != nil
+        menu.addItem(copyLabelItem)
+
+        let copySubtreeItem = NSMenuItem(
+            title: "Copy Subtree as Newick",
+            action: #selector(copySelectedSubtreeNewick(_:)),
+            keyEquivalent: ""
+        )
+        copySubtreeItem.target = self
+        copySubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
+        menu.addItem(copySubtreeItem)
+
+        let exportSubtreeItem = NSMenuItem(
+            title: "Export Subtree…",
+            action: #selector(exportSelectedSubtree(_:)),
+            keyEquivalent: ""
+        )
+        exportSubtreeItem.target = self
+        exportSubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
+        menu.addItem(exportSubtreeItem)
+
+        let centerItem = NSMenuItem(
+            title: "Center Node",
+            action: #selector(centerSelectedNodeFromMenu(_:)),
+            keyEquivalent: ""
+        )
+        centerItem.target = self
+        centerItem.isEnabled = selectedNodeID != nil
+        menu.addItem(centerItem)
+
+        let revealProvenanceItem = NSMenuItem(
+            title: "Reveal Provenance",
+            action: #selector(revealTreeProvenance(_:)),
+            keyEquivalent: ""
+        )
+        revealProvenanceItem.target = self
+        revealProvenanceItem.isEnabled = bundleURL != nil
+        menu.addItem(revealProvenanceItem)
+        return menu
+    }
+
+    @objc private func showSelectedNodeInInspector(_ sender: Any?) {
+        notifySelectionStateIfAvailable()
+    }
+
+    @objc private func copySelectedNodeLabel(_ sender: Any?) {
+        guard let selectedNodeID,
+              let node = nodesByID[selectedNodeID] else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(node.displayLabel, forType: .string)
+    }
+
+    @objc private func copySelectedSubtreeNewick(_ sender: Any?) {
+        guard let selectedNodeID,
+              let newick = try? bundle?.subtreeNewick(nodeID: selectedNodeID) else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(newick, forType: .string)
+    }
+
+    @objc private func exportSelectedSubtree(_ sender: Any?) {
+        guard let selectedNodeID,
+              let bundle else { return }
+        do {
+            let export = try bundle.subtreeExport(nodeID: selectedNodeID)
+            let panel = NSSavePanel()
+            panel.allowedContentTypes = [.plainText]
+            panel.nameFieldStringValue = "\(export.selectedLabel).nwk"
+            let completion: (NSApplication.ModalResponse) -> Void = { response in
+                guard response == .OK, let url = panel.url else { return }
+                try? Data(export.newick.utf8).write(to: url, options: .atomic)
+            }
+            if let window = view.window {
+                panel.beginSheetModal(for: window, completionHandler: completion)
+            } else if panel.runModal() == .OK {
+                completion(.OK)
+            }
+        } catch {
+            NSSound.beep()
+        }
+    }
+
+    @objc private func centerSelectedNodeFromMenu(_ sender: Any?) {
+        centerSelectedNode()
+    }
+
+    @objc private func revealTreeProvenance(_ sender: Any?) {
+        guard let provenanceURL = bundleURL?.appendingPathComponent(".lungfish-provenance.json") else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([provenanceURL])
     }
 
     private func orderedNodes(_ input: [PhylogeneticTreeNormalizedNode]) -> [PhylogeneticTreeNormalizedNode] {
@@ -492,6 +653,11 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 }
 
 extension PhylogeneticTreeViewController {
+    struct TestingToolbarTextControlMetric: Equatable {
+        let controlSize: NSControl.ControlSize
+        let fontPointSize: CGFloat
+    }
+
     var testingCanvasNodeCount: Int {
         treeCanvasView.testingNodeCount
     }
@@ -522,6 +688,23 @@ extension PhylogeneticTreeViewController {
         }
     }
 
+    var testingToolbarTextControlMetrics: [String: TestingToolbarTextControlMetric] {
+        [
+            "search": TestingToolbarTextControlMetric(
+                controlSize: searchField.controlSize,
+                fontPointSize: searchField.font?.pointSize ?? 0
+            ),
+            "layout": TestingToolbarTextControlMetric(
+                controlSize: layoutModeControl.controlSize,
+                fontPointSize: layoutModeControl.font?.pointSize ?? 0
+            ),
+            "color": TestingToolbarTextControlMetric(
+                controlSize: colorModeControl.controlSize,
+                fontPointSize: colorModeControl.font?.pointSize ?? 0
+            ),
+        ]
+    }
+
     var testingCanvasViewportFrame: NSRect {
         treeScrollView.frame
     }
@@ -529,9 +712,30 @@ extension PhylogeneticTreeViewController {
     var testingTreeLayoutFrames: [String: NSRect] {
         [
             "rootView": view.frame,
+            "toolbar": toolbarContainer.frame,
             "treeScrollView": treeScrollView.frame,
             "treeCanvasView": treeCanvasView.frame,
         ]
+    }
+
+    var testingCanvasZoomScale: CGFloat {
+        treeCanvasView.testingZoomScale
+    }
+
+    var testingCanvasLayoutMode: String {
+        treeCanvasView.testingLayoutMode
+    }
+
+    var testingCanvasColorMode: String {
+        treeCanvasView.testingColorMode
+    }
+
+    var testingCanvasScaleBarLabel: String {
+        treeCanvasView.testingScaleBarLabel
+    }
+
+    func testingCanvasPoint(label: String) -> NSPoint? {
+        treeCanvasView.testingPoint(label: label)
     }
 
     var testingSelectedNodeLabel: String? {
@@ -542,19 +746,48 @@ extension PhylogeneticTreeViewController {
         detailLabel.stringValue
     }
 
+    var testingNodeContextMenuTitles: [String] {
+        nodeContextMenu().items.map(\.title)
+    }
+
     func testingSelectNode(label: String) {
         guard let node = nodes.first(where: { $0.displayLabel == label }) else { return }
         selectNode(id: node.id, center: true)
     }
+
+    func testingPerformZoomIn() {
+        zoomInTree(nil)
+    }
+
+    func testingPerformZoomOut() {
+        zoomOutTree(nil)
+    }
+
+    func testingSetTreeLayoutMode(_ mode: PhylogeneticTreeCanvasLayoutMode) {
+        layoutModeControl.selectedSegment = mode == .cladogram ? 1 : 0
+        layoutModeChanged(layoutModeControl)
+    }
+
+    func testingSetTreeColorMode(_ mode: PhylogeneticTreeCanvasColorMode) {
+        switch mode {
+        case .none:
+            colorModeControl.selectedSegment = 0
+        case .support:
+            colorModeControl.selectedSegment = 1
+        case .branchLength:
+            colorModeControl.selectedSegment = 2
+        }
+        colorModeChanged(colorModeControl)
+    }
 }
 
-private enum PhylogeneticTreeCanvasColorMode {
+enum PhylogeneticTreeCanvasColorMode {
     case none
     case support
     case branchLength
 }
 
-private enum PhylogeneticTreeCanvasLayoutMode {
+enum PhylogeneticTreeCanvasLayoutMode {
     case phylogram
     case cladogram
 }
@@ -589,6 +822,37 @@ private final class PhylogeneticTreeCanvasView: NSView {
     private var maxBranchLengthUnits: CGFloat = 0
 
     var testingNodeCount: Int { nodes.count }
+    var testingZoomScale: CGFloat { zoomScale }
+    var testingLayoutMode: String {
+        switch layoutMode {
+        case .phylogram:
+            return "phylogram"
+        case .cladogram:
+            return "cladogram"
+        }
+    }
+    var testingColorMode: String {
+        switch colorMode {
+        case .none:
+            return "none"
+        case .support:
+            return "support"
+        case .branchLength:
+            return "branchLength"
+        }
+    }
+    var testingScaleBarLabel: String {
+        guard layoutMode == .phylogram,
+              let pointsPerBranchLengthUnit,
+              pointsPerBranchLengthUnit > 0,
+              maxBranchLengthUnits > 0 else {
+            return ""
+        }
+        let targetPixels = min(max(bounds.width * 0.18, 72), 150)
+        let targetUnits = targetPixels / (pointsPerBranchLengthUnit * zoomScale)
+        let scaleUnits = niceScaleLength(near: targetUnits)
+        return String(format: "%.3g substitutions/site", Double(scaleUnits))
+    }
 
     override var isFlipped: Bool { true }
 
@@ -663,6 +927,14 @@ private final class PhylogeneticTreeCanvasView: NSView {
         )
     }
 
+    func testingPoint(label: String) -> NSPoint? {
+        guard let node = nodes.first(where: { $0.displayLabel == label }),
+              let layout = layoutByID[node.id] else {
+            return nil
+        }
+        return scaled(layout.point)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         dirtyRect.fill()
@@ -711,7 +983,8 @@ private final class PhylogeneticTreeCanvasView: NSView {
                 rawXByID[node.id] = CGFloat(depthByID[node.id] ?? 0)
             }
         }
-        let maxRawX = max(rawXByID.values.max() ?? 1, 1)
+        let observedMaxRawX = rawXByID.values.max() ?? 0
+        let maxRawX = observedMaxRawX > 0 ? observedMaxRawX : 1
         let tipCount = max(nodes.filter(\.isTip).count, 1)
         labelWidth = min(
             320,

@@ -22,7 +22,7 @@ final class FASTACollectionViewControllerTests: XCTestCase {
 
         XCTAssertEqual(
             vc.testContextMenuTitles.filter { !$0.isEmpty },
-            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Create Bundle…", "Run Operation…"]
+            ["Extract Sequence…", "Verify with BLAST…", "Copy FASTA", "Export FASTA…", "Create Bundle…", "Align with MAFFT…", "Run Operation…"]
         )
     }
 

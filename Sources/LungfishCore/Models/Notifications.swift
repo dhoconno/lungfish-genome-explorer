@@ -419,6 +419,24 @@ public enum NotificationUserInfoKey {
     /// Key for the currently isolated alignment track ID (String, nil = all alignments).
     public static let visibleAlignmentTrackID = "visibleAlignmentTrackID"
 
+    /// Key for native MSA numbering display mode (String).
+    public static let msaNumberingMode = "msaNumberingMode"
+
+    /// Key for native MSA low-support consensus masking threshold (Int percent).
+    public static let msaConsensusLowSupportThresholdPercent = "msaConsensusLowSupportThresholdPercent"
+
+    /// Key for native MSA high-gap consensus masking threshold (Int percent).
+    public static let msaConsensusHighGapThresholdPercent = "msaConsensusHighGapThresholdPercent"
+
+    /// Key for native MSA consensus mask symbol mode (String).
+    public static let msaConsensusMaskSymbolMode = "msaConsensusMaskSymbolMode"
+
+    /// Key for native MSA row ID used as reference sequence (String).
+    public static let msaReferenceRowID = "msaReferenceRowID"
+
+    /// Key for native MSA residue identity display mode (String).
+    public static let msaResidueIdentityDisplayMode = "msaResidueIdentityDisplayMode"
+
     /// Key for strand-colored read backgrounds toggle (Bool).
     public static let showStrandColors = "showStrandColors"
 

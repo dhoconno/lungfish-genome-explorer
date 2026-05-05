@@ -70,6 +70,7 @@ final class AssemblyActionBar: NSView {
         button.target = self
         button.action = action
         button.bezelStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
         button.setAccessibilityIdentifier(identifier)
         button.setAccessibilityLabel(label)
     }

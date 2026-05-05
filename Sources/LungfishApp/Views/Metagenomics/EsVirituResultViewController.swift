@@ -136,8 +136,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         btn.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Recompute Unique Reads")
         btn.bezelStyle = .accessoryBarAction
         btn.imagePosition = .imageLeading
-        btn.controlSize = .small
-        btn.font = .systemFont(ofSize: 11)
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: btn)
         btn.setContentHuggingPriority(.required, for: .horizontal)
         btn.isHidden = true  // shown only in batch mode
         return btn

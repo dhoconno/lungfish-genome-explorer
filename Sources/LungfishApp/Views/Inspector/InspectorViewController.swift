@@ -1045,6 +1045,27 @@ public class InspectorViewController: NSViewController {
     /// Updates the Document inspector with multiple-sequence-alignment bundle statistics.
     func updateMultipleSequenceAlignmentDocument(_ bundle: MultipleSequenceAlignmentBundle) {
         let manifest = bundle.manifest
+        let provenanceRows = Self.provenanceContextRows(
+            at: bundle.url.appendingPathComponent(".lungfish-provenance.json")
+        )
+        viewModel.readStyleSectionViewModel.clear()
+        viewModel.readStyleSectionViewModel.hasMultipleSequenceAlignmentBundle = true
+        viewModel.readStyleSectionViewModel.msaReferenceRowOptions = bundle.rows.map {
+            MSAReferenceRowOption(id: $0.id, name: $0.displayName)
+        }
+        viewModel.readStyleSectionViewModel.selectedMSAReferenceRowID =
+            manifest.referenceRowID
+            ?? bundle.rows.first?.id
+        viewModel.readStyleSectionViewModel.onSettingsChanged = { [weak self] in
+            guard let self else { return }
+            NotificationCenter.default.post(
+                name: .readDisplaySettingsChanged,
+                object: self,
+                userInfo: self.windowScopedUserInfo(
+                    self.makeReadDisplaySettingsPayload(from: self.viewModel.readStyleSectionViewModel)
+                )
+            )
+        }
         let state = MultipleSequenceAlignmentDocumentState(
             title: manifest.name,
             subtitle: "\(manifest.sourceFormat.rawValue) • \(manifest.alphabet)",
@@ -1057,7 +1078,7 @@ public class InspectorViewController: NSViewController {
                 ("Parsimony Informative", "\(manifest.parsimonyInformativeSiteCount)"),
                 ("Source Format", manifest.sourceFormat.rawValue),
                 ("Source File", manifest.sourceFileName),
-            ],
+            ] + provenanceRows,
             warningRows: manifest.warnings,
             artifactRows: [
                 MultipleSequenceAlignmentDocumentArtifactRow(
@@ -1083,10 +1104,91 @@ public class InspectorViewController: NSViewController {
         viewModel.selectedTab = .bundle
     }
 
+    /// Updates the Document inspector with phylogenetic-tree bundle statistics.
+    func updatePhylogeneticTreeDocument(_ bundle: PhylogeneticTreeBundle) {
+        let manifest = bundle.manifest
+        let rootedText = manifest.isRooted ? "rooted" : "unrooted"
+        let provenanceRows = Self.provenanceContextRows(
+            at: bundle.url.appendingPathComponent(".lungfish-provenance.json")
+        )
+        viewModel.readStyleSectionViewModel.clear()
+        let state = PhylogeneticTreeDocumentState(
+            title: manifest.name,
+            subtitle: "\(manifest.sourceFormat) • \(rootedText)",
+            summary: "\(manifest.tipCount) tips • \(manifest.internalNodeCount) internal nodes",
+            contextRows: [
+                ("Tips", "\(manifest.tipCount)"),
+                ("Internal Nodes", "\(manifest.internalNodeCount)"),
+                ("Rooting", manifest.isRooted ? "Rooted" : "Unrooted"),
+                ("Source Format", manifest.sourceFormat),
+                ("Primary Tree", manifest.primaryTreeID),
+                ("Branch Unit", manifest.branchLengthUnit ?? "unspecified"),
+                ("Source File", manifest.sourceFileName),
+                ("Capabilities", manifest.capabilities.joined(separator: ", ")),
+            ] + provenanceRows,
+            warningRows: manifest.warnings,
+            artifactRows: [
+                PhylogeneticTreeDocumentArtifactRow(
+                    label: "Primary Newick",
+                    fileURL: bundle.url.appendingPathComponent("tree/primary.nwk")
+                ),
+                PhylogeneticTreeDocumentArtifactRow(
+                    label: "Normalized Tree",
+                    fileURL: bundle.url.appendingPathComponent("tree/primary.normalized.json")
+                ),
+                PhylogeneticTreeDocumentArtifactRow(
+                    label: "Tree Index",
+                    fileURL: bundle.url.appendingPathComponent("cache/tree-index.sqlite")
+                ),
+                PhylogeneticTreeDocumentArtifactRow(
+                    label: "Provenance",
+                    fileURL: bundle.url.appendingPathComponent(".lungfish-provenance.json")
+                ),
+            ]
+        )
+        viewModel.documentSectionViewModel.updatePhylogeneticTreeDocument(state)
+        viewModel.selectedTab = .bundle
+    }
+
+    private static func provenanceContextRows(at url: URL) -> [(String, String)] {
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [("Provenance", "missing")]
+        }
+        var rows: [(String, String)] = []
+        if let toolName = object["toolName"] as? String, !toolName.isEmpty {
+            rows.append(("Workflow", toolName))
+        }
+        if let toolVersion = object["toolVersion"] as? String, !toolVersion.isEmpty {
+            rows.append(("Tool Version", toolVersion))
+        }
+        if let command = object["command"] as? String, !command.isEmpty {
+            rows.append(("Command", command))
+        } else if let argv = object["argv"] as? [String], !argv.isEmpty {
+            rows.append(("Command", argv.joined(separator: " ")))
+        }
+        if let exitStatus = object["exitStatus"] {
+            rows.append(("Exit Status", "\(exitStatus)"))
+        }
+        if let wallTime = object["wallTimeSeconds"] as? Double {
+            rows.append(("Wall Time", String(format: "%.2f s", wallTime)))
+        }
+        return rows
+    }
+
     /// Updates the Selected Item inspector with MSA row/site/range metadata.
     func updateMultipleSequenceAlignmentSelection(_ state: MultipleSequenceAlignmentSelectionState?) {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(multipleSequenceAlignmentSelection: state)
+        if state != nil {
+            viewModel.selectedTab = .selectedItem
+        }
+    }
+
+    /// Updates the Selected Item inspector with phylogenetic-tree node metadata.
+    func updatePhylogeneticTreeSelection(_ state: PhylogeneticTreeSelectionState?) {
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(phylogeneticTreeSelection: state)
         if state != nil {
             viewModel.selectedTab = .selectedItem
         }
@@ -1523,6 +1625,12 @@ public class InspectorViewController: NSViewController {
             NotificationUserInfoKey.excludeFlags: vm.computedExcludeFlags,
             NotificationUserInfoKey.selectedReadGroups: vm.selectedReadGroups,
             NotificationUserInfoKey.visibleAlignmentTrackID: vm.selectedVisibleAlignmentTrackID ?? "",
+            NotificationUserInfoKey.msaNumberingMode: vm.msaNumberingMode.rawValue,
+            NotificationUserInfoKey.msaConsensusLowSupportThresholdPercent: Int(vm.msaConsensusLowSupportThresholdPercent),
+            NotificationUserInfoKey.msaConsensusHighGapThresholdPercent: Int(vm.msaConsensusHighGapThresholdPercent),
+            NotificationUserInfoKey.msaConsensusMaskSymbolMode: vm.msaConsensusMaskSymbolMode.rawValue,
+            NotificationUserInfoKey.msaReferenceRowID: vm.selectedMSAReferenceRowID ?? "",
+            NotificationUserInfoKey.msaResidueIdentityDisplayMode: vm.msaResidueIdentityDisplayMode.rawValue,
         ]
     }
 
@@ -2910,7 +3018,7 @@ public struct InspectorView: View {
             // Single-tab mode: show a label instead of a picker
             HStack {
                 Text(single.displayLabel)
-                    .font(.headline)
+                    .font(LungfishInspectorStyle.sectionTitleFont)
                 Spacer()
             }
             .padding(.horizontal)
@@ -3002,45 +3110,13 @@ private struct InspectorTabGrid: View {
     let tabs: [InspectorTab]
     @Binding var selectedTab: InspectorTab
 
-    private var columns: [GridItem] {
-        Array(
-            repeating: GridItem(.flexible(minimum: 0), spacing: 6),
-            count: tabs.count > 3 ? 2 : max(tabs.count, 1)
-        )
-    }
-
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 6) {
-            ForEach(tabs, id: \.self) { tab in
-                Button {
-                    selectedTab = tab
-                } label: {
-                    Text(tab.displayLabel)
-                        .font(.caption.weight(selectedTab == tab ? .semibold : .regular))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .padding(.horizontal, 4)
-                        .background(tabBackground(for: tab))
-                        .foregroundStyle(selectedTab == tab ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .help(tab.displayLabel)
-            }
-        }
-        .accessibilityLabel("Inspector")
-    }
-
-    @ViewBuilder
-    private func tabBackground(for tab: InspectorTab) -> some View {
-        if selectedTab == tab {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor)
-        } else {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlColor))
-        }
+        LungfishInspectorSegmentedButtonGrid(
+            options: tabs,
+            selection: $selectedTab,
+            accessibilityLabel: "Inspector",
+            label: \.displayLabel
+        )
     }
 }
 
@@ -3078,7 +3154,7 @@ private struct InspectorReadStyleSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("View Settings")
-                .font(.headline)
+                .font(LungfishInspectorStyle.sectionTitleFont)
 
             if viewModel.contentMode == .mapping {
                 MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
@@ -3107,43 +3183,13 @@ private struct InspectorReadStyleSection: View {
 private struct InspectorSubsectionGrid: View {
     @Binding var selection: ReadStyleViewSubsection
 
-    private let columns = Array(
-        repeating: GridItem(.flexible(minimum: 0), spacing: 6),
-        count: ReadStyleViewSubsection.allCases.count
-    )
-
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 6) {
-            ForEach(ReadStyleViewSubsection.allCases) { section in
-                Button {
-                    selection = section
-                } label: {
-                    Text(section.displayTitle)
-                        .font(.caption.weight(selection == section ? .semibold : .regular))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .padding(.horizontal, 3)
-                        .background(sectionBackground(for: section))
-                        .foregroundStyle(selection == section ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .help(section.displayTitle)
-            }
-        }
-        .accessibilityLabel("View Section")
-    }
-
-    @ViewBuilder
-    private func sectionBackground(for section: ReadStyleViewSubsection) -> some View {
-        if selection == section {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor)
-        } else {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlColor))
-        }
+        LungfishInspectorSegmentedButtonGrid(
+            options: ReadStyleViewSubsection.allCases,
+            selection: $selection,
+            accessibilityLabel: "View Section",
+            label: \.displayTitle
+        )
     }
 }
 
@@ -3824,7 +3870,7 @@ private struct MappingViewSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Mapping Layout")
-                .font(.headline)
+                .font(LungfishInspectorStyle.sectionTitleFont)
 
             Text("Choose how the contig list and genome detail panes share the mapping viewer.")
                 .font(.caption2)
@@ -3854,7 +3900,7 @@ private struct MappingViewSettingsSection: View {
     private var bundleScrollDirectionPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Bundle Scroll Direction")
-                .font(.headline)
+                .font(LungfishInspectorStyle.sectionTitleFont)
 
             Picker("Horizontal Scroll", selection: Binding(
                 get: { viewModel.bundleHorizontalScrollDirection },

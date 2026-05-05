@@ -150,8 +150,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
         // Sort popup
         sortPopup.addItems(withTitles: ["Natural", "A-Z", "Size"])
-        sortPopup.font = .systemFont(ofSize: 10)
-        sortPopup.controlSize = .mini
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: sortPopup)
         sortPopup.translatesAutoresizingMaskIntoConstraints = false
         sortPopup.target = self
         sortPopup.action = #selector(sortModeChanged(_:))
@@ -160,8 +159,7 @@ public class ChromosomeNavigatorView: NSView, NSTableViewDataSource, NSTableView
 
         // Filter search field
         filterField.placeholderString = "Filter"
-        filterField.font = .systemFont(ofSize: 11)
-        filterField.controlSize = .small
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: filterField)
         filterField.translatesAutoresizingMaskIntoConstraints = false
         filterField.sendsSearchStringImmediately = true
         filterField.target = self

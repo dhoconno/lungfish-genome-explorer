@@ -504,6 +504,10 @@ public final class FASTACollectionViewController: NSViewController,
                     guard let self else { return }
                     self.onCreateBundleRequested?(self.selectedSequences())
                 },
+                onAlignWithMAFFT: onRunOperationRequested == nil ? nil : { [weak self] in
+                    guard let self else { return }
+                    self.onRunOperationRequested?(self.selectedSequences())
+                },
                 onRunOperation: onRunOperationRequested == nil ? nil : { [weak self] in
                     guard let self else { return }
                     self.onRunOperationRequested?(self.selectedSequences())

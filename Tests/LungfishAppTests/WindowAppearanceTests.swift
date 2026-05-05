@@ -31,7 +31,7 @@ final class WindowAppearanceTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Text(tab.displayLabel)"))
+        XCTAssertTrue(source.contains("label: \\.displayLabel"))
         XCTAssertFalse(source.contains("Image(systemName: tab.iconName)"))
     }
 
@@ -83,6 +83,30 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(mappingSource.contains(".lineLimit(2)"))
         XCTAssertTrue(mappingSource.contains(".truncationMode(.middle)"))
         XCTAssertTrue(mappingSource.contains(".help(text)"))
+    }
+
+    func testInspectorControlsDoNotScaleIndividualLabelsToFitSidecar() throws {
+        let controllerSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift"),
+            encoding: .utf8
+        )
+        let readStyleSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/ReadStyleSection.swift"),
+            encoding: .utf8
+        )
+        let mappingSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/MappingDocumentSection.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertFalse(controllerSource.contains(".minimumScaleFactor("))
+        XCTAssertFalse(readStyleSource.contains(".minimumScaleFactor("))
+        XCTAssertFalse(mappingSource.contains(".minimumScaleFactor("))
+        XCTAssertTrue(controllerSource.contains("LungfishInspectorSegmentedButtonGrid"))
+        XCTAssertTrue(readStyleSource.contains("LungfishInspectorSegmentedButtonGrid"))
     }
 
     func testMappingLayoutControlsStayAvailableAndFitFixedWidthSidecar() throws {

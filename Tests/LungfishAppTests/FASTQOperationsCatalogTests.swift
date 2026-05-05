@@ -130,6 +130,36 @@ final class FASTQOperationsCatalogTests: XCTestCase {
         XCTAssertNil(state.pendingLaunchRequest)
     }
 
+    func testMAFFTToolPassesCuratedOptionsIntoPendingMSARequest() throws {
+        let project = repositoryRoot()
+            .appendingPathComponent(".build", isDirectory: true)
+            .appendingPathComponent("Project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
+        )
+        state.mafftStrategy = .linsi
+        state.mafftOutputOrder = .aligned
+        state.mafftSequenceType = .nucleotide
+        state.mafftDirectionAdjustment = .accurate
+        state.mafftSymbolPolicy = .any
+        state.mafftDeterministicThreads = false
+        state.mafftThreads = 4
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.strategy, .linsi)
+        XCTAssertEqual(request.outputOrder, .aligned)
+        XCTAssertEqual(request.sequenceType, .nucleotide)
+        XCTAssertEqual(request.directionAdjustment, .accurate)
+        XCTAssertEqual(request.symbolPolicy, .any)
+        XCTAssertFalse(request.deterministicThreads)
+        XCTAssertEqual(request.threads, 4)
+    }
+
     func testMAFFTToolParsesAdvancedOptionsIntoPendingRequest() throws {
         let project = repositoryRoot()
             .appendingPathComponent(".build", isDirectory: true)
