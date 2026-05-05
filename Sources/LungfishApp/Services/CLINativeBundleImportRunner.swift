@@ -134,6 +134,8 @@ actor CLINativeBundleImportRunner {
         let state = OSAllocatedUnfairLock(initialState: StreamState())
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
+        let stdoutHandlerGroup = DispatchGroup()
+        let stderrHandlerGroup = DispatchGroup()
         let opID = operationID
 
         @Sendable func handleLine(_ data: Data) {
@@ -199,15 +201,29 @@ actor CLINativeBundleImportRunner {
             }
         }
 
+        @Sendable func consumeStderr(_ data: Data) {
+            guard !data.isEmpty else { return }
+            state.withLock { $0.stderrBuffer.append(data) }
+        }
+
+        func drainStreamHandlers() {
+            stdoutHandlerGroup.wait()
+            stderrHandlerGroup.wait()
+        }
+
         stdoutHandle.readabilityHandler = { handle in
+            stdoutHandlerGroup.enter()
+            defer { stdoutHandlerGroup.leave() }
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
             consumeStdout(chunk)
         }
         stderrHandle.readabilityHandler = { handle in
+            stderrHandlerGroup.enter()
+            defer { stderrHandlerGroup.leave() }
             let chunk = handle.availableData
             guard !chunk.isEmpty else { return }
-            state.withLock { $0.stderrBuffer.append(chunk) }
+            consumeStderr(chunk)
         }
 
         await MainActor.run {
@@ -219,6 +235,7 @@ actor CLINativeBundleImportRunner {
         } catch {
             stdoutHandle.readabilityHandler = nil
             stderrHandle.readabilityHandler = nil
+            drainStreamHandlers()
             process = nil
             await failOperation(opID, detail: error.localizedDescription)
             throw RunError.launchFailed(error.localizedDescription)
@@ -227,7 +244,10 @@ actor CLINativeBundleImportRunner {
         proc.waitUntilExit()
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        drainStreamHandlers()
         consumeStdout(stdoutHandle.readDataToEndOfFile())
+        consumeStderr(stderrHandle.readDataToEndOfFile())
+        drainStreamHandlers()
         if let trailing = state.withLock({ current -> Data? in
             guard !current.stdoutBuffer.isEmpty else { return nil }
             defer { current.stdoutBuffer.removeAll(keepingCapacity: false) }
