@@ -157,6 +157,34 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         XCTAssertEqual(provenanceJSON["warnings"] as? [String], bundle.manifest.warnings)
     }
 
+    func testKnownSarcopterygianFixtureImportsWithExpectedClades() throws {
+        let fixtureURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent("Tests/Fixtures/phylogenetics/known-sarcopterygian/expected.nwk")
+        let bundleURL = workspaceURL.appendingPathComponent("KnownSarcopterygian.lungfishtree", isDirectory: true)
+
+        let bundle = try PhylogeneticTreeBundleImporter.importTree(
+            from: fixtureURL,
+            to: bundleURL,
+            options: .init(name: "Known Sarcopterygian Tree")
+        )
+
+        XCTAssertEqual(
+            Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)),
+            [
+                "Zebrafish_outgroup",
+                "Coelacanth",
+                "Australian_lungfish",
+                "African_lungfish",
+                "Human",
+                "Frog",
+            ]
+        )
+        XCTAssertTrue(bundleContainsClade(bundle, labels: ["Australian_lungfish", "African_lungfish"]))
+        XCTAssertTrue(bundleContainsClade(bundle, labels: ["Human", "Frog"]))
+        XCTAssertTrue(bundleContainsClade(bundle, labels: ["Australian_lungfish", "African_lungfish", "Human", "Frog"]))
+        XCTAssertTrue(bundleContainsClade(bundle, labels: ["Coelacanth", "Australian_lungfish", "African_lungfish", "Human", "Frog"]))
+    }
+
     func testSubtreeNewickByLabelPreservesDescendantsAndBranchLengths() throws {
         let sourceURL = try writeSource(
             name: "subtree.nwk",
@@ -201,5 +229,19 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         let data = try Data(contentsOf: url)
         let object = try JSONSerialization.jsonObject(with: data)
         return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func bundleContainsClade(_ bundle: PhylogeneticTreeBundle, labels: Set<String>) -> Bool {
+        let nodesByID = Dictionary(uniqueKeysWithValues: bundle.normalizedTree.nodes.map { ($0.id, $0) })
+        func descendantTips(for node: PhylogeneticTreeNormalizedNode) -> Set<String> {
+            if node.isTip {
+                return [node.displayLabel]
+            }
+            return node.childIDs.reduce(into: Set<String>()) { result, childID in
+                guard let child = nodesByID[childID] else { return }
+                result.formUnion(descendantTips(for: child))
+            }
+        }
+        return bundle.normalizedTree.nodes.contains { descendantTips(for: $0) == labels }
     }
 }

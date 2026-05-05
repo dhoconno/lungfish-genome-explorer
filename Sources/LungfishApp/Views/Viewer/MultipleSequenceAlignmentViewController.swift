@@ -15,18 +15,54 @@ private enum MultipleSequenceAlignmentAccessibilityID {
     static let rowGutter = "multiple-sequence-alignment-row-gutter"
     static let columnHeader = "multiple-sequence-alignment-column-header"
     static let searchField = "multiple-sequence-alignment-search-field"
+    static let zoomOutButton = "multiple-sequence-alignment-zoom-out-button"
+    static let zoomInButton = "multiple-sequence-alignment-zoom-in-button"
+    static let fitColumnsButton = "multiple-sequence-alignment-fit-columns-button"
     static let siteMode = "multiple-sequence-alignment-site-mode"
     static let colorScheme = "multiple-sequence-alignment-color-scheme"
 }
 
 private enum MSAAlignmentCanvasMetrics {
-    static let rowGutterWidth: CGFloat = 172
-    static let headerHeight: CGFloat = 58
+    static let rowGutterWidth: CGFloat = 232
+    static let headerHeight: CGFloat = 24
     static let overviewHeight: CGFloat = 18
+    static let consensusRowHeight: CGFloat = 26
     static let rowHeight: CGFloat = 24
     static let defaultColumnWidth: CGFloat = 12
+    static let minimumOverviewColumnWidth: CGFloat = 0.04
+    static let letterColumnWidth: CGFloat = 8
+    static let blockColumnWidth: CGFloat = 2
+    static let maximumColumnWidth: CGFloat = 36
+    static let zoomFactor: CGFloat = 1.35
     static let maximumAnnotationZoomColumnWidth: CGFloat = 28
     static let annotationLaneHeight: CGFloat = 6
+}
+
+private enum MSAZoomRenderingMode: Equatable {
+    case letters
+    case residueBlocks
+    case aggregateDifferences
+
+    static func forColumnWidth(_ columnWidth: CGFloat) -> MSAZoomRenderingMode {
+        if columnWidth < MSAAlignmentCanvasMetrics.blockColumnWidth {
+            return .aggregateDifferences
+        }
+        if columnWidth < MSAAlignmentCanvasMetrics.letterColumnWidth {
+            return .residueBlocks
+        }
+        return .letters
+    }
+
+    var displayTitle: String {
+        switch self {
+        case .letters:
+            return "letters"
+        case .residueBlocks:
+            return "residue blocks"
+        case .aggregateDifferences:
+            return "aggregate differences"
+        }
+    }
 }
 
 enum MultipleSequenceAlignmentNavigationDirection {
@@ -94,6 +130,149 @@ private struct MSAAlignmentAnnotationTrack: Equatable {
             return nil
         }
         return start...(end - 1)
+    }
+}
+
+private struct MSAOrientationNumberingTick: Equatable {
+    let displayColumn: Int
+    let alignmentColumn: Int
+    let label: String
+}
+
+private enum MSAVisibleDisplayColumns {
+    static func range(
+        displayedColumnCount: Int,
+        columnWidth: CGFloat,
+        minX: CGFloat,
+        maxX: CGFloat,
+        overscan: Int = 2
+    ) -> Range<Int> {
+        guard displayedColumnCount > 0,
+              columnWidth.isFinite,
+              columnWidth > 0,
+              minX.isFinite,
+              maxX.isFinite else {
+            return 0..<0
+        }
+
+        let rawStart = floor(min(minX, maxX) / columnWidth) - CGFloat(overscan)
+        let rawEnd = ceil(max(minX, maxX) / columnWidth) + CGFloat(overscan)
+        let start = clampedIndex(rawStart, count: displayedColumnCount)
+        let end = clampedIndex(rawEnd, count: displayedColumnCount)
+        guard start < end else { return 0..<0 }
+        return start..<end
+    }
+
+    private static func clampedIndex(_ value: CGFloat, count: Int) -> Int {
+        guard value.isFinite else { return 0 }
+        if value <= 0 {
+            return 0
+        }
+        if value >= CGFloat(count) {
+            return count
+        }
+        return Int(value)
+    }
+}
+
+private enum MSAOrientationNumbering {
+    static let targetPixelSpacing: CGFloat = 90
+
+    static func ticks(
+        displayedColumns: [Int],
+        columnWidth: CGFloat,
+        visibleDisplayColumns: Range<Int>
+    ) -> [MSAOrientationNumberingTick] {
+        guard !displayedColumns.isEmpty,
+              !visibleDisplayColumns.isEmpty,
+              columnWidth.isFinite,
+              columnWidth > 0,
+              displayedColumns.indices.contains(visibleDisplayColumns.lowerBound),
+              displayedColumns.indices.contains(visibleDisplayColumns.upperBound - 1) else {
+            return []
+        }
+
+        let targetColumns = max(1, Int(ceil(targetPixelSpacing / columnWidth)))
+        let interval = niceInterval(near: targetColumns)
+        let firstDisplayColumn = visibleDisplayColumns.lowerBound
+        let lastDisplayColumn = visibleDisplayColumns.upperBound - 1
+        let firstCoordinate = displayedColumns[firstDisplayColumn] + 1
+        let lastCoordinate = displayedColumns[lastDisplayColumn] + 1
+        var ticks: [MSAOrientationNumberingTick] = [
+            MSAOrientationNumberingTick(
+                displayColumn: firstDisplayColumn,
+                alignmentColumn: displayedColumns[firstDisplayColumn],
+                label: label(for: firstCoordinate)
+            ),
+        ]
+
+        var coordinate = ((firstCoordinate / interval) + 1) * interval
+        while coordinate <= lastCoordinate {
+            let alignmentColumn = coordinate - 1
+            guard let displayColumn = firstDisplayedColumn(
+                atOrAfter: alignmentColumn,
+                displayedColumns: displayedColumns,
+                visibleDisplayColumns: visibleDisplayColumns
+            ) else {
+                coordinate += interval
+                continue
+            }
+            if ticks.last?.displayColumn != displayColumn {
+                let actualCoordinate = displayedColumns[displayColumn] + 1
+                ticks.append(
+                    MSAOrientationNumberingTick(
+                        displayColumn: displayColumn,
+                        alignmentColumn: displayedColumns[displayColumn],
+                        label: label(for: actualCoordinate)
+                    )
+                )
+            }
+            coordinate += interval
+        }
+
+        return ticks
+    }
+
+    private static func firstDisplayedColumn(
+        atOrAfter alignmentColumn: Int,
+        displayedColumns: [Int],
+        visibleDisplayColumns: Range<Int>
+    ) -> Int? {
+        var low = visibleDisplayColumns.lowerBound
+        var high = visibleDisplayColumns.upperBound
+        while low < high {
+            let mid = (low + high) / 2
+            if displayedColumns[mid] < alignmentColumn {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return visibleDisplayColumns.contains(low) ? low : nil
+    }
+
+    private static func niceInterval(near target: Int) -> Int {
+        guard target > 1 else { return 1 }
+        var magnitude = 1
+        while magnitude * 10 < target {
+            magnitude *= 10
+        }
+        for multiplier in [1, 2, 5, 10] {
+            let candidate = multiplier * magnitude
+            if candidate >= target {
+                return candidate
+            }
+        }
+        return magnitude * 10
+    }
+
+    private static func label(for coordinate: Int) -> String {
+        guard coordinate >= 1_000 else { return "\(coordinate)" }
+        if coordinate.isMultiple(of: 1_000) {
+            return "\(coordinate / 1_000) kb"
+        }
+        let value = Double(coordinate) / 1_000
+        return String(format: "%.1f kb", value)
     }
 }
 
@@ -166,8 +345,15 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     private var selectionAnchor: (row: Int, alignmentColumn: Int)?
     private var alignmentColumnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
     private var colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide
+    private var numberingMode: MSAAlignmentNumberingMode = .both
+    private var consensusDisplayOptions = MSAConsensusDisplayOptions()
+    private var referenceRowID: String?
+    private var residueIdentityDisplayMode: MSAResidueIdentityDisplayMode = .letters
 
     private let searchField = NSSearchField()
+    private let zoomOutButton = NSButton(title: "", target: nil, action: nil)
+    private let zoomInButton = NSButton(title: "", target: nil, action: nil)
+    private let fitColumnsButton = NSButton(title: "", target: nil, action: nil)
     private let siteModeControl = NSSegmentedControl(
         labels: ["All Sites", "Variable Sites"],
         trackingMode: .selectOne,
@@ -226,11 +412,16 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         selectedAlignmentColumnRange = selectedAlignmentColumn.map { $0...$0 }
         selectionAnchor = selectedRowIndex.flatMap { row in selectedAlignmentColumn.map { (row, $0) } }
         colorScheme = .nucleotide
+        numberingMode = .both
+        consensusDisplayOptions = MSAConsensusDisplayOptions()
+        referenceRowID = loaded.manifest.referenceRowID ?? loaded.rows.first?.id
+        residueIdentityDisplayMode = .letters
         colorSchemeControl.selectedSegment = colorScheme.rawValue
         siteModeControl.selectedSegment = 0
         searchField.stringValue = ""
 
         configureCanvasViews()
+        zoomToFit()
         refreshAnnotationDrawer()
         scrollSelectionIntoView()
         notifySelectionStateIfAvailable()
@@ -252,9 +443,81 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         moveVariableSelection(direction: 1)
     }
 
+    @objc private func zoomOutAlignment(_ sender: Any?) {
+        zoomOut()
+    }
+
+    @objc private func zoomInAlignment(_ sender: Any?) {
+        zoomIn()
+    }
+
+    @objc private func fitAlignmentColumns(_ sender: Any?) {
+        zoomToFit()
+    }
+
     @objc private func colorSchemeChanged(_ sender: NSSegmentedControl) {
         guard let scheme = MultipleSequenceAlignmentColorScheme(rawValue: sender.selectedSegment) else { return }
         colorScheme = scheme
+        configureCanvasViews()
+    }
+
+    public func zoomOut() {
+        setAlignmentColumnWidth(
+            alignmentColumnWidth / MSAAlignmentCanvasMetrics.zoomFactor,
+            centeredOnDisplayColumn: visibleCenterDisplayColumn()
+        )
+    }
+
+    public func zoomIn() {
+        setAlignmentColumnWidth(
+            alignmentColumnWidth * MSAAlignmentCanvasMetrics.zoomFactor,
+            centeredOnDisplayColumn: visibleCenterDisplayColumn()
+        )
+    }
+
+    public func zoomToFit() {
+        guard !displayedColumns.isEmpty else { return }
+        let visibleWidth = effectiveVisibleMatrixWidth()
+        let fittedWidth = min(
+            MSAAlignmentCanvasMetrics.defaultColumnWidth,
+            max(
+                MSAAlignmentCanvasMetrics.minimumOverviewColumnWidth,
+                (visibleWidth - 8) / CGFloat(max(displayedColumns.count, 1))
+            )
+        )
+        setAlignmentColumnWidth(fittedWidth, centeredOnDisplayColumn: 0)
+        centerDisplayColumn(0)
+    }
+
+    public func resetZoom() {
+        setAlignmentColumnWidth(
+            MSAAlignmentCanvasMetrics.defaultColumnWidth,
+            centeredOnDisplayColumn: visibleCenterDisplayColumn()
+        )
+    }
+
+    func applyNumberingMode(_ mode: MSAAlignmentNumberingMode) {
+        numberingMode = mode
+        configureCanvasViews()
+    }
+
+    func applyConsensusDisplayOptions(_ options: MSAConsensusDisplayOptions) {
+        consensusDisplayOptions = options
+        configureCanvasViews()
+    }
+
+    func applyReferenceRowID(_ rowID: String?) {
+        if let rowID, rowIDsByIndex.contains(rowID) {
+            referenceRowID = rowID
+        } else {
+            referenceRowID = rowIDsByIndex.first
+        }
+        configureCanvasViews()
+        notifySelectionStateIfAvailable()
+    }
+
+    func applyResidueIdentityDisplayMode(_ mode: MSAResidueIdentityDisplayMode) {
+        residueIdentityDisplayMode = mode
         configureCanvasViews()
     }
 
@@ -292,33 +555,69 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         searchField.placeholderString = "Find sequence or column"
         searchField.target = self
         searchField.action = #selector(performSearchFromField(_:))
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: searchField)
         searchField.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.searchField)
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        searchField.widthAnchor.constraint(equalToConstant: 190).isActive = true
+
+        zoomOutButton.target = self
+        zoomOutButton.action = #selector(zoomOutAlignment(_:))
+        configureIconButton(
+            zoomOutButton,
+            symbolName: "minus.magnifyingglass",
+            fallbackTitle: "-",
+            accessibilityLabel: "Zoom out"
+        )
+        zoomOutButton.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.zoomOutButton)
+
+        zoomInButton.target = self
+        zoomInButton.action = #selector(zoomInAlignment(_:))
+        configureIconButton(
+            zoomInButton,
+            symbolName: "plus.magnifyingglass",
+            fallbackTitle: "+",
+            accessibilityLabel: "Zoom in"
+        )
+        zoomInButton.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.zoomInButton)
+
+        fitColumnsButton.target = self
+        fitColumnsButton.action = #selector(fitAlignmentColumns(_:))
+        configureIconButton(
+            fitColumnsButton,
+            symbolName: "arrow.left.and.right",
+            fallbackTitle: "Fit",
+            accessibilityLabel: "Fit alignment columns"
+        )
+        fitColumnsButton.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.fitColumnsButton)
 
         siteModeControl.selectedSegment = 0
         siteModeControl.target = self
         siteModeControl.action = #selector(siteModeChanged(_:))
-        siteModeControl.segmentStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: siteModeControl)
         siteModeControl.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.siteMode)
 
         previousVariableButton.target = self
         previousVariableButton.action = #selector(previousVariableSite(_:))
         previousVariableButton.bezelStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: previousVariableButton)
 
         nextVariableButton.target = self
         nextVariableButton.action = #selector(nextVariableSite(_:))
         nextVariableButton.bezelStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: nextVariableButton)
 
         colorSchemeControl.selectedSegment = MultipleSequenceAlignmentColorScheme.nucleotide.rawValue
         colorSchemeControl.target = self
         colorSchemeControl.action = #selector(colorSchemeChanged(_:))
-        colorSchemeControl.segmentStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: colorSchemeControl)
         colorSchemeControl.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.colorScheme)
         colorSchemeControl.setAccessibilityLabel("Alignment color scheme")
 
         let toolbar = NSStackView(views: [
             searchField,
+            zoomOutButton,
+            zoomInButton,
+            fitColumnsButton,
             siteModeControl,
             previousVariableButton,
             nextVariableButton,
@@ -329,6 +628,20 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         toolbar.spacing = 8
         toolbar.edgeInsets = NSEdgeInsets(top: 0, left: 12, bottom: 6, right: 12)
         return toolbar
+    }
+
+    private func configureIconButton(
+        _ button: NSButton,
+        symbolName: String,
+        fallbackTitle: String,
+        accessibilityLabel: String
+    ) {
+        LungfishAppKitControlStyle.configureInspectorIconButton(
+            button,
+            symbolName: symbolName,
+            fallbackTitle: fallbackTitle,
+            accessibilityLabel: accessibilityLabel
+        )
     }
 
     private func configureCanvas() {
@@ -349,7 +662,7 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         columnHeaderView.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.columnHeader)
         columnHeaderView.setAccessibilityElement(true)
         columnHeaderView.setAccessibilityRole(.group)
-        columnHeaderView.setAccessibilityLabel("Alignment columns")
+        columnHeaderView.setAccessibilityLabel("Consensus sequence")
         overviewSignalView.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.overviewSignal)
         overviewSignalView.setAccessibilityElement(true)
         overviewSignalView.setAccessibilityRole(.group)
@@ -367,6 +680,14 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         }
         alignmentMatrixView.onKeyboardNavigation = { [weak self] direction, extendingSelection in
             self?.moveActiveCell(direction, extendingSelection: extendingSelection)
+        }
+        alignmentMatrixView.onMagnification = { [weak self] magnification in
+            guard let self else { return }
+            let factor = max(0.2, 1 + magnification)
+            self.setAlignmentColumnWidth(
+                self.alignmentColumnWidth * factor,
+                centeredOnDisplayColumn: self.visibleCenterDisplayColumn()
+            )
         }
         alignmentMatrixView.contextMenuProvider = { [weak self] row, alignmentColumn in
             guard let self else { return nil }
@@ -446,18 +767,30 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     @objc private func alignmentClipViewBoundsDidChange(_ notification: Notification) {
         let origin = alignmentScrollView.contentView.bounds.origin
         rowGutterView.verticalOffset = origin.y
+        rowGutterView.horizontalOffset = origin.x
         columnHeaderView.horizontalOffset = origin.x
         rowGutterView.needsDisplay = true
         columnHeaderView.needsDisplay = true
     }
 
     private func configureCanvasViews() {
-        cornerHeaderView.configure(title: "Consensus")
-        rowGutterView.configure(rows: alignmentRows)
+        let consensusResidues = displayedConsensusResidues()
+        cornerHeaderView.configure(title: numberingMode.showsSourceCoordinates ? "Consensus / Coordinates" : "Consensus")
+        rowGutterView.configure(
+            rows: alignmentRows,
+            rowIDsByIndex: rowIDsByIndex,
+            coordinateMapsByRowID: coordinateMapsByRowID,
+            displayedColumns: displayedColumns,
+            consensusResidues: consensusResidues,
+            columnWidth: alignmentColumnWidth,
+            numberingMode: numberingMode
+        )
         columnHeaderView.configure(
             columnSummaries: columnSummaries,
+            consensusResidues: consensusResidues,
             displayedColumns: displayedColumns,
-            columnWidth: alignmentColumnWidth
+            columnWidth: alignmentColumnWidth,
+            numberingMode: numberingMode
         )
         overviewSignalView.configure(
             columnSummaries: columnSummaries,
@@ -467,6 +800,9 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentMatrixView.configure(
             rows: alignmentRows,
             columnSummaries: columnSummaries,
+            consensusResidues: consensusResidues,
+            referenceRowIndex: referenceRowIndex(),
+            residueIdentityDisplayMode: residueIdentityDisplayMode,
             displayedColumns: displayedColumns,
             annotationTracks: annotationTracks,
             columnWidth: alignmentColumnWidth,
@@ -660,12 +996,17 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         var detailRows: [(String, String)] = [
                 ("Alignment Column", "\(column + 1)"),
                 ("Residue", residue),
-                ("Consensus", String(summary.consensus)),
+                ("Consensus", String(displayedConsensusResidue(for: summary))),
                 ("Site", siteKind),
                 ("Conservation", Self.percent(summary.conservation)),
                 ("Gaps", Self.percent(summary.gapFraction)),
                 ("Counts", countsText.isEmpty ? "none" : countsText),
         ]
+        if let referenceRowIndex = referenceRowIndex(),
+           let referenceRow = alignmentRows[safe: referenceRowIndex],
+           let referenceResidue = referenceRow.sequence[safe: column] {
+            detailRows.insert(("Reference", "\(referenceRow.name) \(referenceResidue)"), at: 3)
+        }
         if let rowID = rowIDsByIndex[safe: rowIndex],
            let coordinateMap = coordinateMapsByRowID[rowID],
            coordinateMap.alignmentToUngapped.indices.contains(column) {
@@ -708,6 +1049,57 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         alignmentMatrixView.scrollToVisible(rect.insetBy(dx: -40, dy: -16))
     }
 
+    private func setAlignmentColumnWidth(
+        _ requestedWidth: CGFloat,
+        centeredOnDisplayColumn displayColumn: Int?
+    ) {
+        let clampedWidth = min(
+            MSAAlignmentCanvasMetrics.maximumColumnWidth,
+            max(MSAAlignmentCanvasMetrics.minimumOverviewColumnWidth, requestedWidth)
+        )
+        guard abs(clampedWidth - alignmentColumnWidth) > 0.001 else { return }
+        let centerDisplayColumn = displayColumn
+            ?? selectedAlignmentColumn.flatMap { displayedColumns.firstIndex(of: $0) }
+            ?? visibleCenterDisplayColumn()
+
+        alignmentColumnWidth = clampedWidth
+        configureCanvasViews()
+        if let centerDisplayColumn {
+            self.centerDisplayColumn(centerDisplayColumn)
+        }
+    }
+
+    private func effectiveVisibleMatrixWidth() -> CGFloat {
+        let clipWidth = alignmentScrollView.contentView.bounds.width
+        if clipWidth > 0 {
+            return clipWidth
+        }
+        return max(320, view.bounds.width - MSAAlignmentCanvasMetrics.rowGutterWidth)
+    }
+
+    private func visibleCenterDisplayColumn() -> Int? {
+        guard !displayedColumns.isEmpty else { return nil }
+        let bounds = alignmentScrollView.contentView.bounds
+        let x = bounds.width > 0 ? bounds.midX : 0
+        let rawDisplayColumn = x / max(alignmentColumnWidth, MSAAlignmentCanvasMetrics.minimumOverviewColumnWidth)
+        return min(max(Int(rawDisplayColumn.rounded()), 0), displayedColumns.count - 1)
+    }
+
+    private func centerDisplayColumn(_ displayColumn: Int) {
+        guard displayedColumns.indices.contains(displayColumn),
+              let documentView = alignmentScrollView.documentView else {
+            return
+        }
+        let clipView = alignmentScrollView.contentView
+        let visibleWidth = effectiveVisibleMatrixWidth()
+        let maxX = max(0, documentView.bounds.width - visibleWidth)
+        let targetMidX = CGFloat(displayColumn) * alignmentColumnWidth + alignmentColumnWidth / 2
+        let x = min(max(targetMidX - visibleWidth / 2, 0), maxX)
+        clipView.setBoundsOrigin(NSPoint(x: x, y: clipView.bounds.origin.y))
+        alignmentScrollView.reflectScrolledClipView(clipView)
+        alignmentClipViewBoundsDidChange(Notification(name: NSView.boundsDidChangeNotification, object: clipView))
+    }
+
     private func selectedSelectionTitle() -> String {
         guard let rowRange = selectedRowRange else {
             return selectedRowIndex.flatMap { alignmentRows[safe: $0]?.name } ?? "Alignment selection"
@@ -716,6 +1108,47 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
             return alignmentRows[safe: rowIndex]?.name ?? "Alignment selection"
         }
         return "\(rowRange.count) rows"
+    }
+
+    private func displayedConsensusResidues() -> [Character] {
+        columnSummaries.map { displayedConsensusResidue(for: $0) }
+    }
+
+    private func displayedConsensusResidue(for summary: MSAColumnSummary) -> Character {
+        let shouldMask = summary.conservation < consensusDisplayOptions.lowSupportThreshold
+            || summary.gapFraction >= consensusDisplayOptions.highGapThreshold
+        if shouldMask {
+            return consensusDisplayOptions.maskSymbolMode.symbol(alphabet: bundle?.manifest.alphabet ?? "")
+        }
+        return summary.consensus
+    }
+
+    private func referenceRowIndex() -> Int? {
+        guard let referenceRowID else { return nil }
+        return rowIDsByIndex.firstIndex(of: referenceRowID)
+    }
+
+    private func displayedResidue(rowIndex: Int, alignmentColumn: Int) -> Character? {
+        guard let residue = alignmentRows[safe: rowIndex]?.sequence[safe: alignmentColumn] else {
+            return nil
+        }
+        switch residueIdentityDisplayMode {
+        case .letters:
+            return residue
+        case .dotsToConsensus:
+            guard let consensus = displayedConsensusResidues()[safe: alignmentColumn] else { return residue }
+            return residuesMatch(residue, consensus) ? "." : residue
+        case .dotsToReference:
+            guard let referenceRowIndex = referenceRowIndex(),
+                  let referenceResidue = alignmentRows[safe: referenceRowIndex]?.sequence[safe: alignmentColumn] else {
+                return residue
+            }
+            return residuesMatch(residue, referenceResidue) ? "." : residue
+        }
+    }
+
+    private func residuesMatch(_ lhs: Character, _ rhs: Character) -> Bool {
+        String(lhs).uppercased() == String(rhs).uppercased()
     }
 
     private func refreshAnnotationDrawer() {
@@ -930,7 +1363,8 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
                 onCopy: { [weak self] in self?.copySelectedFASTAToPasteboard() },
                 onExport: { [weak self] in self?.exportSelectedSequences() },
                 onCreateBundle: { [weak self] in self?.createBundleFromSelectedSequences() },
-                onRunOperation: { [weak self] in self?.runOperationOnSelectedSequences() }
+                onAlignWithMAFFT: nil,
+                onRunOperation: nil
             )
         )
         let treeItem = NSMenuItem(
@@ -1593,6 +2027,22 @@ extension MultipleSequenceAlignmentViewController {
         columnSummaries.map(\.consensus).map(String.init).joined()
     }
 
+    var testingConsensusDisplayPreview: String {
+        displayedConsensusResidues().map(String.init).joined()
+    }
+
+    var testingConsensusNumberingPreview: [String] {
+        columnHeaderView.testingNumberingPreview
+    }
+
+    var testingConsensusAccessibilityLabel: String? {
+        columnHeaderView.accessibilityLabel()
+    }
+
+    var testingReferenceRowName: String? {
+        referenceRowIndex().flatMap { alignmentRows[safe: $0]?.name }
+    }
+
     var testingSelectedRowName: String? {
         if let rowRange = selectedRowRange, rowRange.count > 1 {
             return "\(rowRange.count) rows"
@@ -1612,12 +2062,36 @@ extension MultipleSequenceAlignmentViewController {
         alignmentColumnWidth
     }
 
+    var testingZoomRenderingMode: String {
+        alignmentMatrixView.testingZoomRenderingModeTitle
+    }
+
+    func testingVisibleDisplayColumnRangeDescription(for dirtyRect: NSRect) -> String {
+        alignmentMatrixView.testingVisibleDisplayColumnRangeDescription(for: dirtyRect)
+    }
+
+    func testingVisibleOrientationNumberingPreview(width: CGFloat) -> [String] {
+        columnHeaderView.testingVisibleOrientationNumberingPreview(width: width)
+    }
+
     var testingOverviewSignalSummary: String {
         overviewSignalView.summaryText
     }
 
     var testingColorSchemeName: String {
         colorScheme.title
+    }
+
+    var testingNumberingModeTitle: String {
+        numberingMode.displayTitle
+    }
+
+    var testingColumnHeaderNumberingVisible: Bool {
+        columnHeaderView.testingNumberingVisible
+    }
+
+    var testingRowNumberingPreview: [String] {
+        rowGutterView.testingNumberingPreview
     }
 
     var testingAnnotationTrackRows: [String] {
@@ -1662,13 +2136,57 @@ extension MultipleSequenceAlignmentViewController {
     }
 
     func testingAlignmentMatrixPreview(rowCount: Int, columnCount: Int) -> [String] {
-        alignmentRows.prefix(rowCount).map { row in
+        alignmentRows.indices.prefix(rowCount).map { rowIndex in
             let sequence = displayedColumns.prefix(columnCount)
-                .compactMap { row.sequence[safe: $0] }
+                .compactMap { displayedResidue(rowIndex: rowIndex, alignmentColumn: $0) }
                 .map(String.init)
                 .joined()
-            return "\(row.name) \(sequence)"
+            return "\(alignmentRows[rowIndex].name) \(sequence)"
         }
+    }
+
+    func testingVisibleAlignmentRowsPreview(rowCount: Int, columnCount: Int) -> [String] {
+        let consensus = displayedColumns.prefix(columnCount)
+            .compactMap { displayedConsensusResidues()[safe: $0] }
+            .map(String.init)
+            .joined()
+        let rows = testingAlignmentMatrixPreview(rowCount: max(0, rowCount - 1), columnCount: columnCount)
+        return Array((["Consensus \(consensus)"] + rows).prefix(rowCount))
+    }
+
+    func testingDifferenceVisibilityPreview(rowCount: Int, columnCount: Int) -> [String] {
+        alignmentRows.indices.prefix(rowCount).map { rowIndex in
+            let markers = displayedColumns.prefix(columnCount).map { alignmentColumn -> String in
+                guard let residue = alignmentRows[safe: rowIndex]?.sequence[safe: alignmentColumn] else {
+                    return "."
+                }
+                let target: Character?
+                switch residueIdentityDisplayMode {
+                case .dotsToReference:
+                    target = referenceRowIndex().flatMap { alignmentRows[safe: $0]?.sequence[safe: alignmentColumn] }
+                case .letters, .dotsToConsensus:
+                    target = displayedConsensusResidues()[safe: alignmentColumn]
+                }
+                guard let target else { return columnSummaries[safe: alignmentColumn]?.variable == true ? "!" : "." }
+                if Self.isGap(residue), Self.isGap(target) == false {
+                    return "!"
+                }
+                return residuesMatch(residue, target) ? "." : "!"
+            }.joined()
+            return "\(alignmentRows[rowIndex].name) \(markers)"
+        }
+    }
+
+    func testingPerformZoomOut() {
+        zoomOut()
+    }
+
+    func testingPerformZoomIn() {
+        zoomIn()
+    }
+
+    func testingPerformZoomToFit() {
+        zoomToFit()
     }
 
     func testingSetVariableSitesOnly(_ value: Bool) {
@@ -1718,6 +2236,24 @@ extension MultipleSequenceAlignmentViewController {
         colorScheme = scheme
         colorSchemeControl.selectedSegment = scheme.rawValue
         configureCanvasViews()
+    }
+
+    func testingApplyNumberingMode(_ mode: MSAAlignmentNumberingMode) {
+        applyNumberingMode(mode)
+    }
+
+    func testingApplyConsensusDisplayOptions(_ options: MSAConsensusDisplayOptions) {
+        applyConsensusDisplayOptions(options)
+    }
+
+    func testingSelectReferenceRow(named name: String) {
+        guard let index = alignmentRows.firstIndex(where: { $0.name == name }),
+              let rowID = rowIDsByIndex[safe: index] else { return }
+        applyReferenceRowID(rowID)
+    }
+
+    func testingApplyResidueIdentityDisplayMode(_ mode: MSAResidueIdentityDisplayMode) {
+        applyResidueIdentityDisplayMode(mode)
     }
 
     func testingAddAnnotationFromSelection(name: String, type: String) throws {
@@ -1772,29 +2308,58 @@ private final class MSAAlignmentCornerHeaderView: NSView {
 
 private final class MSAAlignmentRowGutterView: NSView {
     var verticalOffset: CGFloat = 0
+    var horizontalOffset: CGFloat = 0
     var selectedRowIndex: Int?
     var selectedRowRange: ClosedRange<Int>?
 
     private var rows: [MSAAlignmentSequence] = []
+    private var rowIDsByIndex: [String] = []
+    private var coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap] = [:]
+    private var displayedColumns: [Int] = []
+    private var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
+    private var numberingMode: MSAAlignmentNumberingMode = .both
+    private var consensusResidues: [Character] = []
 
     override var isFlipped: Bool { true }
 
-    func configure(rows: [MSAAlignmentSequence]) {
+    func configure(
+        rows: [MSAAlignmentSequence],
+        rowIDsByIndex: [String],
+        coordinateMapsByRowID: [String: MultipleSequenceAlignmentBundle.RowCoordinateMap],
+        displayedColumns: [Int],
+        consensusResidues: [Character],
+        columnWidth: CGFloat,
+        numberingMode: MSAAlignmentNumberingMode
+    ) {
         self.rows = rows
+        self.rowIDsByIndex = rowIDsByIndex
+        self.coordinateMapsByRowID = coordinateMapsByRowID
+        self.displayedColumns = displayedColumns
+        self.consensusResidues = consensusResidues
+        self.columnWidth = columnWidth
+        self.numberingMode = numberingMode
         needsDisplay = true
+    }
+
+    var testingNumberingPreview: [String] {
+        rows.indices.map { labelComponents(for: $0).joined(separator: "\t") }
     }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.controlBackgroundColor.setFill()
         dirtyRect.fill()
 
+        drawConsensusLabelIfNeeded(in: dirtyRect)
+
         let rowHeight = MSAAlignmentCanvasMetrics.rowHeight
-        let firstRow = max(0, Int(floor(verticalOffset / rowHeight)) - 2)
-        let lastRow = min(rows.count, Int(ceil((verticalOffset + bounds.height) / rowHeight)) + 2)
+        let consensusHeight = MSAAlignmentCanvasMetrics.consensusRowHeight
+        let shiftedOffset = max(0, verticalOffset - consensusHeight)
+        let firstRow = max(0, Int(floor(shiftedOffset / rowHeight)) - 2)
+        let lastRow = min(rows.count, Int(ceil((shiftedOffset + bounds.height) / rowHeight)) + 2)
         guard firstRow < lastRow else { return }
 
         for rowIndex in firstRow..<lastRow {
-            let y = CGFloat(rowIndex) * rowHeight - verticalOffset
+            let y = consensusHeight + CGFloat(rowIndex) * rowHeight - verticalOffset
             let rect = NSRect(x: 0, y: y, width: bounds.width, height: rowHeight)
             (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
             rect.fill()
@@ -1802,16 +2367,107 @@ private final class MSAAlignmentRowGutterView: NSView {
                 NSColor.controlAccentColor.withAlphaComponent(0.16).setFill()
                 rect.fill()
             }
-            drawText(
-                rows[rowIndex].name,
-                in: rect.insetBy(dx: 10, dy: 5),
-                color: .labelColor,
-                font: .systemFont(ofSize: 12)
-            )
+            drawRowLabel(rowIndex: rowIndex, in: rect)
         }
 
         NSColor.separatorColor.setStroke()
         NSBezierPath.strokeLine(from: NSPoint(x: bounds.maxX - 0.5, y: 0), to: NSPoint(x: bounds.maxX - 0.5, y: bounds.maxY))
+    }
+
+    private func drawConsensusLabelIfNeeded(in dirtyRect: NSRect) {
+        let rect = NSRect(
+            x: 0,
+            y: -verticalOffset,
+            width: bounds.width,
+            height: MSAAlignmentCanvasMetrics.consensusRowHeight
+        )
+        guard rect.intersects(dirtyRect), !consensusResidues.isEmpty else { return }
+        NSColor.controlBackgroundColor.setFill()
+        rect.fill()
+        drawText(
+            "Consensus",
+            in: rect.insetBy(dx: 8, dy: 5),
+            color: .labelColor,
+            font: .systemFont(ofSize: 12, weight: .semibold)
+        )
+        NSColor.separatorColor.setStroke()
+        NSBezierPath.strokeLine(
+            from: NSPoint(x: 0, y: rect.maxY - 0.5),
+            to: NSPoint(x: bounds.maxX, y: rect.maxY - 0.5)
+        )
+    }
+
+    private func drawRowLabel(rowIndex: Int, in rect: NSRect) {
+        let components = labelComponents(for: rowIndex)
+        guard let name = components.drop(while: { Int($0) != nil }).first else { return }
+        let inset = rect.insetBy(dx: 8, dy: 4)
+        var leadingX = inset.minX
+        if numberingMode.showsRowIndex {
+            drawText(
+                "\(rowIndex + 1)",
+                in: NSRect(x: leadingX, y: inset.minY + 1, width: 24, height: inset.height),
+                color: .secondaryLabelColor,
+                font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                alignment: .right
+            )
+            leadingX += 32
+        }
+
+        let coordinateText = numberingMode.showsSourceCoordinates ? sourceCoordinateRangeText(rowIndex: rowIndex) : nil
+        let coordinateWidth: CGFloat = coordinateText == nil ? 0 : 58
+        drawText(
+            name,
+            in: NSRect(x: leadingX, y: inset.minY + 1, width: max(24, inset.maxX - leadingX - coordinateWidth - 4), height: inset.height),
+            color: .labelColor,
+            font: .systemFont(ofSize: 12)
+        )
+        if let coordinateText {
+            drawText(
+                coordinateText,
+                in: NSRect(x: inset.maxX - coordinateWidth, y: inset.minY + 2, width: coordinateWidth, height: inset.height),
+                color: .secondaryLabelColor,
+                font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                alignment: .right
+            )
+        }
+    }
+
+    private func labelComponents(for rowIndex: Int) -> [String] {
+        guard rows.indices.contains(rowIndex) else { return [] }
+        var components: [String] = []
+        if numberingMode.showsRowIndex {
+            components.append("\(rowIndex + 1)")
+        }
+        components.append(rows[rowIndex].name)
+        if numberingMode.showsSourceCoordinates {
+            components.append(sourceCoordinateRangeText(rowIndex: rowIndex))
+        }
+        return components
+    }
+
+    private func sourceCoordinateRangeText(rowIndex: Int) -> String {
+        guard let rowID = rowIDsByIndex[safe: rowIndex],
+              let coordinateMap = coordinateMapsByRowID[rowID] else {
+            return "n/a"
+        }
+        let coordinates = visibleAlignmentColumnsForNumbering()
+            .compactMap { column -> Int? in
+                guard coordinateMap.alignmentToUngapped.indices.contains(column) else { return nil }
+                return coordinateMap.alignmentToUngapped[column].map { $0 + 1 }
+            }
+        guard let first = coordinates.min(), let last = coordinates.max() else {
+            return "gap"
+        }
+        return first == last ? "\(first)" : "\(first)-\(last)"
+    }
+
+    private func visibleAlignmentColumnsForNumbering() -> [Int] {
+        guard !displayedColumns.isEmpty else { return [] }
+        guard bounds.width > 0, columnWidth > 0 else { return displayedColumns }
+        let firstDisplayColumn = max(0, Int(floor(horizontalOffset / columnWidth)))
+        let lastDisplayColumn = min(displayedColumns.count, Int(ceil((horizontalOffset + bounds.width) / columnWidth)))
+        guard firstDisplayColumn < lastDisplayColumn else { return displayedColumns }
+        return Array(displayedColumns[firstDisplayColumn..<lastDisplayColumn])
     }
 }
 
@@ -1820,21 +2476,52 @@ private final class MSAAlignmentColumnHeaderView: NSView {
     var selectedAlignmentColumn: Int?
     var selectedAlignmentColumnRange: ClosedRange<Int>?
     var columnWidth = MSAAlignmentCanvasMetrics.defaultColumnWidth
+    var numberingMode: MSAAlignmentNumberingMode = .both
 
     private var columnSummaries: [MSAColumnSummary] = []
+    private var consensusResidues: [Character] = []
     private var displayedColumns: [Int] = []
 
     override var isFlipped: Bool { true }
 
     func configure(
         columnSummaries: [MSAColumnSummary],
+        consensusResidues: [Character],
         displayedColumns: [Int],
-        columnWidth: CGFloat
+        columnWidth: CGFloat,
+        numberingMode: MSAAlignmentNumberingMode
     ) {
         self.columnSummaries = columnSummaries
+        self.consensusResidues = consensusResidues
         self.displayedColumns = displayedColumns
         self.columnWidth = columnWidth
+        self.numberingMode = numberingMode
         needsDisplay = true
+    }
+
+    var testingNumberingVisible: Bool {
+        numberingMode.showsAlignmentColumns
+    }
+
+    var testingNumberingPreview: [String] {
+        guard numberingMode.showsAlignmentColumns else { return [] }
+        return displayedColumns.map { "\($0 + 1)" }
+    }
+
+    func testingVisibleOrientationNumberingPreview(width: CGFloat) -> [String] {
+        guard numberingMode.showsAlignmentColumns else { return [] }
+        let visibleDisplayColumns = MSAVisibleDisplayColumns.range(
+            displayedColumnCount: displayedColumns.count,
+            columnWidth: columnWidth,
+            minX: horizontalOffset,
+            maxX: horizontalOffset + width,
+            overscan: 0
+        )
+        return MSAOrientationNumbering.ticks(
+            displayedColumns: displayedColumns,
+            columnWidth: columnWidth,
+            visibleDisplayColumns: visibleDisplayColumns
+        ).map(\.label)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1845,18 +2532,24 @@ private final class MSAAlignmentColumnHeaderView: NSView {
             return
         }
 
-        let firstColumn = max(0, Int(floor(horizontalOffset / columnWidth)) - 2)
-        let lastColumn = min(displayedColumns.count, Int(ceil((horizontalOffset + bounds.width) / columnWidth)) + 2)
-        guard firstColumn < lastColumn else { return }
+        let visibleDisplayColumns = MSAVisibleDisplayColumns.range(
+            displayedColumnCount: displayedColumns.count,
+            columnWidth: columnWidth,
+            minX: horizontalOffset,
+            maxX: horizontalOffset + bounds.width
+        )
+        guard !visibleDisplayColumns.isEmpty else { return }
 
-        for displayColumn in firstColumn..<lastColumn {
+        for displayColumn in visibleDisplayColumns {
             let alignmentColumn = displayedColumns[displayColumn]
             let x = CGFloat(displayColumn) * columnWidth - horizontalOffset
             if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
                 NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
                 NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
             }
-            if alignmentColumn % 10 == 0 || displayedColumns.count <= 80 {
+            if numberingMode.showsAlignmentColumns,
+               columnWidth >= 10,
+               (alignmentColumn % 10 == 0 || displayedColumns.count <= 80) {
                 drawText(
                     "\(alignmentColumn + 1)",
                     in: NSRect(x: x - 8, y: 5, width: 42, height: 14),
@@ -1864,21 +2557,50 @@ private final class MSAAlignmentColumnHeaderView: NSView {
                     font: .monospacedSystemFont(ofSize: 9, weight: .regular)
                 )
             }
-            if let summary = columnSummaries[safe: alignmentColumn] {
-                drawResidue(
-                    summary.consensus,
-                    rect: NSRect(x: x + 1, y: 29, width: columnWidth - 2, height: 18),
-                    isConsensus: true
-                )
-                if summary.variable {
-                    NSColor.systemPurple.setFill()
-                    NSRect(x: x + 2, y: 51, width: columnWidth - 4, height: 4).fill()
-                }
+            if columnSummaries[safe: alignmentColumn]?.variable == true {
+                NSColor.systemPurple.withAlphaComponent(0.65).setFill()
+                NSRect(
+                    x: x,
+                    y: bounds.height - 5,
+                    width: max(1, columnWidth),
+                    height: 3
+                ).fill()
             }
+        }
+
+        if numberingMode.showsAlignmentColumns, columnWidth < 10 {
+            drawSparseOrientationNumbering(visibleDisplayColumns: visibleDisplayColumns)
         }
 
         NSColor.separatorColor.setStroke()
         NSBezierPath.strokeLine(from: NSPoint(x: 0, y: bounds.maxY - 0.5), to: NSPoint(x: bounds.maxX, y: bounds.maxY - 0.5))
+    }
+
+    private func drawSparseOrientationNumbering(visibleDisplayColumns: Range<Int>) {
+        let ticks = MSAOrientationNumbering.ticks(
+            displayedColumns: displayedColumns,
+            columnWidth: columnWidth,
+            visibleDisplayColumns: visibleDisplayColumns
+        )
+        guard !ticks.isEmpty else { return }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 9, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraphStyle,
+        ]
+
+        for tick in ticks {
+            let x = CGFloat(tick.displayColumn) * columnWidth - horizontalOffset
+            NSColor.separatorColor.withAlphaComponent(0.72).setStroke()
+            NSBezierPath.strokeLine(from: NSPoint(x: x, y: 0), to: NSPoint(x: x, y: bounds.height))
+            NSString(string: tick.label).draw(
+                in: NSRect(x: x + 3, y: 5, width: 58, height: 14),
+                withAttributes: attributes
+            )
+        }
     }
 }
 
@@ -2000,6 +2722,7 @@ private final class MSAAlignmentMatrixView: NSView {
     var contextMenuProvider: ((Int, Int) -> NSMenu?)?
     var onAnnotationSelected: ((MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord) -> Void)?
     var annotationContextMenuProvider: ((MultipleSequenceAlignmentBundle.AlignmentAnnotationRecord) -> NSMenu?)?
+    var onMagnification: ((CGFloat) -> Void)?
     var selectedRowIndex: Int?
     var selectedAlignmentColumn: Int?
     var selectedRowRange: ClosedRange<Int>?
@@ -2009,6 +2732,9 @@ private final class MSAAlignmentMatrixView: NSView {
 
     private var rows: [MSAAlignmentSequence] = []
     private var columnSummaries: [MSAColumnSummary] = []
+    private var consensusResidues: [Character] = []
+    private var referenceRowIndex: Int?
+    private var residueIdentityDisplayMode: MSAResidueIdentityDisplayMode = .letters
     private var displayedColumns: [Int] = []
     private var colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide
     private var dragAnchor: (row: Int, alignmentColumn: Int)?
@@ -2017,6 +2743,19 @@ private final class MSAAlignmentMatrixView: NSView {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+
+    var testingZoomRenderingModeTitle: String {
+        zoomRenderingMode.displayTitle
+    }
+
+    func testingVisibleDisplayColumnRangeDescription(for dirtyRect: NSRect) -> String {
+        let range = visibleDisplayColumnRange(for: dirtyRect)
+        return range.isEmpty ? "empty" : "\(range.lowerBound)-\(range.upperBound)"
+    }
+
+    private var zoomRenderingMode: MSAZoomRenderingMode {
+        MSAZoomRenderingMode.forColumnWidth(columnWidth)
+    }
 
     override func accessibilityChildren() -> [Any]? {
         var children: [Any] = []
@@ -2030,6 +2769,9 @@ private final class MSAAlignmentMatrixView: NSView {
     func configure(
         rows: [MSAAlignmentSequence],
         columnSummaries: [MSAColumnSummary],
+        consensusResidues: [Character],
+        referenceRowIndex: Int?,
+        residueIdentityDisplayMode: MSAResidueIdentityDisplayMode,
         displayedColumns: [Int],
         annotationTracks: [MSAAlignmentAnnotationTrack],
         columnWidth: CGFloat,
@@ -2037,12 +2779,19 @@ private final class MSAAlignmentMatrixView: NSView {
     ) {
         self.rows = rows
         self.columnSummaries = columnSummaries
+        self.consensusResidues = consensusResidues
+        self.referenceRowIndex = referenceRowIndex
+        self.residueIdentityDisplayMode = residueIdentityDisplayMode
         self.displayedColumns = displayedColumns
         self.annotationTracks = annotationTracks
         self.columnWidth = columnWidth
         self.colorScheme = colorScheme
         let width = max(920, CGFloat(max(displayedColumns.count, 1)) * columnWidth)
-        let height = max(420, CGFloat(max(rows.count, 1)) * MSAAlignmentCanvasMetrics.rowHeight)
+        let height = max(
+            420,
+            MSAAlignmentCanvasMetrics.consensusRowHeight
+                + CGFloat(max(rows.count, 1)) * MSAAlignmentCanvasMetrics.rowHeight
+        )
         setFrameSize(NSSize(width: width, height: height))
         updateAccessibilityOverlays()
         needsDisplay = true
@@ -2061,6 +2810,7 @@ private final class MSAAlignmentMatrixView: NSView {
             return
         }
 
+        drawConsensusRow(in: dirtyRect)
         drawRows(in: dirtyRect)
     }
 
@@ -2070,6 +2820,10 @@ private final class MSAAlignmentMatrixView: NSView {
             return
         }
         onKeyboardNavigation?(direction, event.modifierFlags.contains(.shift))
+    }
+
+    override func magnify(with event: NSEvent) {
+        onMagnification?(event.magnification)
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -2118,15 +2872,16 @@ private final class MSAAlignmentMatrixView: NSView {
         }
         return NSRect(
             x: CGFloat(displayColumn) * columnWidth,
-            y: CGFloat(row) * MSAAlignmentCanvasMetrics.rowHeight,
+            y: MSAAlignmentCanvasMetrics.consensusRowHeight + CGFloat(row) * MSAAlignmentCanvasMetrics.rowHeight,
             width: columnWidth,
             height: MSAAlignmentCanvasMetrics.rowHeight
         )
     }
 
     private func selection(at point: NSPoint) -> (row: Int, alignmentColumn: Int)? {
-        let displayColumn = Int(point.x / columnWidth)
-        let row = Int(point.y / MSAAlignmentCanvasMetrics.rowHeight)
+        guard let displayColumn = displayColumnIndex(at: point.x) else { return nil }
+        guard point.y >= MSAAlignmentCanvasMetrics.consensusRowHeight else { return nil }
+        let row = Int((point.y - MSAAlignmentCanvasMetrics.consensusRowHeight) / MSAAlignmentCanvasMetrics.rowHeight)
         guard rows.indices.contains(row),
               displayedColumns.indices.contains(displayColumn) else {
             return nil
@@ -2134,13 +2889,69 @@ private final class MSAAlignmentMatrixView: NSView {
         return (row, displayedColumns[displayColumn])
     }
 
+    private func drawConsensusRow(in dirtyRect: NSRect) {
+        let rowRect = NSRect(
+            x: dirtyRect.minX,
+            y: 0,
+            width: dirtyRect.width,
+            height: MSAAlignmentCanvasMetrics.consensusRowHeight
+        )
+        guard rowRect.intersects(dirtyRect), !consensusResidues.isEmpty else { return }
+        NSColor.controlBackgroundColor.withAlphaComponent(0.72).setFill()
+        rowRect.fill()
+
+        let renderingMode = zoomRenderingMode
+        let columnRange = visibleDisplayColumnRange(for: dirtyRect)
+        guard !columnRange.isEmpty else { return }
+        for displayColumn in columnRange {
+            let alignmentColumn = displayedColumns[displayColumn]
+            guard let residue = consensusResidues[safe: alignmentColumn] else { continue }
+            let x = CGFloat(displayColumn) * columnWidth
+            if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
+                NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+                NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
+            }
+            if columnWidth >= 10,
+               (alignmentColumn % 10 == 0 || displayedColumns.count <= 80) {
+                drawText(
+                    "\(alignmentColumn + 1)",
+                    in: NSRect(x: x - 8, y: 1, width: 42, height: 10),
+                    color: .secondaryLabelColor,
+                    font: .monospacedSystemFont(ofSize: 8, weight: .regular),
+                    alignment: .center
+                )
+            }
+            drawResidue(
+                residue,
+                rect: residueRect(x: x, y: 10, width: columnWidth, height: 15),
+                isConsensus: true,
+                showLetter: renderingMode == .letters
+            )
+        }
+
+        if columnWidth < 10 {
+            drawSparseOrientationNumbering(in: dirtyRect, visibleDisplayColumns: columnRange)
+        }
+
+        NSColor.separatorColor.setStroke()
+        NSBezierPath.strokeLine(
+            from: NSPoint(x: dirtyRect.minX, y: MSAAlignmentCanvasMetrics.consensusRowHeight - 0.5),
+            to: NSPoint(x: dirtyRect.maxX, y: MSAAlignmentCanvasMetrics.consensusRowHeight - 0.5)
+        )
+    }
+
     private func drawRows(in dirtyRect: NSRect) {
         let columnRange = visibleDisplayColumnRange(for: dirtyRect)
         guard !columnRange.isEmpty else { return }
+        if zoomRenderingMode == .aggregateDifferences {
+            drawAggregateDifferenceRows(in: dirtyRect, visibleDisplayColumns: columnRange)
+            return
+        }
 
+        let renderingMode = zoomRenderingMode
         let rowHeight = MSAAlignmentCanvasMetrics.rowHeight
         for rowIndex in rows.indices {
-            let y = CGFloat(rowIndex) * rowHeight
+            let y = MSAAlignmentCanvasMetrics.consensusRowHeight + CGFloat(rowIndex) * rowHeight
             guard y < dirtyRect.maxY, y + rowHeight > dirtyRect.minY else { continue }
             let rowRect = NSRect(x: dirtyRect.minX, y: y, width: dirtyRect.width, height: rowHeight)
             (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
@@ -2155,17 +2966,23 @@ private final class MSAAlignmentMatrixView: NSView {
             for displayColumn in columnRange {
                 let alignmentColumn = displayedColumns[displayColumn]
                 guard let residue = row.sequence[safe: alignmentColumn] else { continue }
+                let displayedResidue = displayResidue(
+                    residue,
+                    rowIndex: rowIndex,
+                    alignmentColumn: alignmentColumn
+                )
                 let x = CGFloat(displayColumn) * columnWidth
-                let rect = NSRect(x: x + 1, y: y + 3, width: columnWidth - 2, height: rowHeight - 6)
+                let rect = residueRect(x: x, y: y + 3, width: columnWidth, height: rowHeight - 6)
 
                 if selectedAlignmentColumnRange?.contains(alignmentColumn) == true || selectedAlignmentColumn == alignmentColumn {
                     NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
-                    NSRect(x: x, y: 0, width: columnWidth, height: CGFloat(rows.count) * rowHeight).fill()
+                    NSRect(x: x, y: 0, width: columnWidth, height: bounds.height).fill()
                 }
                 drawResidue(
-                    residue,
+                    displayedResidue,
                     rect: rect,
                     isConsensus: false,
+                    showLetter: renderingMode == .letters,
                     colorScheme: colorScheme,
                     columnSummary: columnSummaries[safe: alignmentColumn]
                 )
@@ -2176,6 +2993,135 @@ private final class MSAAlignmentMatrixView: NSView {
                 visibleDisplayColumns: columnRange
             )
         }
+    }
+
+    private func drawAggregateDifferenceRows(
+        in dirtyRect: NSRect,
+        visibleDisplayColumns: Range<Int>
+    ) {
+        let rowHeight = MSAAlignmentCanvasMetrics.rowHeight
+        let displayColumnsPerBin = max(1, Int(ceil(1 / max(columnWidth, MSAAlignmentCanvasMetrics.minimumOverviewColumnWidth))))
+
+        for rowIndex in rows.indices {
+            let y = MSAAlignmentCanvasMetrics.consensusRowHeight + CGFloat(rowIndex) * rowHeight
+            guard y < dirtyRect.maxY, y + rowHeight > dirtyRect.minY else { continue }
+            let rowRect = NSRect(x: dirtyRect.minX, y: y, width: dirtyRect.width, height: rowHeight)
+            (rowIndex.isMultiple(of: 2) ? NSColor.textBackgroundColor : NSColor.controlBackgroundColor.withAlphaComponent(0.35)).setFill()
+            rowRect.fill()
+
+            if selectedRowRange?.contains(rowIndex) == true || selectedRowIndex == rowIndex {
+                NSColor.controlAccentColor.withAlphaComponent(0.12).setFill()
+                rowRect.fill()
+            }
+
+            var binStart = visibleDisplayColumns.lowerBound
+            while binStart < visibleDisplayColumns.upperBound {
+                let binEnd = min(binStart + displayColumnsPerBin, visibleDisplayColumns.upperBound)
+                if let color = aggregateDifferenceColor(rowIndex: rowIndex, displayColumns: binStart..<binEnd) {
+                    color.setFill()
+                    NSRect(
+                        x: CGFloat(binStart) * columnWidth,
+                        y: y + 3,
+                        width: max(1, CGFloat(binEnd - binStart) * columnWidth),
+                        height: rowHeight - 6
+                    ).fill()
+                }
+                binStart = binEnd
+            }
+
+            drawAnnotationTracks(
+                annotationTracks.filter { $0.rowIndex == rowIndex },
+                rowY: y,
+                visibleDisplayColumns: visibleDisplayColumns
+            )
+        }
+    }
+
+    private func aggregateDifferenceColor(
+        rowIndex: Int,
+        displayColumns: Range<Int>
+    ) -> NSColor? {
+        var residueCounts: [Character: Int] = [:]
+        var gapDifferences = 0
+        var differences = 0
+
+        for displayColumn in displayColumns {
+            guard let alignmentColumn = displayedColumns[safe: displayColumn],
+                  let residue = rows[safe: rowIndex]?.sequence[safe: alignmentColumn],
+                  aggregateResidueIsDifference(
+                    residue,
+                    rowIndex: rowIndex,
+                    alignmentColumn: alignmentColumn
+                  ) else {
+                continue
+            }
+            differences += 1
+            if Self.isGap(residue) {
+                gapDifferences += 1
+            } else {
+                residueCounts[Character(String(residue).uppercased()), default: 0] += 1
+            }
+        }
+
+        guard differences > 0 else { return nil }
+        if gapDifferences >= max(1, differences - gapDifferences),
+           residueCounts.isEmpty {
+            return NSColor.systemOrange.withAlphaComponent(0.66)
+        }
+        let residue = residueCounts.sorted { lhs, rhs in
+            lhs.value == rhs.value ? String(lhs.key) < String(rhs.key) : lhs.value > rhs.value
+        }.first?.key ?? "N"
+        let alpha = min(0.82, 0.42 + CGFloat(differences) / CGFloat(max(displayColumns.count, 1)) * 0.36)
+        return residueColor(for: residue).withAlphaComponent(alpha)
+    }
+
+    private func aggregateResidueIsDifference(
+        _ residue: Character,
+        rowIndex: Int,
+        alignmentColumn: Int
+    ) -> Bool {
+        let target: Character?
+        switch residueIdentityDisplayMode {
+        case .dotsToReference:
+            target = referenceRowIndex.flatMap { rows[safe: $0]?.sequence[safe: alignmentColumn] }
+        case .letters, .dotsToConsensus:
+            target = consensusResidues[safe: alignmentColumn]
+        }
+        guard let target else {
+            return columnSummaries[safe: alignmentColumn]?.variable == true
+        }
+        if Self.isGap(residue), Self.isGap(target) == false {
+            return true
+        }
+        return residuesMatch(residue, target) == false
+    }
+
+    private func displayResidue(
+        _ residue: Character,
+        rowIndex: Int,
+        alignmentColumn: Int
+    ) -> Character {
+        switch residueIdentityDisplayMode {
+        case .letters:
+            return residue
+        case .dotsToConsensus:
+            guard let consensus = consensusResidues[safe: alignmentColumn] else { return residue }
+            return residuesMatch(residue, consensus) ? "." : residue
+        case .dotsToReference:
+            guard let referenceRowIndex,
+                  let referenceResidue = rows[safe: referenceRowIndex]?.sequence[safe: alignmentColumn] else {
+                return residue
+            }
+            return residuesMatch(residue, referenceResidue) ? "." : residue
+        }
+    }
+
+    private func residuesMatch(_ lhs: Character, _ rhs: Character) -> Bool {
+        String(lhs).uppercased() == String(rhs).uppercased()
+    }
+
+    private static func isGap(_ residue: Character) -> Bool {
+        residue == "-" || residue == "."
     }
 
     private func drawAnnotationTracks(
@@ -2209,14 +3155,16 @@ private final class MSAAlignmentMatrixView: NSView {
     }
 
     private func annotationTrack(at point: NSPoint) -> MSAAlignmentAnnotationTrack? {
-        let row = Int(point.y / MSAAlignmentCanvasMetrics.rowHeight)
-        let yWithinRow = point.y - CGFloat(row) * MSAAlignmentCanvasMetrics.rowHeight
+        guard point.y >= MSAAlignmentCanvasMetrics.consensusRowHeight else { return nil }
+        let row = Int((point.y - MSAAlignmentCanvasMetrics.consensusRowHeight) / MSAAlignmentCanvasMetrics.rowHeight)
+        let yWithinRow = point.y
+            - MSAAlignmentCanvasMetrics.consensusRowHeight
+            - CGFloat(row) * MSAAlignmentCanvasMetrics.rowHeight
         guard rows.indices.contains(row),
               yWithinRow >= MSAAlignmentCanvasMetrics.rowHeight - MSAAlignmentCanvasMetrics.annotationLaneHeight - 2 else {
             return nil
         }
-        let displayColumn = Int(point.x / columnWidth)
-        guard displayedColumns.indices.contains(displayColumn) else { return nil }
+        guard let displayColumn = displayColumnIndex(at: point.x) else { return nil }
         let alignmentColumn = displayedColumns[displayColumn]
         return annotationTracks.last { track in
             track.rowIndex == row && track.annotation.alignedIntervals.contains { interval in
@@ -2285,7 +3233,8 @@ private final class MSAAlignmentMatrixView: NSView {
 
         return NSRect(
             x: CGFloat(firstDisplayIndex) * columnWidth,
-            y: CGFloat(track.rowIndex) * MSAAlignmentCanvasMetrics.rowHeight
+            y: MSAAlignmentCanvasMetrics.consensusRowHeight
+                + CGFloat(track.rowIndex) * MSAAlignmentCanvasMetrics.rowHeight
                 + MSAAlignmentCanvasMetrics.rowHeight
                 - MSAAlignmentCanvasMetrics.annotationLaneHeight
                 - 3,
@@ -2330,7 +3279,7 @@ private final class MSAAlignmentMatrixView: NSView {
         element.setAccessibilityFrameInParentSpace(
             NSRect(
                 x: CGFloat(displayIndex) * columnWidth,
-                y: CGFloat(rowIndex) * MSAAlignmentCanvasMetrics.rowHeight,
+                y: MSAAlignmentCanvasMetrics.consensusRowHeight + CGFloat(rowIndex) * MSAAlignmentCanvasMetrics.rowHeight,
                 width: columnWidth,
                 height: MSAAlignmentCanvasMetrics.rowHeight
             )
@@ -2383,10 +3332,56 @@ private final class MSAAlignmentMatrixView: NSView {
     }
 
     private func visibleDisplayColumnRange(for dirtyRect: NSRect) -> Range<Int> {
-        guard !displayedColumns.isEmpty else { return 0..<0 }
-        let start = max(0, Int(floor(dirtyRect.minX / columnWidth)) - 2)
-        let end = min(displayedColumns.count, Int(ceil(dirtyRect.maxX / columnWidth)) + 2)
-        return start..<end
+        MSAVisibleDisplayColumns.range(
+            displayedColumnCount: displayedColumns.count,
+            columnWidth: columnWidth,
+            minX: dirtyRect.minX,
+            maxX: dirtyRect.maxX
+        )
+    }
+
+    private func displayColumnIndex(at x: CGFloat) -> Int? {
+        guard columnWidth.isFinite, columnWidth > 0, x.isFinite else { return nil }
+        let rawDisplayColumn = floor(x / columnWidth)
+        guard rawDisplayColumn >= 0,
+              rawDisplayColumn < CGFloat(displayedColumns.count) else {
+            return nil
+        }
+        return Int(rawDisplayColumn)
+    }
+
+    private func drawSparseOrientationNumbering(
+        in dirtyRect: NSRect,
+        visibleDisplayColumns: Range<Int>
+    ) {
+        let ticks = MSAOrientationNumbering.ticks(
+            displayedColumns: displayedColumns,
+            columnWidth: columnWidth,
+            visibleDisplayColumns: visibleDisplayColumns
+        )
+        guard !ticks.isEmpty else { return }
+
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.alignment = .left
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedSystemFont(ofSize: 8, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraphStyle,
+        ]
+
+        for tick in ticks {
+            let x = CGFloat(tick.displayColumn) * columnWidth
+            guard x >= dirtyRect.minX - 60, x <= dirtyRect.maxX + 4 else { continue }
+            NSColor.separatorColor.withAlphaComponent(0.58).setStroke()
+            NSBezierPath.strokeLine(
+                from: NSPoint(x: x, y: 0),
+                to: NSPoint(x: x, y: MSAAlignmentCanvasMetrics.consensusRowHeight)
+            )
+            NSString(string: tick.label).draw(
+                in: NSRect(x: x + 3, y: 1, width: 58, height: 10),
+                withAttributes: attributes
+            )
+        }
     }
 
     private func navigationDirection(for event: NSEvent) -> MultipleSequenceAlignmentNavigationDirection? {
@@ -2417,9 +3412,11 @@ private func drawResidue(
     _ residue: Character,
     rect: NSRect,
     isConsensus: Bool,
+    showLetter: Bool = true,
     colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide,
     columnSummary: MSAColumnSummary? = nil
 ) {
+    guard rect.width > 0, rect.height > 0 else { return }
     residueColor(
         for: residue,
         consensus: isConsensus,
@@ -2427,6 +3424,7 @@ private func drawResidue(
         columnSummary: columnSummary
     ).setFill()
     rect.fill()
+    guard showLetter, rect.width >= MSAAlignmentCanvasMetrics.letterColumnWidth - 1 else { return }
     let textColor: NSColor = residue == "-" || residue == "." ? .secondaryLabelColor : .labelColor
     drawText(
         String(residue),
@@ -2439,7 +3437,7 @@ private func drawResidue(
 
 private func residueColor(
     for residue: Character,
-    consensus: Bool,
+    consensus: Bool = false,
     colorScheme: MultipleSequenceAlignmentColorScheme = .nucleotide,
     columnSummary: MSAColumnSummary? = nil
 ) -> NSColor {
@@ -2469,6 +3467,13 @@ private func residueColor(
     default:
         return NSColor.systemTeal.withAlphaComponent(alpha)
     }
+}
+
+private func residueRect(x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) -> NSRect {
+    if width >= 3 {
+        return NSRect(x: x + 1, y: y, width: width - 2, height: height)
+    }
+    return NSRect(x: x, y: y, width: max(width, 1), height: height)
 }
 
 private func annotationColor(for track: MSAAlignmentAnnotationTrack) -> NSColor {

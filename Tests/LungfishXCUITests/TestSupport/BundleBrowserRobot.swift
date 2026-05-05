@@ -187,11 +187,43 @@ struct BundleBrowserRobot {
         app.descendants(matching: .any)["annotation-table-drawer"]
     }
 
+    var iqTreeOptionsDialog: XCUIElement {
+        app.staticTexts["Build Tree with IQ-TREE"].firstMatch
+    }
+
+    var iqTreeAdvancedOptionsButton: XCUIElement {
+        app.buttons["iqtree-options-advanced-disclosure"].firstMatch
+    }
+
+    var iqTreeAdvancedParametersField: XCUIElement {
+        app.textFields["iqtree-options-advanced-parameters"].firstMatch
+    }
+
+    var iqTreeCancelButton: XCUIElement {
+        app.buttons["Cancel"].firstMatch
+    }
+
     var treeNodeTable: XCUIElement {
         app.descendants(matching: .any)["phylogenetic-tree-node-table"]
     }
 
     var treeCanvasView: XCUIElement {
         app.descendants(matching: .any)["phylogenetic-tree-canvas-view"]
+    }
+
+    var treeFitButton: XCUIElement {
+        app.buttons["phylogenetic-tree-fit-button"].firstMatch
+    }
+
+    var treeZoomInButton: XCUIElement {
+        app.buttons["phylogenetic-tree-zoom-in-button"].firstMatch
+    }
+
+    var treeZoomOutButton: XCUIElement {
+        app.buttons["phylogenetic-tree-zoom-out-button"].firstMatch
+    }
+
+    var treeLayoutModeControl: XCUIElement {
+        app.segmentedControls["phylogenetic-tree-layout-mode"].firstMatch
     }
 }

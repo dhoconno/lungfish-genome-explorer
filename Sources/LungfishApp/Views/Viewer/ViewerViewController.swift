@@ -873,6 +873,24 @@ public class ViewerViewController: NSViewController {
     }
 
     func applyReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
+        if let modeRaw = userInfo[NotificationUserInfoKey.msaNumberingMode] as? String,
+           let mode = MSAAlignmentNumberingMode(rawValue: modeRaw) {
+            multipleSequenceAlignmentViewController?.applyNumberingMode(mode)
+        }
+        let msaConsensusOptions = MSAConsensusDisplayOptions(
+            lowSupportThresholdPercent: userInfo[NotificationUserInfoKey.msaConsensusLowSupportThresholdPercent] as? Int ?? 50,
+            highGapThresholdPercent: userInfo[NotificationUserInfoKey.msaConsensusHighGapThresholdPercent] as? Int ?? 50,
+            maskSymbolMode: (userInfo[NotificationUserInfoKey.msaConsensusMaskSymbolMode] as? String)
+                .flatMap(MSAConsensusMaskSymbolMode.init(rawValue:)) ?? .automatic
+        )
+        multipleSequenceAlignmentViewController?.applyConsensusDisplayOptions(msaConsensusOptions)
+        if let rowID = userInfo[NotificationUserInfoKey.msaReferenceRowID] as? String {
+            multipleSequenceAlignmentViewController?.applyReferenceRowID(rowID.isEmpty ? nil : rowID)
+        }
+        if let displayModeRaw = userInfo[NotificationUserInfoKey.msaResidueIdentityDisplayMode] as? String,
+           let displayMode = MSAResidueIdentityDisplayMode(rawValue: displayModeRaw) {
+            multipleSequenceAlignmentViewController?.applyResidueIdentityDisplayMode(displayMode)
+        }
         if let showReads = userInfo[NotificationUserInfoKey.showReads] as? Bool {
             viewerView.showReads = showReads
         }
@@ -1648,11 +1666,37 @@ public class ViewerViewController: NSViewController {
             return
         }
 
+        guard let window = view.window else {
+            presentBlockingAlert(
+                title: "No Window",
+                message: "Open this alignment in a project window before building a tree."
+            )
+            return
+        }
+
+        IQTreeInferenceDialogPresenter.present(
+            from: window,
+            request: request,
+            projectURL: projectURL
+        ) { [weak self] state in
+            guard let self, let options = state.pendingOptions else { return }
+            self.runIQTreeInferenceViaCLI(request, projectURL: projectURL, options: options)
+        }
+    }
+
+    private func runIQTreeInferenceViaCLI(
+        _ request: MultipleSequenceAlignmentTreeInferenceRequest,
+        projectURL: URL,
+        options: IQTreeInferenceOptions
+    ) {
         do {
             let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
             try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
+            let suggestedName = options.outputName.hasSuffix(".lungfishtree")
+                ? options.outputName
+                : "\(options.outputName).lungfishtree"
             let outputURL = Self.nextAvailableBundleURL(
-                suggestedName: request.suggestedName,
+                suggestedName: suggestedName,
                 pathExtension: "lungfishtree",
                 in: treeDirectory
             )
@@ -1664,11 +1708,16 @@ public class ViewerViewController: NSViewController {
                 rows: request.rows,
                 columns: request.columns,
                 name: outputName,
-                model: "MFP",
-                bootstrap: nil,
-                seed: 1,
-                threads: nil,
-                iqtreePath: nil,
+                model: options.model,
+                sequenceType: options.sequenceType,
+                bootstrap: options.bootstrap,
+                alrt: options.alrt,
+                seed: options.seed,
+                threads: options.threads,
+                safeMode: options.safeMode,
+                keepIdenticalSequences: options.keepIdenticalSequences,
+                extraIQTreeOptions: options.extraIQTreeOptions,
+                iqtreePath: options.iqtreePath,
                 force: false
             )
             let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: args)
@@ -2890,6 +2939,10 @@ public class ViewerViewController: NSViewController {
 
     /// Zooms in on the current view
     public func zoomIn() {
+        if let multipleSequenceAlignmentViewController {
+            multipleSequenceAlignmentViewController.zoomIn()
+            return
+        }
         guard let frame = referenceFrame else { return }
         let center = (frame.start + frame.end) / 2.0
         let halfWidth = (frame.end - frame.start) / (2 * 2.0)
@@ -2903,6 +2956,10 @@ public class ViewerViewController: NSViewController {
 
     /// Zooms out from the current view
     public func zoomOut() {
+        if let multipleSequenceAlignmentViewController {
+            multipleSequenceAlignmentViewController.zoomOut()
+            return
+        }
         guard let frame = referenceFrame else { return }
         let center = (frame.start + frame.end) / 2.0
         let halfWidth = (frame.end - frame.start) * 2.0 / 2
@@ -2926,6 +2983,10 @@ public class ViewerViewController: NSViewController {
 
     /// Zooms to fit the entire sequence
     public func zoomToFit() {
+        if let multipleSequenceAlignmentViewController {
+            multipleSequenceAlignmentViewController.zoomToFit()
+            return
+        }
         guard let sequence = viewerView.sequence else { return }
         referenceFrame?.start = 0
         referenceFrame?.end = Double(sequence.length)
@@ -2936,6 +2997,10 @@ public class ViewerViewController: NSViewController {
 
     /// Resets zoom to show ~10kb window centered on current view
     public func zoomReset() {
+        if let multipleSequenceAlignmentViewController {
+            multipleSequenceAlignmentViewController.resetZoom()
+            return
+        }
         guard let frame = referenceFrame else { return }
         
         let center = (frame.start + frame.end) / 2

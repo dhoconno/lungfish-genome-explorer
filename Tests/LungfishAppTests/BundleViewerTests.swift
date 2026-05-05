@@ -1213,6 +1213,246 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingColorSchemeName, "Conservation")
     }
 
+    func testMultipleSequenceAlignmentViewportExposesZoomControls() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let zoomOutButton = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-zoom-out-button")
+        )
+        let zoomInButton = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-zoom-in-button")
+        )
+        let fitButton = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-fit-columns-button")
+        )
+
+        XCTAssertEqual(zoomOutButton.accessibilityLabel(), "Zoom out")
+        XCTAssertEqual(zoomInButton.accessibilityLabel(), "Zoom in")
+        XCTAssertEqual(fitButton.accessibilityLabel(), "Fit alignment columns")
+
+        let initialColumnWidth = controller.testingAlignmentColumnWidth
+        controller.testingPerformZoomOut()
+        XCTAssertLessThan(controller.testingAlignmentColumnWidth, initialColumnWidth)
+
+        let zoomedOutColumnWidth = controller.testingAlignmentColumnWidth
+        controller.testingPerformZoomIn()
+        XCTAssertGreaterThan(controller.testingAlignmentColumnWidth, zoomedOutColumnWidth)
+    }
+
+    func testMultipleSequenceAlignmentToolbarUsesInspectorSizedTextControls() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let search = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-search-field") as? NSSearchField
+        )
+        let siteMode = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-site-mode") as? NSSegmentedControl
+        )
+        let colorScheme = try XCTUnwrap(
+            controller.view.testingDescendant(accessibilityIdentifier: "multiple-sequence-alignment-color-scheme") as? NSSegmentedControl
+        )
+        XCTAssertEqual(search.controlSize, .small)
+        XCTAssertEqual(siteMode.controlSize, .small)
+        XCTAssertEqual(colorScheme.controlSize, .small)
+        XCTAssertEqual(search.font?.pointSize, NSFont.smallSystemFontSize)
+        XCTAssertEqual(siteMode.font?.pointSize, NSFont.smallSystemFontSize)
+        XCTAssertEqual(colorScheme.font?.pointSize, NSFont.smallSystemFontSize)
+    }
+
+    func testMultipleSequenceAlignmentZoomToFitUsesDifferenceVisibleOverview() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
+        let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.resetZoom()
+
+        XCTAssertEqual(controller.testingZoomRenderingMode, "letters")
+
+        controller.testingPerformZoomToFit()
+
+        XCTAssertLessThan(controller.testingAlignmentColumnWidth, 2)
+        XCTAssertEqual(controller.testingZoomRenderingMode, "aggregate differences")
+        XCTAssertTrue(
+            controller.testingDifferenceVisibilityPreview(rowCount: 3, columnCount: 120).contains { row in
+                row.contains("!")
+            },
+            "Zoomed-out MSA rendering should retain row-level difference markers instead of collapsing to unreadable letters."
+        )
+    }
+
+    func testMultipleSequenceAlignmentDefaultsToFullyZoomedOutOverview() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
+        let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertLessThan(controller.testingAlignmentColumnWidth, 2)
+        XCTAssertEqual(controller.testingZoomRenderingMode, "aggregate differences")
+    }
+
+    func testMultipleSequenceAlignmentZoomedOutDirtyRectsOutsideContentDoNotCrash() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
+        let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingPerformZoomToFit()
+
+        XCTAssertEqual(
+            controller.testingVisibleDisplayColumnRangeDescription(
+                for: NSRect(x: 10_000, y: 0, width: 500, height: 40)
+            ),
+            "empty"
+        )
+        XCTAssertEqual(
+            controller.testingVisibleDisplayColumnRangeDescription(
+                for: NSRect(x: -10_000, y: 0, width: 100, height: 40)
+            ),
+            "empty"
+        )
+    }
+
+    func testMultipleSequenceAlignmentZoomedOutShowsSparseOrientationNumbering() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 420, height: 360)
+        let bundleURL = try makeWideMultipleSequenceAlignmentBundle(columnCount: 1_000)
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingPerformZoomToFit()
+
+        let labels = controller.testingVisibleOrientationNumberingPreview(width: 420)
+        XCTAssertFalse(labels.isEmpty)
+        XCTAssertLessThanOrEqual(labels.count, 10)
+        XCTAssertEqual(labels.first, "1")
+        XCTAssertTrue(labels.contains { Int($0) ?? 0 >= 100 })
+    }
+
+    func testMultipleSequenceAlignmentViewportShowsConfigurableNumbering() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingNumberingModeTitle, "Alignment + Source")
+        XCTAssertTrue(controller.testingColumnHeaderNumberingVisible)
+        XCTAssertEqual(
+            controller.testingRowNumberingPreview,
+            [
+                "1\tseq1\t1-5",
+                "2\tseq2\t1-6",
+                "3\tseq3\t1-6",
+            ]
+        )
+
+        controller.testingApplyNumberingMode(.sourceCoordinates)
+
+        XCTAssertFalse(controller.testingColumnHeaderNumberingVisible)
+        XCTAssertEqual(
+            controller.testingRowNumberingPreview,
+            [
+                "seq1\t1-5",
+                "seq2\t1-6",
+                "seq3\t1-6",
+            ]
+        )
+
+        controller.testingApplyNumberingMode(.hidden)
+
+        XCTAssertFalse(controller.testingColumnHeaderNumberingVisible)
+        XCTAssertEqual(controller.testingRowNumberingPreview, ["seq1", "seq2", "seq3"])
+    }
+
+    func testMultipleSequenceAlignmentViewportShowsConfigurableConsensusRow() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingConsensusDisplayPreview, "ACGTTA")
+        XCTAssertEqual(controller.testingConsensusNumberingPreview, ["1", "2", "3", "4", "5", "6"])
+        XCTAssertEqual(controller.testingConsensusAccessibilityLabel, "Consensus sequence")
+        XCTAssertEqual(
+            controller.testingVisibleAlignmentRowsPreview(rowCount: 4, columnCount: 6),
+            [
+                "Consensus ACGTTA",
+                "seq1 ACGT-A",
+                "seq2 ACCTTA",
+                "seq3 ACGTTA",
+            ]
+        )
+
+        controller.testingApplyConsensusDisplayOptions(
+            MSAConsensusDisplayOptions(
+                lowSupportThresholdPercent: 80,
+                highGapThresholdPercent: 60,
+                maskSymbolMode: .n
+            )
+        )
+
+        XCTAssertEqual(controller.testingConsensusDisplayPreview, "ACNTTA")
+        XCTAssertEqual(
+            controller.testingVisibleAlignmentRowsPreview(rowCount: 1, columnCount: 6),
+            ["Consensus ACNTTA"]
+        )
+
+        controller.testingApplyConsensusDisplayOptions(
+            MSAConsensusDisplayOptions(
+                lowSupportThresholdPercent: 80,
+                highGapThresholdPercent: 20,
+                maskSymbolMode: .x
+            )
+        )
+
+        XCTAssertEqual(controller.testingConsensusDisplayPreview, "ACXTXA")
+    }
+
+    func testMultipleSequenceAlignmentViewportCanDisplayDotsAgainstConsensusOrReference() throws {
+        let controller = MultipleSequenceAlignmentViewController()
+        _ = controller.view
+        let bundleURL = try makeMultipleSequenceAlignmentBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        controller.testingApplyResidueIdentityDisplayMode(.dotsToConsensus)
+        XCTAssertEqual(
+            controller.testingAlignmentMatrixPreview(rowCount: 3, columnCount: 6),
+            [
+                "seq1 ....-.",
+                "seq2 ..C...",
+                "seq3 ......",
+            ]
+        )
+
+        controller.testingSelectReferenceRow(named: "seq2")
+        controller.testingApplyResidueIdentityDisplayMode(.dotsToReference)
+
+        XCTAssertEqual(controller.testingReferenceRowName, "seq2")
+        XCTAssertEqual(
+            controller.testingAlignmentMatrixPreview(rowCount: 3, columnCount: 6),
+            [
+                "seq1 ..G.-.",
+                "seq2 ......",
+                "seq3 ..G...",
+            ]
+        )
+    }
+
     func testMultipleSequenceAlignmentViewportUsesFullCanvasAndAnnotationDrawer() throws {
         let controller = MultipleSequenceAlignmentViewController()
         controller.view.frame = NSRect(x: 0, y: 0, width: 1_200, height: 720)
@@ -1240,7 +1480,7 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertGreaterThan(matrixView.frame.width, 900)
         XCTAssertGreaterThan(matrixView.frame.height, 400)
         XCTAssertGreaterThanOrEqual(rowGutter.frame.width, 150)
-        XCTAssertGreaterThanOrEqual(columnHeader.frame.height, 42)
+        XCTAssertGreaterThanOrEqual(columnHeader.frame.height, 22)
         XCTAssertGreaterThanOrEqual(annotationDrawer.frame.height, 110)
     }
 
@@ -1259,7 +1499,6 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 "Copy FASTA",
                 "Export FASTA…",
                 "Create Bundle…",
-                "Run Operation…",
                 "Build Tree with IQ-TREE…",
                 "Add Annotation from Selection…",
                 "Apply Annotation to Selected Rows",
@@ -1593,8 +1832,8 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertNotNil(controller.view.testingDescendant(accessibilityIdentifier: "phylogenetic-tree-reset-button"))
         XCTAssertGreaterThanOrEqual(controller.testingCanvasNodeCount, 5)
         XCTAssertEqual(controller.testingRenderedTipLabels, ["A", "B", "C"])
-        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Fit"))
-        XCTAssertTrue(controller.testingCanvasCommandTitles.contains("Reset"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Fit tree"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Reset tree"))
         XCTAssertGreaterThan(
             controller.testingCanvasViewportFrame.width,
             300,
@@ -1606,6 +1845,144 @@ final class ViewerBundleRoutingTests: XCTestCase {
         XCTAssertEqual(controller.testingSelectedNodeLabel, "B")
         XCTAssertTrue(controller.testingDetailText.contains("B"))
         XCTAssertTrue(controller.testingDetailText.contains("branch"))
+    }
+
+    func testPhylogeneticTreeViewportKeepsControlsInsideNarrowVisualizationArea() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let layoutFrames = controller.testingTreeLayoutFrames
+        let rootFrame = try XCTUnwrap(layoutFrames["rootView"])
+        let canvasFrame = try XCTUnwrap(layoutFrames["treeScrollView"])
+        XCTAssertGreaterThan(canvasFrame.width, 560, "frames: \(layoutFrames)")
+        XCTAssertGreaterThan(canvasFrame.height, 300, "frames: \(layoutFrames)")
+
+        for frame in controller.testingToolbarControlFrames.values {
+            XCTAssertGreaterThanOrEqual(frame.minX, rootFrame.minX, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertLessThanOrEqual(frame.maxX, rootFrame.maxX, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertGreaterThanOrEqual(frame.minY, rootFrame.minY, "toolbar frame \(frame) escaped root \(rootFrame)")
+            XCTAssertLessThanOrEqual(frame.maxY, rootFrame.maxY, "toolbar frame \(frame) escaped root \(rootFrame)")
+        }
+
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Fit tree"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Zoom in"))
+        XCTAssertTrue(controller.testingCanvasCommandAccessibilityLabels.contains("Zoom out"))
+    }
+
+    func testPhylogeneticTreeToolbarDoesNotOverlapCanvasAndCommandsMutateView() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 640)
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let layoutFrames = controller.testingTreeLayoutFrames
+        let toolbarFrame = try XCTUnwrap(layoutFrames["toolbar"])
+        let canvasFrame = try XCTUnwrap(layoutFrames["treeScrollView"])
+        XCTAssertLessThanOrEqual(
+            canvasFrame.maxY,
+            toolbarFrame.minY + 0.5,
+            "Tree canvas should begin below the toolbar instead of rendering underneath it: \(layoutFrames)"
+        )
+
+        let initialZoom = controller.testingCanvasZoomScale
+        controller.testingPerformZoomIn()
+        XCTAssertGreaterThan(controller.testingCanvasZoomScale, initialZoom)
+
+        controller.testingPerformZoomOut()
+        XCTAssertEqual(controller.testingCanvasZoomScale, initialZoom, accuracy: 0.001)
+
+        controller.testingSetTreeLayoutMode(.cladogram)
+        XCTAssertEqual(controller.testingCanvasLayoutMode, "cladogram")
+
+        controller.testingSetTreeColorMode(.support)
+        XCTAssertEqual(controller.testingCanvasColorMode, "support")
+    }
+
+    func testPhylogeneticTreeHeaderSeparatesSummaryFromControls() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let layoutFrames = controller.testingTreeLayoutFrames
+        let headerFrame = try XCTUnwrap(layoutFrames["toolbar"])
+        let canvasFrame = try XCTUnwrap(layoutFrames["treeScrollView"])
+        XCTAssertGreaterThanOrEqual(
+            headerFrame.height,
+            72,
+            "Tree summary and tree controls should have separate rows instead of competing in one compressed toolbar: \(layoutFrames)"
+        )
+        XCTAssertLessThanOrEqual(
+            canvasFrame.maxY,
+            headerFrame.minY + 0.5,
+            "Tree canvas should begin below the expanded header: \(layoutFrames)"
+        )
+    }
+
+    func testPhylogeneticTreeToolbarUsesInspectorSizedTextControls() throws {
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+
+        let metrics = controller.testingToolbarTextControlMetrics
+        XCTAssertEqual(metrics["search"]?.controlSize, .small)
+        XCTAssertEqual(metrics["layout"]?.controlSize, .small)
+        XCTAssertEqual(metrics["color"]?.controlSize, .small)
+        XCTAssertEqual(metrics["search"]?.fontPointSize, NSFont.smallSystemFontSize)
+        XCTAssertEqual(metrics["layout"]?.fontPointSize, NSFont.smallSystemFontSize)
+        XCTAssertEqual(metrics["color"]?.fontPointSize, NSFont.smallSystemFontSize)
+    }
+
+    func testPhylogeneticTreePhylogramScalesSmallBranchLengthsIntoVisibleRange() throws {
+        let controller = PhylogeneticTreeViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1_000, height: 640)
+        let bundleURL = try makeSmallBranchLengthPhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.view.layoutSubtreeIfNeeded()
+
+        let pointA = try XCTUnwrap(controller.testingCanvasPoint(label: "A"))
+        let pointB = try XCTUnwrap(controller.testingCanvasPoint(label: "B"))
+        XCTAssertGreaterThan(
+            pointB.x - pointA.x,
+            120,
+            "SARS-CoV-2-scale branch lengths should not be compressed against a 1.0 substitutions/site axis."
+        )
+        XCTAssertTrue(
+            controller.testingCanvasScaleBarLabel.contains("0.000"),
+            "Scale bar should reflect the small branch-length range instead of showing a 0.5 substitutions/site scale."
+        )
+    }
+
+    func testPhylogeneticTreeViewportContextMenuExposesNodeActions() throws {
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectNode(label: "B")
+
+        XCTAssertEqual(
+            controller.testingNodeContextMenuTitles,
+            [
+                "Show in Inspector",
+                "Copy Node Label",
+                "Copy Subtree as Newick",
+                "Export Subtree…",
+                "Center Node",
+                "Reveal Provenance",
+            ]
+        )
     }
 
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
@@ -1654,6 +2031,31 @@ final class ViewerBundleRoutingTests: XCTestCase {
         return bundleURL
     }
 
+    private func makeWideMultipleSequenceAlignmentBundle(columnCount: Int) throws -> URL {
+        let bases = Array("ACGT")
+        func sequence(offset: Int, mutationEvery: Int?) -> String {
+            (0..<columnCount).map { index in
+                if let mutationEvery, index > 0, index.isMultiple(of: mutationEvery) {
+                    return String(bases[(index + offset + 1) % bases.count])
+                }
+                return String(bases[(index + offset) % bases.count])
+            }.joined()
+        }
+
+        let sourceURL = tempDir.appendingPathComponent("wide-alignment.fa")
+        try """
+        >seq1
+        \(sequence(offset: 0, mutationEvery: nil))
+        >seq2
+        \(sequence(offset: 0, mutationEvery: 37))
+        >seq3
+        \(sequence(offset: 0, mutationEvery: 53))
+        """.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("wide-alignment.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(from: sourceURL, to: bundleURL)
+        return bundleURL
+    }
+
     private func makeMultipleSequenceAlignmentBundleWithAnnotations() throws -> URL {
         let sourceURL = tempDir.appendingPathComponent("annotated-alignment.fa")
         try """
@@ -1692,6 +2094,15 @@ final class ViewerBundleRoutingTests: XCTestCase {
         let sourceURL = tempDir.appendingPathComponent("tree.nwk")
         try "((A:0.1,B:0.2)90:0.3,C:0.4);\n".write(to: sourceURL, atomically: true, encoding: .utf8)
         let bundleURL = tempDir.appendingPathComponent("tree.lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
+        return bundleURL
+    }
+
+    private func makeSmallBranchLengthPhylogeneticTreeBundle() throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("small-branch-tree.nwk")
+        try "(A:0.000001,(B:0.0002346691,D:0.0001005633):0.000001,(C:0.0000670407,E:0.0001676131):0.000001);\n"
+            .write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = tempDir.appendingPathComponent("small-branch-tree.lungfishtree", isDirectory: true)
         _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
         return bundleURL
     }

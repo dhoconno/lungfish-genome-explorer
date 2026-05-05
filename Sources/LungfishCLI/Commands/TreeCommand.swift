@@ -2,6 +2,7 @@ import ArgumentParser
 import CryptoKit
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 struct TreeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -247,11 +248,30 @@ struct TreeCommand: AsyncParsableCommand {
         @Option(name: .customLong("model"), help: "IQ-TREE model string")
         var model: String = "MFP"
 
+        @Option(name: .customLong("sequence-type"), help: "IQ-TREE sequence type: auto, DNA, AA, CODON, BIN, MORPH, NT2AA")
+        var sequenceType: String = "auto"
+
         @Option(name: .customLong("bootstrap"), help: "Ultrafast bootstrap replicate count")
         var bootstrap: Int?
 
+        @Option(name: .customLong("alrt"), help: "SH-aLRT replicate count")
+        var alrt: Int?
+
         @Option(name: .customLong("seed"), help: "Random seed")
         var seed: Int = 1
+
+        @Flag(name: .customLong("safe"), help: "Enable IQ-TREE safe numerical mode")
+        var safeMode: Bool = false
+
+        @Flag(name: .customLong("keep-identical"), help: "Keep identical sequences in the IQ-TREE analysis")
+        var keepIdenticalSequences: Bool = false
+
+        @Option(
+            name: .customLong("extra-iqtree-options"),
+            parsing: .unconditional,
+            help: "Additional IQ-TREE options, written exactly as they should be passed to IQ-TREE"
+        )
+        var extraIQTreeOptions: String = ""
 
         @Option(name: .customLong("iqtree-path"), help: "Override path to iqtree3 executable")
         var iqtreePath: String?
@@ -329,13 +349,31 @@ struct TreeCommand: AsyncParsableCommand {
                     "--prefix", prefixURL.path,
                     "-nt", iqtreeThreads,
                 ]
+                let normalizedSequenceType = try parsedSequenceType()
+                if let normalizedSequenceType {
+                    iqtreeArguments += ["-st", normalizedSequenceType]
+                }
                 if let bootstrap {
                     guard bootstrap > 0 else {
                         throw ValidationError("--bootstrap must be greater than 0.")
                     }
                     iqtreeArguments += ["-B", String(bootstrap)]
                 }
+                if let alrt {
+                    guard alrt > 0 else {
+                        throw ValidationError("--alrt must be greater than 0.")
+                    }
+                    iqtreeArguments += ["-alrt", String(alrt)]
+                }
                 iqtreeArguments += ["--seed", String(seed)]
+                if safeMode {
+                    iqtreeArguments.append("-safe")
+                }
+                if keepIdenticalSequences {
+                    iqtreeArguments.append("-keep-ident")
+                }
+                let advancedArguments = try parsedAdvancedArguments()
+                iqtreeArguments += advancedArguments
 
                 emitter.emitProgress(0.34, message: "Running IQ-TREE.")
                 let runResult = try runProcess(
@@ -389,9 +427,14 @@ struct TreeCommand: AsyncParsableCommand {
                     externalArguments: iqtreeArguments,
                     externalArgumentPathRewrites: externalArgumentPathRewrites,
                     model: model,
+                    sequenceType: normalizedSequenceType ?? "auto",
                     bootstrap: bootstrap,
+                    alrt: alrt,
                     seed: seed,
                     threads: iqtreeThreads,
+                    safeMode: safeMode,
+                    keepIdenticalSequences: keepIdenticalSequences,
+                    advancedArguments: advancedArguments,
                     rowCount: bundle.manifest.rowCount,
                     alignedLength: bundle.manifest.alignedLength,
                     selectedRowCount: selectedRecords.count,
@@ -429,6 +472,10 @@ struct TreeCommand: AsyncParsableCommand {
                 "--output", outputURL.path,
                 "--model", model,
             ]
+            if sequenceType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+               sequenceType.lowercased() != "auto" {
+                argv += ["--sequence-type", sequenceType]
+            }
             if let rows {
                 argv += ["--rows", rows]
             }
@@ -444,7 +491,19 @@ struct TreeCommand: AsyncParsableCommand {
             if let bootstrap {
                 argv += ["--bootstrap", String(bootstrap)]
             }
+            if let alrt {
+                argv += ["--alrt", String(alrt)]
+            }
             argv += ["--seed", String(seed)]
+            if safeMode {
+                argv.append("--safe")
+            }
+            if keepIdenticalSequences {
+                argv.append("--keep-identical")
+            }
+            if extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                argv += ["--extra-iqtree-options", extraIQTreeOptions]
+            }
             if let iqtreePath {
                 argv += ["--iqtree-path", iqtreePath]
             }
@@ -457,7 +516,23 @@ struct TreeCommand: AsyncParsableCommand {
             return argv
         }
 
-        private func resolveIQTreeExecutable() throws -> URL {
+        static func resolveIQTreeExecutableForTesting(
+            iqtreePath: String?,
+            environment: [String: String],
+            managedHomeDirectory: URL
+        ) throws -> URL {
+            try resolveIQTreeExecutable(
+                iqtreePath: iqtreePath,
+                environment: environment,
+                managedHomeDirectory: managedHomeDirectory
+            )
+        }
+
+        private static func resolveIQTreeExecutable(
+            iqtreePath: String?,
+            environment: [String: String],
+            managedHomeDirectory: URL
+        ) throws -> URL {
             if let iqtreePath {
                 let url = URL(fileURLWithPath: iqtreePath).standardizedFileURL
                 guard FileManager.default.isExecutableFile(atPath: url.path) else {
@@ -465,13 +540,23 @@ struct TreeCommand: AsyncParsableCommand {
                 }
                 return url
             }
-            if let envPath = ProcessInfo.processInfo.environment["LUNGFISH_IQTREE_PATH"], !envPath.isEmpty {
+            if let envPath = environment["LUNGFISH_IQTREE_PATH"], !envPath.isEmpty {
                 let url = URL(fileURLWithPath: envPath).standardizedFileURL
                 if FileManager.default.isExecutableFile(atPath: url.path) {
                     return url
                 }
             }
-            let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            for executable in ["iqtree3", "iqtree"] {
+                let managedURL = CoreToolLocator.managedExecutableURL(
+                    environment: "iqtree",
+                    executableName: executable,
+                    homeDirectory: managedHomeDirectory
+                )
+                if FileManager.default.isExecutableFile(atPath: managedURL.path) {
+                    return managedURL.standardizedFileURL
+                }
+            }
+            let pathEntries = (environment["PATH"] ?? "")
                 .split(separator: ":")
                 .map(String.init)
             for executable in ["iqtree3", "iqtree"] {
@@ -483,6 +568,31 @@ struct TreeCommand: AsyncParsableCommand {
                 }
             }
             throw ValidationError("IQ-TREE executable not found. Install the Phylogenetics plugin pack or pass --iqtree-path.")
+        }
+
+        private func resolveIQTreeExecutable() throws -> URL {
+            try Self.resolveIQTreeExecutable(
+                iqtreePath: iqtreePath,
+                environment: ProcessInfo.processInfo.environment,
+                managedHomeDirectory: FileManager.default.homeDirectoryForCurrentUser
+            )
+        }
+
+        private func parsedSequenceType() throws -> String? {
+            let trimmed = sequenceType.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.isEmpty == false, trimmed.lowercased() != "auto" else {
+                return nil
+            }
+            let allowed = ["DNA", "AA", "CODON", "BIN", "MORPH", "NT2AA"]
+            let uppercased = trimmed.uppercased()
+            guard allowed.contains(uppercased) else {
+                throw ValidationError("Unsupported IQ-TREE sequence type '\(trimmed)'. Supported values: auto, DNA, AA, CODON, BIN, MORPH, NT2AA.")
+            }
+            return uppercased
+        }
+
+        private func parsedAdvancedArguments() throws -> [String] {
+            try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
         }
     }
 }
@@ -779,9 +889,14 @@ private func rewriteManifestAndProvenance(
     externalArguments: [String],
     externalArgumentPathRewrites: [String: String],
     model: String,
+    sequenceType: String,
     bootstrap: Int?,
+    alrt: Int?,
     seed: Int?,
     threads: String,
+    safeMode: Bool,
+    keepIdenticalSequences: Bool,
+    advancedArguments: [String],
     rowCount: Int,
     alignedLength: Int,
     selectedRowCount: Int,
@@ -816,7 +931,10 @@ private func rewriteManifestAndProvenance(
     let updatedFileSizes = try fileSizeMap(paths: updatedPayloadPaths, bundleURL: bundleURL)
     var options: [String: String] = [
         "model": model,
+        "sequenceType": sequenceType,
         "threads": threads,
+        "safeMode": String(safeMode),
+        "keepIdenticalSequences": String(keepIdenticalSequences),
         "rowCount": String(rowCount),
         "alignedLength": String(alignedLength),
         "selectedRowCount": String(selectedRowCount),
@@ -827,8 +945,14 @@ private func rewriteManifestAndProvenance(
     if let bootstrap {
         options["bootstrap"] = String(bootstrap)
     }
+    if let alrt {
+        options["alrt"] = String(alrt)
+    }
     if let seed {
         options["seed"] = String(seed)
+    }
+    if advancedArguments.isEmpty == false {
+        options["advancedArguments"] = AdvancedCommandLineOptions.join(advancedArguments)
     }
     if let rows {
         options["rows"] = rows

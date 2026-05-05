@@ -45,6 +45,21 @@ struct SequenceRegionSelectionState: Equatable {
     }
 }
 
+struct PhylogeneticTreeSelectionState: Equatable {
+    let title: String
+    let subtitle: String?
+    let detailRows: [(String, String)]
+
+    static func == (
+        lhs: PhylogeneticTreeSelectionState,
+        rhs: PhylogeneticTreeSelectionState
+    ) -> Bool {
+        lhs.title == rhs.title &&
+            lhs.subtitle == rhs.subtitle &&
+            lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 })
+    }
+}
+
 /// View model for the selection section.
 ///
 /// Manages the state of the currently selected annotation for editing.
@@ -59,6 +74,9 @@ public final class SelectionSectionViewModel {
 
     /// The currently selected sequence/reference region, if any.
     var sequenceRegionSelection: SequenceRegionSelectionState?
+
+    /// The currently selected phylogenetic tree node, if any.
+    var phylogeneticTreeSelection: PhylogeneticTreeSelectionState?
 
     /// Editable name binding
     public var name: String = ""
@@ -191,6 +209,7 @@ public final class SelectionSectionViewModel {
         // @Observable automatically tracks property changes, no manual refresh needed
         multipleSequenceAlignmentSelection = nil
         sequenceRegionSelection = nil
+        phylogeneticTreeSelection = nil
         selectedAnnotation = annotation
         if let annotation = annotation {
             // Reset translation visibility when switching to a different annotation.
@@ -236,6 +255,7 @@ public final class SelectionSectionViewModel {
 
         selectedAnnotation = nil
         sequenceRegionSelection = nil
+        phylogeneticTreeSelection = nil
         multipleSequenceAlignmentSelection = selection
         name = ""
         type = .region
@@ -255,7 +275,28 @@ public final class SelectionSectionViewModel {
 
         selectedAnnotation = nil
         multipleSequenceAlignmentSelection = nil
+        phylogeneticTreeSelection = nil
         sequenceRegionSelection = selection
+        name = ""
+        type = .region
+        notes = ""
+        color = .blue
+        colorApplyMode = .thisOnly
+        qualifierPairs = []
+        dbxrefLinks = []
+        fullTranslation = nil
+        isTranslationVisible = false
+    }
+
+    /// Updates the view model with a phylogenetic tree node selection.
+    func select(phylogeneticTreeSelection selection: PhylogeneticTreeSelectionState?) {
+        isUpdatingFromSelection = true
+        defer { isUpdatingFromSelection = false }
+
+        selectedAnnotation = nil
+        multipleSequenceAlignmentSelection = nil
+        sequenceRegionSelection = nil
+        phylogeneticTreeSelection = selection
         name = ""
         type = .region
         notes = ""
@@ -523,6 +564,8 @@ public struct SelectionSection: View {
         DisclosureGroup(isExpanded: $isExpanded) {
             if let selection = viewModel.multipleSequenceAlignmentSelection {
                 multipleSequenceAlignmentSelectionView(selection)
+            } else if let selection = viewModel.phylogeneticTreeSelection {
+                phylogeneticTreeSelectionView(selection)
             } else if let selection = viewModel.sequenceRegionSelection {
                 sequenceRegionSelectionView(selection)
             } else if viewModel.selectedAnnotation != nil {
@@ -579,6 +622,35 @@ public struct SelectionSection: View {
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
+        }
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func phylogeneticTreeSelectionView(
+        _ selection: PhylogeneticTreeSelectionState
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(selection.title)
+                    .font(.callout.weight(.semibold))
+                    .textSelection(.enabled)
+                if let subtitle = selection.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
+                    LabeledContent(row.0, value: row.1)
+                        .font(.callout)
+                }
+            }
         }
         .padding(.top, 8)
     }

@@ -179,7 +179,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private let focusButton: NSButton = {
         let button = NSButton(title: "Focus", target: nil, action: nil)
         button.bezelStyle = .rounded
-        button.controlSize = .small
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setAccessibilityIdentifier("reference-viewport-focus-button")
         button.setAccessibilityLabel("Focus reference detail")
@@ -198,6 +198,7 @@ public class ReferenceBundleViewportController: NSViewController {
     private let focusedBackButton: NSButton = {
         let button = NSButton(title: "Back", target: nil, action: nil)
         button.bezelStyle = .rounded
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: button)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setAccessibilityIdentifier("reference-viewport-back-button")
         button.setAccessibilityLabel("Back to reference list and detail")

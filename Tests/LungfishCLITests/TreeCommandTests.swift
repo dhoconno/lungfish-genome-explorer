@@ -3,6 +3,25 @@ import XCTest
 @testable import LungfishIO
 
 final class TreeCommandTests: XCTestCase {
+    func testInferIQTreeResolverFindsManagedPluginPackExecutableWhenPathDoesNotIncludeIt() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandManagedIQTreeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        let managedBin = homeDirectory
+            .appendingPathComponent(".lungfish/conda/envs/iqtree/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: managedBin, withIntermediateDirectories: true)
+        let managedIQTree = try writeFakeIQTreeExecutable(in: managedBin)
+
+        let resolved = try TreeCommand.InferIQTreeSubcommand.resolveIQTreeExecutableForTesting(
+            iqtreePath: nil,
+            environment: ["PATH": "/usr/bin:/bin"],
+            managedHomeDirectory: homeDirectory
+        )
+
+        XCTAssertEqual(resolved.path, managedIQTree.standardizedFileURL.path)
+    }
+
     func testInferIQTreeCreatesNativeTreeBundleArtifactsAndProvenance() async throws {
         let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent(".build/test-artifacts/TreeCommandTests-\(UUID().uuidString)", isDirectory: true)
@@ -187,6 +206,74 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertFalse(provenance.contains("/.tmp/"))
         XCTAssertFalse(provenance.contains("\\/.tmp\\/"))
         XCTAssertTrue(recorder.joined().contains(#""event":"treeInferenceComplete""#))
+    }
+
+    func testInferIQTreePassesCuratedAndAdvancedOptionsToIQTreeAndProvenance() async throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandIQTreeOptionsTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let msaSourceURL = tempDir.appendingPathComponent("input.aligned.fasta")
+        try """
+        >A
+        ACGT
+        >B
+        ACGA
+
+        """.write(to: msaSourceURL, atomically: true, encoding: .utf8)
+        let msaBundleURL = projectURL.appendingPathComponent("Input.lungfishmsa", isDirectory: true)
+        _ = try MultipleSequenceAlignmentBundle.importAlignment(
+            from: msaSourceURL,
+            to: msaBundleURL,
+            options: .init(name: "Input")
+        )
+
+        let fakeIQTreeURL = try writeFakeIQTreeExecutable(in: tempDir)
+        let outputURL = projectURL.appendingPathComponent("Phylogenetic Trees/Options Tree.lungfishtree", isDirectory: true)
+        let command = try TreeCommand.InferIQTreeSubcommand.parse([
+            msaBundleURL.path,
+            "--project", projectURL.path,
+            "--output", outputURL.path,
+            "--name", "Options Tree",
+            "--model", "JC",
+            "--sequence-type", "DNA",
+            "--bootstrap", "1000",
+            "--alrt", "1000",
+            "--seed", "12345",
+            "--threads", "2",
+            "--safe",
+            "--keep-identical",
+            "--extra-iqtree-options", "-bnni --pathogen",
+            "--iqtree-path", fakeIQTreeURL.path,
+            "--format", "json",
+        ])
+
+        try await command.executeForTesting { _ in }
+
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        let options = try XCTUnwrap(provenanceJSON["options"] as? [String: String])
+        XCTAssertEqual(options["model"], "JC")
+        XCTAssertEqual(options["sequenceType"], "DNA")
+        XCTAssertEqual(options["bootstrap"], "1000")
+        XCTAssertEqual(options["alrt"], "1000")
+        XCTAssertEqual(options["safeMode"], "true")
+        XCTAssertEqual(options["keepIdenticalSequences"], "true")
+        XCTAssertEqual(options["advancedArguments"], "-bnni --pathogen")
+
+        let externalTool = try XCTUnwrap(provenanceJSON["externalTool"] as? [String: Any])
+        let externalArguments = try XCTUnwrap(externalTool["arguments"] as? [String])
+        XCTAssertTrue(externalArguments.contains("-st"))
+        XCTAssertTrue(externalArguments.contains("DNA"))
+        XCTAssertTrue(externalArguments.contains("-B"))
+        XCTAssertTrue(externalArguments.contains("1000"))
+        XCTAssertTrue(externalArguments.contains("-alrt"))
+        XCTAssertTrue(externalArguments.contains("-safe"))
+        XCTAssertTrue(externalArguments.contains("-keep-ident"))
+        XCTAssertTrue(externalArguments.contains("-bnni"))
+        XCTAssertTrue(externalArguments.contains("--pathogen"))
     }
 
     func testSubtreeExportWritesNewickAndProvenance() throws {

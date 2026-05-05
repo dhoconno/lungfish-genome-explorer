@@ -371,7 +371,28 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Toggle("Search Reverse Complement", isOn: $state.selectReadsBySequenceSearchReverseComplement)
 
             case .mafft:
-                Text("MAFFT will use automatic strategy selection, deterministic threading, and input-order output.")
+                Picker("Strategy", selection: $state.mafftStrategy) {
+                    ForEach(MAFFTAlignmentStrategy.allCases, id: \.self) { strategy in
+                        Text(strategy.displayName).tag(strategy)
+                    }
+                }
+
+                Picker("Sequence Type", selection: $state.mafftSequenceType) {
+                    ForEach(MSASequenceType.allCases, id: \.self) { sequenceType in
+                        Text(sequenceType.displayName).tag(sequenceType)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Output Order", selection: $state.mafftOutputOrder) {
+                    ForEach(MSAAlignmentOutputOrder.allCases, id: \.self) { outputOrder in
+                        Text(outputOrder.displayName).tag(outputOrder)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text("MAFFT will run through lungfish-cli and write native .lungfishmsa provenance with the resolved options.")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
             case .demultiplexBarcodes:
@@ -538,6 +559,20 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             case .mafft:
                 DisclosureGroup("Advanced Options", isExpanded: $state.mafftAdvancedOptionsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
+                        Picker("Direction Adjustment", selection: $state.mafftDirectionAdjustment) {
+                            ForEach(MAFFTDirectionAdjustment.allCases, id: \.self) { adjustment in
+                                Text(adjustment.displayName).tag(adjustment)
+                            }
+                        }
+                        Picker("Symbol Policy", selection: $state.mafftSymbolPolicy) {
+                            ForEach(MSASymbolPolicy.allCases, id: \.self) { policy in
+                                Text(policy.displayName).tag(policy)
+                            }
+                        }
+                        HStack(spacing: 12) {
+                            labeledCompactTextField("Threads", text: Self.optionalIntBinding(state, \.mafftThreads))
+                            Toggle("Deterministic threading", isOn: $state.mafftDeterministicThreads)
+                        }
                         Toggle("Treat FASTQ records as assembled or consensus sequences", isOn: $state.mafftAllowFASTQAssemblyInputs)
                         labeledTextField("MAFFT Parameters", text: $state.mafftExtraOptionsText)
                         Text("These arguments are passed directly to MAFFT after the selected strategy.")
@@ -567,6 +602,27 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                 .textFieldStyle(.roundedBorder)
         }
     }
+
+    private func labeledCompactTextField(_ title: String, text: Binding<String>) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .frame(width: 140, alignment: .leading)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 120)
+        }
+    }
+
+    private static func optionalIntBinding(_ state: FASTQOperationDialogState, _ keyPath: WritableKeyPath<FASTQOperationDialogState, Int?>) -> Binding<String> {
+        Binding(
+            get: { state[keyPath: keyPath].map { String($0) } ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                var mutableState = state
+                mutableState[keyPath: keyPath] = trimmed.isEmpty ? nil : Int(trimmed)
+            }
+        )
+    }
 }
 
 private extension FASTQOperationOutputMode {
@@ -578,6 +634,57 @@ private extension FASTQOperationOutputMode {
             return "Grouped Result"
         case .fixedBatch:
             return "Batch Output"
+        }
+    }
+}
+
+private extension MAFFTAlignmentStrategy {
+    var displayName: String {
+        switch self {
+        case .auto: return "Automatic"
+        case .linsi: return "L-INS-i"
+        case .ginsi: return "G-INS-i"
+        case .einsi: return "E-INS-i"
+        case .fftns2: return "FFT-NS-2"
+        case .parttree: return "PartTree"
+        }
+    }
+}
+
+private extension MSAAlignmentOutputOrder {
+    var displayName: String {
+        switch self {
+        case .input: return "Input Order"
+        case .aligned: return "Aligned Order"
+        }
+    }
+}
+
+private extension MSASequenceType {
+    var displayName: String {
+        switch self {
+        case .auto: return "Auto"
+        case .nucleotide: return "Nucleotide"
+        case .protein: return "Protein"
+        }
+    }
+}
+
+private extension MAFFTDirectionAdjustment {
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .fast: return "Adjust Direction"
+        case .accurate: return "Adjust Direction Accurately"
+        }
+    }
+}
+
+private extension MSASymbolPolicy {
+    var displayName: String {
+        switch self {
+        case .strict: return "Strict Alphabet"
+        case .any: return "Allow Any Symbol"
         }
     }
 }

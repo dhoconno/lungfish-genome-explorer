@@ -94,6 +94,30 @@ public final class ReadStyleSectionViewModel {
     /// Reverse strand display color.
     public var reverseReadColor: Color = Color(red: 0.87, green: 0.69, blue: 0.69)
 
+    /// Whether the active viewport is a native multiple sequence alignment bundle.
+    var hasMultipleSequenceAlignmentBundle: Bool = false
+
+    /// Coordinate numbering mode for native multiple sequence alignment bundle viewports.
+    var msaNumberingMode: MSAAlignmentNumberingMode = .both
+
+    /// Low-support threshold below which the native MSA consensus row emits N/X.
+    var msaConsensusLowSupportThresholdPercent: Double = 50
+
+    /// High-gap threshold at or above which the native MSA consensus row emits N/X.
+    var msaConsensusHighGapThresholdPercent: Double = 50
+
+    /// Symbol policy for masked native MSA consensus positions.
+    var msaConsensusMaskSymbolMode: MSAConsensusMaskSymbolMode = .automatic
+
+    /// Sequence rows available as native MSA reference baselines.
+    var msaReferenceRowOptions: [MSAReferenceRowOption] = []
+
+    /// Selected native MSA reference row ID used for difference display.
+    var selectedMSAReferenceRowID: String?
+
+    /// Native MSA residue rendering policy for identity dots.
+    var msaResidueIdentityDisplayMode: MSAResidueIdentityDisplayMode = .letters
+
     // MARK: - Alignment Statistics
 
     /// Whether alignment tracks are present in the current bundle.
@@ -293,6 +317,14 @@ public final class ReadStyleSectionViewModel {
 
     /// Clears all statistics (called when bundle is unloaded).
     public func clear() {
+        hasMultipleSequenceAlignmentBundle = false
+        msaNumberingMode = .both
+        msaConsensusLowSupportThresholdPercent = 50
+        msaConsensusHighGapThresholdPercent = 50
+        msaConsensusMaskSymbolMode = .automatic
+        msaReferenceRowOptions = []
+        selectedMSAReferenceRowID = nil
+        msaResidueIdentityDisplayMode = .letters
         hasAlignmentTracks = false
         hasVariantCallableAlignmentTracks = false
         totalMappedReads = 0
@@ -1471,7 +1503,9 @@ public struct AlignmentViewSection: View {
     }
 
     public var body: some View {
-        if viewModel.hasAlignmentTracks {
+        if viewModel.hasMultipleSequenceAlignmentBundle {
+            multipleSequenceAlignmentControls
+        } else if viewModel.hasAlignmentTracks {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Choose whether the viewer shows every alignment track together or just one alignment track at a time.")
                     .font(.caption)
@@ -1543,6 +1577,105 @@ public struct AlignmentViewSection: View {
                 title: "No alignment tracks loaded.",
                 detail: "Import a BAM or CRAM file via File > Import Center."
             )
+        }
+    }
+
+    @ViewBuilder
+    private var multipleSequenceAlignmentControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Coordinate Numbering")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Numbering", selection: $viewModel.msaNumberingMode) {
+                ForEach(MSAAlignmentNumberingMode.allCases) { mode in
+                    Text(mode.displayTitle).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .onChange(of: viewModel.msaNumberingMode) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Text(viewModel.msaNumberingMode.detailText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Divider()
+
+            Text("Consensus")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                Text("Low support")
+                Spacer()
+                Text("\(Int(viewModel.msaConsensusLowSupportThresholdPercent))%")
+                    .foregroundStyle(.secondary)
+            }
+            Slider(
+                value: $viewModel.msaConsensusLowSupportThresholdPercent,
+                in: 0...100,
+                step: 5
+            )
+            .onChange(of: viewModel.msaConsensusLowSupportThresholdPercent) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            HStack {
+                Text("High gap")
+                Spacer()
+                Text("\(Int(viewModel.msaConsensusHighGapThresholdPercent))%")
+                    .foregroundStyle(.secondary)
+            }
+            Slider(
+                value: $viewModel.msaConsensusHighGapThresholdPercent,
+                in: 0...100,
+                step: 5
+            )
+            .onChange(of: viewModel.msaConsensusHighGapThresholdPercent) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Picker("Mask", selection: $viewModel.msaConsensusMaskSymbolMode) {
+                ForEach(MSAConsensusMaskSymbolMode.allCases) { mode in
+                    Text(mode.displayTitle).tag(mode)
+                }
+            }
+            .onChange(of: viewModel.msaConsensusMaskSymbolMode) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Divider()
+
+            Text("Reference Differences")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Reference", selection: $viewModel.selectedMSAReferenceRowID) {
+                ForEach(viewModel.msaReferenceRowOptions) { row in
+                    Text(row.name).tag(Optional(row.id))
+                }
+            }
+            .disabled(viewModel.msaReferenceRowOptions.isEmpty)
+            .onChange(of: viewModel.selectedMSAReferenceRowID) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Picker("Display", selection: $viewModel.msaResidueIdentityDisplayMode) {
+                ForEach(MSAResidueIdentityDisplayMode.allCases) { mode in
+                    Text(mode.displayTitle).tag(mode)
+                }
+            }
+            .onChange(of: viewModel.msaResidueIdentityDisplayMode) { _, _ in
+                viewModel.onSettingsChanged?()
+            }
+
+            Text(viewModel.msaResidueIdentityDisplayMode.detailText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -2264,43 +2397,13 @@ public struct AnalysisSection: View {
 private struct AnalysisSubsectionGrid: View {
     @Binding var selection: AnalysisWorkflowSubsection
 
-    private let columns = Array(
-        repeating: GridItem(.flexible(minimum: 0), spacing: 6),
-        count: 2
-    )
-
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 6) {
-            ForEach(AnalysisWorkflowSubsection.allCases) { section in
-                Button {
-                    selection = section
-                } label: {
-                    Text(section.displayTitle)
-                        .font(.caption.weight(selection == section ? .semibold : .regular))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity, minHeight: 24)
-                        .padding(.horizontal, 4)
-                        .background(sectionBackground(for: section))
-                        .foregroundStyle(selection == section ? Color.white : Color.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .help(section.displayTitle)
-            }
-        }
-        .accessibilityLabel("Analysis Section")
-    }
-
-    @ViewBuilder
-    private func sectionBackground(for section: AnalysisWorkflowSubsection) -> some View {
-        if selection == section {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor)
-        } else {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlColor))
-        }
+        LungfishInspectorSegmentedButtonGrid(
+            options: AnalysisWorkflowSubsection.allCases,
+            selection: $selection,
+            accessibilityLabel: "Analysis Section",
+            label: \.displayTitle
+        )
     }
 }
 

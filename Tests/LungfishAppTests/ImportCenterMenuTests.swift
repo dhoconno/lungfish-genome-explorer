@@ -136,30 +136,19 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(ImportCenterViewModel.Tab.applicationExports.title, "Application Exports")
     }
 
-    func testApplicationExportsTabContainsDocumentedCardsAndNoSangerCard() throws {
+    func testApplicationExportsTabOnlyContainsTestedGeneiousCard() throws {
         let viewModel = ImportCenterViewModel()
         viewModel.selectedTab = .applicationExports
         let ids = viewModel.visibleCards.map(\.id)
 
-        XCTAssertEqual(ids, [
-            "geneious-export",
-            "clc-workbench-export",
-            "dnastar-lasergene-export",
-            "benchling-bulk-export",
-            "sequence-design-library-export",
-            "alignment-tree-export",
-            "sequencing-platform-run-folder",
-            "phylogenetics-result-set",
-            "qiime2-archive",
-            "igv-session-track-set",
-        ])
+        XCTAssertEqual(ids, ["geneious-export"])
         XCTAssertFalse(viewModel.allCards.contains { $0.id.localizedCaseInsensitiveContains("sanger") })
     }
 
     func testApplicationExportCardsUseSingleSourceFileOrFolderPanels() throws {
         let viewModel = ImportCenterViewModel()
         let cards = viewModel.allCards.filter { $0.tab == .applicationExports }
-        XCTAssertEqual(cards.count, 10)
+        XCTAssertEqual(cards.map(\.id), ["geneious-export"])
 
         for card in cards {
             guard case .openPanel(let config, _) = card.importKind else {
