@@ -38,12 +38,24 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("--sparkle-publish-release", self.release_script)
         self.assertIn("--github-release-tag", self.release_script)
         self.assertIn("appcast-alpha.xml", self.release_script)
-        self.assertIn("-o appcast-alpha.xml", self.release_script)
+        self.assertIn('-o "$SPARKLE_APPCAST_PATH"', self.release_script)
         self.assertIn('--ed-key-file "$SPARKLE_ED_KEY_FILE"', self.release_script)
         self.assertIn("--download-url-prefix", self.release_script)
+        self.assertIn('download_url_prefix="${download_url_prefix}/"', self.release_script)
         self.assertIn("gh release upload", self.release_script)
         self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)
         self.assertIn("Lungfish-${VERSION}-arm64.dmg.md", self.release_script)
+
+    def test_release_script_stamps_sparkle_keys_before_codesigning(self):
+        self.assertIn("configure_sparkle_info_plist", self.release_script)
+        self.assertIn("/usr/bin/plutil -replace SUFeedURL", self.release_script)
+        self.assertIn("/usr/bin/plutil -replace SUPublicEDKey", self.release_script)
+        self.assertIn("/usr/bin/plutil -replace SUVerifyUpdateBeforeExtraction", self.release_script)
+
+        configure_index = self._line_index('configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"')
+        sign_index = self._line_index("# Fail before codesign/notarization work")
+
+        self.assertLess(configure_index, sign_index)
 
     def test_release_script_creates_github_release_tags_at_current_commit(self):
         self.assertIn("target_commit=\"$(git rev-parse HEAD)\"", self.release_script)

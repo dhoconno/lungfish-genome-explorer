@@ -64,6 +64,7 @@ SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
 SPARKLE_RELEASE_NOTES=""
 SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
+SPARKLE_FEED_URL=""
 GITHUB_RELEASE_TAG=""
 
 while [ "$#" -gt 0 ]; do
@@ -161,6 +162,7 @@ fi
 if [ -z "$DERIVED_DATA_PATH" ]; then
     DERIVED_DATA_PATH="${PROJECT_ROOT}/.build/release-derived-data"
 fi
+SPARKLE_FEED_URL="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${SPARKLE_PUBLISH_RELEASE:-sparkle-alpha}/appcast-alpha.xml"
 RELEASE_LOG_DIR="${RELEASE_DIR}/logs"
 ARCHIVE_RESULT_BUNDLE_PATH="${RELEASE_LOG_DIR}/archive.xcresult"
 
@@ -176,7 +178,7 @@ require_command() {
 
 require_command rg
 
-for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/libexec/PlistBuddy; do
+for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/bin/plutil /usr/libexec/PlistBuddy; do
     require_command "$command"
 done
 
@@ -242,6 +244,28 @@ install_app_icon() {
         || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist"
 }
 
+configure_sparkle_info_plist() {
+    local info_plist="$1"
+    if [ ! -f "$info_plist" ]; then
+        echo "Info.plist not found: $info_plist" >&2
+        exit 72
+    fi
+
+    /usr/bin/plutil -replace CFBundleVersion -string "$SPARKLE_BUILD_NUMBER" "$info_plist"
+    /usr/bin/plutil -replace SUFeedURL -string "$SPARKLE_FEED_URL" "$info_plist"
+    /usr/bin/plutil -replace SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$info_plist"
+    /usr/bin/plutil -replace SUVerifyUpdateBeforeExtraction -bool YES "$info_plist"
+
+    local actual_feed
+    local actual_public_key
+    actual_feed=$(/usr/libexec/PlistBuddy -c "Print :SUFeedURL" "$info_plist")
+    actual_public_key=$(/usr/libexec/PlistBuddy -c "Print :SUPublicEDKey" "$info_plist")
+    if [ "$actual_feed" != "$SPARKLE_FEED_URL" ] || [ "$actual_public_key" != "$SPARKLE_PUBLIC_ED_KEY" ]; then
+        echo "failed to configure Sparkle Info.plist keys" >&2
+        exit 72
+    fi
+}
+
 sparkle_release_notes_source() {
     if [ -n "$SPARKLE_RELEASE_NOTES" ]; then
         printf '%s\n' "$SPARKLE_RELEASE_NOTES"
@@ -261,6 +285,7 @@ publish_github_release_dmg() {
     target_commit="$(git rev-parse HEAD)"
 
     if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
+        gh release edit "$GITHUB_RELEASE_TAG" --target "$target_commit"
         gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber
         return
     fi
@@ -299,6 +324,10 @@ generate_sparkle_appcast() {
     if [ -z "$download_url_prefix" ]; then
         download_url_prefix="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${GITHUB_RELEASE_TAG:-v${VERSION}}"
     fi
+    case "$download_url_prefix" in
+        */) ;;
+        *) download_url_prefix="${download_url_prefix}/" ;;
+    esac
 
     mkdir -p "$SPARKLE_APPCAST_DIR"
     /bin/cp -p "$DMG_PATH" "$appcast_dmg"
@@ -307,9 +336,10 @@ generate_sparkle_appcast() {
         /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
+    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
     local appcast_args=(
         --download-url-prefix "$download_url_prefix"
-        -o appcast-alpha.xml
+        -o "$SPARKLE_APPCAST_PATH"
     )
     if [ -n "$SPARKLE_ED_KEY_FILE" ]; then
         appcast_args+=(--ed-key-file "$SPARKLE_ED_KEY_FILE")
@@ -317,7 +347,6 @@ generate_sparkle_appcast() {
 
     "$SPARKLE_GENERATE_APPCAST" "${appcast_args[@]}" "$SPARKLE_APPCAST_DIR"
 
-    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
     if [ ! -f "$SPARKLE_APPCAST_PATH" ]; then
         echo "Sparkle appcast was not generated at expected path: $SPARKLE_APPCAST_PATH" >&2
         exit 72
@@ -332,6 +361,10 @@ generate_sparkle_appcast() {
                 --notes "Mutable Sparkle alpha appcast feed for Lungfish Genome Explorer." \
                 --prerelease \
                 --target "$target_commit"
+        else
+            local target_commit
+            target_commit="$(git rev-parse HEAD)"
+            gh release edit "$SPARKLE_PUBLISH_RELEASE" --target "$target_commit"
         fi
 
         gh release upload "$SPARKLE_PUBLISH_RELEASE" "$SPARKLE_APPCAST_PATH" --clobber
@@ -463,6 +496,7 @@ fi
 /usr/bin/install -m 755 "$CLI_SOURCE" "$CLI_DEST"
 /bin/bash scripts/sanitize-bundled-tools.sh "$APP_PATH/Contents/MacOS" "$WORKFLOW_TOOLS_DIR"
 install_app_icon
+configure_sparkle_info_plist "$APP_PATH/Contents/Info.plist"
 
 # Fail before codesign/notarization work if release packaging leaked build or
 # Homebrew paths back into the app bundle.
@@ -603,7 +637,7 @@ git_commit=${COMMIT_SHA}
 signing_identity=<redacted>
 team_id=<redacted>
 notary_profile=<redacted>
-sparkle_feed_url=https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml
+sparkle_feed_url=${SPARKLE_FEED_URL}
 github_release_tag=${GITHUB_RELEASE_TAG}
 archive_path=$(relative_to_project_root "$ARCHIVE_PATH")
 app_path=$(relative_to_project_root "$APP_PATH")
