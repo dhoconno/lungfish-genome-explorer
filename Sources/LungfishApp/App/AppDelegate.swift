@@ -5864,47 +5864,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func launchOrientReads(_ sender: Any?) {
-        guard let window = mainWindowController?.window else {
-            debugLog("launchOrientReads: No main window available")
-            return
-        }
-
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
-        let selectedItems = sidebarController?.selectedItems() ?? []
-        let inputFiles = selectedItems.compactMap { item -> URL? in
-            guard let url = item.url else { return nil }
-            return SequenceInputResolver.resolvePrimarySequenceURL(for: url)
-        }
-
-        if inputFiles.isEmpty {
-            let alert = NSAlert()
-            alert.alertStyle = .informational
-            alert.messageText = "No FASTQ/FASTA Inputs Selected"
-            alert.informativeText = "Select a FASTQ or FASTA file, sequence bundle, or reference bundle in the sidebar, then choose Orient Reads."
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
-
-        let projectURL = sidebarController?.currentProjectURL
-
-        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
-        wizardPanel.title = "Orient Reads"
-        wizardPanel.isReleasedWhenClosed = false
-
-        var sheet = OrientWizardSheet(inputFiles: inputFiles, projectURL: projectURL)
-        sheet.onRun = { [weak self] config in
-            window.endSheet(wizardPanel)
-            self?.runOrientReads(config: config)
-        }
-        sheet.onCancel = {
-            window.endSheet(wizardPanel)
-        }
-
-        let hostingController = NSHostingController(rootView: sheet)
-        wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(NSSize(width: 520, height: 480))
-        window.beginSheet(wizardPanel)
+        showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .orientReads)
     }
 
     private func runMinimap2Mapping(config: Minimap2Config) {
@@ -6333,150 +6293,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Direct-Launch Classification Methods
 
-    /// Gathers FASTQ bundle URLs from the sidebar selection or loaded documents.
-    ///
-    /// Returns raw bundle URLs (not resolved to inner FASTQ files) so the caller
-    /// can decide whether to materialize virtual datasets.
-    private func gatherClassificationBundleURLs() -> [URL] {
-        var bundleURLs: [URL] = []
-
-        if let splitVC = mainWindowController?.mainSplitViewController {
-            let selectedURLs = splitVC.sidebarController.selectedFileURLs()
-            for url in selectedURLs {
-                let ext = url.pathExtension.lowercased()
-                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" ||
-                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
-                    bundleURLs.append(url)
-                } else if ext == FASTQBundle.directoryExtension {
-                    bundleURLs.append(url)
-                }
-            }
-        }
-
-        if bundleURLs.isEmpty {
-            for doc in DocumentManager.shared.documents {
-                let url = doc.url
-                let ext = url.pathExtension.lowercased()
-                let baseExt = url.deletingPathExtension().pathExtension.lowercased()
-                if ext == "fastq" || ext == "fq" ||
-                   (ext == "gz" && (baseExt == "fastq" || baseExt == "fq")) {
-                    bundleURLs.append(url)
-                } else if ext == FASTQBundle.directoryExtension {
-                    bundleURLs.append(url)
-                }
-            }
-        }
-
-        return bundleURLs
-    }
-
     /// Launches Kraken2 classification directly (skipping the wizard chooser step).
     ///
     /// Called from the sidebar's "Run" button when the Classify Reads operation is selected.
     @objc func launchKraken2Classification(_ sender: Any?) {
-        showFASTQOperationsDialog(sender, initialCategory: .classification)
+        showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .kraken2)
     }
 
     /// Launches EsViritu viral detection directly (skipping the wizard chooser step).
     @objc func launchEsVirituDetection(_ sender: Any?) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else { return }
-        guard let window = mainWindowController?.window else { return }
-
-        let bundleURLs = gatherClassificationBundleURLs()
-        guard !bundleURLs.isEmpty else {
-            let alert = NSAlert()
-            alert.messageText = "No FASTQ Selected"
-            alert.informativeText = "Select a FASTQ file in the sidebar, then run viral detection."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
-
-        let wizardPanel = makeUnifiedClassifierPanel(title: "EsViritu")
-
-        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)
-        wizardView.onRunClassification = { [weak self] configs in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runClassification(configs: configs, viewerController: viewerController)
-        }
-        wizardView.onRunEsViritu = { [weak self] configs in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runEsViritu(configs: configs, viewerController: viewerController)
-        }
-        wizardView.onRunTaxTriage = { [weak self] config in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runTaxTriage(config: config, viewerController: viewerController)
-        }
-        wizardView.onCancel = {
-            window.endSheet(wizardPanel)
-        }
-
-        presentUnifiedClassifierPanel(window: window, wizardPanel: wizardPanel, wizardView: wizardView)
+        showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .esViritu)
     }
 
     /// Launches TaxTriage comprehensive triage directly (skipping the wizard chooser step).
     @objc func launchTaxTriage(_ sender: Any?) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else { return }
-        guard let window = mainWindowController?.window else { return }
-
-        let bundleURLs = gatherClassificationBundleURLs()
-        guard !bundleURLs.isEmpty else {
-            let alert = NSAlert()
-            alert.messageText = "No FASTQ Selected"
-            alert.informativeText = "Select a FASTQ file in the sidebar, then run comprehensive triage."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.beginSheetModal(for: window)
-            return
-        }
-
-        let wizardPanel = makeUnifiedClassifierPanel(title: "TaxTriage")
-
-        var wizardView = UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)
-        wizardView.onRunClassification = { [weak self] configs in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runClassification(configs: configs, viewerController: viewerController)
-        }
-        wizardView.onRunEsViritu = { [weak self] configs in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runEsViritu(configs: configs, viewerController: viewerController)
-        }
-        wizardView.onRunTaxTriage = { [weak self] config in
-            window.endSheet(wizardPanel)
-            guard let self else { return }
-            self.runTaxTriage(config: config, viewerController: viewerController)
-        }
-        wizardView.onCancel = {
-            window.endSheet(wizardPanel)
-        }
-
-        presentUnifiedClassifierPanel(window: window, wizardPanel: wizardPanel, wizardView: wizardView)
-    }
-
-    private func makeUnifiedClassifierPanel(title: String) -> NSPanel {
-        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
-        wizardPanel.title = title
-        return wizardPanel
-    }
-
-    private func presentUnifiedClassifierPanel(
-        window: NSWindow,
-        wizardPanel: NSPanel,
-        wizardView: UnifiedMetagenomicsWizard
-    ) {
-        let hostingController = NSHostingController(rootView: wizardView)
-        wizardPanel.contentViewController = hostingController
-        wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)
-        Task { @MainActor in
-            await window.beginSheet(wizardPanel)
-        }
+        showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .taxTriage)
     }
 
     /// Runs the classification pipeline, dispatching based on the config's goal.

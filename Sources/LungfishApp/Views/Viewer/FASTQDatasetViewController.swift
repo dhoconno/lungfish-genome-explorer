@@ -151,7 +151,6 @@ public final class FASTQDatasetViewController: NSViewController {
         case classifyReads
         case detectViruses
         case comprehensiveTriage
-        case naoMgsImport
         case humanReadScrub
 
         var title: String {
@@ -174,12 +173,11 @@ public final class FASTQDatasetViewController: NSViewController {
             case .errorCorrection: return "Correct Sequencing Errors"
             case .orient: return "Orient to Reference Strand"
             case .demultiplex: return "Demultiplex by Barcodes\u{2026}"
-            case .assembleReads: return "Assemble Reads (SPAdes)"
+            case .assembleReads: return "Assemble Reads"
             case .mapReads: return "Map Reads"
             case .classifyReads: return "Classify & Profile (Kraken2)"
             case .detectViruses: return "Detect Viruses (EsViritu)"
             case .comprehensiveTriage: return "Detect Pathogens (TaxTriage)"
-            case .naoMgsImport: return "NAO-MGS Surveillance"
             case .humanReadScrub: return "Remove Human Reads"
             }
         }
@@ -209,7 +207,6 @@ public final class FASTQDatasetViewController: NSViewController {
             case .classifyReads: return "k.circle"
             case .detectViruses: return "e.circle"
             case .comprehensiveTriage: return "t.circle"
-            case .naoMgsImport: return "globe.americas"
             case .humanReadScrub: return "person.slash"
             }
         }
@@ -224,7 +221,7 @@ public final class FASTQDatasetViewController: NSViewController {
             case .subsampleProportion, .subsampleCount, .searchText, .searchMotif, .sequencePresenceFilter: return "SAMPLING & SEARCH"
             case .assembleReads: return "ASSEMBLY"
             case .mapReads: return "MAPPING"
-            case .classifyReads, .detectViruses, .comprehensiveTriage, .naoMgsImport: return "CLASSIFICATION"
+            case .classifyReads, .detectViruses, .comprehensiveTriage: return "CLASSIFICATION"
             }
         }
 
@@ -277,8 +274,6 @@ public final class FASTQDatasetViewController: NSViewController {
                 return "Run EsViritu viral metagenomics detection with de novo assembly and genome coverage analysis."
             case .comprehensiveTriage:
                 return "Run TaxTriage for end-to-end pathogen detection from metagenomic reads with confidence scoring and organism reporting."
-            case .naoMgsImport:
-                return "Import results from the NAO metagenomic surveillance pipeline (securebio/nao-mgs-workflow). Parses virus hit tables and displays alignment data."
             case .humanReadScrub:
                 return "Remove human-derived reads using the required Human Read Removal Data. Required before SRA submission and recommended for clinical or surveillance samples."
             }
@@ -309,7 +304,6 @@ public final class FASTQDatasetViewController: NSViewController {
             case .classifyReads: return .classifyReads
             case .detectViruses: return .detectViruses
             case .comprehensiveTriage: return .comprehensiveTriage
-            case .naoMgsImport: return .naoMgsImport
             case .humanReadScrub: return .humanReadScrub
             }
         }
@@ -373,6 +367,7 @@ public final class FASTQDatasetViewController: NSViewController {
     public var onRunOperation: ((FASTQDerivativeRequest) async throws -> Void)?
     public var onInstallHumanScrubberDatabase: (() async throws -> Void)?
     var onLaunchFASTQOperationCategory: ((FASTQOperationCategoryID) -> Void)?
+    var onLaunchFASTQOperationTool: ((FASTQOperationToolID) -> Void)?
     var alertPresenter: FASTQOperationAlertPresenting = DefaultFASTQOperationAlertPresenter()
     var humanScrubberInstaller: HumanScrubberDatabaseInstalling = DefaultHumanScrubberDatabaseInstaller.shared
 
@@ -1333,12 +1328,6 @@ public final class FASTQDatasetViewController: NSViewController {
             label.textColor = .secondaryLabelColor
             parameterBar.addArrangedSubview(label)
 
-        case .naoMgsImport:
-            let label = NSTextField(labelWithString: "Import results from NAO metagenomic surveillance pipeline (securebio/nao-mgs-workflow).")
-            label.font = .systemFont(ofSize: 11)
-            label.textColor = .secondaryLabelColor
-            parameterBar.addArrangedSubview(label)
-
         case .humanReadScrub:
             let label = NSTextField(labelWithString: "Remove human-derived reads using the required Human Read Removal Data. Required before SRA submission.")
             label.font = .systemFont(ofSize: 11)
@@ -1993,27 +1982,23 @@ public final class FASTQDatasetViewController: NSViewController {
         }
         // Classification operations dispatch to tool-specific launch methods
         if selectedOperation == .classifyReads {
-            NSApp.sendAction(#selector(AppDelegate.launchKraken2Classification(_:)), to: nil, from: nil)
+            launchFASTQOperationTool(.kraken2)
             return
         }
         if selectedOperation == .detectViruses {
-            NSApp.sendAction(#selector(AppDelegate.launchEsVirituDetection(_:)), to: nil, from: nil)
+            launchFASTQOperationTool(.esViritu)
             return
         }
         if selectedOperation == .comprehensiveTriage {
-            NSApp.sendAction(#selector(AppDelegate.launchTaxTriage(_:)), to: nil, from: nil)
+            launchFASTQOperationTool(.taxTriage)
             return
         }
         if selectedOperation == .assembleReads {
-            NSApp.sendAction(#selector(AppDelegate.runSPAdes(_:)), to: nil, from: nil)
+            launchFASTQOperationCategory(.assembly)
             return
         }
         if selectedOperation == .mapReads {
-            NSApp.sendAction(#selector(AppDelegate.launchMinimap2Mapping(_:)), to: nil, from: nil)
-            return
-        }
-        if selectedOperation == .naoMgsImport {
-            NSApp.sendAction(#selector(AppDelegate.launchNaoMgsImport(_:)), to: nil, from: nil)
+            launchFASTQOperationCategory(.mapping)
             return
         }
         // Demux requires a configuration from the drawer
@@ -2630,10 +2615,6 @@ public final class FASTQDatasetViewController: NSViewController {
             // Map Reads is dispatched via the shared MappingWizardSheet; not a derivative operation
             return nil
 
-        case .naoMgsImport:
-            // NAO-MGS import is dispatched via the NaoMgsImportSheet; not a derivative operation
-            return nil
-
         case .demultiplex:
             guard let step = currentDemuxConfig else {
                 setStatus("Configure demultiplexing in the Demux drawer first.", isError: true)
@@ -2817,6 +2798,14 @@ public final class FASTQDatasetViewController: NSViewController {
         dismissErrorBanner()
         setStatus("Open \(titleForOperationCategory(category)) tools in the FASTQ/FASTA operations dialog.")
         onLaunchFASTQOperationCategory?(category)
+    }
+
+    private func launchFASTQOperationTool(_ toolID: FASTQOperationToolID) {
+        selectedOperation = nil
+        showOperationsDialogLauncherHint()
+        dismissErrorBanner()
+        setStatus("Open \(toolID.title) in the FASTQ/FASTA operations dialog.")
+        onLaunchFASTQOperationTool?(toolID)
     }
 
     private func showOperationsDialogLauncherHint() {

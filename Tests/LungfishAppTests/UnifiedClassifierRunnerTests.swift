@@ -88,18 +88,29 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
     }
 
-    func testPresenterUsesUnifiedRunnerPreferredContentSize() throws {
+    func testDirectClassifierRoutingUsesFASTQOperationsDialogPresenter() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
-        XCTAssertTrue(source.contains("wizardPanel.setContentSize(UnifiedMetagenomicsWizard.preferredContentSize)"))
+        XCTAssertTrue(source.contains("FASTQOperationsDialogPresenter.present("))
+        XCTAssertFalse(source.contains("makeUnifiedClassifierPanel"))
+        XCTAssertFalse(source.contains("presentUnifiedClassifierPanel"))
     }
 
-    func testClassifierLaunchRoutingUsesOperationsDialogForClassificationAndUnifiedRunnerForOthers() throws {
+    func testDirectOrientLaunchUsesFASTQOperationsDialogToolSelection() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
 
-        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification)"))
-        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
-        XCTAssertTrue(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
+        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .orientReads)"))
+        XCTAssertFalse(source.contains("OrientWizardSheet(inputFiles:"))
+    }
+
+    func testClassifierLaunchRoutingUsesOperationsDialogForEveryClassifierTool() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+
+        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .kraken2)"))
+        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .esViritu)"))
+        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .taxTriage)"))
         XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
+        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
+        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
         XCTAssertFalse(source.contains("ClassificationWizardSheet("))
         XCTAssertFalse(source.contains("EsVirituWizardSheet("))
         XCTAssertFalse(source.contains("TaxTriageWizardSheet("))

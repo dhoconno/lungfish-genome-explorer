@@ -1068,6 +1068,15 @@ public class ViewerViewController: NSViewController {
                 preferredInputURLs: preferredInputURLs
             )
         }
+        controller.onLaunchFASTQOperationTool = { toolID in
+            let preferredInputURLs = [fastqSourceURL ?? fastqURL].compactMap { $0 }
+            AppDelegate.shared?.showFASTQOperationsDialog(
+                nil,
+                initialCategory: toolID.categoryID,
+                initialToolID: toolID,
+                preferredInputURLs: preferredInputURLs
+            )
+        }
         controller.onOpenDemuxDrawer = { [weak self] in
             self?.openDemuxSetupDrawer()
         }

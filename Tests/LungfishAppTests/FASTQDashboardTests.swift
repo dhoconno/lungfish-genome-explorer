@@ -467,6 +467,57 @@ final class FASTQDashboardTests: XCTestCase {
         XCTAssertTrue(launchBody.contains("onLaunchFASTQOperationCategory?(category)"))
     }
 
+    func testFASTQDatasetViewControllerRoutesClassifierToolsThroughModernDialogCallback() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("onLaunchFASTQOperationTool"))
+        XCTAssertTrue(source.contains("launchFASTQOperationTool(.kraken2)"))
+        XCTAssertTrue(source.contains("launchFASTQOperationTool(.esViritu)"))
+        XCTAssertTrue(source.contains("launchFASTQOperationTool(.taxTriage)"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchKraken2Classification"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchEsVirituDetection"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchTaxTriage"))
+    }
+
+    func testFASTQDatasetViewControllerRoutesGenericMapAndAssemblyEntriesThroughModernCategories() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("launchFASTQOperationCategory(.mapping)"))
+        XCTAssertTrue(source.contains("launchFASTQOperationCategory(.assembly)"))
+        XCTAssertFalse(source.contains("launchFASTQOperationTool(.minimap2)"))
+        XCTAssertFalse(source.contains("launchFASTQOperationTool(.spades)"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchMinimap2Mapping"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.runSPAdes"))
+    }
+
+    func testFASTQDatasetViewControllerOmitsImportOnlyMetagenomicsWorkflows() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishApp/Views/Viewer/FASTQDatasetViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("naoMgsImport"))
+        XCTAssertFalse(source.contains("NAO-MGS Surveillance"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchNaoMgsImport"))
+        XCTAssertFalse(source.contains("NVD"))
+        XCTAssertFalse(source.contains("#selector(AppDelegate.launchNvdImport"))
+    }
+
     @MainActor
     func testFASTQOperationInputResolutionPrefersExplicitDisplayedDataset() {
         let displayedBundleURL = URL(fileURLWithPath: "/tmp/displayed.lungfishfastq")
