@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-ed-key-file PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -30,6 +30,8 @@ Optional:
                       Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
   --sparkle-generate-appcast PATH
                       Sparkle generate_appcast tool path. When set, update appcast-alpha.xml after DMG notarization
+  --sparkle-ed-key-file PATH
+                      Private Sparkle EdDSA key file passed to generate_appcast instead of using the Keychain
   --sparkle-appcast-dir PATH
                       Local appcast working directory (default: <release-dir>/sparkle-appcast)
   --sparkle-download-url-prefix URL
@@ -56,6 +58,7 @@ REUSE_ARCHIVE=0
 REUSE_BUILT_CLI=0
 SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-}"
 SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
+SPARKLE_ED_KEY_FILE="${SPARKLE_ED_KEY_FILE:-}"
 SPARKLE_APPCAST_DIR=""
 SPARKLE_DOWNLOAD_URL_PREFIX=""
 SPARKLE_PUBLISH_RELEASE=""
@@ -111,6 +114,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         --sparkle-generate-appcast)
             SPARKLE_GENERATE_APPCAST="$2"
+            shift 2
+            ;;
+        --sparkle-ed-key-file)
+            SPARKLE_ED_KEY_FILE="$2"
             shift 2
             ;;
         --sparkle-appcast-dir)
@@ -179,6 +186,11 @@ fi
 
 if [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
     echo "sparkle generate_appcast is not executable: $SPARKLE_GENERATE_APPCAST" >&2
+    exit 69
+fi
+
+if [ -n "$SPARKLE_ED_KEY_FILE" ] && [ ! -f "$SPARKLE_ED_KEY_FILE" ]; then
+    echo "Sparkle private EdDSA key file not found: $SPARKLE_ED_KEY_FILE" >&2
     exit 69
 fi
 
@@ -295,9 +307,15 @@ generate_sparkle_appcast() {
         /usr/bin/install -m 644 "$notes_source" "$notes_dest"
     fi
 
-    "$SPARKLE_GENERATE_APPCAST" \
-        --download-url-prefix "$download_url_prefix" \
-        "$SPARKLE_APPCAST_DIR"
+    local appcast_args=(
+        --download-url-prefix "$download_url_prefix"
+        -o appcast-alpha.xml
+    )
+    if [ -n "$SPARKLE_ED_KEY_FILE" ]; then
+        appcast_args+=(--ed-key-file "$SPARKLE_ED_KEY_FILE")
+    fi
+
+    "$SPARKLE_GENERATE_APPCAST" "${appcast_args[@]}" "$SPARKLE_APPCAST_DIR"
 
     SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
     if [ ! -f "$SPARKLE_APPCAST_PATH" ]; then

@@ -33,10 +33,13 @@ class SparkleReleasePackagingTests(unittest.TestCase):
 
     def test_release_script_can_publish_github_hosted_alpha_appcast(self):
         self.assertIn("--sparkle-generate-appcast", self.release_script)
+        self.assertIn("--sparkle-ed-key-file", self.release_script)
         self.assertIn("--sparkle-appcast-dir", self.release_script)
         self.assertIn("--sparkle-publish-release", self.release_script)
         self.assertIn("--github-release-tag", self.release_script)
         self.assertIn("appcast-alpha.xml", self.release_script)
+        self.assertIn("-o appcast-alpha.xml", self.release_script)
+        self.assertIn('--ed-key-file "$SPARKLE_ED_KEY_FILE"', self.release_script)
         self.assertIn("--download-url-prefix", self.release_script)
         self.assertIn("gh release upload", self.release_script)
         self.assertIn('gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber', self.release_script)

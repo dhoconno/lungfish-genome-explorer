@@ -17,6 +17,9 @@ those versioned DMG assets.
 1. Download the matching Sparkle release tools and run `generate_keys`.
 2. Store the printed public key as `LUNGFISH_SPARKLE_PUBLIC_ED_KEY`.
 3. Keep the private EdDSA key in the signing machine's login Keychain.
+   For unattended release runs, export it to a temporary mode-0600 file with
+   `generate_keys -x /path/to/private-key.txt` and pass that file with
+   `--sparkle-ed-key-file`; delete the file after the release.
 4. Authenticate GitHub CLI with release permissions: `gh auth login`.
 
 Sparkle's public key is injected during release archive builds. Development
@@ -33,6 +36,7 @@ bash scripts/release/build-notarized-dmg.sh \
   --notary-profile PROFILE \
   --github-release-tag "v0.4.0-alpha.7" \
   --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
+  --sparkle-ed-key-file "/path/to/private-key.txt" \
   --sparkle-publish-release "sparkle-alpha"
 ```
 
@@ -45,4 +49,3 @@ The script uploads the notarized DMG to the versioned GitHub prerelease, then
 generates `appcast-alpha.xml` and uploads that feed to the fixed
 `sparkle-alpha` release. Release notes are copied from
 `docs/release-notes/v<version>.md` when present.
-
