@@ -113,6 +113,60 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         return item
     }
 
+    private func makeBEDLine(
+        name: String,
+        chromosome: String = "chr1",
+        start: Int,
+        type: String = "gene"
+    ) -> String {
+        let end = start + 10
+        return "\(chromosome)\t\(start)\t\(end)\t\(name)\t0\t+\t\(start)\t\(end)\t0,0,0\t1\t10\t0\t\(type)\tgene=\(name)"
+    }
+
+    private func applyAnnotationColumnFilter(
+        key: String,
+        op: String,
+        value: String,
+        to drawer: AnnotationTableDrawerView
+    ) {
+        let item = NSMenuItem()
+        item.representedObject = ["key": key, "op": op, "value": value]
+        let selector = NSSelectorFromString("applyAnnotationColumnFilterAction:")
+        XCTAssertTrue(drawer.responds(to: selector), "Drawer should expose annotation column filter action")
+        _ = drawer.perform(selector, with: item)
+    }
+
+    func testOverLimitAnnotationQueryKeepsTableHeaderVisible() throws {
+        let lines = (0...AppSettings.shared.maxTableDisplayCount).map {
+            makeBEDLine(name: "gene-\($0)", start: $0 * 20)
+        }
+
+        let drawer = try createDrawerWithDatabase(lines: lines)
+
+        XCTAssertTrue(drawer.displayedAnnotations.isEmpty)
+        XCTAssertFalse(drawer.tableView.enclosingScrollView?.isHidden ?? true)
+        XCTAssertNotNil(drawer.tableView.headerView)
+        XCTAssertGreaterThan(drawer.tableView.tableColumns.count, 0)
+    }
+
+    func testAnnotationColumnFilterCanNarrowAfterOverLimitQuery() throws {
+        var lines = (0...AppSettings.shared.maxTableDisplayCount).map {
+            makeBEDLine(name: "gene-\($0)", start: $0 * 20)
+        }
+        lines.append(contentsOf: [
+            makeBEDLine(name: "target-a", chromosome: "chr2", start: 10),
+            makeBEDLine(name: "target-b", chromosome: "chr2", start: 30),
+        ])
+        let drawer = try createDrawerWithDatabase(lines: lines)
+        XCTAssertTrue(drawer.displayedAnnotations.isEmpty)
+
+        applyAnnotationColumnFilter(key: "chromosome", op: "=", value: "chr2", to: drawer)
+
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["target-a", "target-b"])
+        XCTAssertEqual(Set(drawer.displayedAnnotations.map(\.chromosome)), ["chr2"])
+        XCTAssertFalse(drawer.tableView.enclosingScrollView?.isHidden ?? true)
+    }
+
     func testAnnotationTrackControlsToggleVisibilityAndReorderTracks() {
         let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
         let spy = DrawerDelegateSpy()

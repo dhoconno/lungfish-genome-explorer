@@ -28,6 +28,18 @@ public struct TaxTriageIgnoredFailure: Sendable, Codable, Equatable {
     }
 }
 
+public struct TaxTriageSampleFailure: Sendable, Codable, Equatable {
+    public let sampleID: String
+    public let outputDirectory: URL
+    public let errorDescription: String
+
+    public init(sampleID: String, outputDirectory: URL, errorDescription: String) {
+        self.sampleID = sampleID
+        self.outputDirectory = outputDirectory
+        self.errorDescription = errorDescription
+    }
+}
+
 /// The result of a completed TaxTriage pipeline execution.
 ///
 /// Contains paths to all output files produced by the pipeline, along with
@@ -70,6 +82,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         case perSampleDeduplicatedReadCounts
         case sourceBundleURLs
         case ignoredFailures
+        case sampleFailures
     }
 
     // MARK: - Properties
@@ -148,6 +161,16 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         !ignoredFailures.isEmpty
     }
 
+    /// Sample-level failures recorded by the app's serial TaxTriage batch runner.
+    ///
+    /// These represent whole sample pipeline failures that did not prevent later
+    /// samples from running. Legacy single Nextflow runs leave this empty.
+    public let sampleFailures: [TaxTriageSampleFailure]
+
+    public var hasSampleFailures: Bool {
+        !sampleFailures.isEmpty
+    }
+
     // MARK: - Initialization
 
     /// Creates a TaxTriage result.
@@ -177,7 +200,8 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         deduplicatedReadCounts: [String: Int]? = nil,
         perSampleDeduplicatedReadCounts: [String: [String: Int]]? = nil,
         sourceBundleURLs: [URL]? = nil,
-        ignoredFailures: [TaxTriageIgnoredFailure] = []
+        ignoredFailures: [TaxTriageIgnoredFailure] = [],
+        sampleFailures: [TaxTriageSampleFailure] = []
     ) {
         self.config = config
         self.runtime = runtime
@@ -193,6 +217,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         self.perSampleDeduplicatedReadCounts = perSampleDeduplicatedReadCounts
         self.sourceBundleURLs = sourceBundleURLs
         self.ignoredFailures = ignoredFailures
+        self.sampleFailures = sampleFailures
     }
 
     // MARK: - Summary
@@ -202,7 +227,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         var lines: [String] = []
 
         if isSuccess {
-            if hasIgnoredFailures {
+            if hasIgnoredFailures || hasSampleFailures {
                 lines.append("TaxTriage pipeline completed with warnings")
             } else {
                 lines.append("TaxTriage pipeline completed successfully")
@@ -225,6 +250,10 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
             let sampleCount = Set(ignoredFailures.compactMap(\.sampleID)).count
             let sampleSummary = sampleCount > 0 ? " across \(sampleCount) samples" : ""
             lines.append("Ignored sample failures: \(ignoredFailures.count)\(sampleSummary)")
+        }
+
+        if hasSampleFailures {
+            lines.append("Failed samples: \(sampleFailures.count)")
         }
 
         lines.append("Total output files: \(allOutputFiles.count)")
@@ -277,6 +306,7 @@ public struct TaxTriageResult: Sendable, Codable, Equatable {
         self.perSampleDeduplicatedReadCounts = try container.decodeIfPresent([String: [String: Int]].self, forKey: .perSampleDeduplicatedReadCounts)
         self.sourceBundleURLs = try container.decodeIfPresent([URL].self, forKey: .sourceBundleURLs)
         self.ignoredFailures = try container.decodeIfPresent([TaxTriageIgnoredFailure].self, forKey: .ignoredFailures) ?? []
+        self.sampleFailures = try container.decodeIfPresent([TaxTriageSampleFailure].self, forKey: .sampleFailures) ?? []
     }
 
     public static func parseIgnoredFailures(fromNextflowLogText logText: String) -> [TaxTriageIgnoredFailure] {

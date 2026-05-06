@@ -8,7 +8,7 @@ set -e
 # Configuration
 APP_NAME="Lungfish"
 BUNDLE_ID="org.lungfish.genome-browser"
-VERSION="0.4.0-alpha.5"
+VERSION="0.4.0-alpha.6"
 BUILD_NUMBER="1"
 CONFIGURATION="release"
 SKIP_BUILD=0

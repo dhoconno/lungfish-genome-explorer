@@ -7583,8 +7583,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
 
-                let pipeline = TaxTriagePipeline()
-                let result = try await pipeline.run(
+                let runner = TaxTriageSerialBatchRunner()
+                let result = try await runner.run(
                     config: resolvedConfig,
                     progress: { progress, message in
                         DispatchQueue.main.async {
@@ -7611,7 +7611,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                 }
                 do {
-                    try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: config.outputDirectory, force: true)
+                    try LungfishCLIRunner.buildClassifierDatabase(tool: "taxtriage", resultURL: result.outputDirectory, force: true)
                 } catch {
                     dbBuildErrorDescription = error.localizedDescription
                     appDelegateLogger.warning(
@@ -7648,9 +7648,32 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 message: sampleSummary
                             )
                         }
+                        if capturedResult.hasSampleFailures {
+                            let preview = capturedResult.sampleFailures
+                                .prefix(5)
+                                .map { failure in
+                                    "\(failure.sampleID): \(failure.errorDescription)"
+                                }
+                                .joined(separator: "; ")
+                            let suffix = capturedResult.sampleFailures.count > 5
+                                ? "; +\(capturedResult.sampleFailures.count - 5) more"
+                                : ""
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "\(capturedResult.sampleFailures.count) TaxTriage samples failed (\(preview)\(suffix))"
+                            )
+                        }
                         let completionDetail: String
+                        var warningSummaries: [String] = []
                         if capturedResult.hasIgnoredFailures {
-                            completionDetail = "\(capturedResult.reportFiles.count) reports, \(capturedResult.ignoredFailures.count) ignored sample failures"
+                            warningSummaries.append("\(capturedResult.ignoredFailures.count) ignored task failures")
+                        }
+                        if capturedResult.hasSampleFailures {
+                            warningSummaries.append("\(capturedResult.sampleFailures.count) failed samples")
+                        }
+                        if !warningSummaries.isEmpty {
+                            completionDetail = "\(capturedResult.reportFiles.count) reports, \(warningSummaries.joined(separator: ", "))"
                         } else {
                             completionDetail = capturedResult.summary
                         }

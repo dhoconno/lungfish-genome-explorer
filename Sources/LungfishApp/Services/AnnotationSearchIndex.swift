@@ -372,13 +372,31 @@ public final class AnnotationSearchIndex {
     ///   - types: Set of type strings to include (empty = all)
     ///   - limit: Maximum results
     /// - Returns: Array of matching results, or nil if not in SQLite mode
-    public func query(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [SearchResult]? {
+    public func query(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [AnnotationDatabase.ColumnFilterClause] = [],
+        limit: Int = 5000
+    ) -> [SearchResult]? {
         guard !annotationDatabases.isEmpty else { return nil }
         var results: [SearchResult] = []
         for handle in annotationDatabases {
             let remaining = limit - results.count
             guard remaining > 0 else { break }
-            let records = handle.db.query(nameFilter: nameFilter, types: types, limit: remaining)
+            let records = handle.db.queryForTable(
+                nameFilter: nameFilter,
+                types: types,
+                chromosome: chromosome,
+                regionStart: regionStart,
+                regionEnd: regionEnd,
+                strand: strand,
+                columnFilters: columnFilters,
+                limit: remaining
+            )
             results.append(contentsOf: records.map { record in
                 annotationRecordToSearchResult(record, trackId: handle.trackId)
             })
@@ -436,8 +454,26 @@ public final class AnnotationSearchIndex {
     }
 
     /// Queries ONLY annotations (no variants). Used when the Annotations tab is active.
-    public func queryAnnotationsOnly(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [SearchResult] {
-        query(nameFilter: nameFilter, types: types, limit: limit) ?? []
+    public func queryAnnotationsOnly(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [AnnotationDatabase.ColumnFilterClause] = [],
+        limit: Int = 5000
+    ) -> [SearchResult] {
+        query(
+            nameFilter: nameFilter,
+            types: types,
+            chromosome: chromosome,
+            regionStart: regionStart,
+            regionEnd: regionEnd,
+            strand: strand,
+            columnFilters: columnFilters,
+            limit: limit
+        ) ?? []
     }
 
     /// Queries annotation records in a genomic interval, preserving track id and row id.
@@ -592,14 +628,38 @@ public final class AnnotationSearchIndex {
     }
 
     /// Returns count of annotations only (no variants).
-    public func queryAnnotationCount(nameFilter: String = "", types: Set<String> = []) -> Int {
+    public func queryAnnotationCount(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [AnnotationDatabase.ColumnFilterClause] = []
+    ) -> Int {
         if !annotationDatabases.isEmpty {
             return annotationDatabases.reduce(0) { partial, handle in
-                partial + handle.db.queryCount(nameFilter: nameFilter, types: types)
+                partial + handle.db.queryCountForTable(
+                    nameFilter: nameFilter,
+                    types: types,
+                    chromosome: chromosome,
+                    regionStart: regionStart,
+                    regionEnd: regionEnd,
+                    strand: strand,
+                    columnFilters: columnFilters
+                )
             }
         }
         guard let db = database else { return 0 }
-        return db.queryCount(nameFilter: nameFilter, types: types)
+        return db.queryCountForTable(
+            nameFilter: nameFilter,
+            types: types,
+            chromosome: chromosome,
+            regionStart: regionStart,
+            regionEnd: regionEnd,
+            strand: strand,
+            columnFilters: columnFilters
+        )
     }
 
     /// Queries ONLY variants (no annotations). Used when the Variants tab is active.

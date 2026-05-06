@@ -337,6 +337,53 @@ final class BuildDbCommandTests: XCTestCase {
         XCTAssertEqual(row.isSpecies, true)
     }
 
+    func testBuildDbTaxTriageParsesSerialSampleSubdirectories() async throws {
+        let tmpDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let home = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resultDir = tmpDir.appendingPathComponent("taxtriage-batch")
+        try writeTaxTriageTopReport(
+            at: resultDir
+                .appendingPathComponent("Alpha", isDirectory: true)
+                .appendingPathComponent("top", isDirectory: true)
+                .appendingPathComponent("Alpha.top_report.tsv"),
+            taxID: 111,
+            name: "Alpha virus"
+        )
+        try writeTaxTriageTopReport(
+            at: resultDir
+                .appendingPathComponent("Beta", isDirectory: true)
+                .appendingPathComponent("top", isDirectory: true)
+                .appendingPathComponent("Beta.top_report.tsv"),
+            cladeFragmentsCovered: "17.0",
+            numberFragmentsAssigned: "16.0",
+            taxID: 222,
+            name: "Beta virus"
+        )
+
+        try await withHomeDirectory(home) {
+            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
+            try await cmd.run()
+        }
+
+        let dbURL = resultDir.appendingPathComponent("taxtriage.sqlite")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
+
+        let db = try TaxTriageDatabase(at: dbURL)
+        let samples = try db.fetchSamples().map(\.sample).sorted()
+        XCTAssertEqual(samples, ["Alpha", "Beta"])
+
+        let rows = try db.fetchRows(samples: samples).sorted { $0.sample < $1.sample }
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(rows.map(\.organism), ["Alpha virus", "Beta virus"])
+        XCTAssertEqual(rows.map(\.readsAligned), [31, 17])
+        XCTAssertNil(rows[0].bamPath)
+        XCTAssertNil(rows[1].bamPath)
+    }
+
     func testLocateSamtoolsPrefersManagedHome() throws {
         let fixture = try makeManagedSamtoolsHome()
         defer { try? FileManager.default.removeItem(at: fixture.home) }

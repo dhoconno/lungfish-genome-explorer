@@ -438,6 +438,39 @@ extension BuildDbCommand.TaxTriageSubcommand {
         accessionMap: [TaxTriageAccessionEntry],
         sourceDescription: String
     ) {
+        if let parsed = try parseSingleTaxTriageResult(resultURL: resultURL) {
+            return parsed
+        }
+
+        let serialResults = serialTaxTriageResultDirectories(in: resultURL)
+        if !serialResults.isEmpty {
+            var rows: [TaxTriageTaxonomyRow] = []
+            var accessionMap: [TaxTriageAccessionEntry] = []
+
+            for sampleResultURL in serialResults {
+                guard let parsed = try parseSingleTaxTriageResult(resultURL: sampleResultURL) else { continue }
+                let directoryName = sampleResultURL.lastPathComponent
+                rows.append(contentsOf: parsed.rows.map { prefixBAMPaths(in: $0, with: directoryName) })
+                accessionMap.append(contentsOf: parsed.accessionMap)
+            }
+
+            if !rows.isEmpty {
+                return (rows, accessionMap, "serial sample result directories")
+            }
+        }
+
+        throw ValidationError(
+            "No supported TaxTriage taxonomy report found in \(resultURL.path). Expected report/multiqc_data/multiqc_confidences.txt, top/*.top_report.tsv, or serial sample subdirectories containing those reports"
+        )
+    }
+
+    private func parseSingleTaxTriageResult(
+        resultURL: URL
+    ) throws -> (
+        rows: [TaxTriageTaxonomyRow],
+        accessionMap: [TaxTriageAccessionEntry],
+        sourceDescription: String
+    )? {
         let confidenceURL = resultURL
             .appendingPathComponent("report")
             .appendingPathComponent("multiqc_data")
@@ -449,14 +482,87 @@ extension BuildDbCommand.TaxTriageSubcommand {
 
         let topDir = resultURL.appendingPathComponent("top")
         let topReportFiles = taxTriageTopReportFiles(in: topDir)
-        guard !topReportFiles.isEmpty else {
-            throw ValidationError(
-                "No supported TaxTriage taxonomy report found in \(resultURL.path). Expected report/multiqc_data/multiqc_confidences.txt or top/*.top_report.tsv"
-            )
-        }
+        guard !topReportFiles.isEmpty else { return nil }
 
         let parsed = try parseTopReportTSVs(at: topReportFiles, resultURL: resultURL)
         return (parsed.rows, parsed.accessionMap, "top report fallback")
+    }
+
+    private func serialTaxTriageResultDirectories(in resultURL: URL) -> [URL] {
+        let fm = FileManager.default
+        guard let children = try? fm.contentsOfDirectory(
+            at: resultURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return children
+            .filter { child in
+                let values = try? child.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == true else { return false }
+
+                let confidenceURL = child
+                    .appendingPathComponent("report")
+                    .appendingPathComponent("multiqc_data")
+                    .appendingPathComponent("multiqc_confidences.txt")
+                if fm.fileExists(atPath: confidenceURL.path) {
+                    return true
+                }
+
+                return !taxTriageTopReportFiles(in: child.appendingPathComponent("top")).isEmpty
+            }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func prefixBAMPaths(in row: TaxTriageTaxonomyRow, with directoryName: String) -> TaxTriageTaxonomyRow {
+        TaxTriageTaxonomyRow(
+            sample: row.sample,
+            organism: row.organism,
+            taxId: row.taxId,
+            status: row.status,
+            tassScore: row.tassScore,
+            readsAligned: row.readsAligned,
+            uniqueReads: row.uniqueReads,
+            pctReads: row.pctReads,
+            pctAlignedReads: row.pctAlignedReads,
+            coverageBreadth: row.coverageBreadth,
+            meanCoverage: row.meanCoverage,
+            meanDepth: row.meanDepth,
+            confidence: row.confidence,
+            k2Reads: row.k2Reads,
+            parentK2Reads: row.parentK2Reads,
+            giniCoefficient: row.giniCoefficient,
+            meanBaseQ: row.meanBaseQ,
+            meanMapQ: row.meanMapQ,
+            mapqScore: row.mapqScore,
+            disparityScore: row.disparityScore,
+            minhashScore: row.minhashScore,
+            diamondIdentity: row.diamondIdentity,
+            k2DisparityScore: row.k2DisparityScore,
+            siblingsScore: row.siblingsScore,
+            breadthWeightScore: row.breadthWeightScore,
+            hhsPercentile: row.hhsPercentile,
+            isAnnotated: row.isAnnotated,
+            annClass: row.annClass,
+            microbialCategory: row.microbialCategory,
+            highConsequence: row.highConsequence,
+            isSpecies: row.isSpecies,
+            pathogenicSubstrains: row.pathogenicSubstrains,
+            sampleType: row.sampleType,
+            bamPath: prefixRelativePath(row.bamPath, with: directoryName),
+            bamIndexPath: prefixRelativePath(row.bamIndexPath, with: directoryName),
+            primaryAccession: row.primaryAccession,
+            accessionLength: row.accessionLength
+        )
+    }
+
+    private func prefixRelativePath(_ path: String?, with directoryName: String) -> String? {
+        guard let path, !path.isEmpty, !path.hasPrefix("/") else { return path }
+        return URL(fileURLWithPath: directoryName, isDirectory: true)
+            .appendingPathComponent(path)
+            .relativePath
     }
 
     /// Parses the TaxTriage multiqc_confidences.txt TSV into taxonomy rows.

@@ -141,6 +141,18 @@ extension AnnotationDatabaseRecord {
 /// ```
 public final class AnnotationDatabase: @unchecked Sendable {
 
+    public struct ColumnFilterClause: Sendable {
+        public let key: String
+        public let op: String
+        public let value: String
+
+        public init(key: String, op: String, value: String) {
+            self.key = key
+            self.op = op
+            self.value = value
+        }
+    }
+
     private static let expectedSchemaVersion = 4
     private static let requiredAnnotationColumns: Set<String> = [
         "name", "type", "chromosome", "start", "end", "strand",
@@ -339,6 +351,68 @@ public final class AnnotationDatabase: @unchecked Sendable {
         return results
     }
 
+    public func queryForTable(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [ColumnFilterClause] = [],
+        limit: Int = 5000
+    ) -> [AnnotationDatabaseRecord] {
+        guard let db else { return [] }
+
+        var sql = "SELECT rowid, name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
+        let queryParts = annotationTableQueryParts(
+            nameFilter: nameFilter,
+            types: types,
+            chromosome: chromosome,
+            regionStart: regionStart,
+            regionEnd: regionEnd,
+            strand: strand,
+            columnFilters: columnFilters
+        )
+        if !queryParts.conditions.isEmpty {
+            sql += " WHERE " + queryParts.conditions.joined(separator: " AND ")
+        }
+        sql += " ORDER BY name COLLATE NOCASE"
+        sql += " LIMIT \(max(0, limit))"
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            dbLogger.error("Failed to prepare table query: \(sql)")
+            return []
+        }
+
+        for (i, binding) in queryParts.bindings.enumerated() {
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+        }
+
+        var results: [AnnotationDatabaseRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let rowID = sqlite3_column_int64(stmt, 0)
+            let name = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let type = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
+            let chrom = sqlite3_column_text(stmt, 3).map { String(cString: $0) } ?? ""
+            let start = Int(sqlite3_column_int64(stmt, 4))
+            let end = Int(sqlite3_column_int64(stmt, 5))
+            let strand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
+            let attributes = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
+            let geneName = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+
+            results.append(AnnotationDatabaseRecord(
+                rowID: rowID, name: name, type: type, chromosome: chrom,
+                start: start, end: end, strand: strand,
+                attributes: attributes,
+                geneName: geneName
+            ))
+        }
+
+        return results
+    }
+
     /// Returns the count of annotations matching the given filters (without fetching rows).
     public func queryCount(nameFilter: String = "", types: Set<String> = []) -> Int {
         guard let db else { return 0 }
@@ -374,6 +448,194 @@ public final class AnnotationDatabase: @unchecked Sendable {
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
         return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    public func queryCountForTable(
+        nameFilter: String = "",
+        types: Set<String> = [],
+        chromosome: String? = nil,
+        regionStart: Int? = nil,
+        regionEnd: Int? = nil,
+        strand: String? = nil,
+        columnFilters: [ColumnFilterClause] = []
+    ) -> Int {
+        guard let db else { return 0 }
+
+        var sql = "SELECT COUNT(*) FROM annotations"
+        let queryParts = annotationTableQueryParts(
+            nameFilter: nameFilter,
+            types: types,
+            chromosome: chromosome,
+            regionStart: regionStart,
+            regionEnd: regionEnd,
+            strand: strand,
+            columnFilters: columnFilters
+        )
+        if !queryParts.conditions.isEmpty {
+            sql += " WHERE " + queryParts.conditions.joined(separator: " AND ")
+        }
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
+
+        for (i, binding) in queryParts.bindings.enumerated() {
+            sqlite3_bind_text(stmt, Int32(i + 1), (binding as NSString).utf8String, -1, nil)
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int64(stmt, 0))
+    }
+
+    private func annotationTableQueryParts(
+        nameFilter: String,
+        types: Set<String>,
+        chromosome: String?,
+        regionStart: Int?,
+        regionEnd: Int?,
+        strand: String?,
+        columnFilters: [ColumnFilterClause]
+    ) -> (conditions: [String], bindings: [String]) {
+        var conditions: [String] = []
+        var bindings: [String] = []
+
+        if !nameFilter.isEmpty {
+            conditions.append("(name LIKE ? OR gene_name LIKE ?)")
+            bindings.append("%\(nameFilter)%")
+            bindings.append("%\(nameFilter)%")
+        }
+        if !types.isEmpty {
+            let placeholders = types.map { _ in "?" }.joined(separator: ",")
+            conditions.append("type IN (\(placeholders))")
+            for t in types.sorted() {
+                bindings.append(t)
+            }
+        }
+        if let chromosome, !chromosome.isEmpty {
+            conditions.append("chromosome = ? COLLATE NOCASE")
+            bindings.append(chromosome)
+        }
+        if let regionStart {
+            conditions.append("end > ?")
+            bindings.append("\(regionStart)")
+        }
+        if let regionEnd {
+            conditions.append("start < ?")
+            bindings.append("\(regionEnd)")
+        }
+        if let strand, !strand.isEmpty {
+            conditions.append("strand = ? COLLATE NOCASE")
+            bindings.append(strand)
+        }
+        for filter in columnFilters {
+            appendAnnotationColumnFilter(filter, conditions: &conditions, bindings: &bindings)
+        }
+
+        return (conditions, bindings)
+    }
+
+    private func appendAnnotationColumnFilter(
+        _ filter: ColumnFilterClause,
+        conditions: inout [String],
+        bindings: inout [String]
+    ) {
+        switch filter.key {
+        case "name":
+            appendTextColumnFilter("name", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "type":
+            appendTextColumnFilter("type", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "chromosome":
+            appendTextColumnFilter("chromosome", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "strand":
+            appendTextColumnFilter("strand", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "start":
+            appendNumericColumnFilter("start", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "end":
+            appendNumericColumnFilter("end", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        case "size":
+            appendNumericColumnFilter("(end - start)", op: filter.op, value: filter.value, conditions: &conditions, bindings: &bindings)
+        default:
+            break
+        }
+    }
+
+    private func appendTextColumnFilter(
+        _ column: String,
+        op: String,
+        value: String,
+        conditions: inout [String],
+        bindings: inout [String]
+    ) {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch op {
+        case "=":
+            if normalized.isEmpty {
+                conditions.append("(\(column) IS NULL OR \(column) = '')")
+            } else {
+                conditions.append("\(column) = ? COLLATE NOCASE")
+                bindings.append(normalized)
+            }
+        case "!=":
+            if normalized.isEmpty {
+                conditions.append("(\(column) IS NOT NULL AND \(column) != '')")
+            } else {
+                conditions.append("\(column) != ? COLLATE NOCASE")
+                bindings.append(normalized)
+            }
+        case "!~":
+            guard !normalized.isEmpty else { return }
+            conditions.append("\(column) NOT LIKE ? COLLATE NOCASE")
+            bindings.append("%\(normalized)%")
+        case "^=":
+            guard !normalized.isEmpty else { return }
+            conditions.append("\(column) LIKE ? COLLATE NOCASE")
+            bindings.append("\(normalized)%")
+        case "$=":
+            guard !normalized.isEmpty else { return }
+            conditions.append("\(column) LIKE ? COLLATE NOCASE")
+            bindings.append("%\(normalized)")
+        default:
+            guard !normalized.isEmpty else { return }
+            conditions.append("\(column) LIKE ? COLLATE NOCASE")
+            bindings.append("%\(normalized)%")
+        }
+    }
+
+    private func appendNumericColumnFilter(
+        _ expression: String,
+        op: String,
+        value: String,
+        conditions: inout [String],
+        bindings: inout [String]
+    ) {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            if op == "=" {
+                conditions.append("1 = 0")
+            }
+            return
+        }
+        guard Double(normalized) != nil else {
+            conditions.append("CAST(\(expression) AS TEXT) LIKE ? COLLATE NOCASE")
+            bindings.append("%\(normalized)%")
+            return
+        }
+
+        switch op {
+        case ">":
+            conditions.append("\(expression) > ?")
+        case ">=":
+            conditions.append("\(expression) >= ?")
+        case "<":
+            conditions.append("\(expression) < ?")
+        case "<=":
+            conditions.append("\(expression) <= ?")
+        case "!=":
+            conditions.append("\(expression) != ?")
+        default:
+            conditions.append("\(expression) = ?")
+        }
+        bindings.append(normalized)
     }
 
     // MARK: - Annotation Lookup
@@ -899,22 +1161,6 @@ public final class AnnotationDatabase: @unchecked Sendable {
             chromSizeMap = nil
         }
 
-        // Indexable types — superset of createFromBED's set, plus GFF3-specific transcript types
-        let indexableTypes: Set<String> = [
-            "gene", "mRNA", "transcript", "exon", "region", "promoter", "enhancer",
-            "primer", "primer_pair", "amplicon", "SNP", "variation",
-            "restriction_site", "repeat_region", "origin_of_replication",
-            "misc_feature", "silencer", "terminator", "polyA_signal",
-            "CDS", "mat_peptide", "sig_peptide", "transit_peptide",
-            "5'UTR", "3'UTR", "five_prime_UTR", "three_prime_UTR",
-            "regulatory", "ncRNA", "misc_binding", "protein_bind",
-            "stem_loop", "primer_bind",
-            // GFF3 transcript types (multi-exon transcripts need indexing)
-            "lnc_RNA", "Lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA", "miRNA",
-            "primary_transcript", "V_gene_segment", "D_gene_segment",
-            "J_gene_segment", "C_gene_segment",
-        ]
-
         // Transcript-level types whose children get aggregated into blocks
         let transcriptTypes: Set<String> = [
             "mRNA", "transcript", "lnc_RNA", "Lnc_RNA", "rRNA", "tRNA", "snRNA", "snoRNA",
@@ -1009,6 +1255,14 @@ public final class AnnotationDatabase: @unchecked Sendable {
         var seenKeys = Set<String>()
         var processedIDs = Set<String>()
 
+        /// GFF3 type validation here is intentionally syntactic, not ontology-enforcing.
+        /// Column 3 should be a Sequence Ontology term, but scientific review files
+        /// often carry workflow-specific feature types that are still useful tracks.
+        func isImportableFeatureType(_ type: String) -> Bool {
+            let trimmed = type.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !trimmed.isEmpty && trimmed != "."
+        }
+
         /// Helper: serialize GFF3 attributes (excluding ID and Parent) with percent-encoding.
         func serializeAttributes(_ attrs: [String: String]) -> String? {
             var attrPairs: [String] = []
@@ -1072,8 +1326,7 @@ public final class AnnotationDatabase: @unchecked Sendable {
         }
 
         for feature in allFeatures {
-            // Only index selected types
-            guard indexableTypes.contains(feature.featureType) else { continue }
+            guard isImportableFeatureType(feature.featureType) else { continue }
 
             let geneName = geneName(from: feature.attributes)
 

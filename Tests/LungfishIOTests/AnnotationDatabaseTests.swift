@@ -714,6 +714,24 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(gene.end, 2000)
     }
 
+    func testCreateFromGFF3PreservesCustomFeatureTypes() async throws {
+        let lines = [
+            "##gff-version 3",
+            gff3Line(seqid: "chr1", type: "ipd_exact_gdna", start: 100, end: 180,
+                     attributes: "ID=ipd1;Name=Mafa-A1*063:01:01:01;match_type=exact_gdna"),
+            gff3Line(seqid: "chr1", type: "m3_projected_CDS", start: 220, end: 360, strand: "-",
+                     attributes: "ID=m3-1;Name=GABBR1;source_feature_type=CDS"),
+        ]
+        let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
+
+        XCTAssertEqual(count, 2)
+        let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 400)
+        let byName = Dictionary(uniqueKeysWithValues: results.map { ($0.name, $0) })
+        XCTAssertEqual(byName["Mafa-A1*063:01:01:01"]?.type, "ipd_exact_gdna")
+        XCTAssertEqual(byName["GABBR1"]?.type, "m3_projected_CDS")
+        XCTAssertEqual(byName["GABBR1"]?.strand, "-")
+    }
+
     func testCreateFromGFF3ParsesGeneiousQuotedAttributes() async throws {
         let lines = [
             "##gff-version 3",
@@ -777,17 +795,16 @@ final class AnnotationDatabaseTests: XCTestCase {
         XCTAssertEqual(results.first?.name, "before")
     }
 
-    func testCreateFromGFF3IndexesExonAndSkipsIntron() async throws {
+    func testCreateFromGFF3IndexesExonAndPreservesIntron() async throws {
         let lines = [
             gff3Line(seqid: "chr1", type: "gene", start: 100, end: 500, attributes: "ID=g1;Name=myGene"),
             gff3Line(seqid: "chr1", type: "exon", start: 100, end: 200, attributes: "Parent=g1"),
             gff3Line(seqid: "chr1", type: "intron", start: 200, end: 300, attributes: "ID=intron1;Name=myIntron"),
         ]
         let (db, count) = try await createAndOpenDBFromGFF3(lines: lines)
-        // gene and exon are both indexed so table selections can relate exon/CDS rows to a gene.
-        XCTAssertEqual(count, 2)
+        XCTAssertEqual(count, 3)
         let results = db.queryByRegion(chromosome: "chr1", start: 0, end: 1000)
-        XCTAssertEqual(Set(results.map(\.type)), ["gene", "exon"])
+        XCTAssertEqual(Set(results.map(\.type)), ["gene", "exon", "intron"])
         XCTAssertTrue(results.contains { $0.attributes?.contains("Parent=g1") == true })
     }
 

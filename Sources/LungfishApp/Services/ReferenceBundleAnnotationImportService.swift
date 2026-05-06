@@ -5,6 +5,7 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, category: "ReferenceAnnotationImport")
@@ -27,6 +28,7 @@ public enum ReferenceBundleAnnotationImportError: Error, LocalizedError {
     case missingManifest(URL)
     case missingGenome(URL)
     case duplicateTrackID(String)
+    case noImportableAnnotations(URL)
 
     public var errorDescription: String? {
         switch self {
@@ -38,6 +40,8 @@ public enum ReferenceBundleAnnotationImportError: Error, LocalizedError {
             return "\(url.lastPathComponent) does not contain genome sequence metadata for annotation import."
         case .duplicateTrackID(let id):
             return "This bundle already has an annotation track named \(id)."
+        case .noImportableAnnotations(let url):
+            return "No importable annotations were found in \(url.lastPathComponent). The file may be empty or malformed."
         }
     }
 }
@@ -85,21 +89,25 @@ public final class ReferenceBundleAnnotationImportService {
         sourceURL: URL,
         bundleURL: URL
     ) async throws -> ReferenceBundleAnnotationImportResult {
+        let startedAt = Date()
         guard ReferenceBundleImportService.classify(sourceURL) == .annotationTrack else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
         }
 
         var manifest: BundleManifest
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let manifestURL = standardizedBundleURL.appendingPathComponent(BundleManifest.filename)
+        let inputManifestSnapshot = fileSnapshot(for: manifestURL)
         do {
-            manifest = try BundleManifest.load(from: bundleURL)
+            manifest = try BundleManifest.load(from: standardizedBundleURL)
         } catch {
-            throw ReferenceBundleAnnotationImportError.missingManifest(bundleURL)
+            throw ReferenceBundleAnnotationImportError.missingManifest(standardizedBundleURL)
         }
         guard let genome = manifest.genome else {
-            throw ReferenceBundleAnnotationImportError.missingGenome(bundleURL)
+            throw ReferenceBundleAnnotationImportError.missingGenome(standardizedBundleURL)
         }
 
-        let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        let annotationsDir = standardizedBundleURL.appendingPathComponent("annotations", isDirectory: true)
         try FileManager.default.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
 
         let trackID = makeUniqueTrackID(
@@ -108,21 +116,28 @@ public final class ReferenceBundleAnnotationImportService {
             annotationsDir: annotationsDir
         )
         let databasePath = "annotations/\(trackID).db"
-        let databaseURL = bundleURL.appendingPathComponent(databasePath)
+        let databaseURL = standardizedBundleURL.appendingPathComponent(databasePath)
         let chromosomeSizes = genome.chromosomes.map { ($0.name, $0.length) }
 
         let featureCount: Int
         let ext = ReferenceBundleImportService.normalizedExtension(for: sourceURL)
+        let importerName: String
         if ["gff", "gff3", "gtf"].contains(ext) {
+            importerName = "AnnotationDatabase.createFromGFF3"
             featureCount = try await AnnotationDatabase.createFromGFF3(
                 gffURL: sourceURL,
                 outputURL: databaseURL,
                 chromosomeSizes: chromosomeSizes
             )
         } else if ext == "bed" {
+            importerName = "AnnotationDatabase.createFromBED"
             featureCount = try AnnotationDatabase.createFromBED(bedURL: sourceURL, outputURL: databaseURL)
         } else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
+        }
+        guard featureCount > 0 else {
+            try? FileManager.default.removeItem(at: databaseURL)
+            throw ReferenceBundleAnnotationImportError.noImportableAnnotations(sourceURL)
         }
 
         let track = AnnotationTrackInfo(
@@ -130,17 +145,36 @@ public final class ReferenceBundleAnnotationImportService {
             name: sourceURL.deletingPathExtension().lastPathComponent,
             description: "Imported from \(sourceURL.lastPathComponent)",
             path: databasePath,
-            databasePath: featureCount > 0 ? databasePath : nil,
+            databasePath: databasePath,
             annotationType: .custom,
             featureCount: featureCount,
             source: sourceURL.path
         )
 
-        manifest = manifest.addingAnnotationTrack(track)
-        try manifest.save(to: bundleURL)
-        annotationImportLogger.info("Attached annotation track \(trackID, privacy: .public) to \(bundleURL.lastPathComponent, privacy: .public)")
+        let originalManifest = manifest
+        do {
+            manifest = manifest.addingAnnotationTrack(track)
+            try manifest.save(to: standardizedBundleURL)
+            try writeProvenance(
+                sourceURL: sourceURL,
+                bundleURL: standardizedBundleURL,
+                manifestURL: manifestURL,
+                databaseURL: databaseURL,
+                track: track,
+                featureCount: featureCount,
+                format: ext,
+                importerName: importerName,
+                inputManifestSnapshot: inputManifestSnapshot,
+                startedAt: startedAt
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: databaseURL)
+            try? originalManifest.save(to: standardizedBundleURL)
+            throw error
+        }
+        annotationImportLogger.info("Attached annotation track \(trackID, privacy: .public) to \(standardizedBundleURL.lastPathComponent, privacy: .public)")
 
-        return ReferenceBundleAnnotationImportResult(bundleURL: bundleURL, track: track, featureCount: featureCount)
+        return ReferenceBundleAnnotationImportResult(bundleURL: standardizedBundleURL, track: track, featureCount: featureCount)
     }
 
     private func sanitizedTrackID(for sourceURL: URL) -> String {
@@ -180,4 +214,140 @@ public final class ReferenceBundleAnnotationImportService {
         guard targetPath.hasPrefix(normalizedProjectPath) else { return targetPath }
         return String(targetPath.dropFirst(normalizedProjectPath.count))
     }
+
+    private func writeProvenance(
+        sourceURL: URL,
+        bundleURL: URL,
+        manifestURL: URL,
+        databaseURL: URL,
+        track: AnnotationTrackInfo,
+        featureCount: Int,
+        format: String,
+        importerName: String,
+        inputManifestSnapshot: AnnotationImportFileSnapshot?,
+        startedAt: Date
+    ) throws {
+        let completedAt = Date()
+        let provenanceURL = bundleURL
+            .appendingPathComponent("annotations/\(track.id)-import-provenance.json")
+        var log = try loadProvenanceLog(from: provenanceURL)
+        let command = [
+            "Lungfish.app",
+            "annotation-import",
+            "--bundle", bundleURL.path,
+            "--source", sourceURL.path,
+            "--track-id", track.id,
+            "--format", format,
+        ]
+        let outputSnapshots = [
+            fileSnapshot(for: manifestURL),
+            fileSnapshot(for: databaseURL),
+        ].compactMap { $0 }
+        let inputSnapshots = [
+            fileSnapshot(for: sourceURL),
+            inputManifestSnapshot,
+        ].compactMap { $0 }
+        let entry = AnnotationTrackImportProvenanceEntry(
+            workflowName: "lungfish annotation track import",
+            workflowVersion: appVersionString(),
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: appVersionString(),
+            argv: command,
+            options: [
+                "trackID": track.id,
+                "trackName": track.name,
+                "format": format,
+                "importer": importerName,
+                "rejectZeroFeatureTracks": "true",
+                "storedCoordinateSystem": "0-based half-open",
+            ],
+            inputPaths: inputSnapshots.map(\.path),
+            outputPaths: [
+                manifestURL.path,
+                databaseURL.path,
+                provenanceURL.path,
+            ],
+            inputFileInfo: inputSnapshots,
+            outputFileInfo: outputSnapshots,
+            runtime: AnnotationTrackImportRuntime(
+                app: "Lungfish Genome Explorer",
+                appVersion: appVersionString(),
+                condaEnvironment: nil,
+                containerRuntime: nil
+            ),
+            featureCount: featureCount,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            recordedAt: completedAt
+        )
+        log.entries.append(entry)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(log)
+        try data.write(to: provenanceURL, options: .atomic)
+    }
+
+    private func loadProvenanceLog(from url: URL) throws -> AnnotationTrackImportProvenanceLog {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return AnnotationTrackImportProvenanceLog(schemaVersion: 1, entries: [])
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(AnnotationTrackImportProvenanceLog.self, from: Data(contentsOf: url))
+    }
+
+    private func fileSnapshot(for url: URL) -> AnnotationImportFileSnapshot? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes?[.size] as? NSNumber)?.uint64Value
+        return AnnotationImportFileSnapshot(
+            path: url.path,
+            sha256: ProvenanceRecorder.sha256(of: url),
+            sizeBytes: size
+        )
+    }
+
+    private func appVersionString() -> String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "debug"
+    }
+}
+
+private struct AnnotationTrackImportProvenanceLog: Codable {
+    let schemaVersion: Int
+    var entries: [AnnotationTrackImportProvenanceEntry]
+}
+
+private struct AnnotationTrackImportProvenanceEntry: Codable {
+    let workflowName: String
+    let workflowVersion: String
+    let toolName: String
+    let toolVersion: String
+    let argv: [String]
+    let options: [String: String]
+    let inputPaths: [String]
+    let outputPaths: [String]
+    let inputFileInfo: [AnnotationImportFileSnapshot]
+    let outputFileInfo: [AnnotationImportFileSnapshot]
+    let runtime: AnnotationTrackImportRuntime
+    let featureCount: Int
+    let exitStatus: Int
+    let wallTimeSeconds: TimeInterval
+    let stderr: String?
+    let recordedAt: Date
+}
+
+private struct AnnotationImportFileSnapshot: Codable {
+    let path: String
+    let sha256: String?
+    let sizeBytes: UInt64?
+}
+
+private struct AnnotationTrackImportRuntime: Codable {
+    let app: String
+    let appVersion: String
+    let condaEnvironment: String?
+    let containerRuntime: String?
 }

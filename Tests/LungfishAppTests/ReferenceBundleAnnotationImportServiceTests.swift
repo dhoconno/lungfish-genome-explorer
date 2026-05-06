@@ -60,6 +60,65 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertEqual(result.featureCount, 1)
     }
 
+    func testAttachesCustomGFFTypeAndWritesProvenance() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let gffURL = tempRoot.appendingPathComponent("custom_feature.gff3")
+        try """
+        ##gff-version 3
+        chr1\tmhc_review\tipd_exact_gdna\t2\t8\t.\t+\t.\tID=ipd1;Name=Mafa-A1*063:01:01:01;match_type=exact_gdna
+
+        """.write(to: gffURL, atomically: true, encoding: .utf8)
+
+        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: gffURL,
+            bundleURL: bundleURL
+        )
+
+        XCTAssertEqual(result.featureCount, 1)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(manifest.annotations.first?.databasePath, "annotations/custom_feature.db")
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/custom_feature.db")
+        let db = try AnnotationDatabase(url: dbURL)
+        let records = db.queryByRegion(chromosome: "chr1", start: 0, end: 16)
+        XCTAssertEqual(records.map(\.type), ["ipd_exact_gdna"])
+        XCTAssertEqual(records.map(\.name), ["Mafa-A1*063:01:01:01"])
+
+        let provenanceURL = bundleURL
+            .appendingPathComponent("annotations/\(result.track.id)-import-provenance.json")
+        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertTrue(provenance.contains("\"workflowName\" : \"lungfish annotation track import\""))
+        XCTAssertTrue(provenance.contains(gffURL.path))
+        XCTAssertTrue(provenance.contains("custom_feature.db"))
+        XCTAssertTrue(provenance.contains("\"featureCount\" : 1"))
+    }
+
+    func testRejectsGFFWithNoImportableAnnotations() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let gffURL = tempRoot.appendingPathComponent("empty.gff3")
+        try """
+        ##gff-version 3
+        # no features
+
+        """.write(to: gffURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+                sourceURL: gffURL,
+                bundleURL: bundleURL
+            )
+            XCTFail("Expected zero-feature annotation import to fail")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("No importable annotations"))
+        }
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertTrue(manifest.annotations.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/empty.db").path
+        ))
+    }
+
     func testDiscoverReferenceBundlesReturnsProjectRelativeDisplayPaths() throws {
         _ = try makeBundle(named: "M1", relativePath: "Reference Sequences/M1.lungfishref")
         _ = try makeBundle(named: "M1", relativePath: "Imported/Nested/M1.lungfishref")

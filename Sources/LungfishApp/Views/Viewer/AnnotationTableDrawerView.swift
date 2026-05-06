@@ -615,7 +615,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     var bookmarkedVariantKeys: Set<String> = []
     /// Base annotation result set before local column filters.
     var baseDisplayedAnnotationRows: [AnnotationSearchIndex.SearchResult] = []
-    /// Header-driven local filters applied only to currently loaded annotation rows.
+    /// Header-driven filters applied to annotation rows.
     private var annotationColumnFilterClauses: [ColumnFilterClause] = []
     /// Base result set from the last variant SQL query before local column filters.
     var baseDisplayedVariantAnnotations: [AnnotationSearchIndex.SearchResult] = []
@@ -2258,7 +2258,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         if results.count > Self.maxDisplayCount {
             setAnnotationBaseResults([])
             tableView.reloadData()
-            scrollView.isHidden = true
+            scrollView.isHidden = false
             let total = numberFormatter.string(from: NSNumber(value: results.count)) ?? "\(results.count)"
             let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
             tooManyLabel.stringValue = "\(total) annotations match — use the search field or type filters to narrow to \(max) or fewer"
@@ -2557,20 +2557,40 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 if typeFilter.isEmpty { return explicitType }
                 return typeFilter.intersection(explicitType)
             }()
-            let matchingCount = index.queryAnnotationCount(nameFilter: nameFilter, types: mergedTypeFilter)
+            let databaseColumnFilters = annotationDatabaseColumnFilters()
+            let matchingCount = index.queryAnnotationCount(
+                nameFilter: nameFilter,
+                types: mergedTypeFilter,
+                chromosome: annotationQuery.chromosome,
+                regionStart: annotationQuery.start,
+                regionEnd: annotationQuery.end,
+                strand: annotationQuery.strand,
+                columnFilters: databaseColumnFilters
+            )
 
             if matchingCount > Self.maxDisplayCount {
                 setAnnotationBaseResults([])
                 tableView.reloadData()
-                scrollView.isHidden = true
+                scrollView.isHidden = false
                 let total = numberFormatter.string(from: NSNumber(value: matchingCount)) ?? "\(matchingCount)"
                 let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
                 tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
                 tooManyLabel.isHidden = false
                 annotationSearchRegion = nil
             } else {
-                let results = index.queryAnnotationsOnly(nameFilter: nameFilter, types: mergedTypeFilter, limit: Self.maxDisplayCount * 3)
-                let filtered = applyAnnotationAdvancedFilters(results, query: annotationQuery).prefix(Self.maxDisplayCount).map { $0 }
+                let results = index.queryAnnotationsOnly(
+                    nameFilter: nameFilter,
+                    types: mergedTypeFilter,
+                    chromosome: annotationQuery.chromosome,
+                    regionStart: annotationQuery.start,
+                    regionEnd: annotationQuery.end,
+                    strand: annotationQuery.strand,
+                    columnFilters: databaseColumnFilters,
+                    limit: Self.maxDisplayCount * 3
+                )
+                let filtered = applyAnnotationColumnFilters(
+                    to: applyAnnotationAdvancedFilters(results, query: annotationQuery)
+                ).prefix(Self.maxDisplayCount).map { $0 }
                 setAnnotationBaseResults(filtered)
                 tableView.reloadData()
                 scrollView.isHidden = false
@@ -2588,7 +2608,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             if !hasFilters && activeTotal > Self.maxDisplayCount {
                 setAnnotationBaseResults([])
                 tableView.reloadData()
-                scrollView.isHidden = true
+                scrollView.isHidden = false
                 let total = numberFormatter.string(from: NSNumber(value: activeTotal)) ?? "\(activeTotal)"
                 let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
                 tooManyLabel.stringValue = "\(total) \(entityName) — use the search field or type filters to narrow to \(max) or fewer"
@@ -2605,7 +2625,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 if results.count > Self.maxDisplayCount {
                     setAnnotationBaseResults([])
                     tableView.reloadData()
-                    scrollView.isHidden = true
+                    scrollView.isHidden = false
                     let total = numberFormatter.string(from: NSNumber(value: results.count)) ?? "\(results.count)"
                     let max = numberFormatter.string(from: NSNumber(value: Self.maxDisplayCount)) ?? "\(Self.maxDisplayCount)"
                     tooManyLabel.stringValue = "\(total) \(entityName) match — use the search field or type filters to narrow to \(max) or fewer"
@@ -2625,6 +2645,12 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             tooManyLabel.isHidden = true
         }
         updateCountLabel()
+    }
+
+    private func annotationDatabaseColumnFilters() -> [AnnotationDatabase.ColumnFilterClause] {
+        annotationColumnFilterClauses.map {
+            AnnotationDatabase.ColumnFilterClause(key: $0.key, op: $0.op, value: $0.value)
+        }
     }
 
     /// Populates the variant table using viewport-region-filtered or global queries.
@@ -6161,7 +6187,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
               let op = payload["op"],
               let value = payload["value"] else { return }
         annotationColumnFilterClauses.append(ColumnFilterClause(key: key, op: op, value: value))
-        applyAnnotationColumnFiltersFromBase()
+        refreshAnnotationColumnFilters()
     }
 
     @objc private func promptAnnotationColumnFilterAction(_ sender: NSMenuItem) {
@@ -6182,13 +6208,21 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             let value = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             guard let self, !value.isEmpty else { return }
             self.annotationColumnFilterClauses.append(ColumnFilterClause(key: key, op: op, value: value))
-            self.applyAnnotationColumnFiltersFromBase()
+            self.refreshAnnotationColumnFilters()
         }
     }
 
     @objc private func clearAnnotationColumnFilters(_ sender: Any?) {
         annotationColumnFilterClauses.removeAll()
-        applyAnnotationColumnFiltersFromBase()
+        refreshAnnotationColumnFilters()
+    }
+
+    private func refreshAnnotationColumnFilters() {
+        if activeTab == .annotations, searchIndex?.hasDatabaseBackend == true {
+            updateDisplayedAnnotations()
+        } else {
+            applyAnnotationColumnFiltersFromBase()
+        }
     }
 
     private func buildAnnotationColumnHeaderContextMenu(_ menu: NSMenu, column: Int) {
@@ -6238,7 +6272,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         addAnnotationColumnFilterItem(to: menu, title: "Filter \(displayName) Is Not Empty", key: key, op: "!=", value: "")
         menu.addItem(NSMenuItem.separator())
 
-        let clearItem = NSMenuItem(title: "Clear Local Annotation Column Filters", action: #selector(clearAnnotationColumnFilters(_:)), keyEquivalent: "")
+        let clearItem = NSMenuItem(title: "Clear Annotation Column Filters", action: #selector(clearAnnotationColumnFilters(_:)), keyEquivalent: "")
         clearItem.target = self
         menu.addItem(clearItem)
     }
