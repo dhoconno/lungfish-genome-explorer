@@ -5,6 +5,42 @@
 import Foundation
 import AppKit
 import LungfishApp
+import Sparkle
+
+@MainActor
+private final class SparkleUpdaterBridge {
+    private let updaterController: SPUStandardUpdaterController?
+
+    init(delegate: AppDelegate) {
+        guard Self.hasRequiredConfiguration else {
+            updaterController = nil
+            return
+        }
+
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+        updaterController = controller
+
+        delegate.checkForUpdatesHandler = { [weak controller] sender in
+            controller?.checkForUpdates(sender)
+        }
+        delegate.canCheckForUpdatesHandler = { [weak controller] in
+            controller?.updater.canCheckForUpdates ?? false
+        }
+    }
+
+    private static var hasRequiredConfiguration: Bool {
+        guard let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+              let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String else {
+            return false
+        }
+        return !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
 
 if let helperExitCode = VCFImportHelper.runIfRequested(arguments: CommandLine.arguments) {
     exit(helperExitCode)
@@ -28,6 +64,9 @@ let app = NSApplication.shared
 app.applicationIconImage = AppIcon.image
 
 let delegate = AppDelegate()
+private let updaterBridge = SparkleUpdaterBridge(delegate: delegate)
 app.setActivationPolicy(.regular)
 app.delegate = delegate
 app.run()
+
+_ = updaterBridge

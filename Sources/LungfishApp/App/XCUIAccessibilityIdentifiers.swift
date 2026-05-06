@@ -108,6 +108,7 @@ enum MainMenuAccessibilityID {
     static let helpMenu = "main-menu-help"
 
     static let about = "main-menu-about"
+    static let checkForUpdates = "main-menu-check-for-updates"
     static let settings = "main-menu-settings"
     static let quit = "main-menu-quit"
 

@@ -20,6 +20,16 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertNotNil(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" }))
     }
 
+    func testApplicationMenuContainsCheckForUpdatesItem() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
+        let item = try XCTUnwrap(appMenu.items.first(where: { $0.title == "Check for Updates..." }))
+
+        XCTAssertEqual(item.identifier?.rawValue, MainMenuAccessibilityID.checkForUpdates)
+        XCTAssertEqual(item.action, #selector(AppDelegate.checkForUpdates(_:)))
+    }
+
     func testOpenRecentMenuIncludesPersistedRecentProjects() throws {
         let _ = NSApplication.shared
         let projectURL = FileManager.default.temporaryDirectory
@@ -61,6 +71,7 @@ final class ImportCenterMenuTests: XCTestCase {
         let operationsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Operations" })?.submenu)
 
         XCTAssertEqual(appMenu.items.first(where: { $0.title == "About Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.about)
+        XCTAssertEqual(appMenu.items.first(where: { $0.title == "Check for Updates..." })?.identifier?.rawValue, MainMenuAccessibilityID.checkForUpdates)
         XCTAssertEqual(appMenu.items.first(where: { $0.title == "Settings..." })?.identifier?.rawValue, MainMenuAccessibilityID.settings)
         XCTAssertEqual(appMenu.items.first(where: { $0.title == "Quit Lungfish Genome Explorer" })?.identifier?.rawValue, MainMenuAccessibilityID.quit)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)

@@ -71,6 +71,12 @@ public final class MainMenu {
             keyEquivalent: ""
         ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.about)
 
+        appMenu.addItem(
+            withTitle: "Check for Updates...",
+            action: #selector(AppDelegate.checkForUpdates(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.checkForUpdates)
+
         appMenu.addItem(.separator())
 
         // Preferences

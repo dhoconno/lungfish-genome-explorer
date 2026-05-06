@@ -68,6 +68,9 @@ let package = Package(
         // TODO: Re-test AppleContainerRuntime against containerization 0.30.x+
         // and relax this requirement only after the API migration is complete.
         .package(url: "https://github.com/apple/containerization.git", exact: "0.24.5"),
+        // App-only updater framework. Keep this out of LungfishApp so lungfish-cli
+        // does not inherit the graphical updater dependency.
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.1"),
     ],
     targets: [
         .target(
@@ -201,6 +204,7 @@ let package = Package(
             name: "Lungfish",
             dependencies: [
                 "LungfishApp",
+                .product(name: "Sparkle", package: "Sparkle"),
             ],
             path: "Sources/Lungfish",
             resources: [

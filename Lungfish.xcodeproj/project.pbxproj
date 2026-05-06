@@ -19,6 +19,7 @@
 /* Begin PBXBuildFile section */
 		F1E2D3C4B5A6978877665554 /* Sources/Lungfish/main.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665548 /* Sources/Lungfish/main.swift */; };
 		F1E2D3C4B5A6978877665555 /* LungfishApp in Frameworks */ = {isa = PBXBuildFile; productRef = F1E2D3C4B5A6978877665563 /* LungfishApp */; };
+		F1E2D3C4B5A69788776655B2 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = F1E2D3C4B5A69788776655B3 /* Sparkle */; };
 		F1E2D3C4B5A6978877665564 /* Lungfish.help in Resources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665565 /* Lungfish.help */; };
 		F1E2D3C4B5A6978877665571 /* DatabaseSearchXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665573 /* DatabaseSearchXCUITests.swift */; };
 		F1E2D3C4B5A6978877665572 /* LungfishAppRobot.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1E2D3C4B5A6978877665574 /* LungfishAppRobot.swift */; };
@@ -74,6 +75,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F1E2D3C4B5A6978877665555 /* LungfishApp in Frameworks */,
+				F1E2D3C4B5A69788776655B2 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -179,6 +181,7 @@
 			name = Lungfish;
 			packageProductDependencies = (
 				F1E2D3C4B5A6978877665563 /* LungfishApp */,
+				F1E2D3C4B5A69788776655B3 /* Sparkle */,
 			);
 			productName = Lungfish;
 			productReference = F1E2D3C4B5A6978877665549 /* Lungfish.app */;
@@ -233,6 +236,7 @@
 			mainGroup = F1E2D3C4B5A6978877665545;
 			packageReferences = (
 				F1E2D3C4B5A6978877665562 /* XCLocalSwiftPackageReference "." */,
+				F1E2D3C4B5A69788776655B4 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = F1E2D3C4B5A6978877665547 /* Products */;
 			projectDirPath = "";
@@ -401,12 +405,16 @@
 				INFOPLIST_KEY_CFBundleHelpBookFolder = Lungfish.help;
 				INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_SUFeedURL = "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)";
+				INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.4.0-alpha.6";
+				MARKETING_VERSION = "0.4.0-alpha.7";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -431,12 +439,16 @@
 				INFOPLIST_KEY_CFBundleHelpBookFolder = Lungfish.help;
 				INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_SUFeedURL = "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml";
+				INFOPLIST_KEY_SUPublicEDKey = "$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)";
+				INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LUNGFISH_SPARKLE_PUBLIC_ED_KEY = "";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.4.0-alpha.6";
+				MARKETING_VERSION = "0.4.0-alpha.7";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -502,7 +514,7 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.4.0-alpha.6";
+				MARKETING_VERSION = "0.4.0-alpha.7";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.xcuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -524,7 +536,7 @@
 				EXCLUDED_ARCHS = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = "0.4.0-alpha.6";
+				MARKETING_VERSION = "0.4.0-alpha.7";
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.lungfish.browser.xcuitests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -575,11 +587,27 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		F1E2D3C4B5A69788776655B4 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		F1E2D3C4B5A6978877665563 /* LungfishApp */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F1E2D3C4B5A6978877665562 /* XCLocalSwiftPackageReference "." */;
 			productName = LungfishApp;
+		};
+		F1E2D3C4B5A69788776655B3 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1E2D3C4B5A69788776655B4 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

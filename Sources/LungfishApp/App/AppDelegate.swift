@@ -323,6 +323,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var settingsWindowController: SettingsWindowController?
     private var aboutWindowController: AboutWindowController?
 
+    /// App-executable updater hooks. Sparkle is linked by the graphical target,
+    /// not by LungfishApp, so the shared app module exposes only these closures.
+    public var checkForUpdatesHandler: ((Any?) -> Void)?
+    public var canCheckForUpdatesHandler: (() -> Bool)?
+
     /// AI assistant service (lazy singleton), hosted inside Inspector.
     private var aiAssistantService: AIAssistantService?
     private var helpWindowController: HelpWindowController?
@@ -1251,6 +1256,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             aboutWindowController = AboutWindowController()
         }
         aboutWindowController?.showWindow(sender)
+    }
+
+    @IBAction func checkForUpdates(_ sender: Any?) {
+        checkForUpdatesHandler?(sender)
     }
 
     @IBAction func showPreferences(_ sender: Any?) {
@@ -4566,6 +4575,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 menuItem.state = isRNAMode ? .on : .off
             }
             return true
+        }
+
+        if menuItem.action == #selector(checkForUpdates(_:)) {
+            return canCheckForUpdatesHandler?() ?? false
         }
 
         // "Import VCF Variants..." is always enabled (auto-ingest creates bundle if needed)

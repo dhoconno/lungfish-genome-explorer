@@ -10,7 +10,7 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli]
+Usage: build-notarized-dmg.sh --signing-identity "Developer ID Application: Example (TEAMID)" --team-id TEAMID --notary-profile PROFILE [--scratch-path PATH] [--archive-path PATH] [--release-dir PATH] [--derived-data-path PATH] [--reuse-archive] [--reuse-built-cli] [--github-release-tag TAG] [--sparkle-public-ed-key KEY] [--sparkle-generate-appcast PATH] [--sparkle-appcast-dir PATH] [--sparkle-publish-release TAG]
 
 Required:
   --signing-identity  Developer ID Application identity used for codesign
@@ -24,6 +24,18 @@ Optional:
   --derived-data-path DerivedData path for the Xcode archive (default: <project-root>/.build/release-derived-data)
   --reuse-archive     Reuse an existing archive instead of running xcodebuild archive
   --reuse-built-cli   Reuse an existing lungfish-cli from --scratch-path instead of running swift build
+  --github-release-tag TAG
+                      Upload the notarized DMG to this versioned GitHub release tag with gh
+  --sparkle-public-ed-key KEY
+                      Sparkle public EdDSA key embedded in the app (default: LUNGFISH_SPARKLE_PUBLIC_ED_KEY)
+  --sparkle-generate-appcast PATH
+                      Sparkle generate_appcast tool path. When set, update appcast-alpha.xml after DMG notarization
+  --sparkle-appcast-dir PATH
+                      Local appcast working directory (default: <release-dir>/sparkle-appcast)
+  --sparkle-download-url-prefix URL
+                      URL prefix for versioned DMG downloads (default: GitHub release v<version>)
+  --sparkle-publish-release TAG
+                      Upload appcast-alpha.xml and release notes to this GitHub release tag with gh
 
 The archive step writes an Xcode timing summary to stdout and stores an
 archive result bundle under <release-dir>/logs/archive.xcresult.
@@ -42,6 +54,14 @@ ARCHIVE_PATH="${RELEASE_DIR}/Lungfish.xcarchive"
 DERIVED_DATA_PATH=""
 REUSE_ARCHIVE=0
 REUSE_BUILT_CLI=0
+SPARKLE_PUBLIC_ED_KEY="${LUNGFISH_SPARKLE_PUBLIC_ED_KEY:-}"
+SPARKLE_GENERATE_APPCAST="${SPARKLE_GENERATE_APPCAST:-}"
+SPARKLE_APPCAST_DIR=""
+SPARKLE_DOWNLOAD_URL_PREFIX=""
+SPARKLE_PUBLISH_RELEASE=""
+SPARKLE_RELEASE_NOTES=""
+SPARKLE_BUILD_NUMBER="${LUNGFISH_BUILD_NUMBER:-}"
+GITHUB_RELEASE_TAG=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -81,6 +101,34 @@ while [ "$#" -gt 0 ]; do
             REUSE_BUILT_CLI=1
             shift
             ;;
+        --github-release-tag)
+            GITHUB_RELEASE_TAG="$2"
+            shift 2
+            ;;
+        --sparkle-public-ed-key)
+            SPARKLE_PUBLIC_ED_KEY="$2"
+            shift 2
+            ;;
+        --sparkle-generate-appcast)
+            SPARKLE_GENERATE_APPCAST="$2"
+            shift 2
+            ;;
+        --sparkle-appcast-dir)
+            SPARKLE_APPCAST_DIR="$2"
+            shift 2
+            ;;
+        --sparkle-download-url-prefix)
+            SPARKLE_DOWNLOAD_URL_PREFIX="$2"
+            shift 2
+            ;;
+        --sparkle-publish-release)
+            SPARKLE_PUBLISH_RELEASE="$2"
+            shift 2
+            ;;
+        --sparkle-release-notes)
+            SPARKLE_RELEASE_NOTES="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             exit 0
@@ -95,6 +143,11 @@ done
 
 if [ -z "$SIGNING_IDENTITY" ] || [ -z "$TEAM_ID" ] || [ -z "$NOTARY_PROFILE" ]; then
     usage >&2
+    exit 64
+fi
+
+if [ -z "$SPARKLE_PUBLIC_ED_KEY" ]; then
+    echo "missing Sparkle public EdDSA key; pass --sparkle-public-ed-key or set LUNGFISH_SPARKLE_PUBLIC_ED_KEY" >&2
     exit 64
 fi
 
@@ -119,6 +172,15 @@ require_command rg
 for command in xcodebuild xcrun swift codesign hdiutil ditto shasum mktemp /usr/libexec/PlistBuddy; do
     require_command "$command"
 done
+
+if [ -n "$SPARKLE_PUBLISH_RELEASE" ] || [ -n "$GITHUB_RELEASE_TAG" ]; then
+    require_command gh
+fi
+
+if [ -n "$SPARKLE_GENERATE_APPCAST" ] && [ ! -x "$SPARKLE_GENERATE_APPCAST" ]; then
+    echo "sparkle generate_appcast is not executable: $SPARKLE_GENERATE_APPCAST" >&2
+    exit 69
+fi
 
 if ! security find-identity -v -p codesigning | grep -F "$SIGNING_IDENTITY" >/dev/null 2>&1; then
     echo "signing identity not found in keychain: $SIGNING_IDENTITY" >&2
@@ -168,6 +230,104 @@ install_app_icon() {
         || /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string AppIcon" "$info_plist"
 }
 
+sparkle_release_notes_source() {
+    if [ -n "$SPARKLE_RELEASE_NOTES" ]; then
+        printf '%s\n' "$SPARKLE_RELEASE_NOTES"
+    else
+        printf '%s\n' "${PROJECT_ROOT}/docs/release-notes/v${VERSION}.md"
+    fi
+}
+
+publish_github_release_dmg() {
+    if [ -z "$GITHUB_RELEASE_TAG" ]; then
+        return
+    fi
+
+    local notes_source
+    local target_commit
+    notes_source="$(sparkle_release_notes_source)"
+    target_commit="$(git rev-parse HEAD)"
+
+    if gh release view "$GITHUB_RELEASE_TAG" >/dev/null 2>&1; then
+        gh release upload "$GITHUB_RELEASE_TAG" "$DMG_PATH" --clobber
+        return
+    fi
+
+    local create_args=(
+        release create "$GITHUB_RELEASE_TAG"
+        "$DMG_PATH"
+        --title "$GITHUB_RELEASE_TAG"
+        --prerelease
+        --target "$target_commit"
+    )
+    if [ -f "$notes_source" ]; then
+        create_args+=(--notes-file "$notes_source")
+    else
+        create_args+=(--notes "Lungfish ${VERSION} prerelease.")
+    fi
+    gh "${create_args[@]}"
+}
+
+generate_sparkle_appcast() {
+    if [ -z "$SPARKLE_GENERATE_APPCAST" ]; then
+        return
+    fi
+
+    if [ -z "$SPARKLE_APPCAST_DIR" ]; then
+        SPARKLE_APPCAST_DIR="${RELEASE_DIR}/sparkle-appcast"
+    fi
+
+    local dmg_name="Lungfish-${VERSION}-arm64.dmg"
+    local appcast_dmg="${SPARKLE_APPCAST_DIR}/${dmg_name}"
+    local notes_source
+    local notes_dest="${SPARKLE_APPCAST_DIR}/Lungfish-${VERSION}-arm64.dmg.md"
+    local download_url_prefix="$SPARKLE_DOWNLOAD_URL_PREFIX"
+
+    notes_source="$(sparkle_release_notes_source)"
+    if [ -z "$download_url_prefix" ]; then
+        download_url_prefix="https://github.com/dhoconno/lungfish-genome-explorer/releases/download/${GITHUB_RELEASE_TAG:-v${VERSION}}"
+    fi
+
+    mkdir -p "$SPARKLE_APPCAST_DIR"
+    /bin/cp -p "$DMG_PATH" "$appcast_dmg"
+
+    if [ -f "$notes_source" ]; then
+        /usr/bin/install -m 644 "$notes_source" "$notes_dest"
+    fi
+
+    "$SPARKLE_GENERATE_APPCAST" \
+        --download-url-prefix "$download_url_prefix" \
+        "$SPARKLE_APPCAST_DIR"
+
+    SPARKLE_APPCAST_PATH="${SPARKLE_APPCAST_DIR}/appcast-alpha.xml"
+    if [ ! -f "$SPARKLE_APPCAST_PATH" ]; then
+        echo "Sparkle appcast was not generated at expected path: $SPARKLE_APPCAST_PATH" >&2
+        exit 72
+    fi
+
+    if [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+        if ! gh release view "$SPARKLE_PUBLISH_RELEASE" >/dev/null 2>&1; then
+            local target_commit
+            target_commit="$(git rev-parse HEAD)"
+            gh release create "$SPARKLE_PUBLISH_RELEASE" \
+                --title "Lungfish Sparkle Alpha Appcast" \
+                --notes "Mutable Sparkle alpha appcast feed for Lungfish Genome Explorer." \
+                --prerelease \
+                --target "$target_commit"
+        fi
+
+        gh release upload "$SPARKLE_PUBLISH_RELEASE" "$SPARKLE_APPCAST_PATH" --clobber
+        if [ -f "$notes_dest" ]; then
+            gh release upload "$SPARKLE_PUBLISH_RELEASE" "$notes_dest" --clobber
+        fi
+        for signed_feed_asset in "$SPARKLE_APPCAST_PATH".* "$notes_dest".*; do
+            if [ -f "$signed_feed_asset" ]; then
+                gh release upload "$SPARKLE_PUBLISH_RELEASE" "$signed_feed_asset" --clobber
+            fi
+        done
+    fi
+}
+
 prepare_release_dir() {
     case "$ARCHIVE_PATH" in
         "$RELEASE_DIR"/*)
@@ -210,6 +370,10 @@ if [ -n "${SOURCE_DATE_EPOCH:-}" ] && [ -z "${LUNGFISH_BUILD_TIMESTAMP:-}" ]; th
     export LUNGFISH_BUILD_TIMESTAMP
 fi
 
+if [ -z "$SPARKLE_BUILD_NUMBER" ]; then
+    SPARKLE_BUILD_NUMBER=$(git rev-list --count HEAD)
+fi
+
 SWIFT_BUILD_PREFIX_MAP_ARGS=(
     -Xswiftc -debug-prefix-map
     -Xswiftc "$SCRATCH_PATH=/swiftpm-build"
@@ -243,6 +407,8 @@ else
         OTHER_SWIFT_FLAGS="\$(inherited) $XCODE_OTHER_SWIFT_FLAGS" \
         OTHER_CFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
         OTHER_CPLUSPLUSFLAGS="\$(inherited) $XCODE_OTHER_CFLAGS" \
+        CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_NUMBER" \
+        LUNGFISH_SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
         DEVELOPMENT_TEAM="$TEAM_ID" \
         -showBuildTimingSummary \
         -resultBundlePath "$ARCHIVE_RESULT_BUNDLE_PATH" \
@@ -358,20 +524,31 @@ ln -s /Applications "${DMG_STAGING_DIR}/Applications"
 
 /usr/bin/xcrun stapler staple "$DMG_PATH"
 
+if [ -z "$GITHUB_RELEASE_TAG" ] && [ -n "$SPARKLE_PUBLISH_RELEASE" ]; then
+    GITHUB_RELEASE_TAG="v${VERSION}"
+fi
+
+publish_github_release_dmg
+generate_sparkle_appcast
+
 DMG_SHA=$(shasum -a 256 "$DMG_PATH" | awk '{print $1}')
 COMMIT_SHA=$(git rev-parse HEAD)
 
 cat >"$METADATA_PATH" <<EOF
 version=${VERSION}
+build_number=${SPARKLE_BUILD_NUMBER}
 git_commit=${COMMIT_SHA}
 signing_identity=<redacted>
 team_id=<redacted>
 notary_profile=<redacted>
+sparkle_feed_url=https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml
+github_release_tag=${GITHUB_RELEASE_TAG}
 archive_path=$(relative_to_project_root "$ARCHIVE_PATH")
 app_path=$(relative_to_project_root "$APP_PATH")
 release_app_path=$(relative_to_project_root "$RELEASE_APP_PATH")
 DMG_PATH=$(relative_to_project_root "$DMG_PATH")
 dmg_sha256=${DMG_SHA}
+sparkle_appcast_path=$(relative_to_project_root "${SPARKLE_APPCAST_PATH:-}")
 app_notary_log=$(relative_to_project_root "$APP_NOTARY_LOG")
 dmg_notary_log=$(relative_to_project_root "$DMG_NOTARY_LOG")
 EOF
@@ -379,4 +556,7 @@ EOF
 printf 'Release complete:\n'
 printf '  App: %s\n' "$RELEASE_APP_PATH"
 printf '  DMG: %s\n' "$DMG_PATH"
+if [ -n "${SPARKLE_APPCAST_PATH:-}" ]; then
+    printf '  Sparkle appcast: %s\n' "$SPARKLE_APPCAST_PATH"
+fi
 printf '  Metadata: %s\n' "$METADATA_PATH"
