@@ -450,6 +450,45 @@ install_app_icon
 # Homebrew paths back into the app bundle.
 scripts/smoke-test-release-tools.sh "$APP_PATH" --portability-only
 
+sign_developer_id_runtime() {
+    /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
+        --options runtime \
+        --timestamp \
+        --generate-entitlement-der \
+        "$1"
+}
+
+sign_sparkle_framework() {
+    local sparkle_framework="$1"
+    if [ ! -d "$sparkle_framework" ]; then
+        return
+    fi
+
+    local sparkle_version_dir="${sparkle_framework}/Versions/B"
+    local nested_bundle
+    for nested_bundle in \
+        "${sparkle_version_dir}/Updater.app" \
+        "${sparkle_version_dir}/XPCServices/Downloader.xpc" \
+        "${sparkle_version_dir}/XPCServices/Installer.xpc"
+    do
+        if [ -d "$nested_bundle" ]; then
+            sign_developer_id_runtime "$nested_bundle"
+        fi
+    done
+
+    local nested_macho
+    for nested_macho in \
+        "${sparkle_version_dir}/Autoupdate" \
+        "${sparkle_version_dir}/Sparkle"
+    do
+        if [ -f "$nested_macho" ]; then
+            sign_developer_id_runtime "$nested_macho"
+        fi
+    done
+
+    sign_developer_id_runtime "$sparkle_framework"
+}
+
 /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" \
     --options runtime \
     --timestamp \
@@ -471,6 +510,11 @@ if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
         fi
     done < <(/usr/bin/find "$WORKFLOW_TOOLS_DIR" -type f -print0)
 fi
+
+# Sparkle ships nested helper tools inside its framework. Xcode's archive may
+# leave those helpers with development or ad-hoc signatures, which notarization
+# rejects even when the outer app is re-signed for Developer ID.
+sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 
 # Outer app signing seals the bundle. Every nested Mach-O was signed above,
 # so we deliberately omit `--deep` (which can strip or overwrite those inner

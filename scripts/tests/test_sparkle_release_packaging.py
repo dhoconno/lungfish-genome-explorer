@@ -51,6 +51,25 @@ class SparkleReleasePackagingTests(unittest.TestCase):
         self.assertIn("git rev-list --count HEAD", self.release_script)
         self.assertIn('CURRENT_PROJECT_VERSION="$SPARKLE_BUILD_NUMBER"', self.release_script)
 
+    def test_release_script_re_signs_sparkle_nested_code_before_outer_app(self):
+        self.assertIn("sign_sparkle_framework", self.release_script)
+        self.assertIn("Updater.app", self.release_script)
+        self.assertIn("Downloader.xpc", self.release_script)
+        self.assertIn("Installer.xpc", self.release_script)
+        self.assertIn('sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"', self.release_script)
+
+        lines = self.release_script.splitlines()
+        sparkle_sign_index = self._line_index('sign_sparkle_framework "$APP_PATH/Contents/Frameworks/Sparkle.framework"')
+        outer_app_sign_index = self._line_index("# Outer app signing seals the bundle.")
+
+        self.assertLess(sparkle_sign_index, outer_app_sign_index)
+
+    def _line_index(self, marker):
+        for index, line in enumerate(self.release_script.splitlines()):
+            if marker in line:
+                return index
+        self.fail(f"missing line containing {marker!r}")
+
 
 if __name__ == "__main__":
     unittest.main()
