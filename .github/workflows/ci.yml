@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast:
+    name: Fast gate
+    runs-on: macos-26
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Build app executable
+        run: swift build --product Lungfish
+
+      - name: Build CLI executable
+        run: swift build --product lungfish-cli
+
+      - name: Run smoke package tests
+        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishPluginTests\.PluginRegistryTests|LungfishUITests\.(DisplayModeRegressionTests|ReferenceFrameTests|SidebarItemTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
+
+  full:
+    name: Full suite
+    runs-on: macos-26
+    timeout-minutes: 45
+    needs: fast
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Resolve dependencies
+        run: swift package resolve
+
+      - name: Run full package tests
+        run: swift test

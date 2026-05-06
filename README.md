@@ -3,6 +3,7 @@
 A native macOS workbench for everyday genomics. Lungfish Genome Explorer brings sequence browsing, read mapping, variant analysis, metagenomic classification, and assembly into a single Apple Silicon app, with a built-in toolbox of established command-line bioinformatics tools.
 
 [![Swift 6.2](https://img.shields.io/badge/Swift-6.2-orange.svg)](https://swift.org)
+[![CI](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/dhoconno/lungfish-genome-explorer/actions/workflows/ci.yml)
 [![macOS 26+](https://img.shields.io/badge/macOS-26_Tahoe+-blue.svg)](https://www.apple.com/macos)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
