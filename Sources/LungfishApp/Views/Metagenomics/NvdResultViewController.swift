@@ -2123,7 +2123,10 @@ extension NvdResultViewController {
             textField?.alphaValue = childAlpha
             textField?.alignment = .right
         case "uniqueReads":
-            let unique = hit.uniqueReads ?? hit.mappedReads
+            let unique = ClassifierUniqueReads.normalizedOrFloor(
+                stored: hit.uniqueReads,
+                readCount: hit.mappedReads
+            )
             textField?.stringValue = nvdFormatCount(unique)
             textField?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
             textField?.alphaValue = childAlpha

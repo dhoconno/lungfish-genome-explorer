@@ -26,9 +26,30 @@ struct BatchEsVirituRow: Sendable {
     let coverageBreadth: Double
     let coverageDepth: Double
 
+    init(
+        sample: String,
+        virusName: String,
+        family: String?,
+        assembly: String,
+        readCount: Int,
+        uniqueReads: Int,
+        rpkmf: Double,
+        coverageBreadth: Double,
+        coverageDepth: Double
+    ) {
+        self.sample = sample
+        self.virusName = virusName
+        self.family = family
+        self.assembly = assembly
+        self.readCount = readCount
+        self.uniqueReads = Self.normalizedUniqueReads(stored: uniqueReads, readCount: readCount)
+        self.rpkmf = rpkmf
+        self.coverageBreadth = coverageBreadth
+        self.coverageDepth = coverageDepth
+    }
+
     static func normalizedUniqueReads(stored: Int?, readCount: Int) -> Int {
-        let floor = readCount > 0 ? 1 : 0
-        return max(stored ?? floor, floor)
+        ClassifierUniqueReads.normalizedOrFloor(stored: stored, readCount: readCount)
     }
 
     static func fromAssemblies(
@@ -320,16 +341,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
     private func setupMiniBAMViewer() {
         let bamVC = MiniBAMViewController()
-        bamVC.onReadStatsUpdated = { [weak self] _, uniqueReads in
-            guard let self,
-                  let assemblyAcc = self.currentBAMAssemblyAccession,
-                  let contigAcc = self.currentBAMContigAccession else { return }
-            self.detectionTableView.setUniqueReadCount(
-                uniqueReads,
-                forContig: contigAcc,
-                inAssembly: assemblyAcc
-            )
-        }
+        // MiniBAM stats describe the currently displayed alignment pane. The
+        // EsViritu table's Unique Reads column is loaded from the persisted
+        // markdup-derived result data and must not change as rows are selected.
         addChild(bamVC)
         miniBAMController = bamVC
         detailPane.miniBAMViewController = bamVC

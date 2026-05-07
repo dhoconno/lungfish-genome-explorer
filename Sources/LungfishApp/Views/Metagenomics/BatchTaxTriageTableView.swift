@@ -292,7 +292,10 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
             return (formatReadCount(reads), .right, nil)
         case .tt_uniqueReads:
             let key = rowKey(for: row)
-            let text = uniqueReadsByKey[key].map { formatReadCount($0) } ?? "\u{2014}"
+            let readCount = totalReadsByKey[key] ?? row.reads
+            let text = ClassifierUniqueReads
+                .normalized(stored: uniqueReadsByKey[key], readCount: readCount)
+                .map { formatReadCount($0) } ?? "\u{2014}"
             return (text, .right, nil)
         case .tt_confidence:
             return (row.confidence ?? "\u{2014}", .left, .systemFont(ofSize: 11))
@@ -336,7 +339,11 @@ final class BatchTaxTriageTableView: BatchTableView<TaxTriageMetric> {
         case "tt_uniqueReads":
             let lk = rowKey(for: lhs)
             let rk = rowKey(for: rhs)
-            result = (uniqueReadsByKey[lk] ?? -1) < (uniqueReadsByKey[rk] ?? -1)
+            let lhsReads = totalReadsByKey[lk] ?? lhs.reads
+            let rhsReads = totalReadsByKey[rk] ?? rhs.reads
+            let lhsUnique = ClassifierUniqueReads.normalized(stored: uniqueReadsByKey[lk], readCount: lhsReads) ?? -1
+            let rhsUnique = ClassifierUniqueReads.normalized(stored: uniqueReadsByKey[rk], readCount: rhsReads) ?? -1
+            result = lhsUnique < rhsUnique
         case "tt_confidence":
             let lc = lhs.confidence ?? ""; let rc = rhs.confidence ?? ""
             result = lc.localizedCaseInsensitiveCompare(rc) == .orderedAscending

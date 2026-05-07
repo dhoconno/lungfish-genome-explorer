@@ -1961,7 +1961,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let metricNormalized = normalizedOrganismName(metric.organism)
             guard metricNormalized == normalized else { continue }
             let estimated = Int(round(Double(metric.reads) * dedupRatio))
-            perSample[sample] = estimated
+            perSample[sample] = ClassifierUniqueReads.normalizedOrFloor(
+                stored: estimated,
+                readCount: metric.reads
+            )
         }
 
         if !perSample.isEmpty {
@@ -2001,7 +2004,17 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Persists `batchFlatTableView.uniqueReadsByKey` to `<batchDir>/batch-unique-reads.json`
     /// so the flat table can be restored instantly on the next open.
     private func persistBatchUniqueReadsCache(to url: URL) {
-        let cache = BatchUniqueReadsCache(sampleOrganism: batchFlatTableView.uniqueReadsByKey)
+        var normalizedCounts = batchFlatTableView.uniqueReadsByKey
+        for row in allBatchGroupRows {
+            let key = "\(row.sample ?? "")\t\(row.organism)"
+            guard normalizedCounts[key] != nil else { continue }
+            let readCount = batchFlatTableView.totalReadsByKey[key] ?? row.reads
+            normalizedCounts[key] = ClassifierUniqueReads.normalized(
+                stored: normalizedCounts[key],
+                readCount: readCount
+            )
+        }
+        let cache = BatchUniqueReadsCache(sampleOrganism: normalizedCounts)
         do {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -2015,14 +2028,23 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
     private func applyReadStats(totalReads: Int? = nil, uniqueReads: Int, for organismName: String) {
         let key = normalizedOrganismName(organismName)
-        deduplicatedReadCounts[key] = uniqueReads
+        let cacheReadCount = totalReads
+            ?? organismTableView.rows.first { normalizedOrganismName($0.organism) == key }?.reads
+            ?? 0
+        let cacheUnique = ClassifierUniqueReads.normalizedOrFloor(
+            stored: uniqueReads,
+            readCount: cacheReadCount
+        )
+        deduplicatedReadCounts[key] = cacheUnique
 
         var changed = false
         let updated = organismTableView.rows.map { row -> TaxTriageTableRow in
             guard normalizedOrganismName(row.organism) == key else { return row }
             let resolvedReads = totalReads ?? row.reads
-            // Enforce invariant: if the organism has reads, unique reads >= 1
-            let safeUnique = (uniqueReads == 0 && resolvedReads > 0) ? resolvedReads : uniqueReads
+            let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
+                stored: uniqueReads,
+                readCount: resolvedReads
+            )
             if row.uniqueReads == safeUnique, row.reads == resolvedReads { return row }
             changed = true
             return row.with(reads: resolvedReads, uniqueReads: safeUnique)
@@ -2046,7 +2068,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             updateActionBarForOrganism(
                 name: selectedOrganismName,
                 readCount: selectedReadCount,
-                uniqueReadCount: uniqueReads
+                uniqueReadCount: cacheUnique
             )
         }
     }
@@ -2062,6 +2084,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         uniqueReads: Int
     ) {
         let key = "\(sampleId)\t\(organism)"
+        let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
+            stored: uniqueReads,
+            readCount: totalReads
+        )
         // Only apply BAM-computed values for rows that don't already have
         // DB-cached counts. The SQLite database is the source of truth for
         // read counts — the miniBAM viewer should not overwrite them.
@@ -2071,7 +2097,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             batchFlatTableView.totalReadsByKey[key] = totalReads
         }
         if !hadUnique {
-            batchFlatTableView.uniqueReadsByKey[key] = uniqueReads
+            batchFlatTableView.uniqueReadsByKey[key] = safeUnique
         }
         if !hadTotal || !hadUnique {
             batchFlatTableView.reloadReadStatsColumns()
@@ -2079,7 +2105,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
 
         let normalized = normalizedOrganismName(organism)
         if !hadUnique {
-            perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = uniqueReads
+            perSampleDeduplicatedReadCounts[normalized, default: [:]][sampleId] = safeUnique
         }
 
         if selectedBatchSampleId == sampleId, selectedBatchOrganismName == organism {
@@ -2087,7 +2113,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             formatter.numberStyle = .decimal
             formatter.groupingSeparator = ","
             let totalReadsText = formatter.string(from: NSNumber(value: totalReads)) ?? "\(totalReads)"
-            let uniqueReadsText = formatter.string(from: NSNumber(value: uniqueReads)) ?? "\(uniqueReads)"
+            let uniqueReadsText = formatter.string(from: NSNumber(value: safeUnique)) ?? "\(safeUnique)"
             actionBar.updateInfoText("\(organism) — \(totalReadsText) reads (\(uniqueReadsText) unique)")
         }
     }
@@ -2113,7 +2139,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
                     // Fall back to the normalized name if no exact match found.
                     displayOrganism = normalizedOrganism
                 }
-                batchFlatTableView.uniqueReadsByKey["\(sampleId)\t\(displayOrganism)"] = count
+                let key = "\(sampleId)\t\(displayOrganism)"
+                let readCount = batchFlatTableView.totalReadsByKey[key]
+                    ?? allBatchGroupRows.first {
+                        normalizedOrganismName($0.organism) == normalizedOrganism && $0.sample == sampleId
+                    }?.reads
+                    ?? 0
+                batchFlatTableView.uniqueReadsByKey[key] = ClassifierUniqueReads.normalizedOrFloor(
+                    stored: count,
+                    readCount: readCount
+                )
             }
         }
         // Reload visible rows without resetting scroll position.
@@ -2393,12 +2428,16 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             let row = manifest.cachedRows[i]
             let key = "\(row.sample)\t\(row.organism)"
             if let uniqueReads = batchFlatTableView.uniqueReadsByKey[key] {
+                let safeUnique = ClassifierUniqueReads.normalizedOrFloor(
+                    stored: uniqueReads,
+                    readCount: row.reads
+                )
                 manifest.cachedRows[i] = TaxTriageBatchManifest.CachedRow(
                     sample: row.sample,
                     organism: row.organism,
                     tassScore: row.tassScore,
                     reads: row.reads,
-                    uniqueReads: uniqueReads,
+                    uniqueReads: safeUnique,
                     confidence: row.confidence,
                     coverageBreadth: row.coverageBreadth,
                     coverageDepth: row.coverageDepth,
@@ -2567,7 +2606,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             // computed from the BAM at import time by updateUniqueReadsInDB.
             let key = "\(row.sample)\t\(row.organism)"
             if let uniqueReads = row.uniqueReads {
-                uniqueReadsLookup[key] = uniqueReads
+                uniqueReadsLookup[key] = ClassifierUniqueReads.normalizedOrFloor(
+                    stored: uniqueReads,
+                    readCount: row.readsAligned
+                )
             }
             totalReadsLookup[key] = row.readsAligned
 
@@ -3716,7 +3758,7 @@ struct TaxTriageTableRow: Equatable {
         self.organism = organism
         self.tassScore = tassScore
         self.reads = reads
-        self.uniqueReads = uniqueReads
+        self.uniqueReads = ClassifierUniqueReads.normalized(stored: uniqueReads, readCount: reads)
         self.coverage = coverage
         self.confidence = confidence
         self.taxId = taxId

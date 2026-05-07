@@ -145,6 +145,22 @@ final class BatchEsVirituRowTests: XCTestCase {
         XCTAssertNil(row.family)
     }
 
+    func testBatchEsVirituRowNormalizesZeroUniqueReadsForReportedDetections() {
+        let row = BatchEsVirituRow(
+            sample: "sample-C",
+            virusName: "Unknown Virus",
+            family: nil,
+            assembly: "unknown-assembly",
+            readCount: 10,
+            uniqueReads: 0,
+            rpkmf: 0.5,
+            coverageBreadth: 0,
+            coverageDepth: 1.0
+        )
+
+        XCTAssertEqual(row.uniqueReads, 1)
+    }
+
     // MARK: - fromAssemblies
 
     func testFromAssembliesProducesCorrectRows() {
@@ -189,8 +205,7 @@ final class BatchEsVirituRowTests: XCTestCase {
         XCTAssertEqual(covidRow?.readCount, 8000)
         XCTAssertEqual(covidRow?.rpkmf ?? 0, 200.0, accuracy: 0.001)
         XCTAssertEqual(covidRow?.coverageDepth ?? 0, 55.0, accuracy: 0.001)
-        // uniqueReads and coverageBreadth are placeholders (0) in the current impl
-        XCTAssertEqual(covidRow?.uniqueReads, 0)
+        XCTAssertEqual(covidRow?.uniqueReads, 1)
         XCTAssertEqual(covidRow?.coverageBreadth ?? 0, 0.0, accuracy: 0.0001)
 
         let fluRow = rows.first(where: { $0.assembly == "GCF_002" })
@@ -532,6 +547,21 @@ final class BatchTaxTriageTableViewTests: XCTestCase {
             "Ascending sort should compare BAM-derived totals (100 < 5000)"
         )
     }
+
+    func testUniqueReadsCellNormalizesZeroForPositiveReadRow() {
+        let view = BatchTaxTriageTableView(frame: .zero)
+        let metrics = makeMetrics()
+        view.configure(rows: metrics)
+
+        let row = metrics[0] // sample-alpha / Escherichia coli, reads > 0
+        view.uniqueReadsByKey["sample-alpha\tEscherichia coli"] = 0
+
+        let cell = view.cellContent(
+            for: NSUserInterfaceItemIdentifier("tt_uniqueReads"),
+            row: row
+        )
+        XCTAssertEqual(cell.text, "1")
+    }
 }
 
 // MARK: - Batch Table Selection Identity Tests
@@ -623,6 +653,87 @@ final class BatchTableSelectionIdentityTests: XCTestCase {
             0,
             "Updating MiniBAM-derived read counts must not re-enter the selection/detail callback path"
         )
+    }
+
+    func testEsVirituMiniBAMStatsDoNotOverwriteStaticUniqueReadCounts() {
+        let viewController = EsVirituResultViewController()
+        _ = viewController.view
+
+        let table = viewController.testDetectionTableView
+        table.resultIdentity = "/project/Analyses/esviritu-minibam-stats"
+        table.result = Self.esvirituResult([
+            Self.viralAssembly(sampleId: "sample-A", assembly: "GCF_A", accession: "NC_A", reads: 40),
+        ])
+        table.uniqueReadCountsByAssembly = ["GCF_A": 37]
+        table.uniqueReadCountsBySampleAssembly = ["sample-A\tGCF_A": 37]
+        table.uniqueReadCountsByContig = ["NC_A": 37]
+        table.uniqueReadCountsBySampleContig = ["sample-A\tNC_A": 37]
+
+        let assemblyRow = Self.row(in: table.testOutlineView) { item in
+            guard let assemblyItem = item as? ViralDetectionTableView.ViralAssemblyItem else { return false }
+            return assemblyItem.assembly.assembly == "GCF_A"
+        }
+        table.testOutlineView.selectRowIndexes(IndexSet(integer: assemblyRow), byExtendingSelection: false)
+        table.outlineViewSelectionDidChange(
+            Notification(name: NSOutlineView.selectionDidChangeNotification, object: table.testOutlineView)
+        )
+
+        viewController.testDetailPane.miniBAMViewController?.onReadStatsUpdated?(40, 3)
+
+        XCTAssertEqual(table.uniqueReadCountsByAssembly["GCF_A"], 37)
+        XCTAssertEqual(table.uniqueReadCountsBySampleAssembly["sample-A\tGCF_A"], 37)
+        XCTAssertEqual(table.uniqueReadCountsByContig["NC_A"], 37)
+        XCTAssertEqual(table.uniqueReadCountsBySampleContig["sample-A\tNC_A"], 37)
+    }
+
+    func testTaxTriageBatchMiniBAMStatsDoNotOverwriteStaticUniqueReadCounts() {
+        let viewController = TaxTriageResultViewController()
+        viewController.loadViewIfNeeded()
+
+        let table = viewController.testBatchFlatTableView
+        table.resultIdentity = "/project/Analyses/taxtriage-minibam-stats"
+        let row = TaxTriageMetric(
+            sample: "sample-A",
+            taxId: 562,
+            organism: "Escherichia coli",
+            rank: "S",
+            reads: 40,
+            abundance: nil,
+            coverageBreadth: nil,
+            coverageDepth: nil,
+            tassScore: 0.9,
+            confidence: "high"
+        )
+        table.configure(rows: [row])
+        table.totalReadsByKey["sample-A\tEscherichia coli"] = 40
+        table.uniqueReadsByKey["sample-A\tEscherichia coli"] = 37
+
+        viewController.testApplyBatchFlatTableReadStats(
+            sampleId: "sample-A",
+            organism: "Escherichia coli",
+            totalReads: 40,
+            uniqueReads: 3
+        )
+
+        XCTAssertEqual(table.totalReadsByKey["sample-A\tEscherichia coli"], 40)
+        XCTAssertEqual(table.uniqueReadsByKey["sample-A\tEscherichia coli"], 37)
+    }
+
+    func testTaxTriageTableRowNormalizesZeroUniqueReadsForReportedOrganism() {
+        let row = TaxTriageTableRow(
+            organism: "Escherichia coli",
+            tassScore: 0.9,
+            reads: 40,
+            uniqueReads: 0,
+            coverage: nil,
+            confidence: "high",
+            taxId: 562,
+            rank: "S",
+            abundance: nil,
+            isContaminationRisk: false
+        )
+
+        XCTAssertEqual(row.uniqueReads, 1)
     }
 
     func testVisibleKrakenSelectionSurvivesTreeReplacementWithDuplicateTaxonAcrossSamples() {
