@@ -425,7 +425,7 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     }
                 }
             } else {
-                files = try await service.downloadFASTQFromENA(
+                files = try await service.downloadFASTQWithFallback(
                     accession: accession,
                     outputDir: outputURL
                 ) { progress in

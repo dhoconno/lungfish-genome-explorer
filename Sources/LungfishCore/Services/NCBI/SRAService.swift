@@ -48,6 +48,12 @@ public actor SRAService {
     private let httpClient: HTTPClient
     private let homeDirectoryProvider: @Sendable () -> URL
 
+    /// Closure type used to inject custom download strategies (primarily for tests).
+    public typealias DownloadStrategy = @Sendable (_ accession: String, _ outputDir: URL?) async throws -> [URL]
+
+    private let enaDownloader: DownloadStrategy?
+    private let toolkitDownloader: DownloadStrategy?
+
     // MARK: - Initialization
 
     /// Creates a new SRA service.
@@ -65,6 +71,27 @@ public actor SRAService {
         self.ncbiService = ncbiService
         self.httpClient = httpClient
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.enaDownloader = nil
+        self.toolkitDownloader = nil
+    }
+
+    /// Creates a new SRA service with injectable download strategies.
+    ///
+    /// Used primarily by tests to substitute the ENA and Toolkit download paths
+    /// without performing real network or filesystem work.
+    ///
+    /// - Parameters:
+    ///   - enaDownloader: Optional override for the ENA download strategy.
+    ///   - toolkitDownloader: Optional override for the SRA Toolkit download strategy.
+    public init(
+        enaDownloader: DownloadStrategy? = nil,
+        toolkitDownloader: DownloadStrategy? = nil
+    ) {
+        self.ncbiService = NCBIService()
+        self.httpClient = URLSessionHTTPClient()
+        self.homeDirectoryProvider = { FileManager.default.homeDirectoryForCurrentUser }
+        self.enaDownloader = enaDownloader
+        self.toolkitDownloader = toolkitDownloader
     }
 
     // MARK: - Search
@@ -464,6 +491,40 @@ public actor SRAService {
         progress?(1.0)
 
         return downloadedFiles
+    }
+
+    /// Downloads FASTQ via ENA first, and automatically retries via the SRA Toolkit when ENA fails.
+    ///
+    /// If both paths fail, the combined error message from each attempt is surfaced as
+    /// `SRAError.downloadFailed`. Tests inject the `enaDownloader` / `toolkitDownloader`
+    /// closures via the dedicated initializer; in production both default to the real
+    /// `downloadFASTQFromENA` and `downloadFASTQ` methods.
+    ///
+    /// - Parameters:
+    ///   - accession: SRA/ENA run accession.
+    ///   - outputDir: Output directory (defaults to a temp folder when nil).
+    ///   - progress: Optional progress callback (0.0–1.0).
+    /// - Returns: URLs to downloaded FASTQ files.
+    public func downloadFASTQWithFallback(
+        accession: String,
+        outputDir: URL?,
+        progress: (@Sendable (Double) -> Void)? = nil
+    ) async throws -> [URL] {
+        let ena: DownloadStrategy = enaDownloader ?? { acc, dir in
+            try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress)
+        }
+        let toolkit: DownloadStrategy = toolkitDownloader ?? { acc, dir in
+            try await self.downloadFASTQ(accession: acc, outputDir: dir, progress: progress)
+        }
+        do {
+            return try await ena(accession, outputDir)
+        } catch let enaError {
+            do {
+                return try await toolkit(accession, outputDir)
+            } catch let toolkitError {
+                throw SRAError.downloadFailed("ENA: \(enaError.localizedDescription); Toolkit: \(toolkitError.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - SRA Toolkit Detection
