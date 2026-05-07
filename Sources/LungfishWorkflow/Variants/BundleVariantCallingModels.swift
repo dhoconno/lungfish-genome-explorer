@@ -34,6 +34,10 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
     public let ivarPrimerTrimConfirmed: Bool
     public let medakaModel: String?
     public let advancedArguments: [String]
+    public let ivarConsensusAF: Double
+    public let ivarMergeAFThreshold: Double
+    public let ivarBadQualityThreshold: Int
+    public let ivarIgnoreStrandBias: Bool
 
     public init(
         bundleURL: URL,
@@ -45,7 +49,11 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         minimumDepth: Int? = nil,
         ivarPrimerTrimConfirmed: Bool = false,
         medakaModel: String? = nil,
-        advancedArguments: [String] = []
+        advancedArguments: [String] = [],
+        ivarConsensusAF: Double = 0.75,
+        ivarMergeAFThreshold: Double = 0.25,
+        ivarBadQualityThreshold: Int = 20,
+        ivarIgnoreStrandBias: Bool = true
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -57,6 +65,10 @@ public struct BundleVariantCallingRequest: Sendable, Equatable {
         self.ivarPrimerTrimConfirmed = ivarPrimerTrimConfirmed
         self.medakaModel = medakaModel
         self.advancedArguments = advancedArguments
+        self.ivarConsensusAF = ivarConsensusAF
+        self.ivarMergeAFThreshold = ivarMergeAFThreshold
+        self.ivarBadQualityThreshold = ivarBadQualityThreshold
+        self.ivarIgnoreStrandBias = ivarIgnoreStrandBias
     }
 }
 
