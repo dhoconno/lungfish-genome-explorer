@@ -86,8 +86,49 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     /// Result/run identity used to distinguish duplicated assemblies across result sources.
     public var resultIdentity: String?
 
-    /// Coverage windows indexed by accession for sparkline rendering.
+    /// Coverage windows indexed by accession for sparkline rendering in single-sample mode.
     public var coverageWindowsByAccession: [String: [ViralCoverageWindow]] = [:]
+
+    /// Coverage windows keyed by "sampleId\taccession" for batch mode.
+    private var coverageWindowsBySampleAccession: [String: [ViralCoverageWindow]] = [:]
+
+    /// Stores coverage windows for a specific accession, optionally scoped to a sample.
+    func setCoverageWindows(_ windows: [ViralCoverageWindow], sampleId: String?, accession: String) {
+        if let sampleId, !sampleId.isEmpty {
+            coverageWindowsBySampleAccession[Self.coverageKey(sampleId: sampleId, accession: accession)] = windows
+        } else {
+            coverageWindowsByAccession[accession] = windows
+        }
+    }
+
+    /// Clears all cached coverage windows before loading a new result context.
+    func resetCoverageWindows() {
+        coverageWindowsByAccession.removeAll()
+        coverageWindowsBySampleAccession.removeAll()
+    }
+
+    /// Returns coverage windows for a sample/accession pair, falling back to accession-only data.
+    func coverageWindows(sampleId: String?, accession: String) -> [ViralCoverageWindow]? {
+        if let sampleId, !sampleId.isEmpty {
+            let key = Self.coverageKey(sampleId: sampleId, accession: accession)
+            if let windows = coverageWindowsBySampleAccession[key] {
+                return windows
+            }
+        }
+        return coverageWindowsByAccession[accession]
+    }
+
+    /// Returns coverage windows grouped for overview/detail panes without collapsing samples.
+    func coverageWindowsForDisplay() -> [String: [ViralCoverageWindow]] {
+        guard !coverageWindowsBySampleAccession.isEmpty else {
+            return coverageWindowsByAccession
+        }
+        return coverageWindowsByAccession.merging(coverageWindowsBySampleAccession) { current, _ in current }
+    }
+
+    private static func coverageKey(sampleId: String, accession: String) -> String {
+        "\(sampleId)\t\(accession)"
+    }
 
     /// Unique (deduplicated) read counts per assembly, keyed by assembly accession.
     /// This is the sum of per-contig unique reads for multi-segment viruses.
@@ -449,7 +490,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.setAccessibilityIdentifier("esviritu-detection-scroll-view")
         scrollView.setAccessibilityLabel("EsViritu Detection Scroll View")
@@ -1447,7 +1488,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
                 // Pick the contig with the most reads for the assembly sparkline
                 sparklineAccession = assembly.contigs.max(by: { $0.readCount < $1.readCount })?.accession
             }
-            return makeCoverageCell(meanCoverage: assembly.meanCoverage, accession: sparklineAccession)
+            return makeCoverageCell(
+                meanCoverage: assembly.meanCoverage,
+                sampleId: sampleID(for: assembly),
+                accession: sparklineAccession
+            )
         case ColumnID.identity:
             return makeDecimalCell(value: assembly.avgReadIdentity, format: "%.1f%%")
         case ColumnID.segment:
@@ -1488,6 +1533,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         case ColumnID.coverage:
             return makeCoverageCell(
                 meanCoverage: detection.meanCoverage,
+                sampleId: detection.sampleId,
                 accession: detection.accession
             )
         case ColumnID.identity:
@@ -1600,7 +1646,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     /// Creates a coverage cell with sparkline (if data available) and text.
-    private func makeCoverageCell(meanCoverage: Double, accession: String?) -> NSView {
+    private func makeCoverageCell(meanCoverage: Double, sampleId: String?, accession: String?) -> NSView {
         let cellView = NSTableCellView()
 
         let text = String(format: "%.1fx", meanCoverage)
@@ -1615,7 +1661,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
         // Add sparkline if we have coverage data for this accession
         if let accession,
-           let windows = coverageWindowsByAccession[accession],
+           let windows = coverageWindows(sampleId: sampleId, accession: accession),
            !windows.isEmpty {
             let sparkline = ViralCoverageSparklineView()
             sparkline.windows = windows
@@ -1641,6 +1687,12 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         }
 
         return cellView
+    }
+
+    // MARK: - Testing Hooks
+
+    func testingCoverageWindows(sampleId: String?, accession: String) -> [ViralCoverageWindow] {
+        coverageWindows(sampleId: sampleId, accession: accession) ?? []
     }
 
     // MARK: - Display Name Disambiguation

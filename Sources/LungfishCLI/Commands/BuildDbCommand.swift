@@ -194,7 +194,8 @@ private func updateUniqueReadsInDB(
 
     // Update reads_aligned (total mapped) and unique_reads (non-duplicate mapped)
     // from the BAM. reads_aligned is overwritten with the authoritative BAM count
-    // (samtools view -c -F 0x4) replacing the pipeline TSV value.
+    // (samtools view -c -F 0x4) replacing the pipeline TSV value. A reported
+    // accession with mapped reads must have at least one unique read.
     let updateSQL = "UPDATE \(table) SET \(totalReadsCol) = ?, unique_reads = ? WHERE rowid = ?"
     var updateStmt: OpaquePointer?
     guard sqlite3_prepare_v2(db, updateSQL, -1, &updateStmt, nil) == SQLITE_OK else {
@@ -249,8 +250,10 @@ private func updateUniqueReadsInDB(
         }
 
         sqlite3_reset(updateStmt)
+        let normalizedUnique = total > 0 ? max(unique, 1) : 0
+
         sqlite3_bind_int64(updateStmt, 1, Int64(total))
-        sqlite3_bind_int64(updateStmt, 2, Int64(unique))
+        sqlite3_bind_int64(updateStmt, 2, Int64(normalizedUnique))
         sqlite3_bind_int64(updateStmt, 3, row.rowid)
         sqlite3_step(updateStmt)
         updated += 1

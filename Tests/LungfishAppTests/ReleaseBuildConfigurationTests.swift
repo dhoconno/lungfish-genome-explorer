@@ -76,6 +76,32 @@ struct ReleaseBuildConfigurationTests {
         #expect(script.contains("lungfish-cli"))
     }
 
+    @Test("Fallback build-app script embeds Sparkle framework for local launch")
+    func buildAppScriptEmbedsSparkleFrameworkForLocalLaunch() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("FRAMEWORKS_DIR=\"$CONTENTS_DIR/Frameworks\""))
+        #expect(script.contains("Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"))
+        #expect(script.contains(#"/usr/bin/ditto "$SPARKLE_FRAMEWORK_SOURCE" "$FRAMEWORKS_DIR/Sparkle.framework""#))
+        #expect(script.contains(#"install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/Lungfish""#))
+    }
+
+    @Test("Fallback build-app script ad-hoc signs bundles for local launch")
+    func buildAppScriptAdHocSignsBundlesForLocalLaunch() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains(#"codesign --force --deep --sign - "$APP_DIR""#))
+        #expect(script.contains(#"codesign --verify --deep --strict --verbose=4 "$APP_DIR""#))
+    }
+
     @Test("Fallback build-app script sanitizes copied workflow tools from flat SwiftPM bundles")
     func buildAppScriptSanitizesCopiedWorkflowToolsFromFlatBundleLayout() throws {
         let script = try String(

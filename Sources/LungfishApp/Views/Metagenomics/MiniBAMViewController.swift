@@ -71,8 +71,8 @@ private final class MiniBAMResizeHandleView: NSView {
 /// - Renders reads using CoreGraphics directly (no tile cache)
 /// - Shows the entire viral contig in a scrollable view
 ///
-/// PCR/optical duplicates are filtered upstream by samtools markdup,
-/// so the viewer receives already-deduplicated reads.
+/// PCR/optical duplicate flags are retained in the viewer so users can inspect
+/// all reported alignments; unique-read stats are computed from read fingerprints.
 ///
 /// ## Layout
 ///
@@ -128,7 +128,12 @@ public final class MiniBAMViewController: NSViewController {
     /// Pre-computed result stored in the cache for a BAM+contig combination.
     private struct CachedContigResult {
         let reads: [AlignedRead]
-        let readCount: Int
+        let uniqueReadCount: Int
+    }
+
+    struct DisplayReadStats {
+        let reads: [AlignedRead]
+        let uniqueReadCount: Int
     }
 
     /// Cache keyed by "bamPath|contig". Limited to `maxCachedContigs` entries.
@@ -448,8 +453,24 @@ public final class MiniBAMViewController: NSViewController {
 
         let total = reads.count
         statusLabel.stringValue = "\(miniBAMFormatCount(total)) reads · \(zoomText) · ⌘+/⌘- to zoom"
-        // Reads are already deduplicated by samtools upstream.
-        onReadStatsUpdated?(total, total)
+        onReadStatsUpdated?(total, uniqueReadCount)
+    }
+
+    private static func displayReadsAndUniqueCount(
+        from fetchedReads: [AlignedRead],
+        readNameAllowlist: Set<String>?
+    ) -> DisplayReadStats {
+        let visibleReads: [AlignedRead]
+        if let readNameAllowlist, !readNameAllowlist.isEmpty {
+            visibleReads = fetchedReads.filter { readNameAllowlist.contains($0.name) }
+        } else {
+            visibleReads = fetchedReads
+        }
+
+        return DisplayReadStats(
+            reads: visibleReads,
+            uniqueReadCount: AlignedRead.deduplicatedReadCount(from: visibleReads)
+        )
     }
 
     /// Loads and displays reads for a specific viral contig from the BAM file.
@@ -508,7 +529,7 @@ public final class MiniBAMViewController: NSViewController {
         let key = cacheKey(bamPath: bamURL.path, contig: contig)
         if readNameAllowlist == nil, let cached = contigCache[key] {
             reads = cached.reads
-            uniqueReadCount = cached.reads.count
+            uniqueReadCount = cached.uniqueReadCount
             updatePileup()
             scrollToTop()
             updateZoomStatus()
@@ -526,11 +547,8 @@ public final class MiniBAMViewController: NSViewController {
             indexPath: indexPath
         )
 
-        // Fetch all reads for this contig.
-        // excludeFlags: 0x904 | 0x400 = 0xD04 — exclude unmapped, secondary,
-        // supplementary, and PCR/optical duplicates. Duplicate filtering
-        // happens upstream in samtools markdup, so the viewer receives
-        // already-deduplicated reads.
+        // Fetch all primary/supplement-compatible reads for this contig. Keep
+        // duplicate-flagged reads visible and deduplicate only for unique stats.
         loadTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let requestedContig = contig
@@ -539,28 +557,26 @@ public final class MiniBAMViewController: NSViewController {
                     chromosome: contig,
                     start: 0,
                     end: contigLength,
-                    excludeFlags: 0x904 | 0x400,
+                    excludeFlags: 0x904,
                     maxReads: maxReads
                 )
                 guard !Task.isCancelled else { return }
                 guard self.contigName == requestedContig else { return }
 
-                let visibleReads: [AlignedRead]
-                if let readNameAllowlist, !readNameAllowlist.isEmpty {
-                    visibleReads = fetchedReads.filter { readNameAllowlist.contains($0.name) }
-                } else {
-                    visibleReads = fetchedReads
-                }
+                let display = Self.displayReadsAndUniqueCount(
+                    from: fetchedReads,
+                    readNameAllowlist: readNameAllowlist
+                )
 
-                self.reads = visibleReads
-                self.uniqueReadCount = visibleReads.count
+                self.reads = display.reads
+                self.uniqueReadCount = display.uniqueReadCount
                 self.updatePileup()
 
                 // Keep the coverage/reference tracks pinned at the top of the viewport.
                 self.scrollToTop()
                 self.updateZoomStatus()
                 self.scheduleDeferredReferenceInferenceIfNeeded(
-                    reads: visibleReads,
+                    reads: display.reads,
                     requestedContig: requestedContig,
                     generation: generation
                 )
@@ -568,19 +584,28 @@ public final class MiniBAMViewController: NSViewController {
                 // Store in cache for instant re-display on repeated selections.
                 if readNameAllowlist == nil {
                     let result = CachedContigResult(
-                        reads: visibleReads,
-                        readCount: visibleReads.count
+                        reads: display.reads,
+                        uniqueReadCount: display.uniqueReadCount
                     )
                     self.cacheResult(result, key: key)
                 }
 
-                logger.info("Loaded \(visibleReads.count) reads for \(contig, privacy: .public)")
+                logger.info("Loaded \(display.reads.count) reads for \(contig, privacy: .public)")
             } catch {
                 guard !Task.isCancelled else { return }
                 self.statusLabel.stringValue = "Failed to load reads: \(error.localizedDescription)"
                 logger.error("Failed to fetch reads for \(contig, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    // MARK: - Testing Hooks
+
+    static func testingDisplayReadsAndUniqueCount(
+        from fetchedReads: [AlignedRead],
+        readNameAllowlist: Set<String>?
+    ) -> DisplayReadStats {
+        displayReadsAndUniqueCount(from: fetchedReads, readNameAllowlist: readNameAllowlist)
     }
 
     // MARK: - Keyboard Shortcuts

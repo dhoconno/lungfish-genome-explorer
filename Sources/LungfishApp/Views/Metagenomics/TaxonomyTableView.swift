@@ -277,7 +277,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.documentView = outlineView
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         addSubview(scrollView)
     }

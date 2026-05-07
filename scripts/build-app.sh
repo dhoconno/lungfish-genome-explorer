@@ -8,7 +8,7 @@ set -e
 # Configuration
 APP_NAME="Lungfish"
 BUNDLE_ID="org.lungfish.genome-browser"
-VERSION="0.4.0-alpha.7"
+VERSION="0.4.0-alpha.8"
 BUILD_NUMBER="1"
 CONFIGURATION="release"
 SKIP_BUILD=0
@@ -103,6 +103,7 @@ esac
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
+FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 
 echo -e "${GREEN}Building Lungfish Genome Browser${NC}"
 echo "=================================="
@@ -138,6 +139,7 @@ echo -e "${GREEN}Creating app bundle structure...${NC}"
 mkdir -p "$(dirname "$APP_DIR")"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
+mkdir -p "$FRAMEWORKS_DIR"
 
 # Copy executable
 cp "$BUILD_DIR/Lungfish" "$MACOS_DIR/"
@@ -158,6 +160,22 @@ while IFS= read -r -d '' bundle; do
     esac
     cp -R "$bundle" "$RESOURCES_DIR/"
 done < <(/usr/bin/find "$BUILD_DIR" -maxdepth 1 -type d -name '*.bundle' -print0)
+
+SPARKLE_FRAMEWORK_SOURCE="$PROJECT_ROOT/.build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
+    SPARKLE_FRAMEWORK_SOURCE="$(/usr/bin/find "$PROJECT_ROOT/.build" -path '*/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework' -type d -print -quit)"
+fi
+if [ -z "$SPARKLE_FRAMEWORK_SOURCE" ] || [ ! -d "$SPARKLE_FRAMEWORK_SOURCE" ]; then
+    echo -e "${RED}Error: Sparkle.framework not found in SwiftPM artifacts${NC}"
+    exit 1
+fi
+echo -e "${GREEN}Copying Sparkle framework...${NC}"
+/usr/bin/ditto "$SPARKLE_FRAMEWORK_SOURCE" "$FRAMEWORKS_DIR/Sparkle.framework"
+
+if ! /usr/bin/otool -l "$MACOS_DIR/Lungfish" | /usr/bin/grep -F '@executable_path/../Frameworks' >/dev/null; then
+    echo -e "${GREEN}Adding app framework rpath...${NC}"
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/Lungfish"
+fi
 
 # Create Info.plist
 echo -e "${GREEN}Creating Info.plist...${NC}"
@@ -560,6 +578,10 @@ if [ -d "$WORKFLOW_TOOLS_DIR" ]; then
         /bin/bash "$PROJECT_ROOT/scripts/sanitize-bundled-tools.sh" "$WORKFLOW_TOOLS_DIR"
     fi
 fi
+
+echo -e "${GREEN}Ad-hoc signing app bundle for local launch...${NC}"
+codesign --force --deep --sign - "$APP_DIR"
+codesign --verify --deep --strict --verbose=4 "$APP_DIR"
 
 # Print success message
 echo ""

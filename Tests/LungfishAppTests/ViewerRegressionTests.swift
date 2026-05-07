@@ -120,4 +120,39 @@ final class ViewerRegressionTests: XCTestCase {
             .natural
         )
     }
+
+    func testBundleAnnotationDisplayKeepsSubpixelFeaturesInSquishedModeAtNarrowWidths() {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
+        let frame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 0,
+            end: 5_700_000,
+            pixelWidth: 800,
+            sequenceLength: 5_700_000
+        )
+        frame.trailingInset = ReferenceFrame.defaultTrailingInset
+        let annotations = [
+            SequenceAnnotation(
+                type: .gene,
+                name: "early-small",
+                chromosome: "chr1",
+                start: 100_000,
+                end: 100_900
+            ),
+            SequenceAnnotation(
+                type: .gene,
+                name: "late-small",
+                chromosome: "chr1",
+                start: 2_000_000,
+                end: 2_000_900
+            ),
+        ]
+
+        XCTAssertGreaterThan(frame.scale, AppSettings.shared.squishedThresholdBpPerPixel)
+        XCTAssertLessThan(frame.scale, AppSettings.shared.densityThresholdBpPerPixel)
+        XCTAssertEqual(
+            viewer.debugBundleDisplayAnnotationNames(annotations, frame: frame),
+            ["early-small", "late-small"]
+        )
+    }
 }

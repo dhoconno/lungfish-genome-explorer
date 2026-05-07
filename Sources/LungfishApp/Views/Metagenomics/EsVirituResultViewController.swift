@@ -26,6 +26,11 @@ struct BatchEsVirituRow: Sendable {
     let coverageBreadth: Double
     let coverageDepth: Double
 
+    static func normalizedUniqueReads(stored: Int?, readCount: Int) -> Int {
+        let floor = readCount > 0 ? 1 : 0
+        return max(stored ?? floor, floor)
+    }
+
     static func fromAssemblies(
         _ assemblies: [ViralAssembly],
         sampleId: String,
@@ -258,6 +263,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// All flat rows loaded from each sample's EsViritu detection file in batch mode.
     var allBatchRows: [BatchEsVirituRow] = []
 
+    /// Batch rows whose persisted unique-read value was absent/zero and should be recomputed from BAM.
+    private var batchRowsNeedingUniqueComputation: Set<String> = []
+
     /// Flat table used in batch mode (placed inside the right pane of `splitView`).
     private(set) var batchTableView = BatchEsVirituTableView()
 
@@ -426,6 +434,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         batchAssemblyLookup.removeAll()
         batchBAMLookup.removeAll()
         batchBAMIndexLookup.removeAll()
+        batchRowsNeedingUniqueComputation.removeAll()
 
         let allSampleIds = sampleEntries.map(\.id)
         let dbRows = (try? db.fetchRows(samples: allSampleIds)) ?? []
@@ -441,13 +450,19 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         for (key, group) in grouped {
             guard let first = group.first else { continue }
             let totalReads = group.reduce(0) { $0 + $1.readCount }
-            let totalUniqueReads = group.reduce(0) { $0 + ($1.uniqueReads ?? 0) }
+            let totalUniqueReads = group.reduce(0) {
+                $0 + BatchEsVirituRow.normalizedUniqueReads(stored: $1.uniqueReads, readCount: $1.readCount)
+            }
             let totalCoveredBases = group.reduce(0) { $0 + ($1.coveredBases ?? 0) }
             let assemblyLen = first.assemblyLength ?? 1
             let breadth = assemblyLen > 0 ? Double(totalCoveredBases) / Double(assemblyLen) : 0
             let coverageValues = group.compactMap(\.meanCoverage)
             let avgDepth = coverageValues.isEmpty ? 0.0 :
                 coverageValues.reduce(0, +) / Double(coverageValues.count)
+
+            if totalReads > 0, group.contains(where: { ($0.uniqueReads ?? 0) <= 0 }) {
+                batchRowsNeedingUniqueComputation.insert(key)
+            }
 
             batchRows.append(BatchEsVirituRow(
                 sample: first.sample,
@@ -639,11 +654,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         let speciesCount = Set(detections.compactMap(\.species)).count
         let totalFilteredReads = detections.map(\.filteredReadsInSample).max() ?? 0
 
-        var coverageWindowsByAccession: [String: [ViralCoverageWindow]] = [:]
+        detectionTableView.resetCoverageWindows()
+        var allCoverageWindows: [ViralCoverageWindow] = []
         if let db = esVirituDatabase {
             for contig in detections {
                 if let windows = try? db.fetchCoverageWindows(sample: contig.sampleId, accession: contig.accession), !windows.isEmpty {
-                    coverageWindowsByAccession[contig.accession] = windows.map {
+                    let mappedWindows = windows.map {
                         ViralCoverageWindow(
                             accession: $0.accession,
                             windowIndex: $0.windowIndex,
@@ -652,6 +668,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                             averageCoverage: $0.averageCoverage
                         )
                     }
+                    detectionTableView.setCoverageWindows(
+                        mappedWindows,
+                        sampleId: contig.sampleId,
+                        accession: contig.accession
+                    )
+                    allCoverageWindows.append(contentsOf: mappedWindows)
                 }
             }
         }
@@ -661,7 +683,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             detections: detections,
             assemblies: assemblies,
             taxProfile: [],
-            coverageWindows: coverageWindowsByAccession.values.flatMap { $0 },
+            coverageWindows: allCoverageWindows,
             totalFilteredReads: totalFilteredReads,
             detectedFamilyCount: familyCount,
             detectedSpeciesCount: speciesCount,
@@ -677,7 +699,6 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         esVirituResult = result
         detectionTableView.resultIdentity = batchURL?.standardizedFileURL.path
         detectionTableView.result = result
-        detectionTableView.coverageWindowsByAccession = coverageWindowsByAccession
         detectionTableView.uniqueReadCountsByAssembly = uniqueReadMaps.byAssembly
         detectionTableView.uniqueReadCountsBySampleAssembly = uniqueReadMaps.bySampleAssembly
         detectionTableView.uniqueReadCountsBySampleContig = uniqueReadMaps.bySampleContig
@@ -716,8 +737,12 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         var bySampleAssembly: [String: Int] = [:]
 
         for row in rows where selectedSamples.contains(row.sample) {
-            byAssembly[row.assembly] = row.uniqueReads
-            bySampleAssembly["\(row.sample)\t\(row.assembly)"] = row.uniqueReads
+            let uniqueReads = BatchEsVirituRow.normalizedUniqueReads(
+                stored: row.uniqueReads,
+                readCount: row.readCount
+            )
+            byAssembly[row.assembly] = uniqueReads
+            bySampleAssembly["\(row.sample)\t\(row.assembly)"] = uniqueReads
         }
 
         return BatchUniqueReadMaps(
@@ -768,7 +793,9 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
 
             // Check whether all assemblies already have unique reads in allBatchRows.
             let existingRows = allBatchRows.filter { $0.sample == sampleId }
-            let allHaveUniqueReads = existingRows.allSatisfy { $0.uniqueReads > 0 }
+            let allHaveUniqueReads = existingRows.allSatisfy { row in
+                row.uniqueReads > 0 && !batchRowsNeedingUniqueComputation.contains("\(row.sample)\t\(row.assembly)")
+            }
             if allHaveUniqueReads { continue }
 
             // Derive result dir from bamURL: <resultDir>/<sampleId>_temp/<bamName>
@@ -828,7 +855,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                     }
 
                     if fetchedAny || assembly.contigs.count == 1 {
-                        uniqueByAssembly[assembly.assembly] = assemblyUniqueTotal
+                        uniqueByAssembly[assembly.assembly] = BatchEsVirituRow.normalizedUniqueReads(
+                            stored: assemblyUniqueTotal,
+                            readCount: assembly.totalReads
+                        )
                     }
                 }
 
@@ -853,6 +883,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
                                   let newCount = snapshotByAssembly[row.assembly] else {
                                 return row
                             }
+                            self.batchRowsNeedingUniqueComputation.remove("\(row.sample)\t\(row.assembly)")
                             return BatchEsVirituRow(
                                 sample: row.sample,
                                 virusName: row.virusName,
@@ -1150,10 +1181,13 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     /// Clears all cached unique read data and restarts computation from BAM files for
     /// all assemblies across all samples in batch mode.
     func recomputeAllUniqueReads() {
-        // 1. Zero out unique reads in allBatchRows so the table immediately shows 0
-        //    and the computation guard (allHaveUniqueReads) doesn't skip any sample.
+        // 1. Mark positive-read rows for recomputation. The display layer still
+        //    normalizes them to at least one unique read while recomputation runs.
         allBatchRows = allBatchRows.map { row in
-            BatchEsVirituRow(
+            if row.readCount > 0 {
+                batchRowsNeedingUniqueComputation.insert("\(row.sample)\t\(row.assembly)")
+            }
+            return BatchEsVirituRow(
                 sample: row.sample,
                 virusName: row.virusName,
                 family: row.family,
@@ -1319,7 +1353,10 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
     private func coverageWindows(for assembly: ViralAssembly) -> [String: [ViralCoverageWindow]] {
         var windows: [String: [ViralCoverageWindow]] = [:]
         for contig in assembly.contigs {
-            if let contigWindows = detectionTableView.coverageWindowsByAccession[contig.accession] {
+            if let contigWindows = detectionTableView.coverageWindows(
+                sampleId: contig.sampleId,
+                accession: contig.accession
+            ) {
                 windows[contig.accession] = contigWindows
             }
         }
@@ -1346,7 +1383,7 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
         guard let result = esVirituResult else { return }
         detailPane.configureOverview(
             result: result,
-            coverageWindows: detectionTableView.coverageWindowsByAccession,
+            coverageWindows: detectionTableView.coverageWindowsForDisplay(),
             bamURL: bamURL
         )
     }

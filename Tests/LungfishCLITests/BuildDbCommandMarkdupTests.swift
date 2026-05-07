@@ -283,7 +283,8 @@ final class BuildDbCommandMarkdupTests: XCTestCase {
                 flagFilter: 0x404,
                 samtoolsPath: samtoolsPath
             )
-            XCTAssertEqual(row.uniqueReads, expected, "DB unique_reads must match samtools count")
+            let normalizedExpected = row.readsAligned > 0 ? max(expected, 1) : 0
+            XCTAssertEqual(row.uniqueReads, normalizedExpected, "DB unique_reads must match normalized samtools count")
         }
     }
 }

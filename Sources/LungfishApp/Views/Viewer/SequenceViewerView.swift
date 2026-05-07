@@ -4120,8 +4120,8 @@ public class SequenceViewerView: NSView {
         context.restoreGState()
     }
 
-    /// Filters cached annotations for display based on visible region, type/text filters,
-    /// and display-time feature size constraints.
+    /// Filters cached annotations for display based on visible region and active
+    /// type/text/track filters.
     ///
     /// Returns nil if no features pass the filter (draws a hint label if appropriate).
     private func filterAnnotationsForDisplay(
@@ -4176,8 +4176,8 @@ public class SequenceViewerView: NSView {
         guard !finalAnnotations.isEmpty else { return nil }
 
         // Display-time filtering:
-        // - keep partially visible features
-        // - skip sub-pixel features in detail modes
+        // - keep partially visible features, including sub-pixel annotations that
+        //   the squished renderer draws as one-pixel marks
         // - suppress only giant region-container rows that would obscure detail
         // Use the larger of visibleSpan and sequenceLength for the region threshold
         // to avoid false passes when the view has padding beyond chromosome boundaries.
@@ -4189,10 +4189,8 @@ public class SequenceViewerView: NSView {
                 return annot.type != .region || span < Int(Double(regionThresholdSpan) * 0.98)
             }
         } else {
-            let minFeatureBp = max(1, Int(scale))
             displayAnnotations = finalAnnotations.filter { annot in
                 let span = annot.end - annot.start
-                guard span >= minFeatureBp else { return false }
                 return annot.type != .region || span < Int(Double(regionThresholdSpan) * 0.98)
             }
         }
@@ -4663,6 +4661,21 @@ public class SequenceViewerView: NSView {
             ordered.append(trackID)
         }
         return ordered
+    }
+
+    func debugBundleDisplayAnnotationNames(_ annotations: [SequenceAnnotation], frame: ReferenceFrame) -> [String] {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: max(1, frame.pixelWidth),
+            height: max(1, Int(bounds.height)),
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        ) else { return [] }
+
+        return filterAnnotationsForDisplay(annotations, frame: frame, context: context)?.map(\.name) ?? []
     }
     #endif
 
@@ -8048,10 +8061,8 @@ public class SequenceViewerView: NSView {
                 return annot.type != .region || span < Int(Double(regionThresholdSpan) * 0.98)
             }
         } else {
-            let minFeatureBp = max(1, Int(scale))
             displayAnnotations = trackFiltered.filter { annot in
                 let span = annot.end - annot.start
-                guard span >= minFeatureBp else { return false }
                 return annot.type != .region || span < Int(Double(regionThresholdSpan) * 0.98)
             }
         }

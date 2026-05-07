@@ -46,6 +46,8 @@ final class MetadataColumnController {
 
     // MARK: - Properties
 
+    private static let zeroWidthDisableThreshold: CGFloat = 0.5
+
     /// The metadata store providing column names and values.
     private(set) var store: SampleMetadataStore?
 
@@ -53,7 +55,7 @@ final class MetadataColumnController {
     private(set) var currentSampleId: String?
 
     /// Set of metadata column names currently toggled visible by the user.
-    internal(set) var visibleColumns: Set<String> = []
+    var visibleColumns: Set<String> = []
 
     /// Whether multiple samples are currently being viewed.
     ///
@@ -71,8 +73,23 @@ final class MetadataColumnController {
     /// The table view (NSTableView or NSOutlineView) this controller manages columns on.
     private weak var tableView: NSTableView?
 
+    /// Default widths captured at installation or column creation for restoring disabled columns.
+    private var defaultColumnWidths: [String: CGFloat] = [:]
+
+    /// Observer token for zero-width column resize detection.
+    private nonisolated(unsafe) var columnResizeObserver: NSObjectProtocol?
+
+    /// Avoids recursive resize/visibility handling while applying manager changes.
+    private var isApplyingColumnVisibility = false
+
     /// Standard column names for the header menu (shown as non-toggleable).
     var standardColumnNames: [String] = []
+
+    deinit {
+        if let columnResizeObserver {
+            NotificationCenter.default.removeObserver(columnResizeObserver)
+        }
+    }
 
     // MARK: - Installation
 
@@ -83,6 +100,9 @@ final class MetadataColumnController {
     /// - Parameter table: The NSTableView or NSOutlineView to manage.
     func install(on table: NSTableView) {
         self.tableView = table
+        configureFlexibleTable(table)
+        captureAndRelaxExistingColumns(on: table)
+        installResizeObserver(on: table)
         rebuildHeaderMenu()
     }
 
@@ -132,18 +152,109 @@ final class MetadataColumnController {
 
         // Add visible metadata columns in the order they appear in the store
         for colName in store.columnNames where visibleColumns.contains(colName) {
-            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("\(metadataColumnPrefix)\(colName)"))
+            let identifier = "\(metadataColumnPrefix)\(colName)"
+            let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
             col.title = colName
-            col.width = 100
-            col.minWidth = 50
-            col.maxWidth = 300
+            col.width = defaultColumnWidths[identifier] ?? 100
+            configureFlexibleColumn(col)
             col.sortDescriptorPrototype = NSSortDescriptor(
-                key: "\(metadataColumnPrefix)\(colName)",
+                key: identifier,
                 ascending: true
             )
             tableView.addTableColumn(col)
         }
 
+        tableView.reloadData()
+        rebuildHeaderMenu()
+    }
+
+    // MARK: - Flexible Resizing
+
+    private func configureFlexibleTable(_ table: NSTableView) {
+        table.allowsColumnResizing = true
+        table.columnAutoresizingStyle = .noColumnAutoresizing
+        table.enclosingScrollView?.hasHorizontalScroller = true
+        if table.headerView == nil {
+            table.headerView = NSTableHeaderView()
+        }
+    }
+
+    private func captureAndRelaxExistingColumns(on table: NSTableView) {
+        for column in table.tableColumns {
+            rememberDefaultWidth(for: column)
+            configureFlexibleColumn(column)
+        }
+    }
+
+    private func configureFlexibleColumn(_ column: NSTableColumn) {
+        rememberDefaultWidth(for: column)
+        column.minWidth = 0
+        column.maxWidth = CGFloat.greatestFiniteMagnitude
+    }
+
+    private func rememberDefaultWidth(for column: NSTableColumn) {
+        let id = column.identifier.rawValue
+        guard defaultColumnWidths[id] == nil else { return }
+        let fallback = MetadataColumnController.isMetadataColumn(column.identifier) ? 100.0 : 80.0
+        let width = column.width > Self.zeroWidthDisableThreshold ? column.width : fallback
+        defaultColumnWidths[id] = width
+    }
+
+    private func installResizeObserver(on table: NSTableView) {
+        if let columnResizeObserver {
+            NotificationCenter.default.removeObserver(columnResizeObserver)
+        }
+        columnResizeObserver = NotificationCenter.default.addObserver(
+            forName: NSTableView.columnDidResizeNotification,
+            object: table,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.syncDisabledColumnsFromWidths()
+            }
+        }
+    }
+
+    private func syncDisabledColumnsFromWidths() {
+        guard let tableView, !isApplyingColumnVisibility else { return }
+
+        var metadataChanged = false
+        for column in tableView.tableColumns where column.width <= Self.zeroWidthDisableThreshold && !column.isHidden {
+            rememberDefaultWidth(for: column)
+            if Self.isMetadataColumn(column.identifier) {
+                let colName = String(column.identifier.rawValue.dropFirst(metadataColumnPrefix.count))
+                if visibleColumns.remove(colName) != nil {
+                    metadataChanged = true
+                }
+            } else {
+                column.isHidden = true
+            }
+        }
+
+        if metadataChanged {
+            refreshColumns()
+        } else {
+            rebuildHeaderMenu()
+        }
+    }
+
+    private func setStandardColumnVisible(id: String, visible: Bool) {
+        guard let tableView,
+              let column = tableView.tableColumns.first(where: { $0.identifier.rawValue == id }) else { return }
+
+        isApplyingColumnVisibility = true
+        rememberDefaultWidth(for: column)
+        configureFlexibleColumn(column)
+        if visible {
+            column.isHidden = false
+            if column.width <= Self.zeroWidthDisableThreshold {
+                column.width = defaultColumnWidths[id] ?? 80
+            }
+        } else {
+            column.isHidden = true
+        }
+        isApplyingColumnVisibility = false
+        rebuildHeaderMenu()
         tableView.reloadData()
     }
 
@@ -155,12 +266,36 @@ final class MetadataColumnController {
 
         let menu = NSMenu(title: "Columns")
 
-        // Standard columns (always shown, not toggleable)
-        for name in standardColumnNames {
-            let item = NSMenuItem(title: name, action: nil, keyEquivalent: "")
-            item.state = .on
-            item.isEnabled = false
+        // Standard columns
+        let standardColumns = tableView.tableColumns.filter { !Self.isMetadataColumn($0.identifier) }
+        if !standardColumns.isEmpty {
+            let header = NSMenuItem(title: "Standard Columns", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+        }
+
+        for column in standardColumns {
+            let title = column.title.isEmpty ? column.identifier.rawValue : column.title
+            let item = NSMenuItem(
+                title: title,
+                action: #selector(toggleStandardColumn(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = column.identifier.rawValue
+            item.state = column.isHidden ? .off : .on
             menu.addItem(item)
+        }
+
+        if !standardColumns.isEmpty {
+            menu.addItem(.separator())
+            let resetItem = NSMenuItem(
+                title: "Reset Column Widths",
+                action: #selector(resetStandardColumnWidths(_:)),
+                keyEquivalent: ""
+            )
+            resetItem.target = self
+            menu.addItem(resetItem)
         }
 
         // Metadata columns section
@@ -185,6 +320,26 @@ final class MetadataColumnController {
         }
 
         tableView.headerView?.menu = menu
+    }
+
+    @objc private func toggleStandardColumn(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        let isVisible = sender.state == .on
+        setStandardColumnVisible(id: id, visible: !isVisible)
+    }
+
+    @objc private func resetStandardColumnWidths(_ sender: Any?) {
+        guard let tableView else { return }
+        isApplyingColumnVisibility = true
+        for column in tableView.tableColumns where !Self.isMetadataColumn(column.identifier) {
+            let id = column.identifier.rawValue
+            column.isHidden = false
+            column.width = defaultColumnWidths[id] ?? max(80, column.width)
+            configureFlexibleColumn(column)
+        }
+        isApplyingColumnVisibility = false
+        rebuildHeaderMenu()
+        tableView.reloadData()
     }
 
     @objc private func toggleMetadataColumn(_ sender: NSMenuItem) {
@@ -290,5 +445,15 @@ final class MetadataColumnController {
     /// Returns whether any metadata columns are currently visible.
     var hasVisibleColumns: Bool {
         !visibleColumns.isEmpty && store != nil
+    }
+
+    // MARK: - Testing Hooks
+
+    func testingSyncDisabledColumnsFromWidths() {
+        syncDisabledColumnsFromWidths()
+    }
+
+    func testingSetStandardColumnVisible(id: String, visible: Bool) {
+        setStandardColumnVisible(id: id, visible: visible)
     }
 }
