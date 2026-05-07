@@ -376,10 +376,11 @@ public struct ViralVariantCallingPipeline: Sendable {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
         case .ivar:
+            let gffURL = await exportBundleGFFIfAvailable(plan: plan)
             let result = try await toolRunner.runPipeline(
                 [
                     NativePipelineStage(.samtools, arguments: ivarMpileupArguments(plan: plan)),
-                    NativePipelineStage(.ivar, arguments: ivarVariantArguments(plan: plan)),
+                    NativePipelineStage(.ivar, arguments: ivarVariantArguments(plan: plan, gffURL: gffURL)),
                 ],
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
@@ -387,6 +388,27 @@ public struct ViralVariantCallingPipeline: Sendable {
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedStderr)
             }
+            let tsvURL = plan.workingDirectory.appendingPathComponent("ivar.tsv-prefix.tsv")
+            let allHapURL = plan.workingDirectory.appendingPathComponent("ivar.all-haplotypes.vcf")
+            let manifest = try BundleManifest.load(from: request.bundleURL)
+            let contigs = (manifest.genome?.chromosomes ?? []).map { chrom in
+                IVarTSVToVCFConverter.Contig(name: chrom.name, length: Int(chrom.length))
+            }
+            let options = IVarTSVToVCFConverter.Options(
+                consensusAF: request.ivarConsensusAF,
+                mergeAFThreshold: request.ivarMergeAFThreshold,
+                badQualityThreshold: request.ivarBadQualityThreshold,
+                ignoreStrandBias: request.ivarIgnoreStrandBias,
+                sourceLine: "iVar (TSV-to-VCF: Lungfish)",
+                contigs: contigs,
+                gffMissingNote: gffURL == nil
+            )
+            try IVarTSVToVCFConverter().convert(
+                tsvURL: tsvURL,
+                primaryVCFURL: plan.rawVCFURL,
+                allHaplotypesVCFURL: allHapURL,
+                options: options
+            )
         case .medaka:
             let result = try await toolRunner.run(
                 .medaka,
@@ -501,7 +523,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             )).map(shellEscape).joined(separator: " ")
         case .ivar:
             return """
-            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " "))
+            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL), gffURL: nil).map(shellEscape).joined(separator: " "))
             """
         case .medaka:
             return ([nativeTool(for: caller).executableName] + medakaArguments(
@@ -557,18 +579,36 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
     }
 
-    private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        let prefix = plan.rawVCFURL.deletingPathExtension().path
-        return ["variants"]
-            + request.advancedArguments
-            + [
+    private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan, gffURL: URL?) -> [String] {
+        let prefix = plan.workingDirectory.appendingPathComponent("ivar.tsv-prefix").path
+        var args: [String] = ["variants"]
+        args.append(contentsOf: request.advancedArguments)
+        args.append(contentsOf: [
             "-p", prefix,
             "-q", "20",
             "-t", String(request.minimumAlleleFrequency ?? 0.05),
             "-m", String(request.minimumDepth ?? 10),
             "-r", plan.referenceURL.path,
-            "--output-format", "vcf",
-        ]
+        ])
+        if let gffURL {
+            args.append(contentsOf: ["-g", gffURL.path])
+        }
+        return args
+    }
+
+    private func exportBundleGFFIfAvailable(plan: ViralVariantCallingExecutionPlan) async -> URL? {
+        do {
+            let manifest = try BundleManifest.load(from: request.bundleURL)
+            guard let firstAnnotation = manifest.annotations.first,
+                  let databasePath = firstAnnotation.databasePath else { return nil }
+            let dbURL = request.bundleURL.appendingPathComponent(databasePath)
+            let database = try AnnotationDatabase(url: dbURL)
+            let outURL = plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3")
+            try AnnotationDatabaseGFFExporter.export(database: database, to: outURL)
+            return outURL
+        } catch {
+            return nil
+        }
     }
 
     private func medakaArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
