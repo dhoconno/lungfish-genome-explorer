@@ -34,6 +34,8 @@ Project Lead Agent
 ## Workflow
 
 ### Phase 0: Triage & Scoping
+GitHub Issues may arrive through the User Engagement Triage Agent before entering this phase. That upstream agent owns public issue engagement, labels, comments, closures, and first-pass disposition. Accepted or partially accepted work enters Project Lead Phase 0 with the issue context, proposed scope, relevant expert recommendations, and any public commitments already made to the reporter.
+
 The Project Lead receives a feature request or bug report and:
 1. Writes a scope document to `docs/plans/` (survives context compaction)
 2. Classifies the work: **Code-only**, **GUI-only**, or **Full-stack** (both)
