@@ -1,19 +1,20 @@
 ##fileformat=VCFv4.2
 ##source=iVar 1.4.4 (TSV-to-VCF: Lungfish)
 ##contig=<ID=chr1,length=29903>
-##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP, INS or DEL">
+##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP (Single Nucleotide Polymorphism), DEL (deletion) or INS (Insertion)">
 ##FILTER=<ID=PASS,Description="All filters passed">
-##FILTER=<ID=ft,Description="iVar PASS column was FALSE">
-##FILTER=<ID=bq,Description="ALT_QUAL below threshold">
-##FILTER=<ID=sb,Description="Strand bias detected by Fisher exact test">
+##FILTER=<ID=ft,Description="Fisher's exact test of variant frequency compared to mean error rate, p-value > 0.05">
+##FILTER=<ID=bq,Description="Bad quality variant: ALT_QUAL lower than 20">
 ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total depth">
-##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Reference depth">
-##FORMAT=<ID=REF_RV,Number=1,Type=Integer,Description="Reference reverse-strand depth">
-##FORMAT=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean reference base quality">
-##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Alternate depth">
-##FORMAT=<ID=ALT_RV,Number=1,Type=Integer,Description="Alternate reverse-strand depth">
-##FORMAT=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean alternate base quality">
-##FORMAT=<ID=ALT_FREQ,Number=1,Type=Float,Description="Alternate allele frequency">
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Depth of reference base">
+##FORMAT=<ID=REF_RV,Number=1,Type=Integer,Description="Depth of reference base on reverse reads">
+##FORMAT=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean quality of reference base">
+##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">
+##FORMAT=<ID=ALT_RV,Number=1,Type=Integer,Description="Depth of alternate base on reverse reads">
+##FORMAT=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean quality of alternate base">
+##FORMAT=<ID=ALT_FREQ,Number=1,Type=Float,Description="Frequency of alternate base">
+##FORMAT=<ID=MERGED_AF,Number=A,Type=Float,Description="Frequency of each merged variant comma separated">
+##FORMAT=<ID=MERGED_DP,Number=A,Type=Float,Description="Total Depth of each merged variant comma separated">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	insertion
 chr1	100	.	A	ATG	.	PASS	TYPE=INS	GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ	1:50:10:5:30:40:20:37:0.8

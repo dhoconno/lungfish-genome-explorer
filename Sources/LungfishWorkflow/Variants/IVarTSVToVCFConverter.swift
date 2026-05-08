@@ -22,6 +22,7 @@ public struct IVarTSVToVCFConverter: Sendable {
         public let sourceLine: String
         public let contigs: [Contig]
         public let gffMissingNote: Bool
+        public let sampleName: String?
 
         public init(
             consensusAF: Double = 0.75,
@@ -30,7 +31,8 @@ public struct IVarTSVToVCFConverter: Sendable {
             ignoreStrandBias: Bool = true,
             sourceLine: String = "iVar (TSV-to-VCF: Lungfish)",
             contigs: [Contig] = [],
-            gffMissingNote: Bool = false
+            gffMissingNote: Bool = false,
+            sampleName: String? = nil
         ) {
             self.consensusAF = consensusAF
             self.mergeAFThreshold = mergeAFThreshold
@@ -39,6 +41,7 @@ public struct IVarTSVToVCFConverter: Sendable {
             self.sourceLine = sourceLine
             self.contigs = contigs
             self.gffMissingNote = gffMissingNote
+            self.sampleName = sampleName
         }
     }
 
@@ -83,44 +86,56 @@ public struct IVarTSVToVCFConverter: Sendable {
             IVarCodonMerger.MergedVariant(positions: [$0.pos], rows: [$0], kind: .single)
         }
         let sorted = consensusVariants.sorted { $0.positions[0] < $1.positions[0] }
-        try writeVCF(variants: sorted, to: primaryVCFURL, options: options)
+        let resolvedSampleName = options.sampleName ?? defaultSampleName(from: tsvURL)
+        try writeVCF(variants: sorted, to: primaryVCFURL, options: options, sampleName: resolvedSampleName)
         if let allHaplotypesVCFURL {
             let allSorted = (merged.allHaplotypes + indels.map {
                 IVarCodonMerger.MergedVariant(positions: [$0.pos], rows: [$0], kind: .single)
             }).sorted { $0.positions[0] < $1.positions[0] }
-            try writeVCF(variants: allSorted, to: allHaplotypesVCFURL, options: options)
+            try writeVCF(variants: allSorted, to: allHaplotypesVCFURL, options: options, sampleName: resolvedSampleName)
         }
+    }
+
+    private func defaultSampleName(from tsvURL: URL) -> String {
+        // Match Python's `os.path.splitext(os.path.basename(self.file_in))[0]`:
+        // strip exactly one extension off the basename.
+        tsvURL.deletingPathExtension().lastPathComponent
     }
 
     private func writeVCF(
         variants: [IVarCodonMerger.MergedVariant],
         to url: URL,
-        options: Options
+        options: Options,
+        sampleName: String
     ) throws {
         var buffer = ""
         buffer += "##fileformat=VCFv4.2\n"
         buffer += "##source=\(options.sourceLine)\n"
-        if options.gffMissingNote {
-            buffer += "##LungfishNote=GFF unavailable; codon merging skipped\n"
-        }
         for contig in options.contigs {
             buffer += "##contig=<ID=\(contig.name),length=\(contig.length)>\n"
         }
-        buffer += #"##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP, INS or DEL">"# + "\n"
+        if options.gffMissingNote {
+            buffer += "##LungfishNote=GFF unavailable; codon merging skipped\n"
+        }
+        buffer += #"##INFO=<ID=TYPE,Number=1,Type=String,Description="Either SNP (Single Nucleotide Polymorphism), DEL (deletion) or INS (Insertion)">"# + "\n"
         buffer += #"##FILTER=<ID=PASS,Description="All filters passed">"# + "\n"
-        buffer += #"##FILTER=<ID=ft,Description="iVar PASS column was FALSE">"# + "\n"
-        buffer += #"##FILTER=<ID=bq,Description="ALT_QUAL below threshold">"# + "\n"
-        buffer += #"##FILTER=<ID=sb,Description="Strand bias detected by Fisher exact test">"# + "\n"
+        buffer += #"##FILTER=<ID=ft,Description="Fisher's exact test of variant frequency compared to mean error rate, p-value > 0.05">"# + "\n"
+        buffer += #"##FILTER=<ID=bq,Description="Bad quality variant: ALT_QUAL lower than 20">"# + "\n"
+        if !options.ignoreStrandBias {
+            buffer += #"##FILTER=<ID=sb,Description="Strand bias filter not passed">"# + "\n"
+        }
         buffer += #"##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">"# + "\n"
-        buffer += #"##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total depth">"# + "\n"
-        buffer += #"##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Reference depth">"# + "\n"
-        buffer += #"##FORMAT=<ID=REF_RV,Number=1,Type=Integer,Description="Reference reverse-strand depth">"# + "\n"
-        buffer += #"##FORMAT=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean reference base quality">"# + "\n"
-        buffer += #"##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Alternate depth">"# + "\n"
-        buffer += #"##FORMAT=<ID=ALT_RV,Number=1,Type=Integer,Description="Alternate reverse-strand depth">"# + "\n"
-        buffer += #"##FORMAT=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean alternate base quality">"# + "\n"
-        buffer += #"##FORMAT=<ID=ALT_FREQ,Number=1,Type=Float,Description="Alternate allele frequency">"# + "\n"
-        buffer += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSAMPLE\n"
+        buffer += #"##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Total Depth">"# + "\n"
+        buffer += #"##FORMAT=<ID=REF_DP,Number=1,Type=Integer,Description="Depth of reference base">"# + "\n"
+        buffer += #"##FORMAT=<ID=REF_RV,Number=1,Type=Integer,Description="Depth of reference base on reverse reads">"# + "\n"
+        buffer += #"##FORMAT=<ID=REF_QUAL,Number=1,Type=Integer,Description="Mean quality of reference base">"# + "\n"
+        buffer += #"##FORMAT=<ID=ALT_DP,Number=1,Type=Integer,Description="Depth of alternate base">"# + "\n"
+        buffer += #"##FORMAT=<ID=ALT_RV,Number=1,Type=Integer,Description="Depth of alternate base on reverse reads">"# + "\n"
+        buffer += #"##FORMAT=<ID=ALT_QUAL,Number=1,Type=Integer,Description="Mean quality of alternate base">"# + "\n"
+        buffer += #"##FORMAT=<ID=ALT_FREQ,Number=1,Type=Float,Description="Frequency of alternate base">"# + "\n"
+        buffer += #"##FORMAT=<ID=MERGED_AF,Number=A,Type=Float,Description="Frequency of each merged variant comma separated">"# + "\n"
+        buffer += #"##FORMAT=<ID=MERGED_DP,Number=A,Type=Float,Description="Total Depth of each merged variant comma separated">"# + "\n"
+        buffer += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t\(sampleName)\n"
         for variant in variants {
             let row = variant.rows[0]
             let (refOut, altOut, typeTag) = encodeAlleles(row: row)
@@ -144,20 +159,27 @@ public struct IVarTSVToVCFConverter: Sendable {
     }
 
     private func filterColumn(row: IVarTSVRow, options: Options) -> String {
+        // Python's order in apply_filters: [ivar_filter, stb_filter, bad_quality_filter]
+        // joined with ";" -> "ft;sb;bq" when all three apply.
         var codes: [String] = []
         if !row.pass {
             codes.append("ft")
         }
-        if row.altQual < options.badQualityThreshold {
-            codes.append("bq")
-        }
         if !options.ignoreStrandBias {
+            // scipy.stats.fisher_exact([[REF_DP-REF_RV, REF_RV],
+            //                           [ALT_DP-ALT_RV, ALT_RV]],
+            //                          alternative="greater")
             let refForward = max(0, row.refDP - row.refRV)
             let refReverse = row.refRV
             let altForward = max(0, row.altDP - row.altRV)
             let altReverse = row.altRV
-            let p = FisherExactTest.twoSidedPValue(a: refForward, b: refReverse, c: altForward, d: altReverse)
+            let p = FisherExactTest.oneSidedGreaterPValue(
+                a: refForward, b: refReverse, c: altForward, d: altReverse
+            )
             if p < 0.05 { codes.append("sb") }
+        }
+        if row.altQual < options.badQualityThreshold {
+            codes.append("bq")
         }
         return codes.isEmpty ? "PASS" : codes.joined(separator: ";")
     }
