@@ -8,7 +8,7 @@ shots:
   - id: ncbi-download-dialog
     caption: "Downloading the SARS-CoV-2 reference from NCBI."
   - id: sra-download-dialog
-    caption: "Pulling SRR36291587 from SRA."
+    caption: "Downloading SRR36291587 from SRA."
   - id: mapping-wizard
     caption: "Mapping reads to MN908947.3 with minimap2."
   - id: primer-trim-dialog
@@ -24,7 +24,7 @@ shots:
 glossary_refs: [VCF, REF, ALT, genotype, allele-frequency, variant-caller, primer-trim, primer-scheme, amplicon, SRA, codon, strand-bias]
 features_refs: [import.vcf, viewport.variant-browser, variants.call, bam.primer-trim, fetch.ncbi, fetch.sra, map]
 fixtures_refs: [sarscov2-srr36291587]
-brand_reviewed: false
+brand_reviewed: true
 lead_approved: false
 ---
 
@@ -110,7 +110,7 @@ The second category is rows LoFreq reports that iVar does not. Look at position 
 
 The third category is rows where both callers fire but disagree on the FILTER column. Look at position 27889 (`C>T`). iVar reports allele frequency 0.991 at depth 884 with FILTER `sb`, the strand-bias flag. LoFreq reports allele frequency 0.609 at depth 1170 with FILTER `PASS`. The two callers see the same pileup. They reach different conclusions because they use different statistics and different default thresholds. iVar applies Fisher's exact test on the 2x2 table of forward and reverse reads supporting reference and alternate alleles; the chapter's pipeline turns iVar strand-bias filtering on for inspection but the recommended setting for amplicon data is `Ignore strand bias` because primer placement makes one direction structurally over-represented. LoFreq's strand-bias treatment uses a phred-scaled SB score with an FDR-corrected threshold; on this pileup it concludes the imbalance is consistent with the protocol rather than the sample. Either filter answer is defensible. The disagreement is the signal worth reading.
 
-The codon teaching moment lands at position 28881. The N-protein open reading frame puts positions 28881, 28882, and 28883 inside one codon, the codon that encodes amino acid 203 of the nucleocapsid. The iVar TSV-to-VCF converter, when handed a real GFF, would group those three SNPs into a single haplotype row with REF `GGG` and ALT `AAC`, because together they encode one amino acid change (R203K plus G204R, the classic B.1.1 / Omicron N-protein signature) rather than three. In the fixture VCF you have open, that merge did not happen: the iVar VCF header carries `##LungfishNote=GFF unavailable; codon merging skipped`, and the converter falls through to per-row transcription with three separate rows. Open the fixture's annotated reference (the same `MN908947.3.lungfishref` bundle) in a project that already has the GFF attached, and the iVar VCF you produce there will collapse the three rows into one. LoFreq will still emit three rows. This is the moment the readers realize that "one variant per row" is a presentation choice with biological consequences. Two callers can describe the same change. Whether they describe it as one row or three depends on whether they consult an annotation file before they write VCF.
+The codon teaching moment lands at position 28881. The N-protein open reading frame puts positions 28881, 28882, and 28883 inside one codon, the codon that encodes amino acid 203 of the nucleocapsid. The iVar TSV-to-VCF converter, when handed a real GFF, would group those three SNPs into a single haplotype row with REF `GGG` and ALT `AAC`, because together they encode one amino acid change (R203K plus G204R, the classic B.1.1 / Omicron N-protein signature) rather than three. In the fixture VCF you have open, that merge did not happen: the iVar VCF header carries `##LungfishNote=GFF unavailable; codon merging skipped`, and the converter falls through to per-row transcription with three separate rows. Open the fixture's annotated reference (the same `MN908947.3.lungfishref` bundle) in a project that already has the GFF attached, and the iVar VCF you produce there will collapse the three rows into one. LoFreq will still emit three rows. This is the moment you realize that "one variant per row" is a presentation choice with biological consequences. Two callers can describe the same change. Whether they describe it as one row or three depends on whether they consult an annotation file before they write VCF.
 
 The takeaway from cross-caller comparison is not that one caller is right and the other wrong. The takeaway is that "the call set" is not a single object. It is a function of caller, parameters, and preprocessing, and reading two callers' tables for the same sample is the most honest way to see which positions are findings and which are caller decisions.
 
