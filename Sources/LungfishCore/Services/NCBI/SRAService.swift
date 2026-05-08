@@ -27,6 +27,44 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "SRAService"
 /// let files = try await service.downloadFASTQ(accession: "SRR11140748")
 /// ```
 public actor SRAService {
+    public struct FASTQDownloadStepTrace: Sendable, Equatable {
+        public let toolName: String
+        public let toolVersion: String
+        public let command: [String]
+        public let inputs: [String]
+        public let outputs: [URL]
+        public let exitCode: Int32?
+        public let wallTime: TimeInterval
+        public let stderr: String?
+        public let startedAt: Date
+        public let completedAt: Date
+
+        public init(
+            toolName: String,
+            toolVersion: String,
+            command: [String],
+            inputs: [String],
+            outputs: [URL],
+            exitCode: Int32?,
+            wallTime: TimeInterval,
+            stderr: String?,
+            startedAt: Date,
+            completedAt: Date
+        ) {
+            self.toolName = toolName
+            self.toolVersion = toolVersion
+            self.command = command
+            self.inputs = inputs
+            self.outputs = outputs
+            self.exitCode = exitCode
+            self.wallTime = wallTime
+            self.stderr = stderr
+            self.startedAt = startedAt
+            self.completedAt = completedAt
+        }
+    }
+
+    public typealias DownloadTraceHandler = @Sendable (FASTQDownloadStepTrace) -> Void
 
     // MARK: - Properties
 
@@ -316,7 +354,8 @@ public actor SRAService {
     public func downloadFASTQ(
         accession: String,
         outputDir: URL? = nil,
-        progress: (@Sendable (Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil,
+        trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         guard let toolkit = resolvedSRAToolkitExecutables() else {
             throw SRAError.toolkitNotFound
@@ -333,11 +372,31 @@ public actor SRAService {
 
         logger.info("Downloading SRA run \(accession, privacy: .public) to \(outputDirectory.path, privacy: .public)")
 
+        let sraFile = outputDirectory
+            .appendingPathComponent(accession)
+            .appendingPathComponent("\(accession).sra")
+
         // Step 1: Prefetch the SRA file
         progress?(0.1)
+        let prefetchStartedAt = Date()
         let prefetchResult = try await runCommand(
             toolkit.prefetch.path,
             arguments: [accession, "-O", outputDirectory.path]
+        )
+        let prefetchCompletedAt = Date()
+        trace?(
+            FASTQDownloadStepTrace(
+                toolName: "prefetch",
+                toolVersion: "sra-tools",
+                command: [toolkit.prefetch.path, accession, "-O", outputDirectory.path],
+                inputs: [accession],
+                outputs: [sraFile],
+                exitCode: prefetchResult.exitCode,
+                wallTime: prefetchCompletedAt.timeIntervalSince(prefetchStartedAt),
+                stderr: prefetchResult.stderr,
+                startedAt: prefetchStartedAt,
+                completedAt: prefetchCompletedAt
+            )
         )
 
         if prefetchResult.exitCode != 0 {
@@ -348,24 +407,38 @@ public actor SRAService {
         progress?(0.5)
 
         // Step 2: Convert to FASTQ with fasterq-dump
-        let sraFile = outputDirectory
-            .appendingPathComponent(accession)
-            .appendingPathComponent("\(accession).sra")
         let fasterqTempDirectory = try Self.createFasterqTempDirectory(for: outputDirectory)
         defer { try? FileManager.default.removeItem(at: fasterqTempDirectory) }
 
+        let fasterqArguments = [
+            sraFile.path,
+            "-O", outputDirectory.path,
+            "-t", fasterqTempDirectory.path,
+            "--split-files",
+            "--threads", "4"
+        ]
+        let fasterqStartedAt = Date()
         let fasterqResult = try await runCommand(
             toolkit.fasterqDump.path,
-            arguments: [
-                sraFile.path,
-                "-O", outputDirectory.path,
-                "-t", fasterqTempDirectory.path,
-                "--split-files",  // Split paired reads
-                "--threads", "4"
-            ]
+            arguments: fasterqArguments
         )
+        let fasterqCompletedAt = Date()
 
         if fasterqResult.exitCode != 0 {
+            trace?(
+                FASTQDownloadStepTrace(
+                    toolName: "fasterq-dump",
+                    toolVersion: "sra-tools",
+                    command: [toolkit.fasterqDump.path] + fasterqArguments,
+                    inputs: [sraFile.path],
+                    outputs: [],
+                    exitCode: fasterqResult.exitCode,
+                    wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
+                    stderr: fasterqResult.stderr,
+                    startedAt: fasterqStartedAt,
+                    completedAt: fasterqCompletedAt
+                )
+            )
             logger.error("fasterq-dump failed: \(fasterqResult.stderr, privacy: .public)")
             throw SRAError.conversionFailed(fasterqResult.stderr)
         }
@@ -390,6 +463,20 @@ public actor SRAService {
         progress?(1.0)
 
         logger.info("Downloaded \(fastqFiles.count, privacy: .public) FASTQ files for \(accession, privacy: .public)")
+        trace?(
+            FASTQDownloadStepTrace(
+                toolName: "fasterq-dump",
+                toolVersion: "sra-tools",
+                command: [toolkit.fasterqDump.path] + fasterqArguments,
+                inputs: [sraFile.path],
+                outputs: fastqFiles,
+                exitCode: fasterqResult.exitCode,
+                wallTime: fasterqCompletedAt.timeIntervalSince(fasterqStartedAt),
+                stderr: fasterqResult.stderr,
+                startedAt: fasterqStartedAt,
+                completedAt: fasterqCompletedAt
+            )
+        )
 
         return fastqFiles
     }
@@ -407,7 +494,8 @@ public actor SRAService {
     public func downloadFASTQFromENA(
         accession: String,
         outputDir: URL? = nil,
-        progress: (@Sendable (Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil,
+        trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         let outputDirectory = outputDir ?? FileManager.default.temporaryDirectory
             .appendingPathComponent("sra_downloads")
@@ -464,7 +552,9 @@ public actor SRAService {
                 request.setValue("Lungfish Genome Explorer", forHTTPHeaderField: "User-Agent")
                 request.timeoutInterval = 600
 
+                let downloadStartedAt = Date()
                 let (data, response) = try await httpClient.data(for: request)
+                let downloadCompletedAt = Date()
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200...299).contains(httpResponse.statusCode) else {
                     continue
@@ -472,6 +562,27 @@ public actor SRAService {
 
                 try data.write(to: localPath)
                 downloadedFiles.append(localPath)
+                trace?(
+                    FASTQDownloadStepTrace(
+                        toolName: "https-download",
+                        toolVersion: "URLSession",
+                        command: [
+                            "curl",
+                            "-L",
+                            "--fail",
+                            "--user-agent", "Lungfish Genome Explorer",
+                            fileURL.absoluteString,
+                            "-o", localPath.path,
+                        ],
+                        inputs: [fileURL.absoluteString],
+                        outputs: [localPath],
+                        exitCode: 0,
+                        wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
+                        stderr: nil,
+                        startedAt: downloadStartedAt,
+                        completedAt: downloadCompletedAt
+                    )
+                )
                 progress?(Double(index + 1) / Double(totalCandidates))
 
                 logger.info("Downloaded: \(localPath.lastPathComponent, privacy: .public)")
@@ -513,13 +624,14 @@ public actor SRAService {
         accession: String,
         outputDir: URL?,
         progress: (@Sendable (Double) -> Void)? = nil,
-        onFallback: (@Sendable (String) -> Void)? = nil
+        onFallback: (@Sendable (String) -> Void)? = nil,
+        trace: DownloadTraceHandler? = nil
     ) async throws -> [URL] {
         let ena: DownloadStrategy = enaDownloader ?? { acc, dir in
-            try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress)
+            try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress, trace: trace)
         }
         let toolkit: DownloadStrategy = toolkitDownloader ?? { acc, dir in
-            try await self.downloadFASTQ(accession: acc, outputDir: dir, progress: progress)
+            try await self.downloadFASTQ(accession: acc, outputDir: dir, progress: progress, trace: trace)
         }
         do {
             return try await ena(accession, outputDir)

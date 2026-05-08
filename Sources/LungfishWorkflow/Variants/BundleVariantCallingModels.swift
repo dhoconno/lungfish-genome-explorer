@@ -116,6 +116,87 @@ public struct VariantSQLiteImportResult: Sendable, Equatable {
     }
 }
 
+public struct VariantCallingProvenanceStep: Sendable, Codable, Equatable {
+    public let toolName: String
+    public let toolVersion: String
+    public let command: [String]
+    public let inputs: [FileRecord]
+    public let outputs: [FileRecord]
+    public let exitCode: Int32?
+    public let wallTime: TimeInterval?
+    public let stderr: String?
+    public let startedAt: Date
+    public let completedAt: Date?
+
+    public init(
+        toolName: String,
+        toolVersion: String,
+        command: [String],
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        exitCode: Int32?,
+        wallTime: TimeInterval?,
+        stderr: String?,
+        startedAt: Date,
+        completedAt: Date?
+    ) {
+        self.toolName = toolName
+        self.toolVersion = toolVersion
+        self.command = command
+        self.inputs = inputs
+        self.outputs = outputs
+        self.exitCode = exitCode
+        self.wallTime = wallTime
+        self.stderr = stderr
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+    }
+
+    public func stepExecution(dependsOn: [UUID] = []) -> StepExecution {
+        StepExecution(
+            toolName: toolName,
+            toolVersion: toolVersion,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            dependsOn: dependsOn,
+            startTime: startedAt,
+            endTime: completedAt
+        )
+    }
+}
+
+public struct VariantCallingWorkflowProvenance: Sendable, Codable, Equatable {
+    public let workflowName: String
+    public let workflowVersion: String
+    public let command: [String]
+    public let startedAt: Date
+    public let completedAt: Date
+    public let parameters: [String: String]
+    public let steps: [VariantCallingProvenanceStep]
+
+    public init(
+        workflowName: String,
+        workflowVersion: String,
+        command: [String],
+        startedAt: Date,
+        completedAt: Date,
+        parameters: [String: String],
+        steps: [VariantCallingProvenanceStep]
+    ) {
+        self.workflowName = workflowName
+        self.workflowVersion = workflowVersion
+        self.command = command
+        self.startedAt = startedAt
+        self.completedAt = completedAt
+        self.parameters = parameters
+        self.steps = steps
+    }
+}
+
 public struct BundleVariantTrackAttachmentRequest: Sendable {
     public let bundleURL: URL
     public let alignmentTrackID: String
@@ -130,6 +211,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
     public let variantCallerParametersJSON: String
     public let variantCallerCommandLine: String
     public let referenceStagedFASTASHA256: String
+    public let workflowProvenance: VariantCallingWorkflowProvenance?
 
     public init(
         bundleURL: URL,
@@ -144,7 +226,8 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         variantCallerVersion: String,
         variantCallerParametersJSON: String,
         variantCallerCommandLine: String = "",
-        referenceStagedFASTASHA256: String
+        referenceStagedFASTASHA256: String,
+        workflowProvenance: VariantCallingWorkflowProvenance? = nil
     ) {
         self.bundleURL = bundleURL
         self.alignmentTrackID = alignmentTrackID
@@ -159,6 +242,7 @@ public struct BundleVariantTrackAttachmentRequest: Sendable {
         self.variantCallerParametersJSON = variantCallerParametersJSON
         self.variantCallerCommandLine = variantCallerCommandLine
         self.referenceStagedFASTASHA256 = referenceStagedFASTASHA256
+        self.workflowProvenance = workflowProvenance
     }
 }
 
@@ -167,16 +251,19 @@ public struct BundleVariantTrackAttachmentResult: Sendable, Equatable {
     public let finalVCFGZURL: URL
     public let finalTabixURL: URL
     public let finalDatabaseURL: URL
+    public let provenanceURL: URL?
 
     public init(
         trackInfo: VariantTrackInfo,
         finalVCFGZURL: URL,
         finalTabixURL: URL,
-        finalDatabaseURL: URL
+        finalDatabaseURL: URL,
+        provenanceURL: URL? = nil
     ) {
         self.trackInfo = trackInfo
         self.finalVCFGZURL = finalVCFGZURL
         self.finalTabixURL = finalTabixURL
         self.finalDatabaseURL = finalDatabaseURL
+        self.provenanceURL = provenanceURL
     }
 }

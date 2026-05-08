@@ -57,6 +57,7 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
     public let callerVersion: String
     public let callerParametersJSON: String
     public let commandLine: String
+    public let provenanceSteps: [VariantCallingProvenanceStep]
 
     public init(
         normalizedVCFURL: URL,
@@ -66,7 +67,8 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         referenceFASTASHA256: String,
         callerVersion: String,
         callerParametersJSON: String,
-        commandLine: String = ""
+        commandLine: String = "",
+        provenanceSteps: [VariantCallingProvenanceStep] = []
     ) {
         self.normalizedVCFURL = normalizedVCFURL
         self.stagedVCFGZURL = stagedVCFGZURL
@@ -76,6 +78,7 @@ public struct ViralVariantCallingPipelineResult: Sendable, Equatable {
         self.callerVersion = callerVersion
         self.callerParametersJSON = callerParametersJSON
         self.commandLine = commandLine
+        self.provenanceSteps = provenanceSteps
     }
 }
 
@@ -198,6 +201,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             stagedTabixURL: stagedTabixURL,
             commandLine: commandLine(
                 caller: request.caller,
+                workingDirectory: workspaceURL,
                 referenceURL: referenceURL,
                 alignmentURL: alignmentURL,
                 medakaFASTQURL: medakaFASTQURL,
@@ -213,6 +217,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         let plan = try buildExecutionPlan()
+        var provenanceSteps: [VariantCallingProvenanceStep] = []
         do {
             try FileManager.default.createDirectory(at: plan.workingDirectory, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(
@@ -228,11 +233,12 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         progress?(0.08, "Staging reference and alignment inputs")
-        try await stageAlignmentArtifacts(plan: plan)
-        try await stageReference(plan: plan)
+        provenanceSteps.append(contentsOf: try await stageAlignmentArtifacts(plan: plan))
+        provenanceSteps.append(contentsOf: try await stageReference(plan: plan))
 
         if request.caller == .medaka, let fastqURL = plan.medakaFASTQURL {
             progress?(0.20, "Reconstructing FASTQ input for Medaka")
+            let startedAt = Date()
             do {
                 try await bamToFASTQConverter(
                     plan.alignmentURL,
@@ -243,6 +249,32 @@ public struct ViralVariantCallingPipeline: Sendable {
                     600,
                     toolRunner,
                     false
+                )
+                let completedAt = Date()
+                provenanceSteps.append(
+                    VariantCallingProvenanceStep(
+                        toolName: "samtools",
+                        toolVersion: await nativeToolVersion(for: .samtools),
+                        command: await nativeCommand(
+                            for: .samtools,
+                            arguments: [
+                                "fastq",
+                                "-F", "2304",
+                                "-0", plan.referenceURL.deletingLastPathComponent().appendingPathComponent("medaka_other.fastq").path,
+                                "-1", plan.referenceURL.deletingLastPathComponent().appendingPathComponent("medaka_r1.fastq").path,
+                                "-2", plan.referenceURL.deletingLastPathComponent().appendingPathComponent("medaka_r2.fastq").path,
+                                "-s", plan.referenceURL.deletingLastPathComponent().appendingPathComponent("medaka_singletons.fastq").path,
+                                plan.alignmentURL.path,
+                            ]
+                        ),
+                        inputs: [ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input)],
+                        outputs: [ProvenanceRecorder.fileRecord(url: fastqURL, format: .fastq, role: .output)],
+                        exitCode: 0,
+                        wallTime: completedAt.timeIntervalSince(startedAt),
+                        stderr: nil,
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
                 )
             } catch let error as BAMToFASTQConversionError {
                 switch error {
@@ -259,10 +291,14 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         progress?(0.45, "Running \(request.caller.displayName)")
+        let executedCommandLine: String
         if let callerExecutor {
             try await callerExecutor(plan, toolRunner)
+            executedCommandLine = plan.commandLine
         } else {
-            try await runCaller(plan: plan)
+            let callerResult = try await runCaller(plan: plan)
+            executedCommandLine = callerResult.commandLine
+            provenanceSteps.append(contentsOf: callerResult.steps)
         }
 
         guard FileManager.default.fileExists(atPath: plan.rawVCFURL.path) else {
@@ -270,32 +306,68 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         progress?(0.70, "Sorting VCF")
+        let sortArguments = [
+            "sort",
+            "-O", "v",
+            "-o", plan.normalizedVCFURL.path,
+            plan.rawVCFURL.path,
+        ]
+        let sortStartedAt = Date()
         let sortResult = try await toolRunner.run(
             .bcftools,
-            arguments: [
-                "sort",
-                "-O", "v",
-                "-o", plan.normalizedVCFURL.path,
-                plan.rawVCFURL.path,
-            ],
+            arguments: sortArguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
+        )
+        let sortCompletedAt = Date()
+        provenanceSteps.append(
+                VariantCallingProvenanceStep(
+                    toolName: "bcftools",
+                    toolVersion: await nativeToolVersion(for: .bcftools),
+                    command: await nativeCommand(for: .bcftools, arguments: sortArguments),
+                inputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.normalizedVCFURL, format: .vcf, role: .output)],
+                exitCode: sortResult.exitCode,
+                wallTime: sortCompletedAt.timeIntervalSince(sortStartedAt),
+                stderr: sortResult.stderr,
+                startedAt: sortStartedAt,
+                completedAt: sortCompletedAt
+            )
         )
         guard sortResult.isSuccess else {
             throw ViralVariantCallingPipelineError.normalizationFailed(sortResult.combinedOutput)
         }
 
         progress?(0.82, "Compressing normalized VCF")
+        let bgzipStartedAt = Date()
         let bgzipResult = try await toolRunner.bgzipCompress(
             inputPath: plan.normalizedVCFURL,
             keepOriginal: true,
             threads: request.threads
         )
+        let bgzipCompletedAt = Date()
+        let compressedNormalizedURL = plan.normalizedVCFURL.appendingPathExtension("gz")
+        provenanceSteps.append(
+            VariantCallingProvenanceStep(
+                toolName: "bgzip",
+                toolVersion: await nativeToolVersion(for: .bgzip),
+                command: await nativeCommand(
+                    for: .bgzip,
+                    arguments: bgzipArguments(inputURL: plan.normalizedVCFURL, keepOriginal: true, threads: request.threads)
+                ),
+                inputs: [ProvenanceRecorder.fileRecord(url: plan.normalizedVCFURL, format: .vcf, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: compressedNormalizedURL, format: .vcf, role: .output)],
+                exitCode: bgzipResult.exitCode,
+                wallTime: bgzipCompletedAt.timeIntervalSince(bgzipStartedAt),
+                stderr: bgzipResult.stderr,
+                startedAt: bgzipStartedAt,
+                completedAt: bgzipCompletedAt
+            )
+        )
         guard bgzipResult.isSuccess else {
             throw ViralVariantCallingPipelineError.compressionFailed(bgzipResult.combinedOutput)
         }
 
-        let compressedNormalizedURL = plan.normalizedVCFURL.appendingPathExtension("gz")
         do {
             if FileManager.default.fileExists(atPath: plan.stagedVCFGZURL.path) {
                 try FileManager.default.removeItem(at: plan.stagedVCFGZURL)
@@ -306,11 +378,28 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
 
         progress?(0.92, "Indexing compressed VCF")
+        let tabixArguments = ["-f", "-p", "vcf", plan.stagedVCFGZURL.path]
+        let tabixStartedAt = Date()
         let tabixResult = try await toolRunner.run(
             .tabix,
-            arguments: ["-f", "-p", "vcf", plan.stagedVCFGZURL.path],
+            arguments: tabixArguments,
             workingDirectory: plan.workingDirectory,
             timeout: 600
+        )
+        let tabixCompletedAt = Date()
+        provenanceSteps.append(
+                VariantCallingProvenanceStep(
+                    toolName: "tabix",
+                    toolVersion: await nativeToolVersion(for: .tabix),
+                    command: await nativeCommand(for: .tabix, arguments: tabixArguments),
+                inputs: [ProvenanceRecorder.fileRecord(url: plan.stagedVCFGZURL, format: .vcf, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.stagedTabixURL, role: .index)],
+                exitCode: tabixResult.exitCode,
+                wallTime: tabixCompletedAt.timeIntervalSince(tabixStartedAt),
+                stderr: tabixResult.stderr,
+                startedAt: tabixStartedAt,
+                completedAt: tabixCompletedAt
+            )
         )
         guard tabixResult.isSuccess else {
             throw ViralVariantCallingPipelineError.indexingFailed(tabixResult.combinedOutput)
@@ -329,24 +418,55 @@ public struct ViralVariantCallingPipeline: Sendable {
             referenceFASTASHA256: referenceFASTASHA256,
             callerVersion: callerVersion,
             callerParametersJSON: callerParametersJSON(),
-            commandLine: plan.commandLine
+            commandLine: executedCommandLine,
+            provenanceSteps: provenanceSteps
         )
     }
 
-    private func stageAlignmentArtifacts(plan: ViralVariantCallingExecutionPlan) async throws {
+    private func stageAlignmentArtifacts(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
+        let startedAt = Date()
         do {
             if preflight.contigValidation == .matchedByAlias {
-                try await rewriteAlignmentHeader(plan: plan)
+                return try await rewriteAlignmentHeader(plan: plan)
             } else {
                 try stageInputArtifact(from: preflight.alignmentURL, to: plan.alignmentURL)
                 try stageInputArtifact(from: preflight.alignmentIndexURL, to: plan.alignmentIndexURL)
+                let completedAt = Date()
+                return [
+                    VariantCallingProvenanceStep(
+                        toolName: "lungfish alignment-staging",
+                        toolVersion: WorkflowRun.currentAppVersion,
+                        command: [
+                            "lungfish-internal", "stage-alignment",
+                            "--input-bam", preflight.alignmentURL.path,
+                            "--input-index", preflight.alignmentIndexURL.path,
+                            "--output-bam", plan.alignmentURL.path,
+                            "--output-index", plan.alignmentIndexURL.path,
+                            "--mode", "symlink",
+                        ],
+                        inputs: [
+                            ProvenanceRecorder.fileRecord(url: preflight.alignmentURL, format: .bam, role: .input),
+                            ProvenanceRecorder.fileRecord(url: preflight.alignmentIndexURL, role: .index),
+                        ],
+                        outputs: [
+                            ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .output),
+                            ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
+                        ],
+                        exitCode: 0,
+                        wallTime: completedAt.timeIntervalSince(startedAt),
+                        stderr: nil,
+                        startedAt: startedAt,
+                        completedAt: completedAt
+                    )
+                ]
             }
         } catch {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(error.localizedDescription)
         }
     }
 
-    private func stageReference(plan: ViralVariantCallingExecutionPlan) async throws {
+    private func stageReference(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
+        let startedAt = Date()
         do {
             if FileManager.default.fileExists(atPath: plan.referenceURL.path) {
                 try FileManager.default.removeItem(at: plan.referenceURL)
@@ -358,11 +478,52 @@ public struct ViralVariantCallingPipeline: Sendable {
             } else {
                 try FileManager.default.copyItem(at: preflight.referenceFASTAURL, to: plan.referenceURL)
             }
+            let stagedAt = Date()
 
             let faiResult = try await toolRunner.indexFASTA(fastaPath: plan.referenceURL)
+            let indexedAt = Date()
             guard faiResult.isSuccess else {
                 throw ViralVariantCallingPipelineError.referenceStagingFailed(faiResult.combinedOutput)
             }
+            return [
+                VariantCallingProvenanceStep(
+                    toolName: "lungfish reference-staging",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    command: [
+                        "lungfish-internal", "stage-reference",
+                        "--input", preflight.referenceFASTAURL.path,
+                        "--output", plan.referenceURL.path,
+                        "--mode", preflight.referenceFASTAURL.pathExtension.lowercased() == "gz" ? "decompress-gzip" : "copy",
+                    ],
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: preflight.referenceFASTAURL, format: .fasta, role: .reference)
+                    ],
+                    outputs: [
+                        ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .output)
+                    ],
+                    exitCode: 0,
+                    wallTime: stagedAt.timeIntervalSince(startedAt),
+                    stderr: nil,
+                    startedAt: startedAt,
+                    completedAt: stagedAt
+                ),
+                VariantCallingProvenanceStep(
+                    toolName: "samtools",
+                    toolVersion: await nativeToolVersion(for: .samtools),
+                    command: await nativeCommand(for: .samtools, arguments: ["faidx", plan.referenceURL.path]),
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .input)
+                    ],
+                    outputs: [
+                        ProvenanceRecorder.fileRecord(url: plan.referenceIndexURL, role: .index)
+                    ],
+                    exitCode: faiResult.exitCode,
+                    wallTime: indexedAt.timeIntervalSince(stagedAt),
+                    stderr: faiResult.stderr,
+                    startedAt: stagedAt,
+                    completedAt: indexedAt
+                )
+            ]
         } catch let error as ViralVariantCallingPipelineError {
             throw error
         } catch {
@@ -370,28 +531,51 @@ public struct ViralVariantCallingPipeline: Sendable {
         }
     }
 
-    private func runCaller(plan: ViralVariantCallingExecutionPlan) async throws {
+    private func runCaller(plan: ViralVariantCallingExecutionPlan) async throws -> (commandLine: String, steps: [VariantCallingProvenanceStep]) {
         switch request.caller {
         case .lofreq:
+            let arguments = lofreqArguments(plan: plan)
+            let startedAt = Date()
             let result = try await toolRunner.run(
                 .lofreq,
-                arguments: lofreqArguments(plan: plan),
+                arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
+            )
+            let completedAt = Date()
+            let step = VariantCallingProvenanceStep(
+                toolName: nativeTool(for: request.caller).executableName,
+                toolVersion: await nativeToolVersion(for: nativeTool(for: request.caller)),
+                command: await nativeCommand(for: nativeTool(for: request.caller), arguments: arguments),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                ],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
+                exitCode: result.exitCode,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderr,
+                startedAt: startedAt,
+                completedAt: completedAt
             )
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
+            return (([nativeTool(for: request.caller).executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
         case .ivar:
             let gffURL = await exportBundleGFFIfAvailable(plan: plan)
+            let mpileupArguments = ivarMpileupArguments(plan: plan)
+            let variantArguments = ivarVariantArguments(plan: plan, gffURL: gffURL)
+            let startedAt = Date()
             let result = try await toolRunner.runPipeline(
                 [
-                    NativePipelineStage(.samtools, arguments: ivarMpileupArguments(plan: plan)),
-                    NativePipelineStage(.ivar, arguments: ivarVariantArguments(plan: plan, gffURL: gffURL)),
+                    NativePipelineStage(.samtools, arguments: mpileupArguments),
+                    NativePipelineStage(.ivar, arguments: variantArguments),
                 ],
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
             )
+            let completedAt = Date()
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedStderr)
             }
@@ -416,16 +600,94 @@ public struct ViralVariantCallingPipeline: Sendable {
                 allHaplotypesVCFURL: allHapURL,
                 options: options
             )
+            let conversionCompletedAt = Date()
+            let samtoolsStep = VariantCallingProvenanceStep(
+                toolName: "samtools",
+                toolVersion: await nativeToolVersion(for: .samtools),
+                command: await nativeCommand(for: .samtools, arguments: mpileupArguments),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                ],
+                outputs: [],
+                exitCode: result.exitCodes.indices.contains(0) ? result.exitCodes[0] : nil,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderrByStage.indices.contains(0) ? result.stderrByStage[0] : nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            let ivarInputs = gffURL
+                .map { [ProvenanceRecorder.fileRecord(url: $0, format: .gff3, role: .input)] }
+                ?? []
+            let ivarStep = VariantCallingProvenanceStep(
+                toolName: "ivar",
+                toolVersion: await nativeToolVersion(for: .ivar),
+                command: await nativeCommand(for: .ivar, arguments: variantArguments),
+                inputs: ivarInputs,
+                outputs: [ProvenanceRecorder.fileRecord(url: tsvURL, format: .text, role: .output)],
+                exitCode: result.exitCodes.indices.contains(1) ? result.exitCodes[1] : nil,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderrByStage.indices.contains(1) ? result.stderrByStage[1] : nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            let converterStep = VariantCallingProvenanceStep(
+                toolName: "lungfish ivar-tsv-to-vcf-converter",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: [
+                    "lungfish-internal", "ivar-tsv-to-vcf",
+                    "--input", tsvURL.path,
+                    "--output", plan.rawVCFURL.path,
+                    "--all-haplotypes-output", allHapURL.path,
+                    "--consensus-af", String(request.ivarConsensusAF),
+                    "--merge-af-threshold", String(request.ivarMergeAFThreshold),
+                    "--bad-quality-threshold", String(request.ivarBadQualityThreshold),
+                    "--ignore-strand-bias", String(request.ivarIgnoreStrandBias),
+                ],
+                inputs: [ProvenanceRecorder.fileRecord(url: tsvURL, format: .text, role: .input)],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output),
+                    ProvenanceRecorder.fileRecord(url: allHapURL, format: .vcf, role: .output),
+                ],
+                exitCode: 0,
+                wallTime: conversionCompletedAt.timeIntervalSince(completedAt),
+                stderr: nil,
+                startedAt: completedAt,
+                completedAt: conversionCompletedAt
+            )
+            return (
+                "samtools \(mpileupArguments.map(shellEscape).joined(separator: " ")) | ivar \(variantArguments.map(shellEscape).joined(separator: " "))",
+                [samtoolsStep, ivarStep, converterStep]
+            )
         case .medaka:
+            let arguments = medakaArguments(plan: plan)
+            let startedAt = Date()
             let result = try await toolRunner.run(
                 .medaka,
-                arguments: medakaArguments(plan: plan),
+                arguments: arguments,
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
+            )
+            let completedAt = Date()
+            let step = VariantCallingProvenanceStep(
+                toolName: nativeTool(for: request.caller).executableName,
+                toolVersion: await nativeToolVersion(for: nativeTool(for: request.caller)),
+                command: await nativeCommand(for: nativeTool(for: request.caller), arguments: arguments),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                    plan.medakaFASTQURL.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+                ].compactMap { $0 },
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
+                exitCode: result.exitCode,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderr,
+                startedAt: startedAt,
+                completedAt: completedAt
             )
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
+            return (([nativeTool(for: request.caller).executableName] + arguments).map(shellEscape).joined(separator: " "), [step])
         }
     }
 
@@ -436,40 +698,109 @@ public struct ViralVariantCallingPipeline: Sendable {
         try FileManager.default.createSymbolicLink(at: stagedURL, withDestinationURL: sourceURL)
     }
 
-    private func rewriteAlignmentHeader(plan: ViralVariantCallingExecutionPlan) async throws {
+    private func rewriteAlignmentHeader(plan: ViralVariantCallingExecutionPlan) async throws -> [VariantCallingProvenanceStep] {
+        let headerStartedAt = Date()
         let headerResult = try await toolRunner.run(
             .samtools,
             arguments: ["view", "-H", preflight.alignmentURL.path],
             timeout: 120
         )
+        let headerCompletedAt = Date()
         guard headerResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(headerResult.combinedOutput)
         }
 
         let rewrittenHeader = remapAlignmentHeader(headerResult.stdout)
-        let headerURL = plan.workingDirectory.appendingPathComponent("rewritten-header.sam")
-        try rewrittenHeader.write(to: headerURL, atomically: true, encoding: .utf8)
+        let rawHeaderURL = plan.workingDirectory.appendingPathComponent("original-header.sam")
+        let rewrittenHeaderURL = plan.workingDirectory.appendingPathComponent("rewritten-header.sam")
+        try headerResult.stdout.write(to: rawHeaderURL, atomically: true, encoding: .utf8)
+        try rewrittenHeader.write(to: rewrittenHeaderURL, atomically: true, encoding: .utf8)
 
+        let reheaderStartedAt = Date()
         let reheaderResult = try await toolRunner.runWithFileOutput(
             .samtools,
-            arguments: ["reheader", headerURL.path, preflight.alignmentURL.path],
+            arguments: ["reheader", rewrittenHeaderURL.path, preflight.alignmentURL.path],
             outputFile: plan.alignmentURL,
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
+        let reheaderCompletedAt = Date()
         guard reheaderResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(reheaderResult.combinedOutput)
         }
 
+        let indexStartedAt = Date()
         let indexResult = try await toolRunner.run(
             .samtools,
             arguments: ["index", plan.alignmentURL.path],
             workingDirectory: plan.workingDirectory,
             timeout: 600
         )
+        let indexCompletedAt = Date()
         guard indexResult.isSuccess else {
             throw ViralVariantCallingPipelineError.alignmentStagingFailed(indexResult.combinedOutput)
         }
+        return [
+            VariantCallingProvenanceStep(
+                toolName: "samtools",
+                toolVersion: await nativeToolVersion(for: .samtools),
+                command: await nativeCommand(for: .samtools, arguments: ["view", "-H", preflight.alignmentURL.path]),
+                inputs: [ProvenanceRecorder.fileRecord(url: preflight.alignmentURL, format: .bam, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: rawHeaderURL, format: .sam, role: .output)],
+                exitCode: headerResult.exitCode,
+                wallTime: headerCompletedAt.timeIntervalSince(headerStartedAt),
+                stderr: headerResult.stderr,
+                startedAt: headerStartedAt,
+                completedAt: headerCompletedAt
+            ),
+            VariantCallingProvenanceStep(
+                toolName: "lungfish alignment-header-remap",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: [
+                    "lungfish-internal", "remap-sam-header",
+                    "--input-header", rawHeaderURL.path,
+                    "--output-header", rewrittenHeaderURL.path,
+                    "--reference-name-map", referenceNameMapDescription(),
+                ],
+                inputs: [ProvenanceRecorder.fileRecord(url: rawHeaderURL, format: .sam, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: rewrittenHeaderURL, format: .sam, role: .output)],
+                exitCode: 0,
+                wallTime: reheaderStartedAt.timeIntervalSince(headerCompletedAt),
+                stderr: nil,
+                startedAt: headerCompletedAt,
+                completedAt: reheaderStartedAt
+            ),
+            VariantCallingProvenanceStep(
+                toolName: "samtools",
+                toolVersion: await nativeToolVersion(for: .samtools),
+                command: await nativeCommand(
+                    for: .samtools,
+                    arguments: ["reheader", rewrittenHeaderURL.path, preflight.alignmentURL.path]
+                ),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: preflight.alignmentURL, format: .bam, role: .input),
+                    ProvenanceRecorder.fileRecord(url: rewrittenHeaderURL, format: .sam, role: .input),
+                ],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .output)],
+                exitCode: reheaderResult.exitCode,
+                wallTime: reheaderCompletedAt.timeIntervalSince(reheaderStartedAt),
+                stderr: reheaderResult.stderr,
+                startedAt: reheaderStartedAt,
+                completedAt: reheaderCompletedAt
+            ),
+            VariantCallingProvenanceStep(
+                toolName: "samtools",
+                toolVersion: await nativeToolVersion(for: .samtools),
+                command: await nativeCommand(for: .samtools, arguments: ["index", plan.alignmentURL.path]),
+                inputs: [ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input)],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index)],
+                exitCode: indexResult.exitCode,
+                wallTime: indexCompletedAt.timeIntervalSince(indexStartedAt),
+                stderr: indexResult.stderr,
+                startedAt: indexStartedAt,
+                completedAt: indexCompletedAt
+            ),
+        ]
     }
 
     private func remapAlignmentHeader(_ headerText: String) -> String {
@@ -492,6 +823,13 @@ public struct ViralVariantCallingPipeline: Sendable {
         return lines.joined(separator: "\n")
     }
 
+    private func referenceNameMapDescription() -> String {
+        preflight.referenceNameMap
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: ",")
+    }
+
     private func rawVCFFileName() -> String {
         switch request.caller {
         case .lofreq:
@@ -505,41 +843,37 @@ public struct ViralVariantCallingPipeline: Sendable {
 
     private func commandLine(
         caller: ViralVariantCaller,
+        workingDirectory: URL,
         referenceURL: URL,
         alignmentURL: URL,
         medakaFASTQURL: URL?,
         rawVCFURL: URL
     ) -> String {
+        let plan = placeholderPlan(
+            workingDirectory: workingDirectory,
+            referenceURL: referenceURL,
+            alignmentURL: alignmentURL,
+            medakaFASTQURL: medakaFASTQURL,
+            rawVCFURL: rawVCFURL
+        )
         switch caller {
         case .lofreq:
             return ([nativeTool(for: caller).executableName] + lofreqArguments(
-                plan: ViralVariantCallingExecutionPlan(
-                    caller: caller,
-                    workingDirectory: stagingRoot,
-                    alignmentURL: alignmentURL,
-                    alignmentIndexURL: alignmentURL.appendingPathExtension("bai"),
-                    referenceURL: referenceURL,
-                    referenceIndexURL: referenceURL.appendingPathExtension("fai"),
-                    medakaFASTQURL: medakaFASTQURL,
-                    rawVCFURL: rawVCFURL,
-                    normalizedVCFURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.normalized.vcf"),
-                    stagedVCFGZURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz"),
-                    stagedTabixURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz.tbi"),
-                    commandLine: ""
-                )
+                plan: plan
             )).map(shellEscape).joined(separator: " ")
         case .ivar:
             return """
-            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL), gffURL: nil).map(shellEscape).joined(separator: " "))
+            samtools \(ivarMpileupArguments(plan: plan).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: plan, gffURL: plannedIVarGFFURL(workingDirectory: workingDirectory)).map(shellEscape).joined(separator: " "))
             """
         case .medaka:
             return ([nativeTool(for: caller).executableName] + medakaArguments(
-                plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)
+                plan: plan
             )).map(shellEscape).joined(separator: " ")
         }
     }
 
     private func placeholderPlan(
+        workingDirectory: URL,
         referenceURL: URL,
         alignmentURL: URL,
         medakaFASTQURL: URL?,
@@ -547,7 +881,7 @@ public struct ViralVariantCallingPipeline: Sendable {
     ) -> ViralVariantCallingExecutionPlan {
         ViralVariantCallingExecutionPlan(
             caller: request.caller,
-            workingDirectory: stagingRoot,
+            workingDirectory: workingDirectory,
             alignmentURL: alignmentURL,
             alignmentIndexURL: alignmentURL.appendingPathExtension("bai"),
             referenceURL: referenceURL,
@@ -559,6 +893,15 @@ public struct ViralVariantCallingPipeline: Sendable {
             stagedTabixURL: rawVCFURL.deletingLastPathComponent().appendingPathComponent("variants.vcf.gz.tbi"),
             commandLine: ""
         )
+    }
+
+    private func plannedIVarGFFURL(workingDirectory: URL) -> URL? {
+        guard preflight.manifest.annotations.contains(where: { annotation in
+            annotation.databasePath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }) else {
+            return nil
+        }
+        return workingDirectory.appendingPathComponent("ivar-annotations.gff3")
     }
 
     private func lofreqArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
@@ -600,6 +943,18 @@ public struct ViralVariantCallingPipeline: Sendable {
         if let gffURL {
             args.append(contentsOf: ["-g", gffURL.path])
         }
+        return args
+    }
+
+    private func bgzipArguments(inputURL: URL, keepOriginal: Bool, threads: Int) -> [String] {
+        var args = ["-f"]
+        if keepOriginal {
+            args.append("-k")
+        }
+        if threads > 1 {
+            args.append(contentsOf: ["-@", "\(threads)"])
+        }
+        args.append(inputURL.path)
         return args
     }
 
@@ -684,6 +1039,29 @@ public struct ViralVariantCallingPipeline: Sendable {
             return .ivar
         case .medaka:
             return .medaka
+        }
+    }
+
+    private func nativeCommand(for tool: NativeTool, arguments: [String]) async -> [String] {
+        if let toolURL = try? await toolRunner.findTool(tool) {
+            return [toolURL.path] + arguments
+        }
+        return [tool.executableName] + arguments
+    }
+
+    private func nativeToolVersion(for tool: NativeTool) async -> String {
+        let version = await toolRunner.getToolVersion(tool) ?? "unknown"
+        return "\(version) (\(runtimeIdentity(for: tool)))"
+    }
+
+    private func runtimeIdentity(for tool: NativeTool) -> String {
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
+                ?? tool.sourcePackage
+            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
+        case .bundled(let relativePath):
+            return "bundled executable \(relativePath)"
         }
     }
 }

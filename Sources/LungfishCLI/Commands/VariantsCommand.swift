@@ -202,6 +202,7 @@ extension VariantsCommand {
             runtime: VariantsCommand.Runtime,
             emitEvent: @escaping (VariantsCommand.VariantCallingEvent) -> Void
         ) async throws -> BundleVariantTrackAttachmentResult {
+            let workflowStartedAt = Date()
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let resolvedCaller = try parseCaller()
             let advancedArguments = try parseAdvancedOptions()
@@ -284,6 +285,7 @@ extension VariantsCommand {
                 emitSimpleEvent(event: "stageComplete", progress: 0.70, message: "Caller workflow completed", caller: resolvedCaller.rawValue, emit: emitEvent)
 
                 emitSimpleEvent(event: "importStart", progress: 0.74, message: "Importing normalized variants into SQLite", caller: resolvedCaller.rawValue, emit: emitEvent)
+                let importStartedAt = Date()
                 let importRequest = VariantSQLiteImportRequest(
                     normalizedVCFURL: pipelineResult.normalizedVCFURL,
                     outputDatabaseURL: stagingRoot.appendingPathComponent("variants.sqlite.db"),
@@ -293,6 +295,7 @@ extension VariantsCommand {
                     materializeVariantInfo: true
                 )
                 let importResult = try await runtime.importSQLite(importRequest, context)
+                let importCompletedAt = Date()
                 emitEvent(
                     VariantsCommand.VariantCallingEvent(
                         event: "importComplete",
@@ -310,6 +313,43 @@ extension VariantsCommand {
                 )
 
                 emitSimpleEvent(event: "attachStart", progress: 0.90, message: "Attaching variant track to bundle", caller: resolvedCaller.rawValue, emit: emitEvent)
+                let workflowCompletedAt = Date()
+                let workflowCommand = variantCallCommand(finalTrackName: finalTrackName)
+                let workflowProvenance = VariantCallingWorkflowProvenance(
+                    workflowName: "lungfish variants call",
+                    workflowVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: workflowCommand,
+                    startedAt: workflowStartedAt,
+                    completedAt: workflowCompletedAt,
+                    parameters: variantCallParameters(
+                        caller: resolvedCaller,
+                        finalTrackName: finalTrackName,
+                        advancedArguments: advancedArguments
+                    ),
+                    steps: pipelineResult.provenanceSteps + [
+                        VariantCallingProvenanceStep(
+                            toolName: "lungfish variant-sqlite-import",
+                            toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                            command: [
+                                "lungfish-internal",
+                                "variant-sqlite-import",
+                                "--normalized-vcf", importRequest.normalizedVCFURL.path,
+                                "--output-database", importRequest.outputDatabaseURL.path,
+                                "--source-file", importRequest.sourceFile ?? "",
+                                "--import-profile", "ultraLowMemory",
+                                "--import-semantics", "viralFrequency",
+                                "--materialize-variant-info", String(importRequest.materializeVariantInfo),
+                            ],
+                            inputs: [ProvenanceRecorder.fileRecord(url: importRequest.normalizedVCFURL, format: .vcf, role: .input)],
+                            outputs: [ProvenanceRecorder.fileRecord(url: importResult.databaseURL, role: .output)],
+                            exitCode: 0,
+                            wallTime: importCompletedAt.timeIntervalSince(importStartedAt),
+                            stderr: nil,
+                            startedAt: importStartedAt,
+                            completedAt: importCompletedAt
+                        )
+                    ]
+                )
                 let attachmentRequest = BundleVariantTrackAttachmentRequest(
                     bundleURL: bundleURL,
                     alignmentTrackID: alignmentTrackID,
@@ -323,7 +363,8 @@ extension VariantsCommand {
                     variantCallerVersion: pipelineResult.callerVersion,
                     variantCallerParametersJSON: pipelineResult.callerParametersJSON,
                     variantCallerCommandLine: pipelineResult.commandLine,
-                    referenceStagedFASTASHA256: pipelineResult.referenceFASTASHA256
+                    referenceStagedFASTASHA256: pipelineResult.referenceFASTASHA256,
+                    workflowProvenance: workflowProvenance
                 )
                 let attachmentResult = try await runtime.attachTrack(attachmentRequest)
                 emitEvent(
@@ -399,6 +440,71 @@ extension VariantsCommand {
         private func normalizedOutputTrackName(fallback: String) -> String {
             let trimmed = outputTrackName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             return trimmed.isEmpty ? fallback : trimmed
+        }
+
+        private func variantCallCommand(finalTrackName: String) -> [String] {
+            var command = [
+                "lungfish",
+                "variants",
+                "call",
+                "--bundle", bundlePath,
+                "--alignment-track", alignmentTrackID,
+                "--caller", caller,
+                "--name", finalTrackName,
+                "--threads", String(globalOptions.effectiveThreads),
+                "--ivar-consensus-af", String(ivarConsensusAF),
+                "--ivar-merge-af-threshold", String(ivarMergeAFThreshold),
+                "--ivar-bad-quality-threshold", String(ivarBadQualityThreshold),
+                "--format", globalOptions.outputFormat.rawValue
+            ]
+            if let minimumAlleleFrequency {
+                command.append(contentsOf: ["--min-af", String(minimumAlleleFrequency)])
+            }
+            if let minimumDepth {
+                command.append(contentsOf: ["--min-depth", String(minimumDepth)])
+            }
+            if ivarPrimerTrimConfirmed {
+                command.append("--ivar-primer-trimmed")
+            }
+            if let medakaModel {
+                command.append(contentsOf: ["--medaka-model", medakaModel])
+            }
+            if ivarApplyStrandBias {
+                command.append("--ivar-no-ignore-strand-bias")
+            }
+            if !advancedOptions.isEmpty {
+                command.append(contentsOf: ["--advanced-options", advancedOptions])
+            }
+            if globalOptions.quiet {
+                command.append("--quiet")
+            }
+            return command
+        }
+
+        private func variantCallParameters(
+            caller: ViralVariantCaller,
+            finalTrackName: String,
+            advancedArguments: [String]
+        ) -> [String: String] {
+            [
+                "bundlePath": URL(fileURLWithPath: bundlePath).standardizedFileURL.path,
+                "alignmentTrackID": alignmentTrackID,
+                "caller": caller.rawValue,
+                "outputTrackName": finalTrackName,
+                "threads": String(globalOptions.effectiveThreads),
+                "minimumAlleleFrequency": minimumAlleleFrequency.map { String($0) } ?? "caller-default",
+                "minimumDepth": minimumDepth.map { String($0) } ?? "caller-default",
+                "ivarPrimerTrimConfirmed": String(ivarPrimerTrimConfirmed),
+                "medakaModel": medakaModel ?? "",
+                "advancedArguments": advancedArguments.joined(separator: " "),
+                "ivarConsensusAF": String(ivarConsensusAF),
+                "ivarMergeAFThreshold": String(ivarMergeAFThreshold),
+                "ivarBadQualityThreshold": String(ivarBadQualityThreshold),
+                "ivarIgnoreStrandBias": String(!ivarApplyStrandBias),
+                "outputFormat": globalOptions.outputFormat.rawValue,
+                "quiet": String(globalOptions.quiet),
+                "containerRuntime": "none"
+            ]
         }
 
         private func emitSimpleEvent(

@@ -61,5 +61,31 @@ struct BAMAdoptMappingIntegrationTests {
         #expect(adopted != nil)
         #expect(adopted?.name == "minimap2 mapping")
         #expect(adopted?.sourcePath.hasPrefix("alignments/mapped/") == true)
+
+        let adoptedTrack = try #require(adopted)
+        let adoptedBAMURL = fixture.bundleURL.appendingPathComponent(adoptedTrack.sourcePath)
+        let adoptProvenanceURL = adoptedBAMURL
+            .deletingPathExtension()
+            .appendingPathExtension("adopt-mapping-provenance.json")
+        let rehydratedMappingProvenanceURL = adoptedBAMURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("mapping-provenance.json")
+        #expect(FileManager.default.fileExists(atPath: adoptProvenanceURL.path))
+        #expect(FileManager.default.fileExists(atPath: rehydratedMappingProvenanceURL.path))
+
+        let provenanceText = try String(contentsOf: adoptProvenanceURL, encoding: .utf8)
+        #expect(provenanceText.contains("lungfish bam adopt-mapping"))
+        #expect(provenanceText.contains("mapping-provenance.json"))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: adoptProvenanceURL))
+        #expect(provenanceRun.allOutputFiles.contains { $0.path == adoptedBAMURL.path })
+
+        let metadataDBPath = try #require(adoptedTrack.metadataDBPath)
+        let metadataDB = try AlignmentMetadataDatabase.openForUpdate(
+            at: fixture.bundleURL.appendingPathComponent(metadataDBPath)
+        )
+        #expect(metadataDB.getFileInfo("adopt_mapping_provenance_path") == "alignments/mapped/\(adoptedTrack.id).adopt-mapping-provenance.json")
+        #expect(metadataDB.provenanceHistory().map(\.subcommand).contains("bam adopt-mapping"))
     }
 }

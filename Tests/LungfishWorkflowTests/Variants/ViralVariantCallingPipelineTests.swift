@@ -48,6 +48,24 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("-g primers.gff"))
     }
 
+    func testIVarCommandLineIncludesPlannedBundleGFFWhenAnnotationsArePresent() throws {
+        let pipeline = try makePipeline(
+            caller: .ivar,
+            annotations: [
+                AnnotationTrackInfo(
+                    id: "genes",
+                    name: "Genes",
+                    path: "annotations/genes.bb",
+                    databasePath: "annotations/genes.db"
+                )
+            ]
+        )
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("-g \(plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3").path)"))
+    }
+
     func testMedakaCommandLineIncludesAdvancedArguments() throws {
         let pipeline = try makePipeline(
             caller: .medaka,
@@ -81,6 +99,34 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertEqual(json["advancedOptions"] as? String, "--call-indels --tag 'sample 1'")
         XCTAssertEqual(json["advancedArguments"] as? [String], ["--call-indels", "--tag", "sample 1"])
         XCTAssertTrue(result.commandLine.contains("--call-indels --tag 'sample 1'"))
+        assertNativeProvenanceStep(
+            in: result.provenanceSteps,
+            toolName: "samtools",
+            environment: "samtools",
+            executable: "samtools",
+            commandContains: "faidx"
+        )
+        assertNativeProvenanceStep(
+            in: result.provenanceSteps,
+            toolName: "bcftools",
+            environment: "bcftools",
+            executable: "bcftools",
+            commandContains: "sort"
+        )
+        assertNativeProvenanceStep(
+            in: result.provenanceSteps,
+            toolName: "bgzip",
+            environment: "htslib",
+            executable: "bgzip",
+            commandContains: "-k"
+        )
+        assertNativeProvenanceStep(
+            in: result.provenanceSteps,
+            toolName: "tabix",
+            environment: "htslib",
+            executable: "tabix",
+            commandContains: "-p"
+        )
     }
 
     func testAllCallersUseStagedUncompressedReference() throws {
@@ -243,6 +289,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         caller: ViralVariantCaller,
         medakaModel: String? = "unused",
         advancedArguments: [String] = [],
+        annotations: [AnnotationTrackInfo] = [],
         bamToFASTQConverter: @escaping ViralVariantCallingPipeline.BAMToFASTQConverter = convertBAMToSingleFASTQ,
         callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil
     ) throws -> ViralVariantCallingPipeline {
@@ -274,8 +321,9 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
                     ChromosomeInfo(name: "chr1", length: 20, offset: 6, lineBases: 20, lineWidth: 21, aliases: [])
                 ],
                 md5Checksum: nil
-            ),
-            alignments: [
+                ),
+                annotations: annotations,
+                alignments: [
                 AlignmentTrackInfo(
                     id: "aln-1",
                     name: "Sample BAM",
@@ -322,6 +370,43 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             stagingRoot: stagingRoot,
             bamToFASTQConverter: bamToFASTQConverter,
             callerExecutor: callerExecutor
+        )
+    }
+
+    private func assertNativeProvenanceStep(
+        in steps: [VariantCallingProvenanceStep],
+        toolName: String,
+        environment: String,
+        executable: String,
+        commandContains commandArgument: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let step = steps.first(where: { step in
+            step.toolName == toolName && step.command.contains(commandArgument)
+        }) else {
+            XCTFail("Missing \(toolName) provenance step containing \(commandArgument)", file: file, line: line)
+            return
+        }
+
+        let executableSuffix = "/envs/\(environment)/bin/\(executable)"
+        XCTAssertTrue(
+            step.command.first?.hasSuffix(executableSuffix) == true,
+            "Expected resolved executable path ending in \(executableSuffix), got \(step.command.first ?? "<nil>")",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            step.toolVersion.contains("managed conda environment \(environment)"),
+            "Expected managed runtime identity in \(step.toolVersion)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            step.toolVersion.contains("executable \(executable)"),
+            "Expected executable identity in \(step.toolVersion)",
+            file: file,
+            line: line
         )
     }
 }

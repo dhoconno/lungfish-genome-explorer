@@ -71,12 +71,19 @@ public actor BundleVariantTrackAttachmentService {
         let finalVCFRelativePath = "variants/\(request.outputTrackID).vcf.gz"
         let finalTBIRelativePath = "variants/\(request.outputTrackID).vcf.gz.tbi"
         let finalDBRelativePath = "variants/\(request.outputTrackID).db"
+        let finalProvenanceRelativePath = "variants/\(request.outputTrackID).lungfish-provenance.json"
         let finalVCFURL = request.bundleURL.appendingPathComponent(finalVCFRelativePath)
         let finalTBIURL = request.bundleURL.appendingPathComponent(finalTBIRelativePath)
         let finalDBURL = request.bundleURL.appendingPathComponent(finalDBRelativePath)
+        let finalProvenanceURL = request.bundleURL.appendingPathComponent(finalProvenanceRelativePath)
 
         var promotedURLs: [URL] = []
         do {
+            let stagedInputRecords = [
+                ProvenanceRecorder.fileRecord(url: request.stagedVCFGZURL, format: .vcf, role: .input),
+                ProvenanceRecorder.fileRecord(url: request.stagedTabixURL, role: .index),
+                ProvenanceRecorder.fileRecord(url: request.stagedDatabaseURL, role: .input),
+            ]
             try promoteArtifact(from: request.stagedVCFGZURL, to: finalVCFURL)
             promotedURLs.append(finalVCFURL)
             try promoteArtifact(from: request.stagedTabixURL, to: finalTBIURL)
@@ -93,7 +100,9 @@ public actor BundleVariantTrackAttachmentService {
                     manifest: manifest,
                     alignmentTrack: alignmentTrack,
                     finalVCFRelativePath: finalVCFRelativePath,
-                    finalTBIRelativePath: finalTBIRelativePath
+                    finalTBIRelativePath: finalTBIRelativePath,
+                    finalDBRelativePath: finalDBRelativePath,
+                    finalProvenanceRelativePath: finalProvenanceRelativePath
                 )
             )
 
@@ -110,6 +119,17 @@ public actor BundleVariantTrackAttachmentService {
                 version: request.variantCallerVersion
             )
 
+            try writeWorkflowProvenance(
+                request: request,
+                manifest: manifest,
+                alignmentTrack: alignmentTrack,
+                finalVCFURL: finalVCFURL,
+                finalTBIURL: finalTBIURL,
+                finalDBURL: finalDBURL,
+                finalProvenanceURL: finalProvenanceURL,
+                stagedInputRecords: stagedInputRecords
+            )
+            promotedURLs.append(finalProvenanceURL)
             let updatedManifest = manifest.addingVariantTrack(trackInfo)
             try manifestSaver(updatedManifest, request.bundleURL)
 
@@ -117,7 +137,8 @@ public actor BundleVariantTrackAttachmentService {
                 trackInfo: trackInfo,
                 finalVCFGZURL: finalVCFURL,
                 finalTabixURL: finalTBIURL,
-                finalDatabaseURL: finalDBURL
+                finalDatabaseURL: finalDBURL,
+                provenanceURL: finalProvenanceURL
             )
         } catch {
             for url in promotedURLs {
@@ -185,7 +206,9 @@ public actor BundleVariantTrackAttachmentService {
         manifest: BundleManifest,
         alignmentTrack: AlignmentTrackInfo,
         finalVCFRelativePath: String,
-        finalTBIRelativePath: String
+        finalTBIRelativePath: String,
+        finalDBRelativePath: String,
+        finalProvenanceRelativePath: String
     ) -> [String: String] {
         let formatter = ISO8601DateFormatter()
         return [
@@ -202,8 +225,84 @@ public actor BundleVariantTrackAttachmentService {
             "reference_staged_fasta_sha256": request.referenceStagedFASTASHA256,
             "artifact_vcf_path": finalVCFRelativePath,
             "artifact_tbi_path": finalTBIRelativePath,
+            "artifact_database_path": finalDBRelativePath,
+            "workflow_provenance_path": finalProvenanceRelativePath,
             "call_semantics": request.caller.callSemantics,
             "created_at": formatter.string(from: dateProvider()),
         ]
+    }
+
+    private func writeWorkflowProvenance(
+        request: BundleVariantTrackAttachmentRequest,
+        manifest: BundleManifest,
+        alignmentTrack: AlignmentTrackInfo,
+        finalVCFURL: URL,
+        finalTBIURL: URL,
+        finalDBURL: URL,
+        finalProvenanceURL: URL,
+        stagedInputRecords: [FileRecord]
+    ) throws {
+        let completedAt = dateProvider()
+        let provenance = request.workflowProvenance ?? VariantCallingWorkflowProvenance(
+            workflowName: "lungfish variants call",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            command: request.variantCallerCommandLine.isEmpty
+                ? ["lungfish", "variants", "call"]
+                : ["sh", "-lc", request.variantCallerCommandLine],
+            startedAt: completedAt,
+            completedAt: completedAt,
+            parameters: [:],
+            steps: []
+        )
+
+        var steps = provenance.steps.map { $0.stepExecution() }
+        let parentStep = steps.last?.id
+        let attachmentStartedAt = provenance.completedAt
+        let attachmentStep = StepExecution(
+            toolName: "lungfish-cli",
+            toolVersion: provenance.workflowVersion,
+            command: provenance.command,
+            inputs: stagedInputRecords,
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: finalVCFURL, format: .vcf, role: .output),
+                ProvenanceRecorder.fileRecord(url: finalTBIURL, role: .index),
+                ProvenanceRecorder.fileRecord(url: finalDBURL, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: completedAt.timeIntervalSince(attachmentStartedAt),
+            stderr: nil,
+            dependsOn: parentStep.map { [$0] } ?? [],
+            startTime: attachmentStartedAt,
+            endTime: completedAt
+        )
+        steps.append(attachmentStep)
+
+        var parameters: [String: ParameterValue] = provenance.parameters.mapValues { .string($0) }
+        parameters["bundlePath"] = .string(request.bundleURL.standardizedFileURL.path)
+        parameters["bundleIdentifier"] = .string(manifest.identifier)
+        parameters["bundleName"] = .string(manifest.name)
+        parameters["alignmentTrackID"] = .string(alignmentTrack.id)
+        parameters["alignmentTrackName"] = .string(alignmentTrack.name)
+        parameters["caller"] = .string(request.caller.rawValue)
+        parameters["outputTrackID"] = .string(request.outputTrackID)
+        parameters["outputTrackName"] = .string(request.outputTrackName)
+        parameters["variantCallerVersion"] = .string(request.variantCallerVersion)
+        parameters["referenceStagedFASTASHA256"] = .string(request.referenceStagedFASTASHA256)
+        parameters["containerRuntime"] = parameters["containerRuntime"] ?? .string("none")
+
+        let run = WorkflowRun(
+            name: provenance.workflowName,
+            startTime: provenance.startedAt,
+            endTime: completedAt,
+            status: .completed,
+            appVersion: provenance.workflowVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            steps: steps,
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(to: finalProvenanceURL, options: .atomic)
     }
 }

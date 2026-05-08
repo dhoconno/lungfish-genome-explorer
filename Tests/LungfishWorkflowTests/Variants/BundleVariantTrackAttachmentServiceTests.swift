@@ -37,7 +37,29 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
                 variantCallerVersion: "2.1.5",
                 variantCallerParametersJSON: #"{"min_af":0.05}"#,
                 variantCallerCommandLine: "lofreq call-parallel --call-indels sample.bam",
-                referenceStagedFASTASHA256: "ref-sha-256"
+                referenceStagedFASTASHA256: "ref-sha-256",
+                workflowProvenance: VariantCallingWorkflowProvenance(
+                    workflowName: "lungfish variants call",
+                    workflowVersion: "lungfish-cli test",
+                    command: ["lungfish", "variants", "call", "--caller", "lofreq"],
+                    startedAt: Date(timeIntervalSince1970: 1_713_549_590),
+                    completedAt: Date(timeIntervalSince1970: 1_713_549_595),
+                    parameters: ["caller": "lofreq"],
+                    steps: [
+                        VariantCallingProvenanceStep(
+                            toolName: "lofreq",
+                            toolVersion: "2.1.5",
+                            command: ["lofreq", "call-parallel", "sample.bam"],
+                            inputs: [],
+                            outputs: [ProvenanceRecorder.fileRecord(url: staging.vcfGZURL, format: .vcf, role: .output)],
+                            exitCode: 0,
+                            wallTime: 2.0,
+                            stderr: "",
+                            startedAt: Date(timeIntervalSince1970: 1_713_549_591),
+                            completedAt: Date(timeIntervalSince1970: 1_713_549_593)
+                        )
+                    ]
+                )
             )
         )
 
@@ -80,8 +102,26 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "reference_staged_fasta_sha256"), "ref-sha-256")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "artifact_vcf_path"), "variants/variant-track-1.vcf.gz")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "artifact_tbi_path"), "variants/variant-track-1.vcf.gz.tbi")
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "artifact_database_path"), "variants/variant-track-1.db")
+        XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "workflow_provenance_path"), "variants/variant-track-1.lungfish-provenance.json")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "call_semantics"), "viral_frequency")
         XCTAssertEqual(VariantDatabase.metadataValue(at: dbURL, key: "created_at"), "2024-04-19T18:00:00Z")
+
+        let provenanceURL = try XCTUnwrap(result.provenanceURL)
+        XCTAssertEqual(provenanceURL, bundleURL.appendingPathComponent("variants/variant-track-1.lungfish-provenance.json"))
+        let provenanceText = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertTrue(provenanceText.contains("\"name\" : \"lungfish variants call\""))
+        XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lofreq\""))
+        XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lungfish-cli\""))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenanceRun.endTime, Date(timeIntervalSince1970: 1_713_549_600))
+        XCTAssertTrue(
+            provenanceRun.allOutputFiles.contains {
+                $0.path == bundleURL.appendingPathComponent("variants/variant-track-1.vcf.gz").path
+            }
+        )
     }
 
     func testAttachRollsBackPromotedArtifactsWhenManifestSaveFails() async throws {
@@ -120,6 +160,7 @@ final class BundleVariantTrackAttachmentServiceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/variant-track-rollback.vcf.gz").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/variant-track-rollback.vcf.gz.tbi").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/variant-track-rollback.db").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("variants/variant-track-rollback.lungfish-provenance.json").path))
 
         let manifest = try BundleManifest.load(from: bundleURL)
         XCTAssertFalse(manifest.variants.contains(where: { $0.id == "variant-track-rollback" }))
