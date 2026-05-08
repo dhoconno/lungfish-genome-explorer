@@ -1,7 +1,7 @@
 # Initial GitHub Issue Triage: Issues #6-#13
 
 Date: 2026-05-08
-Mode: read-only GitHub triage; no labels, comments, closures, or assignments applied.
+Mode: triage plus authorized GitHub feedback mutation; labels and comments applied, no closures or assignments applied.
 Repository: `dhoconno/lungfish-genome-explorer`
 
 ## Summary
@@ -13,19 +13,21 @@ Issues #6 through #13 are all actionable alpha feedback. The batch splits into f
 - Scientific result exploration and alignment interaction polish: #8, #9, #11.
 - Operations panel macOS behavior and debugging access: #12, #13.
 
-No issue in this batch should be closed during initial triage. The public response posture should be acceptance with clear routing, while avoiding any claim that implementation has already happened.
+No issue in this batch should be closed during initial triage. The public response posture is acceptance with clear routing, while avoiding any claim that implementation has already happened.
 
 ## Refreshed Issue State
 
-`gh issue list --repo dhoconno/lungfish-genome-explorer --state open --limit 50 --json number,title,labels,author,createdAt,updatedAt,url` showed issues #6 through #13 open on 2026-05-08. All eight issues were authored by `nrminor` and had no labels at refresh time.
+`gh issue list --repo dhoconno/lungfish-genome-explorer --state open --limit 50 --json number,title,labels,author,createdAt,updatedAt,url` showed issues #6 through #13 open on 2026-05-08. All eight issues were authored by `nrminor` and had no labels at the initial refresh time.
 
 Each issue was then inspected with `gh issue view <number> --repo dhoconno/lungfish-genome-explorer --json number,title,body,labels,comments,url,createdAt,updatedAt,state,author`. None had comments at refresh time.
+
+After the maintainer clarified that comments and closures are acceptable forms of feedback, this pass moved from read-only triage into authorized feedback mutation. Reusable labels were created, labels were applied issue by issue, and acceptance comments were posted. All eight issues remain open.
 
 ## Label Gaps
 
 Only the default repository labels were available at refresh time: `bug`, `documentation`, `duplicate`, `enhancement`, `good first issue`, `help wanted`, `invalid`, `question`, and `wontfix`.
 
-The following reusable labels should be created before mutation, or approximated with default labels until the label model exists:
+The following reusable labels were created for issue routing:
 
 - `status:accepted`
 - `area:developer-experience`
@@ -187,17 +189,20 @@ Recommended owners: GUI Lead, Security & Input Validation.
 
 Scope: make operations panel layering match macOS expectations and add visible log actions. Preserve existing copy/report affordances while adding View Log and Reveal in Finder flows. Redact or warn before public sharing when logs may contain sensitive paths, commands, or dataset identifiers.
 
-## GitHub Mutation Recommendations
+## GitHub Mutations Applied
 
-Do not mutate GitHub in this triage pass.
+GitHub feedback mutation was authorized after the initial read-only pass. Labels were created or updated with reusable descriptions, proposed labels were applied, and public acceptance comments were posted:
 
-When mutation is authorized:
+- #6: `enhancement`, `status:accepted`, `area:developer-experience`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/6#issuecomment-4402657257`.
+- #7: `enhancement`, `status:accepted`, `area:session-state`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/7#issuecomment-4402657372`.
+- #8: `enhancement`, `status:accepted`, `area:classification`, `area:tables`, `area:session-state`, `risk:scientific-correctness`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/8#issuecomment-4402657502`.
+- #9: `enhancement`, `status:accepted`, `area:alignment`, `area:layout`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/9#issuecomment-4402657659`.
+- #10: `enhancement`, `status:accepted`, `area:layout`, `area:session-state`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/10#issuecomment-4402657780`.
+- #11: `enhancement`, `status:accepted`, `area:tables`, `risk:scientific-correctness`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/11#issuecomment-4402657877`.
+- #12: `bug`, `status:accepted`, `area:operations-panel`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/12#issuecomment-4402657995`.
+- #13: `enhancement`, `status:accepted`, `area:operations-panel`, `risk:privacy`; comment posted at `https://github.com/dhoconno/lungfish-genome-explorer/issues/13#issuecomment-4402658114`.
 
-- Create reusable `status:*`, `area:*`, and `risk:*` labels listed above.
-- Apply the proposed labels issue by issue.
-- Post the proposed public comments, edited only to reflect any implementation or label state that has changed by then.
-- Leave all eight issues open.
-- Do not assign owners until the Project Lead has accepted implementation sequencing.
+All eight issues were intentionally left open. No assignees were set; implementation sequencing remains with the Project Lead and downstream expert teams.
 
 ## Verification Notes
 
@@ -213,6 +218,10 @@ Commands used during triage:
 - `gh issue view 12 --repo dhoconno/lungfish-genome-explorer --json number,title,body,labels,comments,url,createdAt,updatedAt,state,author`
 - `gh issue view 13 --repo dhoconno/lungfish-genome-explorer --json number,title,body,labels,comments,url,createdAt,updatedAt,state,author`
 - `gh label list --repo dhoconno/lungfish-genome-explorer --limit 100`
+- `gh label create|edit ... --repo dhoconno/lungfish-genome-explorer`
+- `gh issue edit <number> --repo dhoconno/lungfish-genome-explorer --add-label ...`
+- `gh issue comment <number> --repo dhoconno/lungfish-genome-explorer --body ...`
+- `gh issue list --repo dhoconno/lungfish-genome-explorer --state open --limit 20 --json number,title,labels,url`
 - `sed -n '1,220p' .gitignore`
 - `sed -n '1,120p' Sources/LungfishApp/Views/Operations/OperationsPanelController.swift`
 - `sed -n '930,1040p' Sources/LungfishApp/Views/Operations/OperationsPanelController.swift`
