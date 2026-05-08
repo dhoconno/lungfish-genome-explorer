@@ -322,13 +322,17 @@ Steps 1, 2, and 3 are mostly independent and could be done in parallel by separa
 
 These items came out of the post-implementation code review. They are tracked here so they don't get lost, but they are deliberately out of scope for the chapter PR. None block merging the chapter.
 
-### I4 — `bam adopt-mapping` hardcodes `sorted.bam`
+### I4 — `bam adopt-mapping` hardcodes `sorted.bam` (resolved by `ec14ba65`)
 
-`Sources/LungfishCLI/Commands/BAMAdoptMappingSubcommand.swift` looks for `sorted.bam` and `sorted.bam.bai` inside the mapping result directory. The constraint is that `lungfish map` always emits sorted, indexed BAM with that exact filename, so the hardcode is consistent with the producer side. If `lungfish map` ever grows configurable output names, or if a user wants to adopt a BAM produced by some other tool that emits a different filename, this command needs a `--bam` / `--bai` override pair. Cost is low (two new options + a fallback to the current filenames). Not worth doing speculatively.
+The `Fix provenance gaps in reads-to-variants workflows` commit (ec14ba65) replaced the bare attach with a provenance-aware adoption path that records the source `mapping-provenance.json` from the mapping result directory and writes an `adopt-mapping-provenance.json` sidecar next to the adopted BAM. The hardcoded filenames remain because `lungfish map` always emits `sorted.bam` and `sorted.bam.bai`, and the producer-side contract is now also exercised by the new integration tests. If a future `lungfish map --output-name` flag ever ships, the next maintainer will need to plumb that through here as `--bam` / `--bai` overrides; nothing about today's surface forces the issue.
 
-### I6 — `commandLine` for the iVar caller always shows `-g <missing>`
+### I6 — `commandLine` for the iVar caller always shows `-g <missing>` (resolved by `ec14ba65`)
 
-`ViralVariantCallingPipeline.commandLine(...)` builds a placeholder execution plan and calls `ivarVariantArguments(plan:gffURL:)` with `gffURL: nil`. The resulting commandLine string therefore never reflects the actual GFF passthrough that `runCaller(...)` performs. This affects only the human-readable provenance string that the pipeline records, not the run itself. The actual iVar invocation is captured separately by `NativeToolRunner` and does include `-g`. Fix is to thread the resolved `gffURL` (or a sentinel placeholder when not yet resolved) through `commandLine(...)`. Low priority because the run record already has the right command line via the tool runner.
+The placeholder `commandLine(...)` now consults `plannedIVarGFFURL(workingDirectory:)`, which inspects the bundle manifest's annotations and returns the planned GFF location when annotations exist (or `nil` when they do not). The recorded command line therefore reflects what the run actually does. The runtime path in `runCaller(...)` already used the resolved `gffURL`; this closes the symmetry on the placeholder side.
+
+### Source line for produced VCFs now carries iVar and Lungfish versions
+
+`ViralVariantCallingPipeline.runCaller(...)` builds the converter's `sourceLine` as `"iVar <version> (TSV-to-VCF: Lungfish <version>)"`, where the iVar version comes from `nativeToolVersion(for: .ivar)` and the Lungfish version from `WorkflowRun.currentAppVersion`. The parity test strips `##source=` lines before diffing against the Python reference, so this is invisible to that gate. Closes Suggestion 8 from the original review.
 
 ### I8+ — Suggestions from the review (non-blocking)
 

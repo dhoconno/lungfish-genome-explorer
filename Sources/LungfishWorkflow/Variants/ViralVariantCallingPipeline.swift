@@ -585,12 +585,14 @@ public struct ViralVariantCallingPipeline: Sendable {
             let contigs = (manifest.genome?.chromosomes ?? []).map { chrom in
                 IVarTSVToVCFConverter.Contig(name: chrom.name, length: Int(chrom.length))
             }
+            let ivarVersion = await nativeToolVersion(for: .ivar) ?? "unknown"
+            let lungfishVersion = WorkflowRun.currentAppVersion
             let options = IVarTSVToVCFConverter.Options(
                 consensusAF: request.ivarConsensusAF,
                 mergeAFThreshold: request.ivarMergeAFThreshold,
                 badQualityThreshold: request.ivarBadQualityThreshold,
                 ignoreStrandBias: request.ivarIgnoreStrandBias,
-                sourceLine: "iVar (TSV-to-VCF: Lungfish)",
+                sourceLine: "iVar \(ivarVersion) (TSV-to-VCF: Lungfish \(lungfishVersion))",
                 contigs: contigs,
                 gffMissingNote: gffURL == nil
             )
