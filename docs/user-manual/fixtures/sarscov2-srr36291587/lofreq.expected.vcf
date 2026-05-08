@@ -1,7 +1,7 @@
 ##fileformat=VCFv4.0
 ##FILTER=<ID=PASS,Description="All filters passed">
 ##fileDate=20260507
-##source=lofreq call -f /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/variants-41683B6F-28F0-47D1-A431-9EBE91B25FE7/workspace/inputs/reference.fa --no-default-filter -r MN908947.3:1-934 -o /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lofreq2_call_parallel15a5140d/0.vcf.gz /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/variants-41683B6F-28F0-47D1-A431-9EBE91B25FE7/workspace/inputs/aln_1D0387F4.bam 
+##source=lofreq call -f /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/variants-41683B6F-28F0-47D1-A431-9EBE91B25FE7/workspace/inputs/reference.fa --no-default-filter -r MN908947.3:1-934 -o /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/lofreq2_call_parallel15a5140d/0.vcf.gz /var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/variants-41683B6F-28F0-47D1-A431-9EBE91B25FE7/workspace/inputs/aln_1D0387F4.bam
 ##reference=/var/folders/pw/r9x37tvs2q5d6c044x2fhp200000gn/T/variants-41683B6F-28F0-47D1-A431-9EBE91B25FE7/workspace/inputs/reference.fa
 ##INFO=<ID=DP,Number=1,Type=Integer,Description="Raw Depth">
 ##INFO=<ID=AF,Number=1,Type=Float,Description="Allele Frequency">
