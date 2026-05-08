@@ -11,6 +11,10 @@ optionally followed by a "see also" cross-reference and a chapter reference.
 
 **Amplicon.** A target region of a genome amplified by PCR, used as the unit of an amplicon-based sequencing protocol such as ARTIC or QIASeqDIRECT. A run produces many overlapping amplicons that together tile the region of interest.
 
+## C
+
+**Codon.** A run of three consecutive bases inside a protein-coding gene that together encode one amino acid. Three adjacent SNPs falling inside one codon describe one amino acid change, not three; iVar can group them into a single VCF row when given a GFF annotation. See also: VCF.
+
 ## G
 
 **Genotype.** A compact notation for which alleles are observed at a variant position, conventionally diploid-style `0/1` (heterozygous) or `1/1` (homozygous alternate). For a single-organism viral isolate, confidently-called variants are nearly always `1/1`.
@@ -24,6 +28,12 @@ optionally followed by a "see also" cross-reference and a chapter reference.
 ## R
 
 **REF, ALT.** REF is the base or bases present in the reference genome at a variant position; ALT is the base or bases observed in the sample. A one-base REF and one-base ALT describe a SNP; longer REF or ALT describe insertions and deletions.
+
+## S
+
+**SRA (Sequence Read Archive).** The NCBI public archive of raw sequencing reads, identified by accession numbers that start with `SRR` for runs and `SRP` for projects. Lungfish downloads SRA reads via the ENA mirror first and falls back to the SRA Toolkit if ENA refuses.
+
+**Strand bias.** A pattern where reads supporting a variant come predominantly from one strand of the reference, often as an artifact of primer placement in amplicon protocols rather than a genuine biological signal. Variant callers apply a strand-bias filter to flag suspect calls; for amplicon data the filter is usually disabled because the imbalance is structural. See also: amplicon.
 
 ## V
 
