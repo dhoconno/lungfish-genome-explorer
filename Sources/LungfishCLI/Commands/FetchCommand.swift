@@ -425,14 +425,24 @@ struct SRADownloadSubcommand: AsyncParsableCommand {
                     }
                 }
             } else {
+                let quiet = globalOptions.quiet
+                let useColors = globalOptions.useColors
                 files = try await service.downloadFASTQWithFallback(
                     accession: accession,
-                    outputDir: outputURL
-                ) { progress in
-                    if !globalOptions.quiet {
-                        print(formatter.info("Download progress: \(Int(progress * 100))%"))
+                    outputDir: outputURL,
+                    progress: { progress in
+                        if !quiet {
+                            let formatter = TerminalFormatter(useColors: useColors)
+                            print(formatter.info("Download progress: \(Int(progress * 100))%"))
+                        }
+                    },
+                    onFallback: { message in
+                        if !quiet {
+                            let formatter = TerminalFormatter(useColors: useColors)
+                            print(formatter.info(message))
+                        }
                     }
-                }
+                )
             }
 
             if globalOptions.outputFormat == .json {

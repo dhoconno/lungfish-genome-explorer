@@ -504,11 +504,16 @@ public actor SRAService {
     ///   - accession: SRA/ENA run accession.
     ///   - outputDir: Output directory (defaults to a temp folder when nil).
     ///   - progress: Optional progress callback (0.0–1.0).
+    ///   - onFallback: Optional callback invoked exactly once when the ENA path
+    ///     throws and the toolkit retry is about to start. Receives a
+    ///     human-readable message suitable for display in CLI output or an
+    ///     operation row note.
     /// - Returns: URLs to downloaded FASTQ files.
     public func downloadFASTQWithFallback(
         accession: String,
         outputDir: URL?,
-        progress: (@Sendable (Double) -> Void)? = nil
+        progress: (@Sendable (Double) -> Void)? = nil,
+        onFallback: (@Sendable (String) -> Void)? = nil
     ) async throws -> [URL] {
         let ena: DownloadStrategy = enaDownloader ?? { acc, dir in
             try await self.downloadFASTQFromENA(accession: acc, outputDir: dir, progress: progress)
@@ -519,6 +524,7 @@ public actor SRAService {
         do {
             return try await ena(accession, outputDir)
         } catch let enaError {
+            onFallback?("Falling back to SRA Toolkit (prefetch + fasterq-dump)…")
             do {
                 return try await toolkit(accession, outputDir)
             } catch let toolkitError {
