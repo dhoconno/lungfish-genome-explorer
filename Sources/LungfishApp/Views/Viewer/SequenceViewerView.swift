@@ -195,6 +195,11 @@ public class SequenceViewerView: NSView {
         return Double(sign * deltaX) * scale * panScale
     }
 
+    static func pinchZoomFactor(magnification: CGFloat) -> Double {
+        let proposed = 1.0 + Double(magnification)
+        return min(8.0, max(0.125, proposed))
+    }
+
     private static func effectiveHorizontalScrollDirection(
         bundleOverride: ScrollDirectionPreference?,
         globalPreference: ScrollDirectionPreference
@@ -1285,6 +1290,10 @@ public class SequenceViewerView: NSView {
             bundleOverride: bundleOverride,
             globalPreference: globalPreference
         )
+    }
+
+    static func pinchZoomFactorForTesting(magnification: CGFloat) -> Double {
+        pinchZoomFactor(magnification: magnification)
     }
 
     func testSetCachedAlignedReads(_ reads: [AlignedRead]) {
@@ -7094,6 +7103,14 @@ public class SequenceViewerView: NSView {
 
     /// Scroll wheel for zooming and panning.
     /// Pan events are coalesced at 60fps to avoid redundant redraws.
+    public override func magnify(with event: NSEvent) {
+        let factor = Self.pinchZoomFactor(magnification: event.magnification)
+        guard abs(factor - 1.0) > 0.001 else { return }
+        let location = convert(event.locationInWindow, from: nil)
+        viewController?.zoomByPinchFactor(factor, anchorX: location.x)
+        invalidateAnnotationTile()
+    }
+
     public override func scrollWheel(with event: NSEvent) {
         guard let frame = viewController?.referenceFrame else { return }
 

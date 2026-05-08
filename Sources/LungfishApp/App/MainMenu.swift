@@ -448,6 +448,22 @@ public final class MainMenu {
         inspectorItem.keyEquivalentModifierMask = [.command, .option]
         inspectorItem.tag = 1001  // Tag to identify this menu item for validation
 
+        let focusViewerItem = viewMenu.addItem(
+            withTitle: "Focus Viewer",
+            action: #selector(ViewMenuActions.focusViewer(_:)),
+            keyEquivalent: "f"
+        )
+        focusViewerItem.keyEquivalentModifierMask = [.command, .option]
+        focusViewerItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.focusViewer)
+
+        let restorePanesItem = viewMenu.addItem(
+            withTitle: "Restore Side Panes",
+            action: #selector(ViewMenuActions.restoreSidePanes(_:)),
+            keyEquivalent: "f"
+        )
+        restorePanesItem.keyEquivalentModifierMask = [.command, .control, .option]
+        restorePanesItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.restoreSidePanes)
+
         // Document Inspector
         let docInspectorItem = viewMenu.addItem(
             withTitle: "Document Inspector",
@@ -961,6 +977,8 @@ public final class MainMenu {
 @objc protocol ViewMenuActions {
     func toggleSidebar(_ sender: Any?)
     func toggleInspector(_ sender: Any?)
+    func focusViewer(_ sender: Any?)
+    func restoreSidePanes(_ sender: Any?)
     func zoomIn(_ sender: Any?)
     func zoomOut(_ sender: Any?)
     func zoomToFit(_ sender: Any?)

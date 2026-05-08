@@ -1,3 +1,35 @@
+# Deny-by-default: keep accidental local outputs, agent scratch, and generated
+# artifacts out of git unless they live under an explicitly reviewed project path.
+*
+!*/
+!.gitignore
+!.github/**
+!.vscode/launch.json
+!.claude/agents/*.md
+!.codex/agents/*.md
+!.codex/environments/environment.toml
+!LICENSE
+!Lungfish.xcodeproj/**
+!Package.resolved
+!Package.swift
+!PLAN.md
+!README.md
+!Resources/**
+!SESSION-NOTES.md
+!SKILLS.md
+!Sources/**
+!THIRD-PARTY-NOTICES
+!TestData/**
+!Tests/**
+!containers/**
+!docs/**
+!lungfish-cli.entitlements
+!roles/**
+!scripts/**
+!sign-cli.sh
+!test-data/test-annotated.gb
+!test-data/test-sequence.fa
+
 # Swift Package Manager
 .build/
 .swiftpm/

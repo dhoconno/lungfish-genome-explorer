@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Testing
+import Foundation
 @testable import LungfishApp
 
 struct ColumnFilterTests {
@@ -181,5 +182,55 @@ struct ColumnFilterTests {
         // matchesString with a numeric filter should try to parse the string as a number
         #expect(!filter.matchesString("not a number"))
         #expect(filter.matchesString("200"))  // "200" parses as number
+    }
+
+    // MARK: - Inverted Filters
+
+    @Test
+    func invertedTextFilterExcludesMatchingValues() {
+        let filter = ColumnFilter(columnId: "name", op: .contains, value: "control", isInverted: true)
+        #expect(!filter.matchesString("negative control"))
+        #expect(filter.matchesString("sample A"))
+    }
+
+    @Test
+    func invertedNumericFilterExcludesMatchingValues() {
+        let filter = ColumnFilter(columnId: "reads", op: .greaterOrEqual, value: "1000", isInverted: true)
+        #expect(!filter.matchesNumeric(1500))
+        #expect(filter.matchesNumeric(999))
+    }
+
+    // MARK: - Filter Sets
+
+    @Test
+    func filterSetSupportsAllAndAnyComposition() {
+        let filters = [
+            ColumnFilter(columnId: "reads", op: .greaterOrEqual, value: "100"),
+            ColumnFilter(columnId: "name", op: .contains, value: "virus"),
+        ]
+        let all = ColumnFilterSet(filters: filters, composition: .all)
+        let any = ColumnFilterSet(filters: filters, composition: .any)
+
+        #expect(all.matches { filter in
+            filter.columnId == "reads" ? filter.matchesNumeric(50) : filter.matchesString("Norovirus")
+        } == false)
+        #expect(any.matches { filter in
+            filter.columnId == "reads" ? filter.matchesNumeric(50) : filter.matchesString("Norovirus")
+        } == true)
+    }
+
+    @Test
+    func filterSetCodableRoundTripPreservesCompositionAndInversion() throws {
+        let set = ColumnFilterSet(
+            filters: [
+                ColumnFilter(columnId: "sample", op: .contains, value: "blank", isInverted: true),
+                ColumnFilter(columnId: "reads", op: .between, value: "10", value2: "100"),
+            ],
+            composition: .any
+        )
+
+        let data = try JSONEncoder().encode(set)
+        let decoded = try JSONDecoder().decode(ColumnFilterSet.self, from: data)
+        #expect(decoded == set)
     }
 }

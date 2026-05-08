@@ -372,6 +372,31 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertEqual(controller.testingSidebarConstraintWidth, 260, accuracy: 2)
     }
 
+    func testFocusViewerCollapsesBothSidePanesAndRestoreShowsThemAgain() {
+        let (controller, window) = makeController()
+        controller.testingSetShellFrames(sidebarWidth: 320, inspectorWidth: 340, totalWidth: 1500)
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.focusViewer()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertFalse(controller.isSidebarVisible)
+        XCTAssertFalse(controller.isInspectorVisible)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: MainSplitViewController.sidebarCollapsedDefaultsKey))
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey))
+
+        controller.restoreSidePanes()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertTrue(controller.isSidebarVisible)
+        XCTAssertTrue(controller.isInspectorVisible)
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: MainSplitViewController.sidebarCollapsedDefaultsKey))
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: MainSplitViewController.inspectorCollapsedDefaultsKey))
+    }
+
     private func makeController() -> (MainSplitViewController, NSWindow) {
         let controller = MainSplitViewController()
         let window = NSWindow(

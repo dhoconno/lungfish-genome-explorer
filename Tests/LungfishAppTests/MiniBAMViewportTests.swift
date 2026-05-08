@@ -55,6 +55,50 @@ final class MiniBAMViewportTests: XCTestCase {
         XCTAssertEqual(pileupView.testInferredReferenceBaseCount, inferred.count)
     }
 
+    func testMiniBAMPinchZoomLevelMapsDirectionAndClampsToViewportBounds() {
+        XCTAssertGreaterThan(
+            MiniBAMViewController.testingZoomLevel(
+                afterMagnification: 0.2,
+                currentZoom: 2,
+                contigLength: 10_000
+            ),
+            2
+        )
+        XCTAssertLessThan(
+            MiniBAMViewController.testingZoomLevel(
+                afterMagnification: -0.2,
+                currentZoom: 2,
+                contigLength: 10_000
+            ),
+            2
+        )
+        XCTAssertEqual(
+            MiniBAMViewController.testingZoomLevel(
+                afterMagnification: 0,
+                currentZoom: 2,
+                contigLength: 10_000
+            ),
+            2,
+            accuracy: 0.001
+        )
+        XCTAssertGreaterThanOrEqual(
+            MiniBAMViewController.testingZoomLevel(
+                afterMagnification: -10,
+                currentZoom: 2,
+                contigLength: 10_000
+            ),
+            1
+        )
+        XCTAssertLessThanOrEqual(
+            MiniBAMViewController.testingZoomLevel(
+                afterMagnification: 10,
+                currentZoom: 20_000,
+                contigLength: 10_000
+            ),
+            5_000
+        )
+    }
+
     private func makeReads(count: Int) -> [AlignedRead] {
         let cigar = [CIGAROperation(op: .match, length: 150)]
         let sequence = String(repeating: "A", count: 150)

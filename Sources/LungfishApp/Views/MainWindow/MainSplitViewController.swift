@@ -2048,20 +2048,22 @@ public class MainSplitViewController: NSSplitViewController {
                 prepareInspectorRevealWidthIfNeeded()
             }
             beginProgrammaticShellResizeSuppression()
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
-                inspectorItem.animator().isCollapsed = targetCollapsedState
-            } completionHandler: { [weak self] in
-                DispatchQueue.main.async { [weak self] in
-                    MainActor.assumeIsolated {
-                        guard let self else { return }
-                        self.queuedInspectorCollapsedState = nil
-                        self.finalizeInspectorVisibilityChange(source: source)
-                    }
-                }
-            }
+            inspectorItem.isCollapsed = targetCollapsedState
+            queuedInspectorCollapsedState = nil
+            finalizeInspectorVisibilityChange(source: source)
         }
+    }
+
+    /// Collapses both side panes so the viewer uses the full workspace width.
+    @objc public func focusViewer() {
+        setSidebarVisible(false, animated: false)
+        setInspectorVisible(false, animated: false, source: "api.focusViewer")
+    }
+
+    /// Restores the primary side panes after focused viewer mode.
+    @objc public func restoreSidePanes() {
+        setSidebarVisible(true, animated: false)
+        setInspectorVisible(true, animated: false, source: "api.restoreSidePanes")
     }
 
     /// Runs an inspector collapse/expand animation, serializing concurrent requests.

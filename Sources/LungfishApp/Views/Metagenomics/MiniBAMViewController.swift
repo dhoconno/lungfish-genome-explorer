@@ -210,6 +210,9 @@ public final class MiniBAMViewController: NSViewController {
         pileupView.onZoomInRequested = { [weak self] in self?.zoomIn() }
         pileupView.onZoomOutRequested = { [weak self] in self?.zoomOut() }
         pileupView.onZoomToFitRequested = { [weak self] in self?.zoomToFit() }
+        pileupView.onMagnification = { [weak self] magnification in
+            self?.applyMagnification(magnification)
+        }
     }
 
     public override func viewWillAppear() {
@@ -384,6 +387,20 @@ public final class MiniBAMViewController: NSViewController {
         applyZoom(1.0)
     }
 
+    public override func magnify(with event: NSEvent) {
+        applyMagnification(event.magnification)
+    }
+
+    private func applyMagnification(_ magnification: CGFloat) {
+        let newZoom = Self.zoomLevel(
+            afterMagnification: magnification,
+            currentZoom: zoomLevel,
+            contigLength: contigLength
+        )
+        guard abs(newZoom - zoomLevel) > 0.001 else { return }
+        applyZoom(newZoom)
+    }
+
     /// Applies a new zoom level and re-renders the pileup.
     private func applyZoom(_ newZoom: Double) {
         // Remember viewport center position in bp coordinates
@@ -412,6 +429,16 @@ public final class MiniBAMViewController: NSViewController {
         scrollView.reflectScrolledClipView(scrollView.contentView)
 
         updateZoomStatus()
+    }
+
+    private static func zoomLevel(
+        afterMagnification magnification: CGFloat,
+        currentZoom: Double,
+        contigLength: Int
+    ) -> Double {
+        let factor = SequenceViewerView.pinchZoomFactor(magnification: magnification)
+        let maxZoom = max(1, Double(contigLength) / 2.0)
+        return min(maxZoom, max(1.0, currentZoom * factor))
     }
 
     private func updatePileupForViewportResizeIfNeeded() {
@@ -606,6 +633,18 @@ public final class MiniBAMViewController: NSViewController {
         readNameAllowlist: Set<String>?
     ) -> DisplayReadStats {
         displayReadsAndUniqueCount(from: fetchedReads, readNameAllowlist: readNameAllowlist)
+    }
+
+    static func testingZoomLevel(
+        afterMagnification magnification: CGFloat,
+        currentZoom: Double,
+        contigLength: Int
+    ) -> Double {
+        zoomLevel(
+            afterMagnification: magnification,
+            currentZoom: currentZoom,
+            contigLength: contigLength
+        )
     }
 
     // MARK: - Keyboard Shortcuts
@@ -831,6 +870,7 @@ final class MiniPileupView: NSView {
     var onZoomInRequested: (() -> Void)?
     var onZoomOutRequested: (() -> Void)?
     var onZoomToFitRequested: (() -> Void)?
+    var onMagnification: ((CGFloat) -> Void)?
 
     /// Index of the last read that was right-clicked (for context menu).
     var lastClickedReadIndex: Int?
@@ -1553,6 +1593,10 @@ final class MiniPileupView: NSView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func magnify(with event: NSEvent) {
+        onMagnification?(event.magnification)
     }
 
     /// Finds the read index at a given point in view coordinates.

@@ -378,6 +378,51 @@ struct KrakenTaxonomyRegressionTests {
         #expect(table.sortedChildren(of: viruses).map(\.name) == ["Coronaviridae"])
         #expect(table.sortedChildren(of: family).map(\.name) == ["Severe acute respiratory syndrome-related coronavirus"])
     }
+
+    @Test("Kraken taxonomy table applies OR composition across active filters")
+    func taxonomyColumnFiltersSupportOrComposition() {
+        let root = TaxonNode(
+            taxId: 1, name: "Root", rank: .root, depth: 0,
+            readsDirect: 0, readsClade: 1_500, fractionClade: 1.0, fractionDirect: 0.0, parentTaxId: nil
+        )
+        let viruses = TaxonNode(
+            taxId: 10239, name: "Viruses", rank: .domain, depth: 1,
+            readsDirect: 20, readsClade: 20, fractionClade: 0.02, fractionDirect: 0.02, parentTaxId: 1
+        )
+        let bacteria = TaxonNode(
+            taxId: 2, name: "Bacteria", rank: .domain, depth: 1,
+            readsDirect: 1_000, readsClade: 1_000, fractionClade: 0.66, fractionDirect: 0.66, parentTaxId: 1
+        )
+        root.addChild(viruses)
+        root.addChild(bacteria)
+
+        let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        table.tree = TaxonTree(root: root, unclassifiedNode: nil, totalReads: 1_500)
+        table.testingApplyColumnFilter(.init(columnId: "name", op: .contains, value: "virus"))
+        table.testingApplyColumnFilter(.init(columnId: "reads", op: .greaterOrEqual, value: "500"))
+        table.setColumnFilterComposition(.any)
+
+        #expect(Set(table.sortedChildren(of: root).map(\.name)) == Set(["Viruses", "Bacteria"]))
+    }
+
+    @Test("Custom classifier table sources expose shared exclude and composition controls")
+    func customClassifierTablesExposeSharedFilterControls() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        for relativePath in [
+            "Sources/LungfishApp/Views/Metagenomics/TaxonomyTableView.swift",
+            "Sources/LungfishApp/Views/Metagenomics/ViralDetectionTableView.swift",
+            "Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift",
+        ] {
+            let source = try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+            #expect(source.contains("ColumnFilterSet"))
+            #expect(source.contains("Combine Filters"))
+            #expect(source.contains("Exclude matching rows"))
+            #expect(source.contains("headerToolTip"))
+        }
+    }
 }
 
 @Suite("EsViritu metadata columns")
@@ -717,6 +762,32 @@ struct Kraken2BatchColumnTypeTests {
         #expect(hints["sample"] == false)
         #expect(hints["name"] == false)
         #expect(hints["rank"] == false)
+    }
+
+    @Test("BatchClassificationTableView applies OR composition across active filters")
+    func batchClassificationOrFilterComposition() {
+        let table = BatchClassificationTableView()
+        table.configure(rows: [
+            BatchClassificationRow(sample: "S1", taxonName: "Norovirus", taxId: 1, rank: "S", rankDisplayName: "Species", readsDirect: 10, readsClade: 20, percentage: 1.0),
+            BatchClassificationRow(sample: "S2", taxonName: "Bacteria", taxId: 2, rank: "G", rankDisplayName: "Genus", readsDirect: 900, readsClade: 1200, percentage: 8.0),
+            BatchClassificationRow(sample: "S3", taxonName: "Host", taxId: 3, rank: "S", rankDisplayName: "Species", readsDirect: 5, readsClade: 9, percentage: 0.1),
+        ])
+
+        table.setColumnFilter(ColumnFilter(columnId: "name", op: .contains, value: "virus"), for: "name")
+        table.setColumnFilter(ColumnFilter(columnId: "readsClade", op: .greaterOrEqual, value: "1000"), for: "readsClade")
+        table.setColumnFilterComposition(.any)
+
+        #expect(table.displayedRows.map(\.sample) == ["S1", "S2"])
+    }
+
+    @Test("BatchClassificationTableView exposes units and descriptions in header tooltips")
+    func batchClassificationColumnsHaveHeaderTooltips() {
+        let table = BatchClassificationTableView()
+        let readsColumn = table.tableView.tableColumns.first { $0.identifier.rawValue == "readsClade" }
+        let percentColumn = table.tableView.tableColumns.first { $0.identifier.rawValue == "percent" }
+
+        #expect(readsColumn?.headerToolTip?.contains("reads") == true)
+        #expect(percentColumn?.headerToolTip?.contains("percent") == true)
     }
 }
 

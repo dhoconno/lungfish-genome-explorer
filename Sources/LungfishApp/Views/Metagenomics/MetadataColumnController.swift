@@ -155,6 +155,7 @@ final class MetadataColumnController {
             let identifier = "\(metadataColumnPrefix)\(colName)"
             let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier))
             col.title = colName
+            col.headerToolTip = Self.metadataHeaderToolTip(for: colName)
             col.width = defaultColumnWidths[identifier] ?? 100
             configureFlexibleColumn(col)
             col.sortDescriptorPrototype = NSSortDescriptor(
@@ -190,6 +191,10 @@ final class MetadataColumnController {
         rememberDefaultWidth(for: column)
         column.minWidth = 0
         column.maxWidth = CGFloat.greatestFiniteMagnitude
+    }
+
+    private static func metadataHeaderToolTip(for columnName: String) -> String {
+        "Sample metadata: \(columnName)"
     }
 
     private func rememberDefaultWidth(for column: NSTableColumn) {

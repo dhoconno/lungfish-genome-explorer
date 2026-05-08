@@ -121,6 +121,32 @@ final class ViewerRegressionTests: XCTestCase {
         )
     }
 
+    func testPinchMagnificationFactorMapsDirectionAndClampsExtremes() {
+        XCTAssertGreaterThan(SequenceViewerView.pinchZoomFactorForTesting(magnification: 0.12), 1.0)
+        XCTAssertLessThan(SequenceViewerView.pinchZoomFactorForTesting(magnification: -0.12), 1.0)
+        XCTAssertEqual(SequenceViewerView.pinchZoomFactorForTesting(magnification: 0), 1.0, accuracy: 0.001)
+        XCTAssertLessThanOrEqual(SequenceViewerView.pinchZoomFactorForTesting(magnification: 10), 8.0)
+        XCTAssertGreaterThanOrEqual(SequenceViewerView.pinchZoomFactorForTesting(magnification: -10), 0.125)
+    }
+
+    func testReferenceFramePinchZoomKeepsAnchorPositionStable() {
+        let frame = ReferenceFrame(
+            chromosome: "chr1",
+            start: 1_000,
+            end: 9_000,
+            pixelWidth: 1_000,
+            sequenceLength: 20_000
+        )
+        frame.trailingInset = ReferenceFrame.defaultTrailingInset
+        let anchorX: CGFloat = 250
+        let anchoredPosition = frame.genomicPosition(for: anchorX)
+
+        frame.zoom(by: 2.0, anchorScreenX: anchorX)
+
+        XCTAssertEqual(frame.genomicPosition(for: anchorX), anchoredPosition, accuracy: 0.5)
+        XCTAssertEqual(frame.end - frame.start, 4_000, accuracy: 0.5)
+    }
+
     func testBundleAnnotationDisplayKeepsSubpixelFeaturesInSquishedModeAtNarrowWidths() {
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 240))
         let frame = ReferenceFrame(

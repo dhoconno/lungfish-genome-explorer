@@ -40,6 +40,24 @@ struct BatchColumnSpec {
     let minWidth: CGFloat
     /// Whether the column sorts ascending by default (`true`) or descending (`false`).
     let defaultAscending: Bool
+    /// Optional header tooltip describing units and interpretation.
+    let toolTip: String?
+
+    init(
+        identifier: NSUserInterfaceItemIdentifier,
+        title: String,
+        width: CGFloat,
+        minWidth: CGFloat,
+        defaultAscending: Bool,
+        toolTip: String? = nil
+    ) {
+        self.identifier = identifier
+        self.title = title
+        self.width = width
+        self.minWidth = minWidth
+        self.defaultAscending = defaultAscending
+        self.toolTip = toolTip
+    }
 }
 
 // MARK: - BatchTableView
@@ -158,7 +176,12 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     var unfilteredRows: [Row] = []
 
     /// Per-column filters applied via column header click menus.
-    internal(set) var columnFilters: [String: ColumnFilter] = [:]
+    internal(set) var columnFilterSet = ColumnFilterSet()
+
+    /// Compatibility view of active filters keyed by column identifier.
+    var columnFilters: [String: ColumnFilter] {
+        columnFilterSet.activeFiltersByColumn()
+    }
 
     /// Original column titles before filter indicators were appended.
     private var originalColumnTitles: [String: String] = [:]
@@ -295,12 +318,58 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
             col.title    = spec.title
             col.width    = spec.width
             col.minWidth = spec.minWidth
+            col.headerToolTip = spec.toolTip ?? Self.defaultHeaderToolTip(for: spec)
             col.sortDescriptorPrototype = NSSortDescriptor(
                 key: spec.identifier.rawValue,
                 ascending: spec.defaultAscending
             )
             tableView.addTableColumn(col)
         }
+    }
+
+    private static func defaultHeaderToolTip(for spec: BatchColumnSpec) -> String? {
+        let title = spec.title
+        let normalized = title.lowercased()
+        if normalized == "sample" {
+            return "Sample identifier."
+        }
+        if normalized == "name" || normalized == "organism" {
+            return "Taxon or organism name."
+        }
+        if normalized == "rank" {
+            return "Taxonomic rank."
+        }
+        if normalized.contains("unique reads") {
+            return "Unique or deduplicated reads."
+        }
+        if normalized.contains("reads") {
+            return "Read count in reads."
+        }
+        if normalized == "%" {
+            return "Classified read percentage."
+        }
+        if normalized.contains("coverage breadth") || normalized == "coverage" {
+            return "Percent of reference bases covered."
+        }
+        if normalized.contains("coverage depth") {
+            return "Mean read depth over the reference."
+        }
+        if normalized.contains("abundance") {
+            return "Estimated relative abundance."
+        }
+        if normalized.contains("tass score") {
+            return "TaxTriage confidence score."
+        }
+        if normalized.contains("confidence") {
+            return "Classifier confidence label."
+        }
+        if normalized.contains("rpkmf") {
+            return "Reads per kilobase per million fragments."
+        }
+        if normalized.contains("assembly") || normalized.contains("family") {
+            return title
+        }
+        return nil
     }
 
     // MARK: - Public API
@@ -357,24 +426,11 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
             filtered = unfilteredRows.filter { rowMatchesFilter($0, filterText: filterText) }
         }
 
-        // Apply per-column filters
-        for (columnId, filter) in columnFilters where filter.isActive {
+        if columnFilterSet.isActive {
             filtered = filtered.filter { row in
-                let value = columnValue(for: columnId, row: row)
-                // Try numeric match first for numeric columns
-                if columnTypeHints[columnId] == true, let num = Double(value) {
-                    return filter.matchesNumeric(num)
+                columnFilterSet.matches { filter in
+                    rowMatchesColumnFilter(filter, row: row)
                 }
-                // Also try metadata columns
-                if columnId.hasPrefix("metadata_"), let sid = sampleId(for: row),
-                   let store = metadataColumns.store,
-                   let metaValue = store.records[sid]?[String(columnId.dropFirst("metadata_".count))] {
-                    if let num = Double(metaValue) {
-                        return filter.matchesNumeric(num)
-                    }
-                    return filter.matchesString(metaValue)
-                }
-                return filter.matchesString(value)
             }
         }
 
@@ -388,9 +444,33 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
             self.displayedRows = filtered
         }
         tableView.reloadData()
-        ColumnFilter.updateColumnTitleIndicators(on: tableView, filters: columnFilters, originalTitles: &originalColumnTitles)
+        ColumnFilter.updateColumnTitleIndicators(
+            on: tableView,
+            filters: columnFilterSet.activeFiltersByColumn(),
+            originalTitles: &originalColumnTitles
+        )
         restoreSelectionByIdentityAfterDisplayedRowsChanged()
         didApplyDisplayedRows()
+    }
+
+    private func rowMatchesColumnFilter(_ filter: ColumnFilter, row: Row) -> Bool {
+        let columnId = filter.columnId
+
+        if columnId.hasPrefix("metadata_"), let sid = sampleId(for: row),
+           let store = metadataColumns.store,
+           let metaValue = store.records[sid]?[String(columnId.dropFirst("metadata_".count))] {
+            if columnTypeHints[columnId] == true || ColumnFilter.parseNumericValue(metaValue) != nil,
+               let num = ColumnFilter.parseNumericValue(metaValue) {
+                return filter.matchesNumeric(num)
+            }
+            return filter.matchesString(metaValue)
+        }
+
+        let value = columnValue(for: columnId, row: row)
+        if columnTypeHints[columnId] == true, let num = ColumnFilter.parseNumericValue(value) {
+            return filter.matchesNumeric(num)
+        }
+        return filter.matchesString(value)
     }
 
     /// Returns the current free-text filter query.
@@ -430,19 +510,31 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     /// Replaces or inserts a column filter and refreshes the table.
     func setColumnFilter(_ filter: ColumnFilter, for columnId: String) {
-        columnFilters[columnId] = filter
+        columnFilterSet.replaceFilters(for: columnId, with: filter)
+        applyFilter()
+    }
+
+    /// Appends a column filter without replacing other filters on the same column.
+    func addColumnFilter(_ filter: ColumnFilter) {
+        columnFilterSet.append(filter)
+        applyFilter()
+    }
+
+    /// Sets whether active filters compose as AND or OR.
+    func setColumnFilterComposition(_ composition: ColumnFilterComposition) {
+        columnFilterSet.composition = composition
         applyFilter()
     }
 
     /// Removes one column filter and refreshes the table.
     func clearColumnFilter(for columnId: String) {
-        columnFilters.removeValue(forKey: columnId)
+        columnFilterSet.removeFilters(for: columnId)
         applyFilter()
     }
 
     /// Removes every column filter and refreshes the table.
     func clearAllColumnFilters() {
-        columnFilters.removeAll()
+        columnFilterSet.removeAll()
         applyFilter()
     }
 
@@ -552,6 +644,23 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         }
 
         if !columnFilters.filter({ $0.value.isActive }).isEmpty {
+            menu.addItem(NSMenuItem.separator())
+
+            let compositionItem = NSMenuItem(title: "Combine Filters", action: nil, keyEquivalent: "")
+            let compositionMenu = NSMenu(title: "Combine Filters")
+            for (title, composition) in [
+                ("All Filters (AND)", ColumnFilterComposition.all),
+                ("Any Filter (OR)", ColumnFilterComposition.any),
+            ] {
+                let item = NSMenuItem(title: title, action: #selector(batchSetFilterComposition(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = composition.rawValue
+                item.state = columnFilterSet.composition == composition ? .on : .off
+                compositionMenu.addItem(item)
+            }
+            compositionItem.submenu = compositionMenu
+            menu.addItem(compositionItem)
+
             let clearAllItem = NSMenuItem(title: "Clear All Filters", action: #selector(batchClearAllColumnFilters(_:)), keyEquivalent: "")
             clearAllItem.target = self
             menu.addItem(clearAllItem)
@@ -576,24 +685,26 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
         alert.addButton(withTitle: "Apply")
         alert.addButton(withTitle: "Cancel")
 
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
         field.placeholderString = op == .between ? "min value" : "filter value"
+        let excludeCheckbox = NSButton(checkboxWithTitle: "Exclude matching rows", target: nil, action: nil)
+        excludeCheckbox.controlSize = .small
 
+        let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 260, height: op == .between ? 78 : 50))
+        stack.orientation = .vertical
+        stack.spacing = 5
+        stack.addArrangedSubview(field)
         if op == .between {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
-            stack.orientation = .vertical
-            stack.spacing = 4
-            let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+            let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
             field2.placeholderString = "max value"
-            stack.addArrangedSubview(field)
             stack.addArrangedSubview(field2)
-            alert.accessoryView = stack
-        } else {
-            alert.accessoryView = field
         }
+        stack.addArrangedSubview(excludeCheckbox)
+        alert.accessoryView = stack
 
-        if let existing = columnFilters[columnId] {
+        if let existing = columnFilterSet.activeFilters.first(where: { $0.columnId == columnId && $0.op == op }) {
             field.stringValue = existing.value
+            excludeCheckbox.state = existing.isInverted ? .on : .off
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -603,13 +714,18 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
             var value2: String? = nil
             if op == .between, let stack = alert.accessoryView as? NSStackView,
-               let field2 = stack.arrangedSubviews.last as? NSTextField {
+               let field2 = stack.arrangedSubviews.compactMap({ $0 as? NSTextField }).dropFirst().first {
                 value2 = field2.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            self.setColumnFilter(
-                ColumnFilter(columnId: columnId, op: op, value: value, value2: value2),
-                for: columnId
+            self.addColumnFilter(
+                ColumnFilter(
+                    columnId: columnId,
+                    op: op,
+                    value: value,
+                    value2: value2,
+                    isInverted: excludeCheckbox.state == .on
+                )
             )
         }
     }
@@ -633,6 +749,12 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
     @objc private func batchClearAllColumnFilters(_ sender: Any?) {
         clearAllColumnFilters()
+    }
+
+    @objc private func batchSetFilterComposition(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
+        setColumnFilterComposition(composition)
     }
 
     // MARK: - NSTableViewDelegate

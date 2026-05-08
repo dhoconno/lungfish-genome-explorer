@@ -4210,6 +4210,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         mainWindowController?.mainSplitViewController?.toggleInspector(source: "AppDelegate.toggleInspector")
     }
 
+    @objc func focusViewer(_ sender: Any?) {
+        mainWindowController?.mainSplitViewController?.focusViewer()
+    }
+
+    @objc func restoreSidePanes(_ sender: Any?) {
+        mainWindowController?.mainSplitViewController?.restoreSidePanes()
+    }
+
     @objc func zoomIn(_ sender: Any?) {
         mainWindowController?.mainSplitViewController?.viewerController?.zoomIn()
     }

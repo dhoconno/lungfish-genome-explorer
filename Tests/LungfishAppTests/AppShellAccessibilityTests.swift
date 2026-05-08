@@ -23,6 +23,12 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertEqual(importCenterItem.identifier?.rawValue, "file-menu-import-center")
         XCTAssertEqual(clearTemporaryFilesItem.identifier?.rawValue, "file-menu-clear-temporary-files")
 
+        let viewMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "View" })?.submenu)
+        let focusViewerItem = try XCTUnwrap(viewMenu.items.first(where: { $0.title == "Focus Viewer" }))
+        let restoreSidePanesItem = try XCTUnwrap(viewMenu.items.first(where: { $0.title == "Restore Side Panes" }))
+        XCTAssertEqual(focusViewerItem.identifier?.rawValue, "view-menu-focus-viewer")
+        XCTAssertEqual(restoreSidePanesItem.identifier?.rawValue, "view-menu-restore-side-panes")
+
         let windowMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Window" })?.submenu)
         XCTAssertNil(
             windowMenu.items.first(where: { $0.title == "Move & Resize" }),

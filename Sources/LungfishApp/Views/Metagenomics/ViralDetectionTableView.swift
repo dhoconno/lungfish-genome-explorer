@@ -308,7 +308,11 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     // MARK: - Per-Column Filters
 
     /// Per-column filters applied via column header click menus.
-    private var columnFilters: [String: ColumnFilter] = [:]
+    private var columnFilterSet = ColumnFilterSet()
+
+    private var columnFilters: [String: ColumnFilter] {
+        columnFilterSet.activeFiltersByColumn()
+    }
 
     /// Original column titles for filter indicator management.
     private var originalColumnTitles: [String: String] = [:]
@@ -399,6 +403,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Sample column
         let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.sample))
         sampleCol.title = "Sample"
+        sampleCol.headerToolTip = "Sample identifier for this viral detection row."
         sampleCol.minWidth = 90
         sampleCol.width = 130
         sampleCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.sample, ascending: true)
@@ -407,6 +412,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Name column (flexible width)
         let nameCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.name))
         nameCol.title = "Virus Name"
+        nameCol.headerToolTip = "Virus or viral assembly display name."
         nameCol.minWidth = 160
         nameCol.width = 220
         nameCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.name, ascending: true)
@@ -415,6 +421,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Family column
         let familyCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.family))
         familyCol.title = "Family"
+        familyCol.headerToolTip = "Taxonomic family assigned to the viral detection."
         familyCol.width = 100
         familyCol.minWidth = 60
         familyCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.family, ascending: true)
@@ -423,6 +430,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Reads column
         let readsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.reads))
         readsCol.title = "Reads"
+        readsCol.headerToolTip = "Mapped read count supporting this viral detection."
         readsCol.width = 70
         readsCol.minWidth = 50
         readsCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.reads, ascending: false)
@@ -431,6 +439,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Unique Reads column
         let uniqueReadsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.uniqueReads))
         uniqueReadsCol.title = "Unique Reads"
+        uniqueReadsCol.headerToolTip = "Deduplicated read count for this viral detection."
         uniqueReadsCol.width = 85
         uniqueReadsCol.minWidth = 60
         uniqueReadsCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.uniqueReads, ascending: false)
@@ -439,6 +448,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // RPKMF column
         let rpkmfCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.rpkmf))
         rpkmfCol.title = "RPKMF"
+        rpkmfCol.headerToolTip = "Reads per kilobase per million filtered reads."
         rpkmfCol.width = 70
         rpkmfCol.minWidth = 50
         rpkmfCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.rpkmf, ascending: false)
@@ -447,6 +457,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Coverage column (sparkline + text)
         let covCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.coverage))
         covCol.title = "Coverage"
+        covCol.headerToolTip = "Genome coverage breadth and depth summary."
         covCol.width = 120
         covCol.minWidth = 80
         covCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.coverage, ascending: false)
@@ -455,6 +466,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Identity column
         let idCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.identity))
         idCol.title = "Identity"
+        idCol.headerToolTip = "Average read identity percent for mapped reads."
         idCol.width = 65
         idCol.minWidth = 45
         idCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.identity, ascending: false)
@@ -463,6 +475,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
         // Segment column
         let segCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.segment))
         segCol.title = "Segment"
+        segCol.headerToolTip = "Genome segment label for segmented viruses."
         segCol.width = 60
         segCol.minWidth = 40
         segCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.segment, ascending: true)
@@ -639,7 +652,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     private func sortItems(_ items: [ViralAssemblyItem]) -> [ViralAssemblyItem] {
         // Apply per-column filters
         var items = items
-        if !columnFilters.filter({ $0.value.isActive }).isEmpty {
+        if columnFilterSet.isActive {
             items = items.filter { assemblyMatchesColumnFilters($0.assembly) }
         }
 
@@ -1089,6 +1102,21 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
             }
         }
 
+        let compositionItem = NSMenuItem(title: "Combine Filters", action: nil, keyEquivalent: "")
+        let compositionMenu = NSMenu(title: "Combine Filters")
+        for (title, composition) in [
+            ("All Filters (AND)", ColumnFilterComposition.all),
+            ("Any Filter (OR)", ColumnFilterComposition.any),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(esvSetFilterComposition(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = composition.rawValue
+            item.state = columnFilterSet.composition == composition ? .on : .off
+            compositionMenu.addItem(item)
+        }
+        compositionItem.submenu = compositionMenu
+        menu.addItem(compositionItem)
+
         if columnFilters[columnId]?.isActive == true {
             menu.addItem(NSMenuItem.separator())
             let clearItem = NSMenuItem(title: "Clear \(displayName) Filter", action: #selector(esvClearFilter(_:)), keyEquivalent: "")
@@ -1123,22 +1151,31 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.placeholderString = op == .between ? "min value" : "filter value"
+        let excludeCheckbox = NSButton(checkboxWithTitle: "Exclude matching rows", target: nil, action: nil)
 
         if op == .between {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 78))
             stack.orientation = .vertical
             stack.spacing = 4
             let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
             field2.placeholderString = "max value"
+            field2.tag = 2
             stack.addArrangedSubview(field)
             stack.addArrangedSubview(field2)
+            stack.addArrangedSubview(excludeCheckbox)
             alert.accessoryView = stack
         } else {
-            alert.accessoryView = field
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            stack.orientation = .vertical
+            stack.spacing = 6
+            stack.addArrangedSubview(field)
+            stack.addArrangedSubview(excludeCheckbox)
+            alert.accessoryView = stack
         }
 
         if let existing = columnFilters[columnId] {
             field.stringValue = existing.value
+            excludeCheckbox.state = existing.isInverted ? .on : .off
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -1148,16 +1185,34 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
             var value2: String? = nil
             if op == .between, let stack = alert.accessoryView as? NSStackView,
-               let field2 = stack.arrangedSubviews.last as? NSTextField {
+               let field2 = stack.arrangedSubviews.first(where: { $0.tag == 2 }) as? NSTextField {
                 value2 = field2.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            self.columnFilters[columnId] = ColumnFilter(columnId: columnId, op: op, value: value, value2: value2)
+            self.columnFilterSet.replaceFilters(
+                for: columnId,
+                with: ColumnFilter(
+                    columnId: columnId,
+                    op: op,
+                    value: value,
+                    value2: value2,
+                    isInverted: excludeCheckbox.state == .on
+                )
+            )
             self.refreshSortedItems()
             ColumnFilter.updateColumnTitleIndicators(columns: self.outlineView.tableColumns, filters: self.columnFilters, originalTitles: &self.originalColumnTitles)
             self.outlineView.reloadData()
             self.restoreSelectionAfterDisplayedItemsChanged()
         }
+    }
+
+    @objc private func esvSetFilterComposition(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
+        columnFilterSet.composition = composition
+        refreshSortedItems()
+        outlineView.reloadData()
+        restoreSelectionAfterDisplayedItemsChanged()
     }
 
     @objc private func esvSortAsc(_ sender: NSMenuItem) {
@@ -1182,7 +1237,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     @objc private func esvClearFilter(_ sender: NSMenuItem) {
         guard let columnId = sender.representedObject as? String else { return }
-        columnFilters.removeValue(forKey: columnId)
+        columnFilterSet.removeFilters(for: columnId)
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
         outlineView.reloadData()
@@ -1190,7 +1245,7 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
     }
 
     @objc private func esvClearAllFilters(_ sender: Any?) {
-        columnFilters.removeAll()
+        columnFilterSet.removeAll()
         refreshSortedItems()
         ColumnFilter.updateColumnTitleIndicators(columns: outlineView.tableColumns, filters: columnFilters, originalTitles: &originalColumnTitles)
         outlineView.reloadData()
@@ -1199,52 +1254,51 @@ public final class ViralDetectionTableView: NSView, NSOutlineViewDataSource, NSO
 
     /// Tests whether an assembly item passes all active column filters.
     private func assemblyMatchesColumnFilters(_ assembly: ViralAssembly) -> Bool {
-        for (_, filter) in columnFilters where filter.isActive {
-            switch filter.columnId {
-            case ColumnID.sample:
-                if !filter.matchesString(sampleID(for: assembly)) { return false }
-            case ColumnID.name:
-                if !filter.matchesString(assembly.name) { return false }
-            case ColumnID.family:
-                if !filter.matchesString(assembly.family ?? "") { return false }
-            case ColumnID.reads:
-                if !filter.matchesNumeric(Double(assembly.totalReads)) { return false }
-            case ColumnID.uniqueReads:
-                let unique = uniqueReadCountsByAssembly[assembly.assembly]
-                    ?? uniqueReadCountsBySampleAssembly["\(assembly.contigs.first?.sampleId ?? "")\t\(assembly.assembly)"]
-                    ?? 0
-                if !filter.matchesNumeric(Double(unique)) { return false }
-            case ColumnID.rpkmf:
-                if !filter.matchesNumeric(assembly.rpkmf) { return false }
-            case ColumnID.coverage:
-                let coveredBases = assembly.contigs.reduce(0) { $0 + $1.coveredBases }
-                let breadth = assembly.assemblyLength > 0 ? Double(coveredBases) / Double(assembly.assemblyLength) : 0
-                if !filter.matchesNumeric(breadth * 100.0) { return false }
-            case ColumnID.identity:
-                if !filter.matchesNumeric(assembly.avgReadIdentity * 100.0) { return false }
-            case ColumnID.segment:
-                let segments = Set(assembly.contigs.compactMap(\.segment)).count
-                let segStr = segments > 0 ? String(segments) : ""
-                if !filter.matchesString(segStr) { return false }
-            default:
-                // Metadata columns
-                if filter.columnId.hasPrefix("metadata_"),
-                   let store = metadataColumns.store {
-                    let metaCol = String(filter.columnId.dropFirst("metadata_".count))
-                    let sid = assembly.contigs.first?.sampleId ?? ""
-                    if let value = store.records[sid]?[metaCol] {
-                        if let num = Double(value) {
-                            if !filter.matchesNumeric(num) { return false }
-                        } else {
-                            if !filter.matchesString(value) { return false }
-                        }
-                    } else {
-                        return false
-                    }
-                }
-            }
+        columnFilterSet.matches { filter in
+            assemblyMatchesColumnFilter(filter, assembly: assembly)
         }
-        return true
+    }
+
+    private func assemblyMatchesColumnFilter(_ filter: ColumnFilter, assembly: ViralAssembly) -> Bool {
+        switch filter.columnId {
+        case ColumnID.sample:
+            return filter.matchesString(sampleID(for: assembly))
+        case ColumnID.name:
+            return filter.matchesString(assembly.name)
+        case ColumnID.family:
+            return filter.matchesString(assembly.family ?? "")
+        case ColumnID.reads:
+            return filter.matchesNumeric(Double(assembly.totalReads))
+        case ColumnID.uniqueReads:
+            let unique = uniqueReadCountsByAssembly[assembly.assembly]
+                ?? uniqueReadCountsBySampleAssembly["\(assembly.contigs.first?.sampleId ?? "")\t\(assembly.assembly)"]
+                ?? 0
+            return filter.matchesNumeric(Double(unique))
+        case ColumnID.rpkmf:
+            return filter.matchesNumeric(assembly.rpkmf)
+        case ColumnID.coverage:
+            let coveredBases = assembly.contigs.reduce(0) { $0 + $1.coveredBases }
+            let breadth = assembly.assemblyLength > 0 ? Double(coveredBases) / Double(assembly.assemblyLength) : 0
+            return filter.matchesNumeric(breadth * 100.0)
+        case ColumnID.identity:
+            return filter.matchesNumeric(assembly.avgReadIdentity * 100.0)
+        case ColumnID.segment:
+            let segments = Set(assembly.contigs.compactMap(\.segment)).count
+            let segStr = segments > 0 ? String(segments) : ""
+            return filter.matchesString(segStr)
+        default:
+            if filter.columnId.hasPrefix("metadata_"),
+               let store = metadataColumns.store {
+                let metaCol = String(filter.columnId.dropFirst("metadata_".count))
+                let sid = assembly.contigs.first?.sampleId ?? ""
+                guard let value = store.records[sid]?[metaCol] else { return false }
+                if let num = Double(value) {
+                    return filter.matchesNumeric(num)
+                }
+                return filter.matchesString(value)
+            }
+            return true
+        }
     }
 
     // MARK: - NSOutlineViewDelegate

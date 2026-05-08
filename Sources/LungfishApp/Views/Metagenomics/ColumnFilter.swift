@@ -6,7 +6,7 @@ import Foundation
 
 /// Operator for column filters. Numeric operators apply to numeric columns;
 /// text operators apply to string columns.
-public enum FilterOperator: String, CaseIterable, Sendable {
+public enum FilterOperator: String, CaseIterable, Sendable, Codable {
     case greaterOrEqual = "≥"
     case lessOrEqual = "≤"
     case equal = "="
@@ -35,17 +35,25 @@ public enum FilterOperator: String, CaseIterable, Sendable {
 
 /// A single column filter with an operator, primary value, and optional
 /// secondary value (for "between" ranges).
-public struct ColumnFilter: Sendable {
+public struct ColumnFilter: Sendable, Codable, Equatable {
     public let columnId: String
     public var op: FilterOperator
     public var value: String
     public var value2: String?
+    public var isInverted: Bool
 
-    public init(columnId: String, op: FilterOperator, value: String, value2: String? = nil) {
+    public init(
+        columnId: String,
+        op: FilterOperator,
+        value: String,
+        value2: String? = nil,
+        isInverted: Bool = false
+    ) {
         self.columnId = columnId
         self.op = op
         self.value = value
         self.value2 = value2
+        self.isInverted = isInverted
     }
 
     /// Whether this filter has a non-empty value and should be applied.
@@ -61,23 +69,26 @@ public struct ColumnFilter: Sendable {
         guard isActive else { return true }
         guard let threshold = Self.parseNumericValue(value) else { return true }
 
+        let result: Bool
         switch op {
         case .greaterOrEqual:
-            return numericValue >= threshold
+            result = numericValue >= threshold
         case .lessOrEqual:
-            return numericValue <= threshold
+            result = numericValue <= threshold
         case .equal:
-            return numericValue == threshold
+            result = numericValue == threshold
         case .between:
             if let upper = value2.flatMap({ Self.parseNumericValue($0) }) {
-                return numericValue >= threshold && numericValue <= upper
+                result = numericValue >= threshold && numericValue <= upper
+            } else {
+                // Degrade to ≥ if no upper bound
+                result = numericValue >= threshold
             }
-            // Degrade to ≥ if no upper bound
-            return numericValue >= threshold
         case .contains, .startsWith:
             // Text operators on numeric values: always pass
-            return true
+            result = true
         }
+        return applyInversion(result)
     }
 
     // MARK: - String Matching
@@ -88,18 +99,22 @@ public struct ColumnFilter: Sendable {
     public func matchesString(_ stringValue: String) -> Bool {
         guard isActive else { return true }
 
+        let result: Bool
         switch op {
         case .contains:
-            return stringValue.localizedCaseInsensitiveContains(value)
+            result = stringValue.localizedCaseInsensitiveContains(value)
         case .equal:
-            return stringValue.caseInsensitiveCompare(value) == .orderedSame
+            result = stringValue.caseInsensitiveCompare(value) == .orderedSame
         case .startsWith:
-            return stringValue.lowercased().hasPrefix(value.lowercased())
+            result = stringValue.lowercased().hasPrefix(value.lowercased())
         case .greaterOrEqual, .lessOrEqual, .between:
             // Numeric operator on a string: try to parse as number
-            guard let numericValue = Double(stringValue) else { return false }
+            guard let numericValue = Self.parseNumericValue(stringValue) else {
+                return applyInversion(false)
+            }
             return matchesNumeric(numericValue)
         }
+        return applyInversion(result)
     }
 
     // MARK: - Value Parsing
@@ -125,9 +140,78 @@ public struct ColumnFilter: Sendable {
             }
         }
 
-        return Double(cleaned)
+        let numericText = cleaned.hasSuffix("%") ? String(cleaned.dropLast()) : cleaned
+        return Double(numericText)
     }
 
+    private func applyInversion(_ result: Bool) -> Bool {
+        isInverted ? !result : result
+    }
+}
+
+/// Boolean composition mode for multiple active column filters.
+public enum ColumnFilterComposition: String, Sendable, Codable, Equatable {
+    case all
+    case any
+}
+
+/// Ordered, codable filter set used by classifier tables and persisted view state.
+public struct ColumnFilterSet: Sendable, Codable, Equatable {
+    public var filters: [ColumnFilter]
+    public var composition: ColumnFilterComposition
+
+    public init(filters: [ColumnFilter] = [], composition: ColumnFilterComposition = .all) {
+        self.filters = filters
+        self.composition = composition
+    }
+
+    public var activeFilters: [ColumnFilter] {
+        filters.filter(\.isActive)
+    }
+
+    public var isActive: Bool {
+        !activeFilters.isEmpty
+    }
+
+    public func matches(_ predicate: (ColumnFilter) -> Bool) -> Bool {
+        let active = activeFilters
+        guard !active.isEmpty else { return true }
+        switch composition {
+        case .all:
+            return active.allSatisfy(predicate)
+        case .any:
+            return active.contains(where: predicate)
+        }
+    }
+
+    public mutating func replaceFilters(for columnId: String, with filter: ColumnFilter) {
+        filters.removeAll { $0.columnId == columnId }
+        if filter.isActive {
+            filters.append(filter)
+        }
+    }
+
+    public mutating func append(_ filter: ColumnFilter) {
+        if filter.isActive {
+            filters.append(filter)
+        }
+    }
+
+    public mutating func removeFilters(for columnId: String) {
+        filters.removeAll { $0.columnId == columnId }
+    }
+
+    public mutating func removeAll() {
+        filters.removeAll()
+    }
+
+    public func activeFiltersByColumn() -> [String: ColumnFilter] {
+        var result: [String: ColumnFilter] = [:]
+        for filter in activeFilters where result[filter.columnId] == nil {
+            result[filter.columnId] = filter
+        }
+        return result
+    }
 }
 
 #if canImport(AppKit)

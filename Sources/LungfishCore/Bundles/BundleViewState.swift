@@ -47,6 +47,9 @@ public struct BundleViewState: Codable, Sendable, Equatable {
     /// Set of visible annotation types (nil = show all).
     public var visibleAnnotationTypes: Set<AnnotationType>?
 
+    /// Search text applied to annotations.
+    public var annotationFilterText: String
+
     // MARK: - Variant Display
 
     /// Whether variants are visible.
@@ -54,6 +57,12 @@ public struct BundleViewState: Codable, Sendable, Equatable {
 
     /// Set of visible variant types (nil = show all).
     public var visibleVariantTypes: Set<String>?
+
+    /// Search or query text applied to variants.
+    public var variantFilterText: String
+
+    /// Sample row ordering, filtering, and display settings for genotype tracks.
+    public var sampleDisplayState: SampleDisplayState?
 
     // MARK: - Translation
 
@@ -83,8 +92,11 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         annotationSpacing: 2,
         showAnnotations: true,
         visibleAnnotationTypes: nil,
+        annotationFilterText: "",
         showVariants: true,
         visibleVariantTypes: nil,
+        variantFilterText: "",
+        sampleDisplayState: nil,
         translationColorScheme: .zappo,
         isRNAMode: false,
         lastChromosome: nil,
@@ -101,8 +113,11 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         annotationSpacing: Double = 2,
         showAnnotations: Bool = true,
         visibleAnnotationTypes: Set<AnnotationType>? = nil,
+        annotationFilterText: String = "",
         showVariants: Bool = true,
         visibleVariantTypes: Set<String>? = nil,
+        variantFilterText: String = "",
+        sampleDisplayState: SampleDisplayState? = nil,
         translationColorScheme: AminoAcidColorScheme = .zappo,
         isRNAMode: Bool = false,
         lastChromosome: String? = nil,
@@ -115,8 +130,11 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         self.annotationSpacing = annotationSpacing
         self.showAnnotations = showAnnotations
         self.visibleAnnotationTypes = visibleAnnotationTypes
+        self.annotationFilterText = annotationFilterText
         self.showVariants = showVariants
         self.visibleVariantTypes = visibleVariantTypes
+        self.variantFilterText = variantFilterText
+        self.sampleDisplayState = sampleDisplayState
         self.translationColorScheme = translationColorScheme
         self.isRNAMode = isRNAMode
         self.lastChromosome = lastChromosome
@@ -133,8 +151,11 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         annotationSpacing = try container.decode(Double.self, forKey: .annotationSpacing)
         showAnnotations = try container.decode(Bool.self, forKey: .showAnnotations)
         visibleAnnotationTypes = try container.decodeIfPresent(Set<AnnotationType>.self, forKey: .visibleAnnotationTypes)
+        annotationFilterText = try container.decodeIfPresent(String.self, forKey: .annotationFilterText) ?? ""
         showVariants = try container.decode(Bool.self, forKey: .showVariants)
         visibleVariantTypes = try container.decodeIfPresent(Set<String>.self, forKey: .visibleVariantTypes)
+        variantFilterText = try container.decodeIfPresent(String.self, forKey: .variantFilterText) ?? ""
+        sampleDisplayState = try container.decodeIfPresent(SampleDisplayState.self, forKey: .sampleDisplayState)
         translationColorScheme = try container.decode(AminoAcidColorScheme.self, forKey: .translationColorScheme)
         isRNAMode = try container.decode(Bool.self, forKey: .isRNAMode)
         lastChromosome = try container.decodeIfPresent(String.self, forKey: .lastChromosome)

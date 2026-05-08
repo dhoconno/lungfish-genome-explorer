@@ -1,11 +1,11 @@
-// OperationsPanelController.swift - Floating panel for operation progress
+// OperationsPanelController.swift - Operations window for operation progress
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
 import AppKit
 import Combine
 
-/// A floating utility panel that displays all running, completed, and failed
+/// A normal app window that displays all running, completed, and failed
 /// operations tracked by ``OperationCenter``.
 ///
 /// Accessed via the Operations menu (Shift-Option-Cmd-O) or programmatically.
@@ -13,24 +13,23 @@ import Combine
 final class OperationsPanelController: NSWindowController {
 
     init() {
-        let panel = NSPanel(
+        let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: true
         )
-        panel.title = "Operations"
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.isRestorable = false
-        panel.minSize = NSSize(width: 460, height: 250)
-        panel.center()
+        window.title = "Operations"
+        window.level = .normal
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.minSize = NSSize(width: 460, height: 250)
+        window.center()
 
-        super.init(window: panel)
+        super.init(window: window)
 
         let viewController = OperationsPanelViewController()
-        panel.contentViewController = viewController
+        window.contentViewController = viewController
     }
 
     @available(*, unavailable)
@@ -287,6 +286,18 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         NSPasteboard.general.setString(logText, forType: .string)
     }
 
+    @objc private func contextViewLog(_ sender: NSMenuItem) {
+        guard let itemID = sender.representedObject as? UUID,
+              let item = items.first(where: { $0.id == itemID }) else { return }
+        viewLog(for: item)
+    }
+
+    @objc private func contextRevealLog(_ sender: NSMenuItem) {
+        guard let itemID = sender.representedObject as? UUID,
+              let item = items.first(where: { $0.id == itemID }) else { return }
+        revealLog(for: item)
+    }
+
     @objc private func contextCopyFailureReport(_ sender: NSMenuItem) {
         guard let itemID = sender.representedObject as? UUID,
               let item = items.first(where: { $0.id == itemID }) else { return }
@@ -311,7 +322,48 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         OperationCenter.shared.clearItem(id: itemID)
     }
 
+    @objc private func viewLogFromButton(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard row >= 0, row < items.count else { return }
+        viewLog(for: items[row])
+    }
+
+    @objc private func revealLogFromButton(_ sender: NSButton) {
+        let row = tableView.row(for: sender)
+        guard row >= 0, row < items.count else { return }
+        revealLog(for: items[row])
+    }
+
     // MARK: - Helpers
+
+    private func viewLog(for item: OperationCenter.Item) {
+        do {
+            let logURL = try OperationLogDocument.write(item: item)
+            NSWorkspace.shared.open(logURL)
+        } catch {
+            presentLogWriteFailure(error)
+        }
+    }
+
+    private func revealLog(for item: OperationCenter.Item) {
+        do {
+            let logURL = try OperationLogDocument.write(item: item)
+            NSWorkspace.shared.activateFileViewerSelecting([logURL])
+        } catch {
+            presentLogWriteFailure(error)
+        }
+    }
+
+    private func presentLogWriteFailure(_ error: Error) {
+        guard let window = view.window else {
+            NSSound.beep()
+            return
+        }
+        let alert = NSAlert(error: error)
+        alert.messageText = "Unable to Write Operation Log"
+        alert.informativeText = "Lungfish could not create a local log file for this operation."
+        alert.beginSheetModal(for: window)
+    }
 
     /// Formats log entries into a plain-text string for clipboard copy.
     private func formatLogEntries(_ entries: [OperationLogEntry]) -> String {
@@ -756,7 +808,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
             // Log entries section
             if !item.logEntries.isEmpty {
-                let section = buildLogEntriesSection(entries: item.logEntries)
+                let section = buildLogEntriesSection(for: item)
                 section.setAccessibilityIdentifier(ExpansionSectionID.logEntries)
                 section.translatesAutoresizingMaskIntoConstraints = false
                 cell.addSubview(section)
@@ -943,7 +995,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     }
 
     /// Builds the log entries section with a scrollable list of timestamped entries.
-    private func buildLogEntriesSection(entries: [OperationLogEntry]) -> NSView {
+    private func buildLogEntriesSection(for item: OperationCenter.Item) -> NSView {
         let container = NSView()
 
         let label = NSTextField(labelWithString: "Log")
@@ -951,6 +1003,26 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         label.textColor = .secondaryLabelColor
         label.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(label)
+
+        let viewButton = NSButton(title: "View Log", target: self, action: #selector(viewLogFromButton(_:)))
+        viewButton.bezelStyle = .rounded
+        viewButton.controlSize = .mini
+        viewButton.font = .systemFont(ofSize: 9)
+        viewButton.translatesAutoresizingMaskIntoConstraints = false
+        viewButton.setAccessibilityIdentifier("operations-log-view-button")
+        viewButton.setAccessibilityLabel("View operation log")
+        viewButton.setAccessibilityHelp("Writes and opens a local diagnostic log for this operation.")
+        container.addSubview(viewButton)
+
+        let revealButton = NSButton(title: "Reveal in Finder", target: self, action: #selector(revealLogFromButton(_:)))
+        revealButton.bezelStyle = .rounded
+        revealButton.controlSize = .mini
+        revealButton.font = .systemFont(ofSize: 9)
+        revealButton.translatesAutoresizingMaskIntoConstraints = false
+        revealButton.setAccessibilityIdentifier("operations-log-reveal-button")
+        revealButton.setAccessibilityLabel("Reveal operation log in Finder")
+        revealButton.setAccessibilityHelp("Writes a local diagnostic log and selects it in Finder.")
+        container.addSubview(revealButton)
 
         let logScrollView = NSScrollView()
         logScrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -965,7 +1037,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         let logText = NSMutableAttributedString()
         let monoFont = NSFont(name: "Menlo", size: 9.5) ?? .monospacedSystemFont(ofSize: 9.5, weight: .regular)
 
-        for (index, entry) in entries.enumerated() {
+        for (index, entry) in item.logEntries.enumerated() {
             let ts = Self.logTimestampFormatter.string(from: entry.timestamp)
             let levelIndicator: String
             let levelColor: NSColor
@@ -1009,6 +1081,14 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         NSLayoutConstraint.activate([
             label.topAnchor.constraint(equalTo: container.topAnchor),
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+
+            revealButton.topAnchor.constraint(equalTo: container.topAnchor),
+            revealButton.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            revealButton.widthAnchor.constraint(equalToConstant: 104),
+
+            viewButton.centerYAnchor.constraint(equalTo: revealButton.centerYAnchor),
+            viewButton.trailingAnchor.constraint(equalTo: revealButton.leadingAnchor, constant: -6),
+            viewButton.widthAnchor.constraint(equalToConstant: 64),
 
             logScrollView.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 2),
             logScrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
@@ -1087,6 +1167,109 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
     }
 }
 
+// MARK: - Local Operation Log Documents
+
+private enum OperationLogDocument {
+    static func write(item: OperationCenter.Item) throws -> URL {
+        let url = fileURL(for: item)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try render(item: item).write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    private static func fileURL(for item: OperationCenter.Item) -> URL {
+        let logsDirectory = FileManager.default
+            .urls(for: .libraryDirectory, in: .userDomainMask)
+            .first!
+            .appendingPathComponent("Logs", isDirectory: true)
+            .appendingPathComponent("Lungfish", isDirectory: true)
+            .appendingPathComponent("Operations", isDirectory: true)
+
+        let datePrefix = fileTimestamp(item.startedAt)
+        let titleSlug = slug(item.title)
+        let idPrefix = String(item.id.uuidString.prefix(8)).lowercased()
+        return logsDirectory.appendingPathComponent("\(datePrefix)-\(titleSlug)-\(idPrefix).log")
+    }
+
+    private static func render(item: OperationCenter.Item) -> String {
+        var lines: [String] = []
+        lines.append("Lungfish Operation Log")
+        lines.append("Operation: \(item.title)")
+        lines.append("Operation ID: \(item.id.uuidString)")
+        lines.append("Type: \(item.operationType.rawValue)")
+        lines.append("State: \(item.displayStateLabel)")
+        lines.append("Started: \(displayTimestamp(item.startedAt))")
+        if let finishedAt = item.finishedAt {
+            lines.append("Finished: \(displayTimestamp(finishedAt))")
+        }
+        lines.append("Progress: \(Int((item.progress * 100).rounded()))%")
+
+        if !item.detail.isEmpty {
+            lines.append("")
+            lines.append("Detail:")
+            lines.append(item.detail)
+        }
+
+        if let cliCommand = item.cliCommand {
+            lines.append("")
+            lines.append("CLI Command:")
+            lines.append(cliCommand)
+        }
+
+        if !item.outputURLs.isEmpty {
+            lines.append("")
+            lines.append("Output Files:")
+            item.outputURLs.forEach { lines.append($0.path) }
+        }
+
+        if let errorMessage = item.errorMessage {
+            lines.append("")
+            lines.append("Error:")
+            lines.append(errorMessage)
+        }
+
+        if let errorDetail = item.errorDetail {
+            lines.append("")
+            lines.append("Error Detail:")
+            lines.append(errorDetail)
+        }
+
+        if !item.logEntries.isEmpty {
+            lines.append("")
+            lines.append("Log Entries:")
+            item.logEntries.forEach { entry in
+                lines.append("[\(displayTimestamp(entry.timestamp))] [\(entry.level.rawValue.uppercased())] \(entry.message)")
+            }
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func slug(_ value: String) -> String {
+        let slug = value
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+        return String((slug.isEmpty ? "operation" : slug).prefix(48))
+    }
+
+    private static func displayTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss ZZZZZ"
+        return formatter.string(from: date)
+    }
+
+    private static func fileTimestamp(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        return formatter.string(from: date)
+    }
+}
+
 // MARK: - Context Menu Delegate
 
 extension OperationsPanelViewController: NSMenuDelegate {
@@ -1109,6 +1292,16 @@ extension OperationsPanelViewController: NSMenuDelegate {
             copyLog.representedObject = item.id
             copyLog.target = self
             menu.addItem(copyLog)
+
+            let viewLog = NSMenuItem(title: "View Log", action: #selector(contextViewLog(_:)), keyEquivalent: "")
+            viewLog.representedObject = item.id
+            viewLog.target = self
+            menu.addItem(viewLog)
+
+            let revealLog = NSMenuItem(title: "Reveal Log in Finder", action: #selector(contextRevealLog(_:)), keyEquivalent: "")
+            revealLog.representedObject = item.id
+            revealLog.target = self
+            menu.addItem(revealLog)
         }
 
         // Failed operations can be copied as a report or opened as a prefilled

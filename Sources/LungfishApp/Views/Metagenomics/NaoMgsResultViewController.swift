@@ -106,7 +106,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
     private let sampleFilterButton = NSButton(title: "All Samples", target: nil, action: nil)
 
     /// Per-column filters applied via column header click menus.
-    private var columnFilters: [String: ColumnFilter] = [:]
+    private var columnFilterSet = ColumnFilterSet()
+
+    private var columnFilters: [String: ColumnFilter] {
+        columnFilterSet.activeFiltersByColumn()
+    }
     /// Column type hints — true = numeric, false = text.
     private var columnTypes: [String: Bool] = [:]
     /// Original column titles before filter indicators were appended.
@@ -363,10 +367,11 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         do {
             var rows = try database.fetchTaxonSummaryRows(samples: Array(selectedSamples))
 
-            // Apply per-column filters (set via column header click menus)
-            for (_, filter) in columnFilters where filter.isActive {
+            if columnFilterSet.isActive {
                 rows = rows.filter { row in
-                    applyColumnFilter(filter, to: row)
+                    columnFilterSet.matches { filter in
+                        applyColumnFilter(filter, to: row)
+                    }
                 }
             }
 
@@ -1347,6 +1352,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         // Columns
         let sampleColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("sample"))
         sampleColumn.title = "Sample"
+        sampleColumn.headerToolTip = "Sample identifier for this NAO-MGS taxon row."
         sampleColumn.width = 130
         sampleColumn.minWidth = 60
         sampleColumn.maxWidth = 600
@@ -1356,6 +1362,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let nameColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("name"))
         nameColumn.title = "Taxon"
+        nameColumn.headerToolTip = "Taxon name or taxonomic identifier reported by NAO-MGS."
         nameColumn.width = 210
         nameColumn.minWidth = 120
         nameColumn.sortDescriptorPrototype = NSSortDescriptor(key: "name", ascending: true, selector: #selector(NSString.localizedCaseInsensitiveCompare(_:)))
@@ -1363,6 +1370,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let hitsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("hits"))
         hitsColumn.title = "Hits"
+        hitsColumn.headerToolTip = "Total hit count assigned to this taxon."
         hitsColumn.width = 64
         hitsColumn.minWidth = 48
         hitsColumn.sortDescriptorPrototype = NSSortDescriptor(key: "hits", ascending: false)
@@ -1370,6 +1378,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let uniqueColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("unique"))
         uniqueColumn.title = "Unique Reads"
+        uniqueColumn.headerToolTip = "Deduplicated read count assigned to this taxon."
         uniqueColumn.width = 96
         uniqueColumn.minWidth = 72
         uniqueColumn.sortDescriptorPrototype = NSSortDescriptor(key: "unique", ascending: false)
@@ -1377,6 +1386,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         let refsColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("refs"))
         refsColumn.title = "Refs"
+        refsColumn.headerToolTip = "Number of reference accessions represented by this taxon."
         refsColumn.width = 52
         refsColumn.minWidth = 40
         refsColumn.sortDescriptorPrototype = NSSortDescriptor(key: "refs", ascending: false)
@@ -2506,6 +2516,21 @@ extension NaoMgsResultViewController {
             }
         }
 
+        let compositionItem = NSMenuItem(title: "Combine Filters", action: nil, keyEquivalent: "")
+        let compositionMenu = NSMenu(title: "Combine Filters")
+        for (title, composition) in [
+            ("All Filters (AND)", ColumnFilterComposition.all),
+            ("Any Filter (OR)", ColumnFilterComposition.any),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(setColumnFilterComposition(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = composition.rawValue
+            item.state = columnFilterSet.composition == composition ? .on : .off
+            compositionMenu.addItem(item)
+        }
+        compositionItem.submenu = compositionMenu
+        menu.addItem(compositionItem)
+
         // Clear filter for this column (if active)
         if columnFilters[columnId]?.isActive == true {
             menu.addItem(NSMenuItem.separator())
@@ -2543,9 +2568,10 @@ extension NaoMgsResultViewController {
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.placeholderString = op == .between ? "min value" : "filter value"
+        let excludeCheckbox = NSButton(checkboxWithTitle: "Exclude matching rows", target: nil, action: nil)
 
         if op == .between {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 78))
             stack.orientation = .vertical
             stack.spacing = 4
             let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
@@ -2553,14 +2579,21 @@ extension NaoMgsResultViewController {
             field2.tag = 2
             stack.addArrangedSubview(field)
             stack.addArrangedSubview(field2)
+            stack.addArrangedSubview(excludeCheckbox)
             alert.accessoryView = stack
         } else {
-            alert.accessoryView = field
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            stack.orientation = .vertical
+            stack.spacing = 6
+            stack.addArrangedSubview(field)
+            stack.addArrangedSubview(excludeCheckbox)
+            alert.accessoryView = stack
         }
 
         // Restore current value if filter exists
         if let existing = columnFilters[columnId] {
             field.stringValue = existing.value
+            excludeCheckbox.state = existing.isInverted ? .on : .off
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -2570,13 +2603,29 @@ extension NaoMgsResultViewController {
 
             var value2: String? = nil
             if op == .between, let stack = alert.accessoryView as? NSStackView,
-               let field2 = stack.arrangedSubviews.last as? NSTextField {
+               let field2 = stack.arrangedSubviews.first(where: { $0.tag == 2 }) as? NSTextField {
                 value2 = field2.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            self.columnFilters[columnId] = ColumnFilter(columnId: columnId, op: op, value: value, value2: value2)
+            self.columnFilterSet.replaceFilters(
+                for: columnId,
+                with: ColumnFilter(
+                    columnId: columnId,
+                    op: op,
+                    value: value,
+                    value2: value2,
+                    isInverted: excludeCheckbox.state == .on
+                )
+            )
             self.reloadTaxonomyTable()
         }
+    }
+
+    @objc private func setColumnFilterComposition(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
+        columnFilterSet.composition = composition
+        reloadTaxonomyTable()
     }
 
     @objc private func sortColumnAscending(_ sender: NSMenuItem) {
@@ -2595,12 +2644,12 @@ extension NaoMgsResultViewController {
 
     @objc private func clearColumnFilter(_ sender: NSMenuItem) {
         guard let columnId = sender.representedObject as? String else { return }
-        columnFilters.removeValue(forKey: columnId)
+        columnFilterSet.removeFilters(for: columnId)
         reloadTaxonomyTable()
     }
 
     @objc private func clearAllColumnFilters(_ sender: Any?) {
-        columnFilters.removeAll()
+        columnFilterSet.removeAll()
         reloadTaxonomyTable()
     }
 }

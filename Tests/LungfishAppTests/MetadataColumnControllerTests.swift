@@ -106,4 +106,18 @@ struct MetadataColumnControllerTests {
         let cell = controller.cellForColumn(column, sampleId: "S1")
         #expect(cell == nil)
     }
+
+    @Test("Visible metadata columns describe their source in header tooltips")
+    func metadataColumnsHaveHeaderTooltips() throws {
+        let controller = MetadataColumnController()
+        let table = NSTableView()
+        controller.install(on: table)
+        controller.visibleColumns = Set(["Type"])
+        let store = try makeStore()
+
+        controller.update(store: store, sampleId: "S1")
+
+        let column = table.tableColumns.first { $0.identifier.rawValue == "metadata_Type" }
+        #expect(column?.headerToolTip == "Sample metadata: Type")
+    }
 }

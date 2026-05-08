@@ -124,7 +124,11 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     // MARK: - Per-Column Filters
 
     /// Per-column filters applied via column header click menus.
-    private var columnFilters: [String: ColumnFilter] = [:]
+    private var columnFilterSet = ColumnFilterSet()
+
+    private var columnFilters: [String: ColumnFilter] {
+        columnFilterSet.activeFiltersByColumn()
+    }
 
     /// Original column titles before filter indicators were appended.
     private var originalColumnTitles: [String: String] = [:]
@@ -208,6 +212,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Sample column
         let sampleCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.sample))
         sampleCol.title = "Sample"
+        sampleCol.headerToolTip = "Sample identifier for this classification row."
         sampleCol.minWidth = 90
         sampleCol.width = 130
         sampleCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.sample, ascending: true)
@@ -216,6 +221,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Name column (flexible width)
         let nameCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.name))
         nameCol.title = "Taxon Name"
+        nameCol.headerToolTip = "Scientific taxon name from the classifier taxonomy tree."
         nameCol.minWidth = 140
         nameCol.width = 200
         nameCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.name, ascending: true)
@@ -224,6 +230,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Rank column
         let rankCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.rank))
         rankCol.title = "Rank"
+        rankCol.headerToolTip = "Taxonomic rank such as domain, family, genus, or species."
         rankCol.width = 70
         rankCol.minWidth = 50
         rankCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.rank, ascending: true)
@@ -233,6 +240,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // This is what users expect: "how many reads belong to this group?"
         let readsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.reads))
         readsCol.title = "Reads"
+        readsCol.headerToolTip = "Clade read count: reads assigned to this taxon and descendants."
         readsCol.width = 80
         readsCol.minWidth = 50
         readsCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.reads, ascending: false)
@@ -241,6 +249,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Direct column -- shows reads classified directly to this taxon (not descendants)
         let cladeCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.clade))
         cladeCol.title = "Direct"
+        cladeCol.headerToolTip = "Direct read count: reads assigned exactly to this taxon."
         cladeCol.width = 80
         cladeCol.minWidth = 50
         cladeCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.clade, ascending: false)
@@ -249,6 +258,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
         // Percent column
         let pctCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(ColumnID.percent))
         pctCol.title = "%"
+        pctCol.headerToolTip = "Percent of classified reads represented by this clade."
         pctCol.width = 55
         pctCol.minWidth = 40
         pctCol.sortDescriptorPrototype = NSSortDescriptor(key: ColumnID.percent, ascending: false)
@@ -341,8 +351,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     private func applyFilter() {
-        let activeFilters = columnFilters.values.filter(\.isActive)
-        if activeFilters.isEmpty {
+        if !columnFilterSet.isActive {
             filteredNodeIDs = nil
             directMatchNodeIDs = []
         } else {
@@ -352,7 +361,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             var ancestors = Set<ObjectIdentifier>()
 
             for node in tree.allNodes() {
-                if activeFilters.allSatisfy({ nodeMatchesColumnFilter($0, node: node) }) {
+                if columnFilterSet.matches({ nodeMatchesColumnFilter($0, node: node) }) {
                     matches.insert(ObjectIdentifier(node))
                     var parent = node.parent
                     while let p = parent {
@@ -457,6 +466,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     public func collapseAll() {
         guard tree != nil else { return }
         outlineView.collapseItem(nil, collapseChildren: true)
+    }
+
+    func setColumnFilterComposition(_ composition: ColumnFilterComposition) {
+        guard columnFilterSet.composition != composition else { return }
+        columnFilterSet.composition = composition
+        reloadDataAndUpdateFilterIndicators()
     }
 
     /// Recursively expands the selected item and all its descendants.
@@ -810,6 +825,21 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
             }
         }
 
+        let compositionItem = NSMenuItem(title: "Combine Filters", action: nil, keyEquivalent: "")
+        let compositionMenu = NSMenu(title: "Combine Filters")
+        for (title, composition) in [
+            ("All Filters (AND)", ColumnFilterComposition.all),
+            ("Any Filter (OR)", ColumnFilterComposition.any),
+        ] {
+            let item = NSMenuItem(title: title, action: #selector(setFilterComposition(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = composition.rawValue
+            item.state = columnFilterSet.composition == composition ? .on : .off
+            compositionMenu.addItem(item)
+        }
+        compositionItem.submenu = compositionMenu
+        menu.addItem(compositionItem)
+
         if columnFilters[columnId]?.isActive == true {
             menu.addItem(NSMenuItem.separator())
             let clearItem = NSMenuItem(title: "Clear \(displayName) Filter", action: #selector(clearColumnFilter(_:)), keyEquivalent: "")
@@ -845,22 +875,31 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.placeholderString = op == .between ? "min value" : "filter value"
+        let excludeCheckbox = NSButton(checkboxWithTitle: "Exclude matching rows", target: nil, action: nil)
 
         if op == .between {
-            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 78))
             stack.orientation = .vertical
             stack.spacing = 4
             let field2 = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
             field2.placeholderString = "max value"
+            field2.tag = 2
             stack.addArrangedSubview(field)
             stack.addArrangedSubview(field2)
+            stack.addArrangedSubview(excludeCheckbox)
             alert.accessoryView = stack
         } else {
-            alert.accessoryView = field
+            let stack = NSStackView(frame: NSRect(x: 0, y: 0, width: 240, height: 52))
+            stack.orientation = .vertical
+            stack.spacing = 6
+            stack.addArrangedSubview(field)
+            stack.addArrangedSubview(excludeCheckbox)
+            alert.accessoryView = stack
         }
 
         if let existing = columnFilters[columnId] {
             field.stringValue = existing.value
+            excludeCheckbox.state = existing.isInverted ? .on : .off
         }
 
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -870,13 +909,28 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
             var value2: String? = nil
             if op == .between, let stack = alert.accessoryView as? NSStackView,
-               let field2 = stack.arrangedSubviews.last as? NSTextField {
+               let field2 = stack.arrangedSubviews.first(where: { $0.tag == 2 }) as? NSTextField {
                 value2 = field2.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             }
 
-            self.columnFilters[columnId] = ColumnFilter(columnId: columnId, op: op, value: value, value2: value2)
+            self.columnFilterSet.replaceFilters(
+                for: columnId,
+                with: ColumnFilter(
+                    columnId: columnId,
+                    op: op,
+                    value: value,
+                    value2: value2,
+                    isInverted: excludeCheckbox.state == .on
+                )
+            )
             self.reloadDataAndUpdateFilterIndicators()
         }
+    }
+
+    @objc private func setFilterComposition(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let composition = ColumnFilterComposition(rawValue: rawValue) else { return }
+        setColumnFilterComposition(composition)
     }
 
     @objc private func sortColumnAsc(_ sender: NSMenuItem) {
@@ -901,12 +955,12 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
 
     @objc private func clearColumnFilter(_ sender: NSMenuItem) {
         guard let columnId = sender.representedObject as? String else { return }
-        columnFilters.removeValue(forKey: columnId)
+        columnFilterSet.removeFilters(for: columnId)
         reloadDataAndUpdateFilterIndicators()
     }
 
     @objc private func clearAllColumnFilters(_ sender: Any?) {
-        columnFilters.removeAll()
+        columnFilterSet.removeAll()
         reloadDataAndUpdateFilterIndicators()
     }
 
@@ -1266,7 +1320,7 @@ public class TaxonomyTableView: NSView, NSOutlineViewDataSource, NSOutlineViewDe
     }
 
     func testingApplyColumnFilter(_ filter: ColumnFilter) {
-        columnFilters[filter.columnId] = filter
+        columnFilterSet.replaceFilters(for: filter.columnId, with: filter)
         reloadDataAndUpdateFilterIndicators()
     }
 

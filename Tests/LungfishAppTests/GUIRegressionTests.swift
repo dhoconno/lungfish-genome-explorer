@@ -656,6 +656,96 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertTrue(source.contains("Output Files"))
     }
 
+    func testOperationsPanelUsesNormalWindowLayering() throws {
+        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
+            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
+        ))
+
+        XCTAssertTrue(source.contains("NSWindow("))
+        XCTAssertFalse(source.contains("NSPanel("))
+        XCTAssertFalse(source.contains(".utilityWindow"))
+        XCTAssertFalse(source.contains(".nonactivatingPanel"))
+        XCTAssertFalse(source.contains("isFloatingPanel = true"))
+    }
+
+    func testOperationsPanelExposesLocalLogViewingActions() throws {
+        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
+            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
+        ))
+
+        XCTAssertTrue(source.contains("View Log"))
+        XCTAssertTrue(source.contains("Reveal in Finder"))
+        XCTAssertTrue(source.contains("operations-log-view-button"))
+        XCTAssertTrue(source.contains("operations-log-reveal-button"))
+        XCTAssertTrue(source.contains("viewLogFromButton"))
+        XCTAssertTrue(source.contains("revealLogFromButton"))
+        XCTAssertTrue(source.contains("OperationLogDocument.write"))
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+}
+
+// MARK: - Repository Hygiene Tests
+
+final class RepositoryHygieneTests: XCTestCase {
+    func testAgentScratchFilesAreNotTracked() throws {
+        let output = try runGit(["ls-files", ".superpowers/**"])
+        XCTAssertTrue(
+            output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            "Local Superpowers session state must stay out of git."
+        )
+    }
+
+    func testLocalScratchPathsAreDeniedByDefaultWhileProjectSourcesStayAddable() throws {
+        XCTAssertTrue(try gitCheckIgnore(".superpowers/brainstorm/session/state/server.log"))
+        XCTAssertTrue(try gitCheckIgnore(".worktrees/issues-6-13/build.log"))
+        XCTAssertTrue(try gitCheckIgnore(".codex/scratch/session.json"))
+        XCTAssertTrue(try gitCheckIgnore("unreviewed-local-output.tmp"))
+        XCTAssertFalse(try gitCheckIgnore("README.md"))
+        XCTAssertFalse(try gitCheckIgnore("Sources/LungfishCore/Bundles/BundleViewState.swift"))
+        XCTAssertFalse(try gitCheckIgnore("Tests/LungfishAppTests/GUIRegressionTests.swift"))
+    }
+
+    private func gitCheckIgnore(_ path: String) throws -> Bool {
+        let result = try runGitWithStatus(["check-ignore", "--no-index", "--quiet", path])
+        switch result.status {
+        case 0:
+            return true
+        case 1:
+            return false
+        default:
+            throw XCTSkip("git check-ignore failed for \(path): \(result.output)")
+        }
+    }
+
+    private func runGit(_ arguments: [String]) throws -> String {
+        let result = try runGitWithStatus(arguments)
+        XCTAssertEqual(result.status, 0, result.output)
+        return result.output
+    }
+
+    private func runGitWithStatus(_ arguments: [String]) throws -> (status: Int32, output: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git"] + arguments
+        process.currentDirectoryURL = repositoryRoot()
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return (process.terminationStatus, output)
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

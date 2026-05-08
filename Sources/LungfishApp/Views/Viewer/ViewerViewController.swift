@@ -2990,6 +2990,17 @@ public class ViewerViewController: NSViewController {
         scheduleViewStateSave()
     }
 
+    /// Applies continuous trackpad pinch zoom while preserving the gesture anchor.
+    public func zoomByPinchFactor(_ factor: Double, anchorX: CGFloat?) {
+        guard multipleSequenceAlignmentViewController == nil else { return }
+        guard let frame = referenceFrame else { return }
+        frame.zoom(by: factor, anchorScreenX: anchorX)
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+        updateStatusBar()
+        scheduleViewStateSave()
+    }
+
     /// Zooms to fit the entire sequence
     public func zoomToFit() {
         if let multipleSequenceAlignmentViewController {
@@ -3002,6 +3013,7 @@ public class ViewerViewController: NSViewController {
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()
+        scheduleViewStateSave()
     }
 
     /// Resets zoom to show ~10kb window centered on current view
@@ -3034,6 +3046,7 @@ public class ViewerViewController: NSViewController {
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()
+        scheduleViewStateSave()
     }
 
     /// Navigates to a specific genomic region
@@ -3049,6 +3062,7 @@ public class ViewerViewController: NSViewController {
         viewerView.setNeedsDisplay(viewerView.bounds)
         enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
         updateStatusBar()
+        scheduleViewStateSave()
     }
 
     /// Navigates to a specific position or range in the sequence.
@@ -3309,6 +3323,39 @@ public class ReferenceFrame {
         if newEnd > Double(sequenceLength) {
             newEnd = Double(sequenceLength)
             newStart = max(0, newEnd - windowLength)
+        }
+
+        start = newStart
+        end = newEnd
+    }
+
+    /// Zooms by a continuous factor while keeping the selected screen position anchored.
+    ///
+    /// A factor above 1 zooms in. A factor below 1 zooms out.
+    public func zoom(by factor: Double, anchorScreenX: CGFloat? = nil) {
+        let boundedFactor = min(8.0, max(0.125, factor))
+        guard boundedFactor > 0 else { return }
+
+        let currentWindow = max(1, end - start)
+        let minimumWindow = min(Double(sequenceLength), 2)
+        let maximumWindow = max(minimumWindow, Double(sequenceLength))
+        let newWindow = min(maximumWindow, max(minimumWindow, currentWindow / boundedFactor))
+
+        let defaultAnchor = leadingInset + dataPixelWidth / 2
+        let anchorX = anchorScreenX ?? defaultAnchor
+        let anchorFraction = Double(min(1, max(0, (anchorX - leadingInset) / dataPixelWidth)))
+        let anchorPosition = genomicPosition(for: anchorX)
+
+        var newStart = anchorPosition - anchorFraction * newWindow
+        var newEnd = newStart + newWindow
+
+        if newStart < 0 {
+            newStart = 0
+            newEnd = min(maximumWindow, newWindow)
+        }
+        if newEnd > Double(sequenceLength) {
+            newEnd = Double(sequenceLength)
+            newStart = max(0, newEnd - newWindow)
         }
 
         start = newStart

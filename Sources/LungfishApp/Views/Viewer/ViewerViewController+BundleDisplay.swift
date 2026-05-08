@@ -159,10 +159,16 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         viewerView.annotationHeight = CGFloat(context.viewState.annotationHeight)
         viewerView.annotationRowSpacing = CGFloat(context.viewState.annotationSpacing)
         viewerView.visibleAnnotationTypes = context.viewState.visibleAnnotationTypes
+        annotationFilterText = context.viewState.annotationFilterText
+        viewerView.annotationFilterText = context.viewState.annotationFilterText
         viewerView.translationColorScheme = context.viewState.translationColorScheme
         viewerView.showVariants = context.viewState.showVariants
         if let variantTypes = context.viewState.visibleVariantTypes {
             viewerView.visibleVariantTypes = variantTypes
+        }
+        viewerView.variantFilterText = context.viewState.variantFilterText
+        if let sampleDisplayState = context.viewState.sampleDisplayState {
+            viewerView.sampleDisplayState = sampleDisplayState
         }
         if !context.viewState.typeColorOverrides.isEmpty {
             viewerView.applyTypeColorOverrides(context.viewState.typeColorOverrides)
@@ -282,9 +288,14 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
                     } else {
                         annotVM.visibleTypes = Set(AnnotationType.allCases)
                     }
+                    annotVM.filterText = savedState.annotationFilterText
                     annotVM.showVariants = savedState.showVariants
                     if let variantTypes = savedState.visibleVariantTypes {
                         annotVM.visibleVariantTypes = variantTypes
+                    }
+                    annotVM.variantFilterText = savedState.variantFilterText
+                    if let sampleDisplayState = savedState.sampleDisplayState {
+                        splitVC.inspectorController.sampleSectionViewModel.displayState = sampleDisplayState
                     }
                 }
             }
@@ -633,10 +644,13 @@ extension ViewerViewController {
         state.annotationSpacing = Double(annotationDisplaySpacing)
         state.showAnnotations = showAnnotations
         state.visibleAnnotationTypes = visibleAnnotationTypes
+        state.annotationFilterText = annotationFilterText
         state.isRNAMode = isRNAMode
         state.translationColorScheme = viewerView.translationColorScheme
         state.showVariants = viewerView.showVariants
         state.visibleVariantTypes = viewerView.visibleVariantTypes
+        state.variantFilterText = viewerView.variantFilterText
+        state.sampleDisplayState = viewerView.sampleDisplayState
 
         // Navigation state
         if let frame = referenceFrame {
