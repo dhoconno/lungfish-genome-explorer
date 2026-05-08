@@ -71,6 +71,10 @@ Documentation/
 | Testing Lead | Example code validation |
 | UI/UX Lead | Screenshot assets |
 
+### Interface With GitHub Issue Engagement
+
+The Documentation & Community Lead supports the User Engagement Triage Agent when issue reports reveal documentation gaps, confusing onboarding, missing help text, unclear templates, or community-response policy questions. The User Engagement Triage Agent owns the public GitHub response; this role supplies documentation recommendations and user-facing wording when requested.
+
 ---
 
 ## Key Decisions to Make
