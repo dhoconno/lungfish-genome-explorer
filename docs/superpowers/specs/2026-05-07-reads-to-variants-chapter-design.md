@@ -317,3 +317,25 @@ Steps 1, 2, and 3 are mostly independent and could be done in parallel by separa
 - The shotlist file is committed; the user has captured every shot; PNGs are committed under `docs/user-manual/assets/screenshots/04-variants/`.
 - `docs/user-manual/index.md` and `docs/user-manual/chapters/04-variants/index.md` reflect the new chapter and the deletion of the two old chapters.
 - One sentence in `CHANGELOG.md` calls out the new iVar VCF output and the new `bam adopt-mapping` command for users following older guides.
+
+## 10. Known follow-ups
+
+These items came out of the post-implementation code review. They are tracked here so they don't get lost, but they are deliberately out of scope for the chapter PR. None block merging the chapter.
+
+### I4 — `bam adopt-mapping` hardcodes `sorted.bam`
+
+`Sources/LungfishCLI/Commands/BAMAdoptMappingSubcommand.swift` looks for `sorted.bam` and `sorted.bam.bai` inside the mapping result directory. The constraint is that `lungfish map` always emits sorted, indexed BAM with that exact filename, so the hardcode is consistent with the producer side. If `lungfish map` ever grows configurable output names, or if a user wants to adopt a BAM produced by some other tool that emits a different filename, this command needs a `--bam` / `--bai` override pair. Cost is low (two new options + a fallback to the current filenames). Not worth doing speculatively.
+
+### I6 — `commandLine` for the iVar caller always shows `-g <missing>`
+
+`ViralVariantCallingPipeline.commandLine(...)` builds a placeholder execution plan and calls `ivarVariantArguments(plan:gffURL:)` with `gffURL: nil`. The resulting commandLine string therefore never reflects the actual GFF passthrough that `runCaller(...)` performs. This affects only the human-readable provenance string that the pipeline records, not the run itself. The actual iVar invocation is captured separately by `NativeToolRunner` and does include `-g`. Fix is to thread the resolved `gffURL` (or a sentinel placeholder when not yet resolved) through `commandLine(...)`. Low priority because the run record already has the right command line via the tool runner.
+
+### I8+ — Suggestions from the review (non-blocking)
+
+These are quality-of-life improvements that the review raised. They are listed here so the next person who touches the affected file has the context.
+
+- **Consolidate the strand-bias filter math.** The Fisher one-sided greater path lives in `FisherExactTest.oneSidedGreaterPValue` and the production filter pre-computes a constant for the marginals. The two-sided variant could share that constant via a small private helper. Refactor only; no behavior change.
+- **Tighten the `IVarTSVToVCFConverter.Options.gffMissingNote` plumbing.** Today the converter takes a `Bool` and emits a header note when true. A typed enum (`.gffPresent`, `.gffMissing(reason:)`) would make the call sites self-documenting and let the chapter regression test assert on the reason string. Cosmetic.
+- **Stop logging `BundleManifest.load` failures at warning level for un-annotated bundles.** The new `exportBundleGFFIfAvailable` already special-cases the empty-annotations case and logs only on actual manifest-load failures, which is correct. If we observe noisy warnings in practice we should drop those to `debug`.
+- **`SRAService.downloadFASTQWithFallback` could expose a typed event** rather than a `String` callback. Today the only consumer is the CLI. If the GUI's `OperationCenter` ever wants to render the fallback as a structured row note, a typed enum (`.attemptingENA`, `.fallingBackToToolkit(reason:)`) is more future-proof. The current string is enough for the chapter.
+

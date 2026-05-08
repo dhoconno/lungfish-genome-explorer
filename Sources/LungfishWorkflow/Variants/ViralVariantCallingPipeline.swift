@@ -1,6 +1,9 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ViralVariantCallingPipeline")
 
 public struct ViralVariantCallingExecutionPlan: Sendable, Equatable {
     public let caller: ViralVariantCaller
@@ -120,10 +123,14 @@ public struct ViralVariantCallingPipeline: Sendable {
         let threads: Int
         let minimumAlleleFrequency: Double?
         let minimumDepth: Int?
-        let ivarPrimerTrimConfirmed: Bool
+        let ivarPrimerTrimConfirmed: Bool?
+        let ivarConsensusAF: Double?
+        let ivarMergeAFThreshold: Double?
+        let ivarBadQualityThreshold: Int?
+        let ivarIgnoreStrandBias: Bool?
         let medakaModel: String?
-        let advancedOptions: String
-        let advancedArguments: [String]
+        let advancedOptions: String?
+        let advancedArguments: [String]?
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -597,16 +604,37 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func exportBundleGFFIfAvailable(plan: ViralVariantCallingExecutionPlan) async -> URL? {
+        let manifest: BundleManifest
         do {
-            let manifest = try BundleManifest.load(from: request.bundleURL)
-            guard let firstAnnotation = manifest.annotations.first,
-                  let databasePath = firstAnnotation.databasePath else { return nil }
-            let dbURL = request.bundleURL.appendingPathComponent(databasePath)
+            manifest = try BundleManifest.load(from: request.bundleURL)
+        } catch {
+            // Could not load the bundle manifest. Skip GFF passthrough and let
+            // iVar run without per-codon merging. Logged so a curious user can
+            // find the cause in Console.app, but not surfaced as an error.
+            logger.warning("Could not load bundle manifest for GFF export: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let firstAnnotation = manifest.annotations.first else {
+            // No annotations attached; this is normal for un-annotated bundles.
+            // Skip codon merging silently.
+            return nil
+        }
+        guard let databasePath = firstAnnotation.databasePath else {
+            // Annotation present but no database path; nothing we can convert
+            // to GFF for iVar.
+            return nil
+        }
+        let dbURL = request.bundleURL.appendingPathComponent(databasePath)
+        do {
             let database = try AnnotationDatabase(url: dbURL)
             let outURL = plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3")
             try AnnotationDatabaseGFFExporter.export(database: database, to: outURL)
             return outURL
         } catch {
+            // The bundle has annotations but we couldn't open the database or
+            // export GFF. This is unexpected; record the cause so the next
+            // reader has a hint without needing to re-instrument the code.
+            logger.error("Failed to export bundle GFF for iVar codon merging: \(error.localizedDescription, privacy: .public)")
             return nil
         }
     }
@@ -624,12 +652,17 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func callerParametersJSON() -> String {
+        let isIvar = request.caller == .ivar
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
             minimumAlleleFrequency: request.minimumAlleleFrequency,
             minimumDepth: request.minimumDepth,
-            ivarPrimerTrimConfirmed: request.ivarPrimerTrimConfirmed,
+            ivarPrimerTrimConfirmed: isIvar ? request.ivarPrimerTrimConfirmed : nil,
+            ivarConsensusAF: isIvar ? request.ivarConsensusAF : nil,
+            ivarMergeAFThreshold: isIvar ? request.ivarMergeAFThreshold : nil,
+            ivarBadQualityThreshold: isIvar ? request.ivarBadQualityThreshold : nil,
+            ivarIgnoreStrandBias: isIvar ? request.ivarIgnoreStrandBias : nil,
             medakaModel: request.medakaModel,
             advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
             advancedArguments: request.advancedArguments
