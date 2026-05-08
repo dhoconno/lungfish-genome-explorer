@@ -9,7 +9,7 @@ feed instead:
 
 The `sparkle-alpha` GitHub release is a mutable feed container. Each real app
 version still gets its own versioned prerelease tag, for example
-`v0.4.0-alpha.9`, with the notarized DMG attached there. The appcast points at
+`v0.4.0-alpha.10`, with the notarized DMG attached there. The appcast points at
 those versioned DMG assets.
 
 ## One-Time Setup
@@ -34,7 +34,7 @@ bash scripts/release/build-notarized-dmg.sh \
   --signing-identity "Developer ID Application: Example (TEAMID)" \
   --team-id TEAMID \
   --notary-profile PROFILE \
-  --github-release-tag "v0.4.0-alpha.9" \
+  --github-release-tag "v0.4.0-alpha.10" \
   --sparkle-generate-appcast "/path/to/Sparkle/bin/generate_appcast" \
   --sparkle-ed-key-file "/path/to/private-key.txt" \
   --sparkle-publish-release "sparkle-alpha"
