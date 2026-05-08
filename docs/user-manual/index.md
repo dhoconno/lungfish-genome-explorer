@@ -15,6 +15,10 @@ concepts), **Working with the app** (Sequences, Alignments, Variants,
 Classification, Assembly, Downloads), and **Reference** (keyboard map,
 troubleshooting, glossary, appendices).
 
+## Variants
+
+- [From Reads to Variants](chapters/04-variants/01-reads-to-variants.md). End-to-end SARS-CoV-2 workflow from NCBI accession through two side-by-side variant tracks.
+
 ## A code sample, for font verification
 
 ```python

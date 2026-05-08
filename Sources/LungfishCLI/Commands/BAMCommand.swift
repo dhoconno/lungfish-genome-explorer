@@ -12,7 +12,7 @@ struct BAMCommand: AsyncParsableCommand {
             `lungfish bam annotate` to convert mapped reads into annotation tracks.
             Use `lungfish bam markdup` to mark duplicates in BAM workflows.
             """,
-        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self]
+        subcommands: [FilterSubcommand.self, AnnotateSubcommand.self, AnnotateBestSubcommand.self, AnnotateCDSBestSubcommand.self, MarkdupSubcommand.self, PrimerTrimSubcommand.self, AdoptMappingSubcommand.self]
     )
 
     struct FilterEvent: Codable, Sendable {

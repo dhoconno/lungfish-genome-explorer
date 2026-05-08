@@ -29,6 +29,10 @@ final class BAMVariantCallingDialogState {
     var minimumAlleleFrequencyText: String
     var minimumDepthText: String
     var ivarPrimerTrimConfirmed: Bool
+    var ivarConsensusAF: Double
+    var ivarMergeAFThreshold: Double
+    var ivarBadQualityThreshold: Int
+    var ivarIgnoreStrandBias: Bool
     var medakaModel: String
     var advancedOptionsText: String
     private(set) var generatedTrackID: String
@@ -66,6 +70,10 @@ final class BAMVariantCallingDialogState {
         )
         self.autoConfirmedPrimerTrim = provenance
         self.ivarPrimerTrimConfirmed = provenance != nil
+        self.ivarConsensusAF = 0.75
+        self.ivarMergeAFThreshold = 0.25
+        self.ivarBadQualityThreshold = 20
+        self.ivarIgnoreStrandBias = true
         self.medakaModel = ""
         self.advancedOptionsText = ""
         self.generatedTrackID = Self.makeTrackID()
@@ -215,7 +223,11 @@ final class BAMVariantCallingDialogState {
             minimumDepth: minimumDepth,
             ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
             medakaModel: trimmedMedakaModel.isEmpty ? nil : trimmedMedakaModel,
-            advancedArguments: parsedAdvancedOptions
+            advancedArguments: parsedAdvancedOptions,
+            ivarConsensusAF: ivarConsensusAF,
+            ivarMergeAFThreshold: ivarMergeAFThreshold,
+            ivarBadQualityThreshold: ivarBadQualityThreshold,
+            ivarIgnoreStrandBias: ivarIgnoreStrandBias
         )
     }
 

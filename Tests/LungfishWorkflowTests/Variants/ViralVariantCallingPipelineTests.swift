@@ -16,13 +16,19 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    func testIVarPipelineUsesNativeVCFOutputAndNoTSVTranslation() throws {
+    func testIVarPipelineEmitsTSVAndUsesLungfishConverter() throws {
+        // Phase 6 of the reads-to-variants chapter work replaced iVar's broken
+        // `--output-format vcf` flag with a TSV emit + in-process Swift
+        // conversion. The command-line preserved on the bundle's variant track
+        // therefore reflects iVar writing to a TSV prefix and never carries
+        // the bogus `--output-format vcf` flag iVar 1.4.x has never accepted.
         let pipeline = try makePipeline(caller: .ivar)
 
         let plan = try pipeline.buildExecutionPlan()
 
-        XCTAssertTrue(plan.commandLine.contains("--output-format vcf"))
-        XCTAssertFalse(plan.commandLine.contains(".tsv"))
+        XCTAssertFalse(plan.commandLine.contains("--output-format vcf"))
+        XCTAssertTrue(plan.commandLine.contains("ivar variants"))
+        XCTAssertTrue(plan.commandLine.contains("ivar.tsv-prefix"))
     }
 
     func testLoFreqCommandLineIncludesAdvancedArguments() throws {

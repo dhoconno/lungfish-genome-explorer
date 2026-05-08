@@ -95,9 +95,9 @@ struct FisherExactTestTests {
     @Test("matches scipy for moderate imbalance")
     func moderateImbalance() throws {
         // scipy.stats.fisher_exact([[8,2],[1,9]], alternative='two-sided')
-        // p-value ~ 0.005365
+        // p-value ~ 0.005477494641581329
         let p = FisherExactTest.twoSidedPValue(a: 8, b: 2, c: 1, d: 9)
-        #expect(abs(p - 0.005365) < 1e-4)
+        #expect(abs(p - 0.005477494641581329) < 1e-9)
     }
 
     @Test("returns 1.0 for empty table")

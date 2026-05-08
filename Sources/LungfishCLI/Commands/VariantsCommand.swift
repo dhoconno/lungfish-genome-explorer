@@ -138,6 +138,18 @@ extension VariantsCommand {
         @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier for Medaka")
         var medakaModel: String?
 
+        @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus (default 0.75)")
+        var ivarConsensusAF: Double = 0.75
+
+        @Option(name: .customLong("ivar-merge-af-threshold"), help: "Maximum allele frequency distance for merging adjacent iVar SNPs (default 0.25)")
+        var ivarMergeAFThreshold: Double = 0.25
+
+        @Option(name: .customLong("ivar-bad-quality-threshold"), help: "iVar ALT_QUAL below this fails the bq filter (default 20)")
+        var ivarBadQualityThreshold: Int = 20
+
+        @Flag(name: .customLong("ivar-no-ignore-strand-bias"), help: "Apply iVar strand-bias filter (off by default for amplicon data)")
+        var ivarApplyStrandBias: Bool = false
+
         @Option(
             name: .customLong("advanced-options"),
             parsing: .unconditional,
@@ -204,7 +216,11 @@ extension VariantsCommand {
                 minimumDepth: minimumDepth,
                 ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
                 medakaModel: medakaModel,
-                advancedArguments: advancedArguments
+                advancedArguments: advancedArguments,
+                ivarConsensusAF: ivarConsensusAF,
+                ivarMergeAFThreshold: ivarMergeAFThreshold,
+                ivarBadQualityThreshold: ivarBadQualityThreshold,
+                ivarIgnoreStrandBias: !ivarApplyStrandBias
             )
 
             emitSimpleEvent(event: "runStart", progress: 0.0, message: "Starting \(resolvedCaller.displayName) variant calling", caller: resolvedCaller.rawValue, emit: emitEvent)
@@ -225,7 +241,11 @@ extension VariantsCommand {
                     minimumDepth: minimumDepth,
                     ivarPrimerTrimConfirmed: ivarPrimerTrimConfirmed,
                     medakaModel: medakaModel,
-                    advancedArguments: advancedArguments
+                    advancedArguments: advancedArguments,
+                    ivarConsensusAF: ivarConsensusAF,
+                    ivarMergeAFThreshold: ivarMergeAFThreshold,
+                    ivarBadQualityThreshold: ivarBadQualityThreshold,
+                    ivarIgnoreStrandBias: !ivarApplyStrandBias
                 )
                 emitSimpleEvent(event: "preflightComplete", progress: 0.08, message: "Preflight checks passed", caller: resolvedCaller.rawValue, emit: emitEvent)
 

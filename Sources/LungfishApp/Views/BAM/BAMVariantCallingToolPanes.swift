@@ -10,6 +10,7 @@ struct BAMVariantCallingToolPanes: View {
                 overviewSection
                 thresholdsSection
                 callerSpecificSection
+                ivarOptionsSection
                 advancedOptionsSection
                 readinessSection
             }
@@ -112,6 +113,39 @@ struct BAMVariantCallingToolPanes: View {
             TextField("--call-indels", text: $state.advancedOptionsText)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.body, design: .monospaced))
+        }
+    }
+
+    @ViewBuilder
+    private var ivarOptionsSection: some View {
+        if state.selectedCaller == .ivar {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("iVar Options")
+                    .font(.headline)
+
+                HStack {
+                    Text("Consensus allele frequency")
+                    Spacer()
+                    TextField("0.75", value: $state.ivarConsensusAF, format: .number)
+                        .frame(width: 70)
+                }
+                HStack {
+                    Text("Merge AF distance")
+                    Spacer()
+                    TextField("0.25", value: $state.ivarMergeAFThreshold, format: .number)
+                        .frame(width: 70)
+                }
+                HStack {
+                    Text("Minimum ALT quality")
+                    Spacer()
+                    TextField("20", value: $state.ivarBadQualityThreshold, format: .number)
+                        .frame(width: 70)
+                }
+                Toggle(
+                    "Ignore strand bias (recommended for amplicons)",
+                    isOn: $state.ivarIgnoreStrandBias
+                )
+            }
         }
     }
 

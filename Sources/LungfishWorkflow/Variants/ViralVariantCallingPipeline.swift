@@ -1,6 +1,9 @@
 import Foundation
 import LungfishCore
 import LungfishIO
+import os.log
+
+private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ViralVariantCallingPipeline")
 
 public struct ViralVariantCallingExecutionPlan: Sendable, Equatable {
     public let caller: ViralVariantCaller
@@ -120,10 +123,14 @@ public struct ViralVariantCallingPipeline: Sendable {
         let threads: Int
         let minimumAlleleFrequency: Double?
         let minimumDepth: Int?
-        let ivarPrimerTrimConfirmed: Bool
+        let ivarPrimerTrimConfirmed: Bool?
+        let ivarConsensusAF: Double?
+        let ivarMergeAFThreshold: Double?
+        let ivarBadQualityThreshold: Int?
+        let ivarIgnoreStrandBias: Bool?
         let medakaModel: String?
-        let advancedOptions: String
-        let advancedArguments: [String]
+        let advancedOptions: String?
+        let advancedArguments: [String]?
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -376,10 +383,11 @@ public struct ViralVariantCallingPipeline: Sendable {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedOutput)
             }
         case .ivar:
+            let gffURL = await exportBundleGFFIfAvailable(plan: plan)
             let result = try await toolRunner.runPipeline(
                 [
                     NativePipelineStage(.samtools, arguments: ivarMpileupArguments(plan: plan)),
-                    NativePipelineStage(.ivar, arguments: ivarVariantArguments(plan: plan)),
+                    NativePipelineStage(.ivar, arguments: ivarVariantArguments(plan: plan, gffURL: gffURL)),
                 ],
                 workingDirectory: plan.workingDirectory,
                 timeout: 3600
@@ -387,6 +395,27 @@ public struct ViralVariantCallingPipeline: Sendable {
             guard result.isSuccess else {
                 throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedStderr)
             }
+            let tsvURL = plan.workingDirectory.appendingPathComponent("ivar.tsv-prefix.tsv")
+            let allHapURL = plan.workingDirectory.appendingPathComponent("ivar.all-haplotypes.vcf")
+            let manifest = try BundleManifest.load(from: request.bundleURL)
+            let contigs = (manifest.genome?.chromosomes ?? []).map { chrom in
+                IVarTSVToVCFConverter.Contig(name: chrom.name, length: Int(chrom.length))
+            }
+            let options = IVarTSVToVCFConverter.Options(
+                consensusAF: request.ivarConsensusAF,
+                mergeAFThreshold: request.ivarMergeAFThreshold,
+                badQualityThreshold: request.ivarBadQualityThreshold,
+                ignoreStrandBias: request.ivarIgnoreStrandBias,
+                sourceLine: "iVar (TSV-to-VCF: Lungfish)",
+                contigs: contigs,
+                gffMissingNote: gffURL == nil
+            )
+            try IVarTSVToVCFConverter().convert(
+                tsvURL: tsvURL,
+                primaryVCFURL: plan.rawVCFURL,
+                allHaplotypesVCFURL: allHapURL,
+                options: options
+            )
         case .medaka:
             let result = try await toolRunner.run(
                 .medaka,
@@ -501,7 +530,7 @@ public struct ViralVariantCallingPipeline: Sendable {
             )).map(shellEscape).joined(separator: " ")
         case .ivar:
             return """
-            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " "))
+            samtools \(ivarMpileupArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL)).map(shellEscape).joined(separator: " ")) | ivar \(ivarVariantArguments(plan: placeholderPlan(referenceURL: referenceURL, alignmentURL: alignmentURL, medakaFASTQURL: medakaFASTQURL, rawVCFURL: rawVCFURL), gffURL: nil).map(shellEscape).joined(separator: " "))
             """
         case .medaka:
             return ([nativeTool(for: caller).executableName] + medakaArguments(
@@ -557,18 +586,57 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
     }
 
-    private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
-        let prefix = plan.rawVCFURL.deletingPathExtension().path
-        return ["variants"]
-            + request.advancedArguments
-            + [
+    private func ivarVariantArguments(plan: ViralVariantCallingExecutionPlan, gffURL: URL?) -> [String] {
+        let prefix = plan.workingDirectory.appendingPathComponent("ivar.tsv-prefix").path
+        var args: [String] = ["variants"]
+        args.append(contentsOf: request.advancedArguments)
+        args.append(contentsOf: [
             "-p", prefix,
             "-q", "20",
             "-t", String(request.minimumAlleleFrequency ?? 0.05),
             "-m", String(request.minimumDepth ?? 10),
             "-r", plan.referenceURL.path,
-            "--output-format", "vcf",
-        ]
+        ])
+        if let gffURL {
+            args.append(contentsOf: ["-g", gffURL.path])
+        }
+        return args
+    }
+
+    private func exportBundleGFFIfAvailable(plan: ViralVariantCallingExecutionPlan) async -> URL? {
+        let manifest: BundleManifest
+        do {
+            manifest = try BundleManifest.load(from: request.bundleURL)
+        } catch {
+            // Could not load the bundle manifest. Skip GFF passthrough and let
+            // iVar run without per-codon merging. Logged so a curious user can
+            // find the cause in Console.app, but not surfaced as an error.
+            logger.warning("Could not load bundle manifest for GFF export: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        guard let firstAnnotation = manifest.annotations.first else {
+            // No annotations attached; this is normal for un-annotated bundles.
+            // Skip codon merging silently.
+            return nil
+        }
+        guard let databasePath = firstAnnotation.databasePath else {
+            // Annotation present but no database path; nothing we can convert
+            // to GFF for iVar.
+            return nil
+        }
+        let dbURL = request.bundleURL.appendingPathComponent(databasePath)
+        do {
+            let database = try AnnotationDatabase(url: dbURL)
+            let outURL = plan.workingDirectory.appendingPathComponent("ivar-annotations.gff3")
+            try AnnotationDatabaseGFFExporter.export(database: database, to: outURL)
+            return outURL
+        } catch {
+            // The bundle has annotations but we couldn't open the database or
+            // export GFF. This is unexpected; record the cause so the next
+            // reader has a hint without needing to re-instrument the code.
+            logger.error("Failed to export bundle GFF for iVar codon merging: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private func medakaArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
@@ -584,12 +652,17 @@ public struct ViralVariantCallingPipeline: Sendable {
     }
 
     private func callerParametersJSON() -> String {
+        let isIvar = request.caller == .ivar
         let payload = CallerParametersPayload(
             caller: request.caller.rawValue,
             threads: request.threads,
             minimumAlleleFrequency: request.minimumAlleleFrequency,
             minimumDepth: request.minimumDepth,
-            ivarPrimerTrimConfirmed: request.ivarPrimerTrimConfirmed,
+            ivarPrimerTrimConfirmed: isIvar ? request.ivarPrimerTrimConfirmed : nil,
+            ivarConsensusAF: isIvar ? request.ivarConsensusAF : nil,
+            ivarMergeAFThreshold: isIvar ? request.ivarMergeAFThreshold : nil,
+            ivarBadQualityThreshold: isIvar ? request.ivarBadQualityThreshold : nil,
+            ivarIgnoreStrandBias: isIvar ? request.ivarIgnoreStrandBias : nil,
             medakaModel: request.medakaModel,
             advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
             advancedArguments: request.advancedArguments
