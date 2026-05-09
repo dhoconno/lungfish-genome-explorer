@@ -1,12 +1,12 @@
 id: vcf-variant-table
-chapter: 04-variants/01-reading-a-vcf
+chapter: 04-variants/01-reads-to-variants
 caption: "A loaded VCF showing variants aligned to the reference."
 viewport_class: variant
 app_state:
-  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  fixture: docs/user-manual/fixtures/sarscov2-srr36291587
   open_files:
-    - reference: "{fixture}/reference.fasta"
-    - variants: "{fixture}/variants.vcf.gz"
+    - reference: "{fixture}/MN908947.3.fasta"
+    - variants: "{fixture}/lofreq.expected.vcf"
   window_size: [1600, 1000]
   appearance: light
 steps:
@@ -15,9 +15,9 @@ steps:
   - action: wait_ready
     signal: main_window_visible
   - action: open_file
-    path: "{fixture}/reference.fasta"
+    path: "{fixture}/MN908947.3.fasta"
   - action: open_file
-    path: "{fixture}/variants.vcf.gz"
+    path: "{fixture}/lofreq.expected.vcf"
   - action: wait_ready
     signal: variant_browser_loaded
   - action: resize_window

@@ -28,14 +28,6 @@ fi
 "$LUNGFISH" map "$OUT/SRR36291587_1.fastq" "$OUT/SRR36291587_2.fastq" \
     --reference "$OUT/MN908947.3.fasta" \
     --paired --preset sr --sample-name SRR36291587 -o "$OUT/mapping"
-# `lungfish map` writes <sample>.sorted.bam{,.bai}; `bam adopt-mapping` looks
-# for canonical sorted.bam{,.bai} names alongside it. Hard-link them so the
-# attachment service can move real regular files (not symlinks).
-BAM_PATH=$(jq -r '.bamPath' "$OUT/mapping/mapping-result.json")
-BAI_PATH=$(jq -r '.baiPath' "$OUT/mapping/mapping-result.json")
-rm -f "$OUT/mapping/sorted.bam" "$OUT/mapping/sorted.bam.bai"
-ln "$OUT/mapping/$BAM_PATH" "$OUT/mapping/sorted.bam"
-ln "$OUT/mapping/$BAI_PATH" "$OUT/mapping/sorted.bam.bai"
 "$LUNGFISH" bam adopt-mapping --bundle "$OUT/MN908947.3.lungfishref" --mapping-result "$OUT/mapping" --name "minimap2 mapping"
 # Primer-trim and call iVar / LoFreq from the manifest's first alignment track:
 TRACK_ID=$(jq -r '.alignments[0].id' "$OUT/MN908947.3.lungfishref/manifest.json")

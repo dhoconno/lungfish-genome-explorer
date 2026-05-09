@@ -1,8 +1,9 @@
 # sarscov2-clinical
 
-A SARS-CoV-2 clinical-isolate fixture set used by the pilot chapter
-`chapters/04-variants/01-reading-a-vcf.md`. Reused across later chapters
-covering alignment, variant calling, and classification baselines.
+A legacy SARS-CoV-2 clinical-isolate fixture set retained for older
+VCF-import review notes and future compact comparison examples. The current
+pilot chapter uses `docs/user-manual/fixtures/sarscov2-srr36291587/` and
+`chapters/04-variants/01-reads-to-variants.md`.
 
 A clinical isolate is used deliberately rather than a wastewater sample.
 Wastewater VCFs carry low-frequency variants, mixed lineages, and dropout
@@ -101,6 +102,6 @@ provenance; the canonical artifacts are the committed files.
 
 ## Used by
 
-`chapters/04-variants/01-reading-a-vcf.md` is the pilot chapter (variants).
-Future chapters on alignment, classification, and assembly may reuse this
-set.
+No current chapter depends on this fixture. Future chapters on VCF import,
+alignment, classification, or assembly may reuse it when a very small clinical
+isolate example is preferable to the current reads-to-variants pilot fixture.

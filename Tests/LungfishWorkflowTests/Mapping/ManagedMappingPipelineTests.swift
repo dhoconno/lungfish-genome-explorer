@@ -128,6 +128,12 @@ final class ManagedMappingPipelineTests: XCTestCase {
 
         XCTAssertEqual(result.bamURL.lastPathComponent, "sample.sorted.bam")
         XCTAssertEqual(Array(try fixture.recordedSubcommands().prefix(3)), ["view", "sort", "index"])
+        XCTAssertEqual(result.steps.map { $0.command.dropFirst().first }, ["view", "sort", "index", "flagstat"])
+        XCTAssertTrue(result.steps.allSatisfy { $0.exitCode == 0 })
+        XCTAssertTrue(result.steps.allSatisfy { $0.wallTime != nil })
+        XCTAssertTrue(result.steps[0].inputs.contains { $0.path == rawSAM.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(result.steps[1].outputs.contains { $0.path == result.bamURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(result.steps[2].outputs.contains { $0.path == result.baiURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
     }
 
     func testNormalizeAlignmentPreservesCallerOwnedRawSAMByDefault() async throws {

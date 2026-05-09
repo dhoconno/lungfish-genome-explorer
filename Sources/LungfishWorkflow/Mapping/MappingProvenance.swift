@@ -21,6 +21,8 @@ public struct MappingCommandInvocation: Sendable, Codable, Equatable {
 public struct MappingProvenance: Sendable, Codable, Equatable {
     public static let filename = "mapping-provenance.json"
 
+    public let schemaVersion: Int
+    public let workflowName: String
     public let mapper: MappingTool
     public let mapperDisplayName: String
     public let modeID: String
@@ -43,8 +45,16 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     public let recordedAt: Date
     public let mapperInvocation: MappingCommandInvocation
     public let normalizationInvocations: [MappingCommandInvocation]
+    public let inputFiles: [FileRecord]
+    public let outputFiles: [FileRecord]
+    public let runtimeIdentity: [String: String]
+    public let steps: [StepExecution]
+    public let exitStatus: Int32?
+    public let stderr: String?
 
     public init(
+        schemaVersion: Int = 2,
+        workflowName: String = "lungfish map",
         mapper: MappingTool,
         modeID: String,
         sampleName: String,
@@ -64,8 +74,16 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         samtoolsVersion: String,
         wallClockSeconds: Double,
         recordedAt: Date = Date(),
-        readClassHints: [String] = []
+        readClassHints: [String] = [],
+        inputFiles: [FileRecord] = [],
+        outputFiles: [FileRecord] = [],
+        runtimeIdentity: [String: String] = [:],
+        steps: [StepExecution] = [],
+        exitStatus: Int32? = nil,
+        stderr: String? = nil
     ) {
+        self.schemaVersion = schemaVersion
+        self.workflowName = workflowName
         self.mapper = mapper
         self.mapperDisplayName = mapper.displayName
         self.modeID = modeID
@@ -90,6 +108,12 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         self.recordedAt = recordedAt
         self.mapperInvocation = mapperInvocation
         self.normalizationInvocations = normalizationInvocations
+        self.inputFiles = inputFiles
+        self.outputFiles = outputFiles
+        self.runtimeIdentity = runtimeIdentity
+        self.steps = steps
+        self.exitStatus = exitStatus
+        self.stderr = stderr
     }
 
     public var commandInvocations: [MappingCommandInvocation] {
@@ -98,6 +122,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
 
     public func withViewerBundleURL(_ viewerBundleURL: URL?) -> MappingProvenance {
         MappingProvenance(
+            schemaVersion: schemaVersion,
+            workflowName: workflowName,
             mapper: mapper,
             modeID: modeID,
             sampleName: sampleName,
@@ -117,12 +143,20 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             samtoolsVersion: samtoolsVersion,
             wallClockSeconds: wallClockSeconds,
             recordedAt: recordedAt,
-            readClassHints: readClassHints
+            readClassHints: readClassHints,
+            inputFiles: inputFiles,
+            outputFiles: outputFiles,
+            runtimeIdentity: runtimeIdentity,
+            steps: steps,
+            exitStatus: exitStatus,
+            stderr: stderr
         )
     }
 
     public func withSourceReferenceBundleURL(_ sourceReferenceBundleURL: URL?) -> MappingProvenance {
         MappingProvenance(
+            schemaVersion: schemaVersion,
+            workflowName: workflowName,
             mapper: mapper,
             modeID: modeID,
             sampleName: sampleName,
@@ -142,7 +176,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             samtoolsVersion: samtoolsVersion,
             wallClockSeconds: wallClockSeconds,
             recordedAt: recordedAt,
-            readClassHints: readClassHints
+            readClassHints: readClassHints,
+            inputFiles: inputFiles,
+            outputFiles: outputFiles,
+            runtimeIdentity: runtimeIdentity,
+            steps: steps,
+            exitStatus: exitStatus,
+            stderr: stderr
         )
     }
 
@@ -154,7 +194,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
 
         let data = try encoder.encode(
             PersistedMappingProvenance(
-                schemaVersion: 1,
+                schemaVersion: schemaVersion,
+                workflowName: workflowName,
                 mapper: mapper,
                 mapperDisplayName: mapperDisplayName,
                 modeID: modeID,
@@ -180,7 +221,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 wallClockSeconds: wallClockSeconds,
                 recordedAt: recordedAt.timeIntervalSince1970,
                 mapperInvocation: mapperInvocation,
-                normalizationInvocations: normalizationInvocations
+                normalizationInvocations: normalizationInvocations,
+                inputFiles: inputFiles,
+                outputFiles: outputFiles,
+                runtimeIdentity: runtimeIdentity,
+                steps: steps,
+                exitStatus: exitStatus,
+                stderr: stderr
             )
         )
 
@@ -201,6 +248,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         }
 
         return MappingProvenance(
+            schemaVersion: persisted.schemaVersion,
+            workflowName: persisted.workflowName ?? "lungfish map",
             mapper: persisted.mapper,
             modeID: persisted.modeID,
             sampleName: persisted.sampleName,
@@ -224,7 +273,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             samtoolsVersion: persisted.samtoolsVersion,
             wallClockSeconds: persisted.wallClockSeconds,
             recordedAt: Date(timeIntervalSince1970: persisted.recordedAt),
-            readClassHints: persisted.readClassHints
+            readClassHints: persisted.readClassHints,
+            inputFiles: persisted.inputFiles ?? [],
+            outputFiles: persisted.outputFiles ?? [],
+            runtimeIdentity: persisted.runtimeIdentity ?? [:],
+            steps: persisted.steps ?? [],
+            exitStatus: persisted.exitStatus,
+            stderr: persisted.stderr
         )
     }
 
@@ -235,9 +290,17 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         normalizationInvocations: [MappingCommandInvocation],
         mapperVersion: String,
         samtoolsVersion: String,
-        recordedAt: Date = Date()
+        recordedAt: Date = Date(),
+        inputFiles: [FileRecord] = [],
+        outputFiles: [FileRecord] = [],
+        runtimeIdentity: [String: String] = [:],
+        steps: [StepExecution] = [],
+        exitStatus: Int32? = nil,
+        stderr: String? = nil
     ) -> MappingProvenance {
         MappingProvenance(
+            schemaVersion: 2,
+            workflowName: "lungfish map",
             mapper: request.tool,
             modeID: request.modeID,
             sampleName: request.sampleName,
@@ -256,7 +319,13 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             mapperVersion: mapperVersion,
             samtoolsVersion: samtoolsVersion,
             wallClockSeconds: result.wallClockSeconds,
-            recordedAt: recordedAt
+            recordedAt: recordedAt,
+            inputFiles: inputFiles,
+            outputFiles: outputFiles,
+            runtimeIdentity: runtimeIdentity,
+            steps: steps,
+            exitStatus: exitStatus,
+            stderr: stderr
         )
     }
 
@@ -457,6 +526,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
 
 private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let schemaVersion: Int
+    let workflowName: String?
     let mapper: MappingTool
     let mapperDisplayName: String
     let modeID: String
@@ -479,4 +549,10 @@ private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let recordedAt: Double
     let mapperInvocation: MappingCommandInvocation
     let normalizationInvocations: [MappingCommandInvocation]
+    let inputFiles: [FileRecord]?
+    let outputFiles: [FileRecord]?
+    let runtimeIdentity: [String: String]?
+    let steps: [StepExecution]?
+    let exitStatus: Int32?
+    let stderr: String?
 }

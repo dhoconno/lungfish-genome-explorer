@@ -8,30 +8,26 @@
 #
 # FIXTURE GAP: this shot needs the freshly produced VCF (iVar output,
 # bcftools-sorted, bgzipped, tabix-indexed) on disk. The committed
-# fixture only ships variants.vcf.gz from the chapter-01 bcftools run.
-# Capture is blocked until ONE of:
-#   (a) the fixture author commits variants-ivar.vcf.gz (+ .tbi) as the
-#       canonical iVar output for this chapter, OR
-#   (b) the schema gains run-pipeline actions so the recipe can drive
-#       the Call Variants run end to end and pick up the new track.
-# The path used in open_files below assumes (a); rename if the fixture
-# author chooses a different filename.
+# current pilot fixture ships ivar.expected.vcf and lofreq.expected.vcf as
+# small expected outputs from the chapter workflow. The full bgzipped/indexed
+# project outputs are generated locally by regenerate.sh when a capture pass
+# needs the exact Lungfish project state.
 #
 # RUNNER GAP: same `click` shortfall noted in the sibling recipes.
 # Selecting the new variant track in the sidebar requires a click that
 # is not in the current action vocabulary. Until that lands, manual
 # capture must select the track between the open_file and the
 # wait_ready signal.
-id: variant-table-fresh-call
-chapter: 04-variants/02-calling-variants-from-a-bam
+id: variant-tables-side-by-side
+chapter: 04-variants/01-reads-to-variants
 caption: "The freshly produced VCF loaded in the variant browser."
 viewport_class: variant
 app_state:
-  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  fixture: docs/user-manual/fixtures/sarscov2-srr36291587
   open_files:
-    - reference: "{fixture}/reference.fasta"
-    # Required precomputed asset; see FIXTURE GAP above.
-    - variants: "{fixture}/variants-ivar.vcf.gz"
+    - reference: "{fixture}/MN908947.3.fasta"
+    - ivar_variants: "{fixture}/ivar.expected.vcf"
+    - lofreq_variants: "{fixture}/lofreq.expected.vcf"
   window_size: [1600, 1000]
   appearance: light
 steps:
@@ -40,9 +36,11 @@ steps:
   - action: wait_ready
     signal: main_window_visible
   - action: open_file
-    path: "{fixture}/reference.fasta"
+    path: "{fixture}/MN908947.3.fasta"
   - action: open_file
-    path: "{fixture}/variants-ivar.vcf.gz"
+    path: "{fixture}/ivar.expected.vcf"
+  - action: open_file
+    path: "{fixture}/lofreq.expected.vcf"
   - action: wait_ready
     signal: variant_browser_loaded
   - action: resize_window
@@ -50,9 +48,9 @@ steps:
   - action: scroll_to
     target: first_variant
 crop:
-  # Same crop region as vcf-variant-table.yaml so the chapter-01 and
-  # chapter-02 VCFs sit side-by-side cleanly in the comparison the
-  # "Interpreting what you see" section invites the reader to do.
+  # Same crop region as vcf-variant-table.yaml so the caller outputs sit
+  # side-by-side cleanly in the comparison the "Interpreting what you see"
+  # section invites the reader to do.
   mode: viewport
   region: [0, 60, 1600, 900]
 annotations:

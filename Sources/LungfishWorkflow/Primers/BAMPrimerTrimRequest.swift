@@ -34,6 +34,9 @@ public struct BAMPrimerTrimRequest: Sendable {
     /// Offset (bp) applied to primer coordinates when matching reads.
     public let primerOffset: Int
 
+    /// Reproducible top-level command or workflow invocation that initiated the run.
+    public let workflowCommand: [String]
+
     /// Creates a request with explicit URLs and iVar-compatible defaults.
     /// - Parameters:
     ///   - sourceBAMURL: URL of the source BAM to be trimmed.
@@ -43,6 +46,7 @@ public struct BAMPrimerTrimRequest: Sendable {
     ///   - minQuality: Minimum Phred quality for the sliding-window trim; defaults to 20.
     ///   - slidingWindow: Sliding-window width (bp); defaults to 4.
     ///   - primerOffset: Primer coordinate offset (bp); defaults to 0.
+    ///   - workflowCommand: Reproducible top-level command or workflow invocation.
     public init(
         sourceBAMURL: URL,
         primerSchemeBundle: PrimerSchemeBundle,
@@ -50,7 +54,8 @@ public struct BAMPrimerTrimRequest: Sendable {
         minReadLength: Int = 30,
         minQuality: Int = 20,
         slidingWindow: Int = 4,
-        primerOffset: Int = 0
+        primerOffset: Int = 0,
+        workflowCommand: [String] = []
     ) {
         self.sourceBAMURL = sourceBAMURL
         self.primerSchemeBundle = primerSchemeBundle
@@ -59,5 +64,6 @@ public struct BAMPrimerTrimRequest: Sendable {
         self.minQuality = minQuality
         self.slidingWindow = slidingWindow
         self.primerOffset = primerOffset
+        self.workflowCommand = workflowCommand
     }
 }

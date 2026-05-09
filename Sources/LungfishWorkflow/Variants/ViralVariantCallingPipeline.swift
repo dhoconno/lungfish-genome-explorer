@@ -566,6 +566,13 @@ public struct ViralVariantCallingPipeline: Sendable {
             let gffURL = await exportBundleGFFIfAvailable(plan: plan)
             let mpileupArguments = ivarMpileupArguments(plan: plan)
             let variantArguments = ivarVariantArguments(plan: plan, gffURL: gffURL)
+            let mpileupCommand = await nativeCommand(for: .samtools, arguments: mpileupArguments)
+            let variantCommand = await nativeCommand(for: .ivar, arguments: variantArguments)
+            let pipeRecord = FileRecord(
+                path: "pipe:stdout:samtools-mpileup",
+                format: .text,
+                role: .output
+            )
             let startedAt = Date()
             let result = try await toolRunner.runPipeline(
                 [
@@ -606,12 +613,13 @@ public struct ViralVariantCallingPipeline: Sendable {
             let samtoolsStep = VariantCallingProvenanceStep(
                 toolName: "samtools",
                 toolVersion: await nativeToolVersion(for: .samtools),
-                command: await nativeCommand(for: .samtools, arguments: mpileupArguments),
+                command: mpileupCommand,
                 inputs: [
                     ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
                     ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
                 ],
-                outputs: [],
+                outputs: [pipeRecord],
                 exitCode: result.exitCodes.indices.contains(0) ? result.exitCodes[0] : nil,
                 wallTime: completedAt.timeIntervalSince(startedAt),
                 stderr: result.stderrByStage.indices.contains(0) ? result.stderrByStage[0] : nil,
@@ -624,8 +632,11 @@ public struct ViralVariantCallingPipeline: Sendable {
             let ivarStep = VariantCallingProvenanceStep(
                 toolName: "ivar",
                 toolVersion: await nativeToolVersion(for: .ivar),
-                command: await nativeCommand(for: .ivar, arguments: variantArguments),
-                inputs: ivarInputs,
+                command: variantCommand,
+                inputs: [
+                    FileRecord(path: pipeRecord.path, format: pipeRecord.format, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                ] + ivarInputs,
                 outputs: [ProvenanceRecorder.fileRecord(url: tsvURL, format: .text, role: .output)],
                 exitCode: result.exitCodes.indices.contains(1) ? result.exitCodes[1] : nil,
                 wallTime: completedAt.timeIntervalSince(startedAt),
@@ -658,7 +669,7 @@ public struct ViralVariantCallingPipeline: Sendable {
                 completedAt: conversionCompletedAt
             )
             return (
-                "samtools \(mpileupArguments.map(shellEscape).joined(separator: " ")) | ivar \(variantArguments.map(shellEscape).joined(separator: " "))",
+                "\(shellCommand(mpileupCommand)) | \(shellCommand(variantCommand))",
                 [samtoolsStep, ivarStep, converterStep]
             )
         case .medaka:
@@ -1049,6 +1060,10 @@ public struct ViralVariantCallingPipeline: Sendable {
             return [toolURL.path] + arguments
         }
         return [tool.executableName] + arguments
+    }
+
+    private func shellCommand(_ command: [String]) -> String {
+        command.map(shellEscape).joined(separator: " ")
     }
 
     private func nativeToolVersion(for tool: NativeTool) async -> String {

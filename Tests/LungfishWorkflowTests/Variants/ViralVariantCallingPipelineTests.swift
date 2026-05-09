@@ -192,6 +192,32 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.stagedTabixURL.path))
     }
 
+    func testIVarPipelineProvenanceCapturesMpileupPipeInputsAndChecksums() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .ivar, toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let samtoolsStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "samtools" && step.command.contains("mpileup")
+        })
+        let ivarStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "ivar" && step.command.contains("variants")
+        })
+        let pipeRecord = try XCTUnwrap(samtoolsStep.outputs.first { $0.path == "pipe:stdout:samtools-mpileup" })
+
+        XCTAssertEqual(pipeRecord.format, .text)
+        XCTAssertEqual(pipeRecord.role, .output)
+        XCTAssertTrue(ivarStep.inputs.contains { $0.path == pipeRecord.path && $0.role == .input })
+        XCTAssertTrue(samtoolsStep.inputs.contains { $0.path == samtoolsStep.inputs[0].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(samtoolsStep.inputs.contains { $0.path == samtoolsStep.inputs[1].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(samtoolsStep.inputs.contains { $0.path == samtoolsStep.inputs[2].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(ivarStep.inputs.contains { $0.path == samtoolsStep.inputs[0].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(result.commandLine.contains(" | "))
+        XCTAssertTrue(result.commandLine.contains("/envs/samtools/bin/samtools"))
+        XCTAssertTrue(result.commandLine.contains("/envs/ivar/bin/ivar"))
+    }
+
     func testAliasMatchedBamIsReheaderedToBundleChromosomesBeforeCallerExecution() async throws {
         let bundleURL = tempDir.appendingPathComponent("alias-bundle.lungfishref", isDirectory: true)
         let referenceURL = tempDir.appendingPathComponent("alias-reference.fa")
@@ -290,6 +316,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         medakaModel: String? = "unused",
         advancedArguments: [String] = [],
         annotations: [AnnotationTrackInfo] = [],
+        toolRunner: NativeToolRunner = .shared,
         bamToFASTQConverter: @escaping ViralVariantCallingPipeline.BAMToFASTQConverter = convertBAMToSingleFASTQ,
         callerExecutor: ViralVariantCallingPipeline.CallerExecutor? = nil
     ) throws -> ViralVariantCallingPipeline {
@@ -334,6 +361,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
                 )
             ]
         )
+        try manifest.save(to: bundleURL)
 
         let preflight = BAMVariantCallingPreflightResult(
             manifest: manifest,
@@ -368,9 +396,70 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             request: request,
             preflight: preflight,
             stagingRoot: stagingRoot,
+            toolRunner: toolRunner,
             bamToFASTQConverter: bamToFASTQConverter,
             callerExecutor: callerExecutor
         )
+    }
+
+    private func makeFakeVariantToolRunner() throws -> NativeToolRunner {
+        let home = tempDir.appendingPathComponent("fake-home", isDirectory: true)
+        try writeFakeTool(home: home, environment: "samtools", executable: "samtools", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "samtools 1.20"; exit 0; fi
+        if [ "$1" = "faidx" ]; then printf "chr1\\t20\\t6\\t20\\t21\\n" > "$2.fai"; exit 0; fi
+        if [ "$1" = "mpileup" ]; then echo "chr1\t1\tA\t1\t.\tI"; exit 0; fi
+        exit 0
+        """)
+        try writeFakeTool(home: home, environment: "ivar", executable: "ivar", script: """
+        #!/bin/sh
+        if [ "$1" = "version" ]; then echo "iVar version 1.4.4"; exit 0; fi
+        prefix=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-p" ]; then shift; prefix="$1"; fi
+          shift
+        done
+        cat > /dev/null
+        cat > "${prefix}.tsv" <<'EOF'
+        REGION	POS	REF	ALT	REF_DP	REF_RV	REF_QUAL	ALT_DP	ALT_RV	ALT_QUAL	ALT_FREQ	TOTAL_DP	PVAL	PASS	GFF_FEATURE	REF_CODON	REF_AA	ALT_CODON	ALT_AA	POS_AA
+        chr1	5	A	G	10	0	30	10	0	30	0.5	20	0	TRUE	NA	NA	NA	NA	NA	NA
+        EOF
+        """)
+        try writeFakeTool(home: home, environment: "bcftools", executable: "bcftools", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "bcftools 1.20"; exit 0; fi
+        output=""
+        input=""
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-o" ]; then shift; output="$1"; else input="$1"; fi
+          shift
+        done
+        cp "$input" "$output"
+        """)
+        try writeFakeTool(home: home, environment: "htslib", executable: "bgzip", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "bgzip 1.20"; exit 0; fi
+        for arg in "$@"; do input="$arg"; done
+        cp "$input" "$input.gz"
+        """)
+        try writeFakeTool(home: home, environment: "htslib", executable: "tabix", script: """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then echo "tabix 1.20"; exit 0; fi
+        for arg in "$@"; do input="$arg"; done
+        touch "$input.tbi"
+        """)
+        return NativeToolRunner(toolsDirectory: nil, homeDirectory: home)
+    }
+
+    private func writeFakeTool(home: URL, environment: String, executable: String, script: String) throws {
+        let binDir = home
+            .appendingPathComponent(".lungfish/conda/envs", isDirectory: true)
+            .appendingPathComponent(environment, isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let toolURL = binDir.appendingPathComponent(executable)
+        try script.write(to: toolURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: toolURL.path)
     }
 
     private func assertNativeProvenanceStep(

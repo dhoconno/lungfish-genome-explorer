@@ -116,7 +116,7 @@ public enum RunStatus: String, Codable, Sendable {
 /// Each `StepExecution` captures the exact command, tool version,
 /// container image digest, and input/output file checksums needed
 /// to reproduce that step.
-public struct StepExecution: Codable, Sendable, Identifiable {
+public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// Unique identifier for this step.
     public let id: UUID
 

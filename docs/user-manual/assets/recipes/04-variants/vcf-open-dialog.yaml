@@ -1,11 +1,11 @@
 id: vcf-open-dialog
-chapter: 04-variants/01-reading-a-vcf
+chapter: 04-variants/01-reads-to-variants
 caption: "The Open dialog filtered to VCF files."
 viewport_class: variant
 app_state:
-  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  fixture: docs/user-manual/fixtures/sarscov2-srr36291587
   open_files:
-    - reference: "{fixture}/reference.fasta"
+    - reference: "{fixture}/MN908947.3.fasta"
   window_size: [1600, 1000]
   appearance: light
 steps:
@@ -14,7 +14,7 @@ steps:
   - action: wait_ready
     signal: main_window_visible
   - action: open_file
-    path: "{fixture}/reference.fasta"
+    path: "{fixture}/MN908947.3.fasta"
   - action: wait_ready
     signal: sequence_viewer_loaded
   - action: resize_window

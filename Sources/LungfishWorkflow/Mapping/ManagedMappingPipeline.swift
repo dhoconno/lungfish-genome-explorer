@@ -12,19 +12,22 @@ public struct NormalizedMappingAlignment: Sendable, Equatable {
     public let totalReads: Int
     public let mappedReads: Int
     public let unmappedReads: Int
+    public let steps: [StepExecution]
 
     public init(
         bamURL: URL,
         baiURL: URL,
         totalReads: Int,
         mappedReads: Int,
-        unmappedReads: Int
+        unmappedReads: Int,
+        steps: [StepExecution] = []
     ) {
         self.bamURL = bamURL
         self.baiURL = baiURL
         self.totalReads = totalReads
         self.mappedReads = mappedReads
         self.unmappedReads = unmappedReads
+        self.steps = steps
     }
 }
 
@@ -100,13 +103,26 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         try await validateInputs(for: prepared.request)
         try FileManager.default.createDirectory(at: prepared.request.outputDirectory, withIntermediateDirectories: true)
-        try await prepareReferenceIndexesIfNeeded(for: prepared.request, locator: prepared.referenceLocator, progress: progress)
+        let mapperVersion = await detectToolVersion(
+            toolName: command.executable,
+            environment: prepared.request.tool.environmentName,
+            condaManager: condaManager
+        )
+        let samtoolsVersion = await nativeToolRunner.getToolVersion(.samtools) ?? "unknown"
+        let indexSteps = try await prepareReferenceIndexesIfNeeded(
+            for: prepared.request,
+            locator: prepared.referenceLocator,
+            progress: progress,
+            mapperVersion: mapperVersion
+        )
 
         let rawAlignmentURL = MappingCommandBuilder.rawAlignmentURL(for: prepared.request)
         progress?(0.1, "Running \(prepared.request.tool.displayName)...")
-        try await executeMappingCommand(
+        let mapperStep = try await executeMappingCommand(
             command,
             outputURL: rawAlignmentURL,
+            inputRecords: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            mapperVersion: mapperVersion,
             progress: progress
         )
 
@@ -119,7 +135,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             minimumMappingQuality: prepared.request.minimumMappingQuality,
             includeSecondary: prepared.request.includeSecondary,
             includeSupplementary: prepared.request.includeSupplementary,
-            removeIntermediateRawSAMOnSuccess: true
+            removeIntermediateRawSAMOnSuccess: true,
+            samtoolsVersion: samtoolsVersion
         )
 
         progress?(0.9, "Summarizing mapped contigs...")
@@ -143,12 +160,13 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         )
         try result.save(to: prepared.request.outputDirectory)
 
-        let mapperVersion = await detectToolVersion(
-            toolName: command.executable,
-            environment: prepared.request.tool.environmentName,
-            condaManager: condaManager
-        )
-        let samtoolsVersion = await nativeToolRunner.getToolVersion(.samtools) ?? "unknown"
+        let mappingResultURL = prepared.request.outputDirectory.appendingPathComponent("mapping-result.json")
+        let outputFiles = [
+            ProvenanceRecorder.fileRecord(url: result.bamURL, format: .bam, role: .output),
+            ProvenanceRecorder.fileRecord(url: result.baiURL, role: .index),
+            ProvenanceRecorder.fileRecord(url: mappingResultURL, format: .json, role: .output)
+        ]
+        let steps = indexSteps + [mapperStep] + normalized.steps
         let provenance = MappingProvenance.build(
             request: prepared.request,
             result: result,
@@ -166,7 +184,13 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 includeSupplementary: prepared.request.includeSupplementary
             ),
             mapperVersion: mapperVersion,
-            samtoolsVersion: samtoolsVersion
+            samtoolsVersion: samtoolsVersion,
+            inputFiles: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            outputFiles: outputFiles,
+            runtimeIdentity: mappingRuntimeIdentity(for: command),
+            steps: steps,
+            exitStatus: 0,
+            stderr: combinedStderr(steps.map(\.stderr))
         )
         try provenance.save(to: prepared.request.outputDirectory)
         progress?(1.0, "Mapping complete.")
@@ -181,7 +205,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         minimumMappingQuality: Int = 0,
         includeSecondary: Bool = true,
         includeSupplementary: Bool = true,
-        removeIntermediateRawSAMOnSuccess: Bool = false
+        removeIntermediateRawSAMOnSuccess: Bool = false,
+        samtoolsVersion: String? = nil
     ) async throws -> NormalizedMappingAlignment {
         let fm = FileManager.default
         try fm.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
@@ -194,38 +219,73 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let needsFiltering = minimumMappingQuality > 0 || !includeSecondary || !includeSupplementary
         let extensionLower = rawAlignmentURL.pathExtension.lowercased()
         let isAlreadySorted = rawAlignmentURL.lastPathComponent.hasSuffix(".sorted.bam")
+        let resolvedSamtoolsVersion = samtoolsVersion ?? "unknown"
+        var steps: [StepExecution] = []
 
         if extensionLower == "sam" {
-            try await samtoolsViewToBAM(
+            let viewStep = try await samtoolsViewToBAM(
                 inputURL: rawAlignmentURL,
                 outputBAMURL: tempFilteredBAM,
                 minimumMappingQuality: minimumMappingQuality,
                 includeSecondary: includeSecondary,
-                includeSupplementary: includeSupplementary
+                includeSupplementary: includeSupplementary,
+                samtoolsVersion: resolvedSamtoolsVersion
             )
-            try await samtoolsSort(inputURL: tempFilteredBAM, outputBAMURL: sortedBAM, threads: sortThreads)
+            steps.append(viewStep)
+            let sortStep = try await samtoolsSort(
+                inputURL: tempFilteredBAM,
+                outputBAMURL: sortedBAM,
+                threads: sortThreads,
+                samtoolsVersion: resolvedSamtoolsVersion
+            )
+            steps.append(sortStep)
         } else if extensionLower == "bam", isAlreadySorted, !needsFiltering {
             if rawAlignmentURL.standardizedFileURL != sortedBAM.standardizedFileURL {
                 if fm.fileExists(atPath: sortedBAM.path) {
                     try fm.removeItem(at: sortedBAM)
                 }
                 try fm.copyItem(at: rawAlignmentURL, to: sortedBAM)
+                steps.append(copyAlignmentStep(inputURL: rawAlignmentURL, outputURL: sortedBAM))
             }
         } else if extensionLower == "bam", !needsFiltering {
-            try await samtoolsSort(inputURL: rawAlignmentURL, outputBAMURL: sortedBAM, threads: sortThreads)
+            let sortStep = try await samtoolsSort(
+                inputURL: rawAlignmentURL,
+                outputBAMURL: sortedBAM,
+                threads: sortThreads,
+                samtoolsVersion: resolvedSamtoolsVersion
+            )
+            steps.append(sortStep)
         } else {
-            try await samtoolsViewToBAM(
+            let viewStep = try await samtoolsViewToBAM(
                 inputURL: rawAlignmentURL,
                 outputBAMURL: tempFilteredBAM,
                 minimumMappingQuality: minimumMappingQuality,
                 includeSecondary: includeSecondary,
-                includeSupplementary: includeSupplementary
+                includeSupplementary: includeSupplementary,
+                samtoolsVersion: resolvedSamtoolsVersion
             )
-            try await samtoolsSort(inputURL: tempFilteredBAM, outputBAMURL: sortedBAM, threads: sortThreads)
+            steps.append(viewStep)
+            let sortStep = try await samtoolsSort(
+                inputURL: tempFilteredBAM,
+                outputBAMURL: sortedBAM,
+                threads: sortThreads,
+                samtoolsVersion: resolvedSamtoolsVersion
+            )
+            steps.append(sortStep)
         }
 
-        try await samtoolsIndex(bamURL: sortedBAM)
-        let (totalReads, mappedReads) = try await samtoolsFlagstatCounts(bamURL: sortedBAM)
+        let indexStep = try await samtoolsIndex(
+            bamURL: sortedBAM,
+            indexURL: baiURL,
+            samtoolsVersion: resolvedSamtoolsVersion
+        )
+        steps.append(indexStep)
+        let flagstat = try await samtoolsFlagstatCounts(
+            bamURL: sortedBAM,
+            samtoolsVersion: resolvedSamtoolsVersion
+        )
+        steps.append(flagstat.step)
+        let (totalReads, mappedReads) = flagstat.counts
         if removeIntermediateRawSAMOnSuccess,
            extensionLower == "sam",
            rawAlignmentURL.lastPathComponent.hasSuffix(".raw.sam"),
@@ -241,7 +301,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             baiURL: baiURL,
             totalReads: totalReads,
             mappedReads: mappedReads,
-            unmappedReads: max(0, totalReads - mappedReads)
+            unmappedReads: max(0, totalReads - mappedReads),
+            steps: steps
         )
     }
 
@@ -379,8 +440,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
     private func prepareReferenceIndexesIfNeeded(
         for request: MappingRunRequest,
         locator: ReferenceLocator,
-        progress: ProgressHandler?
-    ) async throws {
+        progress: ProgressHandler?,
+        mapperVersion: String
+    ) async throws -> [StepExecution] {
         switch request.tool {
         case .bwaMem2:
             progress?(0.02, "Building BWA-MEM2 index...")
@@ -388,13 +450,17 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 at: locator.indexPrefixURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let result = try await condaManager.runTool(
+            let execution = try await runCondaToolStep(
                 name: "bwa-mem2",
                 arguments: ["index", "-p", locator.indexPrefixURL.path, locator.referenceURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
-                timeout: 24 * 3_600
+                timeout: 24 * 3_600,
+                toolVersion: mapperVersion,
+                inputs: [(locator.referenceURL, .fasta, .reference)],
+                outputs: { self.indexOutputFiles(prefixURL: locator.indexPrefixURL) }
             )
+            let result = execution.result
             guard result.exitCode == 0 else {
                 throw ManagedMappingPipelineError.executionFailed(
                     tool: request.tool.displayName,
@@ -402,19 +468,24 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                     detail: result.stderr
                 )
             }
+            return [execution.step]
         case .bowtie2:
             progress?(0.02, "Building Bowtie2 index...")
             try FileManager.default.createDirectory(
                 at: locator.indexPrefixURL.deletingLastPathComponent(),
                 withIntermediateDirectories: true
             )
-            let result = try await condaManager.runTool(
+            let execution = try await runCondaToolStep(
                 name: "bowtie2-build",
                 arguments: [locator.referenceURL.path, locator.indexPrefixURL.path],
                 environment: request.tool.environmentName,
                 workingDirectory: request.outputDirectory,
-                timeout: 24 * 3_600
+                timeout: 24 * 3_600,
+                toolVersion: mapperVersion,
+                inputs: [(locator.referenceURL, .fasta, .reference)],
+                outputs: { self.indexOutputFiles(prefixURL: locator.indexPrefixURL) }
             )
+            let result = execution.result
             guard result.exitCode == 0 else {
                 throw ManagedMappingPipelineError.executionFailed(
                     tool: "bowtie2-build",
@@ -422,23 +493,30 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                     detail: result.stderr
                 )
             }
+            return [execution.step]
         case .minimap2, .bbmap:
-            break
+            return []
         }
     }
 
     private func executeMappingCommand(
         _ command: ManagedMappingCommand,
         outputURL: URL,
+        inputRecords: [FileRecord],
+        mapperVersion: String,
         progress: ProgressHandler?
-    ) async throws {
+    ) async throws -> StepExecution {
         if let nativeTool = command.nativeTool {
-            let result = try await nativeToolRunner.run(
-                nativeTool,
+            let execution = try await runNativeToolStep(
+                tool: nativeTool,
                 arguments: command.arguments,
                 workingDirectory: command.workingDirectory,
-                timeout: 24 * 3_600
+                timeout: 24 * 3_600,
+                toolVersion: mapperVersion,
+                inputs: inputRecords.map { (URL(fileURLWithPath: $0.path), $0.format, $0.role) },
+                outputs: [(outputURL, fileFormat(for: outputURL), .output)]
             )
+            let result = execution.result
             guard result.exitCode == 0 else {
                 throw ManagedMappingPipelineError.executionFailed(
                     tool: command.executable,
@@ -446,7 +524,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                     detail: result.stderr
                 )
             }
-            return
+            return execution.step
         }
 
         guard let environment = command.environment else {
@@ -455,6 +533,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         if command.executable == "bwa-mem2" {
             progress?(0.15, "Streaming bwa-mem2 SAM output...")
+            let stepStart = Date()
             let result = try await runCondaToolStreamingStdout(
                 executable: command.executable,
                 arguments: command.arguments,
@@ -463,6 +542,23 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 stdoutURL: outputURL,
                 timeout: 24 * 3_600
             )
+            let stepEnd = Date()
+            let step = StepExecution(
+                toolName: command.executable,
+                toolVersion: condaToolVersionString(
+                    mapperVersion,
+                    environment: environment,
+                    executableName: command.executable
+                ),
+                command: condaCommand(name: command.executable, arguments: command.arguments, environment: environment),
+                inputs: inputRecords,
+                outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat(for: outputURL), role: .output)],
+                exitCode: result.exitCode,
+                wallTime: stepEnd.timeIntervalSince(stepStart),
+                stderr: nonEmpty(result.stderr),
+                startTime: stepStart,
+                endTime: stepEnd
+            )
             guard result.exitCode == 0 else {
                 throw ManagedMappingPipelineError.executionFailed(
                     tool: command.executable,
@@ -470,16 +566,20 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                     detail: result.stderr
                 )
             }
-            return
+            return step
         }
 
-        let result = try await condaManager.runTool(
+        let execution = try await runCondaToolStep(
             name: command.executable,
             arguments: command.arguments,
             environment: environment,
             workingDirectory: command.workingDirectory,
-            timeout: 24 * 3_600
+            timeout: 24 * 3_600,
+            toolVersion: mapperVersion,
+            inputs: inputRecords.map { (URL(fileURLWithPath: $0.path), $0.format, $0.role) },
+            outputs: { [(outputURL, self.fileFormat(for: outputURL), .output)] }
         )
+        let result = execution.result
         guard result.exitCode == 0 else {
             throw ManagedMappingPipelineError.executionFailed(
                 tool: command.executable,
@@ -487,6 +587,41 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 detail: result.stderr
             )
         }
+        return execution.step
+    }
+
+    private func runCondaToolStep(
+        name: String,
+        arguments: [String],
+        environment: String,
+        workingDirectory: URL,
+        timeout: TimeInterval,
+        toolVersion: String,
+        inputs: [(URL, FileFormat?, FileRole)],
+        outputs: () -> [(URL, FileFormat?, FileRole)]
+    ) async throws -> MappingTimedCondaToolResult {
+        let start = Date()
+        let result = try await condaManager.runTool(
+            name: name,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            timeout: timeout
+        )
+        let end = Date()
+        let step = StepExecution(
+            toolName: name,
+            toolVersion: condaToolVersionString(toolVersion, environment: environment, executableName: name),
+            command: condaCommand(name: name, arguments: arguments, environment: environment),
+            inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
+            outputs: outputs().map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
+            exitCode: result.exitCode,
+            wallTime: end.timeIntervalSince(start),
+            stderr: nonEmpty(result.stderr),
+            startTime: start,
+            endTime: end
+        )
+        return MappingTimedCondaToolResult(result: result, step: step)
     }
 
     private func runCondaToolStreamingStdout(
@@ -560,8 +695,9 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         outputBAMURL: URL,
         minimumMappingQuality: Int,
         includeSecondary: Bool,
-        includeSupplementary: Bool
-    ) async throws {
+        includeSupplementary: Bool,
+        samtoolsVersion: String
+    ) async throws -> StepExecution {
         var arguments = ["view", "-b", "-o", outputBAMURL.path]
         if minimumMappingQuality > 0 {
             arguments += ["-q", String(minimumMappingQuality)]
@@ -575,56 +711,177 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
         arguments.append(inputURL.path)
 
-        let result = try await nativeToolRunner.run(
-            .samtools,
+        let execution = try await runNativeToolStep(
+            tool: .samtools,
             arguments: arguments,
             workingDirectory: outputBAMURL.deletingLastPathComponent(),
-            timeout: 3_600
+            timeout: 3_600,
+            toolVersion: samtoolsVersion,
+            inputs: [(inputURL, fileFormat(for: inputURL), .input)],
+            outputs: [(outputBAMURL, .bam, .output)]
         )
+        let result = execution.result
         guard result.isSuccess else {
             throw ManagedMappingPipelineError.normalizationFailed(result.stderr)
         }
+        return execution.step
     }
 
     private func samtoolsSort(
         inputURL: URL,
         outputBAMURL: URL,
-        threads: Int
-    ) async throws {
-        let result = try await nativeToolRunner.run(
-            .samtools,
+        threads: Int,
+        samtoolsVersion: String
+    ) async throws -> StepExecution {
+        let execution = try await runNativeToolStep(
+            tool: .samtools,
             arguments: ["sort", "-@", String(max(1, threads)), "-o", outputBAMURL.path, inputURL.path],
             workingDirectory: outputBAMURL.deletingLastPathComponent(),
-            timeout: 3_600
+            timeout: 3_600,
+            toolVersion: samtoolsVersion,
+            inputs: [(inputURL, fileFormat(for: inputURL), .input)],
+            outputs: [(outputBAMURL, .bam, .output)]
         )
+        let result = execution.result
         guard result.isSuccess else {
             throw ManagedMappingPipelineError.normalizationFailed(result.stderr)
         }
+        return execution.step
     }
 
-    private func samtoolsIndex(bamURL: URL) async throws {
-        let result = try await nativeToolRunner.run(
-            .samtools,
+    private func samtoolsIndex(
+        bamURL: URL,
+        indexURL: URL,
+        samtoolsVersion: String
+    ) async throws -> StepExecution {
+        let execution = try await runNativeToolStep(
+            tool: .samtools,
             arguments: ["index", bamURL.path],
             workingDirectory: bamURL.deletingLastPathComponent(),
-            timeout: 600
+            timeout: 600,
+            toolVersion: samtoolsVersion,
+            inputs: [(bamURL, .bam, .input)],
+            outputs: [(indexURL, nil, .index)]
         )
+        let result = execution.result
         guard result.isSuccess else {
             throw ManagedMappingPipelineError.normalizationFailed(result.stderr)
         }
+        return execution.step
     }
 
-    private func samtoolsFlagstatCounts(bamURL: URL) async throws -> (Int, Int) {
-        let result = try await nativeToolRunner.run(
-            .samtools,
+    private func samtoolsFlagstatCounts(
+        bamURL: URL,
+        samtoolsVersion: String
+    ) async throws -> (counts: (Int, Int), step: StepExecution) {
+        let execution = try await runNativeToolStep(
+            tool: .samtools,
             arguments: ["flagstat", bamURL.path],
             workingDirectory: bamURL.deletingLastPathComponent(),
-            timeout: 300
+            timeout: 300,
+            toolVersion: samtoolsVersion,
+            inputs: [(bamURL, .bam, .input)],
+            outputs: []
         )
+        let result = execution.result
         guard result.isSuccess else {
             throw ManagedMappingPipelineError.normalizationFailed(result.stderr)
         }
-        return Self.parseFlagstat(result.stdout)
+        return (Self.parseFlagstat(result.stdout), execution.step)
+    }
+
+    private func runNativeToolStep(
+        tool: NativeTool,
+        arguments: [String],
+        workingDirectory: URL,
+        timeout: TimeInterval,
+        toolVersion: String,
+        inputs: [(URL, FileFormat?, FileRole)],
+        outputs: [(URL, FileFormat?, FileRole)]
+    ) async throws -> MappingTimedNativeToolResult {
+        let command = await nativeCommand(for: tool, arguments: arguments)
+        let start = Date()
+        let result = try await nativeToolRunner.run(
+            tool,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            timeout: timeout
+        )
+        let end = Date()
+        let step = StepExecution(
+            toolName: tool.executableName,
+            toolVersion: toolVersionString(toolVersion, tool: tool),
+            command: command,
+            inputs: inputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
+            outputs: outputs.map { ProvenanceRecorder.fileRecord(url: $0.0, format: $0.1, role: $0.2) },
+            exitCode: result.exitCode,
+            wallTime: end.timeIntervalSince(start),
+            stderr: nonEmpty(result.stderr),
+            startTime: start,
+            endTime: end
+        )
+        return MappingTimedNativeToolResult(result: result, step: step)
+    }
+
+    private func nativeCommand(for tool: NativeTool, arguments: [String]) async -> [String] {
+        if let toolURL = try? await nativeToolRunner.findTool(tool) {
+            return [toolURL.path] + arguments
+        }
+        return [tool.executableName] + arguments
+    }
+
+    private func condaCommand(name: String, arguments: [String], environment: String) -> [String] {
+        ["micromamba", "run", "-n", environment, name] + arguments
+    }
+
+    private func mappingInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
+        let sequenceInputs = request.inputFASTQURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .input)
+        }
+        return sequenceInputs + [
+            ProvenanceRecorder.fileRecord(url: referenceURL, format: fileFormat(for: referenceURL), role: .reference)
+        ]
+    }
+
+    private func mappingRuntimeIdentity(for command: ManagedMappingCommand) -> [String: String] {
+        var identity: [String: String] = [
+            "samtools": runtimeIdentity(for: .samtools)
+        ]
+        if let nativeTool = command.nativeTool {
+            identity["mapper"] = runtimeIdentity(for: nativeTool)
+        } else if let environment = command.environment {
+            identity["mapper"] = condaRuntimeIdentity(environment: environment, executableName: command.executable)
+        }
+        return identity
+    }
+
+    private func indexOutputFiles(prefixURL: URL) -> [(URL, FileFormat?, FileRole)] {
+        let directory = prefixURL.deletingLastPathComponent()
+        let prefix = prefixURL.lastPathComponent
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        return urls
+            .filter { $0.lastPathComponent.hasPrefix(prefix) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            .map { ($0, fileFormat(for: $0), .index) }
+    }
+
+    private func copyAlignmentStep(inputURL: URL, outputURL: URL) -> StepExecution {
+        let timestamp = Date()
+        return StepExecution(
+            toolName: "lungfish",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "map", "normalize-copy", inputURL.path, outputURL.path],
+            inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: fileFormat(for: inputURL), role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .bam, role: .output)],
+            exitCode: 0,
+            wallTime: 0,
+            stderr: nil,
+            startTime: timestamp,
+            endTime: timestamp
+        )
     }
 
     private static func parseFlagstat(_ output: String) -> (Int, Int) {
@@ -641,6 +898,67 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
 
         return (totalReads, mappedReads)
+    }
+
+    private func fileFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "sam":
+            return .sam
+        case "bam":
+            return .bam
+        case "bai":
+            return .unknown
+        case "fastq", "fq":
+            return .fastq
+        case "fa", "fasta", "fna":
+            return .fasta
+        default:
+            if url.lastPathComponent.lowercased().hasSuffix(".fastq.gz")
+                || url.lastPathComponent.lowercased().hasSuffix(".fq.gz") {
+                return .fastq
+            }
+            return .unknown
+        }
+    }
+
+    private func toolVersionString(_ version: String, tool: NativeTool) -> String {
+        "\(version) (\(runtimeIdentity(for: tool)))"
+    }
+
+    private func condaToolVersionString(
+        _ version: String,
+        environment: String,
+        executableName: String
+    ) -> String {
+        "\(version) (\(condaRuntimeIdentity(environment: environment, executableName: executableName)))"
+    }
+
+    private func condaRuntimeIdentity(environment: String, executableName: String) -> String {
+        "managed conda environment \(environment); executable \(executableName); root \(condaManager.rootPrefix.path)"
+    }
+
+    private func runtimeIdentity(for tool: NativeTool) -> String {
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
+                ?? tool.sourcePackage
+            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
+        case .bundled(let relativePath):
+            return "bundled executable \(relativePath)"
+        }
+    }
+
+    private func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
+    }
+
+    private func combinedStderr(_ values: [String?]) -> String? {
+        let combined = values
+            .compactMap { $0 }
+            .compactMap(nonEmpty)
+            .joined(separator: "\n")
+        return combined.isEmpty ? nil : combined
     }
 
     private func excludedFlags(
@@ -666,4 +984,14 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
         return name
     }
+}
+
+private struct MappingTimedNativeToolResult {
+    let result: NativeToolResult
+    let step: StepExecution
+}
+
+private struct MappingTimedCondaToolResult {
+    let result: (stdout: String, stderr: String, exitCode: Int32)
+    let step: StepExecution
 }

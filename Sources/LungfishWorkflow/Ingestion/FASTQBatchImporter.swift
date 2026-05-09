@@ -760,13 +760,16 @@ public enum FASTQBatchImporter {
             let statsLabel = "Compute statistics"
             log?(.stepStart(sample: pair.sampleName, step: statsLabel, stepIndex: statsStepIndex, totalSteps: totalSteps))
             let statsStart = Date()
+            var statsError: String?
             do {
                 try await computeAndCacheStatistics(for: bundleFASTQURL)
             } catch {
+                statsError = error.localizedDescription
                 logger.warning("Stats computation failed for \(pair.sampleName): \(error) — bundle is still valid")
             }
+            let statsCompletedAt = Date()
             log?(.stepComplete(sample: pair.sampleName, step: statsLabel,
-                               durationSeconds: Date().timeIntervalSince(statsStart)))
+                               durationSeconds: statsCompletedAt.timeIntervalSince(statsStart)))
             recipeStepResults.append(RecipeStepResult(
                 stepName: statsLabel,
                 tool: "seqkit",
@@ -774,8 +777,21 @@ public enum FASTQBatchImporter {
                 commandLine: nil,
                 inputReadCount: nil,
                 outputReadCount: nil,
-                durationSeconds: Date().timeIntervalSince(statsStart)
+                durationSeconds: statsCompletedAt.timeIntervalSince(statsStart)
             ))
+
+            try await writeImportProvenance(
+                pair: pair,
+                config: config,
+                bundleURL: bundleURL,
+                bundleFASTQURL: bundleFASTQURL,
+                sourceIngestionOutputURL: finalFASTQURL,
+                ingestionResult: ingestionResult,
+                recipeStepResults: recipeStepResults,
+                statsStartedAt: statsStart,
+                statsCompletedAt: statsCompletedAt,
+                statsError: statsError
+            )
 
             let finalBytes = bundleFileSize(bundleURL)
             let duration = Date().timeIntervalSince(sampleStart)
@@ -794,6 +810,193 @@ public enum FASTQBatchImporter {
         } catch {
             return .failure(error)
         }
+    }
+
+    // MARK: - Provenance
+
+    private static func writeImportProvenance(
+        pair: SamplePair,
+        config: ImportConfig,
+        bundleURL: URL,
+        bundleFASTQURL: URL,
+        sourceIngestionOutputURL: URL,
+        ingestionResult: FASTQIngestionResult,
+        recipeStepResults: [RecipeStepResult],
+        statsStartedAt: Date,
+        statsCompletedAt: Date,
+        statsError: String?
+    ) async throws {
+        let originalInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
+        let metadataURL = FASTQMetadataStore.metadataURL(for: bundleFASTQURL)
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+
+        var steps: [StepExecution] = []
+        steps.append(contentsOf: recipeProvenanceSteps(
+            recipeStepResults: recipeStepResults,
+            originalInputURLs: originalInputURLs,
+            bundleFASTQURL: bundleFASTQURL
+        ))
+        steps.append(contentsOf: rehydratedIngestionSteps(
+            ingestionResult.provenanceSteps,
+            sourceOutputURL: sourceIngestionOutputURL,
+            finalOutputURL: bundleFASTQURL
+        ))
+
+        let finalizedAt = Date()
+        steps.append(StepExecution(
+            toolName: "lungfish import fastq",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: reproducibleImportCommand(pair: pair, config: config),
+            inputs: originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output),
+                ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: 0,
+            stderr: nil,
+            startTime: finalizedAt,
+            endTime: finalizedAt
+        ))
+
+        steps.append(StepExecution(
+            toolName: "seqkit",
+            toolVersion: await NativeToolRunner.shared.getToolVersion(.seqkit) ?? "unknown",
+            command: ["seqkit", "stats", "-a", "-T", bundleFASTQURL.path],
+            inputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)],
+            exitCode: statsError == nil ? 0 : 1,
+            wallTime: statsCompletedAt.timeIntervalSince(statsStartedAt),
+            stderr: statsError,
+            startTime: statsStartedAt,
+            endTime: statsCompletedAt
+        ))
+
+        let run = WorkflowRun(
+            name: "lungfish import fastq",
+            startTime: steps.map(\.startTime).min() ?? Date(),
+            endTime: Date(),
+            status: .completed,
+            appVersion: WorkflowRun.currentAppVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            steps: steps,
+            parameters: provenanceParameters(pair: pair, config: config, bundleURL: bundleURL)
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+    }
+
+    private static func recipeProvenanceSteps(
+        recipeStepResults: [RecipeStepResult],
+        originalInputURLs: [URL],
+        bundleFASTQURL: URL
+    ) -> [StepExecution] {
+        recipeStepResults.compactMap { result in
+            guard result.stepName != "Compute statistics",
+                  !result.stepName.localizedCaseInsensitiveContains("Clumpify"),
+                  !result.stepName.localizedCaseInsensitiveContains("Compress") else {
+                return nil
+            }
+            let command = result.commandLine?
+                .split(separator: " ")
+                .map(String.init) ?? [result.tool]
+            let timestamp = Date()
+            return StepExecution(
+                toolName: result.tool,
+                toolVersion: result.toolVersion ?? "unknown",
+                command: command,
+                inputs: originalInputURLs.map {
+                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+                },
+                outputs: [ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output)],
+                exitCode: 0,
+                wallTime: result.durationSeconds,
+                stderr: nil,
+                startTime: timestamp.addingTimeInterval(-result.durationSeconds),
+                endTime: timestamp
+            )
+        }
+    }
+
+    private static func rehydratedIngestionSteps(
+        _ steps: [StepExecution],
+        sourceOutputURL: URL,
+        finalOutputURL: URL
+    ) -> [StepExecution] {
+        steps.map { step in
+            let outputs = step.outputs.map { record -> FileRecord in
+                guard URL(fileURLWithPath: record.path).standardizedFileURL == sourceOutputURL.standardizedFileURL else {
+                    return record
+                }
+                return ProvenanceRecorder.fileRecord(url: finalOutputURL, format: record.format, role: record.role)
+            }
+            return StepExecution(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                containerImage: step.containerImage,
+                containerDigest: step.containerDigest,
+                command: step.command,
+                inputs: step.inputs,
+                outputs: outputs,
+                exitCode: step.exitCode,
+                wallTime: step.wallTime,
+                peakMemoryBytes: step.peakMemoryBytes,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startTime: step.startTime,
+                endTime: step.endTime
+            )
+        }
+    }
+
+    private static func provenanceParameters(
+        pair: SamplePair,
+        config: ImportConfig,
+        bundleURL: URL
+    ) -> [String: ParameterValue] {
+        [
+            "sampleName": .string(pair.sampleName),
+            "r1": .file(pair.r1),
+            "r2": pair.r2.map(ParameterValue.file) ?? .null,
+            "projectDirectory": .file(config.projectDirectory),
+            "outputBundle": .file(bundleURL),
+            "platform": .string(config.platform.rawValue),
+            "recipe": .string(config.newRecipe?.id ?? config.recipe?.name ?? "none"),
+            "qualityBinning": .string(config.qualityBinning.rawValue),
+            "optimizeStorage": .boolean(config.optimizeStorage),
+            "compressionLevel": .string(config.compressionLevel.rawValue),
+            "threads": .integer(config.threads),
+            "forceReimport": .boolean(config.forceReimport),
+        ]
+    }
+
+    private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
+        var command = [
+            "lungfish", "import", "fastq",
+            pair.r1.path,
+        ]
+        if let r2 = pair.r2 {
+            command.append(r2.path)
+        }
+        command += [
+            "--project", config.projectDirectory.path,
+            "--platform", config.platform.rawValue,
+            "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
+            "--quality-binning", config.qualityBinning.rawValue,
+            "--compression", config.compressionLevel.rawValue,
+            "--threads", String(config.threads),
+        ]
+        if !config.optimizeStorage {
+            command.append("--no-optimize-storage")
+        }
+        if config.forceReimport {
+            command.append("--force")
+        }
+        return command
     }
 
     // MARK: - Recipe Execution

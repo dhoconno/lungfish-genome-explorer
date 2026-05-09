@@ -8,18 +8,19 @@ Lead subagent at gate 1 for each chapter.
 
 ## Status
 
-Sub-project 1 delivers one chapter (`04-variants/01-reading-a-vcf`). The full
+Sub-project 1 delivers one chapter (`04-variants/01-reads-to-variants`). The full
 TOC is drafted in the design spec (§9) as a starting brief and is finalised
 here as sub-project 2 progresses.
 
 ## Pilot chapter
 
-The pilot is `chapters/04-variants/01-reading-a-vcf.md`, targeted at the
+The pilot is `chapters/04-variants/01-reads-to-variants.md`, targeted at the
 bench-scientist audience. It has no prereqs: the pilot intentionally stands
 alone so sub-project 1 can exercise the full pipeline without dependency on
-chapters that do not yet exist. It uses the `sarscov2-clinical` fixture.
+chapters that do not yet exist. It uses the `sarscov2-srr36291587` fixture.
 
-Rationale for placement: VCF is one of the first file formats a bench
-scientist encounters when moving from reads to interpretable results. A
-clinical isolate keeps the VCF clean (single organism, high AF variants) so
-the reader's first exposure to VCF is unambiguous.
+Rationale for placement: the first variants chapter now follows a complete
+reads-to-variants path, starting from public SARS-CoV-2 reference and read
+accessions, then mapping, primer trimming, variant calling, and variant review.
+That keeps Claude's prose anchored in a reproducible workflow instead of a
+prebaked VCF import.

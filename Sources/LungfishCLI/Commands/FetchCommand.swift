@@ -71,6 +71,7 @@ struct NCBISubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         if !globalOptions.quiet {
@@ -125,7 +126,12 @@ struct NCBISubcommand: AsyncParsableCommand {
         // Write output
         if let outputPath = saveTo {
             do {
-                try allContent.write(toFile: outputPath, atomically: true, encoding: .utf8)
+                try writeNCBIFetchOutputWithProvenance(
+                    content: allContent,
+                    outputURL: URL(fileURLWithPath: outputPath),
+                    startedAt: startedAt,
+                    completedAt: Date()
+                )
                 if !globalOptions.quiet {
                     print(formatter.success("Saved to \(outputPath)"))
                 }
@@ -146,6 +152,187 @@ struct NCBISubcommand: AsyncParsableCommand {
             )
             let handler = JSONOutputHandler()
             handler.writeData(result, label: nil)
+        }
+    }
+
+    static func provenanceSidecarURL(for outputURL: URL) -> URL {
+        outputURL.appendingPathExtension("lungfish-provenance.json")
+    }
+
+    func writeNCBIFetchOutputWithProvenance(
+        content: String,
+        outputURL: URL,
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let fm = FileManager.default
+        let outputDirectoryURL = outputURL.deletingLastPathComponent()
+        let token = UUID().uuidString
+        let tempOutputURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).tmp")
+        let tempProvenanceURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).lungfish-provenance.tmp")
+        let finalProvenanceURL = Self.provenanceSidecarURL(for: outputURL)
+        let backupOutputURL = outputDirectoryURL
+            .appendingPathComponent(".\(outputURL.lastPathComponent).\(token).backup")
+        let backupProvenanceURL = outputDirectoryURL
+            .appendingPathComponent(".\(finalProvenanceURL.lastPathComponent).\(token).backup")
+        var outputBackedUp = false
+        var provenanceBackedUp = false
+        var outputInstalled = false
+
+        do {
+            try content.write(to: tempOutputURL, atomically: true, encoding: .utf8)
+            let tempRecord = ProvenanceRecorder.fileRecord(
+                url: tempOutputURL,
+                format: fileFormat(forFetchFormat: fetchFormat),
+                role: .output
+            )
+            let finalOutputRecord = FileRecord(
+                path: outputURL.standardizedFileURL.path,
+                sha256: tempRecord.sha256,
+                sizeBytes: tempRecord.sizeBytes,
+                format: tempRecord.format,
+                role: tempRecord.role
+            )
+            try ncbiFetchProvenanceData(
+                outputURL: outputURL,
+                outputRecord: finalOutputRecord,
+                startedAt: startedAt,
+                completedAt: completedAt
+            ).write(to: tempProvenanceURL, options: .atomic)
+
+            if fm.fileExists(atPath: outputURL.path) {
+                try fm.moveItem(at: outputURL, to: backupOutputURL)
+                outputBackedUp = true
+            }
+            if fm.fileExists(atPath: finalProvenanceURL.path) {
+                try fm.moveItem(at: finalProvenanceURL, to: backupProvenanceURL)
+                provenanceBackedUp = true
+            }
+
+            try fm.moveItem(at: tempOutputURL, to: outputURL)
+            outputInstalled = true
+            try fm.moveItem(at: tempProvenanceURL, to: finalProvenanceURL)
+
+            try? fm.removeItem(at: backupOutputURL)
+            try? fm.removeItem(at: backupProvenanceURL)
+        } catch {
+            if outputInstalled {
+                try? fm.removeItem(at: outputURL)
+            }
+            if outputBackedUp {
+                try? fm.moveItem(at: backupOutputURL, to: outputURL)
+            }
+            if provenanceBackedUp {
+                try? fm.moveItem(at: backupProvenanceURL, to: finalProvenanceURL)
+            }
+            try? fm.removeItem(at: tempOutputURL)
+            try? fm.removeItem(at: tempProvenanceURL)
+            throw error
+        }
+    }
+
+    func writeNCBIFetchProvenance(
+        outputURL: URL,
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let outputRecord = ProvenanceRecorder.fileRecord(
+            url: outputURL,
+            format: fileFormat(forFetchFormat: fetchFormat),
+            role: .output
+        )
+        try ncbiFetchProvenanceData(
+            outputURL: outputURL,
+            outputRecord: outputRecord,
+            startedAt: startedAt,
+            completedAt: completedAt
+        ).write(
+            to: Self.provenanceSidecarURL(for: outputURL),
+            options: .atomic
+        )
+    }
+
+    private func ncbiFetchProvenanceData(
+        outputURL: URL,
+        outputRecord: FileRecord,
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> Data {
+        let step = StepExecution(
+            toolName: "ncbi-efetch",
+            toolVersion: "NCBI E-utilities API",
+            command: ncbiFetchCommand(outputPath: outputURL.path),
+            inputs: ncbiInputRecords(),
+            outputs: [outputRecord],
+            exitCode: 0,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startTime: startedAt,
+            endTime: completedAt
+        )
+        let run = WorkflowRun(
+            name: "ncbi-sequence-fetch",
+            startTime: startedAt,
+            endTime: completedAt,
+            status: .completed,
+            appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+            hostOS: WorkflowRun.currentHostOS,
+            steps: [step],
+            parameters: [
+                "accessions": .array(accessions.map { .string($0) }),
+                "database": .string(database),
+                "fetchFormat": .string(fetchFormat),
+                "saveTo": .string(outputURL.standardizedFileURL.path),
+                "apiKeyProvided": .boolean(apiKey != nil),
+                "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                "quiet": .boolean(globalOptions.quiet),
+                "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
+                "containerRuntime": .string("none"),
+                "condaEnvironment": .string("none")
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(run)
+    }
+
+    private func ncbiFetchCommand(outputPath: String) -> [String] {
+        var command = ["lungfish", "fetch", "ncbi"] + accessions + [
+            "--db", database,
+            "--fetch-format", fetchFormat,
+            "--save-to", outputPath,
+            "--format", globalOptions.outputFormat.rawValue
+        ]
+        if apiKey != nil {
+            command += ["--api-key", "<redacted>"]
+        }
+        if globalOptions.quiet {
+            command.append("--quiet")
+        }
+        return command
+    }
+
+    private func ncbiInputRecords() -> [FileRecord] {
+        accessions.map { accession in
+            FileRecord(
+                path: "ncbi://\(database)/\(accession)?rettype=\(fetchFormat)",
+                format: fileFormat(forFetchFormat: fetchFormat),
+                role: .input
+            )
+        }
+    }
+
+    private func fileFormat(forFetchFormat fetchFormat: String) -> FileFormat {
+        switch fetchFormat.lowercased() {
+        case "fasta", "fa":
+            return .fasta
+        case "genbank", "gb":
+            return .genBank
+        default:
+            return .unknown
         }
     }
 }

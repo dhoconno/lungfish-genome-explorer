@@ -102,6 +102,7 @@ extension BAMPrimerTrimPipeline {
         runner: NativeToolRunner,
         progress: @Sendable @escaping (Double, String) -> Void = { _, _ in }
     ) async throws -> BAMPrimerTrimResult {
+        let workflowStart = Date()
         progress(0.0, "Resolving primer scheme")
         let resolved = try PrimerSchemeResolver.resolve(
             bundle: request.primerSchemeBundle,
@@ -133,37 +134,79 @@ extension BAMPrimerTrimPipeline {
             primerOffset: request.primerOffset
         )
 
-        let ivarResult = try await runner.run(
+        let ivarCommand = await nativeCommand(for: .ivar, arguments: ivarArgs, runner: runner)
+        let ivarTimedResult = try await runTimed(
             .ivar,
             arguments: ivarArgs,
             workingDirectory: workDir,
-            timeout: 3_600
+            timeout: 3_600,
+            runner: runner
         )
+        let ivarResult = ivarTimedResult.result
         guard ivarResult.isSuccess else {
             throw PipelineError.ivarTrimFailed(stderr: ivarResult.stderr)
         }
+        let ivarVersion = await runner.getToolVersion(.ivar) ?? "unknown"
+        let sourceInputs = inputFileRecords(
+            sourceBAMURL: request.sourceBAMURL,
+            primerBEDURL: resolved.bedURL
+        )
+        let ivarStep = StepExecution(
+            toolName: "ivar",
+            toolVersion: toolVersion(version: ivarVersion, tool: .ivar),
+            command: ivarCommand,
+            inputs: sourceInputs,
+            outputs: [ProvenanceRecorder.fileRecord(url: trimmedUnsortedBAM, format: .bam, role: .output)],
+            exitCode: ivarResult.exitCode,
+            wallTime: ivarTimedResult.wallTime,
+            stderr: nonEmpty(ivarResult.stderr),
+            startTime: ivarTimedResult.startTime,
+            endTime: ivarTimedResult.endTime
+        )
 
         progress(0.55, "Sorting BAM")
-        let sortResult = try await runner.run(
+        let sortArgs = ["sort", "-o", request.outputBAMURL.path, trimmedUnsortedBAM.path]
+        let sortCommand = await nativeCommand(for: .samtools, arguments: sortArgs, runner: runner)
+        let sortTimedResult = try await runTimed(
             .samtools,
-            arguments: ["sort", "-o", request.outputBAMURL.path, trimmedUnsortedBAM.path],
+            arguments: sortArgs,
             workingDirectory: workDir,
-            timeout: 3_600
+            timeout: 3_600,
+            runner: runner
         )
+        let sortResult = sortTimedResult.result
         guard sortResult.isSuccess else {
             // samtools sort may have written a truncated BAM; remove it to uphold
             // the pipeline's all-or-nothing output contract.
             try? FileManager.default.removeItem(at: request.outputBAMURL)
             throw PipelineError.samtoolsSortFailed(stderr: sortResult.stderr)
         }
+        let samtoolsVersion = await runner.getToolVersion(.samtools) ?? "unknown"
+        let sortStep = StepExecution(
+            toolName: "samtools",
+            toolVersion: toolVersion(version: samtoolsVersion, tool: .samtools),
+            command: sortCommand,
+            inputs: [ProvenanceRecorder.fileRecord(url: trimmedUnsortedBAM, format: .bam, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: request.outputBAMURL, format: .bam, role: .output)],
+            exitCode: sortResult.exitCode,
+            wallTime: sortTimedResult.wallTime,
+            stderr: nonEmpty(sortResult.stderr),
+            dependsOn: [ivarStep.id],
+            startTime: sortTimedResult.startTime,
+            endTime: sortTimedResult.endTime
+        )
 
         progress(0.85, "Indexing BAM")
-        let indexResult = try await runner.run(
+        let indexArgs = ["index", request.outputBAMURL.path]
+        let indexCommand = await nativeCommand(for: .samtools, arguments: indexArgs, runner: runner)
+        let indexTimedResult = try await runTimed(
             .samtools,
-            arguments: ["index", request.outputBAMURL.path],
+            arguments: indexArgs,
             workingDirectory: workDir,
-            timeout: 600
+            timeout: 600,
+            runner: runner
         )
+        let indexResult = indexTimedResult.result
         guard indexResult.isSuccess else {
             // Remove the sorted BAM and any partial BAI so the caller cannot
             // observe an un-indexed or half-indexed output.
@@ -173,7 +216,24 @@ extension BAMPrimerTrimPipeline {
         }
 
         let bamIndexURL = URL(fileURLWithPath: request.outputBAMURL.path + ".bai")
-        let ivarVersion = await runner.getToolVersion(.ivar) ?? "unknown"
+        let indexStep = StepExecution(
+            toolName: "samtools",
+            toolVersion: toolVersion(version: samtoolsVersion, tool: .samtools),
+            command: indexCommand,
+            inputs: [ProvenanceRecorder.fileRecord(url: request.outputBAMURL, format: .bam, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: bamIndexURL, role: .index)],
+            exitCode: indexResult.exitCode,
+            wallTime: indexTimedResult.wallTime,
+            stderr: nonEmpty(indexResult.stderr),
+            dependsOn: [sortStep.id],
+            startTime: indexTimedResult.startTime,
+            endTime: indexTimedResult.endTime
+        )
+        let outputRecords = [
+            ProvenanceRecorder.fileRecord(url: request.outputBAMURL, format: .bam, role: .output),
+            ProvenanceRecorder.fileRecord(url: bamIndexURL, role: .index)
+        ]
+        let workflowEnd = Date()
         let provenance = BAMPrimerTrimProvenance(
             operation: "primer-trim",
             primerScheme: .init(
@@ -185,7 +245,22 @@ extension BAMPrimerTrimPipeline {
             sourceBAMRelativePath: request.sourceBAMURL.lastPathComponent,
             ivarVersion: ivarVersion,
             ivarTrimArgs: ivarArgs,
-            timestamp: Date()
+            timestamp: workflowEnd,
+            schemaVersion: 2,
+            workflowName: "lungfish bam primer-trim",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            command: workflowCommand(for: request, targetReferenceName: targetReferenceName),
+            resolvedOptions: resolvedOptions(for: request, targetReferenceName: targetReferenceName),
+            inputFiles: sourceInputs,
+            outputFiles: outputRecords,
+            runtimeIdentity: [
+                "ivar": runtimeIdentity(for: .ivar),
+                "samtools": runtimeIdentity(for: .samtools)
+            ],
+            steps: [ivarStep, sortStep, indexStep],
+            wallTimeSeconds: workflowEnd.timeIntervalSince(workflowStart),
+            exitStatus: 0,
+            stderr: combinedStderr([ivarResult.stderr, sortResult.stderr, indexResult.stderr])
         )
 
         let encoder = JSONEncoder()
@@ -193,7 +268,14 @@ extension BAMPrimerTrimPipeline {
         encoder.dateEncodingStrategy = .iso8601
         let provenanceData = try encoder.encode(provenance)
         let provenanceURL = PrimerTrimProvenanceLoader.sidecarURL(forBAMAt: request.outputBAMURL)
-        try provenanceData.write(to: provenanceURL)
+        do {
+            try provenanceData.write(to: provenanceURL, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: request.outputBAMURL)
+            try? FileManager.default.removeItem(at: bamIndexURL)
+            try? FileManager.default.removeItem(at: provenanceURL)
+            throw error
+        }
 
         progress(1.0, "Primer trim complete")
 
@@ -204,4 +286,120 @@ extension BAMPrimerTrimPipeline {
             provenance: provenance
         )
     }
+
+    private static func runTimed(
+        _ tool: NativeTool,
+        arguments: [String],
+        workingDirectory: URL,
+        timeout: TimeInterval,
+        runner: NativeToolRunner
+    ) async throws -> TimedNativeToolResult {
+        let start = Date()
+        let result = try await runner.run(
+            tool,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            timeout: timeout
+        )
+        let end = Date()
+        return TimedNativeToolResult(
+            result: result,
+            startTime: start,
+            endTime: end,
+            wallTime: end.timeIntervalSince(start)
+        )
+    }
+
+    private static func nativeCommand(
+        for tool: NativeTool,
+        arguments: [String],
+        runner: NativeToolRunner
+    ) async -> [String] {
+        if let toolURL = try? await runner.findTool(tool) {
+            return [toolURL.path] + arguments
+        }
+        return [tool.executableName] + arguments
+    }
+
+    private static func inputFileRecords(sourceBAMURL: URL, primerBEDURL: URL) -> [FileRecord] {
+        var records = [
+            ProvenanceRecorder.fileRecord(url: sourceBAMURL, format: .bam, role: .input),
+            ProvenanceRecorder.fileRecord(url: primerBEDURL, format: .bed, role: .reference)
+        ]
+        let indexURL = URL(fileURLWithPath: sourceBAMURL.path + ".bai")
+        if FileManager.default.fileExists(atPath: indexURL.path) {
+            records.insert(ProvenanceRecorder.fileRecord(url: indexURL, role: .index), at: 1)
+        }
+        return records
+    }
+
+    private static func workflowCommand(
+        for request: BAMPrimerTrimRequest,
+        targetReferenceName: String
+    ) -> [String] {
+        if !request.workflowCommand.isEmpty {
+            return request.workflowCommand
+        }
+        return [
+            "BAMPrimerTrimPipeline.run",
+            "--source-bam", request.sourceBAMURL.path,
+            "--scheme", request.primerSchemeBundle.url.path,
+            "--output-bam", request.outputBAMURL.path,
+            "--target-reference", targetReferenceName,
+            "--ivar-min-quality", String(request.minQuality),
+            "--ivar-min-length", String(request.minReadLength),
+            "--ivar-sliding-window", String(request.slidingWindow),
+            "--ivar-primer-offset", String(request.primerOffset)
+        ]
+    }
+
+    private static func resolvedOptions(
+        for request: BAMPrimerTrimRequest,
+        targetReferenceName: String
+    ) -> [String: String] {
+        [
+            "source_bam": request.sourceBAMURL.path,
+            "primer_scheme": request.primerSchemeBundle.url.path,
+            "output_bam": request.outputBAMURL.path,
+            "target_reference": targetReferenceName,
+            "ivar_min_quality": String(request.minQuality),
+            "ivar_min_length": String(request.minReadLength),
+            "ivar_sliding_window": String(request.slidingWindow),
+            "ivar_primer_offset": String(request.primerOffset)
+        ]
+    }
+
+    private static func toolVersion(version: String, tool: NativeTool) -> String {
+        "\(version) (\(runtimeIdentity(for: tool)))"
+    }
+
+    private static func runtimeIdentity(for tool: NativeTool) -> String {
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
+                ?? tool.sourcePackage
+            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
+        case .bundled(let relativePath):
+            return "bundled executable \(relativePath)"
+        }
+    }
+
+    private static func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
+    }
+
+    private static func combinedStderr(_ values: [String]) -> String? {
+        let combined = values
+            .compactMap(nonEmpty)
+            .joined(separator: "\n")
+        return combined.isEmpty ? nil : combined
+    }
+}
+
+private struct TimedNativeToolResult {
+    let result: NativeToolResult
+    let startTime: Date
+    let endTime: Date
+    let wallTime: TimeInterval
 }

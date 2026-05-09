@@ -208,6 +208,18 @@ extension BAMCommand {
             // Determine the target reference name (defaults to the scheme's canonical accession).
             let trimmedOverride = (targetReferenceName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             let targetReference = trimmedOverride.isEmpty ? scheme.manifest.canonicalAccession : trimmedOverride
+            let workflowCommand = [
+                "lungfish-cli", "bam", "primer-trim",
+                "--bundle", bundleURL.path,
+                "--alignment-track", alignmentTrackID,
+                "--scheme", schemeURL.path,
+                "--name", outputTrackName,
+                "--target-reference", targetReference,
+                "--ivar-min-quality", String(ivarMinQuality),
+                "--ivar-min-length", String(ivarMinLength),
+                "--ivar-sliding-window", String(ivarSlidingWindow),
+                "--ivar-primer-offset", String(ivarPrimerOffset)
+            ]
 
             emitEvent(BAMCommand.PrimerTrimEvent(
                 event: "preflightComplete",
@@ -238,7 +250,8 @@ extension BAMCommand {
                 minReadLength: ivarMinLength,
                 minQuality: ivarMinQuality,
                 slidingWindow: ivarSlidingWindow,
-                primerOffset: ivarPrimerOffset
+                primerOffset: ivarPrimerOffset,
+                workflowCommand: workflowCommand
             )
 
             emitEvent(BAMCommand.PrimerTrimEvent(
@@ -306,10 +319,8 @@ extension BAMCommand {
             // <bundle>/<relativeDirectory>) and write the sidecar to its final location
             // BEFORE invoking attach. If attach then fails, the catch removes the orphan
             // sidecar — leaving the bundle fully unchanged. If attach succeeds, the
-            // sidecar is already in place and the only remaining work is event emission,
-            // which can't corrupt the bundle. This closes the half-state gap where a
-            // successful attach + failed sidecar move would leave the manifest claiming a
-            // primer-trimmed track that PrimerTrimProvenanceLoader cannot find.
+            // sidecar is already in place with final bundle paths; a later rewrite only
+            // refreshes those records from the final files.
             let outputTrackID = Self.makeTrackID()
             let relativeDirectory = "alignments/primer-trimmed"
             let finalBAMURL = bundleURL
@@ -330,15 +341,25 @@ extension BAMCommand {
                 provenanceSidecarPath: nil
             ))
 
-            // Land the sidecar at its final path BEFORE attach so a failed attach can
-            // be cleanly rolled back. The attachment service creates this directory
-            // itself, but only after attach is invoked, so we have to ensure it exists.
+            // Land a final-path sidecar BEFORE attach so a failed attach can be
+            // cleanly rolled back, and so any post-attach rewrite failure still
+            // leaves provenance pointing at the bundle-owned payload paths. The
+            // checksum and size values are preserved from the staged outputs here;
+            // after attach succeeds, the sidecar is refreshed from the final files.
             do {
                 try FileManager.default.createDirectory(
                     at: finalSidecarURL.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                try FileManager.default.moveItem(at: pipelineResult.provenanceURL, to: finalSidecarURL)
+                let finalIndexURL = URL(fileURLWithPath: finalBAMURL.path + ".bai")
+                let provisionalFinalProvenance = pipelineResult.provenance.relocatingFinalOutputs(
+                    outputBAMURL: finalBAMURL,
+                    outputBAMIndexURL: finalIndexURL
+                )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(provisionalFinalProvenance).write(to: finalSidecarURL, options: .atomic)
             } catch {
                 emitFailure(error: error, emitEvent: emitEvent, bundleURL: bundleURL)
                 throw error
@@ -363,6 +384,21 @@ extension BAMCommand {
                 try? FileManager.default.removeItem(at: finalSidecarURL)
                 emitFailure(error: error, emitEvent: emitEvent, bundleURL: bundleURL)
                 throw error
+            }
+
+            do {
+                let finalProvenance = pipelineResult.provenance.relocatingFinalOutputs(
+                    outputBAMURL: attachment.bamURL,
+                    outputBAMIndexURL: attachment.indexURL
+                )
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(finalProvenance).write(to: finalSidecarURL, options: .atomic)
+            } catch {
+                // A final-path sidecar was already written before attach. Keep the
+                // successful attachment rather than reporting a failed command with a
+                // valid bundle state.
             }
 
             emitEvent(BAMCommand.PrimerTrimEvent(

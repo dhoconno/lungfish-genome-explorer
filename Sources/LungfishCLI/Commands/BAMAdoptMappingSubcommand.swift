@@ -34,13 +34,14 @@ extension BAMCommand {
             let startedAt = Date()
             let bundleURL = URL(fileURLWithPath: bundlePath)
             let mappingURL = URL(fileURLWithPath: mappingResultPath)
-            let bamURL = mappingURL.appendingPathComponent("sorted.bam")
-            let baiURL = mappingURL.appendingPathComponent("sorted.bam.bai")
+            let artifacts = try resolveMappingArtifacts(from: mappingURL)
+            let bamURL = artifacts.bamURL
+            let baiURL = artifacts.baiURL
             guard FileManager.default.fileExists(atPath: bamURL.path) else {
-                throw ValidationError("Mapping result is missing sorted.bam at \(bamURL.path)")
+                throw ValidationError("Mapping result is missing BAM at \(bamURL.path)")
             }
             guard FileManager.default.fileExists(atPath: baiURL.path) else {
-                throw ValidationError("Mapping result is missing sorted.bam.bai at \(baiURL.path)")
+                throw ValidationError("Mapping result is missing BAM index at \(baiURL.path)")
             }
             let outputTrackID = trackIDOverride ?? "aln_\(UUID().uuidString.prefix(8))"
             let commandArgv = adoptMappingArgv(outputTrackID: String(outputTrackID))
@@ -84,6 +85,17 @@ extension BAMCommand {
             }
         }
 
+        private func resolveMappingArtifacts(from mappingURL: URL) throws -> (bamURL: URL, baiURL: URL) {
+            if MappingResult.exists(in: mappingURL) {
+                let result = try MappingResult.load(from: mappingURL)
+                return (result.bamURL, result.baiURL)
+            }
+            return (
+                mappingURL.appendingPathComponent("sorted.bam"),
+                mappingURL.appendingPathComponent("sorted.bam.bai")
+            )
+        }
+
         private func adoptMappingArgv(outputTrackID: String) -> [String] {
             var argv = [
                 "lungfish",
@@ -110,6 +122,14 @@ extension BAMCommand {
                 ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .input),
                 ProvenanceRecorder.fileRecord(url: baiURL, role: .index)
             ]
+            let mappingResultURL = mappingURL.appendingPathComponent("mapping-result.json")
+            if FileManager.default.fileExists(atPath: mappingResultURL.path) {
+                records.append(ProvenanceRecorder.fileRecord(url: mappingResultURL, format: .json, role: .input))
+            }
+            let legacyMappingResultURL = mappingURL.appendingPathComponent("alignment-result.json")
+            if FileManager.default.fileExists(atPath: legacyMappingResultURL.path) {
+                records.append(ProvenanceRecorder.fileRecord(url: legacyMappingResultURL, format: .json, role: .input))
+            }
             let sourceProvenanceURL = mappingURL.appendingPathComponent(MappingProvenance.filename)
             if FileManager.default.fileExists(atPath: sourceProvenanceURL.path) {
                 records.append(ProvenanceRecorder.fileRecord(url: sourceProvenanceURL, format: .json, role: .input))

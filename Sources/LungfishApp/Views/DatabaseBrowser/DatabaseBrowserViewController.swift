@@ -15,6 +15,23 @@ import os.log
 /// Logger for database browser operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DatabaseBrowser")
 
+private final class SRAGUIDownloadTraceCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var traces: [SRAService.FASTQDownloadStepTrace] = []
+
+    func record(_ trace: SRAService.FASTQDownloadStepTrace) {
+        lock.lock()
+        traces.append(trace)
+        lock.unlock()
+    }
+
+    var steps: [SRAService.FASTQDownloadStepTrace] {
+        lock.lock()
+        defer { lock.unlock() }
+        return traces
+    }
+}
+
 /// Executes a MainActor-isolated block on the main thread in a way that works during modal sessions.
 /// Uses Timer with commonModes run loop mode to ensure execution during modal sheet display.
 /// Appends Pathoplexus-specific metadata to a bundle's manifest.
@@ -141,6 +158,122 @@ private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> 
     }
     // Add to run loop with common modes so it fires during modal sessions
     RunLoop.main.add(timer, forMode: .common)
+}
+
+private func writeGUISRAFASTQImportProvenance(
+    accession: String,
+    readRecord: ENAReadRecord?,
+    downloadSource: String,
+    enaDownloadSteps: [StepExecution],
+    toolkitDownloadTraces: [SRAService.FASTQDownloadStepTrace],
+    cliArguments: [String],
+    cliStartedAt: Date,
+    cliCompletedAt: Date,
+    stagedFASTQFiles: [URL],
+    finalFASTQURL: URL,
+    bundleURL: URL,
+    platform: String,
+    recipeName: String?,
+    qualityBinning: String,
+    optimizeStorage: Bool,
+    compressionLevel: String
+) throws {
+    let existingCLIProvenance = ProvenanceRecorder.load(from: bundleURL)
+    var steps = enaDownloadSteps
+
+    steps.append(contentsOf: toolkitDownloadTraces.map { trace in
+        StepExecution(
+            toolName: trace.toolName,
+            toolVersion: trace.toolVersion,
+            command: trace.command,
+            inputs: trace.inputs.map {
+                FileRecord(path: $0, format: sraGUIInputFormat(for: $0), role: .input)
+            },
+            outputs: trace.outputs.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output)
+            },
+            exitCode: trace.exitCode,
+            wallTime: trace.wallTime,
+            stderr: trace.stderr,
+            startTime: trace.startedAt,
+            endTime: trace.completedAt
+        )
+    })
+
+    if let existingCLIProvenance {
+        steps.append(contentsOf: existingCLIProvenance.steps)
+    } else {
+        steps.append(
+            StepExecution(
+                toolName: "lungfish-cli",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: [CLIImportRunner.cliBinaryPath()?.path ?? "lungfish-cli"] + cliArguments,
+                inputs: stagedFASTQFiles.map {
+                    ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+                },
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: finalFASTQURL, format: .fastq, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: cliCompletedAt.timeIntervalSince(cliStartedAt),
+                stderr: nil,
+                dependsOn: steps.map(\.id),
+                startTime: cliStartedAt,
+                endTime: cliCompletedAt
+            )
+        )
+    }
+
+    var parameters: [String: ParameterValue] = [
+        "workflow": .string("gui-sra-fastq-import"),
+        "accession": .string(accession),
+        "downloadSource": .string(downloadSource),
+        "enaFastqURLs": .array((readRecord?.fastqHTTPURLs ?? []).map { .string($0.absoluteString) }),
+        "cliCommand": .string(CLIImportRunner.commandLine(arguments: cliArguments)),
+        "platform": .string(platform),
+        "recipe": recipeName.map { .string($0) } ?? .null,
+        "qualityBinning": .string(qualityBinning),
+        "optimizeStorage": .boolean(optimizeStorage),
+        "compression": .string(compressionLevel),
+        "containerRuntime": .string("none"),
+        "condaEnvironment": .string(downloadSource == "SRA Toolkit" ? "managed sra-tools" : "none"),
+        "stagingInputs": .array(stagedFASTQFiles.map { .string($0.standardizedFileURL.path) }),
+        "finalBundlePath": .string(bundleURL.standardizedFileURL.path),
+        "finalFASTQPath": .string(finalFASTQURL.standardizedFileURL.path)
+    ]
+    if let existingCLIProvenance {
+        parameters["preservedCLIProvenanceID"] = .string(existingCLIProvenance.id.uuidString)
+        parameters["preservedCLIWorkflowName"] = .string(existingCLIProvenance.name)
+    }
+
+    let run = WorkflowRun(
+        name: "gui-sra-fastq-import",
+        startTime: steps.first?.startTime ?? cliStartedAt,
+        endTime: cliCompletedAt,
+        status: .completed,
+        appVersion: WorkflowRun.currentAppVersion,
+        hostOS: WorkflowRun.currentHostOS,
+        steps: steps,
+        parameters: parameters
+    )
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(run)
+    try data.write(
+        to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+        options: .atomic
+    )
+}
+
+private func sraGUIInputFormat(for path: String) -> FileFormat? {
+    let lowercase = path.lowercased()
+    if lowercase.hasSuffix(".fastq") || lowercase.hasSuffix(".fq")
+        || lowercase.hasSuffix(".fastq.gz") || lowercase.hasSuffix(".fq.gz") {
+        return .fastq
+    }
+    return lowercase.hasSuffix(".sra") ? .unknown : nil
 }
 
 private func effectiveSRABaseCount(enaRecord: ENAReadRecord?, ncbiRun: SRARunInfo?) -> Int? {
@@ -2751,6 +2884,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                     // 2. Download each FASTQ file to the batch directory
                     var downloadedFASTQFiles: [URL] = []
+                    var enaDownloadSteps: [StepExecution] = []
+                    let toolkitTraceCollector = SRAGUIDownloadTraceCollector()
                     let downloadSource: String
                     if let readRecord, !readRecord.fastqHTTPURLs.isEmpty {
                         let fastqURLs = readRecord.fastqHTTPURLs
@@ -2773,6 +2908,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             let capturedPrior = priorBytesDownloaded
                             let capturedTotal = totalExpectedBytes
 
+                            let downloadStartedAt = Date()
                             let data = try await streamingDownload(
                                 url: fastqURL,
                                 totalBytes: fileExpectedBytes,
@@ -2789,6 +2925,36 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             )
 
                             try data.write(to: localPath)
+                            let downloadCompletedAt = Date()
+                            enaDownloadSteps.append(
+                                StepExecution(
+                                    toolName: "https-download",
+                                    toolVersion: "URLSession",
+                                    command: [
+                                        "curl",
+                                        "-L",
+                                        "--fail",
+                                        "--user-agent", "Lungfish Genome Explorer",
+                                        fastqURL.absoluteString,
+                                        "-o", localPath.path
+                                    ],
+                                    inputs: [
+                                        FileRecord(
+                                            path: fastqURL.absoluteString,
+                                            format: .fastq,
+                                            role: .input
+                                        )
+                                    ],
+                                    outputs: [
+                                        ProvenanceRecorder.fileRecord(url: localPath, format: .fastq, role: .output)
+                                    ],
+                                    exitCode: 0,
+                                    wallTime: downloadCompletedAt.timeIntervalSince(downloadStartedAt),
+                                    stderr: nil,
+                                    startTime: downloadStartedAt,
+                                    endTime: downloadCompletedAt
+                                )
+                            )
                             logger.info("startENADownloadTask: Saved \(filename) (\(data.count) bytes)")
                             downloadedFASTQFiles.append(localPath)
                             priorBytesDownloaded += fileExpectedBytes ?? Int64(data.count)
@@ -2816,6 +2982,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
                                         detail: "Downloading \(record.accession) via SRA Toolkit..."
                                     )
                                 }
+                            },
+                            trace: { trace in
+                                toolkitTraceCollector.record(trace)
                             }
                         )
                         downloadSource = "SRA Toolkit"
@@ -2872,6 +3041,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     let tracker = ResultTracker()
 
                     let runner = CLIImportRunner()
+                    let cliStartedAt = Date()
                     await runner.run(
                         arguments: args,
                         operationID: downloadCenterTaskID,
@@ -2879,6 +3049,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         onBundleCreated: { url in tracker.bundleURL = url },
                         onError: { error in tracker.errorMessage = error }
                     )
+                    let cliCompletedAt = Date()
 
                     if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
                         throw NSError(
@@ -2914,6 +3085,25 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             metadata.assemblyReadType = readType
                         }
                         FASTQMetadataStore.save(metadata, for: fastqURL)
+
+                        try writeGUISRAFASTQImportProvenance(
+                            accession: record.accession,
+                            readRecord: readRecord,
+                            downloadSource: downloadSource,
+                            enaDownloadSteps: enaDownloadSteps,
+                            toolkitDownloadTraces: toolkitTraceCollector.steps,
+                            cliArguments: args,
+                            cliStartedAt: cliStartedAt,
+                            cliCompletedAt: cliCompletedAt,
+                            stagedFASTQFiles: downloadedFASTQFiles,
+                            finalFASTQURL: fastqURL,
+                            bundleURL: bundleURL,
+                            platform: platformStr,
+                            recipeName: recipeName,
+                            qualityBinning: qualityBinning,
+                            optimizeStorage: optimizeStorage,
+                            compressionLevel: compressionStr
+                        )
                     }
 
                     logger.info("startENADownloadTask: Created bundle at \(bundleURL.path, privacy: .public)")

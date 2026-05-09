@@ -237,6 +237,7 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let runStartedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate inputs
@@ -353,12 +354,160 @@ struct BundleCreateSubcommand: AsyncParsableCommand {
             }
         }
 
+        try await writeCreateProvenance(
+            configuration: config,
+            bundleURL: bundleURL,
+            bundleIdentifier: bundleIdentifier,
+            startedAt: runStartedAt,
+            compress: compress
+        )
+
         if globalOptions.outputFormat == .text {
             print() // Newline after progress
             print(formatter.success("Bundle created: \(bundleURL.path)"))
         } else if globalOptions.outputFormat == .json {
             let handler = JSONOutputHandler()
             handler.writeData(["path": bundleURL.path, "name": name], label: nil)
+        }
+    }
+
+    private func writeCreateProvenance(
+        configuration: BuildConfiguration,
+        bundleURL: URL,
+        bundleIdentifier: String,
+        startedAt: Date,
+        compress: Bool
+    ) async throws {
+        let inputs = Self.inputFileRecords(for: configuration)
+        let outputs = Self.outputFileRecords(in: bundleURL)
+        let parameters = Self.provenanceParameters(
+            configuration: configuration,
+            bundleURL: bundleURL,
+            bundleIdentifier: bundleIdentifier,
+            compress: compress
+        )
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish bundle create",
+            parameters: parameters,
+            toolName: "lungfish bundle create",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: Self.reproducibleCommand(
+                configuration: configuration,
+                bundleIdentifier: bundleIdentifier,
+                compress: compress
+            ),
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: bundleURL
+        )
+    }
+
+    private static func inputFileRecords(for configuration: BuildConfiguration) -> [FileRecord] {
+        var records = [
+            ProvenanceRecorder.fileRecord(url: configuration.fastaURL, format: .fasta, role: .reference)
+        ]
+        records += configuration.annotationFiles.map {
+            ProvenanceRecorder.fileRecord(url: $0.url, format: fileFormat(for: $0.url), role: .input)
+        }
+        records += configuration.variantFiles.map {
+            ProvenanceRecorder.fileRecord(url: $0.url, format: .vcf, role: .input)
+        }
+        records += configuration.signalFiles.map {
+            ProvenanceRecorder.fileRecord(url: $0.url, format: fileFormat(for: $0.url), role: .input)
+        }
+        return records
+    }
+
+    private static func outputFileRecords(in bundleURL: URL) -> [FileRecord] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        var records: [FileRecord] = []
+        for case let url as URL in enumerator {
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            records.append(ProvenanceRecorder.fileRecord(url: url, format: fileFormat(for: url), role: .output))
+        }
+        return records.sorted { $0.path < $1.path }
+    }
+
+    private static func provenanceParameters(
+        configuration: BuildConfiguration,
+        bundleURL: URL,
+        bundleIdentifier: String,
+        compress: Bool
+    ) -> [String: ParameterValue] {
+        [
+            "name": .string(configuration.name),
+            "identifier": .string(bundleIdentifier),
+            "outputBundle": .file(bundleURL),
+            "organism": .string(configuration.source.organism),
+            "assembly": .string(configuration.source.assembly),
+            "description": configuration.source.notes.map(ParameterValue.string) ?? .null,
+            "compressFASTA": .boolean(compress),
+            "annotationFiles": .array(configuration.annotationFiles.map { .file($0.url) }),
+            "variantFiles": .array(configuration.variantFiles.map { .file($0.url) }),
+            "signalFiles": .array(configuration.signalFiles.map { .file($0.url) }),
+        ]
+    }
+
+    private static func reproducibleCommand(
+        configuration: BuildConfiguration,
+        bundleIdentifier: String,
+        compress: Bool
+    ) -> [String] {
+        var command = [
+            "lungfish", "bundle", "create",
+            "--fasta", configuration.fastaURL.path,
+            "--name", configuration.name,
+            "--output-dir", configuration.outputDirectory.path,
+            "--identifier", bundleIdentifier,
+            "--organism", configuration.source.organism,
+            "--assembly", configuration.source.assembly,
+        ]
+        if let description = configuration.source.notes {
+            command += ["--bundle-description", description]
+        }
+        for annotation in configuration.annotationFiles {
+            command += ["--annotation", annotation.url.path]
+        }
+        for variant in configuration.variantFiles {
+            command += ["--variant", variant.url.path]
+        }
+        if compress {
+            command.append("--compress")
+        }
+        return command
+    }
+
+    private static func fileFormat(for url: URL) -> FileFormat {
+        var ext = url.pathExtension.lowercased()
+        if ext == "gz" {
+            ext = url.deletingPathExtension().pathExtension.lowercased()
+        }
+        switch ext {
+        case "fa", "fasta", "fna":
+            return .fasta
+        case "gff", "gff3", "gtf":
+            return .gff3
+        case "vcf":
+            return .vcf
+        case "bed":
+            return .bed
+        case "json":
+            return .json
+        case "txt", "tsv", "csv":
+            return .text
+        default:
+            return .unknown
         }
     }
 }

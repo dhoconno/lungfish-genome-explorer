@@ -30,5 +30,11 @@ the fixture README).
 
 ## Sets
 
-`sarscov2-clinical/` is the pilot fixture, a clinical isolate of SARS-CoV-2.
-It is used by chapter 04-variants/01-reading-a-vcf.
+`sarscov2-srr36291587/` is the current pilot fixture. It supports
+chapter `04-variants/01-reads-to-variants` with a public SARS-CoV-2 reference,
+SRA reads fetched by the regeneration script, and committed expected iVar and
+LoFreq VCF outputs.
+
+`sarscov2-clinical/` is a legacy compact clinical-isolate fixture retained for
+older VCF-import review notes and future comparison examples. It is not the
+active pilot fixture.

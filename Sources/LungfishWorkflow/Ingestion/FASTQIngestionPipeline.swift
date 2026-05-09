@@ -101,6 +101,8 @@ public struct FASTQIngestionResult: Sendable {
     public let processingToolVersion: String?
     /// Command line used for the final storage-optimization/compression step.
     public let processingCommandLine: String?
+    /// Provenance records for external tool steps run by this pipeline.
+    public let provenanceSteps: [StepExecution]
 
     public init(
         outputFile: URL,
@@ -112,7 +114,8 @@ public struct FASTQIngestionResult: Sendable {
         pairingMode: FASTQIngestionConfig.PairingMode,
         processingTool: String? = nil,
         processingToolVersion: String? = nil,
-        processingCommandLine: String? = nil
+        processingCommandLine: String? = nil,
+        provenanceSteps: [StepExecution] = []
     ) {
         self.outputFile = outputFile
         self.wasClumpified = wasClumpified
@@ -124,6 +127,7 @@ public struct FASTQIngestionResult: Sendable {
         self.processingTool = processingTool
         self.processingToolVersion = processingToolVersion
         self.processingCommandLine = processingCommandLine
+        self.provenanceSteps = provenanceSteps
     }
 }
 
@@ -132,6 +136,7 @@ private struct FASTQProcessingRecord: Sendable {
     let tool: String
     let toolVersion: String?
     let commandLine: String
+    let step: StepExecution
 }
 
 // MARK: - FASTQIngestionError
@@ -225,6 +230,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         let clumpifiedFile: URL
         let wasClumpified: Bool
         var processingRecord: FASTQProcessingRecord?
+        var provenanceSteps: [StepExecution] = []
 
         if config.skipClumpify {
             logger.info("Clumpify skipped (disabled in preferences)")
@@ -243,6 +249,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
                 )
                 clumpifiedFile = record.url
                 processingRecord = record
+                provenanceSteps.append(record.step)
                 wasClumpified = true
             } catch {
                 // Clumpify is mandatory for imported FASTQ workflows.
@@ -275,6 +282,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             )
             compressedFile = record.url
             processingRecord = record
+            provenanceSteps.append(record.step)
         }
 
         // Delete originals if requested
@@ -312,7 +320,8 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             pairingMode: outputPairingMode,
             processingTool: processingRecord?.tool,
             processingToolVersion: processingRecord?.toolVersion,
-            processingCommandLine: processingRecord?.commandLine
+            processingCommandLine: processingRecord?.commandLine,
+            provenanceSteps: provenanceSteps
         )
     }
 
@@ -390,6 +399,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             for link in symlinksToCleanup { try? fm.removeItem(at: link) }
         }
 
+        let stepStartedAt = Date()
         let result = try await runner.runProcess(
             executableURL: clumpifyScript,
             arguments: args,
@@ -398,6 +408,7 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
             timeout: timeoutSeconds,
             toolName: "clumpify.sh"
         )
+        let stepCompletedAt = Date()
 
         // Move temp output to the real path if we used a space-free name.
         if safeOutput != outputFile, fm.fileExists(atPath: safeOutput.path) {
@@ -425,11 +436,26 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
         logger.info("Clumpified reads with bbtools (\(config.qualityBinning.rawValue) binning)")
 
         let toolVersion = await runner.getToolVersion(.clumpify) ?? Self.pinnedManagedToolVersion(named: "bbtools")
+        let step = StepExecution(
+            toolName: "clumpify.sh",
+            toolVersion: toolVersion ?? "unknown",
+            command: [clumpifyScript.path] + args,
+            inputs: config.inputFiles.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)
+            },
+            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: result.stderr.isEmpty ? nil : result.stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
         return FASTQProcessingRecord(
             url: outputFile,
             tool: "clumpify.sh",
             toolVersion: toolVersion,
-            commandLine: "clumpify.sh \(args.joined(separator: " "))"
+            commandLine: "clumpify.sh \(args.joined(separator: " "))",
+            step: step
         )
     }
 
@@ -509,12 +535,15 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         progress(0.1, "Compressing with \(tool.executableName)...")
 
+        let executableURL = try await runner.findTool(tool)
+        let stepStartedAt = Date()
         let result = try await runner.runWithFileOutput(
             tool,
             arguments: args,
             outputFile: outputFile,
             timeout: timeoutSeconds
         )
+        let stepCompletedAt = Date()
 
         guard result.isSuccess else {
             throw FASTQIngestionError.compressionFailed(
@@ -524,11 +553,24 @@ public final class FASTQIngestionPipeline: @unchecked Sendable {
 
         progress(1.0, "Compression complete")
         let toolVersion = await runner.getToolVersion(tool) ?? Self.pinnedVersion(for: tool)
+        let step = StepExecution(
+            toolName: tool.executableName,
+            toolVersion: toolVersion ?? "unknown",
+            command: [executableURL.path] + args + [">", outputFile.path],
+            inputs: [ProvenanceRecorder.fileRecord(url: inputFile, format: .fastq, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputFile, format: .fastq, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: stepCompletedAt.timeIntervalSince(stepStartedAt),
+            stderr: result.stderr.isEmpty ? nil : result.stderr,
+            startTime: stepStartedAt,
+            endTime: stepCompletedAt
+        )
         return FASTQProcessingRecord(
             url: outputFile,
             tool: tool.executableName,
             toolVersion: toolVersion,
-            commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)"
+            commandLine: "\(tool.executableName) \(args.joined(separator: " ")) > \(outputFile.path)",
+            step: step
         )
     }
 

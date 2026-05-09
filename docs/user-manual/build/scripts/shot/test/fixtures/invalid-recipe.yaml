@@ -2,7 +2,7 @@ chapter: 99-test/example
 caption: "Example caption."
 viewport_class: nonsense
 app_state:
-  fixture: docs/user-manual/fixtures/sarscov2-clinical
+  fixture: docs/user-manual/fixtures/sarscov2-srr36291587
   window_size: [1600, 1000]
 steps:
   - action: open_application

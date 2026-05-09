@@ -48,7 +48,7 @@ struct BAMAdoptMappingIntegrationTests {
         )
 
         // 3. Run the new subcommand programmatically.
-        var cmd = try BAMCommand.AdoptMappingSubcommand.parse([
+        let cmd = try BAMCommand.AdoptMappingSubcommand.parse([
             "--bundle", fixture.bundleURL.path,
             "--mapping-result", mappingDir.path,
             "--name", "minimap2 mapping"
@@ -87,5 +87,69 @@ struct BAMAdoptMappingIntegrationTests {
         )
         #expect(metadataDB.getFileInfo("adopt_mapping_provenance_path") == "alignments/mapped/\(adoptedTrack.id).adopt-mapping-provenance.json")
         #expect(metadataDB.provenanceHistory().map(\.subcommand).contains("bam adopt-mapping"))
+    }
+
+    @Test("adopts BAM and BAI paths declared by mapping-result.json")
+    func adoptsMappingResultSidecarPaths() async throws {
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("adopt-mapping-sidecar-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let managedHome = try ManagedSamtoolsHome.makeReal(rootURL: scratch)
+        let fixture = try BundleAlignmentFixture.make(
+            rootURL: scratch,
+            samtoolsPath: managedHome.samtoolsPath,
+            includeMappingResult: false
+        )
+
+        let mappingDir = scratch.appendingPathComponent("mapping", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingDir, withIntermediateDirectories: true)
+        let stagedBAM = mappingDir.appendingPathComponent("SRR36291587.sorted.bam")
+        let stagedBAI = mappingDir.appendingPathComponent("SRR36291587.sorted.bam.bai")
+        try FileManager.default.copyItem(at: fixture.sourceBAMURL, to: stagedBAM)
+        try FileManager.default.copyItem(at: fixture.sourceIndexURL, to: stagedBAI)
+        try MappingResult(
+            mapper: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            bamURL: stagedBAM,
+            baiURL: stagedBAI,
+            totalReads: 10,
+            mappedReads: 10,
+            unmappedReads: 0,
+            wallClockSeconds: 1,
+            contigs: []
+        ).save(to: mappingDir)
+        try "{}".write(
+            to: mappingDir.appendingPathComponent("mapping-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let cmd = try BAMCommand.AdoptMappingSubcommand.parse([
+            "--bundle", fixture.bundleURL.path,
+            "--mapping-result", mappingDir.path,
+            "--name", "minimap2 mapping"
+        ])
+        try await cmd.run()
+
+        let manifest = try BundleManifest.load(from: fixture.bundleURL)
+        let adoptedTrack = try #require(manifest.alignments.first(where: { $0.id != fixture.sourceTrackID }))
+        let adoptedBAMURL = fixture.bundleURL.appendingPathComponent(adoptedTrack.sourcePath)
+        let adoptProvenanceURL = adoptedBAMURL
+            .deletingPathExtension()
+            .appendingPathExtension("adopt-mapping-provenance.json")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenanceRun = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: adoptProvenanceURL))
+
+        #expect(provenanceRun.primaryInputFiles.contains { $0.path == stagedBAM.path })
+        #expect(provenanceRun.primaryInputFiles.contains { $0.path == stagedBAI.path })
+        #expect(provenanceRun.primaryInputFiles.contains {
+            $0.path == mappingDir.appendingPathComponent("mapping-result.json").path
+                && $0.sha256 != nil
+                && $0.sizeBytes != nil
+        })
+        #expect(provenanceRun.allOutputFiles.contains { $0.path == adoptedBAMURL.path })
     }
 }

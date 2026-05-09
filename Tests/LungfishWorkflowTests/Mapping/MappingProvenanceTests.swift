@@ -62,6 +62,12 @@ final class MappingProvenanceTests: XCTestCase {
             wallClockSeconds: 12.5,
             contigs: []
         )
+        try Data("bam".utf8).write(to: result.bamURL)
+        try Data("bai".utf8).write(to: result.baiURL)
+        let rawSAM = tempDir.appendingPathComponent("sample.raw.sam")
+        let filteredBAM = tempDir.appendingPathComponent("sample.filtered.bam")
+        try Data("sam".utf8).write(to: rawSAM)
+        try Data("filtered".utf8).write(to: filteredBAM)
 
         let mapperCommand = try MappingProvenance.mapperInvocation(
             for: request,
@@ -86,7 +92,51 @@ final class MappingProvenanceTests: XCTestCase {
             mapperInvocation: mapperCommand,
             normalizationInvocations: normalizationInvocations,
             mapperVersion: "2.0.0",
-            samtoolsVersion: "1.21"
+            samtoolsVersion: "1.21",
+            inputFiles: [
+                ProvenanceRecorder.fileRecord(url: inputFASTQ, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: referenceFASTA, format: .fasta, role: .reference)
+            ],
+            outputFiles: [
+                ProvenanceRecorder.fileRecord(url: result.bamURL, format: .bam, role: .output),
+                ProvenanceRecorder.fileRecord(url: result.baiURL, role: .index)
+            ],
+            runtimeIdentity: [
+                "mapper": "managed conda environment minimap2; executable minimap2",
+                "samtools": "managed conda environment samtools; executable samtools"
+            ],
+            steps: [
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.0.0",
+                    command: mapperCommand.argv,
+                    inputs: [ProvenanceRecorder.fileRecord(url: inputFASTQ, format: .fastq, role: .input)],
+                    outputs: [ProvenanceRecorder.fileRecord(url: rawSAM, format: .sam, role: .output)],
+                    exitCode: 0,
+                    wallTime: 1.0,
+                    stderr: "mapper stderr"
+                ),
+                StepExecution(
+                    toolName: "samtools",
+                    toolVersion: "1.21",
+                    command: normalizationInvocations[0].argv,
+                    inputs: [ProvenanceRecorder.fileRecord(url: rawSAM, format: .sam, role: .input)],
+                    outputs: [ProvenanceRecorder.fileRecord(url: filteredBAM, format: .bam, role: .output)],
+                    exitCode: 0,
+                    wallTime: 0.5,
+                    stderr: ""
+                ),
+                StepExecution(
+                    toolName: "samtools",
+                    toolVersion: "1.21",
+                    command: normalizationInvocations[1].argv,
+                    inputs: [ProvenanceRecorder.fileRecord(url: filteredBAM, format: .bam, role: .input)],
+                    outputs: [ProvenanceRecorder.fileRecord(url: result.bamURL, format: .bam, role: .output)],
+                    exitCode: 0,
+                    wallTime: 0.5
+                )
+            ],
+            exitStatus: 0
         )
 
         try provenance.save(to: tempDir)
@@ -116,6 +166,19 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(loaded.commandInvocations.map(\.label), ["minimap2", "samtools view", "samtools sort", "samtools index", "samtools flagstat"])
         XCTAssertTrue(loaded.viewerBundlePath?.hasSuffix("viewer.lungfishref") ?? false)
         XCTAssertTrue(loaded.sourceReferenceBundlePath?.hasSuffix("source.lungfishref") ?? false)
+        XCTAssertEqual(loaded.schemaVersion, 2)
+        XCTAssertEqual(loaded.workflowName, "lungfish map")
+        XCTAssertEqual(loaded.inputFiles.count, 2)
+        XCTAssertTrue(loaded.inputFiles.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(loaded.outputFiles.contains { $0.path == result.bamURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(loaded.outputFiles.contains { $0.path == result.baiURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertEqual(loaded.runtimeIdentity["mapper"], "managed conda environment minimap2; executable minimap2")
+        XCTAssertEqual(loaded.runtimeIdentity["samtools"], "managed conda environment samtools; executable samtools")
+        XCTAssertEqual(loaded.steps.map(\.toolName), ["minimap2", "samtools", "samtools"])
+        XCTAssertTrue(loaded.steps.allSatisfy { $0.exitCode == 0 })
+        XCTAssertTrue(loaded.steps.allSatisfy { $0.wallTime != nil })
+        XCTAssertEqual(loaded.steps.first?.stderr, "mapper stderr")
+        XCTAssertEqual(loaded.exitStatus, 0)
     }
 
     func testLoadReturnsNilWhenSidecarMissing() {

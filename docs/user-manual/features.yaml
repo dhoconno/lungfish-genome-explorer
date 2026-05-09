@@ -43,19 +43,78 @@ features:
     sources:
       - Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift
       - Sources/LungfishApp/Views/Viewer/VariantTrackRenderer.swift
-      - Sources/LungfishApp/Views/Viewer/VariantSection.swift
-      - Sources/LungfishApp/Views/Viewer/VariantTrack.swift
-      - Sources/LungfishCore/Database/VariantDatabase.swift
+      - Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift
+      - Sources/LungfishCore/Models/VariantTrack.swift
+      - Sources/LungfishIO/Bundles/VariantDatabase.swift
     notes: >-
       Presents variants as a sortable table with CHROM, POS, ID, REF, ALT,
       QUAL, FILTER, GT, and AF columns. Selecting a row centers the genome
       context pane on that coordinate. The Inspector surfaces the full INFO
       and FORMAT payload for the selected record.
+  fetch.ncbi:
+    title: Download a reference sequence from NCBI
+    entry_points:
+      - "Tools > Search Online Databases > Search NCBI/SRA..."
+      - "CLI: lungfish fetch ncbi"
+    inputs: [ncbi-accession]
+    outputs: [fasta, genbank, provenance-sidecar]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FetchCommand.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/GenBankGenomesSearchPane.swift
+      - Sources/LungfishApp/ViewModels/GenomeDownloadViewModel.swift
+      - Sources/LungfishApp/Services/DownloadCenter.swift
+    notes: >-
+      Downloads one or more NCBI records through the CLI or database search UI.
+      Saved CLI files write a file-specific Lungfish provenance sidecar with
+      the resolved fetch options, endpoint, pseudo-input accession, output
+      checksum, size, and command line.
+  fetch.sra:
+    title: Download FASTQ reads from SRA
+    entry_points:
+      - "Tools > Search Online Databases > Search NCBI/SRA..."
+      - "CLI: lungfish fetch sra download"
+    inputs: [sra-run-accession]
+    outputs: [fastq, fastq.gz, provenance-sidecar]
+    viewport_class: none
+    sources:
+      - Sources/LungfishCLI/Commands/FetchCommand.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/DatabaseSearchDialog.swift
+      - Sources/LungfishApp/Views/DatabaseBrowser/SRARunsSearchPane.swift
+      - Sources/LungfishApp/Views/FASTQ/FASTQImportConfigSheet.swift
+      - Sources/LungfishApp/Services/DownloadCenter.swift
+      - Sources/LungfishWorkflow/Provenance/ProvenanceRecorder.swift
+    notes: >-
+      Downloads SRA reads through ENA or SRA Toolkit fallback paths and records
+      the downloader, options, produced FASTQ files, checksums, sizes, and
+      runtime details in the output directory provenance sidecar.
+  map:
+    title: Map reads to a reference
+    entry_points:
+      - "Tools > Map Reads..."
+      - "CLI: lungfish map"
+      - "CLI: lungfish bam adopt-mapping"
+    inputs: [fastq, fasta, reference-bundle]
+    outputs: [bam, bai, mapping-result, alignment-track, mapping-provenance]
+    viewport_class: alignment
+    sources:
+      - Sources/LungfishCLI/Commands/MapCommand.swift
+      - Sources/LungfishCLI/Commands/BAMAdoptMappingSubcommand.swift
+      - Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift
+      - Sources/LungfishApp/Services/MappingViewerBundlePreparer.swift
+      - Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift
+      - Sources/LungfishWorkflow/Mapping/MappingResult.swift
+      - Sources/LungfishWorkflow/Mapping/MappingProvenance.swift
+    notes: >-
+      Runs minimap2 or the selected mapper, normalizes the resulting BAM, writes
+      a mapping-result sidecar, and can attach the mapping outputs to a
+      reference bundle with `lungfish bam adopt-mapping`.
   variants.call:
     title: Call variants from a bundle alignment track
     entry_points:
       - "Tools > Call Variants…"
-      - "Inspector > Read Style > Call Variants…"
+      - "Inspector > Analysis > Call Variants…"
       - "CLI: lungfish variants call"
     inputs: [reference-bundle, bundle-alignment-track]
     outputs: [vcf.gz, tbi, variant-track, variant-sqlite-db]
@@ -84,7 +143,7 @@ features:
   bam.primer-trim:
     title: Primer-trim a BAM with iVar
     entry_points:
-      - "Inspector > Read Style > Primer-trim BAM…"
+      - "Inspector > Analysis > Primer-trim BAM…"
       - "CLI: lungfish bam primer-trim"
     inputs: [reference-bundle, bundle-alignment-track, lungfishprimers]
     outputs: [bam, bai, alignment-track, primer-trim-provenance]
@@ -112,4 +171,6 @@ features:
       Runs `ivar trim` against a bundle-owned BAM alignment track using a
       .lungfishprimers scheme bundle, sorts and indexes the result, and
       attaches a new primer-trimmed alignment track to the bundle with
-      provenance JSON capturing the scheme manifest hash and command line.
+      provenance JSON capturing resolved options, command line, runtime
+      identity, input and output file records, per-step commands, exit status,
+      stderr when available, checksums, sizes, and wall time.

@@ -4,6 +4,7 @@
 
 import XCTest
 import Foundation
+import LungfishWorkflow
 
 final class ImportFastqE2ETests: XCTestCase {
 
@@ -157,5 +158,27 @@ final class ImportFastqE2ETests: XCTestCase {
             includingPropertiesForKeys: nil)
         let bundles = imports.filter { $0.pathExtension == "lungfishfastq" }
         XCTAssertFalse(bundles.isEmpty, "At least one .lungfishfastq bundle should be created")
+
+        let bundleURL = try XCTUnwrap(bundles.first)
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: provenanceURL.path),
+            "FASTQ import should write provenance at \(provenanceURL.path)"
+        )
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        XCTAssertEqual(run.name, "lungfish import fastq")
+        XCTAssertEqual(run.status, .completed)
+        XCTAssertTrue(run.steps.contains { $0.toolName == "lungfish import fastq" })
+        XCTAssertTrue(run.primaryInputFiles.contains { $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(run.allOutputFiles.contains {
+            $0.path.hasSuffix(".fastq.gz") && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertFalse(
+            run.allOutputFiles.contains { $0.path.contains("/.tmp/") },
+            "Final provenance output records should point at bundle payloads, not temp workspace files"
+        )
     }
 }
