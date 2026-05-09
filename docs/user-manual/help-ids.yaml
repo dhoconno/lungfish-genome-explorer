@@ -1,0 +1,625 @@
+# help-ids.yaml — maps app surfaces (dialogs, viewports, Inspector sections, menu items)
+# to chapter anchors. The Lungfish app uses this file to drive the contextual Help system:
+# when the user hovers a UI surface and asks for help, the app reads the help_id, looks
+# it up in this file, and opens the documentation at the resolved chapter#anchor.
+#
+# Schema:
+#   <help_id>:
+#     chapter: <chapter_id>
+#     anchor: <H2 or H3 anchor within the chapter>
+#     scope: dialog | viewport | inspector | menu | global
+#     description: <one-line description for in-app tooltips>
+#
+# Anchor IDs use the Markdown convention: lowercase, hyphens for spaces, no punctuation.
+# When a chapter does not yet have an explicit `{#anchor}` marker on its H2, the slug is
+# derived from the H2 text by the build system. For glossary-term anchors, the format is
+# `appendices/glossary#term-slug`.
+#
+# Owner: Code Cartographer + Documentation Lead.
+# This file is read by the app at runtime; chapter authors update it when adding or
+# renaming Inspector sections, dialogs, or menu items.
+
+version: 0
+
+# === Foundations cross-references ===
+# Every term Lungfish surfaces in a tooltip, dialog, or Inspector resolves through these.
+
+term:reference-genome:
+  chapter: appendices/glossary
+  anchor: reference-genome
+  scope: global
+  description: A community-agreed sequence used as the comparison point for samples.
+
+term:fastq:
+  chapter: appendices/glossary
+  anchor: fastq
+  scope: global
+  description: Plain-text format for sequencing reads; four lines per read.
+
+term:bam:
+  chapter: appendices/glossary
+  anchor: bam
+  scope: global
+  description: Binary alignment file with one row per aligned read.
+
+term:vcf:
+  chapter: appendices/glossary
+  anchor: vcf
+  scope: global
+  description: Tab-separated table listing positions where a sample differs from reference.
+
+term:amplicon:
+  chapter: appendices/glossary
+  anchor: amplicon
+  scope: global
+  description: PCR-amplified region of a genome; the unit of an amplicon sequencing protocol.
+
+term:primer-scheme:
+  chapter: appendices/glossary
+  anchor: primer-scheme
+  scope: global
+  description: The set of primer coordinate pairs that define an amplicon protocol.
+
+term:primer-trim:
+  chapter: appendices/glossary
+  anchor: primer-trim
+  scope: global
+  description: Soft-clipping of primer-derived bases off aligned reads in amplicon data.
+
+term:soft-clip:
+  chapter: appendices/glossary
+  anchor: soft-clip
+  scope: global
+  description: BAM flag marking read bases present in the record but excluded from pileup.
+
+term:allele-frequency:
+  chapter: appendices/glossary
+  anchor: allele-frequency
+  scope: global
+  description: Fraction of reads at a position that carry the alternate base.
+
+term:depth:
+  chapter: appendices/glossary
+  anchor: depth
+  scope: global
+  description: Number of reads covering a reference position.
+
+term:phred-score:
+  chapter: appendices/glossary
+  anchor: phred-score
+  scope: global
+  description: Logarithmic per-base quality score; Q30 means 0.1% error rate.
+
+term:plugin-pack:
+  chapter: appendices/glossary
+  anchor: plugin-pack
+  scope: global
+  description: Themed group of bioinformatics tools installed on demand into conda environments.
+
+term:provenance-sidecar:
+  chapter: appendices/glossary
+  anchor: provenance-sidecar
+  scope: global
+  description: JSON file recording how an output was produced.
+
+term:codon:
+  chapter: appendices/glossary
+  anchor: codon
+  scope: global
+  description: Run of three consecutive bases encoding one amino acid.
+
+term:strand-bias:
+  chapter: appendices/glossary
+  anchor: strand-bias
+  scope: global
+  description: Variant supported predominantly by reads from one strand; often a primer-placement artifact.
+
+term:reference-bundle:
+  chapter: appendices/glossary
+  anchor: reference-bundle
+  scope: global
+  description: A .lungfishref folder holding a FASTA, indices, annotations, and tracks.
+
+term:assembly-bundle:
+  chapter: appendices/glossary
+  anchor: assembly-bundle
+  scope: global
+  description: A .lungfishref bundle holding a de novo assembly produced inside the project.
+
+term:operations-panel:
+  chapter: appendices/glossary
+  anchor: operations-panel
+  scope: global
+  description: Bottom pane of a project window showing every long-running operation.
+
+term:inspector:
+  chapter: appendices/glossary
+  anchor: inspector
+  scope: global
+  description: Right-hand pane showing context-sensitive metadata for the selection.
+
+term:sidebar:
+  chapter: appendices/glossary
+  anchor: sidebar
+  scope: global
+  description: Left-hand pane showing the project's contents as a folder tree.
+
+term:project:
+  chapter: appendices/glossary
+  anchor: project
+  scope: global
+  description: A folder on disk holding one Lungfish analysis.
+
+# === Dialogs (modal sheets) ===
+
+dialog.NCBISearchDialog:
+  chapter: 02-sequences/02-downloading-from-ncbi
+  anchor: procedure-download-a-reference-by-accession
+  scope: dialog
+  description: Search NCBI by accession or text query and download.
+
+dialog.SRASearchDialog:
+  chapter: 03-reads/02-downloading-from-sra
+  anchor: procedure
+  scope: dialog
+  description: Search and download SRA runs.
+
+dialog.PathoplexusSearchDialog:
+  chapter: 02-sequences/02-downloading-from-ncbi
+  anchor: pathoplexus-and-sra-when-not-to-use-this-dialog
+  scope: dialog
+  description: Search Pathoplexus (sister database to NCBI) for viral genomes.
+
+dialog.ImportCenter:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: three-ways-to-import
+  scope: dialog
+  description: Guided import for FASTAs, GenBank records, GFF3+FASTA pairs, FASTQs, VCFs, primer schemes.
+
+dialog.MappingWizard:
+  chapter: 04-alignments/01-mapping-reads-to-a-reference
+  anchor: procedure
+  scope: dialog
+  description: Map reads to a reference; pick a mapper and preset.
+
+dialog.OrientReadsWizard:
+  chapter: 03-reads/07-ont-runs
+  anchor: orient-the-reads
+  scope: dialog
+  description: Orient ONT reads against a reference.
+
+dialog.BAMPrimerTrimDialog:
+  chapter: 04-alignments/03-primer-trimming
+  anchor: procedure
+  scope: dialog
+  description: Soft-clip amplicon primers from a BAM using a primer scheme.
+
+dialog.BAMVariantCallingDialog:
+  chapter: 05-variants/01-calling-variants-from-amplicons
+  anchor: step-6-call-variants-with-ivar
+  scope: dialog
+  description: Call variants with iVar, LoFreq, or Medaka against a bundle alignment track.
+
+dialog.UnifiedMetagenomicsWizard:
+  chapter: 06-classification/01-what-is-classification
+  anchor: procedure
+  scope: dialog
+  description: Run a classifier (Kraken2, EsViritu, TaxTriage, NAO-MGS) against a FASTQ bundle.
+
+dialog.AssemblyWizard:
+  chapter: 07-assembly/01-when-to-assemble
+  anchor: procedure
+  scope: dialog
+  description: Run a de novo assembler (SPAdes, MEGAHIT, SKESA, Flye, Hifiasm).
+
+dialog.ExtractContigsSheet:
+  chapter: 07-assembly/04-extracting-contigs
+  anchor: procedure
+  scope: dialog
+  description: Pick contigs from an assembly and derive a new reference bundle.
+
+dialog.IQTreeInferenceDialog:
+  chapter: 02-sequences/04-msa-and-trees
+  anchor: procedure-infer-a-tree-with-iq-tree
+  scope: dialog
+  description: Infer a phylogenetic tree with IQ-TREE from an MSA.
+
+dialog.MSAOperations:
+  chapter: 02-sequences/04-msa-and-trees
+  anchor: procedure-build-an-msa-with-mafft
+  scope: dialog
+  description: Build a multiple sequence alignment with MAFFT.
+
+dialog.PluginManager:
+  chapter: 01-foundations/07-plugin-packs
+  anchor: install-a-pack-from-the-plugin-manager
+  scope: dialog
+  description: Install, list, and remove Lungfish plugin packs.
+
+dialog.WorkflowBuilder:
+  chapter: 08-workflows/01-the-workflow-builder
+  anchor: procedure
+  scope: dialog
+  description: Visual node-graph composer for Lungfish workflows.
+
+dialog.FASTQImportConfigSheet:
+  chapter: 03-reads/01-importing-fastq
+  anchor: procedure-import-the-same-pair-with-the-import-center
+  scope: dialog
+  description: FASTQ import configuration including pairing and metadata.
+
+dialog.ImportONTRun:
+  chapter: 03-reads/07-ont-runs
+  anchor: procedure
+  scope: dialog
+  description: Import a barcoded Oxford Nanopore run directory.
+
+dialog.ProjectSampleMetadata:
+  chapter: 03-reads/01-importing-fastq
+  anchor: editing-sample-metadata
+  scope: dialog
+  description: Bulk-edit per-sample metadata via CSV.
+
+dialog.ExportProvenanceShell:
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  scope: dialog
+  description: Export workflow as a runnable shell script.
+
+dialog.ExportProvenanceNextflow:
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  scope: dialog
+  description: Export workflow as a Nextflow pipeline.
+
+dialog.ExportProvenanceSnakemake:
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  scope: dialog
+  description: Export workflow as a Snakemake workflow.
+
+dialog.ExportProvenanceMethods:
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  scope: dialog
+  description: Export workflow as a methods-section paragraph.
+
+# === Viewports (main-window content) ===
+
+viewport.SequenceViewer:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: viewport-anatomy
+  scope: viewport
+  description: Linear sequence viewer with annotations and navigation.
+
+viewport.AlignmentViewer:
+  chapter: 04-alignments/02-reading-an-alignment
+  anchor: procedure
+  scope: viewport
+  description: BAM viewport with reads stacked on the reference and a coverage histogram.
+
+viewport.VariantBrowser:
+  chapter: 05-variants/02-reading-the-variant-browser
+  anchor: procedure
+  scope: viewport
+  description: Variant browser with genome track, reference panel, and sortable variant table.
+
+viewport.AssemblyViewer:
+  chapter: 07-assembly/02-running-spades
+  anchor: interpretation
+  scope: viewport
+  description: Assembly viewport with contig list, lengths, coverage, GC content.
+
+viewport.TaxonomyViewer:
+  chapter: 06-classification/02-running-kraken2
+  anchor: interpretation
+  scope: viewport
+  description: Classification result viewport with sunburst, taxon table, breadcrumb bar.
+
+viewport.MSAViewer:
+  chapter: 02-sequences/04-msa-and-trees
+  anchor: interpretation-reading-the-msa-viewport
+  scope: viewport
+  description: MSA viewport with row picker, column ruler, conservation track.
+
+viewport.TreeViewer:
+  chapter: 02-sequences/04-msa-and-trees
+  anchor: interpretation-reading-the-tree-viewport
+  scope: viewport
+  description: Phylogenetic tree viewport with rectangular phylogram layout.
+
+viewport.FASTQViewer:
+  chapter: 03-reads/03-quality-control
+  anchor: interpretation
+  scope: viewport
+  description: FASTQ viewport with QC sparklines and per-file metadata.
+
+viewport.EsVirituResultViewer:
+  chapter: 06-classification/03-running-esviritu
+  anchor: interpretation
+  scope: viewport
+  description: EsViritu result viewport with per-strain coverage sparklines.
+
+viewport.TaxTriageResultViewer:
+  chapter: 06-classification/04-running-taxtriage
+  anchor: reading-the-confidence-view
+  scope: viewport
+  description: TaxTriage result viewport with confidence-ranked organism list and batch overview.
+
+viewport.NAOMGSResultViewer:
+  chapter: 06-classification/05-running-nao-mgs
+  anchor: interpretation
+  scope: viewport
+  description: NAO-MGS surveillance viewport with longitudinal abundance charts.
+
+# === Inspector sections (right-pane workflows) ===
+
+inspector.AnalysisSection.PrimerTrim:
+  chapter: 04-alignments/03-primer-trimming
+  anchor: procedure
+  scope: inspector
+  description: Inspector > Analysis > Primer-trim BAM... action.
+
+inspector.AnalysisSection.VariantCalling:
+  chapter: 05-variants/01-calling-variants-from-amplicons
+  anchor: step-6-call-variants-with-ivar
+  scope: inspector
+  description: Inspector > Analysis > Variant Calling > Call Variants action.
+
+inspector.AnalysisSection.Filtering:
+  chapter: 03-reads/04-trimming-and-filtering
+  anchor: procedure
+  scope: inspector
+  description: Inspector > Analysis > Filtering subsection (FASTQ trim/filter operations).
+
+inspector.AnalysisSection.Annotations:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: viewport-anatomy
+  scope: inspector
+  description: Inspector > Analysis > Annotations subsection.
+
+inspector.AnalysisSection.Consensus:
+  chapter: 05-variants/05-consensus-and-lineage
+  anchor: procedure
+  scope: inspector
+  description: Inspector > Analysis > Consensus subsection.
+
+inspector.AnalysisSection.Export:
+  chapter: 08-workflows/02-exporting-as-nextflow-or-snakemake
+  anchor: procedure-export-the-reads-to-variants-workflow-as-nextflow
+  scope: inspector
+  description: Inspector > Analysis > Export subsection.
+
+inspector.SampleMetadata:
+  chapter: 03-reads/01-importing-fastq
+  anchor: editing-sample-metadata
+  scope: inspector
+  description: Inspector > Sample Metadata section for FASTQ bundles.
+
+inspector.AlignmentTrackStats:
+  chapter: 04-alignments/04-alignment-quality
+  anchor: read-the-inspector-stats
+  scope: inspector
+  description: Inspector aggregate alignment stats for a BAM track.
+
+inspector.VariantSection:
+  chapter: 05-variants/02-reading-the-variant-browser
+  anchor: step-3-read-a-row-in-the-inspector
+  scope: inspector
+  description: Inspector > Variant section for per-variant INFO and FORMAT detail.
+
+# === Menu items (Tools menu and friends) ===
+
+menu.Tools.SearchOnlineDatabases.NCBI:
+  chapter: 02-sequences/02-downloading-from-ncbi
+  anchor: procedure-download-a-reference-by-accession
+  scope: menu
+  description: Tools > Search Online Databases > Search NCBI...
+
+menu.Tools.SearchOnlineDatabases.SRA:
+  chapter: 03-reads/02-downloading-from-sra
+  anchor: procedure
+  scope: menu
+  description: Tools > Search Online Databases > Search SRA...
+
+menu.Tools.SearchOnlineDatabases.Pathoplexus:
+  chapter: 02-sequences/02-downloading-from-ncbi
+  anchor: pathoplexus-and-sra-when-not-to-use-this-dialog
+  scope: menu
+  description: Tools > Search Online Databases > Search Pathoplexus...
+
+menu.Tools.FASTQOperations.Mapping:
+  chapter: 04-alignments/01-mapping-reads-to-a-reference
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Mapping...
+
+menu.Tools.FASTQOperations.Classification:
+  chapter: 06-classification/01-what-is-classification
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Classification...
+
+menu.Tools.FASTQOperations.Assembly:
+  chapter: 07-assembly/01-when-to-assemble
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Assembly...
+
+menu.Tools.FASTQOperations.QC:
+  chapter: 03-reads/03-quality-control
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > QC & Reporting > Refresh QC Summary
+
+menu.Tools.FASTQOperations.Trim:
+  chapter: 03-reads/04-trimming-and-filtering
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Trimming & Filtering submenu
+
+menu.Tools.FASTQOperations.Decontamination:
+  chapter: 03-reads/05-decontamination
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Decontamination submenu
+
+menu.Tools.FASTQOperations.Subsetting:
+  chapter: 03-reads/06-subsetting-and-extraction
+  anchor: procedure
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Search & Subsetting submenu
+
+menu.Tools.FASTQOperations.MSA:
+  chapter: 02-sequences/04-msa-and-trees
+  anchor: procedure-build-an-msa-with-mafft
+  scope: menu
+  description: Tools > FASTQ/FASTA Operations > Multiple Sequence Alignment
+
+menu.Tools.PluginManager:
+  chapter: 01-foundations/07-plugin-packs
+  anchor: install-a-pack-from-the-plugin-manager
+  scope: menu
+  description: Tools > Plugin Manager (Cmd-Shift-B)
+
+menu.Tools.WorkflowBuilder:
+  chapter: 08-workflows/01-the-workflow-builder
+  anchor: procedure
+  scope: menu
+  description: Tools > Workflow Builder
+
+menu.File.NewProject:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-welcome-window
+  scope: menu
+  description: File > New Project (Cmd-N)
+
+menu.File.Open:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-welcome-window
+  scope: menu
+  description: File > Open (Cmd-O)
+
+menu.File.ImportCenter:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: the-import-center
+  scope: menu
+  description: File > Import Center (Cmd-Shift-I)
+
+menu.File.ImportONTRun:
+  chapter: 03-reads/07-ont-runs
+  anchor: procedure
+  scope: menu
+  description: File > Import ONT Run
+
+menu.File.Export.Provenance:
+  chapter: 01-foundations/08-provenance-and-reproducibility
+  anchor: export-paths
+  scope: menu
+  description: File > Export > Provenance submenu
+
+menu.View.Sidebar:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: a-tour-of-the-sidebar
+  scope: menu
+  description: View > Show Sidebar (Cmd-Shift-S)
+
+menu.View.Inspector:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-inspector
+  scope: menu
+  description: View > Show Inspector (Cmd-Opt-I)
+
+menu.Operations.Panel:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-operations-panel
+  scope: menu
+  description: Operations > Show Operations Panel (Cmd-Shift-P)
+
+menu.Sequence.GoToPosition:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: navigation
+  scope: menu
+  description: Sequence > Go to Position (Cmd-L)
+
+menu.Sequence.GoToGene:
+  chapter: 02-sequences/01-importing-and-viewing
+  anchor: navigation
+  scope: menu
+  description: Sequence > Go to Gene (Cmd-Shift-G)
+
+menu.Sequence.ExtractVisibleRegion:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: procedure-extract-a-region-as-a-new-bundle
+  scope: menu
+  description: Sequence > Extract Visible Region (Cmd-Shift-E)
+
+menu.Sequence.CopyAsFASTA:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: procedure-copy-a-region-as-fasta
+  scope: menu
+  description: Sequence > Copy Visible Region as FASTA (Cmd-Shift-C)
+
+menu.Sequence.Translate:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: the-operations-at-a-glance
+  scope: menu
+  description: Sequence > Translate (Cmd-Shift-T)
+
+menu.Sequence.ReverseComplement:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: the-operations-at-a-glance
+  scope: menu
+  description: Sequence > Reverse Complement (Cmd-Shift-R)
+
+menu.Sequence.FindORFs:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: procedure-find-orfs
+  scope: menu
+  description: Sequence > Find ORFs
+
+menu.Sequence.FindRestrictionSites:
+  chapter: 02-sequences/03-extracting-and-comparing
+  anchor: procedure-find-restriction-sites
+  scope: menu
+  description: Sequence > Find Restriction Sites
+
+menu.Help.UserManual:
+  chapter: index
+  anchor: ""
+  scope: menu
+  description: Help > Lungfish Help (Cmd-?)
+
+# === Settings panes ===
+
+settings.General:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: ""
+  scope: dialog
+  description: General application settings.
+
+settings.AIServices:
+  chapter: index
+  anchor: ""
+  scope: dialog
+  description: AI Services settings (currently scoped to VCF analysis).
+
+# === Operations panel ===
+
+operations.Panel:
+  chapter: 01-foundations/06-the-lungfish-project
+  anchor: the-operations-panel
+  scope: viewport
+  description: Operations Panel; running, completed, and failed jobs with logs and provenance.
+
+operations.Panel.ProvenanceDisclosure:
+  chapter: 01-foundations/08-provenance-and-reproducibility
+  anchor: where-sidecars-live
+  scope: viewport
+  description: Provenance disclosure for an operation row.
+
+operations.Panel.ReRunAsCLI:
+  chapter: appendices/cli-reference
+  anchor: ""
+  scope: viewport
+  description: Re-run an operation as a CLI command (copies invocation to clipboard).

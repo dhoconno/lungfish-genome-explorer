@@ -27,8 +27,9 @@ else
 fi
 
 "$LUNGFISH" fetch ncbi MN908947.3 --fetch-format fasta --save-to "$OUT/MN908947.3.fasta"
+"$LUNGFISH" fetch ncbi MN908947.3 --fetch-format gff3 --save-to "$OUT/MN908947.3.gff3"
 "$LUNGFISH" fetch sra download SRR36291587 --output-dir "$OUT" --use-toolkit
-"$LUNGFISH" bundle create --fasta "$OUT/MN908947.3.fasta" --name MN908947.3 --output-dir "$OUT" --compress
+"$LUNGFISH" bundle create --fasta "$OUT/MN908947.3.fasta" --annotation "$OUT/MN908947.3.gff3" --name MN908947.3 --output-dir "$OUT" --compress
 "$LUNGFISH" map "$OUT/SRR36291587_1.fastq" "$OUT/SRR36291587_2.fastq" \
     --reference "$OUT/MN908947.3.fasta" \
     --paired --preset sr --sample-name SRR36291587 -o "$OUT/mapping"

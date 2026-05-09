@@ -2,30 +2,36 @@
 title: Lungfish User Manual
 ---
 
-# Hello, Lungfish
+# Lungfish User Manual
 
-Welcome to the user manual. This page exists to prove the Material theme is
-wired to the Lungfish brand tokens: Cream background, Deep Ink text,
-Creamsicle H1 bar, Space Grotesk headings, Inter body, IBM Plex Mono code.
+Welcome. This manual is the documentation for Lungfish, the macOS app for viral genome analysis. It is organised into three parts: **Foundations** (what to know before you start), **Working with the app** (every workflow Lungfish supports, organised by what you are trying to do), and **Reference** (the CLI, keyboard shortcuts, troubleshooting, and the glossary).
 
-## What you will find here
+The pilot chapter is [Calling Variants from Amplicon Reads](chapters/05-variants/01-calling-variants-from-amplicons.md). It walks the full SARS-CoV-2 amplicon-Illumina workflow end to end and is the right starting point if you want to see what Lungfish does in action.
 
-The manual is organised into three parts: **Foundations** (file formats and
-concepts), **Working with the app** (Sequences, Alignments, Variants,
-Classification, Assembly, Downloads), and **Reference** (keyboard map,
-troubleshooting, glossary, appendices).
+## Foundations
 
-## Variants
+Read these first if you are new to genomics or new to Lungfish. Each is 5-10 minutes.
 
-- [From Reads to Variants](chapters/04-variants/01-reads-to-variants.md). End-to-end SARS-CoV-2 workflow from NCBI accession through two side-by-side variant tracks.
+- [What Is a Genome](chapters/01-foundations/01-what-is-a-genome.md)
+- [Sequencing Reads](chapters/01-foundations/02-sequencing-reads.md)
+- [Amplicons and Shotgun Sequencing](chapters/01-foundations/03-amplicon-vs-shotgun.md)
+- [Alignment Files](chapters/01-foundations/04-alignment-files.md)
+- [Variants and VCF Files](chapters/01-foundations/05-variants-and-vcf.md)
 
-## A code sample, for font verification
+The remaining foundations chapters cover [The Lungfish Project](chapters/01-foundations/06-the-lungfish-project.md), [Plugin Packs](chapters/01-foundations/07-plugin-packs.md), and [Provenance and Reproducibility](chapters/01-foundations/08-provenance-and-reproducibility.md).
 
-```python
-def read_fastq(path):
-    """Stream records from a FASTQ file."""
-    with open(path) as f:
-        yield from parse(f)
-```
+## Working with the app
 
-Tagline: *Seeing the invisible. Informing action.*
+Each part is one workflow domain. Chapters within a part declare prereqs in their frontmatter.
+
+- [Sequences](chapters/02-sequences/) for FASTA, GenBank, NCBI download, and MSA workflows
+- [Reads (FASTQ)](chapters/03-reads/) for read import, QC, trimming, decontamination, and ONT runs
+- [Alignments](chapters/04-alignments/) for read mapping and primer trimming
+- [Variants](chapters/05-variants/) for variant calling and VCF interpretation (the pilot chapter is here)
+- [Classification](chapters/06-classification/) for taxonomic classification of reads
+
+The [Assembly](chapters/07-assembly/) part covers de novo assembly. The [Workflows](chapters/08-workflows/) part covers the visual Workflow Builder and Nextflow / Snakemake export.
+
+## Reference
+
+The [appendices](chapters/appendices/) hold the CLI reference, keyboard shortcuts, troubleshooting guide, and glossary.
