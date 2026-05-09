@@ -45,12 +45,16 @@ it again". For a lab that runs the same reads-to-variants procedure on every
 new isolate, this is the difference between writing a SOP in a Google Doc and
 writing one that actually runs.
 
-A note on scope. The Workflow Builder is feature-complete for the operations
-that ship with the core app and the iVar, minimap2, and SPAdes plugins. A
-small number of newer operations (NAO-MGS profiling, taxonomic re-rooting in
-the Phylogeny tool) do not yet have palette entries, so a workflow that needs
-those steps still has to be assembled by hand at the CLI. We flag those gaps
-explicitly below.
+A note on scope. Two kinds of operations are deliberately not in the
+Workflow Builder. Result-import paths (NAO-MGS, NVD, CZ-ID) load existing
+classification output produced outside Lungfish; they do not produce new
+data, so they belong in the Import Center rather than the Builder. Result-
+viewport tools (tree re-rooting, taxonomy read extraction, BLAST
+verification) act on already-loaded data inside a viewport; they are not
+workflow steps. The Workflow Builder is for operations that produce new
+data from inputs. If a step you want to compose is missing from the
+palette today, it is one of the gaps tracked under Lungfish's
+documentation-driven backlog and will land in a future release.
 
 So what should you do with this? If you find yourself running the same
 sequence of operations on more than two samples, stop running them by hand

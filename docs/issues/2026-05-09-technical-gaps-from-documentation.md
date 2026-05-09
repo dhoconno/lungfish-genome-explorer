@@ -174,20 +174,15 @@ Issues are grouped by domain so related work can be batched.
 
 ---
 
-### #docs-009: GATK HaplotypeCaller for non-viral / human work
+### #docs-009: (lifted to docs-039) GATK first-class integration
 
-**Severity:** P3
+**Status:** Lifted into a standalone scoping issue. See [docs-039 (GATK first-class integration)](./2026-05-09-docs-039-gatk-first-class-integration.md).
 
-**Where focus groups raised it:** Year 3 genetics PhD (Rachel Sturm) and clinical bioinformatics consultant (Sara Linhardt) both flagged the absence of GATK as disqualifying for their respective workflows. The manual currently scopes to viral genomics, so this is genuinely out of scope today; if scope expands, GATK becomes a real ticket.
+GATK is a substantial product surface, not a single feature; including it requires defining the tool subset that ships first-class, the plugin-pack structure, the dialog UX, the reference-pack handling, and the joint-genotyping workflow. That scoping work belongs in its own issue and was assigned to a five-expert panel for definition.
 
-**The user-facing behavior:** Lungfish's three callers (iVar, LoFreq, Medaka) are all viral-focused. Human germline variant calling, multi-sample joint genotyping, and somatic calling are not supported.
+The audience scope agreed upfront is **research-tier human germline**. Clinical/IVD features (CLIA/CAP validation hooks, IVD-grade audit trail), somatic calling (Mutect2), CNV calling, and structural-variant calling are explicitly out of scope for the first round and become follow-on tickets if scope expansion is approved.
 
-**Acceptance criteria** (only if scope expansion is approved):
-
-- [ ] `lungfish variants call --caller gatk-haplotype` runs HaplotypeCaller against an alignment track
-- [ ] `lungfish variants joint-genotype` performs GenotypeGVCFs across multiple samples
-- [ ] A separate Part of the manual covers human / non-viral variant calling
-- [ ] A scope section in `01-foundations/01-what-is-a-genome.md` clarifies which audiences are out of scope until then
+This entry stays in the table for traceability with severity P1 (matching docs-039); the full specification lives in the linked file.
 
 ---
 
@@ -373,18 +368,203 @@ This issue is closed; left here for traceability.
 
 ## Workflows and reproducibility
 
-### #docs-017: NAO-MGS profiling node missing from Workflow Builder palette
+### #docs-017: Tree-viewport result tools (re-rooting, tip relabeling, subtree extraction)
 
 **Severity:** P1
 
-**Where the manual says it:** `08-workflows/01-the-workflow-builder.md` line 51: "the Phylogeny tool [does] not yet have palette entries, so a workflow that needs those steps still has to be assembled by hand at the CLI."
+**Where the manual says it:** `02-sequences/04-msa-and-trees.md` walks the user through inferring a tree with IQ-TREE and viewing it in the tree viewport, but the viewport itself currently lacks the standard interactive operations users expect when looking at a phylogeny. The chapter glosses this gap; this issue makes it explicit.
+
+**The user-facing behavior:** Today the tree viewport renders a Newick tree as a static rectangular phylogram with branch lengths and support values. There is no UI for re-rooting on a chosen tip or clade, no UI for renaming tips from a metadata column, no UI for collapsing low-support clades, and no UI for extracting a subtree as a new bundle. Researchers reach for those operations every time they read a tree.
+
+**What the docs need:** The tree-viewport chapter currently teaches "open the tree, read the topology" and stops there. Once these tools exist, the chapter extends to teach the practical reading-and-grooming workflow (re-root on the canonical outgroup, collapse clades below 70% support, relabel tips by lineage) that researchers actually do.
 
 **Acceptance criteria:**
 
-- [ ] NAO-MGS profiling has a Workflow Builder palette node with the same input/output type contracts as other classification nodes
-- [ ] Phylogeny (IQ-TREE) inference has a palette node
-- [ ] Tree re-rooting has a palette node
-- [ ] The "missing palette entries" note in the chapter is removed
+- [ ] **Re-root.** Right-click any tip or internal node in the tree viewport, choose **Re-root here**. The tree redraws with the chosen point as the new root. The operation does not modify the source `.lungfishtree` bundle; it writes a new bundle (or a new layer in the existing bundle) so the original rooting is preserved.
+- [ ] **Tip relabeling from metadata.** With a metadata TSV attached to the tree bundle (the same `metadata.tsv` schema used by MSA bundles), the viewport offers a Tip Label dropdown listing every metadata column. Choosing a column relabels every tip in place.
+- [ ] **Clade collapse.** Right-click an internal node, choose **Collapse clade**. The descendant subtree collapses to a triangle with a tip count. Right-click again to expand. A "Collapse all clades below support X" command is exposed in the viewport's filter bar.
+- [ ] **Subtree extraction.** Right-click an internal node, choose **Extract subtree as new bundle**. A new `.lungfishtree` bundle appears in the project containing only the descendant tips, with provenance recording the source bundle and the chosen node.
+- [ ] **Tip selection and highlighting.** Click a tip to select it; Shift-click to multi-select. Selected tips are highlighted in Lungfish Creamsicle. A keyboard shortcut copies the selected tip names to the clipboard as a newline-separated list.
+- [ ] **CLI parity.** `lungfish tree reroot --bundle <path> --on <tip-or-node-id> --output <path>`, `lungfish tree extract-subtree --bundle <path> --node <id> --output <path>`, `lungfish tree relabel --bundle <path> --column <name> --output <path>`. All write a new bundle with provenance.
+- [ ] **Documentation chapter `02-sequences/04-msa-and-trees.md` is extended** with a procedure section for each operation and a worked example using a small SARS-CoV-2 lineage tree.
+
+**Out of scope:**
+
+- Co-phylogeny visualization (two trees side by side with linking lines)
+- Time-calibrated trees (BEAST-style chronograms; these need a different inference path)
+- Ancestral state reconstruction
+- Tree comparison metrics (Robinson-Foulds, etc.); export to a CLI tool that does this is fine
+
+**Cross-links:** This issue is unrelated to docs-040 (Workflow Builder palette gaps). The two were originally lumped under one issue; the lumping was wrong because tree-viewport tools are GUI features that operate on a result, not workflow nodes that produce one.
+
+---
+
+### #docs-040: Workflow Builder is partially implemented; bring it to feature completeness
+
+**Severity:** P1
+
+**Status:** Multi-part issue; can be split into sub-issues by Codex if useful. Sub-parts are tagged `040.A` through `040.G` below.
+
+**Background.** The Workflow Builder ships with a substantial codebase (`Sources/LungfishApp/Views/WorkflowBuilder/` ≈ 2,800 lines, plus `Sources/LungfishWorkflow/Builder/` and `Sources/LungfishApp/Views/Workflow/`), including a canvas, a palette, node and connection views, parameter forms, an execution view, a log view, a configuration panel, a runner, two exporters (Nextflow and Snakemake), and a CLI command. A user can open the Builder, drag nodes, connect them, and run a workflow today. Several pieces are not feature-complete enough to support the Workflow Builder chapter (`08-workflows/01-the-workflow-builder.md`) and the export chapter (`08-workflows/02-exporting-as-nextflow-or-snakemake.md`) as written. This issue catalogs the gaps.
+
+**Where the chapter overshoots the implementation today:**
+
+- The chapter implies palette nodes are bound to specific tools (a "Map reads | minimap2 | core" row in the canonical-node-types table). Inspection of `WorkflowNode.swift` shows the implementation has 12 abstract category enums (`fastqInput`, `qualityControl`, `trimming`, `alignment`, `variantCalling`, `quantification`, `assembly`, `report`, `export`, `fastaInput`, `bamInput`, `sampleSheet`) with no per-tool binding. A user cannot compose "MAFFT → IQ-TREE" because there is no MAFFT node and no IQ-TREE node; there is only an abstract `alignment` slot whose tool is not selectable from the palette.
+- The chapter shows a "Sample input" and "Project output" pair as pinned canvas anchors. The implementation may or may not have these; the chapter writes as if it does.
+- The export chapter promises the generated Nextflow `main.nf` is "DSL2 with one process per Lungfish step plus `nextflow.config` and a `containers/` manifest." The exporter file (`NextflowExporter.swift`) needs validation against this promise.
+- The export chapter promises the Snakemake export uses the modern `workflow/` directory convention. Same validation needed.
+- The chapter mentions "NAO-MGS profiling" and "taxonomic re-rooting" as palette gaps. NAO-MGS is import-only (see docs-038); tree re-rooting is a viewport operation (see docs-017). The chapter prose was corrected as part of this issue's scope.
+- The chapter promises `paths do not flow with the workflow` and `parameters do flow with the workflow`. Not yet verified that this contract is consistently enforced.
+
+**The actual gaps, grouped:**
+
+#### 040.A: Bind palette nodes to specific tools
+
+The palette today shows abstract categories. A user dragging an `alignment` node onto the canvas does not get to choose minimap2 vs BWA-MEM2 vs Bowtie2 from a per-node tool picker (or if they can, the chapter's framing doesn't match). The right model is the same one the Variant Calling dialog uses: one operation slot, one tool sidebar inside the node, parameters per tool.
+
+**Acceptance criteria:**
+
+- [ ] Each abstract category (alignment, variant calling, assembly, classification, trimming, qc) supports per-node tool selection. Dragging an `alignment` node onto the canvas shows minimap2 / BWA-MEM2 / Bowtie2 / BBMap as switchable tools, with per-tool parameter forms.
+- [ ] The palette also exposes concrete tool nodes for unambiguous-tool operations: MAFFT (MSA build), IQ-TREE (tree inference), Deacon (decontamination), RiboDetector (rRNA removal), fastp (qc / trim — the existing combined-pass dialog), bcftools (when docs-010 lands), Freyja (when docs-011 lands).
+- [ ] Result-import operations (NAO-MGS, NVD, CZ-ID) and search-online operations (Pathoplexus) are NOT exposed in the palette. The Workflow Builder produces new data; result-import paths load existing data. This boundary is documented in the chapter.
+- [ ] Reference and read fetching from accessions (`lungfish fetch ncbi`, `lungfish fetch genome`, `lungfish fetch sra download`) appear as palette nodes whose input is a text accession and whose output is a reference or FASTQ bundle.
+
+#### 040.B: Add the missing palette categories
+
+Several legitimate workflow steps have no palette home today.
+
+**Acceptance criteria:**
+
+- [ ] **Sequences** category: NCBI fetch, assembly fetch, FASTA import, GenBank import, MSA build (MAFFT), tree inference (IQ-TREE), tree export (Newick), MSA export.
+- [ ] **Reads** category: SRA fetch, FASTQ import, fastp QC, fastp trim+adapter, length filter, decontamination (Deacon human, Deacon rRNA, RiboDetector), subsampling.
+- [ ] **Alignment** category (already exists; needs the per-tool selection from 040.A): minimap2, BWA-MEM2, Bowtie2, BBMap. Plus: primer trim (BAM-level), markdup, BAM index, coverage stats.
+- [ ] **Variants** category: variant call (with per-tool selection: iVar, LoFreq, Medaka), variant filter, consensus, VCF export.
+- [ ] **Classification** category: Kraken2 (the only one fresh-runnable from a workflow today; EsViritu and TaxTriage may need their own evaluation given their heavier infrastructure).
+- [ ] **Assembly** category (already exists): per-tool selection across SPAdes, MEGAHIT, SKESA, Flye, Hifiasm. Plus: extract contigs, contig stats.
+- [ ] **Reporting** category: methods-section export, Nextflow export, Snakemake export, shell-script export, container-image export (when docs-018 lands).
+
+#### 040.C: Define and enforce port type contracts
+
+The chapter promises typed ports (a `BAM` output port can only connect to a `BAM` input port; the builder draws a thin red flash on a type-mismatched edge). The implementation needs a clear contract for what types exist and which nodes produce/consume each.
+
+**Type catalog the implementation should support:**
+
+- `Accession` (text)
+- `Reference bundle` (`.lungfishref`)
+- `FASTQ bundle` (single or paired)
+- `FASTA bundle` (single or multi-record)
+- `BAM track` (alignment track inside a reference bundle)
+- `Variant track` (`.lungfishvcf` or VCF inside a reference bundle)
+- `Primer scheme bundle` (`.lungfishprimers`)
+- `Assembly bundle` (`.lungfishref` under `Assemblies/`)
+- `Taxonomy bundle` (`.lungfishtax`)
+- `MSA bundle` (`.lungfishmsa`)
+- `Tree bundle` (`.lungfishtree`)
+- `Sample sheet` (CSV)
+- `BED file`
+- `GFF3 file`
+
+**Acceptance criteria:**
+
+- [ ] The type catalog is defined in source as an enum with stable string identifiers
+- [ ] Every palette node declares its input and output port types using the catalog
+- [ ] The canvas refuses type-mismatched connections with a visible feedback animation (the chapter's "thin red flash" promise)
+- [ ] A type-promotion table allows compatible types (e.g., a `Reference bundle` output can connect to an input port that accepts either a `Reference bundle` or an `Assembly bundle`, since both are `.lungfishref` folders)
+
+#### 040.D: Per-node parameter forms must mirror dialog parameters
+
+The chapter says "every parameter that appears in the run dialog appears here too." Today the parameter forms (`Sources/LungfishApp/Views/Workflow/ParameterFormView.swift`) need verification against every wrapped tool's dialog. A per-node parameter form that exposes only half the iVar dialog's parameters would silently drop the other half on workflow save.
+
+**Acceptance criteria:**
+
+- [ ] For every node bound to a tool that has an Inspector or menu-launched dialog, the node's parameter form exposes every parameter the dialog exposes
+- [ ] Defaults match the dialog's defaults
+- [ ] Saving and reloading the workflow round-trips every parameter
+- [ ] An automated test verifies dialog-parameter and workflow-node-parameter parity for at least: minimap2 mapping, ivar primer trim, iVar variant call, LoFreq variant call, Kraken2 classification, SPAdes assembly, MAFFT MSA, IQ-TREE inference
+
+#### 040.E: Path-vs-parameter contract enforcement
+
+The chapter promises that file paths bound at run time, not save time, and that absolute paths outside the project are rejected at save. This contract needs verification and a test.
+
+**Acceptance criteria:**
+
+- [ ] Workflows save with parameter values inline (numeric, string, enum) and path-typed inputs as either project-relative paths or sample-sheet column references
+- [ ] Saving a workflow with an absolute path to a file outside the project fails with a clear error pointing at the offending node
+- [ ] Loading a workflow on a different machine or in a different project rebinds path inputs at run time from the new project's contents and from the supplied sample sheet
+- [ ] An automated test exercises this round-trip across two projects on the same machine
+
+#### 040.F: Exporter completeness and validity
+
+The export chapter promises Nextflow DSL2 output with sensible profiles and Snakemake output with the modern `workflow/` convention. Both exports include a `provenance/` directory and re-run cleanly on a fresh machine. These promises need validation, and gaps need to be filled.
+
+**Acceptance criteria:**
+
+- [ ] Nextflow exporter (`Sources/LungfishWorkflow/Builder/NextflowExporter.swift`) emits valid DSL2 (`nextflow.enable.dsl=2` at top of `main.nf`)
+- [ ] Generated `main.nf` has one process per workflow node, with `input:`, `output:`, `script:` blocks
+- [ ] Generated `nextflow.config` defines at least `standard` (local) and `slurm` (cluster) profiles
+- [ ] Generated workflow passes `nextflow run main.nf -profile standard` against a small fixture without manual editing
+- [ ] (Aspirational, may be a follow-on) Generated workflow passes `nf-core lint`
+- [ ] Snakemake exporter emits a `workflow/Snakefile` with `rule` blocks per node, plus a `workflow/config.yaml`
+- [ ] Generated workflow passes `snakemake --cores 1 --use-conda` against a small fixture without manual editing
+- [ ] Both exporters include the project's provenance sidecars in a `provenance/` directory at the export root, copied verbatim
+- [ ] The `containers/` directory mentioned in the export chapter exists in the Nextflow export when (and only when) docs-018 (OCI image export) is also enabled
+- [ ] Methods Section export emits a Markdown paragraph naming each tool, its version (from provenance), and the resolved parameters; banner per docs-028 included
+- [ ] Shell export emits a single `run.sh` with the operations in order, exit-on-error set, and the same provenance directory
+
+#### 040.G: Runner robustness for failure cases
+
+The chapter implies that when a workflow runs, the user can monitor progress, cancel, and re-run. Inspection of `WorkflowRunner.swift` shows substantial logic; corner cases should be verified.
+
+**Acceptance criteria:**
+
+- [ ] A workflow that fails at step N preserves outputs from steps 1..N-1 and lets the user re-run from step N (Nextflow's `-resume` analog)
+- [ ] Cancelling a workflow mid-run cleanly terminates the underlying tool process and marks the operation as cancelled in provenance
+- [ ] Concurrent workflow runs (the same workflow against two different sample sets) do not stomp on each other's outputs
+- [ ] Workflow run records persist under `<project>/.lungfish/workflow-runs/<run-id>/` with a manifest, the input bindings, the output bundles produced, and the per-step provenance sidecars
+- [ ] The Operations Panel shows a workflow run as a single expandable row whose disclosure shows per-step rows mirroring the run's DAG
+
+#### 040.H: Chapter prose corrections
+
+The Workflow Builder and Export chapters need updates to match the actual implementation as it stands after the gaps above are closed.
+
+**Acceptance criteria:**
+
+- [ ] `08-workflows/01-the-workflow-builder.md` no longer mentions NAO-MGS as a palette gap (DONE in chapter prose; verify it stays out)
+- [ ] The chapter's tool table is updated to match the actual palette nodes that ship
+- [ ] The "common gotchas" section is added (the focus group asked for it; adjacent to the parameter-vs-path contract)
+- [ ] `08-workflows/02-exporting-as-nextflow-or-snakemake.md` is updated against the actual exporter outputs once 040.F lands
+- [ ] A worked example in 08-workflows/01 builds a four-step phylogenetics workflow (NCBI fetch → MAFFT MSA → IQ-TREE → tree export) end to end, matching what the new palette supports
+
+**Out of scope:**
+
+- Adding workflow-builder support for every classification result type (NAO-MGS, NVD, CZ-ID stay import-only, by design)
+- Sample-sheet-driven scatter across many samples (covered by docs-023)
+- Workflow versioning and diff (covered by docs-020)
+- Tower / Seqera Platform integration for the Nextflow export (separate ticket if user demand justifies)
+
+**Dependencies:**
+
+- docs-036 (custom primer scheme builder docs) — primer-scheme palette node depends on the CLI being documented
+- docs-011 (Freyja) — Freyja palette node only after Freyja itself ships
+- docs-018 (OCI container image export) — the `containers/` directory in the Nextflow export depends on it
+- docs-019 (conda lockfile generation) — exporter quality depends on it
+- docs-020 (workflow versioning) — separate but related
+- docs-023 (sample sheet) — separate; the multi-sample scatter pattern is its own work
+- docs-028 (Methods Section draft warning banner) — needs to fire in the methods-section export
+- docs-017 (tree-viewport tools) — orthogonal; the Workflow Builder palette should not duplicate tree-viewport result tools
+
+**Suggested implementation order:**
+
+1. 040.C (port type contract) — foundational; everything else depends on it
+2. 040.A (per-node tool binding) — requires 040.C
+3. 040.B (palette node coverage) — requires 040.A
+4. 040.D (parameter form parity) — requires 040.B
+5. 040.E (path-vs-parameter enforcement) — requires 040.B
+6. 040.F (exporter completeness) — depends on the runner producing canonical operation graphs
+7. 040.G (runner robustness)
+8. 040.H (chapter updates) — last; depends on the rest
+
+**Estimated scope:** Roughly 4-6 weeks for one engineer, depending on how much of the existing 3,800-line workflow codebase already implements pieces of this. Sub-issues 040.A through 040.H can be split for parallel work after 040.C lands.
 
 ---
 
@@ -438,15 +618,25 @@ This issue is closed; left here for traceability.
 
 ### #docs-021: Pass-through arguments for arbitrary tool flags
 
-**Severity:** P2
+**Severity:** P1 (was P2; raised because the manual asserts the flag exists everywhere)
 
 **Where the manual says it:** `appendices/power-user-notes.md` "Pass-through arguments" section: "Most Lungfish dialogs do not expose every flag of the underlying tool. To pass arbitrary flags through, use the CLI: `lungfish variants call --caller ivar --extra-args "--gff annotations.gff3 --pass_only"`. Not every command supports `--extra-args`; check the per-command help."
 
+**The user-facing behavior:** `--extra-args` (or an Advanced Options "extra arguments" text field in dialogs) is the load-bearing mechanism for power-user flexibility when a wrapped tool adds flags faster than Lungfish exposes them. The manual implies that every wrapped tool supports the mechanism with a "check the per-command help" caveat. That's the wrong place to put a coverage test; the coverage should be uniform.
+
 **Acceptance criteria:**
 
-- [ ] `--extra-args` is supported on every command that wraps an external tool (map, primer-trim, variants call, classify, esviritu run, taxtriage run, assemble, blast)
-- [ ] The wrapped command embeds the extra args verbatim and records them in the provenance sidecar
-- [ ] Documentation table lists which commands support `--extra-args` (currently scattered)
+- [ ] **Audit phase.** A short section in this issue's resolution summary lists every wrapped tool currently in Lungfish, marking each as "has extra-args" / "does not yet have extra-args." The audit covers every CLI subcommand under `Sources/LungfishCLI/Commands/` and every dialog under `Sources/LungfishApp/Views/`.
+- [ ] **Implementation phase.** Every wrapped-tool command and every dialog adds the support. Specifically: `lungfish map`, `lungfish bam primer-trim`, `lungfish variants call` (per-caller: iVar, LoFreq, Medaka), `lungfish classify` (Kraken2), `lungfish esviritu run`, `lungfish taxtriage run`, `lungfish assemble` (per-tool: SPAdes, MEGAHIT, SKESA, Flye, Hifiasm), `lungfish blast`, `lungfish msa build`, `lungfish tree infer`, `lungfish fastq` operations.
+- [ ] **Dialog parity.** Every Variant Calling, Mapping, Primer Trim, Classification, Assembly, MSA, and Tree Inference dialog exposes the `Extra arguments` text field in its Advanced Options disclosure. The CLI flag and the dialog field write to the same place in the request structure.
+- [ ] **Provenance.** The wrapped command embeds the extra args verbatim. The provenance sidecar records them in a top-level `extra_args` field (string), not just in the resolved `command` field, so a re-runner can reproduce the run without parsing.
+- [ ] **Documentation.** A canonical "Tool flags Lungfish wraps" table in `appendices/power-user-notes.md` lists every wrapped tool with: the Lungfish-exposed flags, whether the tool's full `--help` is reachable via `--extra-args --help` (yes for every wrapped tool), and how to find the upstream tool's documentation. The table replaces the scattered per-chapter mentions.
+- [ ] **Validation.** When extra-args contains a flag that conflicts with a Lungfish-exposed flag (e.g., user passes `--min-af 0.10` via extra-args while the dialog's MAF field is set to `0.05`), the command fails fast with a clear error rather than silently letting the tool resolve the conflict.
+
+**Out of scope:**
+
+- Auto-suggesting flags from the wrapped tool's help text (a future enhancement)
+- Per-flag validation of extra-args content (the user is responsible for valid arguments)
 
 ---
 
@@ -482,34 +672,62 @@ This issue is closed; left here for traceability.
 
 ---
 
-### #docs-024: Multi-sample VCF rendering
+### #docs-024: Multi-sample VCF rendering and per-sample filtering
 
 **Severity:** P2
 
 **Where the manual says it:** `05-variants/06-importing-existing-vcfs.md` line 46: "Multi-sample VCFs are supported: each sample column becomes a separately filterable source in the variant browser."
 
-**Where focus groups raised it:** Year 3 genetics PhD (Rachel Sturm) flagged that this single-sentence treatment is the entire support for multi-sample VCFs. Joint-genotyped human VCFs have hundreds or thousands of sample columns; the variant browser may not handle them well at scale.
+**Where focus groups raised it:** Year 3 genetics PhD (Rachel Sturm) flagged that this single-sentence treatment is the entire support for multi-sample VCFs. Joint-genotyped human VCFs have hundreds or thousands of sample columns.
+
+**The user-facing behavior:** Lungfish's variant browser does not render directly from VCF; on import the variants are loaded into a per-bundle SQLite variant store (see `Sources/LungfishIO/Bundles/VariantDatabase.swift` and `Sources/LungfishWorkflow/Variants/VariantSQLiteImportCoordinator.swift`). That means scaling to >100-sample VCFs is a database-design and UI question, not a VCF-parsing question. The implementation already has the right substrate; what's missing is the per-sample filtering surface that takes advantage of it.
 
 **Acceptance criteria:**
 
-- [ ] Variant browser handles >100-sample VCFs without UI degradation (lazy column rendering)
-- [ ] Sample-level filtering operates on per-sample GT/AF/DP fields
-- [ ] CLI: `lungfish variants extract-sample <vcf> --sample <name> --output <file>` derives a per-sample VCF
-- [ ] Documentation extends `05-variants/06` and possibly a new chapter on multi-sample VCFs
+- [ ] Variant browser handles >100-sample VCFs without UI degradation. Lazy column rendering is one approach; SQLite-backed paged loading is the implemented substrate, so the UI work is mostly about virtualised table rendering and column-visibility presets.
+- [ ] **Per-sample filter surface.** The smart-filter grammar gains per-sample syntax: `Sample[NA12878].GT=1/1`, `Sample[NA12878].AF>=0.5`, `Sample[NA12878].DP>=30`. Filters compile to SQL against the variant store.
+- [ ] **Sample-set filters.** Composite filters across samples: `count(Sample[*].GT=1/1) >= 5` (variants where at least 5 samples are homozygous-alt), `Sample[NA12878].GT != Sample[NA12879].GT` (variants where two specific samples disagree on genotype). Useful for cohort QC.
+- [ ] **Sample selector in the variant browser**: a left-pane control that lets the user pick a subset of samples to display columns for, with quick presets (all, none, named groups from a sample-sheet metadata column).
+- [ ] **CLI**: `lungfish variants extract-sample <bundle> --sample <name> --output <file>` derives a per-sample VCF from the SQLite store.
+- [ ] **CLI**: `lungfish variants query <bundle> --filter "<smart-filter expr>" --output <file>` runs an arbitrary smart-filter query and emits a derived VCF or TSV.
+- [ ] Documentation extends `05-variants/06-importing-existing-vcfs.md` and `05-variants/02-reading-the-variant-browser.md` with per-sample filter examples
+- [ ] An automated benchmark verifies filter latency stays under 1 second for a 1000-sample, 100,000-row variant store
+
+**Out of scope:**
+
+- Pedigree-aware filters (Mendelian inheritance, de novo flagging) — covered by GATK docs-039 if pedigree handling lands there
+- Cohort-level statistics views (PCA, sample-distance heatmap) — separate ticket if user demand justifies
+
+**Implementation notes:**
+
+- The variant store already lives in SQLite per `VariantDatabase.swift`; this issue extends the schema and the query surface, not the storage layer
+- The smart-filter grammar in the variant browser today (`Filter=PASS`, `AF>=0.05`) compiles to SQL; per-sample syntax extends the same compiler
+- For >1000-sample VCFs, consider whether a separate `samples` table with a foreign-key relation to the variants table is worth the schema migration (probably yes, but worth confirming during implementation)
 
 ---
 
-### #docs-025: VCFv3 import support or explicit rejection
+### #docs-025: Reject VCFv3 with a clear error and pointer to an external converter
 
 **Severity:** P3
 
+**Decision:** Lungfish supports VCF 4.x only. Backwards compatibility with VCFv3 is explicitly out of scope; the energy is better spent on contemporary VCF features (structural variants, complex alleles, the v4.4 spec).
+
 **Where the manual says it:** `05-variants/06-importing-existing-vcfs.md`: "Older VCFv3 files are not accepted directly (see Troubleshooting)."
+
+**The user-facing behavior:** Lungfish today silently rejects VCFv3 input with a generic parse error. A user staring at the error has no way to know whether the file is corrupt, the wrong format, or just an old VCF version.
 
 **Acceptance criteria:**
 
-- [ ] Either: `lungfish import vcf` upconverts VCFv3 to VCFv4.x using a known-good translator
-- [ ] Or: the import dialog rejects VCFv3 with a clear error and a link to a converter
-- [ ] Documentation chapter clarifies which path Lungfish takes
+- [ ] `lungfish import vcf <file>` and the Import Center variants tab detect VCFv3 by reading the `##fileformat=VCFv3.x` header line and reject the file with a clear error: `"VCFv3 is not supported. Convert to VCF 4.x with bcftools convert or vcf-convert (vcftools) before importing."`
+- [ ] The error message includes a link to the bcftools / vcftools documentation
+- [ ] No internal upconversion is attempted; that's a job for a dedicated tool maintained by the spec community
+- [ ] Documentation in `05-variants/06-importing-existing-vcfs.md` states the v4.x-only policy explicitly and links to the same external converters
+- [ ] The variant-formats appendix (`appendices/file-formats.md`) is updated to clarify that Lungfish supports VCF 4.0, 4.1, 4.2, 4.3, and 4.4 only
+
+**Out of scope:**
+
+- Internal VCFv3 upconversion. Use the external converter the error message points at.
+- Validating VCF content against the spec at import time. A separate ticket if user demand justifies.
 
 ---
 
@@ -712,7 +930,8 @@ The chapter referenced (`06-bundles/03-primer-scheme-bundles.md`) does not exist
 | docs-038 | P1 | Classification | First-class CZ-ID results import |
 | docs-007 | P2 | Variants | Phased variant calling |
 | docs-008 | P2 | Variants | Clair3 ONT caller |
-| docs-009 | P3 | Variants | GATK HaplotypeCaller (scope expansion) |
+| docs-009 | — | Variants | (lifted to docs-039) GATK first-class integration |
+| docs-039 | P1 | Variants (new domain) | GATK first-class integration — research-tier human germline (standalone issue file) |
 | docs-010 | P2 | Variants | Bcftools as orthogonal caller |
 | docs-011 | P1 | Classification | Freyja for wastewater |
 | docs-012 | P2 | Classification | Database update tracking |
@@ -720,7 +939,8 @@ The chapter referenced (`06-bundles/03-primer-scheme-bundles.md`) does not exist
 | docs-014 | P1 | Mapping | Read-group (RG) configuration |
 | docs-015 | — | Mapping | (closed) BAM CIGAR display fidelity |
 | docs-016 | P1 | Mapping | viralrecon wizard documentation |
-| docs-017 | P1 | Workflows | NAO-MGS / Phylogeny palette nodes |
+| docs-017 | P1 | Sequences (tree viewport) | Tree-viewport result tools (re-root, relabel, collapse, extract subtree) |
+| docs-040 | P1 | Workflows | Workflow Builder feature-completeness (8 sub-issues: types, palette, parameters, exports, runner) |
 | docs-018 | P1 | Workflows | OCI container image export |
 | docs-019 | P1 | Workflows | Conda lockfile generation |
 | docs-020 | P2 | Workflows | Workflow versioning + diff |
@@ -744,10 +964,10 @@ The chapter referenced (`06-bundles/03-primer-scheme-bundles.md`) does not exist
 
 **Counts by severity:**
 - P0 (blocks docs coherence): 1
-- P1 (active doc impact): 13
+- P1 (active doc impact): 15 (includes docs-039 GATK as a standalone issue file; docs-017 split into tree-viewport and palette gaps)
 - P2 (future doc impact): 18
-- P3 (polish): 5
-- Closed: 1
+- P3 (polish): 4
+- Closed / lifted: 2 (docs-015 closed; docs-009 lifted to docs-039)
 
 **Recommended next sprint:** Pick all P0 + 4-5 P1 issues that cluster (e.g., the workflow-export trio: #docs-018, #docs-019, #docs-020). Defer P2 and P3 to subsequent sprints.
 
