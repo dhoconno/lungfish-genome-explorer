@@ -880,13 +880,15 @@ final class BundlePipelineTests: XCTestCase {
     func testNCBIFormatProperties() {
         XCTAssertEqual(NCBIFormat.fasta.fileExtension, "fasta")
         XCTAssertEqual(NCBIFormat.genbank.fileExtension, "gb")
+        XCTAssertEqual(NCBIFormat.gff3.fileExtension, "gff3")
         XCTAssertEqual(NCBIFormat.xml.fileExtension, "xml")
 
-        // Download formats should include genbank and fasta
+        // Download formats should include GenBank, FASTA, and GFF3
         let downloadFormats = NCBIFormat.downloadFormats
         XCTAssertTrue(downloadFormats.contains(.genbank))
         XCTAssertTrue(downloadFormats.contains(.fasta))
-        XCTAssertEqual(downloadFormats.count, 2)
+        XCTAssertTrue(downloadFormats.contains(.gff3))
+        XCTAssertEqual(downloadFormats.count, 3)
     }
 
     /// Verifies NCBISearchType enum values and properties.

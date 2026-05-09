@@ -22,8 +22,23 @@ public enum AnnotationDatabaseGFFExporter {
         var buffer = "##gff-version 3\n"
         for record in database.query(limit: Int.max) {
             let attributes = record.attributes ?? "ID=\(record.name)"
-            buffer += "\(record.chromosome)\t.\t\(record.type)\t\(record.start)\t\(record.end)\t.\t\(record.strand)\t.\t\(attributes)\n"
+            let gffStart = record.start + 1
+            let phase = gffPhase(for: record)
+            buffer += "\(record.chromosome)\t.\t\(record.type)\t\(gffStart)\t\(record.end)\t.\t\(record.strand)\t\(phase)\t\(attributes)\n"
         }
         try buffer.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private static func gffPhase(for record: AnnotationDatabaseRecord) -> String {
+        guard record.type == "CDS" else {
+            return "."
+        }
+        if let attributes = record.attributes {
+            let parsed = AnnotationDatabase.parseAttributes(attributes)
+            if let phase = parsed["lungfish_gff_phase"], ["0", "1", "2"].contains(phase) {
+                return phase
+            }
+        }
+        return "0"
     }
 }

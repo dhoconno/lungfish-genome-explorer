@@ -66,6 +66,22 @@ final class DatabaseSearchDialogSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("Genome"))
         XCTAssertTrue(source.contains("Virus"))
         XCTAssertTrue(source.contains("RefSeq Only"))
+        XCTAssertTrue(source.contains("Include GFF3 Annotations"))
+        XCTAssertTrue(source.contains("database-search-include-gff3-annotations"))
+    }
+
+    func testGenBankDownloadsPassGFF3AnnotationPreference() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("let includeGFF3Annotations = includeGFF3Annotations"))
+        XCTAssertGreaterThanOrEqual(
+            source.components(separatedBy: "includeGFF3Annotations: includeGFF3Annotations").count - 1,
+            2
+        )
     }
 
     func testSRARunsPaneImportsAccessionListsExplicitly() throws {

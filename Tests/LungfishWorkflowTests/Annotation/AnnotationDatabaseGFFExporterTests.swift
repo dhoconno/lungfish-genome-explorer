@@ -26,7 +26,7 @@ struct AnnotationDatabaseGFFExporterTests {
             name: "S",
             type: "CDS",
             chromosome: "MN908947.3",
-            start: 21563,
+            start: 21562,
             end: 25384,
             strand: "+",
             attributes: nil,
@@ -37,7 +37,34 @@ struct AnnotationDatabaseGFFExporterTests {
         try AnnotationDatabaseGFFExporter.export(database: db, to: outURL)
         let contents = try String(contentsOf: outURL, encoding: .utf8)
         #expect(contents.contains("##gff-version 3"))
-        #expect(contents.contains("MN908947.3\t.\tCDS\t21563\t25384\t.\t+\t.\t"))
+        #expect(contents.contains("MN908947.3\t.\tCDS\t21563\t25384\t.\t+\t0\t"))
+    }
+
+    @Test("exports GFF3-imported CDS coordinates as one-based and preserves CDS phase")
+    func exportsGFF3ImportedCDSCoordinatesAndPhase() async throws {
+        let gffURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).gff3")
+        defer { try? FileManager.default.removeItem(at: gffURL) }
+        try """
+        ##gff-version 3
+        MN908947.3\tGenbank\tgene\t28274\t29533\t.\t+\t.\tID=gene-N;Name=N;gene=N
+        MN908947.3\tGenbank\tCDS\t28274\t29533\t.\t+\t0\tID=cds-N;Parent=gene-N;Name=N;gene=N
+        """.write(to: gffURL, atomically: true, encoding: .utf8)
+
+        let dbURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).db")
+        defer { try? FileManager.default.removeItem(at: dbURL) }
+        _ = try await AnnotationDatabase.createFromGFF3(
+            gffURL: gffURL,
+            outputURL: dbURL,
+            chromosomeSizes: [("MN908947.3", 29_903)]
+        )
+        let db = try AnnotationDatabase(url: dbURL)
+
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).gff3")
+        defer { try? FileManager.default.removeItem(at: outURL) }
+        try AnnotationDatabaseGFFExporter.export(database: db, to: outURL)
+
+        let contents = try String(contentsOf: outURL, encoding: .utf8)
+        #expect(contents.contains("MN908947.3\t.\tCDS\t28274\t29533\t.\t+\t0\t"))
     }
 
     @Test("writes empty GFF when database has no records")

@@ -132,6 +132,39 @@ struct IVarTSVToVCFConverterTests {
         #expect(actual.contains("\tsb\t"))
     }
 
+    @Test("writes codon-merged adjacent SNPs as a multi-base VCF row")
+    func codonMergedRowsUseMultiBaseAllelesAndMergedMetrics() throws {
+        let tsvURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).tsv")
+        let header = "REGION\tPOS\tREF\tALT\tREF_DP\tREF_RV\tREF_QUAL\tALT_DP\tALT_RV\tALT_QUAL\tALT_FREQ\tTOTAL_DP\tPVAL\tPASS\tGFF_FEATURE\tREF_CODON\tREF_AA\tALT_CODON\tALT_AA\tPOS_AA"
+        let rows = [
+            "chr1\t100\tG\tA\t5\t0\t38\t95\t0\t38\t0.95\t100\t0\tTRUE\tgene:cds1\tGGT\tG\tAGT\tS\t1",
+            "chr1\t101\tG\tT\t6\t0\t38\t94\t0\t38\t0.94\t100\t0\tTRUE\tgene:cds1\tGGT\tG\tGTT\tV\t1",
+        ]
+        try ([header] + rows).joined(separator: "\n").appending("\n")
+            .write(to: tsvURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tsvURL) }
+
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).vcf")
+        defer { try? FileManager.default.removeItem(at: outURL) }
+        try IVarTSVToVCFConverter().convert(
+            tsvURL: tsvURL,
+            primaryVCFURL: outURL,
+            allHaplotypesVCFURL: nil,
+            options: .init(
+                consensusAF: 0.75, mergeAFThreshold: 0.25, badQualityThreshold: 20,
+                ignoreStrandBias: true,
+                sourceLine: "iVar 1.4.4 (TSV-to-VCF: Lungfish)",
+                contigs: [.init(name: "chr1", length: 1000)]
+            )
+        )
+
+        let actual = try String(contentsOf: outURL, encoding: .utf8)
+        #expect(actual.contains("chr1\t100\t.\tGG\tAT\t.\tPASS\tTYPE=SNP"))
+        #expect(actual.contains("GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ:MERGED_AF:MERGED_DP"))
+        #expect(actual.contains("1:100:5:0:38:95:0:38:0.94:0.95,0.94:95,94"))
+        #expect(!actual.contains("\t101\t.\tG\tT\t"))
+    }
+
     @Test("emits LungfishNote when no GFF info present")
     func emitsLungfishNoteOnEmptyGFF() throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).vcf")

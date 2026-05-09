@@ -48,6 +48,7 @@ final class DatabaseBrowserViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.minLength, "")
         XCTAssertEqual(viewModel.maxLength, "")
         XCTAssertFalse(viewModel.refseqOnly)
+        XCTAssertTrue(viewModel.includeGFF3Annotations)
         XCTAssertEqual(viewModel.moleculeType, .any)
         XCTAssertEqual(viewModel.pubDateFrom, "")
         XCTAssertEqual(viewModel.pubDateTo, "")

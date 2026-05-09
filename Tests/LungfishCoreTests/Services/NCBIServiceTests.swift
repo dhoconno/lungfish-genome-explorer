@@ -101,6 +101,19 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("id=id1,id2,id3") || url.contains("id=id1%2Cid2%2Cid3"))
     }
 
+    func testEFetchGFF3BuildsGFF3URL() async throws {
+        await mockClient.register(pattern: "efetch.fcgi", response: .text("##gff-version 3\n"))
+
+        _ = try await service.efetch(database: .nucleotide, ids: ["MN908947.3"], format: .gff3)
+
+        let requests = await mockClient.requests
+        let url = requests[0].url!.absoluteString
+        XCTAssertTrue(url.contains("db=nucleotide"))
+        XCTAssertTrue(url.contains("id=MN908947.3"))
+        XCTAssertTrue(url.contains("rettype=gff3"))
+        XCTAssertTrue(url.contains("retmode=text"))
+    }
+
     // MARK: - ESummary Tests
 
     func testESummaryParsesDocuments() async throws {
@@ -251,6 +264,7 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(NCBIFormat.fasta.rettype, "fasta")
         XCTAssertEqual(NCBIFormat.genbank.rettype, "gb")
         XCTAssertEqual(NCBIFormat.genbankWithParts.rettype, "gb")
+        XCTAssertEqual(NCBIFormat.gff3.rettype, "gff3")
         XCTAssertEqual(NCBIFormat.xml.rettype, "native")
     }
 
@@ -355,15 +369,17 @@ final class NCBIServiceTests: XCTestCase {
 
     func testNCBIFormatDownloadFormats() {
         let formats = NCBIFormat.downloadFormats
-        XCTAssertEqual(formats.count, 2)
+        XCTAssertEqual(formats.count, 3)
         XCTAssertTrue(formats.contains(.genbank))
         XCTAssertTrue(formats.contains(.fasta))
+        XCTAssertTrue(formats.contains(.gff3))
     }
 
     func testNCBIFormatFileExtensions() {
         XCTAssertEqual(NCBIFormat.fasta.fileExtension, "fasta")
         XCTAssertEqual(NCBIFormat.genbank.fileExtension, "gb")
         XCTAssertEqual(NCBIFormat.genbankWithParts.fileExtension, "gb")
+        XCTAssertEqual(NCBIFormat.gff3.fileExtension, "gff3")
         XCTAssertEqual(NCBIFormat.xml.fileExtension, "xml")
     }
 

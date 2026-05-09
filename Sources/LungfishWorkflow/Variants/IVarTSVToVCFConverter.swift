@@ -138,13 +138,23 @@ public struct IVarTSVToVCFConverter: Sendable {
         buffer += "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t\(sampleName)\n"
         for variant in variants {
             let row = variant.rows[0]
-            let (refOut, altOut, typeTag) = encodeAlleles(row: row)
-            let filterText = filterColumn(row: row, options: options)
-            let format = "GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ"
-            let sample = "1:\(row.totalDP):\(row.refDP):\(row.refRV):\(row.refQual):\(row.altDP):\(row.altRV):\(row.altQual):\(formatAF(row.altFreq))"
+            let (refOut, altOut, typeTag) = encodeAlleles(variant: variant)
+            let filterText = filterColumn(variant: variant, options: options)
+            let (format, sample) = sampleFields(variant: variant)
             buffer += "\(row.region)\t\(row.pos)\t.\t\(refOut)\t\(altOut)\t.\t\(filterText)\tTYPE=\(typeTag)\t\(format)\t\(sample)\n"
         }
         try buffer.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func encodeAlleles(variant: IVarCodonMerger.MergedVariant) -> (ref: String, alt: String, type: String) {
+        if variant.kind == .merged, variant.rows.count > 1 {
+            return (
+                variant.rows.map(\.ref).joined(),
+                variant.rows.map(\.alt).joined(),
+                "SNP"
+            )
+        }
+        return encodeAlleles(row: variant.rows[0])
     }
 
     private func encodeAlleles(row: IVarTSVRow) -> (ref: String, alt: String, type: String) {
@@ -156,6 +166,40 @@ public struct IVarTSVToVCFConverter: Sendable {
         case .deletion(let deleted):
             return (row.ref + deleted, row.ref, "DEL")
         }
+    }
+
+    private func filterColumn(variant: IVarCodonMerger.MergedVariant, options: Options) -> String {
+        if variant.kind != .merged {
+            return filterColumn(row: variant.rows[0], options: options)
+        }
+
+        var codes: [String] = []
+        for row in variant.rows {
+            let rowFilter = filterColumn(row: row, options: options)
+            guard rowFilter != "PASS" else { continue }
+            for code in rowFilter.split(separator: ";").map(String.init) where !codes.contains(code) {
+                codes.append(code)
+            }
+        }
+        return codes.isEmpty ? "PASS" : codes.joined(separator: ";")
+    }
+
+    private func sampleFields(variant: IVarCodonMerger.MergedVariant) -> (format: String, sample: String) {
+        let row = variant.rows[0]
+        var format = "GT:DP:REF_DP:REF_RV:REF_QUAL:ALT_DP:ALT_RV:ALT_QUAL:ALT_FREQ"
+        var altFreq = formatAF(row.altFreq)
+        var suffix = ""
+
+        if variant.kind == .merged, variant.rows.count > 1 {
+            let mergedAF = variant.rows.map { formatAF($0.altFreq) }.joined(separator: ",")
+            let mergedDP = variant.rows.map { String($0.altDP) }.joined(separator: ",")
+            altFreq = formatAF(variant.rows.map(\.altFreq).min() ?? row.altFreq)
+            format += ":MERGED_AF:MERGED_DP"
+            suffix = ":\(mergedAF):\(mergedDP)"
+        }
+
+        let sample = "1:\(row.totalDP):\(row.refDP):\(row.refRV):\(row.refQual):\(row.altDP):\(row.altRV):\(row.altQual):\(altFreq)\(suffix)"
+        return (format, sample)
     }
 
     private func filterColumn(row: IVarTSVRow, options: Options) -> String {

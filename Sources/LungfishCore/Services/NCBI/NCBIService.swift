@@ -1518,6 +1518,7 @@ public enum NCBIFormat: String, Sendable, CaseIterable, Identifiable {
     case fasta = "FASTA"
     case genbank = "GenBank"
     case genbankWithParts = "GenBank (with parts)"
+    case gff3 = "GFF3"
     case xml = "XML"
 
     public var id: String { rawValue }
@@ -1530,6 +1531,7 @@ public enum NCBIFormat: String, Sendable, CaseIterable, Identifiable {
         switch self {
         case .fasta: return "fasta"
         case .genbank, .genbankWithParts: return "gb"
+        case .gff3: return "gff3"
         case .xml: return "xml"
         }
     }
@@ -1538,6 +1540,7 @@ public enum NCBIFormat: String, Sendable, CaseIterable, Identifiable {
         switch self {
         case .fasta: return "fasta"
         case .genbank, .genbankWithParts: return "gb"
+        case .gff3: return "gff3"
         case .xml: return "native"
         }
     }
@@ -1551,7 +1554,7 @@ public enum NCBIFormat: String, Sendable, CaseIterable, Identifiable {
 
     /// Formats available for user selection in UI
     public static var downloadFormats: [NCBIFormat] {
-        [.genbank, .fasta]
+        [.genbank, .fasta, .gff3]
     }
 }
 

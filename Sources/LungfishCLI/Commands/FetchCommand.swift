@@ -37,6 +37,7 @@ struct NCBISubcommand: AsyncParsableCommand {
             Examples:
               lungfish fetch ncbi NC_002549 --save-to ebola.gb
               lungfish fetch ncbi NC_002549 --fetch-format fasta --save-to ebola.fa
+              lungfish fetch ncbi MN908947.3 --fetch-format gff3 --save-to MN908947.3.gff3
               lungfish fetch ncbi MN908947 NM_000546 --save-to sequences.gb
             """
     )
@@ -52,7 +53,7 @@ struct NCBISubcommand: AsyncParsableCommand {
 
     @Option(
         name: .customLong("fetch-format"),
-        help: "Fetch format: genbank, fasta (default: genbank)"
+        help: "Fetch format: genbank, fasta, gff3, xml (default: genbank)"
     )
     var fetchFormat: String = "genbank"
 
@@ -86,20 +87,9 @@ struct NCBISubcommand: AsyncParsableCommand {
             throw CLIError.unsupportedFormat(format: "Unknown database: \(database). Use: nucleotide, protein, genome")
         }
 
-        // Map format string to NCBIFormat
-        let ncbiFormat: NCBIFormat
-        switch fetchFormat.lowercased() {
-        case "genbank", "gb":
-            ncbiFormat = .genbank
-        case "fasta", "fa":
-            ncbiFormat = .fasta
-        case "xml":
-            ncbiFormat = .xml
-        default:
-            throw CLIError.unsupportedFormat(format: fetchFormat)
-        }
+        let ncbiFormat = try Self.ncbiFormat(for: fetchFormat)
 
-        var allContent = ""
+        var fetchedRecords: [(accession: String, content: String)] = []
 
         for (index, accession) in accessions.enumerated() {
             if !globalOptions.quiet && accessions.count > 1 {
@@ -115,13 +105,19 @@ struct NCBISubcommand: AsyncParsableCommand {
                 guard let content = String(data: data, encoding: .utf8) else {
                     throw CLIError.networkError(reason: "Invalid encoding in response for \(accession)")
                 }
-                allContent += content
+                if ncbiFormat == .gff3 && Self.gff3FeatureCount(in: content) == 0 && !globalOptions.quiet {
+                    Self.writeLineToStandardError(
+                        formatter.warning("NCBI returned no GFF3 feature rows for \(accession); the file contains only comments/directives.")
+                    )
+                }
+                fetchedRecords.append((accession: accession, content: content))
             } catch let error as CLIError {
                 throw error
             } catch {
                 throw CLIError.networkError(reason: "Failed to fetch \(accession): \(error.localizedDescription)")
             }
         }
+        let allContent = Self.combinedContent(for: fetchedRecords, format: ncbiFormat)
 
         // Write output
         if let outputPath = saveTo {
@@ -284,6 +280,7 @@ struct NCBISubcommand: AsyncParsableCommand {
                 "accessions": .array(accessions.map { .string($0) }),
                 "database": .string(database),
                 "fetchFormat": .string(fetchFormat),
+                "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
                 "saveTo": .string(outputURL.standardizedFileURL.path),
                 "apiKeyProvided": .boolean(apiKey != nil),
                 "outputFormat": .string(globalOptions.outputFormat.rawValue),
@@ -316,12 +313,29 @@ struct NCBISubcommand: AsyncParsableCommand {
     }
 
     private func ncbiInputRecords() -> [FileRecord] {
-        accessions.map { accession in
+        let rettype = Self.ncbiRettype(for: fetchFormat)
+        return accessions.map { accession in
             FileRecord(
-                path: "ncbi://\(database)/\(accession)?rettype=\(fetchFormat)",
+                path: "ncbi://\(database)/\(accession)?rettype=\(rettype)",
                 format: fileFormat(forFetchFormat: fetchFormat),
                 role: .input
             )
+        }
+    }
+
+    static func ncbiRettype(for fetchFormat: String) -> String {
+        guard let format = try? ncbiFormat(for: fetchFormat) else {
+            return fetchFormat
+        }
+        switch format {
+        case .fasta:
+            return "fasta"
+        case .genbank, .genbankWithParts:
+            return "gb"
+        case .gff3:
+            return "gff3"
+        case .xml:
+            return "native"
         }
     }
 
@@ -331,9 +345,78 @@ struct NCBISubcommand: AsyncParsableCommand {
             return .fasta
         case "genbank", "gb":
             return .genBank
+        case "gff", "gff3":
+            return .gff3
         default:
             return .unknown
         }
+    }
+
+    static func ncbiFormat(for fetchFormat: String) throws -> NCBIFormat {
+        switch fetchFormat.lowercased() {
+        case "genbank", "gb":
+            return .genbank
+        case "fasta", "fa":
+            return .fasta
+        case "gff", "gff3":
+            return .gff3
+        case "xml":
+            return .xml
+        default:
+            throw CLIError.unsupportedFormat(format: fetchFormat)
+        }
+    }
+
+    static func resolvedFetchFormatName(for fetchFormat: String) -> String {
+        guard let format = try? ncbiFormat(for: fetchFormat) else {
+            return fetchFormat
+        }
+        switch format {
+        case .fasta:
+            return "fasta"
+        case .genbank, .genbankWithParts:
+            return "genbank"
+        case .gff3:
+            return "gff3"
+        case .xml:
+            return "xml"
+        }
+    }
+
+    static func gff3FeatureCount(in content: String) -> Int {
+        content
+            .components(separatedBy: .newlines)
+            .filter { line in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+            }
+            .count
+    }
+
+    static func combinedContent(
+        for records: [(accession: String, content: String)],
+        format: NCBIFormat
+    ) -> String {
+        guard format == .gff3, records.count > 1 else {
+            return records.map { $0.content }.joined()
+        }
+        return records
+            .map { record in
+                var section = "# lungfish fetch ncbi accession: \(record.accession)\n"
+                section += record.content
+                if !section.hasSuffix("\n") {
+                    section += "\n"
+                }
+                return section
+            }
+            .joined(separator: "###\n")
+    }
+
+    private static func writeLineToStandardError(_ line: String) {
+        guard let data = "\(line)\n".data(using: .utf8) else {
+            return
+        }
+        FileHandle.standardError.write(data)
     }
 }
 

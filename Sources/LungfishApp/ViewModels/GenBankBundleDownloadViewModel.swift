@@ -37,6 +37,7 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
     public func downloadAndBuild(
         accession: String,
         outputDirectory: URL,
+        includeGFF3Annotations: Bool = true,
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
@@ -104,7 +105,23 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         let chromosomeSizes = chromosomes.map { ($0.name, $0.length) }
 
         var annotationTracks: [AnnotationTrackInfo] = []
-        if !record.annotations.isEmpty {
+        if includeGFF3Annotations {
+            progressHandler?(0.52, "Fetching GFF3 annotations...")
+            do {
+                if let gff3Track = try await buildGFF3AnnotationTrack(
+                    accession: resolvedAccession,
+                    tempDir: tempDir,
+                    annotationsDir: annotationsDir,
+                    chromosomeSizes: chromosomeSizes
+                ) {
+                    annotationTracks.append(gff3Track)
+                }
+            } catch {
+                genBankDownloadLogger.warning("downloadAndBuild: GFF3 annotation fetch failed; fallback to GenBank FEATURES. Error: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+
+        if annotationTracks.isEmpty && !record.annotations.isEmpty {
             progressHandler?(0.55, "Converting annotations...")
 
             do {
@@ -198,6 +215,63 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         genBankDownloadLogger.info("downloadAndBuild: Bundle complete at \(bundleURL.path, privacy: .public)")
         return bundleURL
+    }
+
+    private func buildGFF3AnnotationTrack(
+        accession: String,
+        tempDir: URL,
+        annotationsDir: URL,
+        chromosomeSizes: [(String, Int64)]
+    ) async throws -> AnnotationTrackInfo? {
+        genBankDownloadLogger.info("downloadAndBuild: Fetching GFF3 annotations for \(accession, privacy: .public)")
+        let gff3Data = try await ncbiService.efetch(
+            database: .nucleotide,
+            ids: [accession],
+            format: .gff3
+        )
+        guard let gff3Content = String(data: gff3Data, encoding: .utf8) else {
+            throw DatabaseServiceError.parseError(message: "Invalid GFF3 data encoding for \(accession)")
+        }
+
+        let featureCount = gff3FeatureRowCount(in: gff3Content)
+        guard featureCount > 0 else {
+            genBankDownloadLogger.warning("downloadAndBuild: NCBI returned no GFF3 feature rows for \(accession, privacy: .public)")
+            return nil
+        }
+
+        let gff3URL = tempDir.appendingPathComponent("\(accession).gff3")
+        try gff3Content.write(to: gff3URL, atomically: true, encoding: .utf8)
+
+        let dbURL = annotationsDir.appendingPathComponent("ncbi_gff3_annotations.db")
+        let dbRecordCount = try await AnnotationDatabase.createFromGFF3(
+            gffURL: gff3URL,
+            outputURL: dbURL,
+            chromosomeSizes: chromosomeSizes
+        )
+        guard dbRecordCount > 0 else {
+            genBankDownloadLogger.warning("downloadAndBuild: GFF3 conversion produced no annotation records for \(accession, privacy: .public)")
+            return nil
+        }
+
+        genBankDownloadLogger.info("downloadAndBuild: Created GFF3 annotation database with \(dbRecordCount) records")
+        return AnnotationTrackInfo(
+            id: "ncbi_gff3_annotations",
+            name: "NCBI GFF3 Annotations",
+            description: "GFF3 annotations from NCBI EFetch",
+            path: "annotations/ncbi_gff3_annotations.db",
+            databasePath: "annotations/ncbi_gff3_annotations.db",
+            annotationType: .gene,
+            featureCount: dbRecordCount,
+            source: "NCBI",
+            version: nil
+        )
+    }
+
+    private func gff3FeatureRowCount(in content: String) -> Int {
+        content.split(whereSeparator: \.isNewline).filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty && !trimmed.hasPrefix("#") && trimmed.split(separator: "\t", omittingEmptySubsequences: false).count >= 9
+        }.count
     }
 
     /// Builds a `.lungfishref` bundle directly from a provided nucleotide sequence.

@@ -1205,7 +1205,10 @@ public final class AnnotationDatabase: @unchecked Sendable {
             default: strand = "."
             }
 
-            let attrs = parseGFF3Attributes(fields[8])
+            var attrs = parseGFF3Attributes(fields[8])
+            if fields[2] == "CDS", ["0", "1", "2"].contains(fields[7]) {
+                attrs["lungfish_gff_phase"] = fields[7]
+            }
             let name = displayName(from: attrs, fallback: fields[2])
 
             let feature = ParsedFeature(

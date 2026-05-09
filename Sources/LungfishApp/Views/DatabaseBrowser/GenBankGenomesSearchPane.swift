@@ -23,6 +23,12 @@ struct GenBankGenomesSearchPane: View {
                     Toggle("RefSeq Only", isOn: $viewModel.refseqOnly)
                         .toggleStyle(.checkbox)
                 }
+
+                if viewModel.ncbiSearchType == .virus || viewModel.ncbiSearchType == .nucleotide {
+                    Toggle("Include GFF3 Annotations", isOn: $viewModel.includeGFF3Annotations)
+                        .toggleStyle(.checkbox)
+                        .accessibilityIdentifier("database-search-include-gff3-annotations")
+                }
             }
         }
     }

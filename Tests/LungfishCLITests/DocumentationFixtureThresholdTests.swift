@@ -42,6 +42,11 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
             return "\(columns[1]) ALT_FREQ=\(values[index])"
         }
         XCTAssertTrue(lowAFRows.isEmpty, "Rows below GUI default minimum AF remain: \(lowAFRows)")
+        XCTAssertFalse(vcf.contains("GFF unavailable"))
+        XCTAssertTrue(vcf.contains("\t28881\t.\tGG\tAA\t"))
+        XCTAssertTrue(vcf.contains("ALT_FREQ:MERGED_AF:MERGED_DP"))
+        XCTAssertFalse(vcf.contains("\t28882\t.\tG\tA\t"))
+        XCTAssertTrue(vcf.contains("\t28883\t.\tG\tC\t"))
 
         let chapter = try String(
             contentsOf: repositoryRoot
@@ -53,5 +58,7 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         XCTAssertFalse(chapter.contains("position 23700"))
         XCTAssertFalse(chapter.contains("position 26060"))
         XCTAssertFalse(chapter.contains("FILTER `sb`"))
+        XCTAssertTrue(chapter.contains("Include GFF3 Annotations"))
+        XCTAssertTrue(chapter.contains("28881 GG>AA"))
     }
 }

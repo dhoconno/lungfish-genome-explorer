@@ -753,6 +753,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     /// Whether to filter to RefSeq sequences only (for Virus search)
     @Published var refseqOnly: Bool = false
 
+    /// Whether GenBank nucleotide downloads should prefer NCBI GFF3 annotations.
+    @Published var includeGFF3Annotations: Bool = true
+
     /// Molecule type filter (e.g., "genomic DNA", "mRNA")
     @Published var moleculeType: MoleculeTypeFilter = .any
 
@@ -2370,6 +2373,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let ena = enaService
         let currentSource = source
         let searchType = ncbiSearchType
+        let includeGFF3Annotations = includeGFF3Annotations
 
         // Capture the genome download view model for genome assembly downloads
         let genomeVM = genomeDownloadViewModel
@@ -2595,7 +2599,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
                             logger.info("performBatchDownload: Starting GenBank bundle build for \(record.accession, privacy: .public)")
                             let bundleURL = try await genBankVM.downloadAndBuild(
                                 accession: record.accession,
-                                outputDirectory: batchDir
+                                outputDirectory: batchDir,
+                                includeGFF3Annotations: includeGFF3Annotations
                             ) { progress, message in
                                 let overall = (Double(index) + progress) / Double(totalCount)
                                 performOnMainRunLoop {
@@ -2647,7 +2652,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
                                 let bundleURL = try await genBankVM.downloadAndBuild(
                                     accession: insdcAccession,
-                                    outputDirectory: batchDir
+                                    outputDirectory: batchDir,
+                                    includeGFF3Annotations: includeGFF3Annotations
                                 ) { progress, message in
                                     let overall = (Double(index) + progress) / Double(totalCount)
                                     performOnMainRunLoop {
