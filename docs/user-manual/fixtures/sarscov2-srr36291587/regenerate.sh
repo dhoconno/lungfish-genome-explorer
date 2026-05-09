@@ -9,15 +9,19 @@ mkdir -p "$OUT"
 # `.build/{debug,release}/lungfish-cli` binaries.
 LUNGFISH_DIR=$(cd "$(dirname "$LUNGFISH")" && pwd)
 SHIPPED_PRIMER_PATH="$LUNGFISH_DIR/../Resources/LungfishGenomeBrowser_LungfishApp.bundle/Contents/Resources/PrimerSchemes/QIASeqDIRECT-SARS2.lungfishprimers"
+SPM_APP_PRIMER_PATH="$LUNGFISH_DIR/../Resources/LungfishGenomeBrowser_LungfishApp.bundle/PrimerSchemes/QIASeqDIRECT-SARS2.lungfishprimers"
 SPM_PRIMER_PATH="$LUNGFISH_DIR/LungfishGenomeBrowser_LungfishApp.bundle/PrimerSchemes/QIASeqDIRECT-SARS2.lungfishprimers"
 if [ -d "$SHIPPED_PRIMER_PATH" ]; then
     PRIMER_SCHEME="$SHIPPED_PRIMER_PATH"
+elif [ -d "$SPM_APP_PRIMER_PATH" ]; then
+    PRIMER_SCHEME="$SPM_APP_PRIMER_PATH"
 elif [ -d "$SPM_PRIMER_PATH" ]; then
     PRIMER_SCHEME="$SPM_PRIMER_PATH"
 else
     echo "Could not locate QIASeqDIRECT-SARS2.lungfishprimers next to $LUNGFISH" >&2
     echo "Tried:" >&2
     echo "  $SHIPPED_PRIMER_PATH" >&2
+    echo "  $SPM_APP_PRIMER_PATH" >&2
     echo "  $SPM_PRIMER_PATH" >&2
     exit 1
 fi
@@ -35,5 +39,5 @@ TRACK_ID=$(jq -r '.alignments[0].id' "$OUT/MN908947.3.lungfishref/manifest.json"
     --scheme "$PRIMER_SCHEME" \
     --name primer-trimmed
 TRIMMED_ID=$(jq -r '.alignments[] | select(.name == "primer-trimmed") | .id' "$OUT/MN908947.3.lungfishref/manifest.json")
-"$LUNGFISH" variants call --bundle "$OUT/MN908947.3.lungfishref" --alignment-track "$TRIMMED_ID" --caller ivar --name "iVar variants" --ivar-primer-trimmed
+"$LUNGFISH" variants call --bundle "$OUT/MN908947.3.lungfishref" --alignment-track "$TRIMMED_ID" --caller ivar --name "iVar variants" --ivar-primer-trimmed --min-af 0.05
 "$LUNGFISH" variants call --bundle "$OUT/MN908947.3.lungfishref" --alignment-track "$TRACK_ID" --caller lofreq --name "LoFreq variants"
