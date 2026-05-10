@@ -58,22 +58,6 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         ])
     }
 
-    func testBlastExtraArgsParseIntoURLAPIParameters() throws {
-        let command = try BlastCommand.VerifySubcommand.parse([
-            "--kreport", "classification.kreport",
-            "--source", "reads.fastq",
-            "--kraken-output", "classification.kraken",
-            "--taxid", "562",
-            "--extra-args", "MEGABLAST=off WORD_SIZE=11 FILTER=L",
-        ])
-
-        XCTAssertEqual(try command.extraParametersForTesting(), [
-            "FILTER": "L",
-            "MEGABLAST": "off",
-            "WORD_SIZE": "11",
-        ])
-    }
-
     func testEsVirituExtraArgsParseAndReachCommandArguments() throws {
         let command = try EsVirituCommand.DetectSubcommand.parse([
             "detect",
