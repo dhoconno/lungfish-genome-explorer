@@ -7,17 +7,19 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
     func testRunCreatesDurableRunRecordProvenanceAndOperationRows() async throws {
         let fixture = try makeFixture()
         var graph = WorkflowGraph(name: "Reads to Trim")
+        let sampleInput = graph.addNode(type: .fastqInput, position: .zero, label: "Sample input")
         let trimming = graph.addNode(type: .trimming, position: .zero)
+        let projectOutput = graph.addNode(type: .export, position: .zero, label: "Project output")
         _ = try graph.addConnection(
-            sourceNodeId: graph.sampleInput.id,
-            sourcePortId: "sample",
+            sourceNodeId: sampleInput.id,
+            sourcePortId: "reads",
             targetNodeId: trimming.id,
             targetPortId: "reads"
         )
         _ = try graph.addConnection(
             sourceNodeId: trimming.id,
             sourcePortId: "trimmed",
-            targetNodeId: graph.projectOutput.id,
+            targetNodeId: projectOutput.id,
             targetPortId: "input"
         )
         let operationCenter = OperationCenter()
@@ -53,11 +55,13 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
     func testFirstFailingNodeMarksRunFailedAndSkipsDownstreamNodes() async throws {
         let fixture = try makeFixture()
         var graph = WorkflowGraph(name: "Failing Workflow")
+        let sampleInput = graph.addNode(type: .fastqInput, position: .zero, label: "Sample input")
         let trimming = graph.addNode(type: .trimming, position: .zero)
         let qc = graph.addNode(type: .qualityControl, position: .zero)
+        let projectOutput = graph.addNode(type: .export, position: .zero, label: "Project output")
         _ = try graph.addConnection(
-            sourceNodeId: graph.sampleInput.id,
-            sourcePortId: "sample",
+            sourceNodeId: sampleInput.id,
+            sourcePortId: "reads",
             targetNodeId: trimming.id,
             targetPortId: "reads"
         )
@@ -70,7 +74,7 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         _ = try graph.addConnection(
             sourceNodeId: qc.id,
             sourcePortId: "report",
-            targetNodeId: graph.projectOutput.id,
+            targetNodeId: projectOutput.id,
             targetPortId: "input"
         )
         let operationCenter = OperationCenter()
@@ -95,7 +99,7 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         XCTAssertEqual(record.errorMessage, "fastp exited 2")
         XCTAssertEqual(record.nodeRecords.first { $0.nodeID == trimming.id }?.status, .failed)
         XCTAssertEqual(record.nodeRecords.first { $0.nodeID == qc.id }?.status, .skipped)
-        XCTAssertEqual(record.nodeRecords.first { $0.nodeID == graph.projectOutput.id }?.status, .skipped)
+        XCTAssertEqual(record.nodeRecords.first { $0.nodeID == projectOutput.id }?.status, .skipped)
         XCTAssertTrue(operationCenter.items.contains { $0.workflowRunID == runID && $0.title == "Trimming" && $0.state == .failed })
         XCTAssertFalse(operationCenter.items.contains { $0.workflowRunID == runID && $0.title == "Quality Control" })
     }
