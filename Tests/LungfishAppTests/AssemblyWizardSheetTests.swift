@@ -31,6 +31,19 @@ final class AssemblyWizardSheetTests: XCTestCase {
         XCTAssertTrue(source.contains("return compatibilityPresentation.message"))
     }
 
+    func testAssemblySheetUsesExtraArgumentsWording() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(#"DisclosureGroup("Curated extra arguments""#))
+        XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
+        XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
+        XCTAssertFalse(source.contains(#"DisclosureGroup("Curated advanced options""#))
+    }
+
     func testHifiasmProfilesDefaultToDiploidAndExposeHaploidViral() throws {
         let source = try String(
             contentsOf: repositoryRoot()

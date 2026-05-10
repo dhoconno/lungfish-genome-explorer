@@ -512,7 +512,7 @@ struct AssemblyWizardSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Advanced Settings")
 
-            DisclosureGroup("Curated advanced options", isExpanded: $showAdvanced) {
+            DisclosureGroup("Curated extra arguments", isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 12) {
                     switch selectedTool {
                     case .spades:
@@ -540,7 +540,7 @@ struct AssemblyWizardSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Advanced Options")
+                        Text("Extra arguments")
                             .font(.subheadline.weight(.medium))
                         TextField("--meta --tmp-dir '/Volumes/Fast Scratch'", text: $advancedOptionsText)
                             .textFieldStyle(.roundedBorder)

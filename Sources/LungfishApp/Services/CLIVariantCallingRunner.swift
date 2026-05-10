@@ -93,7 +93,7 @@ actor CLIVariantCallingRunner {
         }
 
         if !request.advancedArguments.isEmpty {
-            arguments += ["--advanced-options", AdvancedCommandLineOptions.join(request.advancedArguments)]
+            arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.advancedArguments)]
         }
 
         return arguments

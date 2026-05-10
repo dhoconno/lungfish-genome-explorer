@@ -920,7 +920,7 @@ extension VariantsCommand {
                 command.append("--ivar-no-ignore-strand-bias")
             }
             if !advancedOptions.isEmpty {
-                command.append(contentsOf: ["--advanced-options", advancedOptions])
+                command.append(contentsOf: ["--extra-args", advancedOptions])
             }
             if globalOptions.quiet {
                 command.append("--quiet")
@@ -944,6 +944,7 @@ extension VariantsCommand {
                 "ivarPrimerTrimConfirmed": String(ivarPrimerTrimConfirmed),
                 "medakaModel": medakaModel ?? "",
                 "advancedArguments": advancedArguments.joined(separator: " "),
+                "extraArgs": AdvancedCommandLineOptions.join(advancedArguments),
                 "ivarConsensusAF": String(ivarConsensusAF),
                 "ivarMergeAFThreshold": String(ivarMergeAFThreshold),
                 "ivarBadQualityThreshold": String(ivarBadQualityThreshold),

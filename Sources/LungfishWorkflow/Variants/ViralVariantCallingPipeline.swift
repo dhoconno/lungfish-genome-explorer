@@ -134,6 +134,7 @@ public struct ViralVariantCallingPipeline: Sendable {
         let medakaModel: String?
         let advancedOptions: String?
         let advancedArguments: [String]?
+        let extraArgs: String?
     }
 
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
@@ -1172,7 +1173,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             ivarIgnoreStrandBias: isIvar ? request.ivarIgnoreStrandBias : nil,
             medakaModel: request.medakaModel,
             advancedOptions: AdvancedCommandLineOptions.join(request.advancedArguments),
-            advancedArguments: request.advancedArguments
+            advancedArguments: request.advancedArguments,
+            extraArgs: AdvancedCommandLineOptions.join(request.advancedArguments)
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
