@@ -9,13 +9,13 @@ struct BAMVariantCallingDialog: View {
     var body: some View {
         DatasetOperationsDialog(
             title: "CALL VARIANTS",
-            subtitle: "Configure a viral variant caller for the selected alignment track.",
+            subtitle: "Configure a variant caller for the selected alignment track.",
             datasetLabel: state.datasetLabel,
             tools: state.sidebarItems,
-            selectedToolID: state.selectedCaller.rawValue,
+            selectedToolID: state.selectedToolID,
             statusText: state.readinessText,
             isRunEnabled: state.isRunEnabled,
-            onSelectTool: state.selectCaller(named:),
+            onSelectTool: state.selectTool(named:),
             onCancel: onCancel,
             onRun: handleRun
         ) {

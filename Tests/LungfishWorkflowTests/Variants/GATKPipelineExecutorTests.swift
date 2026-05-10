@@ -78,6 +78,158 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertEqual(provenance.parameters["default.ploidy"]?.stringValue, "2")
     }
 
+    func testRunsInjectedVariantsToTableAndWritesFinalLocationProvenance() async throws {
+        let vcf = try write("cohort.vcf.gz", contents: "vcf-bytes")
+        let finalDirectory = tempDir.appendingPathComponent("final", isDirectory: true)
+        let output = finalDirectory.appendingPathComponent("cohort.tsv")
+        let config = GATKVariantsToTableConfiguration(
+            inputVCFURL: vcf,
+            outputTableURL: output,
+            fields: ["CHROM", "POS", "GT"]
+        )
+        let runner = RecordingGATKCommandRunner { command in
+            XCTAssertEqual(command.arguments.first, "VariantsToTable")
+            try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+            try Data("CHROM\tPOS\tGT\n".utf8).write(to: output)
+            return GATKCommandExecutionResult(
+                exitCode: 0,
+                stdout: "wrote final/cohort.tsv",
+                stderr: "",
+                wallTime: 1.25
+            )
+        }
+        let executor = GATKPipelineExecutor(runner: runner)
+        let request = GATKPipelineExecutionRequest.variantsToTable(
+            configuration: config,
+            toolVersion: "4.6.2.0",
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core"),
+            packVersion: "0.4.0-alpha.11"
+        )
+
+        let result = try await executor.run(request)
+
+        XCTAssertEqual(result.provenanceURL, finalDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        let provenance = try decodeProvenance(at: result.provenanceURL)
+        XCTAssertEqual(provenance.name, "GATK VariantsToTable")
+        XCTAssertEqual(provenance.steps.map(\.toolName), ["gatk-variants-to-table"])
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.sizeBytes, 13)
+        XCTAssertEqual(provenance.parameters["packID"]?.stringValue, "gatk-core")
+        XCTAssertEqual(provenance.parameters["option.fields"]?.stringValue, #"["CHROM","POS","GT"]"#)
+        let provenanceJSON = try String(contentsOf: result.provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceJSON.contains("/staging/"))
+    }
+
+    func testExecutionRequestFactoriesCoverAllWrappedGATKCommandsWithGATKCoreRuntime() throws {
+        let runtime = GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core")
+        let requests: [GATKPipelineExecutionRequest] = [
+            .haplotypeCaller(
+                configuration: GATKHaplotypeCallerConfiguration(
+                    referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+                    inputBAMURL: tempDir.appendingPathComponent("sample.bam"),
+                    outputVCFURL: tempDir.appendingPathComponent("sample.g.vcf.gz")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .jointGenotype(
+                configuration: GATKJointGenotypingConfiguration(
+                    referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+                    inputGVCFURLs: [
+                        tempDir.appendingPathComponent("s1.g.vcf.gz"),
+                        tempDir.appendingPathComponent("s2.g.vcf.gz"),
+                    ],
+                    outputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    intermediateURL: tempDir.appendingPathComponent("cohort.combined.g.vcf.gz"),
+                    strategy: .combineGVCFs
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .variantFiltration(
+                configuration: GATKVariantFiltrationConfiguration(
+                    inputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    outputVCFURL: tempDir.appendingPathComponent("cohort.filtered.vcf.gz")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .selectVariants(
+                configuration: GATKSelectVariantsConfiguration(
+                    inputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    outputVCFURL: tempDir.appendingPathComponent("sample.vcf.gz"),
+                    sampleID: "sample"
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .variantsToTable(
+                configuration: GATKVariantsToTableConfiguration(
+                    inputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    outputTableURL: tempDir.appendingPathComponent("cohort.tsv")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .baseQualityScoreRecalibration(
+                configuration: GATKBaseQualityScoreRecalibrationConfiguration(
+                    referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+                    inputBAMURL: tempDir.appendingPathComponent("sample.bam"),
+                    outputBAMURL: tempDir.appendingPathComponent("sample.recal.bam"),
+                    knownSitesVCFURLs: [tempDir.appendingPathComponent("dbsnp.vcf.gz")],
+                    recalibrationTableURL: tempDir.appendingPathComponent("sample.recal.table")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .markDuplicates(
+                configuration: GATKMarkDuplicatesConfiguration(
+                    inputBAMURLs: [tempDir.appendingPathComponent("sample.bam")],
+                    outputBAMURL: tempDir.appendingPathComponent("sample.markdup.bam"),
+                    metricsURL: tempDir.appendingPathComponent("sample.markdup.metrics.txt")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .validateSamFile(
+                configuration: GATKValidateSamFileConfiguration(
+                    inputBAMURL: tempDir.appendingPathComponent("sample.bam"),
+                    outputReportURL: tempDir.appendingPathComponent("sample.validate.txt")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .leftAlignAndTrimVariants(
+                configuration: GATKLeftAlignAndTrimVariantsConfiguration(
+                    referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+                    inputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    outputVCFURL: tempDir.appendingPathComponent("cohort.left.vcf.gz")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+            .collectVariantCallingMetrics(
+                configuration: GATKCollectVariantCallingMetricsConfiguration(
+                    inputVCFURL: tempDir.appendingPathComponent("cohort.vcf.gz"),
+                    outputMetricsPrefixURL: tempDir.appendingPathComponent("metrics/cohort"),
+                    dbSNPVCFURL: tempDir.appendingPathComponent("dbsnp.vcf.gz")
+                ),
+                toolVersion: "4.6.2.0",
+                runtimeIdentity: runtime
+            ),
+        ]
+
+        XCTAssertEqual(requests.count, 10)
+        XCTAssertEqual(Set(requests.map(\.packID)), ["gatk-core"])
+        XCTAssertTrue(requests.allSatisfy { !$0.inputs.isEmpty })
+        XCTAssertTrue(requests.allSatisfy { !$0.outputs.isEmpty })
+        XCTAssertTrue(requests.allSatisfy { !$0.options.isEmpty })
+        XCTAssertTrue(requests.allSatisfy { !$0.resolvedDefaults.isEmpty })
+        XCTAssertTrue(requests.allSatisfy { !$0.commands.isEmpty })
+        XCTAssertTrue(requests.allSatisfy { $0.runtimeIdentity.condaEnvironment == "/tmp/conda/envs/gatk-core" })
+        XCTAssertEqual(requests.flatMap(\.commands).map(\.environment).uniqued(), ["gatk-core"])
+    }
+
     func testWritesFailedProvenanceBeforeThrowingOnNonZeroExit() async throws {
         let reference = try write("reference.fa", contents: ">chr1\nACGT\n")
         let bam = try write("sample.bam", contents: "bam-bytes")
@@ -161,6 +313,13 @@ final class GATKPipelineExecutorTests: XCTestCase {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: url))
+    }
+}
+
+private extension Array where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen: Set<Element> = []
+        return filter { seen.insert($0).inserted }
     }
 }
 

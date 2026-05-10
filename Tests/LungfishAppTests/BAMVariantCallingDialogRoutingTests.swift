@@ -242,19 +242,45 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
     func testCatalogDisablesAllToolsWhenVariantCallingPackIsMissing() async {
         let catalog = BAMVariantCallingCatalog(
-            statusProvider: StubVariantCallingPackStatusProvider(states: ["variant-calling": .needsInstall])
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .needsInstall,
+                "gatk-core": .needsInstall,
+            ])
         )
 
         let items = await catalog.sidebarItems()
 
-        XCTAssertEqual(items.count, ViralVariantCaller.allCases.count)
+        XCTAssertGreaterThanOrEqual(items.count, ViralVariantCaller.allCases.count)
         XCTAssertTrue(items.allSatisfy { $0.availability != .available })
+    }
+
+    func testCatalogGatesGATKHaplotypeCallerOnGATKCorePack() async throws {
+        let catalog = BAMVariantCallingCatalog(
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .needsInstall,
+                "gatk-core": .ready,
+            ])
+        )
+
+        let items = await catalog.sidebarItems()
+
+        let gatk = try XCTUnwrap(items.first(where: { $0.id == "gatk-haplotype-caller" }))
+        XCTAssertEqual(gatk.availability, .available)
+        for viral in ViralVariantCaller.allCases {
+            XCTAssertEqual(
+                items.first(where: { $0.id == viral.rawValue })?.availability,
+                .disabled(reason: "Requires Variant Calling Pack")
+            )
+        }
     }
 
     @MainActor
     func testDialogStateBlocksRunWhenSelectedCallerIsUnavailable() async throws {
         let sidebarItems = await BAMVariantCallingCatalog(
-            statusProvider: StubVariantCallingPackStatusProvider(states: ["variant-calling": .needsInstall])
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .needsInstall,
+                "gatk-core": .needsInstall,
+            ])
         ).sidebarItems()
         let state = BAMVariantCallingDialogState(
             bundle: try makeBundleFixture(),
@@ -263,6 +289,48 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
         XCTAssertFalse(state.isRunEnabled)
         XCTAssertTrue(state.readinessText.contains("Requires Variant Calling Pack"))
+    }
+
+    @MainActor
+    func testDialogStateBuildsRunnableGATKHaplotypeCallerRequestWithStandardVCFOutput() async throws {
+        let sidebarItems = await BAMVariantCallingCatalog(
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .needsInstall,
+                "gatk-core": .ready,
+            ])
+        ).sidebarItems()
+        let bundle = try makeBundleFixture()
+        let state = BAMVariantCallingDialogState(
+            bundle: bundle,
+            sidebarItems: sidebarItems
+        )
+
+        state.selectTool(named: "gatk-haplotype-caller")
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(
+            state.readinessText,
+            "Ready to run GATK HaplotypeCaller on Sample 1."
+        )
+
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingGATKRequest)
+        XCTAssertEqual(request.workflowName, "GATK HaplotypeCaller")
+        XCTAssertEqual(request.packID, "gatk-core")
+        XCTAssertEqual(request.command.arguments.first, "HaplotypeCaller")
+        XCTAssertArgumentPair(
+            request.command.arguments,
+            "-R",
+            bundle.url.appendingPathComponent("genome/reference.fa.gz").path
+        )
+        XCTAssertArgumentPair(
+            request.command.arguments,
+            "-I",
+            bundle.url.appendingPathComponent("alignments/sample.sorted.bam").path
+        )
+        XCTAssertFalse(request.command.arguments.contains("-ERC"))
+        XCTAssertEqual(request.outputs.first?.format, .vcf)
     }
 
     @MainActor
@@ -367,4 +435,19 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
     }
+}
+
+private func XCTAssertArgumentPair(
+    _ arguments: [String],
+    _ flag: String,
+    _ value: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    for index in arguments.indices where arguments[index] == flag && index + 1 < arguments.endIndex {
+        if arguments[index + 1] == value {
+            return
+        }
+    }
+    XCTFail("Expected argument pair \(flag) \(value) in \(arguments)", file: file, line: line)
 }
