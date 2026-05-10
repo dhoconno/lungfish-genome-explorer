@@ -116,7 +116,7 @@ struct BAMVariantCallingToolPanes: View {
 
     private var advancedOptionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Advanced Options")
+            Text("Extra arguments")
                 .font(.headline)
 
             TextField("--call-indels", text: $state.advancedOptionsText)

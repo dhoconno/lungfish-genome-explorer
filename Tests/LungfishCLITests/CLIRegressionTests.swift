@@ -11,6 +11,7 @@
 // exercised with real help/parse coverage.
 
 import ArgumentParser
+import Foundation
 import XCTest
 @testable import LungfishCLI
 import LungfishCore
@@ -1081,7 +1082,8 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertTrue(help.contains("--assembler"))
         XCTAssertTrue(help.contains("--read-type"))
         XCTAssertTrue(help.contains("--profile"))
-        XCTAssertTrue(help.contains("--advanced-options"))
+        XCTAssertTrue(help.contains("--extra-args"))
+        XCTAssertFalse(help.contains("--advanced-options"))
         XCTAssertFalse(help.localizedCaseInsensitiveContains("Apple Containers"))
     }
 
@@ -1094,7 +1096,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--threads", "12",
             "--memory-gb", "32",
             "--profile", "nano-hq",
-            "--advanced-options", #"--meta --rg-id "sample 1""#,
+            "--extra-args", #"--meta --rg-id "sample 1""#,
             "--extra-arg", "--meta",
         ])
 
@@ -1104,8 +1106,37 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertEqual(command.globalOptions.threads, 12)
         XCTAssertEqual(command.memoryGB, 32)
         XCTAssertEqual(command.profile, "nano-hq")
-        XCTAssertEqual(command.advancedOptions, #"--meta --rg-id "sample 1""#)
+        XCTAssertEqual(command.extraArgs, #"--meta --rg-id "sample 1""#)
         XCTAssertEqual(command.extraArg, ["--meta"])
+    }
+
+    func testDeprecatedAdvancedOptionsAliasStillParsesForAssembly() throws {
+        let command = try AssembleCommand.parse([
+            "reads.fastq.gz",
+            "--assembler", "flye",
+            "--read-type", "ont-reads",
+            "--advanced-options", #"--meta --tag "sample 1""#,
+        ])
+
+        XCTAssertEqual(command.advancedOptions, #"--meta --tag "sample 1""#)
+    }
+
+    func testDeprecatedAdvancedOptionsAliasWarnsForAssembly() async throws {
+        let command = try AssembleCommand.parse([
+            "/tmp/definitely-missing-reads.fastq.gz",
+            "--advanced-options", "--meta",
+        ])
+
+        let stderr = try await captureStandardError {
+            do {
+                try await command.run()
+            } catch {
+                // The test only needs the parse-time compatibility path; the
+                // missing input file stops execution before any tool runs.
+            }
+        }
+
+        XCTAssertTrue(stderr.contains("warning: --advanced-options is deprecated, use --extra-args"))
     }
 
     func testBundleInputResolvesToContainedFASTQForExecution() throws {
@@ -1285,7 +1316,8 @@ final class MapCommandRegressionTests: XCTestCase {
         let help = MapCommand.helpMessage()
 
         XCTAssertTrue(help.contains("--mapper"))
-        XCTAssertTrue(help.contains("--advanced-options"))
+        XCTAssertTrue(help.contains("--extra-args"))
+        XCTAssertFalse(help.contains("--advanced-options"))
         XCTAssertFalse(help.contains("--match-score"))
         XCTAssertTrue(help.contains("read-mapping"))
     }
@@ -1295,10 +1327,38 @@ final class MapCommandRegressionTests: XCTestCase {
             "reads.fastq.gz",
             "--reference", "reference.fa",
             "--mapper", "bbmap",
+            "--extra-args", #"minid=0.97 local=t idtag="sample 1""#,
+        ])
+
+        XCTAssertEqual(command.extraArgs, #"minid=0.97 local=t idtag="sample 1""#)
+    }
+
+    func testDeprecatedAdvancedOptionsAliasStillParsesForMap() throws {
+        let command = try MapCommand.parse([
+            "reads.fastq.gz",
+            "--reference", "reference.fa",
             "--advanced-options", #"minid=0.97 local=t idtag="sample 1""#,
         ])
 
         XCTAssertEqual(command.advancedOptions, #"minid=0.97 local=t idtag="sample 1""#)
+    }
+
+    func testDeprecatedAdvancedOptionsAliasWarnsForMap() async throws {
+        let command = try MapCommand.parse([
+            "/tmp/definitely-missing-reads.fastq.gz",
+            "--reference", "/tmp/definitely-missing-reference.fa",
+            "--advanced-options", "--eqx",
+        ])
+
+        let stderr = try await captureStandardError {
+            do {
+                try await command.run()
+            } catch {
+                // Missing inputs keep the test isolated from the mapping backend.
+            }
+        }
+
+        XCTAssertTrue(stderr.contains("warning: --advanced-options is deprecated, use --extra-args"))
     }
 
     func testReferenceBundleInputResolvesToContainedFASTAForExecution() throws {
@@ -1639,5 +1699,27 @@ final class ResultTypeCodableRegressionTests: XCTestCase {
         let decoded = try JSONDecoder().decode(ValidationResult.self, from: data)
         XCTAssertTrue(decoded.allValid)
         XCTAssertEqual(decoded.files.count, 1)
+    }
+}
+
+private func captureStandardError(_ operation: () async throws -> Void) async rethrows -> String {
+    let pipe = Pipe()
+    let originalStderr = dup(STDERR_FILENO)
+    dup2(pipe.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+
+    do {
+        try await operation()
+        fflush(stderr)
+        dup2(originalStderr, STDERR_FILENO)
+        close(originalStderr)
+        pipe.fileHandleForWriting.closeFile()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    } catch {
+        fflush(stderr)
+        dup2(originalStderr, STDERR_FILENO)
+        close(originalStderr)
+        pipe.fileHandleForWriting.closeFile()
+        _ = pipe.fileHandleForReading.readDataToEndOfFile()
+        throw error
     }
 }

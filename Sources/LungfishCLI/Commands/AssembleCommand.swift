@@ -57,9 +57,16 @@ struct AssembleCommand: AsyncParsableCommand {
     var profile: String?
 
     @Option(
-        name: .customLong("advanced-options"),
+        name: .customLong("extra-args"),
         parsing: .unconditional,
         help: "Additional assembler options, written exactly as they should be passed to the underlying tool"
+    )
+    var extraArgs: String = ""
+
+    @Option(
+        name: .customLong("advanced-options"),
+        parsing: .unconditional,
+        help: .hidden
     )
     var advancedOptions: String = ""
 
@@ -70,6 +77,7 @@ struct AssembleCommand: AsyncParsableCommand {
 
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+        warnIfDeprecatedAdvancedOptionsUsed()
 
         guard let tool = AssemblyTool(rawValue: assembler.lowercased()) else {
             print(formatter.error("Unknown assembler: \(assembler)"))
@@ -105,7 +113,7 @@ struct AssembleCommand: AsyncParsableCommand {
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
         let advancedArguments: [String]
         do {
-            advancedArguments = try AdvancedCommandLineOptions.parse(advancedOptions) + extraArg
+            advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions) + extraArg
         } catch {
             print(formatter.error(error.localizedDescription))
             throw ExitCode.failure
@@ -135,7 +143,7 @@ struct AssembleCommand: AsyncParsableCommand {
             ("Threads", "\(executionRequest.threads)"),
             ("Memory", memoryGB.map { "\($0) GB" } ?? "default"),
             ("Profile", profile ?? "default"),
-            ("Advanced options", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
+            ("Extra arguments", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
         print("")
@@ -177,6 +185,15 @@ struct AssembleCommand: AsyncParsableCommand {
         } else {
             print(formatter.success("Assembly completed in \(String(format: "%.1f", result.wallTimeSeconds))s"))
         }
+    }
+
+    static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
+        try AdvancedCommandLineOptions.parse(extraArgs) + AdvancedCommandLineOptions.parse(deprecatedAdvancedOptions)
+    }
+
+    private func warnIfDeprecatedAdvancedOptionsUsed() {
+        guard !advancedOptions.isEmpty else { return }
+        FileHandle.standardError.write(Data("warning: --advanced-options is deprecated, use --extra-args\n".utf8))
     }
 
     private func resolveReadType(

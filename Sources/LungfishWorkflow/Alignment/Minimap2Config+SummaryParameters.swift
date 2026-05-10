@@ -16,7 +16,7 @@ extension Minimap2Config {
             "sampleName": .string(sampleName),
             "threads": .int(threads),
             "isPairedEnd": .bool(isPairedEnd),
-            "advancedOptions": .string(AdvancedCommandLineOptions.join(advancedArguments)),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(advancedArguments)),
         ]
     }
 }

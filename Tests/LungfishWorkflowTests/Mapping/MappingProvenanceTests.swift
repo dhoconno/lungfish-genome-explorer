@@ -179,6 +179,18 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertTrue(loaded.steps.allSatisfy { $0.wallTime != nil })
         XCTAssertEqual(loaded.steps.first?.stderr, "mapper stderr")
         XCTAssertEqual(loaded.exitStatus, 0)
+
+        let rawData = try Data(contentsOf: tempDir.appendingPathComponent(MappingProvenance.filename))
+        let rawJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: rawData) as? [String: Any])
+        let parameters = try XCTUnwrap(rawJSON["parameters"] as? [String: Any])
+        XCTAssertEqual(parameters["extraArgs"] as? String, "--eqx")
+        XCTAssertNil(parameters["advancedOptions"])
+        let readGroup = try XCTUnwrap(parameters["readGroup"] as? [String: Any])
+        XCTAssertEqual(readGroup["id"] as? String, "sample")
+        XCTAssertEqual(readGroup["sm"] as? String, "sample")
+        XCTAssertEqual(readGroup["lb"] as? String, "sample")
+        XCTAssertEqual(readGroup["pl"] as? String, "ONT")
+        XCTAssertEqual(readGroup["pu"] as? String, "sample")
     }
 
     func testLoadReturnsNilWhenSidecarMissing() {
@@ -249,10 +261,12 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(loaded.readGroup.library, "sample")
         XCTAssertEqual(loaded.readGroup.platform, "ONT")
         XCTAssertEqual(loaded.readGroup.platformUnit, "sample")
-        XCTAssertEqual(summary["readGroupID"], .string("sample"))
-        XCTAssertEqual(summary["readGroupLibrary"], .string("sample"))
-        XCTAssertEqual(summary["readGroupPlatform"], .string("ONT"))
-        XCTAssertEqual(summary["readGroupPlatformUnit"], .string("sample"))
+        XCTAssertEqual(summary["readGroup.id"], .string("sample"))
+        XCTAssertEqual(summary["readGroup.sm"], .string("sample"))
+        XCTAssertEqual(summary["readGroup.lb"], .string("sample"))
+        XCTAssertEqual(summary["readGroup.pl"], .string("ONT"))
+        XCTAssertEqual(summary["readGroup.pu"], .string("sample"))
+        XCTAssertNil(summary["readGroupID"])
     }
 
     func testMapperInvocationUsesProvidedReferenceLocator() throws {

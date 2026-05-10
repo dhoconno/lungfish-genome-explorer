@@ -46,6 +46,20 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    func testVariantCallingDialogUsesExtraArgumentsLabel() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/BAM/BAMVariantCallingToolPanes.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
+        XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
+    }
+
     @MainActor
     func testDialogStateBlocksIVarUntilPrimerTrimAcknowledged() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
