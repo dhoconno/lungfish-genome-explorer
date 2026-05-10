@@ -14,8 +14,9 @@ build:
   commands:
     - pip install -r docs/requirements.txt
     - mkdir -p ~/.local/share/fonts
-    - curl -sL "https://fonts.google.com/download?family=Space+Grotesk" -o /tmp/sg.zip && unzip -qo /tmp/sg.zip -d ~/.local/share/fonts/
-    - curl -sL "https://fonts.google.com/download?family=IBM+Plex+Mono" -o /tmp/ipm.zip && unzip -qo /tmp/ipm.zip -d ~/.local/share/fonts/
+    - curl -sL "https://github.com/google/fonts/raw/main/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf" -o ~/.local/share/fonts/SpaceGrotesk.ttf
+    - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf" -o ~/.local/share/fonts/IBMPlexMono-Regular.ttf
+    - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf" -o ~/.local/share/fonts/IBMPlexMono-Bold.ttf
     - fc-cache -f ~/.local/share/fonts/
-    - find docs/user-manual/assets -name '*.png' -exec identify -format '%w %h %i\n' {} \; | awk '$1 > 1200' | while read w h f; do convert "$f" -resize 1200x "$f"; done || true
+    - bash docs/user-manual/build/scripts/resize-images.sh || true
     - ENABLE_PDF_EXPORT=1 mkdocs build -f docs/user-manual/build/mkdocs.yml -d $READTHEDOCS_OUTPUT/html
