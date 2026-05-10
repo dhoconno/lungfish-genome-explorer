@@ -221,7 +221,7 @@ The sidecar is honest about its scope. Three things it does not capture, listed 
 - The CPU architecture beyond `arm64` or `x86_64`. Some tools (notably any that use SIMD-vectorised math) produce different floating-point results on different microarchitectures even within a single architecture family.
 - External network state. A re-run that fetches `MN908947.3` from NCBI assumes NCBI still serves that accession; the sidecar records the URL and the SHA-256 of what was fetched, but cannot guarantee the server returns the same bytes next year.
 
-For workflows that need true bit-identical reproduction (clinical audit, regulatory submission), pair the provenance export with a containerised plugin pack image so the environment hash is fixed at the OCI layer. The [Containerization strategy](../08-reference/containerization.md) chapter covers that path.
+For workflows that need true bit-identical reproduction (clinical audit, regulatory submission), pair the provenance export with a containerised plugin pack image so the environment hash is fixed at the OCI layer. The containerization strategy chapter (coming soon) will cover that path.
 
 ## Why this matters
 

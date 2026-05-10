@@ -141,7 +141,7 @@ An import is more than a copy. Lungfish does three things for every file you imp
 2. It writes a provenance record (file path, byte size, checksum, timestamp, host machine identity) into the bundle's `provenance/` subfolder. This is the import event itself, not a placeholder for QC.
 3. It creates the bundle's manifest, which names the primary FASTQ files, the read pairing, and the bundle type.
 
-Imports do **not** auto-run QC. The bundle exists, the files are in place, the metadata is recorded, but no per-base quality charts or adapter scans have happened yet. You invoke QC separately. See [Read QC](03-read-qc.md) for the procedure.
+Imports do **not** auto-run QC. The bundle exists, the files are in place, the metadata is recorded, but no per-base quality charts or adapter scans have happened yet. You invoke QC separately. See [Quality Control](03-quality-control.md) for the procedure.
 
 ## Interpretation: the FASTQ viewport
 
@@ -167,4 +167,4 @@ For many samples at once, prepare a CSV with one row per sample and import it th
 
 ## Next
 
-Continue to [Downloading from SRA](02-downloading-from-sra.md) to fetch reads from NCBI's Sequence Read Archive instead of importing from disk, or jump to [Read QC](03-read-qc.md) to run the first full quality pass on the bundle you just imported.
+Continue to [Downloading from SRA](02-downloading-from-sra.md) to fetch reads from NCBI's Sequence Read Archive instead of importing from disk, or jump to [Quality Control](03-quality-control.md) to run the first full quality pass on the bundle you just imported.

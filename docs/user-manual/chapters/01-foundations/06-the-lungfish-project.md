@@ -87,7 +87,7 @@ The distinction between `Reference Sequences/` and `Assemblies/` is conventional
 
 ### What "bundle" means
 
-Every time this manual says "bundle", it means a folder that the Finder shows as a single icon with an extension. A `.lungfishref` is not a zipped archive and not a single file. It is a directory with a `manifest.json` at the root, a primary FASTA, an index, optional annotations, optional attached tracks, and a `provenance/` subfolder. You can right-click any bundle in Finder and choose **Show Package Contents** to see inside. The bundle structure is documented in the [Bundles](../02-data-management/01-bundles.md) chapter.
+Every time this manual says "bundle", it means a folder that the Finder shows as a single icon with an extension. A `.lungfishref` is not a zipped archive and not a single file. It is a directory with a `manifest.json` at the root, a primary FASTA, an index, optional annotations, optional attached tracks, and a `provenance/` subfolder. You can right-click any bundle in Finder and choose **Show Package Contents** to see inside. The bundle structure is documented in the [Importing and Viewing](../02-sequences/01-importing-and-viewing.md) chapter.
 
 Bundles travel as a unit. When you copy a `.lungfishref` to another project, you copy the FASTA, the index, the annotations, and the provenance together. There is no chance of losing the index without the FASTA, or the annotation without the sequence it annotates.
 

@@ -24,15 +24,26 @@ The remaining foundations chapters cover [The Lungfish Project](chapters/01-foun
 
 Each part is one workflow domain. Chapters within a part declare prereqs in their frontmatter.
 
-- [Sequences](chapters/02-sequences/) for FASTA, GenBank, NCBI download, and MSA workflows
-- [Reads (FASTQ)](chapters/03-reads/) for read import, QC, trimming, decontamination, and ONT runs
-- [Alignments](chapters/04-alignments/) for read mapping and primer trimming
-- [Variants](chapters/05-variants/) for variant calling and VCF interpretation (the pilot chapter is here)
-- [Human Germline Variants](chapters/06-human-germline-variants/) for first-class GATK command dry runs
-- [Classification](chapters/06-classification/) for taxonomic classification of reads
+- [Sequences](chapters/02-sequences/01-importing-and-viewing.md) for FASTA, GenBank, NCBI download, and MSA workflows
+- [Reads (FASTQ)](chapters/03-reads/01-importing-fastq.md) for read import, QC, trimming, decontamination, and ONT runs
+- [Alignments](chapters/04-alignments/01-mapping-reads-to-a-reference.md) for read mapping and primer trimming
+- [Variants](chapters/05-variants/01-calling-variants-from-amplicons.md) for variant calling and VCF interpretation (the pilot chapter is here)
+- [Classification](chapters/06-classification/01-what-is-classification.md) for taxonomic classification of reads
+- [Assembly](chapters/07-assembly/01-when-to-assemble.md) for de novo assembly
+- [Workflows](chapters/08-workflows/01-the-workflow-builder.md) for the visual Workflow Builder and Nextflow / Snakemake export
 
-The [Assembly](chapters/07-assembly/) part covers de novo assembly. The [Workflows](chapters/08-workflows/) part covers the visual Workflow Builder and Nextflow / Snakemake export.
+!!! note "Coming soon"
+    [Human Germline Variants](chapters/06-human-germline-variants/01-haplotype-caller.md) documents the GATK dry-run commands available today. Full execution workflows, GUI integration, and expanded documentation are in active development.
 
 ## Reference
 
-The [appendices](chapters/appendices/) hold the CLI reference, running-in-CI guide, keyboard shortcuts, troubleshooting guide, and glossary.
+- [CLI Reference](chapters/appendices/cli-reference.md)
+- [File Formats](chapters/appendices/file-formats.md)
+- [Keyboard Shortcuts](chapters/appendices/keyboard-shortcuts.md)
+- [Primer Schemes](chapters/appendices/primer-schemes.md)
+- [Tool Versions](chapters/appendices/tool-versions.md)
+- [Running in CI](chapters/appendices/06-running-in-ci.md)
+- [Power User Notes](chapters/appendices/power-user-notes.md)
+- [Troubleshooting](chapters/appendices/troubleshooting.md)
+- [Bibliography](chapters/appendices/bibliography.md)
+- [Glossary](GLOSSARY.md)

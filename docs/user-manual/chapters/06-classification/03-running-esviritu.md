@@ -240,7 +240,7 @@ identification with a small BLAST query against NCBI nt
 ([Chapter 6.6](06-blast-verification.md)), or to map the same reads
 against the matched reference and call variants if you want lineage-level
 assignment beyond what the EsViritu strain label provides
-([Chapter 4.1](../04-variants/01-reads-to-variants.md)).
+([Calling Variants from Amplicons](../05-variants/01-calling-variants-from-amplicons.md)).
 
 ## Next
 
