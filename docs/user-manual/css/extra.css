@@ -1,19 +1,21 @@
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: #1F1A17;
+  --md-primary-fg-color--light: #F6B088;
+  --md-primary-fg-color--dark: #1F1A17;
+  --md-accent-fg-color: #EE8B4F;
+  --md-default-bg-color: #FAF4EA;
+  --md-typeset-color: #1F1A17;
+  --md-typeset-a-color: #EE8B4F;
+  --md-code-bg-color: #F2EADA;
+  --md-code-fg-color: #1F1A17;
+}
+
 :root {
   --lf-creamsicle: #EE8B4F;
   --lf-peach: #F6B088;
   --lf-deep-ink: #1F1A17;
   --lf-cream: #FAF4EA;
   --lf-warm-grey: #8A847A;
-
-  --md-primary-fg-color: var(--lf-creamsicle);
-  --md-primary-fg-color--light: var(--lf-peach);
-  --md-primary-fg-color--dark: var(--lf-deep-ink);
-  --md-accent-fg-color: var(--lf-creamsicle);
-  --md-default-bg-color: var(--lf-cream);
-  --md-typeset-color: var(--lf-deep-ink);
-  --md-typeset-a-color: var(--lf-creamsicle);
-  --md-code-bg-color: #F2EADA;
-  --md-code-fg-color: var(--lf-deep-ink);
 }
 
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600&family=IBM+Plex+Mono:wght@400;600&display=swap");
@@ -61,7 +63,7 @@
 }
 
 .md-header {
-  background-color: var(--lf-deep-ink);
+  background-color: var(--lf-deep-ink) !important;
   color: var(--lf-cream);
 }
 
@@ -100,17 +102,14 @@
   background-color: rgba(212, 123, 58, 0.06);
 }
 
-.md-content::before {
-  content: "\26A0  This documentation is under active development and is not yet ready for use. Content may be incomplete, inaccurate, or change without notice.";
-  display: block;
-  padding: 0.75em 1em;
-  margin-bottom: 1.5em;
+.md-banner {
   background-color: #FFF3CD;
   color: #664D03;
-  border: 2px solid #FFCA2C;
-  border-radius: 4px;
   font-family: "Inter", Arial, sans-serif;
-  font-size: 0.85rem;
   font-weight: 600;
   text-align: center;
+}
+
+.md-banner a {
+  color: #664D03;
 }
