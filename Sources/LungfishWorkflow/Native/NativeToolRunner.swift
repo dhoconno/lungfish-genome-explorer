@@ -240,6 +240,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case lofreq
     case ivar
     case medaka
+    case clair3
+    case whatshap
+    case freyja
 
     /// The executable name for this tool.
     public var executableName: String {
@@ -270,6 +273,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .lofreq: return "lofreq"
         case .ivar: return "ivar"
         case .medaka: return "medaka"
+        case .clair3: return "run_clair3.sh"
+        case .whatshap: return "whatshap"
+        case .freyja: return "freyja"
         }
     }
 
@@ -288,6 +294,8 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return ["version"]
         case .ribodetector:
             return ["-v"]
+        case .whatshap, .freyja:
+            return ["--version"]
         default:
             return ["--version"]
         }
@@ -347,6 +355,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "ivar", executableName: "ivar")
         case .medaka:
             return .managed(environment: "medaka", executableName: "medaka")
+        case .clair3:
+            return .managed(environment: "clair3", executableName: "run_clair3.sh")
+        case .whatshap:
+            return .managed(environment: "phasing", executableName: "whatshap")
+        case .freyja:
+            return .managed(environment: "freyja", executableName: "freyja")
         }
     }
 
@@ -407,6 +421,9 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .lofreq: return "lofreq"
         case .ivar: return "ivar"
         case .medaka: return "medaka"
+        case .clair3: return "clair3"
+        case .whatshap: return "whatshap"
+        case .freyja: return "freyja"
         }
     }
 
@@ -451,6 +468,12 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return "GPL-3.0-or-later"
         case .medaka:
             return "MPL-2.0"
+        case .clair3:
+            return "BSD-3-Clause"
+        case .whatshap:
+            return "MIT License"
+        case .freyja:
+            return "BSD-2-Clause"
         }
     }
 

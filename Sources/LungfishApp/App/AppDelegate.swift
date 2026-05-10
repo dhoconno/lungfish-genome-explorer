@@ -5177,6 +5177,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showFASTQOperationsDialog(sender, initialCategory: .classification)
     }
 
+    @objc func showFreyjaDemix(_ sender: Any?) {
+        PluginManagerWindowController.show(packID: "wastewater-surveillance")
+    }
+
     func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {
         guard let bundle else { return false }
         return !BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle).isEmpty

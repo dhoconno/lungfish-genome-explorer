@@ -61,6 +61,7 @@ struct LungfishCLI: AsyncParsableCommand {
             VariantsCommand.self,
             GATKCLICommand.self,
             NaoMgsCommand.self,
+            FreyjaCommand.self,
             NvdCommand.self,
             CzIdCommand.self,
             MetadataCommand.self,

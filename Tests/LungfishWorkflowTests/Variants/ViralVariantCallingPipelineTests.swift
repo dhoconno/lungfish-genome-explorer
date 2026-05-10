@@ -78,6 +78,52 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--chunk_len 1000"))
     }
 
+    func testClair3CommandLineUsesModelThreadsAndAdvancedArguments() throws {
+        let pipeline = try makePipeline(
+            caller: .clair3,
+            medakaModel: "r1041_e82_400bps_sup_v5.0.0",
+            advancedArguments: ["--enable_phasing"]
+        )
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("run_clair3.sh"))
+        XCTAssertTrue(plan.commandLine.contains("--bam_fn=\(plan.alignmentURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--ref_fn=\(plan.referenceURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--output=\(plan.rawVCFURL.deletingLastPathComponent().path)"))
+        XCTAssertTrue(plan.commandLine.contains("--model_path=r1041_e82_400bps_sup_v5.0.0"))
+        XCTAssertTrue(plan.commandLine.contains("--threads=2"))
+        XCTAssertTrue(plan.commandLine.contains("--enable_phasing"))
+    }
+
+    func testPhasedVariantPlanBuildsGATKAndWhatsHapCommandsWithResolvedDefaults() throws {
+        let plan = PhasedVariantCallingPlan(
+            configuration: PhasedVariantCallingConfiguration(
+                referenceFASTAURL: URL(fileURLWithPath: "/tmp/ref.fa"),
+                inputBAMURL: URL(fileURLWithPath: "/tmp/sample.bam"),
+                outputVCFURL: URL(fileURLWithPath: "/tmp/phased.vcf.gz"),
+                outputDirectory: URL(fileURLWithPath: "/tmp/phased-plan", isDirectory: true),
+                threads: 4,
+                extraGATKArguments: ["--sample-ploidy", "1"],
+                extraWhatsHapArguments: ["--ignore-read-groups"]
+            ),
+            gatkVersion: "4.6.2.0",
+            whatsHapVersion: "2.3",
+            runtimeIdentity: PhasedVariantRuntimeIdentity(
+                gatkCondaEnvironment: "/tmp/conda/envs/gatk-core",
+                whatsHapCondaEnvironment: "/tmp/conda/envs/phasing"
+            )
+        )
+
+        XCTAssertEqual(plan.workflowName, "lungfish variants phase")
+        XCTAssertEqual(plan.commands.map(\.executable), ["gatk", "whatshap"])
+        XCTAssertTrue(plan.commands[0].shellCommand.contains("HaplotypeCaller"))
+        XCTAssertTrue(plan.commands[1].shellCommand.contains("whatshap phase"))
+        XCTAssertEqual(plan.options["threads"], "4")
+        XCTAssertEqual(plan.resolvedDefaults["emitReferenceConfidence"], "NONE")
+        XCTAssertEqual(plan.packIDs, ["gatk-core", "phasing"])
+    }
+
     func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() throws {
         let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "1"])
 
@@ -421,7 +467,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             minimumAlleleFrequency: 0.05,
             minimumDepth: 10,
             ivarPrimerTrimConfirmed: true,
-            medakaModel: caller == .medaka ? medakaModel : nil,
+            medakaModel: (caller == .medaka || caller == .clair3) ? medakaModel : nil,
             advancedArguments: advancedArguments
         )
 

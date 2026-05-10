@@ -6,7 +6,9 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
     case ivar
     case medaka
     case bcftools
+    case clair3
     case gatkHaplotypeCaller = "gatk-haplotype-caller"
+    case gatkWhatsHapPhased = "gatk-whatshap-phased"
 
     var displayName: String {
         switch self {
@@ -18,20 +20,30 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
             return ViralVariantCaller.medaka.displayName
         case .bcftools:
             return ViralVariantCaller.bcftools.displayName
+        case .clair3:
+            return ViralVariantCaller.clair3.displayName
         case .gatkHaplotypeCaller:
             return "GATK HaplotypeCaller"
+        case .gatkWhatsHapPhased:
+            return "GATK + WhatsHap Phased"
         }
     }
 
     var requiredPackID: String {
         switch self {
-        case .lofreq, .ivar, .medaka:
+        case .lofreq, .ivar, .medaka, .clair3:
             return "variant-calling"
         case .bcftools:
             return "lungfish-tools"
         case .gatkHaplotypeCaller:
             return "gatk-core"
+        case .gatkWhatsHapPhased:
+            return "gatk-core,phasing"
         }
+    }
+
+    var requiredPackIDs: [String] {
+        requiredPackID.split(separator: ",").map(String.init)
     }
 
     var viralCaller: ViralVariantCaller? {
@@ -48,7 +60,7 @@ struct BAMVariantCallingCatalog: Sendable {
 
     func sidebarItems() async -> [DatasetOperationToolSidebarItem] {
         var availabilityByPackID: [String: DatasetOperationAvailability] = [:]
-        for packID in Set(BAMVariantCallingToolID.allCases.map(\.requiredPackID)) {
+        for packID in Set(BAMVariantCallingToolID.allCases.flatMap(\.requiredPackIDs)) {
             availabilityByPackID[packID] = await resolvedAvailability(forPackID: packID)
         }
         return Self.sidebarItems(availabilityByPackID: availabilityByPackID)
@@ -59,6 +71,7 @@ struct BAMVariantCallingCatalog: Sendable {
             "variant-calling": .available,
             "lungfish-tools": .available,
             "gatk-core": .available,
+            "phasing": .available,
         ])
     }
 
@@ -87,9 +100,22 @@ struct BAMVariantCallingCatalog: Sendable {
                 id: tool.rawValue,
                 title: tool.displayName,
                 subtitle: subtitle(for: tool),
-                availability: availabilityByPackID[tool.requiredPackID] ?? .disabled(reason: "No tools available")
+                availability: availability(for: tool, availabilityByPackID: availabilityByPackID)
             )
         }
+    }
+
+    private static func availability(
+        for tool: BAMVariantCallingToolID,
+        availabilityByPackID: [String: DatasetOperationAvailability]
+    ) -> DatasetOperationAvailability {
+        for packID in tool.requiredPackIDs {
+            let availability = availabilityByPackID[packID] ?? .disabled(reason: "No tools available")
+            if availability != .available {
+                return availability
+            }
+        }
+        return .available
     }
 
     private static func subtitle(for tool: BAMVariantCallingToolID) -> String {
@@ -102,8 +128,12 @@ struct BAMVariantCallingCatalog: Sendable {
             return "ONT-focused consensus and variant calling with Medaka."
         case .bcftools:
             return "Orthogonal mpileup/call cross-check for BAM alignments."
+        case .clair3:
+            return "ONT-focused neural-network variant calling with Clair3."
         case .gatkHaplotypeCaller:
             return "Germline SNP and indel calling with standard VCF genotypes."
+        case .gatkWhatsHapPhased:
+            return "Phase-aware HaplotypeCaller plus WhatsHap command plan."
         }
     }
 }

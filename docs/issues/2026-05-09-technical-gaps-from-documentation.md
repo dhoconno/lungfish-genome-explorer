@@ -147,12 +147,14 @@ Issues are grouped by domain so related work can be batched.
 
 **The user-facing behavior:** The codon-merge in iVar's pipeline is positional. Two SNPs in one codon get merged because they're at adjacent positions in a coding region, not because they're on the same molecule. For most viral isolate work this is fine because AF near 1.0 means most reads carry both changes. For mixed-population samples or true haplotype work, the user needs a phased caller that Lungfish does not wrap.
 
+**Status 2026-05-10:** Partially addressed. `lungfish variants phase` now creates a reproducible GATK HaplotypeCaller plus WhatsHap command plan, writes Lungfish provenance, and can execute when the `gatk-core` and `phasing` packs are installed. The BAM variant-calling dialog also exposes a gated GATK+WhatsHap phased lane. The iVar-specific AF-difference warning remains open.
+
 **Acceptance criteria:**
 
 - [ ] Add a `--phase-aware` flag to `lungfish variants call --caller ivar` that warns when codon-merged rows have meaningfully different AFs across the merged positions (a sign that they're on different molecules)
-- [ ] (Future) Wrap WhatsHap as a `lungfish variants phase` operation
-- [ ] (Future) Wrap GATK HaplotypeCaller as a separate caller in the variant-calling dialog (analyst tier)
-- [ ] Documentation chapter or appendix on phased variant calling for users who need it
+- [x] (Future) Wrap WhatsHap as a `lungfish variants phase` operation
+- [x] (Future) Wrap GATK HaplotypeCaller as a separate caller in the variant-calling dialog (analyst tier)
+- [x] Documentation chapter or appendix on phased variant calling for users who need it
 
 ---
 
@@ -164,11 +166,13 @@ Issues are grouped by domain so related work can be batched.
 
 **Where focus groups raised it:** Year 5 epidemiology PhD (Tomás Herrera, SARS-CoV-2 lineages) wanted Clair3 as an alternative to Medaka for ONT amplicon work. Power-user persona (Lin Patel, tool developer) noted that Medaka is moving to maintenance mode at ONT and Clair3 is the active alternative.
 
+**Status 2026-05-10:** Addressed. Clair3 is now listed in the `variant-calling` pack, accepted by `lungfish variants call --caller clair3`, surfaced in the BAM Variant Calling dialog, and recorded in command/provenance output with model path and advanced arguments.
+
 **Acceptance criteria:**
 
-- [ ] `lungfish variants call --caller clair3` is supported with a similar UX to Medaka (basecaller-model selection, primer-trim acknowledgement, etc.)
-- [ ] A clair3 plugin pack ships with the variant-calling pack family
-- [ ] Documentation chapter `05-variants/04-nanopore-variant-calling.md` is extended to compare Medaka and Clair3 with a tool-choice table
+- [x] `lungfish variants call --caller clair3` is supported with a similar UX to Medaka (basecaller-model selection, primer-trim acknowledgement, etc.)
+- [x] A clair3 plugin pack ships with the variant-calling pack family
+- [x] Documentation chapter `05-variants/04-nanopore-variant-calling.md` is extended to compare Medaka and Clair3 with a tool-choice table
 
 **Out of scope:** Wrapping every ONT variant caller. Medaka and Clair3 cover the practical regime.
 
@@ -210,12 +214,14 @@ This entry stays in the table for traceability with severity P1 (matching docs-0
 
 **The user-facing behavior:** NAO-MGS handles wastewater classification at the metagenome level. Freyja handles lineage demixing within a single wastewater sample (estimating the relative abundance of SARS-CoV-2 lineages). They solve different problems and Lungfish only wraps one.
 
+**Status 2026-05-10:** Addressed as a command-plan/run surface. The active `wastewater-surveillance` pack lists Freyja, `lungfish freyja demix` writes command-plan and provenance output by default and can execute when installed, and the Tools menu links users to the Freyja pack surface under Lineage Demixing.
+
 **Acceptance criteria:**
 
-- [ ] A Freyja plugin pack ships with the classification or surveillance pack family
-- [ ] A `Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja` menu item exists
-- [ ] A new chapter `06-classification/07-running-freyja` covers the workflow
-- [ ] The "what Lungfish does not target" note in `06-classification/01` updates to remove Freyja from the not-yet list
+- [x] A Freyja plugin pack ships with the classification or surveillance pack family
+- [x] A `Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja` menu item exists
+- [x] A new chapter `06-classification/07-running-freyja` covers the workflow
+- [x] The "what Lungfish does not target" note in `06-classification/01` updates to remove Freyja from the not-yet list
 
 ---
 
@@ -425,7 +431,7 @@ The palette today shows abstract categories. A user dragging an `alignment` node
 **Acceptance criteria:**
 
 - [ ] Each abstract category (alignment, variant calling, assembly, classification, trimming, qc) supports per-node tool selection. Dragging an `alignment` node onto the canvas shows minimap2 / BWA-MEM2 / Bowtie2 / BBMap as switchable tools, with per-tool parameter forms.
-- [ ] The palette also exposes concrete tool nodes for unambiguous-tool operations: MAFFT (MSA build), IQ-TREE (tree inference), Deacon (decontamination), RiboDetector (rRNA removal), fastp (qc / trim — the existing combined-pass dialog), bcftools (when docs-010 lands), Freyja (when docs-011 lands).
+- [ ] The palette also exposes concrete tool nodes for unambiguous-tool operations: MAFFT (MSA build), IQ-TREE (tree inference), Deacon (decontamination), RiboDetector (rRNA removal), fastp (qc / trim — the existing combined-pass dialog), bcftools (when docs-010 lands), Freyja.
 - [ ] Result-import operations (NAO-MGS, NVD, CZ-ID) and search-online operations (Pathoplexus) are NOT exposed in the palette. The Workflow Builder produces new data; result-import paths load existing data. This boundary is documented in the chapter.
 - [ ] Reference and read fetching from accessions (`lungfish fetch ncbi`, `lungfish fetch genome`, `lungfish fetch sra download`) appear as palette nodes whose input is a text accession and whose output is a reference or FASTQ bundle.
 
@@ -545,7 +551,7 @@ The Workflow Builder and Export chapters need updates to match the actual implem
 **Dependencies:**
 
 - docs-036 (custom primer scheme builder docs) — primer-scheme palette node depends on the CLI being documented
-- docs-011 (Freyja) — Freyja palette node only after Freyja itself ships
+- docs-011 (Freyja) — Freyja command-plan surface ships; palette integration remains workflow-builder scope
 - docs-018 (OCI container image export) — the `containers/` directory in the Nextflow export depends on it
 - docs-019 (conda lockfile generation) — exporter quality depends on it
 - docs-020 (workflow versioning) — separate but related

@@ -52,6 +52,9 @@ Managed tools are installed from the Lungfish managed-tool lock through the cond
 | SAMtools | 1.23.1 | managed | `samtools` | MIT | `samtools` |
 | BCFtools | 1.23.1 | managed | `bcftools` | GPL | `bcftools` |
 | HTSlib | 1.23.1 | managed | `htslib` | MIT | `bgzip`, `tabix` |
+| Clair3 | 1.0.10 | managed | `clair3` | BSD-3-Clause | `run_clair3.sh` |
+| WhatsHap | 2.3 | managed | `phasing` | MIT | `whatshap` |
+| Freyja | 2.0.0 | managed | `freyja` | BSD-2-Clause | `freyja` |
 | SeqKit | 2.13.0 | managed | `seqkit` | MIT | `seqkit` |
 | Cutadapt | 5.2 | managed | `cutadapt` | MIT | `cutadapt` |
 | VSEARCH | 2.30.5 | managed | `vsearch` | GPL-3.0-or-later OR BSD-2-Clause | `vsearch` |

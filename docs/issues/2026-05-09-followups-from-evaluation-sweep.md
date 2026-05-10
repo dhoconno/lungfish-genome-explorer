@@ -24,10 +24,10 @@ at `docs/user-manual/shots/captured/2026-05-09/`.
 | docs-004 | P1 | NCBI 429 retry | FIXED | — |
 | docs-005 | P2 | NCBI API key in Settings | FIXED | — |
 | docs-006 | P2 | Pathoplexus search dialog | FIXED | — |
-| docs-007 | P2 | Phased variant calling | NON-RESPONSIVE | parent stays open |
-| docs-008 | P2 | Clair3 ONT caller | NON-RESPONSIVE | parent stays open |
+| docs-007 | P2 | Phased variant calling | PARTIAL | command-plan surface added; iVar phase-aware warning remains open |
+| docs-008 | P2 | Clair3 ONT caller | FIXED | — |
 | docs-010 | P2 | bcftools as caller | NON-RESPONSIVE | parent stays open |
-| docs-011 | P1 | Freyja | NON-RESPONSIVE | parent stays open |
+| docs-011 | P1 | Freyja | PARTIAL | command-plan surface added; richer GUI run dialog remains open |
 | docs-012 | P2 | Database update tracking | NON-RESPONSIVE | parent stays open |
 | docs-013 | P2 | BLAST rate-limiting | NON-RESPONSIVE | parent stays open |
 | **docs-014** | P1 | Read groups in mapping | **PARTIAL** | docs-014a |

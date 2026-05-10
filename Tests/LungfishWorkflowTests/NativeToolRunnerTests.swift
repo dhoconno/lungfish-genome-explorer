@@ -632,7 +632,7 @@ final class NativeToolRunnerTests: XCTestCase {
     func testAllCasesCount() {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers and the viral variant callers are both part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 26, "Should include BBTools wrappers and viral variant callers in the managed tool surface")
+        XCTAssertEqual(NativeTool.allCases.count, 29, "Should include BBTools wrappers, variant callers, phasing, and lineage demixing tools")
     }
 
     // MARK: - Error Tests

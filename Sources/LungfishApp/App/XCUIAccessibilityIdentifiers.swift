@@ -123,6 +123,7 @@ enum MainMenuAccessibilityID {
     static let restoreSidePanes = "view-menu-restore-side-panes"
 
     static let callVariants = "tools-menu-call-variants"
+    static let freyjaDemix = "tools-menu-freyja-demix"
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"
     static let setWindowSize = "window-menu-set-size"

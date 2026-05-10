@@ -37,13 +37,15 @@ So what should you do with this? Before you run anything, decide which question 
 
 ## What you will learn
 
-By the end of this chapter you will be able to articulate what read classification produces (a per-read taxonomic assignment, summarized as a sunburst and a table), tell the four runnable classifiers Lungfish ships apart, understand when imported CZ-ID results fit, pick the right path for your question, and find the Unified Metagenomics Wizard.
+By the end of this chapter you will be able to articulate what read classification produces (a per-read taxonomic assignment, summarized as a sunburst and a table), tell the four runnable classifiers Lungfish ships apart, understand when imported CZ-ID results and Freyja lineage demixing fit, pick the right path for your question, and find the Unified Metagenomics Wizard.
 
 ## Classifiers and imported results
 
 Lungfish bundles four runnable classifiers because no single tool does everything well. A general-purpose tool with a giant database is the right answer when you have no prior hypothesis, but it is overkill (and sometimes wrong) when you already know you are looking for a virus and want to call the strain. A surveillance pipeline that flags pathogens with confidence scores is the right answer in a clinical lab, but it adds noise to a routine wastewater run.
 
 Lungfish also imports CZ-ID taxon report TSVs. CZ-ID is a hosted metagenomics platform, so Lungfish does not run it locally or submit reads to it. The import path preserves an upstream CZ-ID result beside the rest of the project, converts the taxon report into Lungfish's taxonomy result schema, and records the CZ-ID pipeline and database metadata when those columns are present.
+
+Freyja is adjacent to classification but answers a narrower wastewater question. It does not classify every read in a FASTQ. It consumes variant and depth tables from a SARS-CoV-2 wastewater sample and estimates lineage mixture. Use it after you have mapped and summarized the target genome, not as a replacement for Kraken2, EsViritu, TaxTriage, or NAO-MGS.
 
 The table below gives the high-level regime each classifier was designed for. Each tool has its own chapter later in this part with a full walkthrough.
 
@@ -68,6 +70,8 @@ If your Kraken2 result (or some prior knowledge) says you are looking at a virus
 If you are working in a clinical-surveillance setting and you need a confidence-scored, reportable answer, run **TaxTriage**. TaxTriage is a pipeline that combines multiple classifiers and emits per-organism confidence flags so a downstream reviewer can see at a glance which calls are well-supported and which are tentative. The trade is that it is heavier than a single Kraken2 run and assumes a clinical reference set, so it is not the right tool for an environmental discovery sample.
 
 If you are running wastewater surveillance and you want signals that compare cleanly across samples and across weeks, run **NAO-MGS**. Its database and reporting are tuned for the longitudinal wastewater regime: relative abundances that mean the same thing from one Cassette to the next, and outputs structured for time-series plotting. Use it for monitoring; pick a different tool for one-off identification.
+
+If your wastewater question is specifically "which SARS-CoV-2 lineages are mixed in this sample?", run **Freyja** after producing the required variant and depth inputs. In the app, start from `Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja` to install or verify the pack. On the CLI, `lungfish freyja demix` writes a command plan and provenance by default, and `--execute` runs Freyja when the `wastewater-surveillance` pack is installed.
 
 If your lab already ran **CZ-ID**, import the taxon report instead of rerunning another classifier just to view it in Lungfish. The current importer accepts a taxon report TSV, converts it to a Lungfish classification result directory, and records the upstream pipeline version plus NT/NR database versions when the export includes them. It is imported, not native: use the CZ-ID website or your upstream automation to run the analysis, then bring the result into Lungfish for side-by-side review and provenance.
 

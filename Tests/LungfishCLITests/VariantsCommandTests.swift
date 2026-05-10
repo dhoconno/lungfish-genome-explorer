@@ -139,6 +139,61 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(capture.request?.advancedArguments, ["--ploidy", "1"])
     }
 
+    func testCallSubcommandAcceptsClair3CallerAndModel() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "clair3",
+            "--medaka-model", "r1041_e82_400bps_sup_v5.0.0",
+            "--extra-args", "--enable_phasing",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.caller.rawValue, "clair3")
+        XCTAssertEqual(capture.request?.medakaModel, "r1041_e82_400bps_sup_v5.0.0")
+        XCTAssertEqual(capture.request?.advancedArguments, ["--enable_phasing"])
+    }
+
+    func testPhaseSubcommandDryRunWritesCommandPlanAndProvenance() async throws {
+        let reference = try write("ref.fa", contents: ">chr1\nACGT\n", in: tempDir)
+        let bam = try write("sample.bam", contents: "bam-bytes", in: tempDir)
+        let outputVCF = tempDir.appendingPathComponent("phased.vcf.gz")
+        let outputDir = tempDir.appendingPathComponent("phase-plan", isDirectory: true)
+        let command = try VariantsCommand.PhaseSubcommand.parse([
+            "phase",
+            "--reference", reference.path,
+            "--bam", bam.path,
+            "--output-vcf", outputVCF.path,
+            "--output-dir", outputDir.path,
+            "--threads", "4",
+            "--extra-gatk-args", "--sample-ploidy 1",
+            "--extra-whatshap-args", "--ignore-read-groups",
+        ])
+        var lines: [String] = []
+
+        try await command.executeForTesting { lines.append($0) }
+
+        let planURL = outputDir.appendingPathComponent("phased-variant-command-plan.json")
+        let provenanceURL = outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let planJSON = try String(contentsOf: planURL, encoding: .utf8)
+        let provenance = try decodeProvenance(at: provenanceURL)
+
+        XCTAssertTrue(lines.contains { $0.contains("gatk HaplotypeCaller") })
+        XCTAssertTrue(lines.contains { $0.contains("whatshap phase") })
+        XCTAssertTrue(planJSON.contains(#""workflowName" : "lungfish variants phase""#))
+        XCTAssertTrue(planJSON.contains("whatshap phase"))
+        XCTAssertEqual(provenance.name, "lungfish variants phase")
+        XCTAssertEqual(provenance.parameters["packIDs"]?.stringValue, "gatk-core,phasing")
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.path, planURL.path)
+    }
+
     func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
@@ -426,6 +481,18 @@ private func decodeEvent(_ line: String) -> VariantsCommand.VariantCallingEvent?
         return nil
     }
     return try? JSONDecoder().decode(VariantsCommand.VariantCallingEvent.self, from: data)
+}
+
+private func write(_ name: String, contents: String, in directory: URL) throws -> URL {
+    let url = directory.appendingPathComponent(name)
+    try contents.write(to: url, atomically: true, encoding: .utf8)
+    return url
+}
+
+private func decodeProvenance(at url: URL) throws -> WorkflowRun {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
 }
 
 private func XCTAssertThrowsErrorAsync(

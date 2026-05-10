@@ -326,6 +326,10 @@ foundation prereqs in frontmatter.
   hit with NCBI BLAST; the BLAST tab in the taxonomy viewport.
   Prereqs: C02 or C03 or C04. Audience: bench-scientist.
 
+- **06-classification/07-running-freyja** — wastewater SARS-CoV-2 lineage
+  demixing with Freyja command plans and provenance.
+  Prereqs: C01, V01. Audience: analyst.
+
 #### 07 Assembly
 
 - **07-assembly/01-when-to-assemble** — the assembly question; reference-based

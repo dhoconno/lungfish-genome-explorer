@@ -118,6 +118,22 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
     }
 
+    func testFASTQFASTAOperationsMenuIncludesLineageDemixingFreyjaEntry() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let operationsMenu = try XCTUnwrap(
+            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
+        )
+        let lineageMenu = try XCTUnwrap(
+            operationsMenu.items.first(where: { $0.title == "Lineage Demixing" })?.submenu
+        )
+        let freyja = try XCTUnwrap(lineageMenu.items.first(where: { $0.title == "Freyja…" }))
+
+        XCTAssertEqual(freyja.identifier?.rawValue, MainMenuAccessibilityID.freyjaDemix)
+        XCTAssertEqual(freyja.action, #selector(ToolsMenuActions.showFreyjaDemix(_:)))
+    }
+
     func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() throws {
         let viewModel = ImportCenterViewModel()
         let ids = Set(viewModel.allCards.map(\.id))
