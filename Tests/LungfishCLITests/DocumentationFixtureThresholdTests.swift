@@ -59,7 +59,11 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         XCTAssertFalse(chapter.contains("position 26060"))
         XCTAssertFalse(chapter.contains("FILTER `sb`"))
         XCTAssertTrue(chapter.contains("Attach annotations"))
+        XCTAssertTrue(chapter.contains("minimum allele frequency `0.05`"))
+        XCTAssertTrue(chapter.contains("With the GFF3 attached"))
+        XCTAssertTrue(chapter.contains("position `28881`"))
         XCTAssertTrue(chapter.contains("REF GG"))
         XCTAssertTrue(chapter.contains("ALT AA"))
+        XCTAssertTrue(chapter.contains("`REF GG`, `ALT AA`"))
     }
 }

@@ -15,7 +15,7 @@ illustrations:
   - id: allele-frequency-haploid-vs-diploid
     brief: "Side-by-side schematic. Left: human diploid sample with two copies of a chromosome, AF=0.5 means one of two alleles carries the variant. Right: viral haploid sample with one genome copy per virion but many virion copies in the sample, AF=0.5 means half the read evidence supports the variant. Use Deep Ink for chromosomes, Lungfish Creamsicle for variant alleles."
   - id: filter-flag-cartoon
-    brief: "A vertical stack of VCF rows shown as a table, with FILTER column highlighted. Three rows shown: one with FILTER=PASS (green check icon), one with FILTER=ft (Peach warning icon, annotated 'failed allele-frequency threshold'), one with FILTER=sb (Peach warning icon, annotated 'failed strand bias filter')."
+    brief: "A vertical stack of VCF rows shown as a table, with FILTER column highlighted. Three rows shown: one with FILTER=PASS (Deep Ink check mark), one with FILTER=ft (Peach warning icon, annotated 'failed allele-frequency threshold'), one with FILTER=sb (Peach warning icon, annotated 'failed strand bias filter')."
 glossary_refs: [VCF, REF, ALT, allele-frequency, depth, FILTER, INFO, FORMAT, genotype]
 features_refs: [import.vcf, viewport.variant-browser]
 fixtures_refs: []
