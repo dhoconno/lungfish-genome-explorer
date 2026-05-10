@@ -39,7 +39,7 @@ This chapter is more advanced than the rest of Part II because it assumes you al
 
 So what should you do with this? When you have a handful of related FASTAs and a question about how they relate, build the MSA first, look at conservation, then infer a tree only if topology genuinely matters for the question.
 
-<!-- ILLUSTRATION: msa-column-homology -->
+![Three short sequences before and after gap insertion so homologous bases share columns](../../assets/illustrations/02-sequences/04-msa-and-trees/msa-column-homology.png)
 
 ## What you will learn
 
@@ -95,7 +95,7 @@ IQ-TREE on ten sequences finishes in seconds to a minute. The new bundle appears
 
 <!-- SHOT: tree-viewport -->
 
-<!-- ILLUSTRATION: tree-anatomy -->
+![Rectangular phylogram with tips, internal nodes, branch lengths, and bootstrap support values](../../assets/illustrations/02-sequences/04-msa-and-trees/tree-anatomy.png)
 
 ## Interpretation: reading the tree viewport
 
