@@ -34,6 +34,9 @@ public struct WorkflowRun: Codable, Sendable, Identifiable {
     /// Host OS description (e.g., "macOS 26.1 (arm64)").
     public let hostOS: String
 
+    /// Runtime identity for audit and reproducibility.
+    public let runtime: WorkflowRuntime
+
     /// Ordered list of execution steps.
     public var steps: [StepExecution]
 
@@ -48,6 +51,7 @@ public struct WorkflowRun: Codable, Sendable, Identifiable {
         status: RunStatus = .running,
         appVersion: String = Self.currentAppVersion,
         hostOS: String = Self.currentHostOS,
+        runtime: WorkflowRuntime? = nil,
         steps: [StepExecution] = [],
         parameters: [String: ParameterValue] = [:]
     ) {
@@ -58,8 +62,51 @@ public struct WorkflowRun: Codable, Sendable, Identifiable {
         self.status = status
         self.appVersion = appVersion
         self.hostOS = hostOS
+        self.runtime = runtime ?? WorkflowRuntime(appVersion: appVersion, hostOS: hostOS, user: Self.currentUser)
         self.steps = steps
         self.parameters = parameters
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case startTime
+        case endTime
+        case status
+        case appVersion
+        case hostOS
+        case runtime
+        case steps
+        case parameters
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        startTime = try container.decode(Date.self, forKey: .startTime)
+        endTime = try container.decodeIfPresent(Date.self, forKey: .endTime)
+        status = try container.decode(RunStatus.self, forKey: .status)
+        appVersion = try container.decode(String.self, forKey: .appVersion)
+        hostOS = try container.decode(String.self, forKey: .hostOS)
+        runtime = try container.decodeIfPresent(WorkflowRuntime.self, forKey: .runtime)
+            ?? WorkflowRuntime(appVersion: appVersion, hostOS: hostOS, user: nil)
+        steps = try container.decode([StepExecution].self, forKey: .steps)
+        parameters = try container.decode([String: ParameterValue].self, forKey: .parameters)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(startTime, forKey: .startTime)
+        try container.encodeIfPresent(endTime, forKey: .endTime)
+        try container.encode(status, forKey: .status)
+        try container.encode(appVersion, forKey: .appVersion)
+        try container.encode(hostOS, forKey: .hostOS)
+        try container.encode(runtime, forKey: .runtime)
+        try container.encode(steps, forKey: .steps)
+        try container.encode(parameters, forKey: .parameters)
     }
 
     /// Total wall-clock time for the entire run.
@@ -96,6 +143,35 @@ public struct WorkflowRun: Codable, Sendable, Identifiable {
         let arch = "x86_64"
         #endif
         return "macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion) (\(arch))"
+    }
+
+    public static var currentUser: String {
+        let nsUser = NSUserName()
+        if !nsUser.isEmpty { return nsUser }
+        let env = ProcessInfo.processInfo.environment
+        if let user = env["USER"], !user.isEmpty { return user }
+        if let logname = env["LOGNAME"], !logname.isEmpty { return logname }
+        return "unknown"
+    }
+}
+
+// MARK: - WorkflowRuntime
+
+/// Runtime identity captured for a workflow execution.
+public struct WorkflowRuntime: Codable, Sendable, Equatable {
+    /// Lungfish app version that performed this run.
+    public let appVersion: String
+
+    /// Host OS description (e.g., "macOS 26.1 (arm64)").
+    public let hostOS: String
+
+    /// OS user account that ran the operation.
+    public let user: String?
+
+    public init(appVersion: String, hostOS: String, user: String?) {
+        self.appVersion = appVersion
+        self.hostOS = hostOS
+        self.user = user
     }
 }
 

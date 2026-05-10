@@ -135,15 +135,16 @@ public final class ReferenceBundleAnnotationImportService {
         } else {
             throw ReferenceBundleAnnotationImportError.unsupportedFormat(sourceURL)
         }
-        guard featureCount > 0 else {
-            try? FileManager.default.removeItem(at: databaseURL)
-            throw ReferenceBundleAnnotationImportError.noImportableAnnotations(sourceURL)
+        if featureCount == 0 {
+            annotationImportLogger.warning("Attached empty annotation track for \(sourceURL.lastPathComponent, privacy: .public); no importable annotations were found")
         }
 
         let track = AnnotationTrackInfo(
             id: trackID,
             name: sourceURL.deletingPathExtension().lastPathComponent,
-            description: "Imported from \(sourceURL.lastPathComponent)",
+            description: featureCount == 0
+                ? "Imported from \(sourceURL.lastPathComponent) (no annotations found)"
+                : "Imported from \(sourceURL.lastPathComponent)",
             path: databasePath,
             databasePath: databasePath,
             annotationType: .custom,
@@ -258,7 +259,8 @@ public final class ReferenceBundleAnnotationImportService {
                 "trackName": track.name,
                 "format": format,
                 "importer": importerName,
-                "rejectZeroFeatureTracks": "true",
+                "rejectZeroFeatureTracks": "false",
+                "emptyAnnotationManifestEntry": featureCount == 0 ? "true" : "false",
                 "storedCoordinateSystem": "0-based half-open",
             ],
             inputPaths: inputSnapshots.map(\.path),

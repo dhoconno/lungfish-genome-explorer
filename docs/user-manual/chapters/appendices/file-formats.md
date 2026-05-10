@@ -92,7 +92,7 @@ samtools idxstats alignment.bam
 | BGZipped VCF | `.vcf.gz` | Compressed VCF | Same as VCF |
 | Tabix index | `.tbi` | Random access into `.vcf.gz` | [tabix spec](https://samtools.github.io/hts-specs/tabix.pdf) |
 
-VCF stores variants relative to a reference. Lungfish reads plain VCF for small files and bgzipped VCF with a tabix index for large files. The header declares fields and contigs; the body lists one variant per line:
+VCF stores variants relative to a reference. Lungfish reads VCF 4.0, 4.1, 4.2, 4.3, and 4.4 only, either as plain VCF for small files or bgzipped VCF with a tabix index for large files. VCFv3 files must be converted to VCF 4.x with an external converter before import. The header declares fields and contigs; the body lists one variant per line:
 
 ```vcf
 ##fileformat=VCFv4.2

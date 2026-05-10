@@ -74,6 +74,7 @@ A sidecar is a single JSON document with seven top-level keys. The shape is stab
   ],
   "runtime": {
     "host": "tarpon.local",
+    "user": "diana",
     "os": "macOS 26.1",
     "arch": "arm64",
     "cpu_threads": 8,
@@ -96,7 +97,7 @@ A sidecar is a single JSON document with seven top-level keys. The shape is stab
 }
 ```
 
-The keys read top to bottom as a story. `workflow` names the Lungfish operation and `version` pins the Lungfish build that ran it. `command` is the resolved shell-equivalent of the operation, with all paths and parameters substituted. `inputs[]` and `outputs[]` list every file the step read or wrote, each with a SHA-256 checksum and byte size. `runtime` records the machine, the wall clock, and the exit status. `tool` resolves the plugin pack and the conda environment that hosted the binary. `steps[]` decomposes a multi-process pipeline (such as `samtools mpileup | ivar variants`) into one entry per process, each with its own command and exit status.
+The keys read top to bottom as a story. `workflow` names the Lungfish operation and `version` pins the Lungfish build that ran it. `command` is the resolved shell-equivalent of the operation, with all paths and parameters substituted. `inputs[]` and `outputs[]` list every file the step read or wrote, each with a SHA-256 checksum and byte size. `runtime` records the machine, OS user account, wall clock, and exit status. `tool` resolves the plugin pack and the conda environment that hosted the binary. `steps[]` decomposes a multi-process pipeline (such as `samtools mpileup | ivar variants`) into one entry per process, each with its own command and exit status.
 
 When Lungfish reads a sidecar later (for the auto-confirm behaviour in the iVar dialog, or for export), it walks `inputs[]` to verify checksums match the files currently on disk. A mismatch downgrades the auto-confirm to a manual prompt and surfaces a warning in the operation row.
 
@@ -111,7 +112,7 @@ Every Lungfish project carries a complete provenance graph: every output's sidec
 | Snakemake | `Snakefile` with rules keyed on output paths plus `config.yaml` | Lab pipelines that already use Snakemake conventions |
 | Methods Section | A plain-prose paragraph in Markdown, with tool names and versions inline | Methods sections in papers and clinical reports |
 
-The Shell export is the most direct: it is a flat script that calls every tool in the order Lungfish ran them, with the exact parameters from each sidecar. Nextflow and Snakemake exports decompose the same graph into named processes or rules, so a downstream user can run a single sample or scale to many. The Methods Section export emits prose suitable for pasting into a paper, with parenthetical version numbers and a citation for each tool.
+The Shell export is the most direct: it is a flat script that calls every tool in the order Lungfish ran them, with the exact parameters from each sidecar. Nextflow and Snakemake exports decompose the same graph into named processes or rules, so a downstream user can run a single sample or scale to many. The Methods Section export emits prose suitable for pasting into a paper, with parenthetical version numbers and a citation for each tool. It starts with an automatically-generated draft warning banner so the text gets a deliberate human review pass before submission.
 
 All four exports include a `provenance/` directory with the original sidecars copied verbatim. A reviewer can re-run the script and then diff the new sidecars against the originals to see which steps reproduced bit-identically and which did not.
 
@@ -162,7 +163,7 @@ python provenance/scripts/ivar_to_vcf.py variants.tsv \
 tabix -p vcf SRR36291587.ivar.vcf.gz
 ```
 
-The Methods Section export from the same selection produces a paragraph along the lines of: "Reads were mapped to MN908947.3 with minimap2 v2.28, sorted and indexed with samtools v1.21, primer-trimmed with iVar v1.4.4 against the QIAseq Direct SARS-CoV-2 primer scheme, and called against the same reference with iVar variants v1.4.4 at minimum allele frequency 0.05 and minimum depth 10, codon-annotated with the matching GFF3." The exact wording is templated from the workflow type and the tool versions in each sidecar.
+The Methods Section export starts with `<!-- This is an automatically-generated draft. Read it before submitting. -->`, followed by a paragraph along the lines of: "Reads were mapped to MN908947.3 with minimap2 v2.28, sorted and indexed with samtools v1.21, primer-trimmed with iVar v1.4.4 against the QIAseq Direct SARS-CoV-2 primer scheme, and called against the same reference with iVar variants v1.4.4 at minimum allele frequency 0.05 and minimum depth 10, codon-annotated with the matching GFF3." The exact wording is templated from the workflow type and the tool versions in each sidecar.
 
 ## Reproducibility checklist
 
