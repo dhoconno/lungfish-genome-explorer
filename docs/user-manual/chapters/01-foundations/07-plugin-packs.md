@@ -92,12 +92,14 @@ everything upfront. Install a pack the first time a chapter asks for it.
 | Pack | Tools | Used by |
 |---|---|---|
 | `read-mapping` | minimap2, BWA-MEM2, Bowtie2, BBMap, samtools | Map Reads chapter, Primer Trim chapter |
-| `variant-calling` | iVar, LoFreq, Medaka, bcftools, tabix, bgzip | Variants chapters |
+| `variant-calling` | iVar, LoFreq, Medaka, Clair3, bcftools, tabix, bgzip | Variants chapters |
 | `gatk-core` | GATK4 | Human germline variants dry-run chapters |
+| `phasing` | WhatsHap | Phased variant command plans |
 | `classification-kraken2` | Kraken2, KrakenTools | Kraken2 classification chapter |
 | `classification-esviritu` | EsViritu and its references | EsViritu classification chapter |
 | `classification-taxtriage` | TaxTriage workflow tools | TaxTriage classification chapter |
 | `classification-naomgs` | NAO-MGS pipeline tools | NAO-MGS classification chapter |
+| `wastewater-surveillance` | Freyja | Freyja lineage demixing chapter |
 | `assembly` | SPAdes, MEGAHIT, SKESA, Flye, Hifiasm | Assembly chapters |
 | `read-qc` | fastp | Read QC chapter |
 | `decontamination` | Deacon, RiboDetector | Host decontamination chapter |

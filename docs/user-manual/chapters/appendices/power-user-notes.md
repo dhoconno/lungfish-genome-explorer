@@ -82,7 +82,7 @@ The `-g` flag is what triggers codon-merge. Without it, iVar emits per-position 
 
 The Lungfish iVar TSV-to-VCF converter examines each iVar TSV row's codon-position and codon-content fields. When two adjacent SNPs share the same codon coordinates, the converter merges them into a single VCF row with multi-base REF and ALT. Position 28881 G→A and position 28882 G→A in the SARS-CoV-2 N gene fall inside codon 203; the merged row reads `28881  GG  AA` rather than two single-base rows.
 
-Position 28883 G→C is in codon 204, so it stays on its own row. The merge is positional (within-codon coordinate boundary) plus content-aware (both rows must read as alternates of the same codon's bases). The merge is not phase-aware: iVar does not know whether the two changes are on the same molecule. The single-row representation makes the codon boundary visible in the table; for haplotype-phased calls you need a tool that consumes phased BAMs (HaplotypeCaller, WhatsHap), which Lungfish does not currently wrap.
+Position 28883 G→C is in codon 204, so it stays on its own row. The merge is positional (within-codon coordinate boundary) plus content-aware (both rows must read as alternates of the same codon's bases). The merge is not phase-aware: iVar does not know whether the two changes are on the same molecule. The single-row representation makes the codon boundary visible in the table. For haplotype-phased calls, use `lungfish variants phase` to build a GATK HaplotypeCaller plus WhatsHap command plan, or choose the GATK+WhatsHap phased lane in the BAM Variant Calling dialog when the `gatk-core` and `phasing` packs are installed.
 
 ## LoFreq variant calling internals
 

@@ -4,12 +4,14 @@ chapter_id: 05-variants/04-nanopore-variant-calling
 audience: analyst
 prereqs: [05-variants/01-calling-variants-from-amplicons, 03-reads/07-ont-runs]
 estimated_reading_min: 10
-task: Call variants from Oxford Nanopore amplicon reads using Medaka.
-tags: [variants, medaka, nanopore, ont, long-read]
-tools: [medaka]
+task: Call variants from Oxford Nanopore amplicon reads using Medaka or Clair3.
+tags: [variants, medaka, clair3, nanopore, ont, long-read]
+tools: [medaka, clair3]
 entry_points:
   - "Inspector > Analysis > Variant Calling > Call Variants (Medaka tab)"
+  - "Inspector > Analysis > Variant Calling > Call Variants (Clair3 tab)"
   - "CLI: lungfish variants call --caller medaka"
+  - "CLI: lungfish variants call --caller clair3"
 shots: []
 planned_shots:
   - id: variant-call-dialog-medaka
@@ -28,15 +30,15 @@ lead_approved: false
 
 Oxford Nanopore reads have a different error profile than Illumina. Per-base accuracy on a modern R10.4.1 flow cell sits around Q15 to Q20 for simplex reads (roughly 1 to 3 percent error per base) and reaches Q30 or higher for duplex reads, which is comparable to Illumina. The errors are not random: they cluster near homopolymer runs and certain k-mers that the basecaller has trouble resolving. The shape of those errors changes with each release of the basecaller and with each pore chemistry.
 
-Generic variant callers struggle with this. iVar and LoFreq both assume Illumina-grade per-base quality scores, and on raw ONT data they will either flag every homopolymer as a variant or miss real low-frequency variants in the noise. The right caller for ONT data is one that has learned the basecaller's error profile. In Lungfish that caller is **Medaka**, a neural-network-based caller that ships pretrained models keyed to specific basecaller versions and pore chemistries.
+Generic variant callers struggle with this. iVar and LoFreq both assume Illumina-grade per-base quality scores, and on raw ONT data they will either flag every homopolymer as a variant or miss real low-frequency variants in the noise. The right caller for ONT data is one that has learned the basecaller's error profile. In Lungfish, the ONT-specific choices are **Medaka** and **Clair3**, both model-backed callers keyed to specific basecaller versions and pore chemistries.
 
 The catch is that the model has to match. A Medaka model trained against Dorado v4.2.0 simplex output will give silently worse results on reads basecalled by Guppy v6, and vice versa. Before you call variants you need to know which basecaller produced the FASTQ.
 
-So what should you do with this? Confirm the basecaller version that produced your ONT reads, choose the matching Medaka model in the Variant Calling dialog, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
+So what should you do with this? Confirm the basecaller version that produced your ONT reads, choose the matching Medaka model or Clair3 model path in the Variant Calling dialog, and treat any "unknown" answer as a flag to stop and investigate before calling variants.
 
 ## What you will learn
 
-By the end of this chapter you will know which Medaka model to pick for a given ONT run, how to drive the Variant Calling dialog with Medaka selected, and how to read the resulting VCF. You will also know what to do when the basecaller version is missing from the run metadata, and where Clair3 fits into the broader long-read variant-calling landscape.
+By the end of this chapter you will know which Medaka or Clair3 model to pick for a given ONT run, how to drive the Variant Calling dialog with an ONT caller selected, and how to read the resulting VCF. You will also know what to do when the basecaller version is missing from the run metadata.
 
 ## A note on fixture status
 
@@ -94,11 +96,11 @@ If the run is amplicon-sequenced (ARTIC, Midnight, QIAseq Direct ONT), primer-tr
 
 The output is a new track suffixed `Primer-trimmed (<scheme>)`, with primer-trim provenance attached. Medaka, like iVar, will see the sidecar and know the alignment is already trimmed.
 
-### Step 3. Open the Variant Calling dialog and choose Medaka
+### Step 3. Open the Variant Calling dialog and choose an ONT caller
 
 Click the primer-trimmed alignment track. In the Inspector's `Analysis` section, select `Variant Calling` and click `Call Variants…`. The dialog opens with three columns: a tool sidebar on the left, an `Inputs` section in the middle, and an `Output` section on the right.
 
-On the left sidebar, choose `Medaka`. The middle column updates: instead of iVar's allele-frequency tunables, you see Medaka-specific options. The most important one is `Basecaller model`.
+On the left sidebar, choose `Medaka` or `Clair3`. The middle column updates: instead of iVar's allele-frequency tunables, you see ONT caller options. Medaka asks for a basecaller model name. Clair3 asks for a model path or model identifier that `run_clair3.sh` can resolve in the installed environment.
 
 <!-- planned: variant-call-dialog-medaka -->
 
@@ -110,7 +112,7 @@ Open the `Basecaller model` dropdown. The picker lists the models bundled with t
 
 If you confirmed the basecaller version in the previous section, choose the matching entry. If you did not, see "What to do when the basecaller is unknown" above. Leave the rest of the Medaka options at their defaults for a first pass: `Minimum mapping quality 20`, `Minimum depth 20`, `Region` blank (call across the whole reference). Name the output track `Medaka variants` and click `Run`.
 
-Behind the dialog Lungfish runs `medaka_haploid_variant` (or the equivalent `medaka inference` plus `medaka vcf` pipeline, depending on the bundled Medaka version) against the primer-trimmed BAM and the reference FASTA, then bgzips and tabix-indexes the resulting VCF. A new variant track named `Medaka variants` appears under `Variants` in the sidebar when the operation finishes.
+Behind the dialog Lungfish runs the selected caller against the primer-trimmed BAM and the reference FASTA, then bgzips and tabix-indexes the resulting VCF. Medaka uses `medaka_haploid_variant` or the equivalent Medaka inference pipeline. Clair3 uses `run_clair3.sh` with `--bam_fn`, `--ref_fn`, `--model_path`, `--platform=ont`, and `--threads`. A new variant track appears under `Variants` in the sidebar when the operation finishes.
 
 The CLI equivalent is one command:
 
@@ -123,6 +125,17 @@ lungfish variants call \
     --name "Medaka variants"
 ```
 
+For Clair3, keep the same bundle and alignment arguments and change the caller plus model:
+
+```bash
+lungfish variants call \
+    --bundle MyReference.lungfishref \
+    --alignment-track <trimmed-track-id> \
+    --caller clair3 \
+    --medaka-model /models/clair3/r1041_e82_400bps_sup_v5.0.0 \
+    --name "Clair3 variants"
+```
+
 ## Worked example: ONT-SAMPLE-01
 
 The hypothetical fixture `ONT-SAMPLE-01` is a SARS-CoV-2 ARTIC v3 amplicon run, basecalled with Dorado v4.2.0 in super-accuracy mode against R10.4.1 chemistry at 400 bps. Reads are roughly 400 bp long, single-end, with the model identifier `dna_r10.4.1_e8.2_400bps_sup@v4.2.0` in the FASTQ header.
@@ -133,11 +146,14 @@ The expected output for an Omicron-lineage isolate at this read depth is roughly
 
 When the real fixture lands, this section will be re-run against it. The numbers above are the order of magnitude to expect, not exact.
 
-## Where Clair3 fits
+## Choosing between Medaka and Clair3
 
-Clair3 is a separate neural-network ONT variant caller that has gained ground for human germline variant calling and for some viral applications. It is not currently bundled with Lungfish. Two things to know about it. First, like Medaka, Clair3 is model-specific and the same basecaller-version-matching rule applies; the model file extensions and naming conventions differ. Second, for SARS-CoV-2 amplicon work the published benchmarks generally show Medaka and Clair3 within a few rows of each other, with Medaka still the more widely-used choice in viral consensus pipelines such as `artic minion` and `epi2me-labs/wf-artic`.
+Clair3 is a separate neural-network ONT variant caller that has gained ground for human germline variant calling and for some viral applications. Like Medaka, Clair3 is model-specific and the same basecaller-version-matching rule applies; the model file extensions and naming conventions differ. For SARS-CoV-2 amplicon work, Medaka remains the conservative choice when you need compatibility with established viral consensus pipelines, while Clair3 is useful when your lab has validated Clair3 models or wants an orthogonal ONT call set for comparison.
 
-If a future Lungfish release adds Clair3, it will appear as a fourth entry on the Variant Calling dialog's tool sidebar, alongside iVar, LoFreq, and Medaka. Until then, Medaka is the supported ONT caller.
+| Caller | Use it when | Model input | Lungfish surface |
+|---|---|---|---|
+| Medaka | You want the established viral ONT caller used by common consensus workflows. | Medaka model name such as `r1041_e82_400bps_sup_v4.2.0`. | Variant Calling dialog and `lungfish variants call --caller medaka`. |
+| Clair3 | You have validated Clair3 for the run type or want an independent ONT call set. | Clair3 model path or identifier passed to `run_clair3.sh --model_path`. | Variant Calling dialog and `lungfish variants call --caller clair3`. |
 
 ## Interpretation
 

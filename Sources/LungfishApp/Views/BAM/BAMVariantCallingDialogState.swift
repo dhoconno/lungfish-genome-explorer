@@ -44,6 +44,7 @@ final class BAMVariantCallingDialogState {
     private(set) var generatedTrackID: String
     private(set) var pendingRequest: BundleVariantCallingRequest?
     private(set) var pendingGATKRequest: GATKPipelineExecutionRequest?
+    private(set) var pendingPhasedVariantPlan: PhasedVariantCallingPlan?
 
     /// Provenance record discovered alongside the selected BAM, when present.
     ///
@@ -87,6 +88,7 @@ final class BAMVariantCallingDialogState {
         self.generatedTrackID = Self.makeTrackID()
         self.pendingRequest = nil
         self.pendingGATKRequest = nil
+        self.pendingPhasedVariantPlan = nil
         self.outputTrackName = ""
         self.outputTrackName = suggestedOutputTrackName(
             bundle: bundle,
@@ -168,6 +170,9 @@ final class BAMVariantCallingDialogState {
         if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
             return "Ready to run GATK HaplotypeCaller on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         }
+        if selectedToolID == BAMVariantCallingToolID.gatkWhatsHapPhased.rawValue {
+            return "Ready to build a GATK plus WhatsHap phased command plan for \(selectedAlignmentTrack?.name ?? "the selected alignment")."
+        }
 
         switch selectedCaller {
         case .lofreq:
@@ -185,6 +190,10 @@ final class BAMVariantCallingDialogState {
             return trimmedMedakaModel.isEmpty
                 ? "Provide the ONT/basecaller model required by Medaka."
                 : "Ready to run Medaka with model \(trimmedMedakaModel)."
+        case .clair3:
+            return trimmedMedakaModel.isEmpty
+                ? "Provide the Clair3 model path or ONT model identifier."
+                : "Ready to run Clair3 with model \(trimmedMedakaModel)."
         }
     }
 
@@ -200,6 +209,9 @@ final class BAMVariantCallingDialogState {
         if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
             return true
         }
+        if selectedToolID == BAMVariantCallingToolID.gatkWhatsHapPhased.rawValue {
+            return true
+        }
 
         switch selectedCaller {
         case .lofreq, .bcftools:
@@ -207,6 +219,8 @@ final class BAMVariantCallingDialogState {
         case .ivar:
             return ivarPrimerTrimConfirmed
         case .medaka:
+            return !trimmedMedakaModel.isEmpty
+        case .clair3:
             return !trimmedMedakaModel.isEmpty
         }
     }
@@ -240,8 +254,14 @@ final class BAMVariantCallingDialogState {
         if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
             pendingRequest = nil
             pendingGATKRequest = makeGATKRequest()
+            pendingPhasedVariantPlan = nil
+        } else if selectedToolID == BAMVariantCallingToolID.gatkWhatsHapPhased.rawValue {
+            pendingRequest = nil
+            pendingGATKRequest = nil
+            pendingPhasedVariantPlan = makePhasedVariantPlan()
         } else {
             pendingGATKRequest = nil
+            pendingPhasedVariantPlan = nil
             pendingRequest = makeRequest()
         }
     }
@@ -376,10 +396,46 @@ final class BAMVariantCallingDialogState {
         )
     }
 
+    private func makePhasedVariantPlan() -> PhasedVariantCallingPlan? {
+        guard isRunEnabled else { return nil }
+        guard let track = selectedAlignmentTrack else { return nil }
+        guard let genome = bundle.manifest.genome else { return nil }
+
+        let referenceURL = bundle.url.appendingPathComponent(genome.path)
+        let bamURL = bundle.url.appendingPathComponent(track.sourcePath)
+        let outputURL = bundle.url
+            .appendingPathComponent("variants/phased", isDirectory: true)
+            .appendingPathComponent("\(generatedTrackID).phased.vcf.gz")
+        return PhasedVariantCallingPlan(
+            configuration: PhasedVariantCallingConfiguration(
+                referenceFASTAURL: referenceURL,
+                inputBAMURL: bamURL,
+                outputVCFURL: outputURL,
+                outputDirectory: outputURL.deletingLastPathComponent(),
+                threads: max(1, ProcessInfo.processInfo.activeProcessorCount),
+                extraGATKArguments: parsedAdvancedOptions
+            ),
+            gatkVersion: Self.gatkToolVersion(),
+            whatsHapVersion: Self.whatsHapToolVersion(),
+            runtimeIdentity: PhasedVariantRuntimeIdentity(
+                gatkCondaEnvironment: Self.gatkRuntimeIdentity().condaEnvironment ?? "",
+                whatsHapCondaEnvironment: CondaManager.shared.rootPrefix
+                    .appendingPathComponent("envs/phasing", isDirectory: true).path
+            )
+        )
+    }
+
     private static func gatkToolVersion() -> String {
         PluginPack.builtInPack(id: "gatk-core")?
             .toolRequirements
             .first(where: { $0.environment == "gatk-core" })?
+            .version ?? "unknown"
+    }
+
+    private static func whatsHapToolVersion() -> String {
+        PluginPack.builtInPack(id: "phasing")?
+            .toolRequirements
+            .first(where: { $0.environment == "phasing" })?
             .version ?? "unknown"
     }
 

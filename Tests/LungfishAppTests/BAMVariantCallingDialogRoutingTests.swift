@@ -105,6 +105,19 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         XCTAssertEqual(item?.availability, .available)
     }
 
+    func testCatalogIncludesClair3AndPhasedGATKWhatsHapLane() {
+        let items = BAMVariantCallingCatalog.availableSidebarItems()
+        let clair3 = items.first { $0.id == "clair3" }
+        let phased = items.first { $0.id == "gatk-whatshap-phased" }
+
+        XCTAssertEqual(clair3?.title, "Clair3")
+        XCTAssertEqual(clair3?.subtitle, "ONT-focused neural-network variant calling with Clair3.")
+        XCTAssertEqual(clair3?.availability, .available)
+        XCTAssertEqual(phased?.title, "GATK + WhatsHap Phased")
+        XCTAssertEqual(phased?.subtitle, "Phase-aware HaplotypeCaller plus WhatsHap command plan.")
+        XCTAssertEqual(phased?.availability, .available)
+    }
+
     @MainActor
     func testDialogStateParsesAdvancedOptionsIntoPendingRequest() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
@@ -310,6 +323,22 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
             items.first(where: { $0.id == ViralVariantCaller.bcftools.rawValue })?.availability,
             .disabled(reason: "Requires Third-Party Tools Pack")
         )
+    }
+
+    func testCatalogGatesPhasedLaneOnBothGATKAndPhasingPacks() async throws {
+        let catalog = BAMVariantCallingCatalog(
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .ready,
+                "lungfish-tools": .ready,
+                "gatk-core": .ready,
+                "phasing": .needsInstall,
+            ])
+        )
+
+        let items = await catalog.sidebarItems()
+        let phased = try XCTUnwrap(items.first(where: { $0.id == "gatk-whatshap-phased" }))
+
+        XCTAssertEqual(phased.availability, .disabled(reason: "Requires Variant Phasing Pack"))
     }
 
     @MainActor

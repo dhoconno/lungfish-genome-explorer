@@ -8,7 +8,7 @@ struct VariantsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "variants",
         abstract: "Call viral variants from a bundle-owned alignment track",
-        subcommands: [CallSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self]
+        subcommands: [CallSubcommand.self, PhaseSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self]
     )
 
     struct Runtime {
@@ -105,6 +105,8 @@ struct VariantsCommand: AsyncParsableCommand {
             return .medaka
         case .bcftools:
             return .bcftools
+        case .clair3:
+            return .clair3
         }
     }
 }
@@ -177,6 +179,210 @@ extension VariantsCommand {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+    }
+
+    static func writeCommandPlanProvenance(
+        workflowName: String,
+        workflowVersion: String,
+        command: [String],
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        parameters: [String: ParameterValue],
+        outputDirectory: URL,
+        startedAt: Date,
+        completedAt: Date,
+        exitCode: Int32 = 0,
+        stderr: String? = nil
+    ) throws {
+        let step = StepExecution(
+            toolName: workflowName,
+            toolVersion: workflowVersion,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: stderr,
+            startTime: startedAt,
+            endTime: completedAt
+        )
+        let run = WorkflowRun(
+            name: workflowName,
+            startTime: startedAt,
+            endTime: completedAt,
+            status: exitCode == 0 ? .completed : .failed,
+            appVersion: workflowVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            steps: [step],
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run)
+            .write(to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+    }
+
+    struct PhaseSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "phase",
+            abstract: "Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command plan"
+        )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and WhatsHap through managed tool packs.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Write and print the command plan without running tools.")
+        var dryRun: Bool = false
+
+        @Option(name: .customLong("reference"), help: "Reference FASTA path")
+        var reference: String
+
+        @Option(name: .customLong("bam"), help: "Input BAM path")
+        var bam: String
+
+        @Option(name: .customLong("output-vcf"), help: "Final phased VCF path")
+        var outputVCF: String
+
+        @Option(name: .customLong("output-dir"), help: "Command-plan/provenance output directory")
+        var outputDirectory: String?
+
+        @Option(name: .customLong("sample"), help: "Optional sample name passed to WhatsHap")
+        var sampleName: String?
+
+        @Option(name: .customLong("threads"), help: "GATK PairHMM threads")
+        var threads: Int = 1
+
+        @Option(name: .customLong("extra-gatk-args"), parsing: .unconditional, help: "Additional GATK HaplotypeCaller arguments")
+        var extraGATKArgs: String = ""
+
+        @Option(name: .customLong("extra-whatshap-args"), parsing: .unconditional, help: "Additional WhatsHap phase arguments")
+        var extraWhatsHapArgs: String = ""
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse variants phase arguments.")
+            }
+            return parsed
+        }
+
+        func run() async throws {
+            try await executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            let startedAt = Date()
+            let outputVCFURL = URL(fileURLWithPath: outputVCF)
+            let outputDirURL = URL(fileURLWithPath: outputDirectory ?? outputVCFURL.deletingLastPathComponent().path)
+            try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
+            let plan = try buildPlan(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL)
+            let planURL = outputDirURL.appendingPathComponent("phased-variant-command-plan.json")
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(plan).write(to: planURL, options: .atomic)
+
+            for command in plan.commands {
+                emit(command.shellCommand)
+            }
+
+            if execute && !dryRun {
+                try await runPlan(plan)
+                emit("Phased variant calling complete.")
+            } else {
+                emit("Command plan: \(planURL.path)")
+            }
+
+            let completedAt = Date()
+            try VariantsCommand.writeCommandPlanProvenance(
+                workflowName: plan.workflowName,
+                workflowVersion: plan.workflowVersion,
+                command: ["lungfish", "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
+                inputs: plan.inputs,
+                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + plan.outputs,
+                parameters: [
+                    "packIDs": .string(plan.packIDs.joined(separator: ",")),
+                    "execute": .string(String(execute && !dryRun)),
+                    "threads": .string(String(max(1, threads))),
+                    "containerRuntime": .string("none"),
+                    "gatkRuntime": .string(plan.runtimeIdentity.gatkCondaEnvironment),
+                    "whatsHapRuntime": .string(plan.runtimeIdentity.whatsHapCondaEnvironment),
+                    "options": .dictionary(plan.options.mapValues { .string($0) }),
+                    "resolvedDefaults": .dictionary(plan.resolvedDefaults.mapValues { .string($0) }),
+                ],
+                outputDirectory: outputDirURL,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+
+        private func buildPlan(outputDirURL: URL, outputVCFURL: URL) throws -> PhasedVariantCallingPlan {
+            PhasedVariantCallingPlan(
+                configuration: PhasedVariantCallingConfiguration(
+                    referenceFASTAURL: URL(fileURLWithPath: reference),
+                    inputBAMURL: URL(fileURLWithPath: bam),
+                    outputVCFURL: outputVCFURL,
+                    outputDirectory: outputDirURL,
+                    threads: threads,
+                    sampleName: sampleName,
+                    extraGATKArguments: try GATKCLICommand.parseExtraArgs(extraGATKArgs),
+                    extraWhatsHapArguments: try GATKCLICommand.parseExtraArgs(extraWhatsHapArgs)
+                ),
+                gatkVersion: GATKCLICommand.defaultToolVersion(),
+                whatsHapVersion: PluginPack.builtInPack(id: "phasing")?
+                    .toolRequirements.first(where: { $0.id == "whatshap" })?.version ?? "unknown",
+                runtimeIdentity: PhasedVariantRuntimeIdentity(
+                    gatkCondaEnvironment: CondaManager.shared.rootPrefix
+                        .appendingPathComponent("envs/gatk-core", isDirectory: true).path,
+                    whatsHapCondaEnvironment: CondaManager.shared.rootPrefix
+                        .appendingPathComponent("envs/phasing", isDirectory: true).path
+                ),
+                workflowVersion: "lungfish-cli \(LungfishCLI.configuration.version)"
+            )
+        }
+
+        private func runPlan(_ plan: PhasedVariantCallingPlan) async throws {
+            for command in plan.commands {
+                let result = try await CondaManager.shared.runTool(
+                    name: command.executable,
+                    arguments: command.arguments,
+                    environment: command.environment,
+                    workingDirectory: nil,
+                    timeout: 24 * 60 * 60
+                )
+                guard result.exitCode == 0 else {
+                    throw CLIError.workflowFailed(reason: result.stderr.isEmpty ? result.stdout : result.stderr)
+                }
+            }
+        }
+
+        private func originalArguments(outputDirURL: URL, outputVCFURL: URL) -> [String] {
+            var args = [
+                "--reference", reference,
+                "--bam", bam,
+                "--output-vcf", outputVCFURL.path,
+                "--output-dir", outputDirURL.path,
+                "--threads", String(max(1, threads)),
+            ]
+            if let sampleName {
+                args += ["--sample", sampleName]
+            }
+            if !extraGATKArgs.isEmpty {
+                args += ["--extra-gatk-args", extraGATKArgs]
+            }
+            if !extraWhatsHapArgs.isEmpty {
+                args += ["--extra-whatshap-args", extraWhatsHapArgs]
+            }
+            if execute {
+                args.append("--execute")
+            }
+            if dryRun {
+                args.append("--dry-run")
+            }
+            return args
+        }
     }
 
     struct ExtractSampleSubcommand: AsyncParsableCommand {
@@ -361,7 +567,7 @@ extension VariantsCommand {
         @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier")
         var alignmentTrackID: String
 
-        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools")
+        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools, clair3")
         var caller: String
 
         @Option(name: [.customLong("name"), .customLong("output-track-name")], help: "Display name for the created variant track")
@@ -376,7 +582,7 @@ extension VariantsCommand {
         @Flag(name: .customLong("ivar-primer-trimmed"), help: "Confirm the BAM was primer-trimmed before iVar calling")
         var ivarPrimerTrimConfirmed: Bool = false
 
-        @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier for Medaka")
+        @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier or Clair3 model path")
         var medakaModel: String?
 
         @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus (default 0.75)")

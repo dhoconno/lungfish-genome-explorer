@@ -390,6 +390,23 @@ public extension PluginPack {
                     license: "MPL-2.0",
                     sourceURL: "https://github.com/nanoporetech/medaka"
                 ),
+                PackToolRequirement(
+                    id: "clair3",
+                    displayName: "Clair3",
+                    environment: "clair3",
+                    installPackages: ["bioconda::clair3=1.0.10"],
+                    executables: ["run_clair3.sh"],
+                    smokeTest: .command(
+                        executable: "run_clair3.sh",
+                        arguments: ["--help"],
+                        timeoutSeconds: 30,
+                        acceptedExitCodes: [0, 1],
+                        requiredOutputSubstring: "Usage"
+                    ),
+                    version: "1.0.10",
+                    license: "BSD-3-Clause",
+                    sourceURL: "https://github.com/HKU-BAL/Clair3"
+                ),
             ],
             estimatedSizeMB: 260
         ),
@@ -420,6 +437,33 @@ public extension PluginPack {
                 ),
             ],
             estimatedSizeMB: 600
+        ),
+        PluginPack(
+            id: "phasing",
+            name: "Variant Phasing",
+            description: "Read-backed haplotype phasing with WhatsHap",
+            sfSymbol: "point.3.connected.trianglepath.dotted",
+            packages: ["whatshap"],
+            category: "Variant Calling",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "whatshap",
+                    displayName: "WhatsHap",
+                    environment: "phasing",
+                    installPackages: ["bioconda::whatshap=2.3"],
+                    executables: ["whatshap"],
+                    smokeTest: .command(
+                        executable: "whatshap",
+                        arguments: ["--version"],
+                        timeoutSeconds: 10
+                    ),
+                    version: "2.3",
+                    license: "MIT",
+                    sourceURL: "https://github.com/whatshap/whatshap"
+                ),
+            ],
+            estimatedSizeMB: 180
         ),
         PluginPack(
             id: "assembly",
@@ -622,6 +666,20 @@ public extension PluginPack {
             sfSymbol: "drop.triangle",
             packages: ["freyja", "ivar", "pangolin", "nextclade", "minimap2"],
             category: "Surveillance",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "freyja",
+                    displayName: "Freyja",
+                    environment: "freyja",
+                    installPackages: ["bioconda::freyja=2.0.0"],
+                    executables: ["freyja"],
+                    smokeTest: .command(arguments: ["--help"], requiredOutputSubstring: "usage:"),
+                    version: "2.0.0",
+                    license: "BSD-2-Clause",
+                    sourceURL: "https://github.com/andersen-lab/Freyja"
+                ),
+            ],
             postInstallHooks: [
                 PostInstallHook(
                     description: "Download latest SARS-CoV-2 lineage barcodes",

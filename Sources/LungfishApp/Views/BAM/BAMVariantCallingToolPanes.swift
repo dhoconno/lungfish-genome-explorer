@@ -74,6 +74,9 @@ struct BAMVariantCallingToolPanes: View {
             if state.selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
                 Text("GATK HaplotypeCaller will write a standard genotype VCF for the selected BAM.")
                     .foregroundStyle(.secondary)
+            } else if state.selectedToolID == BAMVariantCallingToolID.gatkWhatsHapPhased.rawValue {
+                Text("GATK HaplotypeCaller and WhatsHap will be assembled as a phase-aware command plan.")
+                    .foregroundStyle(.secondary)
             } else {
                 switch state.selectedCaller {
             case .lofreq:
@@ -104,6 +107,15 @@ struct BAMVariantCallingToolPanes: View {
             case .medaka:
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Medaka Model")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+            case .clair3:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Clair3 Model")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
