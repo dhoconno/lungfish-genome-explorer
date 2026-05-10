@@ -101,6 +101,42 @@ The keys read top to bottom as a story. `workflow` names the Lungfish operation 
 
 When Lungfish reads a sidecar later (for the auto-confirm behaviour in the iVar dialog, or for export), it walks `inputs[]` to verify checksums match the files currently on disk. A mismatch downgrades the auto-confirm to a manual prompt and surfaces a warning in the operation row.
 
+## Signed sidecars
+
+For audit workflows that need tamper evidence, Lungfish can write a signature
+artifact next to `.lungfish-provenance.json`. In the local deterministic
+Curve25519 signing provider used for offline labs and tests, a signed sidecar has two companion
+files: `.lungfish-provenance.json.signature.json` and
+`.lungfish-provenance.json.pub`. Verification recomputes the provenance
+SHA-256, checks the public key digest in the signature envelope, and fails
+clearly if the sidecar, signature, or public key is missing or if any bytes
+changed after signing.
+
+Configure signing in **Settings > General > Provenance Signing**. The
+**Local** provider stores its private key in the macOS Keychain. CLI and
+automation environments can instead set `LUNGFISH_PROVENANCE_SIGNING_KEY` or
+`LUNGFISH_PROVENANCE_SIGNING_KEY_FILE`; when either is present, provenance
+writers attach the local signature artifact after writing the JSON sidecar.
+The **Cosign Plan** setting documents the intended sigstore/cosign workflow
+for sites that already manage signing keys outside Lungfish: sign the sidecar
+digest with cosign, keep the signature and public key beside the sidecar, and
+verify those artifacts during intake. Lungfish's built-in verifier currently
+checks the local sidecar format.
+
+Use the CLI to verify a signed sidecar:
+
+```bash
+lungfish provenance verify Results/.lungfish-provenance.json
+```
+
+You can also point at a bundle or directory; Lungfish looks for the root
+`.lungfish-provenance.json` first and then for a bundle roll-up under
+`provenance/`. A missing signature reports the expected signature path, a
+tampered sidecar reports a digest mismatch, and a mismatched public key
+reports a public-key mismatch. Treat any verification failure as an audit
+blocker until the sidecar is regenerated from the original workflow or the
+signature artifact is restored from a trusted source.
+
 ## Export paths
 
 Every Lungfish project carries a complete provenance graph: every output's sidecar plus the cross-references that link a sidecar's input to an earlier sidecar's output. `File > Export > Provenance` walks that graph from a selected leaf node back to the project's roots and emits the result in one of four formats.

@@ -319,6 +319,12 @@ Lists workflows in the project.
 
 Validates a workflow file without running it.
 
+`lungfish workflow diff <old.lungfishflow> <new.lungfishflow> [--format text|json|tsv]`
+
+Compares two saved workflow JSON files or `.lungfishflow` bundles. The diff
+reports version changes, added or removed nodes, node parameter changes, and
+connection changes.
+
 ## Plugin packs
 
 Manage tool dependencies through Lungfish's conda wrapper.
@@ -359,6 +365,14 @@ Reads Lungfish provenance from a bundle or output directory, preferring the root
 ```bash
 lungfish provenance bibliography MN908947.3.lungfishref
 ```
+
+`lungfish provenance verify <file-or-bundle> [--signature <path>] [--public-key <path>]`
+
+Verifies a signed provenance sidecar. By default Lungfish expects
+`<sidecar>.signature.json` and `<sidecar>.pub` beside the sidecar. Verification
+fails if the sidecar, signature, or public key is missing, if the provenance
+digest changed after signing, or if the public key does not match the
+signature artifact.
 
 Runnable workflow exports are generated from the app's workflow export surface. There is not currently a `lungfish provenance show` command; inspect the sidecar or bundle provenance roll-up directly, or use the bibliography subcommand above when you need citations.
 

@@ -79,6 +79,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private static let workflowBundleType = UTType(exportedAs: "org.lungfish.workflow", conformingTo: .package)
 
+    public var workflowVersionDisplayText: String {
+        "v\(graph.version)"
+    }
+
     // MARK: - Lifecycle
 
     public override func viewDidLoad() {
@@ -201,10 +205,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Opens a workflow from a file.
     public func openWorkflow() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [Self.workflowBundleType]
+        panel.allowedContentTypes = Self.workflowContentTypes
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Select a Lungfish workflow bundle"
+        panel.canChooseDirectories = true
+        panel.message = "Select a Lungfish workflow bundle or workflow JSON file"
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -215,12 +219,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Loads a workflow from the specified URL.
     public func loadWorkflow(from url: URL) {
         do {
-            let data: Data
-            if url.pathExtension == "lungfishflow" {
-                data = try Data(contentsOf: url.appendingPathComponent("graph.json"))
-            } else {
-                data = try Data(contentsOf: url)
-            }
+            let data = try Data(contentsOf: Self.workflowJSONURL(for: url))
             let decoder = JSONDecoder()
             let loadedGraph = try decoder.decode(WorkflowGraph.self, from: data)
 
@@ -255,7 +254,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Saves the current workflow with a new name.
     public func saveWorkflowAs() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [Self.workflowBundleType]
+        panel.allowedContentTypes = Self.workflowContentTypes
         panel.nameFieldStringValue = "\(graph.name).lungfishflow"
         panel.message = "Save workflow as"
 
@@ -267,7 +266,17 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func saveWorkflow(to url: URL) {
         do {
-            let savedURL = try saveWorkflowBundle(to: url)
+            let savedURL: URL
+            if url.pathExtension.lowercased() == "json" {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(graph)
+                try data.write(to: url, options: .atomic)
+                workflowURL = url
+                savedURL = url
+            } else {
+                savedURL = try saveWorkflowBundle(to: url)
+            }
 
             hasUnsavedChanges = false
             updateWindowTitle()
@@ -303,9 +312,16 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         let graphData = try encoder.encode(graph)
         let graphURL = bundleURL.appendingPathComponent("graph.json")
         try graphData.write(to: graphURL)
+        let workflowFileURL = bundleURL.appendingPathComponent("workflow.json")
+        try graphData.write(to: workflowFileURL)
 
         let graphAttributes = try fileManager.attributesOfItem(atPath: graphURL.path)
         let graphSize = graphAttributes[.size] as? UInt64 ?? UInt64(graphData.count)
+        let workflowAttributes = try fileManager.attributesOfItem(atPath: workflowFileURL.path)
+        let workflowSize = workflowAttributes[.size] as? UInt64 ?? UInt64(graphData.count)
+
+        let historyURL = try appendWorkflowVersionHistory(in: bundleURL)
+        let historyData = try Data(contentsOf: historyURL)
         let provenance = WorkflowBundleProvenance(
             toolName: "Workflow Builder",
             toolVersion: Self.appVersion,
@@ -320,6 +336,16 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                     path: "graph.json",
                     size: graphSize,
                     sha256: Self.sha256Hex(graphData)
+                ),
+                WorkflowBundleFileProvenance(
+                    path: "workflow.json",
+                    size: workflowSize,
+                    sha256: Self.sha256Hex(graphData)
+                ),
+                WorkflowBundleFileProvenance(
+                    path: "versions/history.json",
+                    size: UInt64(historyData.count),
+                    sha256: Self.sha256Hex(historyData)
                 )
             ],
             exitStatus: 0
@@ -336,6 +362,19 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             return url
         }
         return url.deletingPathExtension().appendingPathExtension("lungfishflow")
+    }
+
+    private func appendWorkflowVersionHistory(in bundleURL: URL) throws -> URL {
+        let historyDirectory = bundleURL.appendingPathComponent("versions", isDirectory: true)
+        try FileManager.default.createDirectory(at: historyDirectory, withIntermediateDirectories: true)
+        let historyURL = historyDirectory.appendingPathComponent("history.json")
+        var history = (try? JSONDecoder().decode([WorkflowVersionHistoryEntry].self, from: Data(contentsOf: historyURL))) ?? []
+        history.append(WorkflowVersionHistoryEntry(version: graph.version, savedAt: Date(), workflowName: graph.name))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(history).write(to: historyURL, options: .atomic)
+        return historyURL
     }
 
     private static var appVersion: String {
@@ -587,13 +626,39 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     // MARK: - Helpers
 
     private func updateWindowTitle() {
-        view.window?.subtitle = graph.name
+        view.window?.subtitle = "\(graph.name) \(workflowVersionDisplayText)"
         if hasUnsavedChanges {
             view.window?.isDocumentEdited = true
         } else {
             view.window?.isDocumentEdited = false
         }
     }
+
+    private static var workflowContentTypes: [UTType] {
+        [workflowBundleType, .json]
+    }
+
+    private static func workflowJSONURL(for url: URL) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        guard isDirectory.boolValue else { return url }
+        let candidates = [
+            url.appendingPathComponent("graph.json"),
+            url.appendingPathComponent("workflow.json"),
+        ]
+        if let candidate = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return candidate
+        }
+        throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.appendingPathComponent("graph.json").path])
+    }
+}
+
+private struct WorkflowVersionHistoryEntry: Codable {
+    let version: String
+    let savedAt: Date
+    let workflowName: String
 }
 
 // MARK: - WorkflowCanvasViewDelegate

@@ -56,8 +56,20 @@ public actor ProvenanceRecorder {
     /// Maps output file paths to the run ID that produced them.
     private var outputIndex: [String: UUID] = [:]
 
+    /// Optional signer used after JSON sidecars are written.
+    private var signingProvider: (any ProvenanceSigningProvider)?
+
     /// Maximum stderr length to store per step (10 KB).
     private static let maxStderrLength = 10_240
+
+    public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
+        self.signingProvider = signingProvider
+    }
+
+    /// Overrides the signing provider for tests or app-managed settings.
+    public func setSigningProvider(_ provider: (any ProvenanceSigningProvider)?) {
+        signingProvider = provider
+    }
 
     // MARK: - Run Lifecycle
 
@@ -200,6 +212,9 @@ public actor ProvenanceRecorder {
         let data = try encoder.encode(run)
         let url = directory.appendingPathComponent(Self.provenanceFilename)
         try data.write(to: url, options: .atomic)
+        if let signingProvider {
+            _ = try signingProvider.sign(provenanceURL: url)
+        }
         logger.info("Provenance: saved run \(runID) to \(url.path)")
     }
 

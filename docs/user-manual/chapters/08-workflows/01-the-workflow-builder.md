@@ -187,6 +187,30 @@ What the saved workflow does not include is the sample. The **Sample input**
 node is bound when you press **Run**, not when you press **Save**, which is
 what makes the workflow reusable across samples.
 
+### Version and diff saved workflows
+
+Every saved `.lungfishflow` carries a semver-style workflow version such as
+`1.0.0` or `1.1.0`. The version is visible in the Workflow Builder window
+subtitle and is written into the saved `workflow.json` inside the bundle.
+When you save a `.lungfishflow`, Lungfish also appends a small
+`versions/history.json` entry with the version, workflow name, and save time.
+That history is intentionally minimal: it gives an audit reader a durable
+version surface without making the Builder a source-control system.
+
+Use the CLI when you need a reviewable diff between two saved versions:
+
+```bash
+lungfish workflow diff Workflows/reads-to-variants-v1.lungfishflow \
+  Workflows/reads-to-variants-v1.1.lungfishflow
+```
+
+The text output names version changes, added or removed nodes, changed node
+parameters, and connection changes. For automated audit checks, add
+`--format json` to emit the same comparison as machine-readable JSON. A
+typical regression gate checks that a workflow moved from `1.0.0` to
+`1.1.0`, then reviews the diff before running the new version against a
+known sample.
+
 ### Run the workflow
 
 Click the **Run** button in the toolbar. A small sheet appears asking you to

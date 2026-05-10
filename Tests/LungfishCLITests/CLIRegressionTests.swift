@@ -525,7 +525,7 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = WorkflowCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 3)
+        XCTAssertEqual(subs.count, 4)
     }
 
     func testDefaultSubcommand() {

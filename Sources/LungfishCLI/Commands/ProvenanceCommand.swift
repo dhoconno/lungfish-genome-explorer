@@ -8,8 +8,63 @@ struct ProvenanceCommand: AsyncParsableCommand {
         abstract: "Inspect provenance recorded in Lungfish bundles",
         subcommands: [
             BibliographySubcommand.self,
+            VerifySubcommand.self,
         ]
     )
+
+    struct VerifySubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "verify",
+            abstract: "Verify a signed Lungfish provenance sidecar"
+        )
+
+        @Argument(help: "Provenance sidecar file, bundle, or output directory")
+        var file: String
+
+        @Option(name: .customLong("signature"), help: "Signature artifact path; defaults to <sidecar>.signature.json")
+        var signature: String?
+
+        @Option(name: .customLong("public-key"), help: "Public key artifact path; defaults to <sidecar>.pub")
+        var publicKey: String?
+
+        func run() async throws {
+            let provenanceURL = try Self.resolveProvenanceURL(URL(fileURLWithPath: file))
+            do {
+                let result = try ProvenanceSignatureVerifier.verify(
+                    provenanceURL: provenanceURL,
+                    signatureURL: signature.map { URL(fileURLWithPath: $0) },
+                    publicKeyURL: publicKey.map { URL(fileURLWithPath: $0) }
+                )
+                print("Signature valid")
+                print("Provider: \(result.provider)")
+                print("Provenance SHA-256: \(result.provenanceSHA256)")
+                print("Signature: \(result.signatureURL.path)")
+                print("Public key: \(result.publicKeyURL.path)")
+            } catch {
+                throw CLIError.workflowFailed(reason: error.localizedDescription)
+            }
+        }
+
+        private static func resolveProvenanceURL(_ url: URL) throws -> URL {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+                throw CLIError.inputFileNotFound(path: url.path)
+            }
+            guard isDirectory.boolValue else { return url }
+
+            let rootSidecar = url.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            if FileManager.default.fileExists(atPath: rootSidecar.path) {
+                return rootSidecar
+            }
+            let provenanceSidecar = url
+                .appendingPathComponent("provenance", isDirectory: true)
+                .appendingPathComponent("bundle.lungfish-provenance.json")
+            if FileManager.default.fileExists(atPath: provenanceSidecar.path) {
+                return provenanceSidecar
+            }
+            throw CLIError.inputFileNotFound(path: rootSidecar.path)
+        }
+    }
 
     struct BibliographySubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(

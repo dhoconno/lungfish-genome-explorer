@@ -58,6 +58,8 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.defaultAnnotationHeight, 16)
         XCTAssertEqual(settings.defaultAnnotationSpacing, 2)
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
+        XCTAssertEqual(settings.provenanceSigningProvider, "off")
+        XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "")
     }
 
     @MainActor
@@ -90,6 +92,8 @@ final class AppSettingsTests: XCTestCase {
         settings.tooltipDelay = 0.5
         settings.aiSearchEnabled = true
         settings.openAIModel = "gpt-4-turbo"
+        settings.provenanceSigningProvider = "local"
+        settings.provenanceSigningPublicKeyPath = "/tmp/lungfish-provenance.pub"
         settings.save()
 
         // Reset in-memory state
@@ -105,6 +109,24 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.tooltipDelay, 0.5)
         XCTAssertTrue(settings.aiSearchEnabled)
         XCTAssertEqual(settings.openAIModel, "gpt-4-turbo")
+        XCTAssertEqual(settings.provenanceSigningProvider, "local")
+        XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "/tmp/lungfish-provenance.pub")
+    }
+
+    @MainActor
+    func testProvenanceSigningProviderNormalizesInvalidValues() {
+        let invalidJSON = """
+        {
+          "provenanceSigningProvider": "unknown",
+          "provenanceSigningPublicKeyPath": "   /tmp/key.pub   "
+        }
+        """
+        UserDefaults.standard.set(invalidJSON.data(using: .utf8), forKey: "com.lungfish.appSettings")
+
+        AppSettings.load()
+
+        XCTAssertEqual(AppSettings.shared.provenanceSigningProvider, "off")
+        XCTAssertEqual(AppSettings.shared.provenanceSigningPublicKeyPath, "/tmp/key.pub")
     }
 
     // MARK: - Reset
