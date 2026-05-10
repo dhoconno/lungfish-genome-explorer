@@ -186,10 +186,12 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
     public let skipErrorCorrection: Bool
     /// Minimum contig length filter.
     public let minContigLength: Int
-    /// Raw advanced-options string reconstructed from parsed arguments.
-    public let advancedOptions: String
+    /// Raw extra-args string reconstructed from parsed arguments.
+    public let extraArgs: String
     /// Parsed advanced arguments passed to the assembler.
     public let advancedArguments: [String]
+
+    public var advancedOptions: String { extraArgs }
 
     private enum CodingKeys: String, CodingKey {
         case mode
@@ -198,7 +200,8 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         case threads
         case skipErrorCorrection = "skip_error_correction"
         case minContigLength = "min_contig_length"
-        case advancedOptions = "advanced_options"
+        case extraArgs
+        case legacyAdvancedOptions = "advanced_options"
         case advancedArguments = "advanced_arguments"
     }
 
@@ -209,7 +212,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         threads: Int,
         skipErrorCorrection: Bool,
         minContigLength: Int,
-        advancedOptions: String = "",
+        extraArgs: String = "",
         advancedArguments: [String] = []
     ) {
         self.mode = mode
@@ -218,7 +221,7 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         self.threads = threads
         self.skipErrorCorrection = skipErrorCorrection
         self.minContigLength = minContigLength
-        self.advancedOptions = advancedOptions
+        self.extraArgs = extraArgs
         self.advancedArguments = advancedArguments
     }
 
@@ -230,8 +233,21 @@ public struct AssemblyParameters: Codable, Sendable, Equatable {
         self.threads = try container.decode(Int.self, forKey: .threads)
         self.skipErrorCorrection = try container.decode(Bool.self, forKey: .skipErrorCorrection)
         self.minContigLength = try container.decode(Int.self, forKey: .minContigLength)
-        self.advancedOptions = try container.decodeIfPresent(String.self, forKey: .advancedOptions) ?? ""
+        self.extraArgs = try container.decodeIfPresent(String.self, forKey: .extraArgs)
+            ?? (try container.decodeIfPresent(String.self, forKey: .legacyAdvancedOptions) ?? "")
         self.advancedArguments = try container.decodeIfPresent([String].self, forKey: .advancedArguments) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(kmerSizes, forKey: .kmerSizes)
+        try container.encode(memoryGB, forKey: .memoryGB)
+        try container.encode(threads, forKey: .threads)
+        try container.encode(skipErrorCorrection, forKey: .skipErrorCorrection)
+        try container.encode(minContigLength, forKey: .minContigLength)
+        try container.encode(extraArgs, forKey: .extraArgs)
+        try container.encode(advancedArguments, forKey: .advancedArguments)
     }
 }
 
@@ -309,7 +325,7 @@ public enum ProvenanceBuilder {
             threads: config.threads,
             skipErrorCorrection: config.skipErrorCorrection,
             minContigLength: config.minContigLength,
-            advancedOptions: AdvancedCommandLineOptions.join(config.customArgs),
+            extraArgs: AdvancedCommandLineOptions.join(config.customArgs),
             advancedArguments: config.customArgs
         )
 
@@ -348,7 +364,7 @@ public enum ProvenanceBuilder {
             threads: request.threads,
             skipErrorCorrection: request.extraArguments.contains("--only-assembler"),
             minContigLength: request.effectiveMinContigLength ?? 0,
-            advancedOptions: AdvancedCommandLineOptions.join(request.extraArguments),
+            extraArgs: AdvancedCommandLineOptions.join(request.extraArguments),
             advancedArguments: request.extraArguments
         )
 

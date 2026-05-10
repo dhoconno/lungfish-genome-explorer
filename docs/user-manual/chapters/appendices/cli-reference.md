@@ -121,14 +121,15 @@ Extracts annotation features from a bundle as a new FASTA bundle.
 
 Map reads to a reference and prepare alignments for variant calling.
 
-`lungfish map <fastq...> --reference <path> [--paired] [--preset <preset>] [--sample-name <name>] [-o <dir>]`
+`lungfish map <fastq...> --reference <path> [--paired] [--preset <preset>] [--sample-name <name>] [--rg-id <id>] [--rg-sm <sample>] [--rg-lb <library>] [--rg-pl <platform>] [--rg-pu <unit>] [--extra-args <args>] [-o <dir>]`
 
-Runs the configured mapper (default minimap2). `--preset` accepts `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi). `-o` names the output directory.
+Runs the configured mapper (default minimap2). `--preset` accepts `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi). Read-group fields default to the sample name, except `--rg-pl`, which defaults from the selected preset. `--extra-args` passes additional mapper arguments through verbatim. `-o` names the output directory.
 
 ```bash
 lungfish map SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     --reference MN908947.3.fasta \
     --paired --preset sr --sample-name SRR36291587 \
+    --extra-args "--eqx" \
     -o mapping/
 ```
 
@@ -205,17 +206,19 @@ Extracts reads assigned to a taxon as a new FASTQ bundle.
 
 Run de novo assemblers.
 
-`lungfish assemble --tool <tool> --reads <fastq...> [--mode <mode>] [--genome-size <size>] [--output <path>]`
+`lungfish assemble <fastq...> [--assembler <tool>] [--read-type <type>] [--profile <profile>] [--extra-args <args>] [--output <path>]`
 
 | Flag | Values | Meaning |
 |---|---|---|
-| `--tool` | `spades`, `megahit`, `skesa`, `flye`, `hifiasm` | Assembler to run |
-| `--mode` | `isolate`, `viral`, `plasmid`, `meta`, `rna` | SPAdes mode (ignored by other tools) |
-| `--genome-size` | `30k`, `5m`, etc. | Hint for Flye coverage estimation |
+| `--assembler` | `spades`, `megahit`, `skesa`, `flye`, `hifiasm` | Assembler to run |
+| `--read-type` | `illumina-short-reads`, `ont-reads`, `pacbio-hifi` | Read class for compatibility checks |
+| `--profile` | Tool-specific profile IDs | Curated assembler settings |
+| `--extra-args` | Quoted argument string | Additional assembler arguments passed through verbatim |
 
 ```bash
-lungfish assemble --tool spades --mode viral \
-    --reads SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
+lungfish assemble SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
+    --assembler spades --read-type illumina-short-reads \
+    --extra-args "--careful" \
     --output Assemblies/
 ```
 

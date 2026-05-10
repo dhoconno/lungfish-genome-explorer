@@ -117,7 +117,7 @@ public enum AssemblyRunner {
             args += ["--profile", profile]
         }
         if !request.extraArguments.isEmpty {
-            args += ["--advanced-options", AdvancedCommandLineOptions.join(request.extraArguments)]
+            args += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
         }
         args += ["--output", executionRequest.outputDirectory.path]
 

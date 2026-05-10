@@ -922,6 +922,13 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             referenceFASTAURL: URL(fileURLWithPath: "/tmp/reference.fa"),
             outputDirectory: URL(fileURLWithPath: "/tmp/mapping-out"),
             sampleName: "Demo",
+            readGroup: MappingReadGroup(
+                id: "rg-custom",
+                sampleName: "sample-custom",
+                library: "library-custom",
+                platform: "ILLUMINA",
+                platformUnit: "unit-custom"
+            ),
             pairedEnd: false,
             threads: 8
         )
@@ -929,6 +936,11 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         state.captureMappingRequest(request)
 
         XCTAssertEqual(state.pendingMappingRequest, request)
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.id, "rg-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.sampleName, "sample-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.library, "library-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platform, "ILLUMINA")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platformUnit, "unit-custom")
         guard case .map(let inputURLs, let referenceURL, let outputMode) = state.pendingLaunchRequest else {
             return XCTFail("Expected mapping launch request")
         }

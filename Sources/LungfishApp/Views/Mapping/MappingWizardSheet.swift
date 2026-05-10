@@ -25,6 +25,12 @@ struct MappingWizardSheet: View {
     @State private var includeSecondary = false
     @State private var includeSupplementary = true
     @State private var minMappingQuality = 0
+    @State private var showReadGroup = false
+    @State private var readGroupIDText: String
+    @State private var readGroupSampleText: String
+    @State private var readGroupLibraryText: String
+    @State private var readGroupPlatformText: String
+    @State private var readGroupPlatformUnitText: String
     @State private var showAdvanced = false
     @State private var advancedOptionsText = ""
 
@@ -58,8 +64,16 @@ struct MappingWizardSheet: View {
         self.onRun = onRun
         self.onCancel = onCancel
         self.onRunnerAvailabilityChange = onRunnerAvailabilityChange
-        _selectedModeID = State(initialValue: MappingMode.availableModes(for: initialTool).first?.id ?? MappingMode.defaultShortRead.id)
+        let initialModeID = MappingMode.availableModes(for: initialTool).first?.id ?? MappingMode.defaultShortRead.id
+        let sampleName = inputFiles.first?.lungfishDisplayName ?? "sample"
+        let readGroup = Self.defaultReadGroup(sampleName: sampleName, modeID: initialModeID)
+        _selectedModeID = State(initialValue: initialModeID)
         _threads = State(initialValue: ProcessInfo.processInfo.processorCount)
+        _readGroupIDText = State(initialValue: readGroup.id)
+        _readGroupSampleText = State(initialValue: readGroup.sampleName)
+        _readGroupLibraryText = State(initialValue: readGroup.library)
+        _readGroupPlatformText = State(initialValue: readGroup.platform)
+        _readGroupPlatformUnitText = State(initialValue: readGroup.platformUnit)
     }
 
     private var inputDisplayName: String {
@@ -117,6 +131,33 @@ struct MappingWizardSheet: View {
         case .bbmap:
             return "minid=0.97 local=t"
         }
+    }
+
+    static func defaultReadGroup(sampleName: String, modeID: String) -> MappingReadGroup {
+        MappingReadGroup.resolved(
+            sampleName: sampleName,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+        )
+    }
+
+    static func makeReadGroup(
+        sampleName: String,
+        modeID: String,
+        idText: String,
+        sampleText: String,
+        libraryText: String,
+        platformText: String,
+        platformUnitText: String
+    ) -> MappingReadGroup {
+        MappingReadGroup.resolved(
+            sampleName: sampleName,
+            id: idText,
+            sample: sampleText,
+            library: libraryText,
+            platform: platformText,
+            platformUnit: platformUnitText,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+        )
     }
 
     private var selectedModeBinding: Binding<String> {
@@ -199,6 +240,12 @@ struct MappingWizardSheet: View {
         .onChange(of: selectedReferenceID) { _, _ in
             onRunnerAvailabilityChange?(canRun)
         }
+        .onChange(of: selectedModeID) { oldValue, newValue in
+            let oldPlatform = MappingReadGroup.defaultPlatform(forModeID: oldValue)
+            if readGroupPlatformText == oldPlatform {
+                readGroupPlatformText = MappingReadGroup.defaultPlatform(forModeID: newValue)
+            }
+        }
         .onChange(of: embeddedRunTrigger) { _, _ in
             guard embeddedInOperationsDialog else { return }
             performRun()
@@ -224,6 +271,8 @@ struct MappingWizardSheet: View {
             referenceSection
             Divider()
             modeSection
+            Divider()
+            readGroupSection
             Divider()
             compatibilitySection
             Divider()
@@ -375,6 +424,31 @@ struct MappingWizardSheet: View {
         }
     }
 
+    private var readGroupSection: some View {
+        DisclosureGroup("Read Group", isExpanded: $showReadGroup) {
+            VStack(alignment: .leading, spacing: 10) {
+                readGroupField(label: "ID (--rg-id)", text: $readGroupIDText)
+                readGroupField(label: "Sample (--rg-sm)", text: $readGroupSampleText)
+                readGroupField(label: "Library (--rg-lb)", text: $readGroupLibraryText)
+                readGroupField(label: "Platform (--rg-pl)", text: $readGroupPlatformText)
+                readGroupField(label: "Platform unit (--rg-pu)", text: $readGroupPlatformUnitText)
+            }
+            .padding(.top, 8)
+        }
+        .font(.system(size: 12, weight: .medium))
+    }
+
+    private func readGroupField(label: String, text: Binding<String>) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 12))
+                .frame(width: 150, alignment: .trailing)
+            TextField("", text: text)
+                .font(.system(size: 12, design: .monospaced))
+                .textFieldStyle(.roundedBorder)
+        }
+    }
+
     private var advancedSection: some View {
         DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
@@ -414,7 +488,7 @@ struct MappingWizardSheet: View {
 
                 Divider().padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Advanced Options")
+                    Text("Extra arguments")
                         .font(.system(size: 12))
                     TextField(Self.advancedOptionsPlaceholder(for: initialTool), text: $advancedOptionsText)
                         .font(.system(size: 12, design: .monospaced))
@@ -584,6 +658,15 @@ struct MappingWizardSheet: View {
             projectURL: projectURL,
             outputDirectory: outputDir,
             sampleName: inputDisplayName,
+            readGroup: Self.makeReadGroup(
+                sampleName: inputDisplayName,
+                modeID: selectedMode.id,
+                idText: readGroupIDText,
+                sampleText: readGroupSampleText,
+                libraryText: readGroupLibraryText,
+                platformText: readGroupPlatformText,
+                platformUnitText: readGroupPlatformUnitText
+            ),
             pairedEnd: isPairedEnd,
             threads: threads,
             includeSecondary: includeSecondary,

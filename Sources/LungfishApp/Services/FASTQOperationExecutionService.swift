@@ -442,7 +442,7 @@ struct FASTQOperationExecutionService {
                 arguments += ["--profile", selectedProfileID]
             }
             if !executionRequest.extraArguments.isEmpty {
-                arguments += ["--advanced-options", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(executionRequest.extraArguments)]
             }
             return CLIInvocation(subcommand: "assemble", arguments: arguments)
 

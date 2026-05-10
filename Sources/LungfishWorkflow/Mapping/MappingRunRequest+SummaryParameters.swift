@@ -11,17 +11,17 @@ public extension MappingRunRequest {
             "tool": .string(tool.rawValue),
             "mode": .string(modeID),
             "sampleName": .string(sampleName),
-            "readGroupID": .string(readGroup.id),
-            "readGroupSampleName": .string(readGroup.sampleName),
-            "readGroupLibrary": .string(readGroup.library),
-            "readGroupPlatform": .string(readGroup.platform),
-            "readGroupPlatformUnit": .string(readGroup.platformUnit),
+            "readGroup.id": .string(readGroup.id),
+            "readGroup.sm": .string(readGroup.sampleName),
+            "readGroup.lb": .string(readGroup.library),
+            "readGroup.pl": .string(readGroup.platform),
+            "readGroup.pu": .string(readGroup.platformUnit),
             "threads": .int(threads),
             "isPairedEnd": .bool(pairedEnd),
             "includeSecondary": .bool(includeSecondary),
             "includeSupplementary": .bool(includeSupplementary),
             "minimumMappingQuality": .int(minimumMappingQuality),
-            "advancedOptions": .string(AdvancedCommandLineOptions.join(advancedArguments)),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(advancedArguments)),
         ]
         return parameters
     }

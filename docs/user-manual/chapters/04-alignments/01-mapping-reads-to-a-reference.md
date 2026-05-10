@@ -113,14 +113,15 @@ lungfish map reads_R1.fastq.gz reads_R2.fastq.gz \
   --paired \
   --sample-name HG00096 \
   --rg-id HG00096.flowcellA.lane1 \
+  --rg-sm HG00096 \
   --rg-lb exome-capture-2026-05 \
   --rg-pl ILLUMINA \
   --rg-pu flowcellA.lane1
 ```
 
 If you omit any read-group field, Lungfish resolves a reproducible default
-and records it in the mapping provenance and analysis summary. `ID`, `LB`,
-and `PU` default to the sample name. `PL` defaults from the selected preset:
+and records it in the mapping provenance and analysis summary. `ID`, `SM`,
+`LB`, and `PU` default to the sample name. `PL` defaults from the selected preset:
 `ILLUMINA` for short-read and BBMap standard modes, `ONT` for minimap2
 `map-ont`, `PACBIO` for PacBio/HiFi modes, `CDNA` for splice mode, and
 `ASSEMBLY` for assembly alignment mode.

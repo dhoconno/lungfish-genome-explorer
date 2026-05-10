@@ -131,7 +131,7 @@ enum MappingDocumentStateBuilder {
         rows.append(("Minimum MAPQ", String(provenance.minimumMappingQuality)))
         rows.append(("Include Secondary", provenance.includeSecondary ? "Yes" : "No"))
         rows.append(("Include Supplementary", provenance.includeSupplementary ? "Yes" : "No"))
-        rows.append(("Advanced Options", provenance.advancedArguments.isEmpty ? "None" : AdvancedCommandLineOptions.join(provenance.advancedArguments)))
+        rows.append(("Extra arguments", provenance.advancedArguments.isEmpty ? "None" : AdvancedCommandLineOptions.join(provenance.advancedArguments)))
         rows.append(("Mapper Version", provenance.mapperVersion))
         rows.append(("Samtools Version", provenance.samtoolsVersion))
         rows.append(("Recorded", Self.recordedString(provenance.recordedAt)))
