@@ -69,6 +69,24 @@ For the drag-drop path, drag a `.vcf` or `.vcf.gz` from Finder onto the sidebar.
 
 For the CLI path, run `lungfish import vcf <path-to-vcf> --project <path-to-project>`. Pass `--reference <bundle-name>` to skip inference and force a specific bundle.
 
+After import, the `lungfish variants` CLI can extract or filter the bundle-owned variant database without reopening the app. To write one sample's calls:
+
+```bash
+lungfish variants extract-sample ./Project.lungfish/References/Cohort.lungfishref \
+  --sample NA12878 \
+  --output NA12878.vcf
+```
+
+To export a smart-filtered subset:
+
+```bash
+lungfish variants query ./Project.lungfish/References/Cohort.lungfishref \
+  --filter "Sample[NA12878].GT=1/1" \
+  --output NA12878-hom-alt.vcf
+```
+
+The query filter accepts the same per-sample syntax as the browser, including `Sample[NA12878].AF>=0.5`, `Sample[NA12878].DP>=30`, `count(Sample[*].GT=1/1) >= 5`, and `Sample[NA12878].GT != Sample[NA12879].GT`. Both commands write a `.lungfish-provenance.json` sidecar beside the output VCF with the command, options, bundle path, database path, output checksum, exit status, and wall time.
+
 ## Worked example
 
 Suppose you are following up on a wastewater study that published a supplementary VCF named `study42_lineage_calls.vcf.gz` along with its tabix index. The VCF was produced by an iVar-based pipeline keyed against the RefSeq SARS-CoV-2 record, so its `CHROM` column reads `NC_045512.2`. Your Lungfish project already contains a reference bundle built from the GenBank record `MN908947.3`, which is the same sequence under a different accession.

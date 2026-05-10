@@ -72,7 +72,9 @@ public struct QueryRule: Codable, Sendable, Identifiable {
                 return "\(field)\(op)\(trimmedValue)"
             }
         case .sampleGenotype:
-            return nil
+            let parts = field.split(separator: ".", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return nil }
+            return "Sample[\(parts[0])].\(parts[1])\(op)\(trimmedValue)"
         case .infoField:
             return "\(field)\(op)\(trimmedValue)"
         }
@@ -93,9 +95,8 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
 
     public var id: String { rawValue }
 
-    // Hide unsupported categories from UI while retaining Codable compatibility.
     public static var allCases: [QueryCategory] {
-        [.location, .identity, .biologicalEffect, .population, .callQuality, .infoField]
+        [.location, .identity, .biologicalEffect, .population, .callQuality, .sampleGenotype, .infoField]
     }
 
     public var displayName: String {
@@ -124,7 +125,7 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
         case .callQuality:
             return ["Quality", "Filter", "DP", "MQ", "Sample Count"]
         case .sampleGenotype:
-            return []
+            return ["Sample.GT", "Sample.AF", "Sample.DP"]
         case .infoField:
             // Populated dynamically from available INFO keys
             return []
@@ -148,7 +149,8 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
             if field == "Filter" { return ["="] }
             return ["<", "<=", ">", ">=", "="]
         case .sampleGenotype:
-            return []
+            if field.hasSuffix(".GT") { return ["=", "!="] }
+            return ["<", "<=", ">", ">=", "=", "!="]
         case .infoField:
             return ["=", "~", "<", "<=", ">", ">="]
         }

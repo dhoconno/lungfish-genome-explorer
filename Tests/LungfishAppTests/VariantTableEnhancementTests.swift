@@ -570,13 +570,13 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertNil(rule.toFilterClause())
     }
 
-    func testQueryRuleSampleGenotypeReturnsNil() {
-        let rule = QueryRule(category: .sampleGenotype, field: "GQ", op: ">=", value: "20")
-        XCTAssertNil(rule.toFilterClause())
+    func testQueryRuleSampleGenotypeBuildsPerSampleClause() {
+        let rule = QueryRule(category: .sampleGenotype, field: "NA12878.GT", op: "=", value: "1/1")
+        XCTAssertEqual(rule.toFilterClause(), "Sample[NA12878].GT=1/1")
     }
 
-    func testQueryCategoryAllCasesExcludesUnsupportedSampleGenotype() {
-        XCTAssertFalse(QueryCategory.allCases.contains(.sampleGenotype))
+    func testQueryCategoryAllCasesIncludesSampleGenotype() {
+        XCTAssertTrue(QueryCategory.allCases.contains(.sampleGenotype))
     }
 
     func testQueryPresetBuiltInsExist() {
