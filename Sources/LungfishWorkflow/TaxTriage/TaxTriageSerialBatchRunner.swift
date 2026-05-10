@@ -189,6 +189,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
             "max_cpus": .integer(config.maxCpus),
             "profile": .string(config.profile),
             "revision": .string(config.revision),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             "output_directory": .file(config.outputDirectory),
         ]
     }
@@ -301,6 +302,7 @@ public struct TaxTriageSerialBatchRunner: Sendable {
         if config.skipKrona {
             command.append("--skip_krona")
         }
+        command += config.extraArguments
         return command
     }
 

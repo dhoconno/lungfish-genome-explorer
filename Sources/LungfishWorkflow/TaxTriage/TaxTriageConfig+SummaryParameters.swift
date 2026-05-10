@@ -19,6 +19,7 @@ extension TaxTriageConfig {
             "rank": .string(rank),
             "skipAssembly": .bool(skipAssembly),
             "maxCpus": .int(maxCpus),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
         ]
     }
 }

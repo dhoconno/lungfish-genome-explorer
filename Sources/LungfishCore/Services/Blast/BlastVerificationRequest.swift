@@ -59,6 +59,9 @@ public struct BlastVerificationRequest: Sendable {
     /// E-value threshold for significance (e.g., 1e-10).
     public let eValueThreshold: Double
 
+    /// Verbatim user-supplied pass-through option string for provenance surfaces.
+    public let extraArgs: String
+
     /// Creates a new BLAST verification request.
     ///
     /// - Parameters:
@@ -78,7 +81,8 @@ public struct BlastVerificationRequest: Sendable {
         database: String = "nt",
         entrezQuery: String? = nil,
         maxTargetSeqs: Int = 5,
-        eValueThreshold: Double = 1e-10
+        eValueThreshold: Double = 1e-10,
+        extraArgs: String = ""
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -88,6 +92,7 @@ public struct BlastVerificationRequest: Sendable {
         self.entrezQuery = entrezQuery
         self.maxTargetSeqs = maxTargetSeqs
         self.eValueThreshold = eValueThreshold
+        self.extraArgs = extraArgs
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.

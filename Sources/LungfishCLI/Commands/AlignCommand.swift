@@ -6,7 +6,8 @@ struct AlignCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "align",
         abstract: "Create native multiple sequence alignment bundles",
-        subcommands: [MAFFTSubcommand.self]
+        subcommands: [MAFFTSubcommand.self],
+        defaultSubcommand: MAFFTSubcommand.self
     )
 
     struct MAFFTEvent: Codable, Sendable {
@@ -83,6 +84,13 @@ extension AlignCommand {
             help: "Additional MAFFT options, written exactly as they should be passed to MAFFT"
         )
         var extraMAFFTOptions: String = ""
+
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional MAFFT arguments passed verbatim"
+        )
+        var extraArgs: String = ""
 
         @OptionGroup var globalOptions: GlobalOptions
 
@@ -250,7 +258,7 @@ extension AlignCommand {
             let displayName = name ?? outputURL?.deletingPathExtension().lastPathComponent
                 ?? inputURLs.first?.deletingPathExtension().lastPathComponent
                 ?? "MAFFT Alignment"
-            let extraArguments = try AdvancedCommandLineOptions.parse(extraMAFFTOptions)
+            let extraArguments = try AdvancedCommandLineOptions.parse(combinedExtraOptions())
             let wrapperArgv = canonicalArgv(
                 inputURLs: inputURLs,
                 projectURL: projectURL,
@@ -333,7 +341,11 @@ extension AlignCommand {
             if let threads = globalOptions.threads {
                 argv += ["--threads", "\(threads)"]
             }
+            let trimmedExtraArgs = extraArgs.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedExtraOptions = extraMAFFTOptions.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedExtraArgs.isEmpty {
+                argv += ["--extra-args", trimmedExtraArgs]
+            }
             if !trimmedExtraOptions.isEmpty {
                 argv += ["--extra-mafft-options", trimmedExtraOptions]
             }
@@ -356,6 +368,13 @@ extension AlignCommand {
                let line = String(data: data, encoding: .utf8) {
                 emit(line)
             }
+        }
+
+        private func combinedExtraOptions() -> String {
+            [extraMAFFTOptions, extraArgs]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
         }
     }
 }

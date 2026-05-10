@@ -55,8 +55,12 @@ struct OrientCommand: AsyncParsableCommand {
     @Flag(name: .customLong("save-unoriented"), help: "Save unoriented reads to a separate file")
     var saveUnoriented: Bool = false
 
-    @Option(name: .customLong("threads"), help: "Number of threads (0 = all cores, default: 0)")
-    var threads: Int = 0
+    @Option(
+        name: .customLong("extra-args"),
+        parsing: .unconditional,
+        help: "Additional vsearch arguments passed verbatim"
+    )
+    var extraArgs: String = ""
 
     @Option(name: [.customLong("output-dir"), .customShort("o")], help: "Output directory (default: current directory)")
     var outputDir: String?
@@ -91,6 +95,7 @@ struct OrientCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
+        let effectiveThreads = globalOptions.threads ?? 0
         let config = OrientConfig(
             inputURL: inputURL,
             referenceURL: referenceURL,
@@ -98,7 +103,8 @@ struct OrientCommand: AsyncParsableCommand {
             dbMask: mask,
             qMask: mask,
             saveUnoriented: saveUnoriented,
-            threads: threads
+            threads: effectiveThreads,
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
         )
 
         // Print configuration
@@ -110,7 +116,7 @@ struct OrientCommand: AsyncParsableCommand {
             ("Word length", "\(wordLength)"),
             ("Mask", mask),
             ("Save unoriented", saveUnoriented ? "yes" : "no"),
-            ("Threads", threads == 0 ? "all cores" : "\(threads)"),
+            ("Threads", effectiveThreads == 0 ? "all cores" : "\(effectiveThreads)"),
         ]))
         print("")
 
@@ -151,5 +157,18 @@ struct OrientCommand: AsyncParsableCommand {
         print("  Results TSV: \(formatter.path(result.tabbedOutput.path))")
         print("")
         print(formatter.success("Orient completed in \(String(format: "%.1f", result.wallClockSeconds))s"))
+    }
+
+    func makeConfigForTesting() throws -> OrientConfig {
+        OrientConfig(
+            inputURL: URL(fileURLWithPath: fastqFile),
+            referenceURL: URL(fileURLWithPath: reference),
+            wordLength: wordLength,
+            dbMask: mask,
+            qMask: mask,
+            saveUnoriented: saveUnoriented,
+            threads: globalOptions.threads ?? 0,
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+        )
     }
 }
