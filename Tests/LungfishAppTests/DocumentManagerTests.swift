@@ -555,6 +555,51 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertFalse(manager.documents.contains(where: { $0.url == fastaURL }))
     }
 
+    func testOpenProjectSurfacesActiveLockAsReadOnlyWarningState() async throws {
+        let projectURL = tempDir.appendingPathComponent("LockedProject.lungfish")
+        let project = try ProjectFile.create(at: projectURL, name: "Locked Project")
+        try project.addSequence(makeSequence(name: "locked_seq", bases: "GATTACA"))
+        try project.save()
+        try writeProjectLock(
+            [
+                "schemaVersion": 1,
+                "toolName": "lungfish project lock",
+                "appVersion": "lungfish-cli test",
+                "projectPath": projectURL.standardizedFileURL.path,
+                "mode": "exclusive",
+                "user": NSUserName(),
+                "host": ProcessInfo.processInfo.hostName,
+                "pid": Int(ProcessInfo.processInfo.processIdentifier),
+                "processStartTime": "",
+                "cwd": tempDir.path,
+                "createdAt": "2026-05-09T00:00:00Z",
+            ],
+            to: projectURL
+        )
+
+        var notificationState: ProjectOpenWarningState?
+        let expectation = expectation(description: "project opened notification includes lock warning state")
+        let observer = NotificationCenter.default.addObserver(
+            forName: DocumentManager.projectOpenedNotification,
+            object: manager,
+            queue: nil
+        ) { notification in
+            notificationState = notification.userInfo?["openWarningState"] as? ProjectOpenWarningState
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        _ = try manager.openProject(at: projectURL)
+
+        await fulfillment(of: [expectation], timeout: 5.0)
+        XCTAssertEqual(manager.activeProjectOpenWarningState.projectURL, projectURL.standardizedFileURL)
+        XCTAssertTrue(manager.activeProjectOpenWarningState.isReadOnlyRecommended)
+        XCTAssertEqual(manager.activeProjectOpenWarningState.lockStatus, .active)
+        XCTAssertEqual(manager.activeProjectOpenWarningState.lockRecord?.mode, "exclusive")
+        XCTAssertTrue(manager.activeProjectOpenWarningState.warningMessage?.contains("opened read-only") == true)
+        XCTAssertEqual(notificationState, manager.activeProjectOpenWarningState)
+    }
+
     func testLoadDocumentForProjectReturnsProjectActiveDocumentInsteadOfStaleFirstDocument() async throws {
         let staleURL = tempDir.appendingPathComponent("stale.fa")
         try ">stale\nATCG\n".write(to: staleURL, atomically: true, encoding: .utf8)
@@ -851,5 +896,17 @@ final class DocumentManagerTests: XCTestCase {
 
     private func makeSequence(name: String, bases: String) throws -> Sequence {
         try Sequence(name: name, alphabet: .dna, bases: bases)
+    }
+
+    private func writeProjectLock(_ record: [String: Any], to projectURL: URL) throws {
+        let lockURL = projectURL
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("project.lock", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: lockURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: lockURL, options: .atomic)
     }
 }

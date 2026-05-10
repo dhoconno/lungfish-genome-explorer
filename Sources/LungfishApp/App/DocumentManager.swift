@@ -125,6 +125,9 @@ public final class DocumentManager {
     /// Currently active Lungfish project (for persistent storage)
     public private(set) var activeProject: ProjectFile?
 
+    /// Lock-derived warning state for the active project.
+    public private(set) var activeProjectOpenWarningState: ProjectOpenWarningState = .unlocked(projectURL: nil)
+
     /// Notification posted when a document is loaded
     public static let documentLoadedNotification = Notification.Name("DocumentManagerDocumentLoaded")
 
@@ -172,13 +175,17 @@ public final class DocumentManager {
         }
 
         activeProject = project
+        activeProjectOpenWarningState = .unlocked(projectURL: project.url)
         transitionDocumentState(to: [], activeDocument: nil)
         logger.info("createProject: Project created and set as active")
 
         NotificationCenter.default.post(
             name: Self.projectOpenedNotification,
             object: self,
-            userInfo: ["project": project]
+            userInfo: [
+                "project": project,
+                "openWarningState": activeProjectOpenWarningState,
+            ]
         )
 
         return project
@@ -191,17 +198,26 @@ public final class DocumentManager {
     public func openProject(at url: URL) throws -> ProjectFile {
         logger.info("openProject: Opening project at \(url.path, privacy: .public)")
 
+        let openWarningState = ProjectOpenWarningState.evaluate(projectURL: url)
+        if let message = openWarningState.warningMessage {
+            logger.warning("openProject: \(message, privacy: .public)")
+        }
+
         let project = try ProjectFile.open(at: url)
         let projectDocuments = try loadSequencesFromProject(project)
 
         activeProject = project
+        activeProjectOpenWarningState = openWarningState
         transitionDocumentState(to: projectDocuments, activeDocument: projectDocuments.first)
         logger.info("openProject: Opened project '\(project.name, privacy: .public)' with \(projectDocuments.count) loaded documents")
 
         NotificationCenter.default.post(
             name: Self.projectOpenedNotification,
             object: self,
-            userInfo: ["project": project]
+            userInfo: [
+                "project": project,
+                "openWarningState": activeProjectOpenWarningState,
+            ]
         )
 
         return project
@@ -226,6 +242,7 @@ public final class DocumentManager {
 
         logger.info("closeActiveProject: Closing project '\(project.name, privacy: .public)'")
         activeProject = nil
+        activeProjectOpenWarningState = .unlocked(projectURL: nil)
         transitionDocumentState(to: [], activeDocument: nil)
     }
 

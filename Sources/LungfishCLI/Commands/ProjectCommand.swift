@@ -46,7 +46,7 @@ struct ProjectCommand: AsyncParsableCommand {
 
         func run() async throws {
             let projectURL = try ProjectPaths.validProjectURL(for: projectPath)
-            let lockURL = ProjectPaths.lockURL(for: projectURL)
+            let lockURL = ProjectLockManager.lockURL(for: projectURL)
             let manager = ProjectLockManager(fileManager: .default)
 
             if let existing = try manager.readLock(at: lockURL) {
@@ -56,7 +56,12 @@ struct ProjectCommand: AsyncParsableCommand {
                 }
             }
 
-            let record = ProjectLockRecord.current(projectURL: projectURL, mode: mode)
+            let record = ProjectLockRecord.current(
+                projectURL: projectURL,
+                mode: mode,
+                toolName: "lungfish project lock",
+                appVersion: ProjectCommandMetadata.appVersion
+            )
             try manager.writeLock(record, to: lockURL)
 
             switch globalOptions.outputFormat {
@@ -91,7 +96,7 @@ struct ProjectCommand: AsyncParsableCommand {
 
         func run() async throws {
             let projectURL = try ProjectPaths.validProjectURL(for: projectPath)
-            let lockURL = ProjectPaths.lockURL(for: projectURL)
+            let lockURL = ProjectLockManager.lockURL(for: projectURL)
             let manager = ProjectLockManager(fileManager: .default)
 
             guard let record = try manager.readLock(at: lockURL) else {
@@ -176,42 +181,6 @@ private enum ProjectPaths {
         return url
     }
 
-    static func lockURL(for projectURL: URL) -> URL {
-        projectURL
-            .appendingPathComponent(".lungfish", isDirectory: true)
-            .appendingPathComponent("project.lock", isDirectory: false)
-    }
-}
-
-private struct ProjectLockRecord: Codable, Equatable {
-    let schemaVersion: Int
-    let toolName: String
-    let appVersion: String
-    let projectPath: String
-    let mode: String
-    let user: String
-    let host: String
-    let pid: Int
-    let processStartTime: String
-    let cwd: String
-    let createdAt: String
-
-    static func current(projectURL: URL, mode: String) -> ProjectLockRecord {
-        let pid = Int(ProcessInfo.processInfo.processIdentifier)
-        return ProjectLockRecord(
-            schemaVersion: 1,
-            toolName: "lungfish project lock",
-            appVersion: ProjectCommandMetadata.appVersion,
-            projectPath: projectURL.standardizedFileURL.path,
-            mode: mode,
-            user: ProjectCommandMetadata.currentUser,
-            host: ProcessInfo.processInfo.hostName,
-            pid: pid,
-            processStartTime: ProjectProcessInspector.processStartTime(for: pid) ?? ProjectCommandMetadata.nowString(),
-            cwd: FileManager.default.currentDirectoryPath,
-            createdAt: ProjectCommandMetadata.nowString()
-        )
-    }
 }
 
 private struct ProjectUnlockOutput: Codable {
@@ -219,130 +188,11 @@ private struct ProjectUnlockOutput: Codable {
     let removed: Bool
 }
 
-private enum ProjectLockStatus {
-    case active
-    case stale
-    case unknown
-}
-
-private struct ProjectLockManager {
-    let fileManager: FileManager
-
-    func readLock(at lockURL: URL) throws -> ProjectLockRecord? {
-        guard fileManager.fileExists(atPath: lockURL.path) else {
-            return nil
-        }
-
-        let data = try Data(contentsOf: lockURL)
-        return try JSONDecoder().decode(ProjectLockRecord.self, from: data)
-    }
-
-    func writeLock(_ record: ProjectLockRecord, to lockURL: URL) throws {
-        try fileManager.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(record)
-        try data.write(to: lockURL, options: [.atomic])
-    }
-
-    func status(of record: ProjectLockRecord) -> ProjectLockStatus {
-        guard record.pid > 0 else {
-            return .unknown
-        }
-
-        guard ProjectCommandMetadata.isLocalHost(record.host) else {
-            return .unknown
-        }
-
-        let pid = pid_t(record.pid)
-        if kill(pid, 0) == 0 {
-            if let currentStartTime = ProjectProcessInspector.processStartTime(for: record.pid),
-               !record.processStartTime.isEmpty,
-               currentStartTime != record.processStartTime {
-                return .stale
-            }
-            return .active
-        }
-
-        if errno == ESRCH {
-            return .stale
-        }
-
-        return .unknown
-    }
-
-    func isOwnedByCurrentProcess(_ record: ProjectLockRecord) -> Bool {
-        record.user == ProjectCommandMetadata.currentUser
-            && ProjectCommandMetadata.isLocalHost(record.host)
-            && record.pid == Int(ProcessInfo.processInfo.processIdentifier)
-    }
-
-    func canRemoveWithoutForce(_ record: ProjectLockRecord) -> Bool {
-        if isOwnedByCurrentProcess(record) {
-            return true
-        }
-        guard record.user == ProjectCommandMetadata.currentUser,
-              ProjectCommandMetadata.isLocalHost(record.host) else {
-            return false
-        }
-        return status(of: record) == .stale
-    }
-}
-
-private enum ProjectProcessInspector {
-    static func processStartTime(for pid: Int) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", "\(pid)", "-o", "lstart="]
-
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return output?.isEmpty == false ? output : nil
-    }
-}
-
 private enum ProjectCommandMetadata {
     static var appVersion: String {
         "lungfish-cli \(LungfishCLI.configuration.version)"
     }
 
-    static var currentUser: String {
-        let nsUser = NSUserName()
-        if !nsUser.isEmpty {
-            return nsUser
-        }
-        return ProcessInfo.processInfo.environment["USER"] ?? "unknown"
-    }
-
-    static func nowString() -> String {
-        ISO8601DateFormatter().string(from: Date())
-    }
-
-    static func isLocalHost(_ host: String) -> Bool {
-        let candidates = [
-            ProcessInfo.processInfo.hostName,
-            Host.current().name ?? "",
-            Host.current().localizedName ?? "",
-        ]
-        return candidates.contains(host)
-    }
 }
 
 private struct ProjectBundleMigrator {
@@ -355,7 +205,7 @@ private struct ProjectBundleMigrator {
         var entries: [ProjectMigrationBundleReport] = []
 
         for bundleURL in bundleURLs {
-            entries.append(inspect(bundleURL: bundleURL, projectURL: projectURL, dryRun: dryRun))
+            entries.append(try inspect(bundleURL: bundleURL, projectURL: projectURL, dryRun: dryRun))
         }
 
         return ProjectMigrationReport(
@@ -405,37 +255,15 @@ private struct ProjectBundleMigrator {
         return fileManager.fileExists(atPath: url.appendingPathComponent(BundleManifest.filename).path)
     }
 
-    private func inspect(bundleURL: URL, projectURL: URL, dryRun: Bool) -> ProjectMigrationBundleReport {
+    private func inspect(bundleURL: URL, projectURL: URL, dryRun: Bool) throws -> ProjectMigrationBundleReport {
         let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let hasProvenance = fileManager.fileExists(atPath: provenanceURL.path)
         let relativePath = ProjectBundleMigrator.relativePath(from: projectURL, to: bundleURL)
 
+        let manifest: BundleManifest
         do {
-            let manifest = try BundleManifest.load(from: bundleURL)
-            if manifest.formatVersion == Self.currentReferenceFormatVersion {
-                return ProjectMigrationBundleReport(
-                    path: relativePath,
-                    manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
-                    formatVersion: manifest.formatVersion,
-                    status: "current",
-                    action: "none",
-                    provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
-                    provenancePreserved: hasProvenance,
-                    message: "Bundle is already at the current supported schema."
-                )
-            }
-
-            return ProjectMigrationBundleReport(
-                path: relativePath,
-                manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
-                formatVersion: manifest.formatVersion,
-                status: "unsupported",
-                action: dryRun ? "dry-run-report" : "report-only",
-                provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
-                provenancePreserved: hasProvenance,
-                message: "No safe transformer is registered for this bundle schema; bundle was not modified."
-            )
+            manifest = try BundleManifest.load(from: bundleURL)
         } catch {
             return ProjectMigrationBundleReport(
                 path: relativePath,
@@ -445,9 +273,204 @@ private struct ProjectBundleMigrator {
                 action: "report-only",
                 provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
                 provenancePreserved: hasProvenance,
+                migrationProvenanceSidecar: nil,
+                backupPath: nil,
                 message: "Manifest could not be decoded: \(error.localizedDescription)"
             )
         }
+
+        if manifest.formatVersion == Self.currentReferenceFormatVersion,
+           manifest.browserSummary == nil,
+           manifest.withSynthesizedBrowserSummaryIfNeeded().browserSummary != nil {
+            if dryRun {
+                return ProjectMigrationBundleReport(
+                    path: relativePath,
+                    manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
+                    formatVersion: manifest.formatVersion,
+                    status: "migration-available",
+                    action: "dry-run-synthesize-browser-summary",
+                    provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
+                    provenancePreserved: hasProvenance,
+                    migrationProvenanceSidecar: nil,
+                    backupPath: nil,
+                    message: "Bundle manifest predates browser_summary; migration would synthesize the cache without changing payload files."
+                )
+            }
+
+            return try migrateLegacyBrowserSummary(
+                manifest: manifest,
+                bundleURL: bundleURL,
+                projectURL: projectURL,
+                hasCreationProvenance: hasProvenance,
+                creationProvenanceURL: provenanceURL
+            )
+        }
+
+        if manifest.formatVersion == Self.currentReferenceFormatVersion {
+            return ProjectMigrationBundleReport(
+                path: relativePath,
+                manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
+                formatVersion: manifest.formatVersion,
+                status: "current",
+                action: "none",
+                provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
+                provenancePreserved: hasProvenance,
+                migrationProvenanceSidecar: nil,
+                backupPath: nil,
+                message: "Bundle is already at the current supported schema."
+            )
+        }
+
+        return ProjectMigrationBundleReport(
+            path: relativePath,
+            manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
+            formatVersion: manifest.formatVersion,
+            status: "unsupported",
+            action: dryRun ? "dry-run-report" : "report-only",
+            provenanceSidecar: hasProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL) : nil,
+            provenancePreserved: hasProvenance,
+            migrationProvenanceSidecar: nil,
+            backupPath: nil,
+            message: "No safe transformer is registered for this bundle schema; bundle was not modified."
+        )
+    }
+
+    private func migrateLegacyBrowserSummary(
+        manifest: BundleManifest,
+        bundleURL: URL,
+        projectURL: URL,
+        hasCreationProvenance: Bool,
+        creationProvenanceURL: URL
+    ) throws -> ProjectMigrationBundleReport {
+        let startedAt = Date()
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let inputRecords = migrationInputRecords(manifestURL: manifestURL, creationProvenanceURL: creationProvenanceURL)
+        let timestamp = Self.provenanceTimestampString(from: startedAt)
+            .replacingOccurrences(of: ":", with: "")
+            .replacingOccurrences(of: ".", with: "")
+        let migrationDirectory = bundleURL
+            .appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("migrations", isDirectory: true)
+        try fileManager.createDirectory(at: migrationDirectory, withIntermediateDirectories: true)
+
+        let backupURL = migrationDirectory.appendingPathComponent("\(timestamp).manifest.json.backup")
+        try fileManager.copyItem(at: manifestURL, to: backupURL)
+
+        let migratedManifest = manifest.withSynthesizedBrowserSummaryIfNeeded()
+        try migratedManifest.save(to: bundleURL)
+
+        let outputRecords = [
+            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
+            ProvenanceRecorder.fileRecord(url: backupURL, format: .json, role: .output),
+        ]
+        let provenanceURL = migrationDirectory.appendingPathComponent("\(timestamp).project-migrate-provenance.json")
+        try writeMigrationProvenance(
+            projectURL: projectURL,
+            bundleURL: bundleURL,
+            manifestURL: manifestURL,
+            backupURL: backupURL,
+            provenanceURL: provenanceURL,
+            startedAt: startedAt,
+            inputs: inputRecords,
+            outputs: outputRecords
+        )
+
+        let relativePath = ProjectBundleMigrator.relativePath(from: projectURL, to: bundleURL)
+        return ProjectMigrationBundleReport(
+            path: relativePath,
+            manifestPath: ProjectBundleMigrator.relativePath(from: projectURL, to: manifestURL),
+            formatVersion: manifest.formatVersion,
+            status: "migrated",
+            action: "synthesized-browser-summary",
+            provenanceSidecar: hasCreationProvenance ? ProjectBundleMigrator.relativePath(from: projectURL, to: creationProvenanceURL) : nil,
+            provenancePreserved: hasCreationProvenance,
+            migrationProvenanceSidecar: ProjectBundleMigrator.relativePath(from: projectURL, to: provenanceURL),
+            backupPath: ProjectBundleMigrator.relativePath(from: projectURL, to: backupURL),
+            message: "Synthesized browser_summary from genome chromosomes; original manifest was backed up before writing."
+        )
+    }
+
+    private func migrationInputRecords(manifestURL: URL, creationProvenanceURL: URL) -> [FileRecord] {
+        var records = [
+            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .input)
+        ]
+        if fileManager.fileExists(atPath: creationProvenanceURL.path) {
+            records.append(ProvenanceRecorder.fileRecord(url: creationProvenanceURL, format: .json, role: .input))
+        }
+        return records
+    }
+
+    private func writeMigrationProvenance(
+        projectURL: URL,
+        bundleURL: URL,
+        manifestURL: URL,
+        backupURL: URL,
+        provenanceURL: URL,
+        startedAt: Date,
+        inputs: [FileRecord],
+        outputs: [FileRecord]
+    ) throws {
+        let endedAt = Date()
+        let wallTime = max(endedAt.timeIntervalSince(startedAt), 0.000001)
+        let command = Self.reproducibleCommand(projectURL: projectURL, dryRun: false)
+        let step = StepExecution(
+            toolName: "lungfish project migrate",
+            toolVersion: ProjectCommandMetadata.appVersion,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: wallTime,
+            stderr: nil,
+            startTime: startedAt,
+            endTime: endedAt
+        )
+        let run = WorkflowRun(
+            name: "lungfish project migrate browser-summary",
+            startTime: startedAt,
+            endTime: endedAt,
+            status: .completed,
+            appVersion: ProjectCommandMetadata.appVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            runtime: WorkflowRuntime(
+                appVersion: ProjectCommandMetadata.appVersion,
+                hostOS: WorkflowRun.currentHostOS,
+                user: WorkflowRun.currentUser
+            ),
+            steps: [step],
+            parameters: [
+                "workflowName": .string("lungfish project migrate"),
+                "transformer": .string("reference-manifest-browser-summary-v1"),
+                "sourceSchema": .string("format_version=1.0 missing browser_summary"),
+                "targetSchema": .string("format_version=1.0 with browser_summary"),
+                "projectPath": .file(projectURL),
+                "bundlePath": .file(bundleURL),
+                "sourceManifest": .file(manifestURL),
+                "targetManifest": .file(manifestURL),
+                "backupManifest": .file(backupURL),
+                "dryRun": .boolean(false),
+                "currentReferenceFormatVersion": .string(Self.currentReferenceFormatVersion),
+            ]
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
+    }
+
+    private static func provenanceTimestampString(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func reproducibleCommand(projectURL: URL, dryRun: Bool) -> [String] {
+        var command = ["lungfish", "project", "migrate", projectURL.path]
+        if dryRun {
+            command.append("--dry-run")
+        }
+        return command
     }
 
     private static func relativePath(from baseURL: URL, to url: URL) -> String {
@@ -485,6 +508,8 @@ private struct ProjectMigrationBundleReport: Codable {
     let action: String
     let provenanceSidecar: String?
     let provenancePreserved: Bool
+    let migrationProvenanceSidecar: String?
+    let backupPath: String?
     let message: String
 }
 
