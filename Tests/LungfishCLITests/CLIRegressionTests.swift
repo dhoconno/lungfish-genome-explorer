@@ -592,6 +592,54 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("outputs").path))
     }
 
+    func testViralReconPrepareOnlyWritesRunManifestStatusAndProvenance() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viralrecon-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let samplesheet = tempDirectory.appendingPathComponent("samplesheet.csv")
+        try "sample,fastq_1,fastq_2\nS1,/tmp/S1_R1.fastq.gz,/tmp/S1_R2.fastq.gz\n"
+            .write(to: samplesheet, atomically: true, encoding: .utf8)
+        let workDirectory = tempDirectory.appendingPathComponent("nextflow-work", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("viralrecon.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            "viralrecon",
+            "--executor", "docker",
+            "--input", samplesheet.path,
+            "--results-dir", tempDirectory.appendingPathComponent("results", isDirectory: true).path,
+            "--bundle-path", bundleURL.path,
+            "--resume",
+            "--workdir", workDirectory.path,
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let manifest = try NFCoreRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.executionStatus, .prepared)
+        XCTAssertTrue(manifest.resume)
+        XCTAssertEqual(manifest.workDirectoryPath, workDirectory.path)
+        XCTAssertNil(manifest.exitCode)
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
+            input.path == samplesheet.path && input.sha256 != nil && input.sizeBytes != nil
+        } == true)
+        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
+            output.path == bundleURL.path
+        } == true)
+    }
+
     func testViralReconPrepareOnlyQuotesMetacharactersInPreparedCommand() async throws {
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral&recon'\(UUID().uuidString)", isDirectory: true)

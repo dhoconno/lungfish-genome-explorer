@@ -106,7 +106,7 @@ public struct NextflowExporter: Sendable {
 
         // Add process definitions
         for node in orderedNodes where node.type.category != .input {
-            script += generateProcess(node: node, graph: graph)
+            script += try generateProcess(node: node, graph: graph)
             script += "\n"
         }
 
@@ -179,7 +179,7 @@ public struct NextflowExporter: Sendable {
 
     // MARK: - Process Generation
 
-    private func generateProcess(node: WorkflowNode, graph: WorkflowGraph) -> String {
+    private func generateProcess(node: WorkflowNode, graph: WorkflowGraph) throws -> String {
         var process = ""
 
         let processName = sanitizeIdentifier(node.label)
@@ -236,7 +236,7 @@ public struct NextflowExporter: Sendable {
         // Add script section
         process += "    script:\n"
         process += "    \"\"\"\n"
-        process += generateScript(for: node)
+        process += try generateScript(for: node)
         process += "    \"\"\"\n"
 
         process += "}\n"
@@ -309,12 +309,15 @@ public struct NextflowExporter: Sendable {
         }
     }
 
-    private func generateScript(for node: WorkflowNode) -> String {
+    private func generateScript(for node: WorkflowNode) throws -> String {
         switch node.type {
         case .qualityControl:
             return "    fastqc --outdir . ${reads}\n"
         case .trimming:
-            return "    fastp -i ${reads} -o trimmed.fastq.gz --html report.html\n"
+            let parameters = try node.resolvedParameters()
+            let minimumLength = parameters["minimum_length"]?.toArgumentString() ?? "20"
+            let quality = parameters["qualified_quality_phred"]?.toArgumentString() ?? "15"
+            return "    fastp -i ${reads} -o trimmed.fastq.gz --html report.html --length_required \(minimumLength) --qualified_quality_phred \(quality)\n"
         case .alignment:
             return """
                 bwa index ${reference}
