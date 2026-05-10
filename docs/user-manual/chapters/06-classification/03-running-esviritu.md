@@ -101,6 +101,8 @@ compressed, around 6 GB uncompressed, holding several thousand viral
 reference genomes with strain-level annotations. Lungfish does not bundle
 this database, because most users will only ever run a subset of
 classifiers and the database would balloon every install.
+Plan for 16 GB of RAM for the default viral database. Larger custom slices
+scale with the number and length of references included.
 
 Install the database before your first EsViritu run.
 

@@ -62,12 +62,12 @@ too much wastes disk and memory. Lungfish manages databases through the
 Plugin Manager, which downloads each one as a plugin pack and registers it
 with the Classification wizard.
 
-| Database | Size on disk | Scope | Use when |
-|---|---|---|---|
-| Viral | ~0.5 GB | Viral RefSeq genomes only | You expect a viral signal and want a fast, lightweight classification |
-| Standard | ~50 GB | Bacteria, archaea, viruses, human | You are doing general microbiome or contamination screening on a workstation with enough RAM |
-| PlusPF | ~80 GB | Standard plus protozoa and fungi | You want eukaryotic pathogens included, and have ~96 GB of RAM available |
-| Custom | varies | User-built from selected RefSeq taxa | None of the above match your sample and you have built (or imported) your own index |
+| Database | Size on disk | Minimum RAM to plan | Scope | Use when |
+|---|---|---|---|---|
+| Viral | ~0.5 GB | 16 GB | Viral RefSeq genomes only | You expect a viral signal and want a fast, lightweight classification |
+| Standard | ~50 GB | About 64 GB | Bacteria, archaea, viruses, human | You are doing general microbiome or contamination screening on a workstation with enough RAM |
+| PlusPF | ~80 GB | About 96 GB | Standard plus protozoa and fungi | You want eukaryotic pathogens included, and have enough RAM available |
+| Custom | varies | At least the uncompressed index size plus working headroom | User-built from selected RefSeq taxa | None of the above match your sample and you have built (or imported) your own index |
 
 Kraken2 loads the entire database into memory at run time, so RAM is the
 binding constraint, not disk. Standard and PlusPF will not run on a laptop

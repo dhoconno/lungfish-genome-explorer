@@ -47,13 +47,13 @@ Lungfish also imports CZ-ID taxon report TSVs. CZ-ID is a hosted metagenomics pl
 
 The table below gives the high-level regime each classifier was designed for. Each tool has its own chapter later in this part with a full walkthrough.
 
-| Classifier or import | Question it answers best | Database | Resolution | Typical regime |
-|---|---|---|---|---|
-| Kraken2 | "What domains and broad taxa are in this sample?" | Large, multi-domain (bacteria, archaea, viruses, fungi, human) | Genus or species, depending on database build | Discovery, contamination triage, broad metagenomics |
-| EsViritu | "Which virus is this, and at what strain?" | Curated viral, with strain-level annotation | Strain (subtype, lineage) within virus | Targeted viral identification once you suspect a virus |
-| TaxTriage | "Is there a clinically reportable pathogen here, and how confident are we?" | Clinical-surveillance reference set | Species, with confidence flags | Clinical surveillance and reporting workflows |
-| NAO-MGS | "How are pathogen levels in this site changing over time?" | Surveillance-tuned, wastewater-oriented | Species or strain, time-series friendly | Longitudinal wastewater monitoring |
-| CZ-ID import | "How do I bring an upstream hosted CZ-ID result into this project?" | Upstream CZ-ID NT/NR database versions, recorded from the export when present | Taxon report rows as exported by CZ-ID | Labs that already ran CZ-ID outside Lungfish |
+| Classifier or import | Question it answers best | Database | RAM to plan | Resolution | Typical regime |
+|---|---|---|---|---|---|
+| Kraken2 | "What domains and broad taxa are in this sample?" | Large, multi-domain (bacteria, archaea, viruses, fungi, human) | Database-sized; Viral fits in 16 GB, Standard/PlusPF need much more | Genus or species, depending on database build | Discovery, contamination triage, broad metagenomics |
+| EsViritu | "Which virus is this, and at what strain?" | Curated viral, with strain-level annotation | 16 GB for default viral runs | Strain (subtype, lineage) within virus | Targeted viral identification once you suspect a virus |
+| TaxTriage | "Is there a clinically reportable pathogen here, and how confident are we?" | Clinical-surveillance reference set | 16 to 32 GB for the default clinical profile | Species, with confidence flags | Clinical surveillance and reporting workflows |
+| NAO-MGS | "How are pathogen levels in this site changing over time?" | Surveillance-tuned, wastewater-oriented | 16 to 32 GB for default wastewater runs | Species or strain, time-series friendly | Longitudinal wastewater monitoring |
+| CZ-ID import | "How do I bring an upstream hosted CZ-ID result into this project?" | Upstream CZ-ID NT/NR database versions, recorded from the export when present | No local classifier RAM; import only | Taxon report rows as exported by CZ-ID | Labs that already ran CZ-ID outside Lungfish |
 
 A few features cut across all four. They all consume FASTQ (single or paired) from a Lungfish FASTQ bundle. They all emit a taxonomy result that opens in the same viewport class. They all record their database version and command line in the project's provenance sidecar, so a methods export later names the exact build you used. And they all need their reference database installed before they will run, which is the one piece of upfront work this part covers in detail.
 

@@ -268,6 +268,10 @@ lungfish workflow run nf-core/viralrecon \
 
 Useful viralrecon flags include `--results-dir`, `--version`, `--workdir`, `--param key=value`, `--cpus`, `--memory`, `--resume`, `--dry-run`, and `--prepare-only`. See [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md).
 
+`lungfish run-headless <workflow>`
+
+Runs `lungfish workflow run --quiet <workflow>` as a discoverable CI-friendly alias. Use `workflow run` directly when you need input, executor, parameter, or bundle flags. See [Running in CI](06-running-in-ci.md).
+
 `lungfish workflow list`
 
 Lists workflows in the project.
