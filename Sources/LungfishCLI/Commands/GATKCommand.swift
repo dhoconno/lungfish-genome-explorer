@@ -11,9 +11,8 @@ struct GATKCLICommand: AsyncParsableCommand {
         commandName: "gatk",
         abstract: "Construct GATK4 commands for germline variant workflows",
         discussion: """
-        Builds reproducible GATK command lines without executing GATK. This first slice is
-        intended for dry-run validation and workflow integration tests; execution, bundle
-        attachment, and GUI dialogs are follow-up milestones.
+        Builds reproducible GATK command lines by default. Pass --execute on a subcommand to
+        run GATK through the managed gatk-core environment and write final-location provenance.
         """,
         subcommands: [
             HaplotypeCallerSubcommand.self,
@@ -35,6 +34,23 @@ struct GATKCLICommand: AsyncParsableCommand {
         }
     }
 
+    static func runOrPreview<Runner: GATKCommandRunning>(
+        request: GATKPipelineExecutionRequest,
+        execute: Bool,
+        runner: Runner,
+        emit: @escaping (String) -> Void
+    ) async throws {
+        guard execute else {
+            GATKCLICommand.emit(commands: request.commands, emit: emit)
+            return
+        }
+
+        let executor = GATKPipelineExecutor(runner: runner)
+        let result = try await executor.run(request)
+        emit("GATK execution completed with exit code \(result.exitCode).")
+        emit("Provenance: \(result.provenanceURL.path)")
+    }
+
     static func parseExtraArgs(_ extraArgs: String) throws -> [String] {
         do {
             return try AdvancedCommandLineOptions.parse(extraArgs)
@@ -42,14 +58,45 @@ struct GATKCLICommand: AsyncParsableCommand {
             throw ValidationError(error.localizedDescription)
         }
     }
+
+    static func defaultToolVersion() -> String {
+        PluginPack.builtInPack(id: "gatk-core")?
+            .toolRequirements
+            .first(where: { $0.environment == "gatk-core" })?
+            .version ?? "unknown"
+    }
+
+    static func defaultRuntimeIdentity() -> GATKRuntimeIdentity {
+        let condaEnvironment = CondaManager.shared.rootPrefix
+            .appendingPathComponent("envs/gatk-core", isDirectory: true)
+            .path
+        return GATKRuntimeIdentity(condaEnvironment: condaEnvironment)
+    }
+}
+
+protocol GATKCLIExecutableSubcommand {
+    var execute: Bool { get }
+    var dryRun: Bool { get }
+}
+
+extension GATKCLIExecutableSubcommand {
+    var isDryRun: Bool {
+        !execute || dryRun
+    }
 }
 
 extension GATKCLICommand {
-    struct HaplotypeCallerSubcommand: AsyncParsableCommand {
+    struct HaplotypeCallerSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "haplotype-caller",
             abstract: "Construct a GATK HaplotypeCaller command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("reference"), help: "Reference FASTA path")
         var reference: String
@@ -103,6 +150,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let erc = GATKEmitReferenceConfidence(rawValue: emitReferenceConfidence.uppercased()) ?? .gvcf
             let config = GATKHaplotypeCallerConfiguration(
                 referenceFASTAURL: URL(fileURLWithPath: reference),
@@ -117,15 +196,26 @@ extension GATKCLICommand {
                 nativePairHMMThreads: pairHMMThreads,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.haplotypeCallerCommand(config)], emit: emit)
+            return .haplotypeCaller(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct JointGenotypeSubcommand: AsyncParsableCommand {
+    struct JointGenotypeSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "joint-genotype",
             abstract: "Construct GATK joint genotyping commands"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("reference"), help: "Reference FASTA path")
         var reference: String
@@ -153,6 +243,42 @@ extension GATKCLICommand {
         var extraArgs: String = ""
 
         func run() async throws {
+            try await executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let strategy = GATKJointGenotypingStrategy(rawValue: combineStrategy) ?? .auto
             let config = GATKJointGenotypingConfiguration(
                 referenceFASTAURL: URL(fileURLWithPath: reference),
@@ -163,15 +289,26 @@ extension GATKCLICommand {
                 intervalsURL: intervals.map { URL(fileURLWithPath: $0) },
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: GATKCommandBuilder.jointGenotypingCommands(config)) { print($0) }
+            return .jointGenotype(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct FilterSubcommand: AsyncParsableCommand {
+    struct FilterSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "filter",
             abstract: "Construct a GATK VariantFiltration command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("vcf"), help: "Input VCF path")
         var vcf: String
@@ -190,6 +327,42 @@ extension GATKCLICommand {
         var extraArgs: String = ""
 
         func run() async throws {
+            try await executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let resolvedPreset = GATKVariantFiltrationPreset(rawValue: preset) ?? .bestPracticesBoth
             let config = GATKVariantFiltrationConfiguration(
                 inputVCFURL: URL(fileURLWithPath: vcf),
@@ -197,15 +370,26 @@ extension GATKCLICommand {
                 preset: resolvedPreset,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.variantFiltrationCommand(config)]) { print($0) }
+            return .variantFiltration(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct SelectSubcommand: AsyncParsableCommand {
+    struct SelectSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "select",
             abstract: "Construct a GATK SelectVariants command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("vcf"), help: "Input VCF path")
         var vcf: String
@@ -230,6 +414,42 @@ extension GATKCLICommand {
         var extraArgs: String = ""
 
         func run() async throws {
+            try await executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let variantType = type.flatMap { GATKSelectedVariantType(rawValue: $0.uppercased()) }
             let config = GATKSelectVariantsConfiguration(
                 inputVCFURL: URL(fileURLWithPath: vcf),
@@ -239,15 +459,26 @@ extension GATKCLICommand {
                 intervalsURL: intervals.map { URL(fileURLWithPath: $0) },
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.selectVariantsCommand(config)]) { print($0) }
+            return .selectVariants(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct VariantsToTableSubcommand: AsyncParsableCommand {
+    struct VariantsToTableSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "variants-to-table",
             abstract: "Construct a GATK VariantsToTable command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("vcf"), help: "Input VCF path")
         var vcf: String
@@ -280,21 +511,64 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let config = GATKVariantsToTableConfiguration(
                 inputVCFURL: URL(fileURLWithPath: vcf),
                 outputTableURL: URL(fileURLWithPath: output),
                 fields: fields.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) },
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.variantsToTableCommand(config)], emit: emit)
+            return .variantsToTable(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct BQSRSubcommand: AsyncParsableCommand {
+    struct BQSRSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "bqsr",
             abstract: "Construct GATK BaseRecalibrator and ApplyBQSR commands"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("reference"), help: "Reference FASTA path")
         var reference: String
@@ -339,6 +613,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let config = GATKBaseQualityScoreRecalibrationConfiguration(
                 referenceFASTAURL: URL(fileURLWithPath: reference),
                 inputBAMURL: URL(fileURLWithPath: bam),
@@ -349,15 +655,26 @@ extension GATKCLICommand {
                 createOutputBAMIndex: createOutputBAMIndex,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: GATKCommandBuilder.baseQualityScoreRecalibrationCommands(config), emit: emit)
+            return .baseQualityScoreRecalibration(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct MarkDuplicatesSubcommand: AsyncParsableCommand {
+    struct MarkDuplicatesSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "markdup",
             abstract: "Construct a GATK Picard MarkDuplicates command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("bam"), help: "Input BAM path. Repeat for multiple lanes.")
         var bams: [String] = []
@@ -399,6 +716,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let config = GATKMarkDuplicatesConfiguration(
                 inputBAMURLs: bams.map { URL(fileURLWithPath: $0) },
                 outputBAMURL: URL(fileURLWithPath: output),
@@ -408,15 +757,26 @@ extension GATKCLICommand {
                 validationStringency: validationStringency,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.markDuplicatesCommand(config)], emit: emit)
+            return .markDuplicates(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct ValidateSamSubcommand: AsyncParsableCommand {
+    struct ValidateSamSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "validate-sam",
             abstract: "Construct a GATK Picard ValidateSamFile command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("bam"), help: "Input BAM/SAM/CRAM path")
         var bam: String
@@ -458,6 +818,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let resolvedMode = GATKValidateSamFileMode(rawValue: mode.uppercased()) ?? .summary
             let config = GATKValidateSamFileConfiguration(
                 inputBAMURL: URL(fileURLWithPath: bam),
@@ -468,15 +860,26 @@ extension GATKCLICommand {
                 ignoreWarnings: ignoreWarnings,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.validateSamFileCommand(config)], emit: emit)
+            return .validateSamFile(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct LeftAlignSubcommand: AsyncParsableCommand {
+    struct LeftAlignSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "leftalign",
             abstract: "Construct a GATK LeftAlignAndTrimVariants command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("reference"), help: "Reference FASTA path")
         var reference: String
@@ -521,6 +924,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let config = GATKLeftAlignAndTrimVariantsConfiguration(
                 referenceFASTAURL: URL(fileURLWithPath: reference),
                 inputVCFURL: URL(fileURLWithPath: vcf),
@@ -531,15 +966,26 @@ extension GATKCLICommand {
                 maxLeadingBases: maxLeadingBases,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.leftAlignAndTrimVariantsCommand(config)], emit: emit)
+            return .leftAlignAndTrimVariants(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 
-    struct CollectMetricsSubcommand: AsyncParsableCommand {
+    struct CollectMetricsSubcommand: AsyncParsableCommand, GATKCLIExecutableSubcommand {
         static let configuration = CommandConfiguration(
             commandName: "collect-metrics",
             abstract: "Construct a GATK Picard CollectVariantCallingMetrics command"
         )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and write final-location provenance.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Print the GATK command preview without running it.")
+        var dryRun: Bool = false
 
         @Option(name: .customLong("vcf"), help: "Input VCF path")
         var vcf: String
@@ -578,6 +1024,38 @@ extension GATKCLICommand {
         }
 
         func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            try await executeForTesting(
+                emit: emit,
+                runner: ManagedGATKCommandRunner(),
+                toolVersion: GATKCLICommand.defaultToolVersion(),
+                runtimeIdentity: GATKCLICommand.defaultRuntimeIdentity()
+            )
+        }
+
+        func executeForTesting<Runner: GATKCommandRunning>(
+            emit: @escaping (String) -> Void,
+            runner: Runner,
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) async throws {
+            try await GATKCLICommand.runOrPreview(
+                request: executionRequest(
+                    toolVersion: toolVersion,
+                    runtimeIdentity: runtimeIdentity,
+                    packVersion: packVersion
+                ),
+                execute: execute && !dryRun,
+                runner: runner,
+                emit: emit
+            )
+        }
+
+        func executionRequest(
+            toolVersion: String,
+            runtimeIdentity: GATKRuntimeIdentity,
+            packVersion: String? = nil
+        ) throws -> GATKPipelineExecutionRequest {
             let config = GATKCollectVariantCallingMetricsConfiguration(
                 inputVCFURL: URL(fileURLWithPath: vcf),
                 outputMetricsPrefixURL: URL(fileURLWithPath: outputPrefix),
@@ -586,7 +1064,12 @@ extension GATKCLICommand {
                 isGVCFInput: gvcfInput,
                 extraArguments: try GATKCLICommand.parseExtraArgs(extraArgs)
             )
-            GATKCLICommand.emit(commands: [GATKCommandBuilder.collectVariantCallingMetricsCommand(config)], emit: emit)
+            return .collectVariantCallingMetrics(
+                configuration: config,
+                toolVersion: toolVersion,
+                runtimeIdentity: runtimeIdentity,
+                packVersion: packVersion
+            )
         }
     }
 }

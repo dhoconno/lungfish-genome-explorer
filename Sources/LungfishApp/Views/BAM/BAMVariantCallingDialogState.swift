@@ -19,6 +19,12 @@ final class BAMVariantCallingDialogState {
         }
     }
 
+    var selectedToolID: String {
+        didSet {
+            outputTrackName = suggestedOutputTrackName()
+        }
+    }
+
     var selectedCaller: ViralVariantCaller {
         didSet {
             outputTrackName = suggestedOutputTrackName()
@@ -37,6 +43,7 @@ final class BAMVariantCallingDialogState {
     var advancedOptionsText: String
     private(set) var generatedTrackID: String
     private(set) var pendingRequest: BundleVariantCallingRequest?
+    private(set) var pendingGATKRequest: GATKPipelineExecutionRequest?
 
     /// Provenance record discovered alongside the selected BAM, when present.
     ///
@@ -61,6 +68,7 @@ final class BAMVariantCallingDialogState {
             preferredAlignmentTrackID: preferredAlignmentTrackID
         )
         self.selectedAlignmentTrackID = defaultAlignmentTrackID
+        self.selectedToolID = BAMVariantCallingToolID.lofreq.rawValue
         self.selectedCaller = .lofreq
         self.minimumAlleleFrequencyText = "0.05"
         self.minimumDepthText = "10"
@@ -78,11 +86,12 @@ final class BAMVariantCallingDialogState {
         self.advancedOptionsText = ""
         self.generatedTrackID = Self.makeTrackID()
         self.pendingRequest = nil
+        self.pendingGATKRequest = nil
         self.outputTrackName = ""
         self.outputTrackName = suggestedOutputTrackName(
             bundle: bundle,
             alignmentTrackID: defaultAlignmentTrackID,
-            caller: .lofreq
+            toolID: BAMVariantCallingToolID.lofreq.rawValue
         )
     }
 
@@ -123,11 +132,11 @@ final class BAMVariantCallingDialogState {
     }
 
     var readinessText: String {
-        switch selectedCallerAvailability {
+        switch selectedToolAvailability {
         case .available:
             break
         case .comingSoon:
-            return "\(selectedCaller.displayName) is coming soon."
+            return "\(selectedToolDisplayName) is coming soon."
         case .disabled(let reason):
             return reason
         }
@@ -156,6 +165,10 @@ final class BAMVariantCallingDialogState {
             return advancedOptionsParseError
         }
 
+        if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
+            return "Ready to run GATK HaplotypeCaller on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
+        }
+
         switch selectedCaller {
         case .lofreq:
             return "Ready to run LoFreq on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
@@ -174,13 +187,17 @@ final class BAMVariantCallingDialogState {
     }
 
     var isRunEnabled: Bool {
-        guard selectedCallerAvailability == .available else { return false }
+        guard selectedToolAvailability == .available else { return false }
         guard !alignmentTrackOptions.isEmpty else { return false }
         guard hasEligibleSelectedAlignmentTrack else { return false }
         guard !trimmedOutputTrackName.isEmpty else { return false }
         guard trimmedMinimumAlleleFrequency.isEmpty || minimumAlleleFrequency != nil else { return false }
         guard trimmedMinimumDepth.isEmpty || minimumDepth != nil else { return false }
         guard advancedOptionsParseError == nil else { return false }
+
+        if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
+            return true
+        }
 
         switch selectedCaller {
         case .lofreq:
@@ -193,12 +210,22 @@ final class BAMVariantCallingDialogState {
     }
 
     func selectCaller(_ caller: ViralVariantCaller) {
+        selectedToolID = caller.rawValue
         selectedCaller = caller
     }
 
     func selectCaller(named rawValue: String) {
         guard let caller = ViralVariantCaller(rawValue: rawValue) else { return }
         selectCaller(caller)
+    }
+
+    func selectTool(named rawValue: String) {
+        if let caller = ViralVariantCaller(rawValue: rawValue) {
+            selectCaller(caller)
+            return
+        }
+        guard BAMVariantCallingToolID(rawValue: rawValue) != nil else { return }
+        selectedToolID = rawValue
     }
 
     func selectAlignmentTrack(id: String) {
@@ -208,7 +235,13 @@ final class BAMVariantCallingDialogState {
 
     func prepareForRun() {
         generatedTrackID = Self.makeTrackID()
-        pendingRequest = makeRequest()
+        if selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
+            pendingRequest = nil
+            pendingGATKRequest = makeGATKRequest()
+        } else {
+            pendingGATKRequest = nil
+            pendingRequest = makeRequest()
+        }
     }
 
     private func makeRequest() -> BundleVariantCallingRequest? {
@@ -235,17 +268,20 @@ final class BAMVariantCallingDialogState {
         suggestedOutputTrackName(
             bundle: bundle,
             alignmentTrackID: selectedAlignmentTrackID,
-            caller: selectedCaller
+            toolID: selectedToolID
         )
     }
 
     private func suggestedOutputTrackName(
         bundle: ReferenceBundle,
         alignmentTrackID: String,
-        caller: ViralVariantCaller
+        toolID: String
     ) -> String {
         let alignmentName = bundle.alignmentTrack(id: alignmentTrackID)?.name ?? "Alignment"
-        let base = "\(alignmentName) • \(caller.displayName)"
+        let toolName = BAMVariantCallingToolID(rawValue: toolID)?.displayName
+            ?? ViralVariantCaller(rawValue: toolID)?.displayName
+            ?? "Variants"
+        let base = "\(alignmentName) • \(toolName)"
         let existingNames = Set(bundle.manifest.variants.map(\.name))
         guard existingNames.contains(base) else {
             return base
@@ -266,8 +302,13 @@ final class BAMVariantCallingDialogState {
         eligibleAlignmentTrackIDs.contains(selectedAlignmentTrackID)
     }
 
-    private var selectedCallerAvailability: DatasetOperationAvailability {
-        sidebarItems.first(where: { $0.id == selectedCaller.rawValue })?.availability ?? .available
+    private var selectedToolAvailability: DatasetOperationAvailability {
+        sidebarItems.first(where: { $0.id == selectedToolID })?.availability ?? .available
+    }
+
+    var selectedToolDisplayName: String {
+        BAMVariantCallingToolID(rawValue: selectedToolID)?.displayName
+            ?? selectedCaller.displayName
     }
 
     private var trimmedMinimumAlleleFrequency: String {
@@ -307,6 +348,43 @@ final class BAMVariantCallingDialogState {
 
     private static func makeTrackID() -> String {
         "vc-\(UUID().uuidString.lowercased())"
+    }
+
+    private func makeGATKRequest() -> GATKPipelineExecutionRequest? {
+        guard isRunEnabled else { return nil }
+        guard let track = selectedAlignmentTrack else { return nil }
+        guard let genome = bundle.manifest.genome else { return nil }
+
+        let referenceURL = bundle.url.appendingPathComponent(genome.path)
+        let bamURL = bundle.url.appendingPathComponent(track.sourcePath)
+        let outputURL = bundle.url
+            .appendingPathComponent("variants/gatk", isDirectory: true)
+            .appendingPathComponent("\(generatedTrackID).vcf.gz")
+        let config = GATKHaplotypeCallerConfiguration(
+            referenceFASTAURL: referenceURL,
+            inputBAMURL: bamURL,
+            outputVCFURL: outputURL,
+            emitReferenceConfidence: .none,
+            extraArguments: parsedAdvancedOptions
+        )
+        return .haplotypeCaller(
+            configuration: config,
+            toolVersion: Self.gatkToolVersion(),
+            runtimeIdentity: Self.gatkRuntimeIdentity()
+        )
+    }
+
+    private static func gatkToolVersion() -> String {
+        PluginPack.builtInPack(id: "gatk-core")?
+            .toolRequirements
+            .first(where: { $0.environment == "gatk-core" })?
+            .version ?? "unknown"
+    }
+
+    private static func gatkRuntimeIdentity() -> GATKRuntimeIdentity {
+        let environmentURL = CondaManager.shared.rootPrefix
+            .appendingPathComponent("envs/gatk-core", isDirectory: true)
+        return GATKRuntimeIdentity(condaEnvironment: environmentURL.path)
     }
 
     /// Renders a primer-trim provenance timestamp for the readiness banner and

@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishCLI
+@testable import LungfishWorkflow
 
 final class GATKCommandTests: XCTestCase {
     func testHaplotypeCallerDryRunPrintsConstructedCommand() async throws {
@@ -34,6 +35,121 @@ final class GATKCommandTests: XCTestCase {
         XCTAssertTrue(line.contains("gatk VariantsToTable"))
         XCTAssertTrue(line.contains("-F CHROM"))
         XCTAssertTrue(line.contains("-F DP"))
+    }
+
+    func testHaplotypeCallerParsesExplicitExecutionModeWithoutChangingDryRunDefault() throws {
+        let dryRun = try GATKCLICommand.HaplotypeCallerSubcommand.parse([
+            "haplotype-caller",
+            "--reference", "/tmp/ref.fa",
+            "--bam", "/tmp/sample.bam",
+            "--output", "/tmp/sample.g.vcf.gz",
+        ])
+        XCTAssertFalse(dryRun.execute)
+        XCTAssertTrue(dryRun.isDryRun)
+
+        let execute = try GATKCLICommand.HaplotypeCallerSubcommand.parse([
+            "haplotype-caller",
+            "--execute",
+            "--reference", "/tmp/ref.fa",
+            "--bam", "/tmp/sample.bam",
+            "--output", "/tmp/sample.g.vcf.gz",
+        ])
+        XCTAssertTrue(execute.execute)
+        XCTAssertFalse(execute.isDryRun)
+
+        let dryRunOverride = try GATKCLICommand.HaplotypeCallerSubcommand.parse([
+            "haplotype-caller",
+            "--execute",
+            "--dry-run",
+            "--reference", "/tmp/ref.fa",
+            "--bam", "/tmp/sample.bam",
+            "--output", "/tmp/sample.g.vcf.gz",
+        ])
+        XCTAssertTrue(dryRunOverride.execute)
+        XCTAssertTrue(dryRunOverride.isDryRun)
+    }
+
+    func testHaplotypeCallerExecuteModeRunsInjectedRunnerAndWritesFinalProvenance() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let reference = try write("ref.fa", contents: ">chr1\nACGT\n", in: tempDir)
+        let bam = try write("sample.bam", contents: "bam-bytes", in: tempDir)
+        let output = tempDir.appendingPathComponent("final/sample.g.vcf.gz")
+        let command = try GATKCLICommand.HaplotypeCallerSubcommand.parse([
+            "haplotype-caller",
+            "--execute",
+            "--reference", reference.path,
+            "--bam", bam.path,
+            "--output", output.path,
+        ])
+        let runner = CLIGATKRecordingRunner { gatkCommand in
+            XCTAssertEqual(gatkCommand.arguments.first, "HaplotypeCaller")
+            try FileManager.default.createDirectory(
+                at: output.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("gvcf-bytes".utf8).write(to: output)
+            return GATKCommandExecutionResult(exitCode: 0, stdout: "ok", stderr: "", wallTime: 0.5)
+        }
+        let recorder = GATKLineRecorder()
+
+        try await command.executeForTesting(
+            emit: { recorder.append($0) },
+            runner: runner,
+            toolVersion: "4.6.2.0",
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core"),
+            packVersion: "test-pack"
+        )
+
+        let provenanceURL = output.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenance = try decodeProvenance(at: provenanceURL)
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
+        XCTAssertEqual(provenance.parameters["packID"]?.stringValue, "gatk-core")
+        XCTAssertEqual(provenance.parameters["packVersion"]?.stringValue, "test-pack")
+        XCTAssertTrue(recorder.lines().contains { $0.contains(provenanceURL.path) })
+        let provenanceJSON = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceJSON.contains("/staging/"))
+    }
+
+    func testVariantsToTableExecuteModeRunsInjectedRunnerAndWritesFinalProvenance() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let input = try write("cohort.vcf.gz", contents: "vcf-bytes", in: tempDir)
+        let output = tempDir.appendingPathComponent("final/cohort.tsv")
+        let command = try GATKCLICommand.VariantsToTableSubcommand.parse([
+            "variants-to-table",
+            "--execute",
+            "--vcf", input.path,
+            "--fields", "CHROM,POS,GT",
+            "--output", output.path,
+        ])
+        let runner = CLIGATKRecordingRunner { gatkCommand in
+            XCTAssertEqual(gatkCommand.arguments.first, "VariantsToTable")
+            try FileManager.default.createDirectory(
+                at: output.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data("CHROM\tPOS\tGT\n".utf8).write(to: output)
+            return GATKCommandExecutionResult(exitCode: 0, stdout: "ok", stderr: "", wallTime: 0.5)
+        }
+        let recorder = GATKLineRecorder()
+
+        try await command.executeForTesting(
+            emit: { recorder.append($0) },
+            runner: runner,
+            toolVersion: "4.6.2.0",
+            runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core")
+        )
+
+        let provenanceURL = output.deletingLastPathComponent()
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenance = try decodeProvenance(at: provenanceURL)
+        XCTAssertEqual(provenance.name, "GATK VariantsToTable")
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.path, output.path)
+        XCTAssertEqual(provenance.parameters["option.fields"]?.stringValue, #"["CHROM","POS","GT"]"#)
+        let provenanceJSON = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertFalse(provenanceJSON.contains("/staging/"))
     }
 
     func testBQSRDryRunPrintsRecalibratorAndApplyCommandsWithPassthroughArguments() async throws {
@@ -145,4 +261,37 @@ private final class GATKLineRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         return storage
     }
+}
+
+private actor CLIGATKRecordingRunner: GATKCommandRunning {
+    typealias Handler = @Sendable (GATKCommand) async throws -> GATKCommandExecutionResult
+
+    private let handler: Handler
+
+    init(handler: @escaping Handler) {
+        self.handler = handler
+    }
+
+    func run(_ command: GATKCommand) async throws -> GATKCommandExecutionResult {
+        try await handler(command)
+    }
+}
+
+private func makeTempDir() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("GATKCommandTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
+private func write(_ name: String, contents: String, in directory: URL) throws -> URL {
+    let url = directory.appendingPathComponent(name)
+    try contents.write(to: url, atomically: true, encoding: .utf8)
+    return url
+}
+
+private func decodeProvenance(at url: URL) throws -> WorkflowRun {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: url))
 }

@@ -68,10 +68,14 @@ struct BAMVariantCallingToolPanes: View {
     @ViewBuilder
     private var callerSpecificSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\(state.selectedCaller.displayName) Settings")
+            Text("\(state.selectedToolDisplayName) Settings")
                 .font(.headline)
 
-            switch state.selectedCaller {
+            if state.selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
+                Text("GATK HaplotypeCaller will write a standard genotype VCF for the selected BAM.")
+                    .foregroundStyle(.secondary)
+            } else {
+                switch state.selectedCaller {
             case .lofreq:
                 Text("LoFreq is ready to run directly on the selected bundle alignment track.")
                     .foregroundStyle(.secondary)
@@ -101,6 +105,7 @@ struct BAMVariantCallingToolPanes: View {
                     TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
                         .textFieldStyle(.roundedBorder)
                 }
+                }
             }
         }
     }
@@ -118,7 +123,7 @@ struct BAMVariantCallingToolPanes: View {
 
     @ViewBuilder
     private var ivarOptionsSection: some View {
-        if state.selectedCaller == .ivar {
+        if state.selectedToolID == BAMVariantCallingToolID.ivar.rawValue {
             VStack(alignment: .leading, spacing: 12) {
                 Text("iVar Options")
                     .font(.headline)
