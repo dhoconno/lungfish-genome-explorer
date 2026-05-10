@@ -28,6 +28,18 @@ theme:
     - search.suggest
     - search.highlight
 
+plugins:
+  - search
+  - with-pdf:
+      author: Lungfish Development Team
+      cover_title: Lungfish User Manual
+      cover_subtitle: Documentation for the macOS app for viral genome analysis
+      output_path: pdf/lungfish-user-manual.pdf
+      toc_level: 3
+      cover: true
+      toc_title: Table of Contents
+      enabled_if_env: ENABLE_PDF_EXPORT
+
 extra_css:
   - css/extra.css
 

@@ -50,7 +50,7 @@ GATCTGTTCTCTAAACGAACAAACTAAAATGTCTGATAATGGACCCCAAAATCAGCGAAATGCACCCCGCATTACGTTTG
 FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFF,FFF
 ```
 
-![Four-line FASTQ record anatomy with header, sequence, separator, and quality rows labelled](../../assets/illustrations/01-foundations/02-sequencing-reads/fastq-record-anatomy.png)
+![Four-line FASTQ record anatomy with header, sequence, separator, and quality rows labelled](../../assets/illustrations-imagegen/01-foundations/02-sequencing-reads/fastq-record-anatomy.source.png)
 
 Line 1 is the **header**. It always starts with `@` and carries an identifier the sequencer assigned to this read. The text after the first space is free-form metadata; in this fixture it carries the read pair number (`1/1`). The header is unique within the file.
 
@@ -72,7 +72,7 @@ If you do uncompress a file for inspection, the four-line structure described ab
 
 Most short-read Illumina protocols sequence each DNA fragment from both ends. The result is two reads per fragment: one starting at the 5' end of the fragment moving inward, and one starting at the 3' end moving inward. These are called **paired-end reads**, and they live in two parallel files.
 
-![Paired-end DNA fragment with read 1 and read 2 pointing inward](../../assets/illustrations/01-foundations/02-sequencing-reads/paired-end-reads.png)
+![Paired-end DNA fragment with read 1 and read 2 pointing inward](../../assets/illustrations-imagegen/01-foundations/02-sequencing-reads/paired-end-reads.source.png)
 
 The two files share a base name and differ only in a suffix. The fixture for this manual uses the SRA convention `_1` and `_2`:
 
@@ -98,7 +98,7 @@ A Phred score is a per-base confidence value that estimates the probability the 
 | Q30 | 1 in 1,000 | Standard threshold for "good" |
 | Q40 | 1 in 10,000 | Excellent, common on modern Illumina |
 
-![Phred quality scale from Q0 to Q40 with Q20 and Q30 error-rate annotations](../../assets/illustrations/01-foundations/02-sequencing-reads/phred-quality-bar.png)
+![Phred quality scale from Q0 to Q40 with Q20 and Q30 error-rate annotations](../../assets/illustrations-imagegen/01-foundations/02-sequencing-reads/phred-quality-bar.source.png)
 
 In a FASTQ file the score is encoded as a single ASCII character per base, with an offset of 33. To decode a quality character: take its ASCII code and subtract 33. The character `!` (ASCII 33) is Q0; `5` (ASCII 53) is Q20; `?` (ASCII 63) is Q30; `I` (ASCII 73) is Q40. The character `F` from the example record above has ASCII code 70, which decodes to Q37 (about a 1-in-5,000 error rate).
 
@@ -117,7 +117,7 @@ Different sequencing platforms produce reads of very different lengths and at ve
 | PacBio HiFi | 10,000 to 25,000 bp | 1M to 10M | Q30+ (consensus reads) |
 | Ion Torrent | 200 to 400 bp | 1M to 100M | Q20 to Q30 |
 
-![Log-scale comparison of Illumina, PacBio HiFi, and Oxford Nanopore read lengths](../../assets/illustrations/01-foundations/02-sequencing-reads/platform-read-length-comparison.png)
+![Log-scale comparison of Illumina, PacBio HiFi, and Oxford Nanopore read lengths](../../assets/illustrations-imagegen/01-foundations/02-sequencing-reads/platform-read-length-comparison.source.png)
 
 Read length is reported in base pairs (bp) for short reads and kilobases (kb) for long reads, where 1 kb is 1,000 bp. A 150 bp Illumina read covers about 0.5% of the SARS-CoV-2 genome (29,903 bp). A 15 kb PacBio HiFi read covers about half the genome in a single observation.
 
