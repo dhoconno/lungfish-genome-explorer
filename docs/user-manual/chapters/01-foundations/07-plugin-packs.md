@@ -69,6 +69,16 @@ current. You will not need to type a single `conda` command. The
 `lungfish conda` subcommand wraps the bootstrap, the channel configuration,
 and the per-tool environment layout for you.
 
+## System requirements
+
+Plugin packs are supported on macOS 26 Tahoe or later on Apple Silicon
+Macs. A 16 GB Mac can run the default viral, mapping, variant-calling, and
+assembly examples in this manual. Broad metagenomics databases need more
+memory because tools such as Kraken2 load the active database into RAM.
+Keep at least 50 GB of free disk before installing packs; use a larger
+external or shared volume if you plan to install Standard or PlusPF
+classification databases.
+
 ## The packs you will meet in this manual
 
 The table below lists the packs referenced by later chapters, the tools each
@@ -223,10 +233,18 @@ export LUNGFISH_CONDA_ROOT=/shared/lungfish/conda
 lungfish conda install --pack read-mapping
 ```
 
-All managed tool lookup paths use the override while it is set. The user
-performing installs still needs write permission to that directory; users
-who only run workflows need read and execute permission for the installed
-environments.
+All managed tool lookup paths use the override while it is set. For a
+shared lab machine, the recommended pattern is:
+
+1. The admin user sets `LUNGFISH_CONDA_ROOT` and installs or updates packs.
+2. The admin leaves the installed root readable and executable by lab users.
+3. Routine users run workflows with the same `LUNGFISH_CONDA_ROOT`, but do
+   not mutate the root.
+
+Conda mutations take an exclusive `.install.lock` in the conda root. A
+second install waits rather than corrupting the shared environment. If a
+routine user tries to install into a read-only admin root, Lungfish stops
+with `conda root is read-only; reinstall as the admin user`.
 
 ## Next
 

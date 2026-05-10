@@ -51,6 +51,13 @@ final class CLITopLevelRegressionTests: XCTestCase {
         XCTAssertFalse(helpText.isEmpty)
         XCTAssertTrue(helpText.contains("lungfish"))
     }
+
+    func testRunHeadlessIsRegisteredAsDiscoverableTopLevelSubcommand() throws {
+        let names = LungfishCLI.configuration.subcommands.map { $0.configuration.commandName }
+
+        XCTAssertTrue(names.contains("run-headless"))
+        XCTAssertTrue(LungfishCLI.helpMessage().contains("run-headless"))
+    }
 }
 
 // MARK: - GlobalOptions Parsing
@@ -523,6 +530,19 @@ final class WorkflowCommandRegressionTests: XCTestCase {
 
     func testDefaultSubcommand() {
         XCTAssertNotNil(WorkflowCommand.configuration.defaultSubcommand)
+    }
+
+    func testRunHeadlessHelpPointsToWorkflowRunQuietSemantics() {
+        let help = RunHeadlessSubcommand.helpMessage()
+
+        XCTAssertTrue(help.contains("workflow run"))
+        XCTAssertTrue(help.contains("--quiet"))
+    }
+
+    func testRunHeadlessParsesWorkflowPathWithoutDisplayRequirements() throws {
+        let command = try RunHeadlessSubcommand.parse(["/tmp/workflow.nf"])
+
+        XCTAssertEqual(command.workflow, "/tmp/workflow.nf")
     }
 
     func testRunSubcommandAllowsOnlyViralReconNFCoreWorkflow() throws {

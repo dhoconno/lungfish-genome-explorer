@@ -272,6 +272,13 @@ final class AboutWindowController: NSWindowController {
         appendSecondary("Wisconsin National Primate Research Center")
         appendSecondary("Early testing and feedback")
 
+        // System Requirements
+        appendHeading("System Requirements")
+        appendBody("Minimum macOS 26 Tahoe")
+        appendBody("Apple Silicon required")
+        appendBody("16 GB RAM recommended")
+        appendBody("50 GB free disk recommended")
+
         // Bundled bootstrap tooling stays separate from the pinned managed pack.
         appendHeading("Bundled Bootstrap")
 

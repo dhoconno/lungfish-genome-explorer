@@ -35,4 +35,4 @@ The [Assembly](chapters/07-assembly/) part covers de novo assembly. The [Workflo
 
 ## Reference
 
-The [appendices](chapters/appendices/) hold the CLI reference, keyboard shortcuts, troubleshooting guide, and glossary.
+The [appendices](chapters/appendices/) hold the CLI reference, running-in-CI guide, keyboard shortcuts, troubleshooting guide, and glossary.

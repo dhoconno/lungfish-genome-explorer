@@ -29,6 +29,25 @@ struct WorkflowCommand: AsyncParsableCommand {
     )
 }
 
+struct RunHeadlessSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "run-headless",
+        abstract: "Run a workflow quietly without the GUI",
+        discussion: """
+            Thin alias for `lungfish workflow run --quiet <workflow>`.
+            Use `lungfish workflow run --help` for the full workflow run option set.
+            """
+    )
+
+    @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow to pass to workflow run")
+    var workflow: String
+
+    func run() async throws {
+        var command = try RunSubcommand.parse([workflow, "--quiet"])
+        try await command.run()
+    }
+}
+
 // MARK: - Run Subcommand
 
 /// Execute a workflow
