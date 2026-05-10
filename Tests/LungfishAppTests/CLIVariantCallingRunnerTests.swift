@@ -33,7 +33,7 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         XCTAssertEqual(message, "Medaka requires ONT model metadata")
     }
 
-    func testBuildCLIArgumentsIncludesAdvancedOptionsAsSingleValue() {
+    func testBuildCLIArgumentsIncludesExtraArgsAsSingleValue() {
         let request = BundleVariantCallingRequest(
             bundleURL: URL(fileURLWithPath: "/tmp/Test Bundle.lungfishref"),
             alignmentTrackID: "aln-1",
@@ -44,9 +44,10 @@ final class CLIVariantCallingRunnerTests: XCTestCase {
         )
 
         let arguments = CLIVariantCallingRunner.buildCLIArguments(request: request)
-        let index = arguments.firstIndex(of: "--advanced-options")
+        let index = arguments.firstIndex(of: "--extra-args")
 
         XCTAssertNotNil(index)
         XCTAssertEqual(arguments[index! + 1], "--call-indels --tag 'sample 1'")
+        XCTAssertFalse(arguments.contains("--advanced-options"))
     }
 }

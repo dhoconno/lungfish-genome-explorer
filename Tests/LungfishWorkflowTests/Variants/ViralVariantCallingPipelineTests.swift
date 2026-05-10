@@ -158,7 +158,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(result.commandLine.contains("/envs/bcftools/bin/bcftools"))
     }
 
-    func testCallerParametersJSONIncludesAdvancedOptions() async throws {
+    func testCallerParametersJSONIncludesExtraArgs() async throws {
         let pipeline = try makePipeline(
             caller: .lofreq,
             advancedArguments: ["--call-indels", "--tag", "sample 1"],
@@ -176,6 +176,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         let data = try XCTUnwrap(result.callerParametersJSON.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
+        XCTAssertEqual(json["extraArgs"] as? String, "--call-indels --tag 'sample 1'")
         XCTAssertEqual(json["advancedOptions"] as? String, "--call-indels --tag 'sample 1'")
         XCTAssertEqual(json["advancedArguments"] as? [String], ["--call-indels", "--tag", "sample 1"])
         XCTAssertTrue(result.commandLine.contains("--call-indels --tag 'sample 1'"))
