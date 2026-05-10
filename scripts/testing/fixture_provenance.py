@@ -220,7 +220,7 @@ def validate_fixture_sidecar(root, relative_fixture):
             errors.append(f"checksum mismatch for {path}: recorded {recorded_checksum}, actual {actual['checksumSHA256']}: {sidecar_path}")
 
     errors.extend(stale_string_errors(record, sidecar_path))
-    errors.extend(validate_fixture_specific_provenance(relative_fixture, record, sidecar_path))
+    errors.extend(validate_fixture_specific_provenance(root, fixture_path, relative_fixture, record, sidecar_path))
     return errors
 
 
@@ -313,7 +313,7 @@ def stale_string_errors(value, sidecar_path, trail=""):
     return errors
 
 
-def validate_fixture_specific_provenance(relative_fixture, record, sidecar_path):
+def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, record, sidecar_path):
     expected = SCIENTIFIC_PROVENANCE_EXPECTATIONS.get(relative_fixture)
     if expected is None:
         return []
@@ -328,13 +328,21 @@ def validate_fixture_specific_provenance(relative_fixture, record, sidecar_path)
         if not isinstance(invocations, list) or not invocations:
             errors.append(f"missing externalToolInvocations for MAFFT provenance: {sidecar_path}")
         else:
-            mafft = invocations[0]
-            if not isinstance(mafft, dict) or mafft.get("name") != "mafft" or not mafft.get("version") or "stderr" not in mafft:
-                errors.append(f"incomplete MAFFT external invocation provenance: {sidecar_path}")
-        if not isinstance(record.get("input"), dict):
+            errors.extend(validate_mafft_external_invocation(invocations[0], sidecar_path))
+        input_record = record.get("input")
+        if not isinstance(input_record, dict):
             errors.append(f"missing input object for MAFFT provenance: {sidecar_path}")
-        if not isinstance(record.get("inputFiles"), list) or not record.get("inputFiles"):
+        else:
+            errors.extend(validate_input_file_entry(root, fixture_path, input_record, sidecar_path, "input"))
+        input_files = record.get("inputFiles")
+        if not isinstance(input_files, list) or not input_files:
             errors.append(f"missing inputFiles for MAFFT provenance: {sidecar_path}")
+        else:
+            for index, input_file in enumerate(input_files):
+                if not isinstance(input_file, dict):
+                    errors.append(f"invalid inputFiles[{index}] object for MAFFT provenance: {sidecar_path}")
+                    continue
+                errors.extend(validate_input_file_entry(root, fixture_path, input_file, sidecar_path, f"inputFiles[{index}]"))
         if not isinstance(record.get("options"), dict) or record["options"].get("name") != "sars-cov-2-genomes-mafft":
             errors.append(f"missing MAFFT options for nested alignment provenance: {sidecar_path}")
     else:
@@ -342,6 +350,64 @@ def validate_fixture_specific_provenance(relative_fixture, record, sidecar_path)
         expected_warning = "deterministic synthetic derivatives"
         if not isinstance(warnings, list) or not any(expected_warning in str(warning) for warning in warnings):
             errors.append(f"missing deterministic derivative warning in root alignment provenance: {sidecar_path}")
+    return errors
+
+
+def validate_mafft_external_invocation(mafft, sidecar_path):
+    errors = []
+    if not isinstance(mafft, dict):
+        return [f"incomplete MAFFT external invocation provenance: {sidecar_path}"]
+    if mafft.get("name") != "mafft":
+        errors.append(f"invalid MAFFT external invocation name: {sidecar_path}")
+    if not is_non_empty_string(mafft.get("version")):
+        errors.append(f"invalid MAFFT external invocation version: {sidecar_path}")
+    argv = mafft.get("argv")
+    if not isinstance(argv, list) or not argv or not all(isinstance(argument, str) for argument in argv):
+        errors.append(f"invalid MAFFT external invocation argv: {sidecar_path}")
+    if not is_non_empty_string(mafft.get("reproducibleCommand")):
+        errors.append(f"invalid MAFFT external invocation reproducibleCommand: {sidecar_path}")
+    if not is_integer(mafft.get("exitStatus")) or mafft.get("exitStatus") != 0:
+        errors.append(f"invalid MAFFT external invocation exitStatus: {sidecar_path}")
+    if not is_number(mafft.get("wallTimeSeconds")):
+        errors.append(f"invalid MAFFT external invocation wallTimeSeconds: {sidecar_path}")
+    if not isinstance(mafft.get("stderr"), str):
+        errors.append(f"invalid MAFFT external invocation stderr: {sidecar_path}")
+    for field in ["condaEnvironment", "executablePath"]:
+        if not is_non_empty_string(mafft.get(field)):
+            errors.append(f"invalid MAFFT external invocation {field}: {sidecar_path}")
+    return errors
+
+
+def validate_input_file_entry(root, fixture_path, entry, sidecar_path, field_name):
+    errors = []
+    path = entry.get("path")
+    if not is_non_empty_string(path):
+        return [f"invalid MAFFT {field_name}.path: {sidecar_path}"]
+    if Path(path).is_absolute():
+        errors.append(f"MAFFT {field_name}.path must be relative: {sidecar_path}")
+        return errors
+    if any(marker in path for marker in PROVENANCE_STALE_PATH_MARKERS):
+        errors.append(f"stale path marker in MAFFT {field_name}.path {path}: {sidecar_path}")
+
+    candidate_paths = [fixture_path / path, root / path]
+    actual_path = next((candidate for candidate in candidate_paths if candidate.is_file()), None)
+    if actual_path is None:
+        errors.append(f"MAFFT {field_name}.path does not exist {path}: {sidecar_path}")
+        return errors
+
+    recorded_size = entry.get("fileSize", entry.get("size"))
+    actual_size = actual_path.stat().st_size
+    if not is_integer(recorded_size):
+        errors.append(f"invalid MAFFT {field_name}.fileSize: {sidecar_path}")
+    elif recorded_size != actual_size:
+        errors.append(f"MAFFT input fileSize mismatch for {field_name}: recorded {recorded_size}, actual {actual_size}: {sidecar_path}")
+
+    recorded_checksum = entry.get("checksumSHA256")
+    actual_checksum = sha256_file(actual_path)
+    if not is_non_empty_string(recorded_checksum):
+        errors.append(f"invalid MAFFT {field_name}.checksumSHA256: {sidecar_path}")
+    elif recorded_checksum != actual_checksum:
+        errors.append(f"MAFFT input checksum mismatch for {field_name}: recorded {recorded_checksum}, actual {actual_checksum}: {sidecar_path}")
     return errors
 
 
@@ -360,11 +426,36 @@ def validate_retained_payload_text(root):
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
+            try:
+                decoded = json.loads(text)
+            except json.JSONDecodeError:
+                decoded = None
+            if decoded is not None:
+                errors.extend(stale_payload_json_errors(decoded, path))
             for line_number, line in enumerate(text.splitlines(), start=1):
+                normalized_line = line.replace("\\/", "/")
                 for marker in PAYLOAD_STALE_PATH_MARKERS:
-                    if marker in line:
+                    if marker in line or marker in normalized_line:
                         errors.append(f"stale path marker {marker!r} in payload {path}:{line_number}")
                         break
+    return errors
+
+
+def stale_payload_json_errors(value, path, trail=""):
+    errors = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_trail = f"{trail}.{key}" if trail else str(key)
+            errors.extend(stale_payload_json_errors(child, path, child_trail))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            errors.extend(stale_payload_json_errors(child, path, f"{trail}[{index}]"))
+    elif isinstance(value, str):
+        normalized_value = value.replace("\\/", "/")
+        for marker in PAYLOAD_STALE_PATH_MARKERS:
+            if marker in value or marker in normalized_value:
+                errors.append(f"stale path marker {marker!r} in payload {path} field {trail}")
+                break
     return errors
 
 

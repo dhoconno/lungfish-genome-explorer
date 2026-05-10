@@ -173,6 +173,30 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("stale path marker", result.stderr)
             self.assertIn("taxtriage-result.json", result.stderr)
 
+    def test_audit_fails_when_json_payload_metadata_contains_escaped_tmp_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "taxtriage-2026-01-15T12-00-00"
+            payload = fixture / "taxtriage-result.json"
+            payload.write_text('{"outputDirectory": "\\/tmp\\/stale"}\n', encoding="utf-8")
+            (fixture / ".lungfish-provenance.json").write_text(
+                json.dumps(self._valid_sidecar(fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("taxtriage-result.json", result.stderr)
+
     def test_audit_fails_when_sidecar_string_contains_tmp_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -219,6 +243,87 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("expected workflowName", result.stderr)
             self.assertIn("must preserve scientific workflow provenance", result.stderr)
 
+    def test_audit_fails_when_nested_mafft_external_invocation_is_incomplete(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["externalToolInvocations"][0].update(
+                {
+                    "argv": "mafft --auto input.fasta",
+                    "reproducibleCommand": "",
+                    "exitStatus": 1,
+                    "wallTimeSeconds": "fast",
+                    "stderr": None,
+                    "condaEnvironment": "",
+                    "executablePath": 42,
+                }
+            )
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            for message in [
+                "invalid MAFFT external invocation argv",
+                "invalid MAFFT external invocation reproducibleCommand",
+                "invalid MAFFT external invocation exitStatus",
+                "invalid MAFFT external invocation wallTimeSeconds",
+                "invalid MAFFT external invocation stderr",
+                "invalid MAFFT external invocation condaEnvironment",
+                "invalid MAFFT external invocation executablePath",
+            ]:
+                self.assertIn(message, result.stderr)
+
+    def test_audit_fails_when_nested_mafft_input_checksum_or_size_is_wrong(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["input"]["fileSize"] = 999
+            provenance["input"]["checksumSHA256"] = "wrong"
+            provenance["inputFiles"][0]["fileSize"] = 999
+            provenance["inputFiles"][0]["checksumSHA256"] = "wrong"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("MAFFT input fileSize mismatch", result.stderr)
+            self.assertIn("MAFFT input checksum mismatch", result.stderr)
+
     def test_audit_passes_when_existing_retained_fixtures_have_valid_sidecars(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -240,6 +345,27 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             root = Path(temp_dir)
             for fixture in RETAINED_FIXTURES:
                 (root / fixture).mkdir(parents=True)
+            nested_msa = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            (nested_msa / "alignment").mkdir()
+            (nested_msa / "alignment" / "source.original").write_text(">source\nACGT\n", encoding="utf-8")
+            project_input = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Inputs"
+            )
+            project_input.mkdir()
+            (project_input / "sars-cov-2-genomes.fasta").write_text(">alpha\nACGT\n", encoding="utf-8")
 
             missing_fixture = root / "Tests" / "Fixtures" / "analyses" / "kraken2-2026-01-15T11-00-00"
             (missing_fixture / "reads.kreport").write_text("fixture\n", encoding="utf-8")
@@ -300,6 +426,10 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             fixture_path.mkdir(parents=True)
             payload = fixture_path / "payload.txt"
             payload.write_text(f"{fixture}\n", encoding="utf-8")
+            if fixture.endswith(".lungfishmsa"):
+                input_dir = fixture_path / "Inputs"
+                input_dir.mkdir()
+                (input_dir / "sars-cov-2-genomes.fasta").write_text(">alpha\nACGT\n", encoding="utf-8")
         for fixture in RETAINED_FIXTURES:
             fixture_path = root / fixture
             sidecar = self._valid_sidecar(fixture_path, fixture)
@@ -368,10 +498,19 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                     "reproducibleCommand": "mafft --auto alignment/input.unaligned.fasta",
                     "exitStatus": 0,
                     "wallTimeSeconds": 1.0,
+                    "condaEnvironment": "lungfish-test",
+                    "executablePath": "/usr/bin/mafft",
                 }
             ]
-            record["input"] = {"path": "alignment/source.original", "fileSize": 0, "checksumSHA256": "test"}
-            record["inputFiles"] = [{"path": "Inputs/sars-cov-2-genomes.fasta", "fileSize": 0, "checksumSHA256": "test"}]
+            input_path = fixture_path / "Inputs" / "sars-cov-2-genomes.fasta"
+            input_data = input_path.read_bytes()
+            input_entry = {
+                "path": "Inputs/sars-cov-2-genomes.fasta",
+                "fileSize": len(input_data),
+                "checksumSHA256": hashlib.sha256(input_data).hexdigest(),
+            }
+            record["input"] = dict(input_entry)
+            record["inputFiles"] = [input_entry]
             record["options"]["name"] = "sars-cov-2-genomes-mafft"
         return record
 
