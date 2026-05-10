@@ -60,6 +60,18 @@ struct MapCommand: AsyncParsableCommand {
     )
     var sampleName: String?
 
+    @Option(name: .customLong("rg-id"), help: "BAM read-group ID (default: sample name)")
+    var readGroupID: String?
+
+    @Option(name: .customLong("rg-lb"), help: "BAM read-group library/LB (default: sample name)")
+    var readGroupLibrary: String?
+
+    @Option(name: .customLong("rg-pl"), help: "BAM read-group platform/PL (default: mapper preset platform)")
+    var readGroupPlatform: String?
+
+    @Option(name: .customLong("rg-pu"), help: "BAM read-group platform unit/PU (default: sample name)")
+    var readGroupPlatformUnit: String?
+
     @Flag(name: .customLong("paired"), help: "Input files are paired-end reads")
     var pairedEnd: Bool = false
 
@@ -140,6 +152,14 @@ struct MapCommand: AsyncParsableCommand {
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
+        let resolvedReadGroup = MappingReadGroup.resolved(
+            sampleName: effectiveSampleName,
+            id: readGroupID,
+            library: readGroupLibrary,
+            platform: readGroupPlatform,
+            platformUnit: readGroupPlatformUnit,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: selectedMode.id)
+        )
         let advancedArguments: [String]
         do {
             advancedArguments = try AdvancedCommandLineOptions.parse(advancedOptions)
@@ -155,6 +175,7 @@ struct MapCommand: AsyncParsableCommand {
             referenceFASTAURL: referenceURL,
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
+            readGroup: resolvedReadGroup,
             pairedEnd: pairedEnd,
             threads: threadCount,
             includeSecondary: secondary,
@@ -176,6 +197,10 @@ struct MapCommand: AsyncParsableCommand {
             ("Supplementary", noSupplementary ? "no" : "yes"),
             ("Min MAPQ", String(minMapQ)),
             ("Sample name", effectiveSampleName),
+            ("Read group ID", resolvedReadGroup.id),
+            ("Read group LB", resolvedReadGroup.library),
+            ("Read group PL", resolvedReadGroup.platform),
+            ("Read group PU", resolvedReadGroup.platformUnit),
             ("Advanced options", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))

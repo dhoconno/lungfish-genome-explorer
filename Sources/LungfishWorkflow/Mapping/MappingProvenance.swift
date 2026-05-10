@@ -28,6 +28,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     public let modeID: String
     public let modeDisplayName: String
     public let sampleName: String
+    public let readGroup: MappingReadGroup
     public let pairedEnd: Bool
     public let threads: Int
     public let minimumMappingQuality: Int
@@ -58,6 +59,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         mapper: MappingTool,
         modeID: String,
         sampleName: String,
+        readGroup: MappingReadGroup? = nil,
         pairedEnd: Bool,
         threads: Int,
         minimumMappingQuality: Int,
@@ -89,6 +91,10 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         self.modeID = modeID
         self.modeDisplayName = MappingMode(rawValue: modeID)?.displayName ?? modeID
         self.sampleName = sampleName
+        self.readGroup = readGroup ?? MappingReadGroup.resolved(
+            sampleName: sampleName,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+        )
         self.pairedEnd = pairedEnd
         self.threads = threads
         self.minimumMappingQuality = minimumMappingQuality
@@ -127,6 +133,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             mapper: mapper,
             modeID: modeID,
             sampleName: sampleName,
+            readGroup: readGroup,
             pairedEnd: pairedEnd,
             threads: threads,
             minimumMappingQuality: minimumMappingQuality,
@@ -160,6 +167,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             mapper: mapper,
             modeID: modeID,
             sampleName: sampleName,
+            readGroup: readGroup,
             pairedEnd: pairedEnd,
             threads: threads,
             minimumMappingQuality: minimumMappingQuality,
@@ -201,6 +209,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 modeID: modeID,
                 modeDisplayName: modeDisplayName,
                 sampleName: sampleName,
+                readGroup: readGroup,
                 pairedEnd: pairedEnd,
                 threads: threads,
                 minimumMappingQuality: minimumMappingQuality,
@@ -253,6 +262,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             mapper: persisted.mapper,
             modeID: persisted.modeID,
             sampleName: persisted.sampleName,
+            readGroup: persisted.readGroup,
             pairedEnd: persisted.pairedEnd,
             threads: persisted.threads,
             minimumMappingQuality: persisted.minimumMappingQuality,
@@ -299,11 +309,12 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         stderr: String? = nil
     ) -> MappingProvenance {
         MappingProvenance(
-            schemaVersion: 2,
+            schemaVersion: 3,
             workflowName: "lungfish map",
             mapper: request.tool,
             modeID: request.modeID,
             sampleName: request.sampleName,
+            readGroup: request.resolvedReadGroup(),
             pairedEnd: request.pairedEnd,
             threads: request.threads,
             minimumMappingQuality: request.minimumMappingQuality,
@@ -532,6 +543,7 @@ private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let modeID: String
     let modeDisplayName: String
     let sampleName: String
+    let readGroup: MappingReadGroup?
     let pairedEnd: Bool
     let threads: Int
     let minimumMappingQuality: Int

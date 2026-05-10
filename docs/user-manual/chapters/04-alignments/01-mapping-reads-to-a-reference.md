@@ -93,6 +93,38 @@ bundle that already carries an R1 and an R2 file), the run is paired-end
 and the BAM records FLAG bits that mark each read as first-of-pair or
 second-of-pair.
 
+## Read groups
+
+Every BAM that will feed variant calling should carry a read group. A read
+group is the `@RG` header line that tells downstream tools which sample,
+library, sequencing platform, and platform unit produced the reads. GATK
+and many joint-genotyping workflows treat this metadata as required rather
+than decorative: without a stable sample name (`SM`) and read-group ID
+(`ID`), later steps cannot reliably connect the alignment to the biological
+sample it represents.
+
+Lungfish writes a read group for managed mapping runs. The sample name is
+still controlled by `--sample-name`; that value becomes `SM` and is also
+used for output naming. The CLI now exposes the other read-group fields:
+
+```text
+lungfish map reads_R1.fastq.gz reads_R2.fastq.gz \
+  --reference reference.fa \
+  --paired \
+  --sample-name HG00096 \
+  --rg-id HG00096.flowcellA.lane1 \
+  --rg-lb exome-capture-2026-05 \
+  --rg-pl ILLUMINA \
+  --rg-pu flowcellA.lane1
+```
+
+If you omit any read-group field, Lungfish resolves a reproducible default
+and records it in the mapping provenance and analysis summary. `ID`, `LB`,
+and `PU` default to the sample name. `PL` defaults from the selected preset:
+`ILLUMINA` for short-read and BBMap standard modes, `ONT` for minimap2
+`map-ont`, `PACBIO` for PacBio/HiFi modes, `CDNA` for splice mode, and
+`ASSEMBLY` for assembly alignment mode.
+
 ## Procedure
 
 The wizard has three sections (Reads, Reference, Tool), all visible at
@@ -152,11 +184,10 @@ runs the mapper into a results directory. The second adopts that result
 into the reference bundle so it appears as a track in the GUI.
 
 ```text
-lungfish map \
-  --reads-r1 Imports/SRR36291587_1.fastq.gz \
-  --reads-r2 Imports/SRR36291587_2.fastq.gz \
+lungfish map Imports/SRR36291587_1.fastq.gz Imports/SRR36291587_2.fastq.gz \
   --reference "Reference Sequences/MN908947.3.lungfishref" \
   --paired --preset sr \
+  --sample-name SRR36291587 \
   -o mapping/
 
 lungfish bam adopt-mapping \

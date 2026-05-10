@@ -55,7 +55,38 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertTrue(command.arguments.contains("-x"))
         let presetIndex = try XCTUnwrap(command.arguments.firstIndex(of: "-x"))
         XCTAssertEqual(command.arguments[presetIndex + 1], "splice")
-        XCTAssertTrue(command.arguments.contains("@RG\\tID:sample\\tSM:sample\\tPL:CDNA"))
+        XCTAssertTrue(command.arguments.contains("@RG\\tID:sample\\tSM:sample\\tLB:sample\\tPL:CDNA\\tPU:sample"))
+    }
+
+    func testBuildsMinimap2CommandWithExpandedReadGroupFields() throws {
+        let request = makeRequest(
+            tool: .minimap2,
+            readGroup: MappingReadGroup(
+                id: "rg-1",
+                sampleName: "lungfish-42",
+                library: "capture-lib",
+                platform: "ILLUMINA",
+                platformUnit: "flowcell.lane1"
+            )
+        )
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(
+            command.arguments.contains("@RG\\tID:rg-1\\tSM:lungfish-42\\tLB:capture-lib\\tPL:ILLUMINA\\tPU:flowcell.lane1")
+        )
+    }
+
+    func testBuildsBowtie2CommandWithResolvedReadGroupDefaults() throws {
+        let request = makeRequest(tool: .bowtie2)
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        XCTAssertArgumentPair(command.arguments, "--rg-id", "sample")
+        XCTAssertArgumentPair(command.arguments, "--rg", "SM:sample")
+        XCTAssertArgumentPair(command.arguments, "--rg", "LB:sample")
+        XCTAssertArgumentPair(command.arguments, "--rg", "PL:ILLUMINA")
+        XCTAssertArgumentPair(command.arguments, "--rg", "PU:sample")
     }
 
     func testBuildsBowtie2CommandWithIndexPrefix() throws {
@@ -599,7 +630,8 @@ final class ManagedMappingPipelineTests: XCTestCase {
     private func makeRequest(
         tool: MappingTool,
         modeID: String? = nil,
-        advancedArguments: [String] = []
+        advancedArguments: [String] = [],
+        readGroup: MappingReadGroup? = nil
     ) -> MappingRunRequest {
         MappingRunRequest(
             tool: tool,
@@ -611,11 +643,27 @@ final class ManagedMappingPipelineTests: XCTestCase {
             referenceFASTAURL: URL(fileURLWithPath: "/tmp/reference.fa"),
             outputDirectory: URL(fileURLWithPath: "/tmp/mapping-output"),
             sampleName: "sample",
+            readGroup: readGroup,
             pairedEnd: true,
             threads: 8,
             advancedArguments: advancedArguments
         )
     }
+}
+
+private func XCTAssertArgumentPair(
+    _ arguments: [String],
+    _ flag: String,
+    _ value: String,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    for index in arguments.indices where arguments[index] == flag && index + 1 < arguments.endIndex {
+        if arguments[index + 1] == value {
+            return
+        }
+    }
+    XCTFail("Expected argument pair \(flag) \(value) in \(arguments)", file: file, line: line)
 }
 
 private struct SamtoolsFixture {

@@ -166,7 +166,7 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(loaded.commandInvocations.map(\.label), ["minimap2", "samtools view", "samtools sort", "samtools index", "samtools flagstat"])
         XCTAssertTrue(loaded.viewerBundlePath?.hasSuffix("viewer.lungfishref") ?? false)
         XCTAssertTrue(loaded.sourceReferenceBundlePath?.hasSuffix("source.lungfishref") ?? false)
-        XCTAssertEqual(loaded.schemaVersion, 2)
+        XCTAssertEqual(loaded.schemaVersion, 3)
         XCTAssertEqual(loaded.workflowName, "lungfish map")
         XCTAssertEqual(loaded.inputFiles.count, 2)
         XCTAssertTrue(loaded.inputFiles.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
@@ -206,6 +206,53 @@ final class MappingProvenanceTests: XCTestCase {
             "samtools", "sort", "-@", "4", "-o", tempDir.appendingPathComponent("reads.sorted.bam").path,
             tempDir.appendingPathComponent("reads.filtered.bam").path
         ])
+    }
+
+    func testSummaryAndProvenancePreserveResolvedReadGroupDefaults() throws {
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [tempDir.appendingPathComponent("reads.fastq")],
+            referenceFASTAURL: tempDir.appendingPathComponent("reference.fa"),
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 4
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: tempDir.appendingPathComponent("sample.sorted.bam"),
+            baiURL: tempDir.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: []
+        )
+        let mapperCommand = try MappingProvenance.mapperInvocation(for: request)
+
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: mapperCommand,
+            normalizationInvocations: [],
+            mapperVersion: "2.26",
+            samtoolsVersion: "1.21"
+        )
+        try provenance.save(to: tempDir)
+        let loaded = try XCTUnwrap(MappingProvenance.load(from: tempDir))
+        let summary = request.summaryParameters()
+
+        XCTAssertEqual(loaded.readGroup.id, "sample")
+        XCTAssertEqual(loaded.readGroup.sampleName, "sample")
+        XCTAssertEqual(loaded.readGroup.library, "sample")
+        XCTAssertEqual(loaded.readGroup.platform, "ONT")
+        XCTAssertEqual(loaded.readGroup.platformUnit, "sample")
+        XCTAssertEqual(summary["readGroupID"], .string("sample"))
+        XCTAssertEqual(summary["readGroupLibrary"], .string("sample"))
+        XCTAssertEqual(summary["readGroupPlatform"], .string("ONT"))
+        XCTAssertEqual(summary["readGroupPlatformUnit"], .string("sample"))
     }
 
     func testMapperInvocationUsesProvidedReferenceLocator() throws {
