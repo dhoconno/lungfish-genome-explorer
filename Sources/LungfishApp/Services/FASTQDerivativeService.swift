@@ -20,7 +20,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     case deduplicate(preset: FASTQDeduplicatePreset, substitutions: Int, optical: Bool, opticalDistance: Int)
 
     // Trim operations (produce trim position records)
-    case qualityTrim(threshold: Int, windowSize: Int, mode: FASTQQualityTrimMode)
+    case qualityTrim(threshold: Int, windowSize: Int, mode: FASTQQualityTrimMode, extraArguments: [String] = [])
     case adapterTrim(mode: FASTQAdapterMode, sequence: String?, sequenceR2: String?, fastaFilename: String?)
     case fixedTrim(from5Prime: Int, from3Prime: Int)
 
@@ -62,7 +62,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         referenceURL: URL,
         wordLength: Int,
         dbMask: String,
-        saveUnoriented: Bool
+        saveUnoriented: Bool,
+        extraArguments: [String] = []
     )
 
     // Human read removal. `removeReads` is retained for backward compatibility,
@@ -217,8 +218,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             var params: [String: String] = ["preset": preset.rawValue, "substitutions": "\(substitutions)"]
             if optical { params["optical"] = "true"; params["opticalDistance"] = "\(opticalDistance)" }
             return params
-        case .qualityTrim(let threshold, let windowSize, let mode):
-            return ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
+            var params = ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
+            if !extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
         case .adapterTrim(let mode, let sequence, _, _):
             var params: [String: String] = ["mode": "\(mode)"]
             if let seq = sequence { params["sequence"] = seq }
@@ -266,8 +271,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return ["frame": "\(frameOffset + 1)"]
         case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
             return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
-        case .orient(_, let wordLength, _, _):
-            return ["wordLength": "\(wordLength)"]
+        case .orient(_, let wordLength, _, _, let extraArguments):
+            var params = ["wordLength": "\(wordLength)"]
+            if !extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
         case .humanReadScrub(let databaseID, _):
             return ["databaseID": Self.canonicalHumanScrubDatabaseID(for: databaseID)]
         case .ribosomalRNAFilter(let retention, let ensure):
@@ -365,7 +374,7 @@ extension FASTQDerivativeRequest {
             }
             return buildLungfishCommand(subcommand: "fastq deduplicate", args: args)
 
-        case .qualityTrim(let threshold, let windowSize, let mode):
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
             let modeString: String
             switch mode {
             case .cutRight: modeString = "cut-right"
@@ -373,12 +382,16 @@ extension FASTQDerivativeRequest {
             case .cutTail: modeString = "cut-tail"
             case .cutBoth: modeString = "cut-both"
             }
-            return buildLungfishCommand(subcommand: "fastq quality-trim", args: [
+            var args = [
                 "--threshold", String(threshold),
                 "--window", String(windowSize),
                 "--mode", modeString,
                 inputPath, "-o", outputPath,
-            ])
+            ]
+            if !extraArguments.isEmpty {
+                args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+            }
+            return buildLungfishCommand(subcommand: "fastq quality-trim", args: args)
 
         case .adapterTrim(_, let sequence, _, _):
             var args = [inputPath, "-o", outputPath]
@@ -468,14 +481,16 @@ extension FASTQDerivativeRequest {
             if !trimBarcodes { args.append("--no-trim") }
             return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
 
-        case .orient(let referenceURL, let wordLength, _, _):
+        case .orient(let referenceURL, let wordLength, _, _, let extraArguments):
             // No direct lungfish CLI subcommand — show vsearch invocation.
-            return buildToolCommand(parts: [
+            var parts = [
                 "vsearch", "--orient", inputPath,
                 "--db", referenceURL.path,
                 "--fastaout", outputPath,
                 "--wordlength", String(wordLength),
-            ])
+            ]
+            parts += extraArguments
+            return buildToolCommand(parts: parts)
 
         case .humanReadScrub(let databaseID, _):
             // No direct lungfish CLI subcommand — show Deacon filter invocation.
@@ -650,7 +665,7 @@ public actor FASTQDerivativeService {
         }
 
         // Orient has its own execution path — produces an orient-map derivative
-        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented) = request {
+        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, _) = request {
             return try await createOrientDerivative(
                 sourceFASTQ: executionSourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
@@ -1842,7 +1857,7 @@ public actor FASTQDerivativeService {
                 toolCommand: "clumpify.sh dedupe=t subs=\(substitutions)\(optical ? " optical=t dupedist=\(opticalDistance)" : "")"
             )
 
-        case .qualityTrim(let threshold, let windowSize, let mode):
+        case .qualityTrim(let threshold, let windowSize, let mode, _):
             let result = try await runFastpQualityTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,

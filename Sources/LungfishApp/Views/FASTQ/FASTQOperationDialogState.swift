@@ -55,6 +55,7 @@ final class FASTQOperationDialogState {
     var qualityTrimThreshold: Int
     var qualityTrimWindowSize: Int
     var qualityTrimMode: FASTQQualityTrimMode
+    var qualityTrimExtraArguments: String
 
     var adapterRemovalMode: FASTQAdapterMode
     var adapterRemovalSequence: String
@@ -89,6 +90,7 @@ final class FASTQOperationDialogState {
 
     var orientWordLength: Int
     var orientDbMask: String
+    var orientExtraArguments: String
 
     var subsampleByProportionValue: Double?
     var subsampleByCountValue: Int?
@@ -158,6 +160,7 @@ final class FASTQOperationDialogState {
         self.qualityTrimThreshold = 20
         self.qualityTrimWindowSize = 4
         self.qualityTrimMode = .cutRight
+        self.qualityTrimExtraArguments = ""
         self.adapterRemovalMode = .autoDetect
         self.adapterRemovalSequence = ""
         self.primerTrimmingSource = .literal
@@ -183,6 +186,7 @@ final class FASTQOperationDialogState {
         self.correctSequencingErrorsKmerSize = 50
         self.orientWordLength = 12
         self.orientDbMask = "dust"
+        self.orientExtraArguments = ""
         self.subsampleByProportionValue = nil
         self.subsampleByCountValue = nil
         self.extractReadsByIDQuery = ""
@@ -324,11 +328,13 @@ final class FASTQOperationDialogState {
 
         case .qualityTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
+            guard let extraArguments = try? AdvancedCommandLineOptions.parse(qualityTrimExtraArguments) else { return nil }
             return .derivative(
                 request: .qualityTrim(
                     threshold: qualityTrimThreshold,
                     windowSize: qualityTrimWindowSize,
-                    mode: qualityTrimMode
+                    mode: qualityTrimMode,
+                    extraArguments: extraArguments
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -473,12 +479,14 @@ final class FASTQOperationDialogState {
 
         case .orientReads:
             guard let referenceURL = auxiliaryInputURL(for: .referenceSequence) else { return nil }
+            guard let extraArguments = try? AdvancedCommandLineOptions.parse(orientExtraArguments) else { return nil }
             return .derivative(
                 request: .orient(
                     referenceURL: referenceURL,
                     wordLength: orientWordLength,
                     dbMask: orientDbMask,
-                    saveUnoriented: false
+                    saveUnoriented: false,
+                    extraArguments: extraArguments
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -650,7 +658,8 @@ final class FASTQOperationDialogState {
         pendingLaunchRequest = .classify(
             tool: .kraken2,
             inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databaseName
+            databaseName: first.databaseName,
+            extraArguments: first.extraArguments
         )
         embeddedToolReady = true
     }
@@ -669,7 +678,8 @@ final class FASTQOperationDialogState {
         pendingLaunchRequest = .classify(
             tool: .esViritu,
             inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databasePath.lastPathComponent
+            databaseName: first.databasePath.lastPathComponent,
+            extraArguments: first.extraArguments
         )
         embeddedToolReady = true
     }
@@ -691,7 +701,8 @@ final class FASTQOperationDialogState {
             inputURLs: config.samples.flatMap { sample in
                 [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
             },
-            databaseName: config.kraken2DatabasePath?.lastPathComponent ?? ""
+            databaseName: config.kraken2DatabasePath?.lastPathComponent ?? "",
+            extraArguments: config.extraArguments
         )
         embeddedToolReady = true
     }
@@ -1628,7 +1639,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case derivative(request: FASTQDerivativeRequest, inputURLs: [URL], outputMode: FASTQOperationOutputMode)
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
-    case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String)
+    case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
 }
 
 private extension AssemblyTool {

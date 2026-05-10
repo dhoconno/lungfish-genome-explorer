@@ -40,6 +40,22 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         XCTAssertEqual(request.extraArgs, "MEGABLAST=off WORD_SIZE=11")
     }
 
+    func testBlastExtraArgsParseIntoURLAPIParameters() throws {
+        let command = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "classification.kreport",
+            "--source", "reads.fastq",
+            "--kraken-output", "classification.kraken",
+            "--taxid", "562",
+            "--extra-args", "MEGABLAST=off WORD_SIZE=11 FILTER=L",
+        ])
+
+        XCTAssertEqual(try command.extraParametersForTesting(), [
+            "FILTER": "L",
+            "MEGABLAST": "off",
+            "WORD_SIZE": "11",
+        ])
+    }
+
     func testEsVirituExtraArgsParseAndReachCommandArguments() throws {
         let command = try EsVirituCommand.DetectSubcommand.parse([
             "detect",
@@ -137,6 +153,65 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
 
         XCTAssertEqual(command.extraArguments, ["--cut_mean_quality", "25", "--length_required", "75"])
         XCTAssertTrue(arguments.suffix(4).elementsEqual(["--cut_mean_quality", "25", "--length_required", "75"]))
+    }
+
+    func testFastqTrimBuildsProvenanceWithExtraArgs() throws {
+        let command = try FastqQualityTrimSubcommand.parse([
+            "reads.fastq",
+            "--output", "trimmed.fastq",
+            "--threshold", "25",
+            "--extra-args", "--length_required 75",
+        ])
+
+        let run = command.provenanceRunForTesting(
+            inputURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            outputURL: URL(fileURLWithPath: "/tmp/trimmed.fastq"),
+            argv: ["lungfish", "fastq", "quality-trim", "reads.fastq", "--extra-args", "--length_required 75"],
+            fastpArguments: ["fastp", "-i", "/tmp/reads.fastq", "-o", "/tmp/trimmed.fastq", "--length_required", "75"],
+            exitCode: 0,
+            wallTime: 1.25,
+            stderr: "fastp stderr"
+        )
+
+        XCTAssertEqual(run.name, "lungfish fastq quality-trim")
+        XCTAssertEqual(run.parameters["extraArgs"], .string("--length_required 75"))
+        XCTAssertEqual(run.steps.first?.toolName, "fastp")
+        XCTAssertEqual(run.steps.first?.command.suffix(2), ["--length_required", "75"])
+        XCTAssertEqual(run.steps.first?.exitCode, 0)
+        XCTAssertEqual(run.steps.first?.wallTime, 1.25)
+        XCTAssertEqual(run.steps.first?.stderr, "fastp stderr")
+    }
+
+    func testOrientBuildsProvenanceWithExtraArgsAndOutputs() throws {
+        let command = try OrientCommand.parse([
+            "reads.fastq",
+            "--reference", "reference.fasta",
+            "--extra-args", "--id 0.97",
+        ])
+
+        let run = try command.provenanceRunForTesting(
+            inputURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
+            result: OrientResult(
+                orientedFASTQ: URL(fileURLWithPath: "/tmp/oriented.fastq"),
+                unorientedFASTQ: nil,
+                tabbedOutput: URL(fileURLWithPath: "/tmp/orient.tsv"),
+                forwardCount: 1,
+                reverseComplementedCount: 2,
+                unmatchedCount: 0,
+                wallClockSeconds: 2.5
+            ),
+            argv: ["lungfish", "orient", "reads.fastq", "--reference", "reference.fasta", "--extra-args", "--id 0.97"],
+            vsearchArguments: ["vsearch", "--orient", "/tmp/reads.fastq", "--id", "0.97"],
+            exitCode: 0,
+            stderr: "vsearch stderr"
+        )
+
+        XCTAssertEqual(run.name, "lungfish orient")
+        XCTAssertEqual(run.parameters["extraArgs"], .string("--id 0.97"))
+        XCTAssertEqual(run.steps.first?.toolName, "vsearch")
+        XCTAssertEqual(run.steps.first?.outputs.map(\.path), ["/tmp/oriented.fastq", "/tmp/orient.tsv"])
+        XCTAssertEqual(run.steps.first?.wallTime, 2.5)
     }
 
     func testCondaClassifyExtraArgsParseAndReachKraken2Arguments() throws {

@@ -270,6 +270,58 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
     }
 
+    func testQualityTrimRoutesExtraArgumentsIntoLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.qualityTrim)
+        state.qualityTrimExtraArguments = "--length_required 75"
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .qualityTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    extraArguments: ["--length_required", "75"]
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testOrientRoutesExtraArgumentsIntoLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.orientReads)
+        state.setAuxiliaryInput(URL(fileURLWithPath: "/tmp/reference.fasta"), for: .referenceSequence)
+        state.orientExtraArguments = "--id 0.97"
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .orient(
+                    referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
+                    wordLength: 12,
+                    dbMask: "dust",
+                    saveUnoriented: false,
+                    extraArguments: ["--id", "0.97"]
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
     func testReverseComplementBuildsGenericOperationLaunchRequest() {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(

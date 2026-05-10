@@ -1477,6 +1477,38 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         ])
     }
 
+    func testQualityTrimInvocationIncludesExtraArgs() throws {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .qualityTrim(
+                threshold: 20,
+                windowSize: 4,
+                mode: .cutRight,
+                extraArguments: ["--length_required", "75"]
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .perInput
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(Array(invocation.arguments.suffix(2)), ["--extra-args", "--length_required 75"])
+    }
+
+    func testClassificationInvocationIncludesExtraArgs() throws {
+        let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
+
+        let kraken2 = try FASTQOperationExecutionService().buildInvocation(
+            for: .classify(
+                tool: .kraken2,
+                inputURLs: baseInput,
+                databaseName: "kraken-db",
+                extraArguments: ["--minimum-base-quality", "20"]
+            )
+        )
+
+        XCTAssertEqual(Array(kraken2.arguments.suffix(2)), ["--extra-args", "--minimum-base-quality 20"])
+    }
+
     func testDerivativeLaunchRejectsAdapterRequestsThatNeedMultipleAdapterShapes() {
         let request = FASTQOperationLaunchRequest.derivative(
             request: .adapterTrim(

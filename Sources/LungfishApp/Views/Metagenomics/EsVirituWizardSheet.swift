@@ -91,6 +91,7 @@ struct EsVirituWizardSheet: View {
     // Advanced settings
     @State private var minReadLength: Int = 100
     @State private var threads: Int = ProcessInfo.processInfo.activeProcessorCount
+    @State private var extraArgumentsText: String = ""
 
     // Database state
     @State private var isDatabaseInstalled: Bool = false
@@ -433,6 +434,15 @@ struct EsVirituWizardSheet: View {
                     )
                     .font(.system(size: 12))
                 }
+
+                HStack {
+                    Text("Extra arguments:")
+                        .font(.system(size: 12))
+                        .frame(width: 120, alignment: .trailing)
+                    TextField("EsViritu arguments", text: $extraArgumentsText)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("esviritu-extra-arguments-field")
+                }
             }
             .padding(.top, 8)
         }
@@ -520,6 +530,7 @@ struct EsVirituWizardSheet: View {
     /// Builds an EsVirituConfig and calls onRun.
     private func performRun() {
         guard let dbPath = databasePath else { return }
+        guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
         let samples = groupedSamples
         guard !samples.isEmpty else { return }
 
@@ -547,7 +558,8 @@ struct EsVirituWizardSheet: View {
                 databasePath: dbPath,
                 qualityFilter: qualityFilter,
                 minReadLength: minReadLength,
-                threads: threads
+                threads: threads,
+                extraArguments: extraArguments
             )
         }
 

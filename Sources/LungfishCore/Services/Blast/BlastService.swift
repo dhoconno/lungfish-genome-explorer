@@ -277,6 +277,7 @@ public actor BlastService {
 
         let submittedAt = Date()
         let fasta = request.toMultiFASTA()
+        let extraParameters = try BlastVerificationRequest.parseBlastURLAPIExtraParameters(request.extraArgs)
 
         // Phase 1: Submit
         progress?(0.15, "Submitting \(request.sequences.count) reads to NCBI BLAST...")
@@ -289,7 +290,8 @@ public actor BlastService {
             entrezQuery: request.entrezQuery,
             evalue: request.eValueThreshold,
             maxTargetSeqs: request.maxTargetSeqs,
-            megablast: request.program == "blastn"
+            megablast: request.program == "blastn",
+            extraParameters: extraParameters
         )
 
         logger.info("BLAST job submitted: RID=\(submission.rid, privacy: .public), RTOE=\(submission.rtoe, privacy: .public)s")
@@ -497,7 +499,8 @@ public actor BlastService {
         entrezQuery: String?,
         evalue: Double,
         maxTargetSeqs: Int,
-        megablast: Bool
+        megablast: Bool,
+        extraParameters: [String: String] = [:]
     ) async throws -> BlastJobSubmission {
         // Enforce rate limit
         try await enforceSubmitRateLimit()
@@ -523,6 +526,12 @@ public actor BlastService {
 
         if let entrezQuery {
             params.append(("ENTREZ_QUERY", entrezQuery))
+        }
+
+        for key in extraParameters.keys.sorted() {
+            guard let value = extraParameters[key] else { continue }
+            params.removeAll { $0.0.caseInsensitiveCompare(key) == .orderedSame }
+            params.append((key, value))
         }
 
         let body = formEncode(params)
