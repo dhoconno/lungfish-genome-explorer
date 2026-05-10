@@ -299,6 +299,19 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <string>org.lungfish.vcf</string>
             </array>
         </dict>
+        <!-- Workflow bundle -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Lungfish Workflow Bundle</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>org.lungfish.workflow</string>
+            </array>
+        </dict>
         <!-- Multiple sequence alignment bundle -->
         <dict>
             <key>CFBundleTypeName</key>
@@ -448,6 +461,25 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
                 <key>public.filename-extension</key>
                 <array>
                     <string>vcf</string>
+                </array>
+            </dict>
+        </dict>
+        <!-- Workflow bundle -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>org.lungfish.workflow</string>
+            <key>UTTypeDescription</key>
+            <string>Lungfish Workflow Bundle</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>com.apple.package</string>
+                <string>public.directory</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>lungfishflow</string>
                 </array>
             </dict>
         </dict>

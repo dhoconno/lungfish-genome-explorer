@@ -92,7 +92,7 @@ public struct NextflowExporter: Sendable {
         // Get nodes in topological order
         let orderedNodes: [WorkflowNode]
         do {
-            orderedNodes = try graph.topologicalSort()
+            orderedNodes = try graph.topologicalSort().filter { !$0.isPinned || $0.type == .sampleInput }
         } catch {
             throw NextflowExportError.cycleDetected
         }
@@ -165,6 +165,8 @@ public struct NextflowExporter: Sendable {
         for node in inputNodes {
             let paramName = sanitizeIdentifier(node.label)
             switch node.type {
+            case .sampleInput:
+                params += "    \(paramName) = null  // Path to the bound sample bundle\n"
             case .fastqInput:
                 params += "    \(paramName) = null  // Path to FASTQ files\n"
             case .fastaInput:

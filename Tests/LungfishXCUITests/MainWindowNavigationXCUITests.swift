@@ -2,6 +2,33 @@ import XCTest
 
 final class MainWindowNavigationXCUITests: XCTestCase {
     @MainActor
+    func testToolsMenuOpensWorkflowBuilderWindow() throws {
+        let app = XCUIApplication()
+        defer { app.terminate() }
+
+        var options = LungfishUITestLaunchOptions(
+            scenario: "empty-project",
+            fixtureRootPath: LungfishFixtureCatalog.fixturesRoot,
+            skipWelcome: true
+        )
+        options.backendMode = "deterministic"
+        options.apply(to: app)
+        app.launchEnvironment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"
+        app.launch()
+
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        let toolsMenu = app.menuBars.menuBarItems["Tools"]
+        XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5))
+        toolsMenu.click()
+
+        let workflowBuilderItem = app.menuItems["Workflow Builder…"]
+        XCTAssertTrue(workflowBuilderItem.waitForExistence(timeout: 5))
+        workflowBuilderItem.click()
+
+        XCTAssertTrue(app.windows["WorkflowBuilderWindow"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testOperationsPanelFailedOperationOpensPrefilledGitHubIssueWithoutNetwork() throws {
         let app = XCUIApplication()
         let eventLogURL = makeTemporaryEventLogURL(named: "OperationsGitHubIssue")

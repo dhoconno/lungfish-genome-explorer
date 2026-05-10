@@ -487,6 +487,19 @@ struct ReleaseBuildConfigurationTests {
         #expect(installIndex < dmgStageIndex)
     }
 
+    @Test("SwiftPM app bundle script declares Lungfish workflow bundle type")
+    func swiftPMAppBundleScriptDeclaresWorkflowBundleType() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/build-app.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("<string>org.lungfish.workflow</string>"))
+        #expect(script.contains("<string>lungfishflow</string>"))
+        #expect(script.contains("<string>com.apple.package</string>"))
+    }
+
     @Test("Notarized DMG release script builds CLI with prefix maps")
     func notarizedDMGReleaseScriptBuildsCLIWithPrefixMaps() throws {
         let script = try String(

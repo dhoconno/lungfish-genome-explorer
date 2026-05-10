@@ -283,7 +283,7 @@ public final class WorkflowBuilderRunService {
     }
 
     private static func validateDefaultGraphCanRun(_ graph: WorkflowGraph) throws {
-        for node in graph.nodes.values where node.type.category == .input && node.type != .fastqInput {
+        for node in graph.nodes.values where node.type.category == .input && node.type != .fastqInput && node.type != .sampleInput {
             throw ExecutionError.nodeFailed(
                 nodeID: node.id,
                 message: "Unsupported Workflow Builder input node '\(node.label)' (\(node.type.displayName)). Production runs currently bind only FASTQ Input nodes to the selected sample; refusing to mark this node successful without executable work and provenance."
@@ -296,7 +296,7 @@ public final class WorkflowBuilderRunService {
         binding: WorkflowBuilderRunBinding
     ) -> [String: String] {
         graph.nodes.values
-            .filter { $0.type == .fastqInput }
+            .filter { $0.type == .fastqInput || $0.type == .sampleInput }
             .reduce(into: [:]) { params, node in
                 params[sanitizeNextflowIdentifier(node.label)] = binding.sample.path
             }

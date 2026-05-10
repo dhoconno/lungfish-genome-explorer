@@ -32,6 +32,9 @@ import Foundation
 /// let order = try graph.topologicalSort()
 /// ```
 public struct WorkflowGraph: Sendable, Codable, Identifiable {
+    public static let sampleInputAnchorID = UUID(uuidString: "00000000-0000-4000-8000-000000000401")!
+    public static let projectOutputAnchorID = UUID(uuidString: "00000000-0000-4000-8000-000000000402")!
+
     /// Unique identifier for this graph
     public let id: UUID
 
@@ -83,6 +86,42 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         self.connections = [:]
         self.createdAt = Date()
         self.modifiedAt = Date()
+        ensureAnchors()
+    }
+
+    public var sampleInput: WorkflowNode {
+        nodes[Self.sampleInputAnchorID] ?? Self.makeSampleInputAnchor()
+    }
+
+    public var projectOutput: WorkflowNode {
+        nodes[Self.projectOutputAnchorID] ?? Self.makeProjectOutputAnchor()
+    }
+
+    private mutating func ensureAnchors() {
+        if nodes[Self.sampleInputAnchorID] == nil {
+            nodes[Self.sampleInputAnchorID] = Self.makeSampleInputAnchor()
+        }
+        if nodes[Self.projectOutputAnchorID] == nil {
+            nodes[Self.projectOutputAnchorID] = Self.makeProjectOutputAnchor()
+        }
+    }
+
+    private static func makeSampleInputAnchor() -> WorkflowNode {
+        WorkflowNode(
+            id: sampleInputAnchorID,
+            type: .sampleInput,
+            label: "Sample input",
+            position: CGPoint(x: 80, y: 160)
+        )
+    }
+
+    private static func makeProjectOutputAnchor() -> WorkflowNode {
+        WorkflowNode(
+            id: projectOutputAnchorID,
+            type: .projectOutput,
+            label: "Project output",
+            position: CGPoint(x: 720, y: 160)
+        )
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -100,6 +139,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         connections = try container.decodeIfPresent([UUID: WorkflowConnection].self, forKey: .connections) ?? [:]
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
         modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? createdAt
+        ensureAnchors()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -168,6 +208,9 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
     /// - Returns: The removed node, or `nil` if not found
     @discardableResult
     public mutating func removeNode(_ nodeId: UUID) -> WorkflowNode? {
+        guard nodes[nodeId]?.isRemovable != false else {
+            return nil
+        }
         guard let node = nodes.removeValue(forKey: nodeId) else {
             return nil
         }
@@ -182,6 +225,11 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
 
         modifiedAt = Date()
         return node
+    }
+
+    @discardableResult
+    public mutating func removeNode(id nodeId: UUID) -> WorkflowNode? {
+        removeNode(nodeId)
     }
 
     /// Gets a node by its ID.
@@ -448,7 +496,8 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         var issues = [WorkflowValidationIssue]()
 
         // Check for empty graph
-        if nodes.isEmpty {
+        let workflowNodes = nodes.values.filter { !$0.isPinned }
+        if workflowNodes.isEmpty {
             issues.append(.emptyWorkflow)
         }
 
@@ -458,7 +507,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
 
         // Check for disconnected input nodes
-        let inputNodes = nodes.values.filter { $0.type.category == .input }
+        let inputNodes = nodes.values.filter { $0.type.category == .input && !$0.isPinned }
         for node in inputNodes {
             if outgoingConnections(from: node.id).isEmpty {
                 issues.append(.disconnectedInput(nodeId: node.id, nodeName: node.label))
@@ -466,7 +515,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
 
         // Check for unconnected required ports
-        for node in nodes.values {
+        for node in nodes.values where !node.isPinned {
             for port in node.inputPorts where port.isRequired {
                 let hasConnection = connections.values.contains { connection in
                     connection.targetNodeId == node.id && connection.targetPortId == port.id
@@ -482,7 +531,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
 
         // Check for output nodes without input
-        let outputNodes = nodes.values.filter { $0.type.category == .output }
+        let outputNodes = nodes.values.filter { $0.type.category == .output && !$0.isPinned }
         for node in outputNodes {
             if incomingConnections(to: node.id).isEmpty {
                 issues.append(.disconnectedOutput(nodeId: node.id, nodeName: node.label))

@@ -63,6 +63,7 @@ final class GUIRegressionTests: XCTestCase {
             "Call Variants…",
             "Workflow Builder…",
             "Search Online Databases...",
+            "Workflow Builder…",
             "Plugin Manager…",
         ])
     }

@@ -11,6 +11,8 @@ import CoreGraphics
 ///
 /// Each node type has predefined input and output ports with specific data types.
 public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
+    /// Pinned sample input anchor for workflow runs
+    case sampleInput = "sample_input"
     /// FASTQ file input node
     case fastqInput = "fastq_input"
     /// FASTA file input node
@@ -35,12 +37,15 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     case report = "report"
     /// Export/output node for final results
     case export = "export"
+    /// Pinned project output anchor for workflow outputs
+    case projectOutput = "project_output"
 
     // MARK: - Display Properties
 
     /// Human-readable display name for the node type
     public var displayName: String {
         switch self {
+        case .sampleInput: return "Sample input"
         case .fastqInput: return "FASTQ Input"
         case .fastaInput: return "FASTA Input"
         case .bamInput: return "BAM Input"
@@ -53,12 +58,14 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         case .assembly: return "Assembly"
         case .report: return "Report"
         case .export: return "Export"
+        case .projectOutput: return "Project output"
         }
     }
 
     /// SF Symbol name for the node type icon
     public var iconName: String {
         switch self {
+        case .sampleInput: return "tray.and.arrow.down.fill"
         case .fastqInput: return "doc.text.fill"
         case .fastaInput: return "doc.fill"
         case .bamInput: return "chart.bar.doc.horizontal.fill"
@@ -71,19 +78,20 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         case .assembly: return "puzzlepiece.extension.fill"
         case .report: return "doc.richtext.fill"
         case .export: return "square.and.arrow.up.fill"
+        case .projectOutput: return "tray.and.arrow.up.fill"
         }
     }
 
     /// Category for grouping in the palette
     public var category: NodeCategory {
         switch self {
-        case .fastqInput, .fastaInput, .bamInput, .sampleSheet:
+        case .sampleInput, .fastqInput, .fastaInput, .bamInput, .sampleSheet:
             return .input
         case .qualityControl, .trimming:
             return .preprocessing
         case .alignment, .variantCalling, .quantification, .assembly:
             return .analysis
-        case .report, .export:
+        case .report, .export, .projectOutput:
             return .output
         }
     }
@@ -91,7 +99,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     /// Default input ports for this node type
     public var inputPorts: [NodePort] {
         switch self {
-        case .fastqInput, .fastaInput, .bamInput, .sampleSheet:
+        case .sampleInput, .fastqInput, .fastaInput, .bamInput, .sampleSheet:
             return []
         case .qualityControl:
             return [
@@ -128,12 +136,20 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return [
                 NodePort(id: "input", name: "Input", dataType: .any, direction: .input)
             ]
+        case .projectOutput:
+            return [
+                NodePort(id: "input", name: "Input", dataType: .any, direction: .input, isRequired: false, allowsMultiple: true)
+            ]
         }
     }
 
     /// Default output ports for this node type
     public var outputPorts: [NodePort] {
         switch self {
+        case .sampleInput:
+            return [
+                NodePort(id: "sample", name: "Sample", dataType: .any, direction: .output, allowsMultiple: true)
+            ]
         case .fastqInput:
             return [
                 NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .output)
@@ -180,7 +196,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return [
                 NodePort(id: "report", name: "Report", dataType: .reportFile, direction: .output)
             ]
-        case .export:
+        case .export, .projectOutput:
             return []
         }
     }
@@ -523,6 +539,21 @@ public struct WorkflowNode: Sendable, Codable, Identifiable, Hashable {
 
     /// Whether this node is currently selected
     public var isSelected: Bool = false
+
+    /// Whether the node is a fixed workflow anchor.
+    public var isPinned: Bool {
+        type == .sampleInput || type == .projectOutput
+    }
+
+    /// Whether the node can be dragged on the canvas.
+    public var isDraggable: Bool {
+        !isPinned
+    }
+
+    /// Whether the node can be deleted from the graph.
+    public var isRemovable: Bool {
+        !isPinned
+    }
 
     /// Creates a new workflow node.
     ///

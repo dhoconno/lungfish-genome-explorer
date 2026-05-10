@@ -80,7 +80,7 @@ public struct SnakemakeExporter: Sendable {
         // Get nodes in topological order
         let orderedNodes: [WorkflowNode]
         do {
-            orderedNodes = try graph.topologicalSort()
+            orderedNodes = try graph.topologicalSort().filter { !$0.isPinned || $0.type == .sampleInput }
         } catch {
             throw SnakemakeExportError.cycleDetected
         }
@@ -151,6 +151,8 @@ public struct SnakemakeExporter: Sendable {
         for node in inputNodes {
             let paramName = sanitizeIdentifier(node.label).uppercased()
             switch node.type {
+            case .sampleInput:
+                config += "\(paramName) = config.get(\"\(sanitizeIdentifier(node.label))\", \"\")\n"
             case .fastqInput:
                 config += "\(paramName) = config.get(\"\(sanitizeIdentifier(node.label))\", [])\n"
             case .fastaInput:
