@@ -18,6 +18,7 @@ private enum PhylogeneticTreeAccessibilityID {
     static let zoomOutButton = "phylogenetic-tree-zoom-out-button"
     static let layoutMode = "phylogenetic-tree-layout-mode"
     static let colorMode = "phylogenetic-tree-color-mode"
+    static let tipLabelColumn = "phylogenetic-tree-tip-label-column"
     static let detail = "phylogenetic-tree-detail"
 }
 
@@ -36,6 +37,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     private(set) var bundleURL: URL?
     private(set) var bundle: PhylogeneticTreeBundle?
     var onSelectionStateChanged: ((PhylogeneticTreeSelectionState?) -> Void)?
+    var onTreeBundleOperationRequested: ((TreeBundleOperationRequest) -> Void)?
 
     private let summaryLabel = NSTextField(labelWithString: "")
     private let searchField = NSSearchField()
@@ -55,6 +57,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         target: nil,
         action: nil
     )
+    private let tipLabelColumnPopup = NSPopUpButton()
     private let nodeTableView = NSTableView()
     private let treeCanvasView = PhylogeneticTreeCanvasView()
     private let treeScrollView = NSScrollView()
@@ -62,8 +65,14 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     private let toolbarContainer = NSView()
 
     private var nodes: [PhylogeneticTreeNormalizedNode] = []
+    private var originalNodes: [PhylogeneticTreeNormalizedNode] = []
     private var nodesByID: [String: PhylogeneticTreeNormalizedNode] = [:]
     private var selectedNodeID: String?
+    private var selectedNodeIDs: Set<String> = []
+    private var collapsedNodeIDs: Set<String> = []
+    private var metadataRowsByTipID: [String: [String: String]] = [:]
+    private var metadataColumnTitles: [String] = []
+    private var isUpdatingTableSelection = false
 
     override func loadView() {
         view = NSView()
@@ -78,9 +87,14 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         let loaded = try PhylogeneticTreeBundle.load(from: url)
         bundleURL = url
         bundle = loaded
-        nodes = orderedNodes(loaded.normalizedTree.nodes)
+        originalNodes = orderedNodes(loaded.normalizedTree.nodes)
+        nodes = originalNodes
         nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
         selectedNodeID = nil
+        selectedNodeIDs = []
+        collapsedNodeIDs = []
+        loadTipMetadata(from: url)
+        refreshTipLabelColumnPopup()
 
         summaryLabel.stringValue = [
             loaded.manifest.name,
@@ -90,7 +104,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         ].joined(separator: "   ")
 
         detailLabel.stringValue = defaultDetailText(for: loaded)
-        treeCanvasView.configure(nodes: nodes)
+        treeCanvasView.configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
         nodeTableView.reloadData()
         selectInitialNode()
     }
@@ -119,6 +133,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isUpdatingTableSelection else { return }
         let row = nodeTableView.selectedRow
         guard nodes.indices.contains(row) else { return }
         selectNode(id: nodes[row].id, center: true)
@@ -150,7 +165,8 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         tableScroll.translatesAutoresizingMaskIntoConstraints = false
 
         treeCanvasView.onNodeSelected = { [weak self] nodeID in
-            self?.selectNode(id: nodeID, center: false)
+            let extending = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+            self?.selectNode(id: nodeID, center: false, extendingSelection: extending)
         }
 
         treeScrollView.hasVerticalScroller = true
@@ -299,6 +315,16 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         LungfishAppKitControlStyle.applyInspectorMetrics(to: colorModeControl)
         colorModeControl.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.colorMode)
 
+        tipLabelColumnPopup.target = self
+        tipLabelColumnPopup.action = #selector(tipLabelColumnChanged(_:))
+        tipLabelColumnPopup.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.tipLabelColumn)
+        LungfishAppKitControlStyle.applyInspectorMetrics(to: tipLabelColumnPopup)
+        tipLabelColumnPopup.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            tipLabelColumnPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 92),
+            tipLabelColumnPopup.widthAnchor.constraint(lessThanOrEqualToConstant: 120),
+        ])
+
         let toolbar = NSStackView(views: [
             searchField,
             zoomOutButton,
@@ -307,6 +333,7 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
             resetButton,
             layoutModeControl,
             colorModeControl,
+            tipLabelColumnPopup,
         ])
         toolbar.orientation = .horizontal
         toolbar.alignment = .centerY
@@ -377,6 +404,67 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         }
     }
 
+    @objc private func tipLabelColumnChanged(_ sender: NSPopUpButton) {
+        applyTipLabelColumn(sender.titleOfSelectedItem ?? "Original")
+    }
+
+    private func loadTipMetadata(from bundleURL: URL) {
+        metadataRowsByTipID = [:]
+        metadataColumnTitles = []
+        let metadataURL = bundleURL.appendingPathComponent("metadata.tsv")
+        guard let text = try? String(contentsOf: metadataURL, encoding: .utf8) else { return }
+        let rows = text.split(whereSeparator: \.isNewline).map { line in
+            line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+        }
+        guard let header = rows.first, !header.isEmpty else { return }
+        let idColumn = header.firstIndex { ["id", "sample", "sample_id", "name", "tip"].contains($0.lowercased()) } ?? 0
+        metadataColumnTitles = header.enumerated().compactMap { index, title in
+            index == idColumn ? nil : title
+        }
+        for row in rows.dropFirst() {
+            guard row.indices.contains(idColumn), !row[idColumn].isEmpty else { continue }
+            var values: [String: String] = [:]
+            for (index, column) in header.enumerated() where row.indices.contains(index) {
+                values[column] = row[index]
+            }
+            metadataRowsByTipID[row[idColumn]] = values
+        }
+    }
+
+    private func refreshTipLabelColumnPopup() {
+        tipLabelColumnPopup.removeAllItems()
+        tipLabelColumnPopup.addItem(withTitle: "Original")
+        tipLabelColumnPopup.addItems(withTitles: metadataColumnTitles)
+        tipLabelColumnPopup.selectItem(withTitle: "Original")
+        tipLabelColumnPopup.isEnabled = !metadataColumnTitles.isEmpty
+    }
+
+    private func applyTipLabelColumn(_ column: String) {
+        let selectedLabel = selectedNodeID.flatMap { nodesByID[$0]?.displayLabel }
+        if column == "Original" {
+            nodes = originalNodes
+        } else {
+            nodes = originalNodes.map { node in
+                guard node.isTip,
+                      let row = metadataRowsByTipID[node.displayLabel] ?? node.rawLabel.flatMap({ metadataRowsByTipID[$0] }),
+                      let label = row[column],
+                      !label.isEmpty else {
+                    return node
+                }
+                return node.replacingDisplayLabel(label)
+            }
+        }
+        nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        treeCanvasView.configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
+        nodeTableView.reloadData()
+        if let selectedLabel,
+           let selected = nodes.first(where: { $0.displayLabel == selectedLabel }) {
+            selectNode(id: selected.id, center: false)
+        } else if let selectedNodeID, nodesByID[selectedNodeID] != nil {
+            selectNode(id: selectedNodeID, center: false)
+        }
+    }
+
     private func selectInitialNode() {
         if let firstTip = nodes.first(where: \.isTip) {
             selectNode(id: firstTip.id, center: false)
@@ -385,14 +473,21 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         }
     }
 
-    private func selectNode(id: String, center: Bool) {
+    private func selectNode(id: String, center: Bool, extendingSelection: Bool = false) {
         guard let node = nodesByID[id] else { return }
         selectedNodeID = id
-        treeCanvasView.selectedNodeID = id
+        if extendingSelection, node.isTip {
+            selectedNodeIDs.insert(id)
+        } else {
+            selectedNodeIDs = [id]
+        }
+        treeCanvasView.selectedNodeIDs = selectedNodeIDs
         detailLabel.stringValue = detailText(for: node)
         if let row = nodes.firstIndex(where: { $0.id == id }),
            nodeTableView.selectedRow != row {
+            isUpdatingTableSelection = true
             nodeTableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            isUpdatingTableSelection = false
             nodeTableView.scrollRowToVisible(row)
         }
         if center {
@@ -504,6 +599,34 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         copySubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
         menu.addItem(copySubtreeItem)
 
+        let rerootItem = NSMenuItem(
+            title: "Re-root Here",
+            action: #selector(rerootSelectedNode(_:)),
+            keyEquivalent: ""
+        )
+        rerootItem.target = self
+        rerootItem.isEnabled = bundleURL != nil && selectedNodeID != nil
+        menu.addItem(rerootItem)
+
+        let collapseTitle = selectedNodeID.map { collapsedNodeIDs.contains($0) } == true ? "Expand Clade" : "Collapse Clade"
+        let collapseItem = NSMenuItem(
+            title: collapseTitle,
+            action: #selector(toggleSelectedCladeCollapse(_:)),
+            keyEquivalent: ""
+        )
+        collapseItem.target = self
+        collapseItem.isEnabled = selectedNodeID.flatMap { nodesByID[$0] }?.isTip == false
+        menu.addItem(collapseItem)
+
+        let extractBundleItem = NSMenuItem(
+            title: "Extract Subtree as New Bundle…",
+            action: #selector(extractSelectedSubtreeBundle(_:)),
+            keyEquivalent: ""
+        )
+        extractBundleItem.target = self
+        extractBundleItem.isEnabled = bundleURL != nil && selectedNodeID != nil
+        menu.addItem(extractBundleItem)
+
         let exportSubtreeItem = NSMenuItem(
             title: "Export Subtree…",
             action: #selector(exportSelectedSubtree(_:)),
@@ -512,6 +635,15 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         exportSubtreeItem.target = self
         exportSubtreeItem.isEnabled = bundle != nil && selectedNodeID != nil
         menu.addItem(exportSubtreeItem)
+
+        let copySelectedTipsItem = NSMenuItem(
+            title: "Copy Selected Tip Names",
+            action: #selector(copySelectedTipNames(_:)),
+            keyEquivalent: ""
+        )
+        copySelectedTipsItem.target = self
+        copySelectedTipsItem.isEnabled = !selectedTipLabels().isEmpty
+        menu.addItem(copySelectedTipsItem)
 
         let centerItem = NSMenuItem(
             title: "Center Node",
@@ -549,6 +681,56 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
               let newick = try? bundle?.subtreeNewick(nodeID: selectedNodeID) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(newick, forType: .string)
+    }
+
+    @objc private func rerootSelectedNode(_ sender: Any?) {
+        requestTreeBundleOperation(.reroot)
+    }
+
+    @objc private func extractSelectedSubtreeBundle(_ sender: Any?) {
+        requestTreeBundleOperation(.extractSubtree)
+    }
+
+    @objc private func toggleSelectedCladeCollapse(_ sender: Any?) {
+        guard let selectedNodeID,
+              let node = nodesByID[selectedNodeID],
+              !node.isTip else { return }
+        if collapsedNodeIDs.contains(selectedNodeID) {
+            collapsedNodeIDs.remove(selectedNodeID)
+        } else {
+            collapsedNodeIDs.insert(selectedNodeID)
+        }
+        treeCanvasView.collapsedNodeIDs = collapsedNodeIDs
+        refreshNodeContextMenu()
+    }
+
+    @objc private func copySelectedTipNames(_ sender: Any?) {
+        let labels = selectedTipLabels()
+        guard !labels.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(labels.joined(separator: "\n"), forType: .string)
+    }
+
+    private func requestTreeBundleOperation(_ operation: TreeBundleOperation) {
+        guard let bundleURL,
+              let selectedNodeID,
+              let node = nodesByID[selectedNodeID] else { return }
+        onTreeBundleOperationRequested?(
+            TreeBundleOperationRequest(
+                operation: operation,
+                bundleURL: bundleURL,
+                nodeID: selectedNodeID,
+                nodeLabel: node.displayLabel
+            )
+        )
+    }
+
+    private func selectedTipLabels() -> [String] {
+        selectedNodeIDs
+            .compactMap { nodesByID[$0] }
+            .filter(\.isTip)
+            .map(\.displayLabel)
+            .sorted()
     }
 
     @objc private func exportSelectedSubtree(_ sender: Any?) {
@@ -653,6 +835,21 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
 }
 
 extension PhylogeneticTreeViewController {
+    enum TreeBundleOperation: Equatable {
+        case reroot
+        case extractSubtree
+        case collapse
+    }
+
+    struct TreeBundleOperationRequest: Equatable {
+        let operation: TreeBundleOperation
+        let bundleURL: URL
+        let nodeID: String
+        let nodeLabel: String
+    }
+}
+
+extension PhylogeneticTreeViewController {
     struct TestingToolbarTextControlMetric: Equatable {
         let controlSize: NSControl.ControlSize
         let fontPointSize: CGFloat
@@ -683,6 +880,7 @@ extension PhylogeneticTreeViewController {
             "reset": resetButton,
             "layout": layoutModeControl,
             "color": colorModeControl,
+            "tipLabelColumn": tipLabelColumnPopup,
         ].reduce(into: [String: NSRect]()) { result, pair in
             result[pair.key] = view.convert(pair.value.bounds, from: pair.value)
         }
@@ -701,6 +899,10 @@ extension PhylogeneticTreeViewController {
             "color": TestingToolbarTextControlMetric(
                 controlSize: colorModeControl.controlSize,
                 fontPointSize: colorModeControl.font?.pointSize ?? 0
+            ),
+            "tipLabelColumn": TestingToolbarTextControlMetric(
+                controlSize: tipLabelColumnPopup.controlSize,
+                fontPointSize: tipLabelColumnPopup.font?.pointSize ?? 0
             ),
         ]
     }
@@ -751,8 +953,53 @@ extension PhylogeneticTreeViewController {
     }
 
     func testingSelectNode(label: String) {
+        testingSelectNode(label: label, extendingSelection: false)
+    }
+
+    func testingSelectNode(label: String, extendingSelection: Bool) {
         guard let node = nodes.first(where: { $0.displayLabel == label }) else { return }
-        selectNode(id: node.id, center: true)
+        selectNode(id: node.id, center: true, extendingSelection: extendingSelection)
+    }
+
+    var testingSelectedNodeTransformAvailability: [String: Bool] {
+        let selectedNode = selectedNodeID.flatMap { nodesByID[$0] }
+        return [
+            "reroot": bundleURL != nil && selectedNode != nil,
+            "collapse": selectedNode?.isTip == false,
+            "extractSubtree": bundleURL != nil && selectedNode != nil,
+        ]
+    }
+
+    func testingPerformSelectedNodeOperation(_ operation: TreeBundleOperation) {
+        switch operation {
+        case .reroot:
+            rerootSelectedNode(nil)
+        case .extractSubtree:
+            extractSelectedSubtreeBundle(nil)
+        case .collapse:
+            toggleSelectedCladeCollapse(nil)
+        }
+    }
+
+    var testingCollapsedNodeLabels: [String] {
+        collapsedNodeIDs.compactMap { nodesByID[$0]?.displayLabel }.sorted()
+    }
+
+    var testingSelectedTipLabels: [String] {
+        selectedTipLabels()
+    }
+
+    func testingCopySelectedTipNames() {
+        copySelectedTipNames(nil)
+    }
+
+    var testingTipLabelColumnTitles: [String] {
+        (0..<tipLabelColumnPopup.numberOfItems).compactMap { tipLabelColumnPopup.item(at: $0)?.title }
+    }
+
+    func testingApplyTipLabelColumn(_ column: String) {
+        tipLabelColumnPopup.selectItem(withTitle: column)
+        applyTipLabelColumn(column)
     }
 
     func testingPerformZoomIn() {
@@ -800,6 +1047,15 @@ private struct PhylogeneticTreeCanvasNodeLayout {
 private final class PhylogeneticTreeCanvasView: NSView {
     var onNodeSelected: ((String) -> Void)?
     var selectedNodeID: String? {
+        get { selectedNodeIDs.first }
+        set {
+            selectedNodeIDs = newValue.map { [$0] } ?? []
+        }
+    }
+    var selectedNodeIDs: Set<String> = [] {
+        didSet { needsDisplay = true }
+    }
+    var collapsedNodeIDs: Set<String> = [] {
         didSet { needsDisplay = true }
     }
     var colorMode: PhylogeneticTreeCanvasColorMode = .none {
@@ -889,7 +1145,12 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     func configure(nodes: [PhylogeneticTreeNormalizedNode]) {
+        configure(nodes: nodes, collapsedNodeIDs: collapsedNodeIDs)
+    }
+
+    func configure(nodes: [PhylogeneticTreeNormalizedNode], collapsedNodeIDs: Set<String>) {
         self.nodes = nodes
+        self.collapsedNodeIDs = collapsedNodeIDs
         nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
         recomputeLayout()
         needsDisplay = true
@@ -1058,11 +1319,15 @@ private final class PhylogeneticTreeCanvasView: NSView {
             let radius = PhylogeneticTreeCanvasMetrics.nodeRadius
             nodeColor(for: node).setFill()
             NSBezierPath(ovalIn: NSRect(x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2)).fill()
-            if selectedNodeID == node.id {
+            if selectedNodeIDs.contains(node.id) {
                 NSColor.controlAccentColor.setStroke()
                 let highlight = NSBezierPath(ovalIn: NSRect(x: point.x - radius - 4, y: point.y - radius - 4, width: radius * 2 + 8, height: radius * 2 + 8))
                 highlight.lineWidth = 2
                 highlight.stroke()
+            }
+            if collapsedNodeIDs.contains(node.id), !node.isTip {
+                NSColor.controlAccentColor.withAlphaComponent(0.15).setFill()
+                NSBezierPath(ovalIn: NSRect(x: point.x - radius - 7, y: point.y - radius - 7, width: radius * 2 + 14, height: radius * 2 + 14)).fill()
             }
             if node.isTip {
                 drawTreeText(

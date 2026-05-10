@@ -1978,11 +1978,73 @@ final class ViewerBundleRoutingTests: XCTestCase {
                 "Show in Inspector",
                 "Copy Node Label",
                 "Copy Subtree as Newick",
+                "Re-root Here",
+                "Collapse Clade",
+                "Extract Subtree as New Bundle…",
                 "Export Subtree…",
+                "Copy Selected Tip Names",
                 "Center Node",
                 "Reveal Provenance",
             ]
         )
+    }
+
+    func testPhylogeneticTreeViewportControllerActionsExposeTreeTransforms() throws {
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+        var requests: [PhylogeneticTreeViewController.TreeBundleOperationRequest] = []
+        controller.onTreeBundleOperationRequested = { requests.append($0) }
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectNode(label: "90")
+
+        XCTAssertEqual(controller.testingSelectedNodeTransformAvailability, [
+            "reroot": true,
+            "collapse": true,
+            "extractSubtree": true,
+        ])
+
+        controller.testingPerformSelectedNodeOperation(.reroot)
+        controller.testingPerformSelectedNodeOperation(.extractSubtree)
+        controller.testingPerformSelectedNodeOperation(.collapse)
+
+        XCTAssertEqual(requests.map(\.operation), [.reroot, .extractSubtree])
+        XCTAssertEqual(requests.map(\.nodeLabel), ["90", "90"])
+        XCTAssertTrue(controller.testingCollapsedNodeLabels.contains("90"))
+        XCTAssertTrue(controller.testingNodeContextMenuTitles.contains("Expand Clade"))
+    }
+
+    func testPhylogeneticTreeViewportSupportsTipMultiSelectionAndCopyNames() throws {
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+
+        try controller.displayBundle(at: bundleURL)
+        controller.testingSelectNode(label: "A")
+        controller.testingSelectNode(label: "B", extendingSelection: true)
+
+        XCTAssertEqual(controller.testingSelectedTipLabels, ["A", "B"])
+        controller.testingCopySelectedTipNames()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "A\nB")
+    }
+
+    func testPhylogeneticTreeViewportRelabelsTipsFromMetadataColumn() throws {
+        let controller = PhylogeneticTreeViewController()
+        _ = controller.view
+        let bundleURL = try makePhylogeneticTreeBundle()
+        try """
+        id\tlineage\tcountry
+        A\tBA.1\tUSA
+        B\tBA.2\tCanada
+        C\tBA.5\tMexico
+        """.write(to: bundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
+
+        try controller.displayBundle(at: bundleURL)
+
+        XCTAssertEqual(controller.testingTipLabelColumnTitles, ["Original", "lineage", "country"])
+        controller.testingApplyTipLabelColumn("lineage")
+        XCTAssertEqual(controller.testingRenderedTipLabels, ["BA.1", "BA.2", "BA.5"])
     }
 
     private func makeReferenceBundle(chromosomes: [String]) throws -> URL {
