@@ -190,14 +190,20 @@ what makes the workflow reusable across samples.
 ### Run the workflow
 
 Click the **Run** button in the toolbar. A small sheet appears asking you to
-bind the **Sample input** node to a real sample in the current project.
-Choose a FASTQ bundle (or a paired-end pair) from the dropdown and click
-**Run**. The Workflow Builder closes its sheet and the project's Operation
-Center takes over: each node becomes a row in the operation log, executes in
-dependency order, and writes its outputs into the project as if you had
-launched it from the Tools menu. You can watch progress in the Operation
-Center panel, and you can keep working in the rest of the app while the
-workflow runs.
+bind the **Sample input** node to a real sample in the current project. If
+the graph is incomplete, the builder shows validation errors before anything
+is dispatched. If the graph is structurally ready, the sheet binds the pinned
+**Sample input** anchor to the selected sample bundle and binds **Project
+output** to the active project. Press **Run** in the sheet to create a durable
+workflow run.
+
+Each run is written under `runs/<run-id>/` inside the `.lungfishflow` bundle.
+The run record includes timestamps, graph checksum, sample/project bindings,
+per-node status, error state, and run-level reproducibility provenance. The
+Operation Center receives a parent workflow row and one child row per node,
+all carrying the same durable run id, so you can watch progress while working
+elsewhere in the app. The first failing node marks the run failed and leaves
+downstream nodes skipped in the run record for inspection.
 
 ## Worked example: SARS-CoV-2 reads to variants
 
@@ -230,9 +236,9 @@ file lands at `Workflows/sarscov2-reads-to-variants.lungfishflow` inside the
 project.
 
 Click **Run**, bind the sample input to your paired FASTQ bundle, and click
-**Run** in the sheet. The Operation Center fills with five rows, one per
-node, and runs them in order. When the last row completes, the project
-sidebar shows a new annotated VCF under **Variants**.
+**Run** in the sheet. The Operation Center fills with a parent workflow row
+and one child row per node, then runs them in order. When the last row
+completes, the project sidebar shows a new annotated VCF under **Variants**.
 
 To prove the workflow is reusable, import a second paired-end FASTQ bundle
 into the same project, double-click the saved workflow in the sidebar to
@@ -250,10 +256,12 @@ against three samples, you have three entries under `runs/` and three sets
 of output artefacts; the workflow file itself is unchanged.
 
 If a node fails (a download times out, iVar errors on an empty BAM), the
-Operation Center marks that row red and stops the downstream nodes. Fix the
-failing step, click **Resume** on the workflow, and only the failed node and
-its descendants re-run. Upstream nodes that already succeeded are not
-recomputed.
+Operation Center marks that row red and stops the downstream nodes. Inspect
+the generated `runs/<run-id>/run.json` and `runs/<run-id>/provenance.json`
+files in the saved workflow bundle when you need the exact binding, graph
+revision, status history, or failure details. Treat the run record as the
+source of truth when comparing graph revisions or diagnosing a failed
+workflow node.
 
 A common surprise the first time you save a workflow: the node graph
 captures parameters but not paths. If your workflow needs a primer scheme

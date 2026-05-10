@@ -144,6 +144,8 @@ public final class OperationCenter: ObservableObject {
         public var errorMessage: String?
         /// Extended diagnostic detail (stack trace, stderr, etc.) for debugging.
         public var errorDetail: String?
+        /// Durable workflow-builder run identifier carried by parent and child rows.
+        public var workflowRunID: UUID?
 
         public var hasWarnings: Bool {
             logEntries.contains { $0.level == .warning }
@@ -182,7 +184,8 @@ public final class OperationCenter: ObservableObject {
             outputURLs: [URL] = [],
             targetBundleURL: URL? = nil,
             onCancel: (@Sendable () -> Void)? = nil,
-            cliCommand: String? = nil
+            cliCommand: String? = nil,
+            workflowRunID: UUID? = nil
         ) {
             self.id = id
             self.title = title
@@ -197,6 +200,7 @@ public final class OperationCenter: ObservableObject {
             self.targetBundleURL = targetBundleURL
             self.onCancel = onCancel
             self.cliCommand = cliCommand
+            self.workflowRunID = workflowRunID
         }
     }
 
@@ -290,6 +294,7 @@ public final class OperationCenter: ObservableObject {
         operationType: OperationType = .download,
         targetBundleURL: URL? = nil,
         cliCommand: String? = nil,
+        workflowRunID: UUID? = nil,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
@@ -303,7 +308,8 @@ public final class OperationCenter: ObservableObject {
                 operationType: operationType,
                 targetBundleURL: targetBundleURL,
                 onCancel: onCancel,
-                cliCommand: cliCommand
+                cliCommand: cliCommand,
+                workflowRunID: workflowRunID
             ),
             at: 0
         )

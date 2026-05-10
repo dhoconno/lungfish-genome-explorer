@@ -322,6 +322,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Settings window controller (lazy singleton)
     private var settingsWindowController: SettingsWindowController?
     private var aboutWindowController: AboutWindowController?
+    private var workflowBuilderWindowController: NSWindowController?
 
     /// App-executable updater hooks. Sparkle is linked by the graphical target,
     /// not by LungfishApp, so the shared app module exposes only these closures.
@@ -6451,6 +6452,42 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func searchPathoplexus(_ sender: Any?) {
         showDatabaseBrowser(source: .pathoplexus)
+    }
+
+    @objc func showWorkflowBuilder(_ sender: Any?) {
+        if workflowBuilderWindowController == nil {
+            let viewController = WorkflowBuilderViewController()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1024, height: 720),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Workflow Builder"
+            window.contentViewController = viewController
+            window.setFrame(NSRect(x: 0, y: 0, width: 1024, height: 720), display: false)
+            window.delegate = viewController
+            window.isReleasedWhenClosed = false
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.toolbarStyle = .unified
+            window.setAccessibilityIdentifier("WorkflowBuilderWindow")
+            window.center()
+
+            workflowBuilderWindowController = NSWindowController(window: window)
+        }
+
+        if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
+            let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+            viewController.configureRunContext(
+                projectURL: sidebarController?.currentProjectURL,
+                preferredSampleURL: sidebarController?.selectedFileURL
+            )
+        }
+
+        workflowBuilderWindowController?.showWindow(sender)
+        workflowBuilderWindowController?.window?.makeKeyAndOrderFront(sender)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showPluginManager(_ sender: Any?) {
