@@ -1,0 +1,71 @@
+{
+  "argv": [
+    "scripts/testing/write-analysis-fixture-provenance.py"
+  ],
+  "createdAt": "2026-05-10T22:34:34Z",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "20882bab173849a5bd4b8c012b8d0d36c6bde0b1df51599fa63ffc84d09dbb6c",
+      "path": "alignment-result.json",
+      "size": 326
+    },
+    {
+      "checksumSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "path": "sample.sorted.bam",
+      "size": 0
+    },
+    {
+      "checksumSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "path": "sample.sorted.bam.bai",
+      "size": 0
+    }
+  ],
+  "historicalBackfill": true,
+  "options": {
+    "fixtureToolName": "minimap2",
+    "fixtureWorkflowName": "minimap2-alignment-output",
+    "inputPaths": [],
+    "outputDirectory": "Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+    "purpose": "Retained alignment fixture for minimap2 BAM output.",
+    "resolvedDefaults": {
+      "backfillMode": "historical-fixture-sidecar-only",
+      "overwriteExistingSidecar": false
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+      "tool": "minimap2"
+    }
+  },
+  "output": {
+    "checksumSHA256": "c17e279397dbc12917e79d08bbb27b64eb3dd072d18cbea745614138319d79c8",
+    "path": "Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+    "size": 326
+  },
+  "reproducibleCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+  "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "runtimeIdentity": {
+    "condaEnvironment": "base",
+    "containerImage": null,
+    "executablePath": "/Users/dho/miniforge3/bin/python3",
+    "gitRevision": "68ae1af0cd8050ac5460e5cf894365903a492ccb",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
+    "processIdentifier": 5714,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "write-analysis-fixture-provenance.py",
+    "version": "0.4.0-alpha.12"
+  },
+  "toolName": "write-analysis-fixture-provenance.py",
+  "toolVersion": "0.4.0-alpha.12",
+  "wallTimeSeconds": 0.0,
+  "warning": "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun.",
+  "warnings": [
+    "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun."
+  ],
+  "workflowName": "analysis-fixture-provenance-historical-backfill"
+}

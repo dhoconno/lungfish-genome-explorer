@@ -1,0 +1,71 @@
+{
+  "argv": [
+    "scripts/testing/write-analysis-fixture-provenance.py"
+  ],
+  "createdAt": "2026-05-10T22:34:34Z",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "a57093d6dd4c16fd597e0e0a059e860ec759ed0f353d09eb0bf469f3c436017a",
+      "path": "assembly-result.json",
+      "size": 355
+    },
+    {
+      "checksumSHA256": "01a7ece1bdedf04a8fab2eda5968542e0c75f2b6e6d41aa221ff5a4f3950168c",
+      "path": "contigs.fasta",
+      "size": 242
+    },
+    {
+      "checksumSHA256": "d878b0743ce393639e071aebfe8f92facbdbe89271ebdacbcf8553cfaa10fcee",
+      "path": "spades.log",
+      "size": 154
+    }
+  ],
+  "historicalBackfill": true,
+  "options": {
+    "fixtureToolName": "spades",
+    "fixtureWorkflowName": "spades-assembly-output",
+    "inputPaths": [],
+    "outputDirectory": "Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
+    "purpose": "Retained assembly fixture for SPAdes contig output.",
+    "resolvedDefaults": {
+      "backfillMode": "historical-fixture-sidecar-only",
+      "overwriteExistingSidecar": false
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
+      "tool": "spades"
+    }
+  },
+  "output": {
+    "checksumSHA256": "6fdde400787a731dad3e557e0b93d2281ab1854878e3c5dfee40228f0ad86644",
+    "path": "Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
+    "size": 751
+  },
+  "reproducibleCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
+  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
+  "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "runtimeIdentity": {
+    "condaEnvironment": "base",
+    "containerImage": null,
+    "executablePath": "/Users/dho/miniforge3/bin/python3",
+    "gitRevision": "68ae1af0cd8050ac5460e5cf894365903a492ccb",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
+    "processIdentifier": 5714,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "write-analysis-fixture-provenance.py",
+    "version": "0.4.0-alpha.12"
+  },
+  "toolName": "write-analysis-fixture-provenance.py",
+  "toolVersion": "0.4.0-alpha.12",
+  "wallTimeSeconds": 0.0,
+  "warning": "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun.",
+  "warnings": [
+    "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun."
+  ],
+  "workflowName": "analysis-fixture-provenance-historical-backfill"
+}
