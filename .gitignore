@@ -7,6 +7,7 @@
 !.readthedocs.yaml
 !.vscode/launch.json
 !.claude/agents/*.md
+!agents/**
 !.codex/agents/*.md
 !.codex/environments/environment.toml
 !LICENSE
