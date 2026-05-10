@@ -2,7 +2,7 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:58:05Z",
+  "createdAt": "2026-05-10T23:00:48Z",
   "exitStatus": 0,
   "files": [
     {
@@ -90,10 +90,10 @@
       "size": 2705
     },
     {
-      "checksumSHA256": "45c22b12cbdf25ef0f787ce71b9b01da50576e94af8ea1373d5be95669137b05",
-      "fileSize": 1145,
+      "checksumSHA256": "cc4284c627c927b9397965fae09365175daad5b9884807bb0d676fe1495578c8",
+      "fileSize": 1065,
       "path": "README.md",
-      "size": 1145
+      "size": 1065
     }
   ],
   "historicalBackfill": true,
@@ -114,10 +114,10 @@
     }
   },
   "output": {
-    "checksumSHA256": "6a6b15146c9de285c4d69b13732e928f98f35878e7d53eaeae4f8f5fc9399107",
-    "fileSize": 5136455,
+    "checksumSHA256": "ed9d7bd47738ee0448ae5dd739f22c628546084b0aaa8e02166b3233ea9608a6",
+    "fileSize": 5136375,
     "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-    "size": 5136455
+    "size": 5136375
   },
   "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
@@ -126,9 +126,9 @@
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
+    "gitRevision": "2a78e0f413a9dfec6a4ed67ad7b10d90923bdad6",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 24054,
+    "processIdentifier": 26025,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

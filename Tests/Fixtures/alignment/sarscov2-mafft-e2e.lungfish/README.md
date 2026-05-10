@@ -8,7 +8,7 @@ MAFFT-backed multiple-sequence alignment workflow.
 - `Inputs/sars-cov-2-genomes.fasta`: five SARS-CoV-2 genome records.
 - `Inputs/source-metadata.tsv`: source and edit metadata for each record.
 
-The first FASTA record is copied from `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/sarscov2/genome.fasta`:
+The first FASTA record is copied from `Tests/Fixtures/sarscov2/genome.fasta`:
 
 `>MT192765.1 Severe acute respiratory syndrome coronavirus 2 isolate SARS-CoV-2/human/USA/PC00101P/2020, complete genome`
 
