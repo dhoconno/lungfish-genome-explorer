@@ -18,6 +18,7 @@ extension EsVirituConfig {
             "minReadLength": .int(minReadLength),
             "threads": .int(threads),
             "isPairedEnd": .bool(isPairedEnd),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
         ]
     }
 }

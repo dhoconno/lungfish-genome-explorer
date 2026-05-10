@@ -11,8 +11,6 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
         )
 
-        state.selectTool(.qualityTrim)
-
         XCTAssertEqual(
             state.visibleSections,
             [.inputs, .primarySettings, .advancedSettings, .output, .readiness]
@@ -21,6 +19,32 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.outputSectionTitle, "Output")
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
         XCTAssertEqual(state.outputStrategyOptions, [.perInput, .groupedResult])
+        XCTAssertEqual(state.selectedToolID, .fastpTrim)
+    }
+
+    func testTrimFilterDefaultBuildsCombinedFastpAdapterAndQualityRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .fastpTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    adapterMode: .autoDetect,
+                    adapterSequence: nil
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testSubsampleByProportionWaitsForARealProportionBeforeBuildingLaunchRequest() {
@@ -268,6 +292,58 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
         XCTAssertEqual(state.auxiliaryInputURL(for: .referenceSequence)?.lastPathComponent, "reference.fasta")
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
+    }
+
+    func testQualityTrimRoutesExtraArgumentsIntoLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.qualityTrim)
+        state.qualityTrimExtraArguments = "--length_required 75"
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .qualityTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    extraArguments: ["--length_required", "75"]
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testOrientRoutesExtraArgumentsIntoLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.orientReads)
+        state.setAuxiliaryInput(URL(fileURLWithPath: "/tmp/reference.fasta"), for: .referenceSequence)
+        state.orientExtraArguments = "--id 0.97"
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .orient(
+                    referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
+                    wordLength: 12,
+                    dbMask: "dust",
+                    saveUnoriented: false,
+                    extraArguments: ["--id", "0.97"]
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testReverseComplementBuildsGenericOperationLaunchRequest() {
@@ -922,6 +998,13 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             referenceFASTAURL: URL(fileURLWithPath: "/tmp/reference.fa"),
             outputDirectory: URL(fileURLWithPath: "/tmp/mapping-out"),
             sampleName: "Demo",
+            readGroup: MappingReadGroup(
+                id: "rg-custom",
+                sampleName: "sample-custom",
+                library: "library-custom",
+                platform: "ILLUMINA",
+                platformUnit: "unit-custom"
+            ),
             pairedEnd: false,
             threads: 8
         )
@@ -929,6 +1012,11 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         state.captureMappingRequest(request)
 
         XCTAssertEqual(state.pendingMappingRequest, request)
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.id, "rg-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.sampleName, "sample-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.library, "library-custom")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platform, "ILLUMINA")
+        XCTAssertEqual(state.pendingMappingRequest?.readGroup?.platformUnit, "unit-custom")
         guard case .map(let inputURLs, let referenceURL, let outputMode) = state.pendingLaunchRequest else {
             return XCTFail("Expected mapping launch request")
         }

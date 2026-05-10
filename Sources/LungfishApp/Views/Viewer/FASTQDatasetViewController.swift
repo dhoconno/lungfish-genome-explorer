@@ -2658,8 +2658,10 @@ public final class FASTQDatasetViewController: NSViewController {
                 return "Deduplicate optical (dist: \(opticalDistance), subs: \(substitutions))"
             }
             return "Deduplicate \(preset.rawValue) (subs: \(substitutions))"
-        case .qualityTrim(let threshold, let windowSize, let mode):
+        case .qualityTrim(let threshold, let windowSize, let mode, _):
             return "Quality trim Q\(threshold) w\(windowSize) (\(mode.rawValue))"
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, _):
+            return "fastp adapter + quality trim Q\(threshold) w\(windowSize) (\(mode.rawValue), \(adapterMode.rawValue))"
         case .adapterTrim(let mode, _, _, _):
             return "Adapter trim (\(mode.rawValue))"
         case .fixedTrim(let from5Prime, let from3Prime):
@@ -2704,7 +2706,7 @@ public final class FASTQDatasetViewController: NSViewController {
             let seq = sequence.map { String($0.prefix(20)) } ?? "FASTA"
             let rcLabel = searchRC ? " +RC" : ""
             return "Sequence filter (\(endLabel), \(action) matched, \(seq)\(rcLabel), ov=\(minOverlap), e=\(String(format: "%.2f", errorRate)))"
-        case .orient(let referenceURL, let wordLength, let dbMask, _):
+        case .orient(let referenceURL, let wordLength, let dbMask, _, _):
             return "Orient against \(referenceURL.lastPathComponent) (w=\(wordLength), mask=\(dbMask))"
         case .humanReadScrub(let databaseID, _):
             return "Human read removal (db: \(canonicalHumanReadRemovalDatabaseID(for: databaseID)))"

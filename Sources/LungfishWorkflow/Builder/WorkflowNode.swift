@@ -148,7 +148,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             ]
         case .sampleSheet:
             return [
-                NodePort(id: "samples", name: "Samples", dataType: .sampleSheet, direction: .output)
+                NodePort(id: "samples", name: "Samples", dataType: .fastqBundle, direction: .output, allowsMultiple: true)
             ]
         case .qualityControl:
             return [
@@ -547,7 +547,12 @@ public struct WorkflowNode: Sendable, Codable, Identifiable, Hashable {
         self.position = position
         self.inputPorts = type.inputPorts
         self.outputPorts = type.outputPorts
-        self.parameters = parameters
+        var resolvedParameters = parameters
+        if type == .sampleSheet {
+            resolvedParameters["sample_sheet_mode"] = resolvedParameters["sample_sheet_mode"] ?? "paired_illumina_fastq"
+            resolvedParameters["fan_out"] = resolvedParameters["fan_out"] ?? "true"
+        }
+        self.parameters = resolvedParameters
         self.notes = notes
     }
 

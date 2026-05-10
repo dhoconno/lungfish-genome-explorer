@@ -130,6 +130,7 @@ struct VariantQueryBuilderView: View {
                             availableInfoKeys: availableInfoKeys,
                             infoKeyDefinitions: infoKeyDefinitions,
                             availableVariantTypes: availableVariantTypes,
+                            sampleNames: sampleNames,
                             onRemove: { removeRule(rule.id) }
                         )
                     }
@@ -258,6 +259,7 @@ private struct RuleRowView: View {
     let availableInfoKeys: Set<String>
     let infoKeyDefinitions: [InfoKeyDefinition]
     let availableVariantTypes: [String]
+    let sampleNames: [String]
     let onRemove: () -> Void
 
     var body: some View {

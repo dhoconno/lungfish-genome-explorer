@@ -322,6 +322,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Settings window controller (lazy singleton)
     private var settingsWindowController: SettingsWindowController?
     private var aboutWindowController: AboutWindowController?
+    private var workflowBuilderWindowController: NSWindowController?
 
     /// App-executable updater hooks. Sparkle is linked by the graphical target,
     /// not by LungfishApp, so the shared app module exposes only these closures.
@@ -1602,6 +1603,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let pairs = groupFASTQByPairs(fastqURLs)
         mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
+    }
+
+    /// Import paired FASTQ batches from a CSV sample sheet.
+    func importFASTQSampleSheetFromURL(_ url: URL) {
+        guard let mainSplit = mainWindowController?.mainSplitViewController else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
+            return
+        }
+
+        guard let projectURL = mainSplit.sidebarController.currentProjectURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
+            return
+        }
+
+        do {
+            let sheet = try FASTQSampleSheet.parse(url: url)
+            let pairs = sheet.entries.map { entry in
+                FASTQFilePair(
+                    r1: entry.r1,
+                    r2: entry.r2,
+                    sampleNameOverride: entry.sampleName,
+                    metadata: entry.metadata,
+                    sampleSheetURL: sheet.sourceURL
+                )
+            }
+            mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
+        } catch {
+            showAlert(title: "Invalid FASTQ Sample Sheet", message: error.localizedDescription)
+        }
     }
 
     func importFASTAFromURL(_ url: URL) {
@@ -5148,6 +5178,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showFASTQOperationsDialog(sender, initialCategory: .classification)
     }
 
+    @objc func showFreyjaDemix(_ sender: Any?) {
+        PluginManagerWindowController.show(packID: "wastewater-surveillance")
+    }
+
     func canShowBAMVariantCalling(bundle: ReferenceBundle?) -> Bool {
         guard let bundle else { return false }
         return !BAMVariantCallingEligibility.eligibleAlignmentTracks(in: bundle).isEmpty
@@ -6000,82 +6034,95 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let outputDir: URL
-        do {
-            outputDir = try AnalysesFolder.createAnalysisDirectory(tool: "cz-id", in: projectURL)
-        } catch {
-            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)")
-            return
-        }
-
-        let cliCmd = OperationCenter.buildCLICommand(
-            subcommand: "cz-id",
-            args: ["import", url.path, "--output-dir", outputDir.path]
-        )
-        let opID = OperationCenter.shared.start(
-            title: "CZ-ID Import",
-            detail: "Scanning \(url.lastPathComponent)...",
-            cliCommand: cliCmd
-        )
-
-        let task = Task.detached { [weak self] in
+        Task.detached { [weak self] in
+            var opID: UUID?
+            var bundleURL: URL?
             do {
                 try Task.checkCancellation()
-                let command = ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDir.path]
-                let conversion = try await CzIdImportPreview.withResolvedReport(from: url) { resolved in
-                    let reportName = resolved.reportURL.lastPathComponent
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
-                                id: opID,
-                                progress: 0.35,
-                                detail: "Converting \(reportName)..."
-                            )
-                        }
-                    }
-                    return try CzIdDataConverter.convertTaxonReport(
-                        at: resolved.reportURL,
-                        outputDirectory: outputDir,
-                        command: command,
-                        sourceInputURL: url
+
+                let preview = try await CzIdImportPreview.scan(url)
+                let sampleName = preview.sampleName
+                let finalBundleURL = projectURL
+                    .standardizedFileURL
+                    .appendingPathComponent("Classifications", isDirectory: true)
+                    .appendingPathComponent(
+                        "\(CzIdProjectImportWorkflow.bundleFileName(for: sampleName)).lungfishtax",
+                        isDirectory: true
+                    )
+                bundleURL = finalBundleURL
+
+                let cliCmd = OperationCenter.buildCLICommand(
+                    subcommand: "import",
+                    args: [
+                        "cz-id",
+                        url.path,
+                        "--project",
+                        projectURL.standardizedFileURL.path,
+                        "--sample-name",
+                        sampleName,
+                    ]
+                )
+                opID = await MainActor.run {
+                    OperationCenter.shared.start(
+                        title: "CZ-ID Import",
+                        detail: "Converting \(preview.reportFileName)...",
+                        cliCommand: cliCmd
                     )
                 }
 
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        OperationCenter.shared.complete(
+                if let opID {
+                    await MainActor.run {
+                        OperationCenter.shared.update(
                             id: opID,
-                            detail: "Imported \(conversion.manifest?.sampleName ?? url.lastPathComponent)",
-                            bundleURLs: [outputDir]
+                            progress: 0.35,
+                            detail: "Converting \(preview.reportFileName)..."
                         )
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .info,
-                            message: "Imported CZ-ID result at \(outputDir.lastPathComponent)"
-                        )
-                        self?.refreshSidebarAndSelectImportedURL(outputDir)
                     }
                 }
+
+                let imported = try await CzIdProjectImportWorkflow.importFromURL(
+                    url,
+                    projectURL: projectURL,
+                    sampleName: sampleName
+                )
+
+                await MainActor.run {
+                    guard let opID else { return }
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Imported \(imported.sampleName)",
+                        bundleURLs: [imported.bundleURL]
+                    )
+                    OperationCenter.shared.log(
+                        id: opID,
+                        level: .info,
+                        message: "Imported CZ-ID result at \(imported.bundleURL.lastPathComponent)"
+                    )
+                    self?.refreshSidebarAndSelectImportedURL(imported.bundleURL)
+                }
             } catch is CancellationError {
-                try? FileManager.default.removeItem(at: outputDir)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
+                if let bundleURL {
+                    try? FileManager.default.removeItem(at: bundleURL)
+                }
+                if let opID {
+                    await MainActor.run {
                         OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     }
                 }
             } catch {
-                try? FileManager.default.removeItem(at: outputDir)
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        let detail = error.localizedDescription
+                if let bundleURL {
+                    try? FileManager.default.removeItem(at: bundleURL)
+                }
+                let detail = error.localizedDescription
+                await MainActor.run {
+                    if let opID {
                         OperationCenter.shared.fail(id: opID, detail: detail)
-                        self?.showAlert(title: "CZ-ID Import Failed", message: detail)
                     }
+                    self?.showAlert(title: "CZ-ID Import Failed", message: detail)
                 }
             }
         }
 
-        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     private func runManagedMapping(request: MappingRunRequest) {
@@ -6409,6 +6456,42 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func searchPathoplexus(_ sender: Any?) {
         showDatabaseBrowser(source: .pathoplexus)
+    }
+
+    @objc func showWorkflowBuilder(_ sender: Any?) {
+        if workflowBuilderWindowController == nil {
+            let viewController = WorkflowBuilderViewController()
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1024, height: 720),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Workflow Builder"
+            window.contentViewController = viewController
+            window.setFrame(NSRect(x: 0, y: 0, width: 1024, height: 720), display: false)
+            window.delegate = viewController
+            window.isReleasedWhenClosed = false
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.toolbarStyle = .unified
+            window.setAccessibilityIdentifier("WorkflowBuilderWindow")
+            window.center()
+
+            workflowBuilderWindowController = NSWindowController(window: window)
+        }
+
+        if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
+            let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+            viewController.configureRunContext(
+                projectURL: sidebarController?.currentProjectURL,
+                preferredSampleURL: sidebarController?.selectedFileURL
+            )
+        }
+
+        workflowBuilderWindowController?.showWindow(sender)
+        workflowBuilderWindowController?.window?.makeKeyAndOrderFront(sender)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     @objc func showPluginManager(_ sender: Any?) {

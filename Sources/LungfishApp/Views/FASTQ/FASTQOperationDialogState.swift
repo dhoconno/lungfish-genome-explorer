@@ -55,6 +55,7 @@ final class FASTQOperationDialogState {
     var qualityTrimThreshold: Int
     var qualityTrimWindowSize: Int
     var qualityTrimMode: FASTQQualityTrimMode
+    var qualityTrimExtraArguments: String
 
     var adapterRemovalMode: FASTQAdapterMode
     var adapterRemovalSequence: String
@@ -89,6 +90,7 @@ final class FASTQOperationDialogState {
 
     var orientWordLength: Int
     var orientDbMask: String
+    var orientExtraArguments: String
 
     var subsampleByProportionValue: Double?
     var subsampleByCountValue: Int?
@@ -158,6 +160,7 @@ final class FASTQOperationDialogState {
         self.qualityTrimThreshold = 20
         self.qualityTrimWindowSize = 4
         self.qualityTrimMode = .cutRight
+        self.qualityTrimExtraArguments = ""
         self.adapterRemovalMode = .autoDetect
         self.adapterRemovalSequence = ""
         self.primerTrimmingSource = .literal
@@ -183,6 +186,7 @@ final class FASTQOperationDialogState {
         self.correctSequencingErrorsKmerSize = 50
         self.orientWordLength = 12
         self.orientDbMask = "dust"
+        self.orientExtraArguments = ""
         self.subsampleByProportionValue = nil
         self.subsampleByCountValue = nil
         self.extractReadsByIDQuery = ""
@@ -322,13 +326,33 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
+        case .fastpTrim:
+            let sequence = trimmedNonEmpty(adapterRemovalSequence)
+            if adapterRemovalMode == .specified, sequence == nil {
+                return nil
+            }
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
+            return .derivative(
+                request: .fastpTrim(
+                    threshold: qualityTrimThreshold,
+                    windowSize: qualityTrimWindowSize,
+                    mode: qualityTrimMode,
+                    adapterMode: adapterRemovalMode,
+                    adapterSequence: adapterRemovalMode == .specified ? sequence : nil
+                ),
+                inputURLs: selectedInputURLs,
+                outputMode: outputMode
+            )
+
         case .qualityTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
+            guard let extraArguments = try? AdvancedCommandLineOptions.parse(qualityTrimExtraArguments) else { return nil }
             return .derivative(
                 request: .qualityTrim(
                     threshold: qualityTrimThreshold,
                     windowSize: qualityTrimWindowSize,
-                    mode: qualityTrimMode
+                    mode: qualityTrimMode,
+                    extraArguments: extraArguments
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -473,12 +497,14 @@ final class FASTQOperationDialogState {
 
         case .orientReads:
             guard let referenceURL = auxiliaryInputURL(for: .referenceSequence) else { return nil }
+            guard let extraArguments = try? AdvancedCommandLineOptions.parse(orientExtraArguments) else { return nil }
             return .derivative(
                 request: .orient(
                     referenceURL: referenceURL,
                     wordLength: orientWordLength,
                     dbMask: orientDbMask,
-                    saveUnoriented: false
+                    saveUnoriented: false,
+                    extraArguments: extraArguments
                 ),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
@@ -650,7 +676,8 @@ final class FASTQOperationDialogState {
         pendingLaunchRequest = .classify(
             tool: .kraken2,
             inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databaseName
+            databaseName: first.databaseName,
+            extraArguments: first.extraArguments
         )
         embeddedToolReady = true
     }
@@ -669,7 +696,8 @@ final class FASTQOperationDialogState {
         pendingLaunchRequest = .classify(
             tool: .esViritu,
             inputURLs: configs.flatMap(\.inputFiles),
-            databaseName: first.databasePath.lastPathComponent
+            databaseName: first.databasePath.lastPathComponent,
+            extraArguments: first.extraArguments
         )
         embeddedToolReady = true
     }
@@ -691,7 +719,8 @@ final class FASTQOperationDialogState {
             inputURLs: config.samples.flatMap { sample in
                 [sample.fastq1] + (sample.fastq2.map { [$0] } ?? [])
             },
-            databaseName: config.kraken2DatabasePath?.lastPathComponent ?? ""
+            databaseName: config.kraken2DatabasePath?.lastPathComponent ?? "",
+            extraArguments: config.extraArguments
         )
         embeddedToolReady = true
     }
@@ -829,6 +858,8 @@ final class FASTQOperationDialogState {
             return "Recompute the QC summary for the selected FASTQ datasets."
         case .demultiplexBarcodes:
             return "Split pooled reads into sample-specific outputs using a barcode definition."
+        case .fastpTrim:
+            return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim:
             return "Trim low-quality bases from read ends."
         case .adapterRemoval:
@@ -926,7 +957,7 @@ final class FASTQOperationDialogState {
         case .demultiplexing:
             return [.demultiplexBarcodes]
         case .trimmingFiltering:
-            return [.qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
+            return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
         case .decontamination:
             return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates]
         case .readProcessing:
@@ -960,6 +991,15 @@ final class FASTQOperationDialogState {
 
     private var selectedToolConfigurationReadinessText: String? {
         switch selectedToolID {
+        case .fastpTrim:
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
+                return "Enter a positive quality threshold and window size."
+            }
+            if adapterRemovalMode == .specified, trimmedNonEmpty(adapterRemovalSequence) == nil {
+                return "Enter an adapter sequence or switch to auto-detect."
+            }
+            return nil
+
         case .qualityTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
                 return "Enter a positive quality threshold and window size."
@@ -1293,6 +1333,7 @@ final class FASTQOperationDialogState {
 enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case refreshQCSummary
     case demultiplexBarcodes
+    case fastpTrim
     case qualityTrim
     case adapterRemoval
     case primerTrimming
@@ -1332,6 +1373,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Refresh QC Summary"
         case .demultiplexBarcodes: return "Demultiplex Barcodes"
+        case .fastpTrim: return "fastp Adapter + Quality Trim"
         case .qualityTrim: return "Quality Trim"
         case .adapterRemoval: return "Adapter Removal"
         case .primerTrimming: return "Primer Trimming"
@@ -1373,6 +1415,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Rebuild the QC summary for the current FASTQ data."
         case .demultiplexBarcodes: return "Split pooled reads into barcode-defined samples."
+        case .fastpTrim: return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim: return "Trim low-quality bases from read ends."
         case .adapterRemoval: return "Remove adapter sequence from reads."
         case .primerTrimming: return "Trim PCR primer sequence from reads."
@@ -1416,7 +1459,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .qcReporting
         case .demultiplexBarcodes:
             return .demultiplexing
-        case .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
+        case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
             return .trimmingFiltering
         case .removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates:
             return .decontamination
@@ -1441,7 +1484,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset]
         case .demultiplexBarcodes:
             return [.fastqDataset, .barcodeDefinition]
-        case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
+        case .fastpTrim, .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeRibosomalRNA, .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
              .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .mafft, .viralRecon,
@@ -1543,7 +1586,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .qualityTrim, .mergeOverlappingPairs,
+        case .refreshQCSummary, .fastpTrim, .qualityTrim, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -1628,7 +1671,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case derivative(request: FASTQDerivativeRequest, inputURLs: [URL], outputMode: FASTQOperationOutputMode)
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
-    case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String)
+    case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
 }
 
 private extension AssemblyTool {
@@ -1652,7 +1695,7 @@ extension FASTQOperationCategoryID {
         case .demultiplexing:
             return .demultiplexBarcodes
         case .trimmingFiltering:
-            return .qualityTrim
+            return .fastpTrim
         case .decontamination:
             return .removeHumanReads
         case .readProcessing:

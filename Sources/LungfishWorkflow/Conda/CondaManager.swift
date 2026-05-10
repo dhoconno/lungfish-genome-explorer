@@ -185,6 +185,14 @@ public actor CondaManager {
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
     }
 
+    init(rootPrefix: URL) {
+        self.init(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: Self.defaultBundledMicromambaURL,
+            bundledMicromambaVersionProvider: Self.defaultBundledMicromambaVersion
+        )
+    }
+
     init(
         storageConfigStore: ManagedStorageConfigStore,
         bundledMicromambaProvider: @escaping BundledMicromambaProvider,
@@ -394,6 +402,22 @@ public actor CondaManager {
         channels: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws {
+        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
+        defer { mutationLock.release() }
+        try await createEnvironmentUnlocked(
+            name: name,
+            packages: packages,
+            channels: channels,
+            progress: progress
+        )
+    }
+
+    private func createEnvironmentUnlocked(
+        name: String,
+        packages: [String],
+        channels: [String]? = nil,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws {
         try await ensureMicromamba()
 
         let effectiveChannels = channels ?? defaultChannels
@@ -413,6 +437,8 @@ public actor CondaManager {
 
     /// Removes a conda environment and all its packages.
     public func removeEnvironment(name: String) async throws {
+        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
+        defer { mutationLock.release() }
         try await ensureMicromamba()
         logger.info("Removing environment '\(name, privacy: .public)'")
 
@@ -493,6 +519,22 @@ public actor CondaManager {
         channels: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws {
+        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
+        defer { mutationLock.release() }
+        try await installPackageSpecsUnlocked(
+            packages: packages,
+            environment: environment,
+            channels: channels,
+            progress: progress
+        )
+    }
+
+    private func installPackageSpecsUnlocked(
+        packages: [String],
+        environment: String,
+        channels: [String]? = nil,
+        progress: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws {
         try await ensureMicromamba()
 
         let envPath = environmentURL(named: environment)
@@ -500,7 +542,7 @@ public actor CondaManager {
 
         if !FileManager.default.fileExists(atPath: envPath.path) {
             // Create new environment
-            try await createEnvironment(
+            try await createEnvironmentUnlocked(
                 name: environment,
                 packages: packages,
                 channels: effectiveChannels,
@@ -558,12 +600,14 @@ public actor CondaManager {
         channels: [String]? = nil,
         progress: (@Sendable (Double, String) -> Void)? = nil
     ) async throws {
+        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
+        defer { mutationLock.release() }
         let envPath = environmentURL(named: environment)
         if FileManager.default.fileExists(atPath: envPath.path) {
             try FileManager.default.removeItem(at: envPath)
         }
 
-        try await installPackageSpecs(
+        try await installPackageSpecsUnlocked(
             packages: packages,
             environment: environment,
             channels: channels,
@@ -576,6 +620,8 @@ public actor CondaManager {
         packages: [String],
         from environment: String
     ) async throws {
+        let mutationLock = try CondaRootMutationLock.acquire(root: rootPrefix)
+        defer { mutationLock.release() }
         try await ensureMicromamba()
         logger.info("Uninstalling \(packages.joined(separator: ", "), privacy: .public) from '\(environment, privacy: .public)'")
 

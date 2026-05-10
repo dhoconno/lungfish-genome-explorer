@@ -86,15 +86,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id
-        case name
-        case description
-        case version
-        case author
-        case nodes
-        case connections
-        case createdAt
-        case modifiedAt
+        case id, name, description, version, author, nodes, connections, createdAt, modifiedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -102,8 +94,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
-        let decodedVersion = try container.decodeIfPresent(String.self, forKey: .version) ?? WorkflowVersion.defaultVersion
-        version = WorkflowVersion.normalized(decodedVersion)
+        version = WorkflowVersion.normalized(try container.decodeIfPresent(String.self, forKey: .version) ?? WorkflowVersion.defaultVersion)
         author = try container.decodeIfPresent(String.self, forKey: .author)
         nodes = try container.decodeIfPresent([UUID: WorkflowNode].self, forKey: .nodes) ?? [:]
         connections = try container.decodeIfPresent([UUID: WorkflowConnection].self, forKey: .connections) ?? [:]
@@ -157,8 +148,6 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         modifiedAt = Date()
     }
 
-    /// Adds a node with a caller-supplied identifier. Intended for saved workflow
-    /// round-trips and deterministic tests where stable IDs make diffs readable.
     @discardableResult
     public mutating func addStableNode(
         id: UUID,
@@ -168,14 +157,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         parameters: [String: String] = [:],
         notes: String? = nil
     ) throws -> WorkflowNode {
-        let node = WorkflowNode(
-            id: id,
-            type: type,
-            label: label,
-            position: position,
-            parameters: parameters,
-            notes: notes
-        )
+        let node = WorkflowNode(id: id, type: type, label: label, position: position, parameters: parameters, notes: notes)
         try addNode(node)
         return node
     }

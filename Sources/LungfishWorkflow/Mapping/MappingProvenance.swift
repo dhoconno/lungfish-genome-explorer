@@ -18,6 +18,32 @@ public struct MappingCommandInvocation: Sendable, Codable, Equatable {
     }
 }
 
+public struct MappingProvenanceReadGroupParameters: Sendable, Codable, Equatable {
+    public let id: String
+    public let sm: String
+    public let lb: String
+    public let pl: String
+    public let pu: String
+
+    public init(readGroup: MappingReadGroup) {
+        self.id = readGroup.id
+        self.sm = readGroup.sampleName
+        self.lb = readGroup.library
+        self.pl = readGroup.platform
+        self.pu = readGroup.platformUnit
+    }
+}
+
+public struct MappingProvenanceParameters: Sendable, Codable, Equatable {
+    public let extraArgs: String
+    public let readGroup: MappingProvenanceReadGroupParameters
+
+    public init(extraArgs: String, readGroup: MappingReadGroup) {
+        self.extraArgs = extraArgs
+        self.readGroup = MappingProvenanceReadGroupParameters(readGroup: readGroup)
+    }
+}
+
 public struct MappingProvenance: Sendable, Codable, Equatable {
     public static let filename = "mapping-provenance.json"
 
@@ -35,6 +61,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
     public let includeSecondary: Bool
     public let includeSupplementary: Bool
     public let advancedArguments: [String]
+    public let parameters: MappingProvenanceParameters
     public let readClassHints: [String]
     public let inputFASTQPaths: [String]
     public let referenceFASTAPath: String
@@ -101,6 +128,10 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         self.includeSecondary = includeSecondary
         self.includeSupplementary = includeSupplementary
         self.advancedArguments = advancedArguments
+        self.parameters = MappingProvenanceParameters(
+            extraArgs: AdvancedCommandLineOptions.join(advancedArguments),
+            readGroup: self.readGroup
+        )
         self.readClassHints = readClassHints.isEmpty
             ? Self.readClassHints(from: inputFASTQURLs)
             : readClassHints
@@ -216,6 +247,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 includeSecondary: includeSecondary,
                 includeSupplementary: includeSupplementary,
                 advancedArguments: advancedArguments,
+                parameters: parameters,
                 readClassHints: readClassHints,
                 inputFASTQPaths: inputFASTQPaths.map { Self.storedPath(for: URL(fileURLWithPath: $0), relativeTo: directory) },
                 referenceFASTAPath: Self.storedPath(for: URL(fileURLWithPath: referenceFASTAPath), relativeTo: directory),
@@ -550,6 +582,7 @@ private struct PersistedMappingProvenance: Sendable, Codable, Equatable {
     let includeSecondary: Bool
     let includeSupplementary: Bool
     let advancedArguments: [String]
+    let parameters: MappingProvenanceParameters?
     let readClassHints: [String]
     let inputFASTQPaths: [String]
     let referenceFASTAPath: String

@@ -111,15 +111,17 @@ final class CondaManagerTests: XCTestCase {
 
     func testBuiltInPacksExist() {
         XCTAssertFalse(PluginPack.builtIn.isEmpty)
-        XCTAssertEqual(PluginPack.builtIn.count, 16, "Should include the required setup pack plus 15 optional packs")
+        XCTAssertEqual(PluginPack.builtIn.count, 17, "Should include the required setup pack plus 16 optional packs")
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
             "gatk-core",
+            "phasing",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "wastewater-surveillance",
         ])
     }
 
@@ -536,6 +538,61 @@ final class CondaManagerTests: XCTestCase {
         )
 
         XCTAssertEqual(rootPrefix.standardizedFileURL.path, override.standardizedFileURL.path)
+    }
+
+    func testCondaMutationLockReportsPidAndBlocksUntilReleased() throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let root = sandbox.appendingPathComponent("conda", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let messages = LockedStrings()
+        let completed = LockedFlag()
+
+        let held = try CondaRootMutationLock.acquire(root: root, waitMessageWriter: { message in
+            XCTFail("First lock acquisition should not wait: \(message)")
+        })
+        let started = expectation(description: "waiting acquisition started")
+        let acquired = expectation(description: "waiting acquisition acquired lock")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            started.fulfill()
+            do {
+                let waiting = try CondaRootMutationLock.acquire(root: root) { message in
+                    messages.append(message)
+                }
+                waiting.release()
+                completed.set()
+                acquired.fulfill()
+            } catch {
+                XCTFail("Waiting lock acquisition failed: \(error)")
+            }
+        }
+
+        wait(for: [started], timeout: 1)
+        Thread.sleep(forTimeInterval: 0.15)
+        XCTAssertFalse(completed.value, "Waiting lock acquisition should block while the first lock is held")
+        XCTAssertTrue(
+            messages.snapshot().contains { $0.contains("waiting for conda lock held by pid \(getpid())") },
+            "Expected waiting process message with the lock holder pid"
+        )
+
+        held.release()
+        wait(for: [acquired], timeout: 1)
+    }
+
+    func testCondaMutationLockRejectsReadOnlyRoot() throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+        let root = sandbox.appendingPathComponent("conda", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path) }
+
+        XCTAssertThrowsError(
+            try CondaRootMutationLock.withExclusiveLock(root: root, waitMessageWriter: { _ in })
+        ) { error in
+            XCTAssertEqual(error.localizedDescription, "conda root is read-only; reinstall as the admin user")
+        }
     }
 
     func testNextflowCondaConfig() async {
@@ -993,6 +1050,40 @@ final class CondaManagerTests: XCTestCase {
             guard let data = try? Data(contentsOf: logURL) else { return nil }
             let lines = String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
             return lines.first?.split(separator: " ").map(String.init)
+        }
+    }
+
+    private final class LockedStrings: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+
+        func append(_ value: String) {
+            lock.lock()
+            values.append(value)
+            lock.unlock()
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
+
+    private final class LockedFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storedValue = false
+
+        var value: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedValue
+        }
+
+        func set() {
+            lock.lock()
+            storedValue = true
+            lock.unlock()
         }
     }
 

@@ -109,7 +109,7 @@ final class CLIMSAActionCommandBuilderTests: XCTestCase {
             "--threads", "2",
             "--safe",
             "--keep-identical",
-            "--extra-iqtree-options", "-bnni --pathogen",
+            "--extra-args", "-bnni --pathogen",
             "--format", "json",
         ])
     }

@@ -90,6 +90,9 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
     /// number of active processor cores on the system.
     public var threads: Int
 
+    /// Additional EsViritu arguments appended verbatim after Lungfish-managed options.
+    public var extraArguments: [String]
+
     // MARK: - Initialization
 
     /// Creates an EsViritu configuration with explicit parameters.
@@ -111,7 +114,8 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         databasePath: URL,
         qualityFilter: Bool = true,
         minReadLength: Int = 100,
-        threads: Int = ProcessInfo.processInfo.activeProcessorCount
+        threads: Int = ProcessInfo.processInfo.activeProcessorCount,
+        extraArguments: [String] = []
     ) {
         self.inputFiles = inputFiles
         self.isPairedEnd = isPairedEnd
@@ -121,6 +125,7 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         self.qualityFilter = qualityFilter
         self.minReadLength = minReadLength
         self.threads = threads
+        self.extraArguments = extraArguments
     }
 
     // MARK: - Computed Output URLs
@@ -212,6 +217,7 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         // The final BAM ({SAMPLE}.third.filt.sorted.bam) shows reads mapped
         // to detected viral contigs and is viewable in Lungfish's BAM viewer.
         args += ["--keep", "True"]
+        args += extraArguments
 
         return args
     }
@@ -226,6 +232,36 @@ public struct EsVirituConfig: Sendable, Codable, Equatable {
         let args = esVirituArguments()
         let escaped = args.map { shellEscape($0) }
         return "EsViritu " + escaped.joined(separator: " \\\n  ")
+    }
+}
+
+extension EsVirituConfig {
+    enum CodingKeys: String, CodingKey {
+        case inputFiles
+        case isPairedEnd
+        case sampleName
+        case outputDirectory
+        case databasePath
+        case qualityFilter
+        case minReadLength
+        case threads
+        case extraArguments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            inputFiles: try container.decode([URL].self, forKey: .inputFiles),
+            isPairedEnd: try container.decode(Bool.self, forKey: .isPairedEnd),
+            sampleName: try container.decode(String.self, forKey: .sampleName),
+            outputDirectory: try container.decode(URL.self, forKey: .outputDirectory),
+            databasePath: try container.decode(URL.self, forKey: .databasePath),
+            qualityFilter: try container.decodeIfPresent(Bool.self, forKey: .qualityFilter) ?? true,
+            minReadLength: try container.decodeIfPresent(Int.self, forKey: .minReadLength) ?? 100,
+            threads: try container.decodeIfPresent(Int.self, forKey: .threads)
+                ?? ProcessInfo.processInfo.activeProcessorCount,
+            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
+        )
     }
 }
 

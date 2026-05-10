@@ -1171,6 +1171,9 @@ final class PluginPackStatusServiceTests: XCTestCase {
                     if environment == "freyja" || environment == "pangolin" {
                         script = """
                         #!/bin/sh
+                        if [ "$1" = "--help" ]; then
+                            printf 'usage: \(environment)\\n'
+                        fi
                         printf '%s %s\n' "$0" "$*" >> "$MAMBA_ROOT_PREFIX/hook-log.txt"
                         exit 0
                         """
@@ -1245,6 +1248,9 @@ final class PluginPackStatusServiceTests: XCTestCase {
             for executable in freyjaRequirement.executables {
                 let script = """
                 #!/bin/sh
+                if [ "$1" = "--help" ]; then
+                    printf 'usage: freyja\\n'
+                fi
                 printf '%s %s\n' "$0" "$*" >> "$MAMBA_ROOT_PREFIX/hook-log.txt"
                 exit 0
                 """

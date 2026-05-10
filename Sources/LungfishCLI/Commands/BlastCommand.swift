@@ -91,8 +91,21 @@ extension BlastCommand {
         @Option(name: .customLong("reads"), help: "Number of reads to submit (default: 20)")
         var readCount: Int = 20
 
+        @Option(
+            name: .customLong("max-concurrent"),
+            help: "Maximum in-flight BLAST submissions for this process (default: 1)"
+        )
+        var maxConcurrent: Int = 1
+
         @Flag(name: .customLong("include-children"), help: "Include reads classified to descendant taxa")
         var includeChildren: Bool = false
+
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional BLAST URL API parameters as KEY=VALUE tokens (for example WORD_SIZE=11)"
+        )
+        var extraArgs: String = ""
 
         @OptionGroup var globalOptions: GlobalOptions
 
@@ -101,6 +114,9 @@ extension BlastCommand {
         func validate() throws {
             guard readCount >= 1, readCount <= 100 else {
                 throw ValidationError("--reads must be between 1 and 100")
+            }
+            guard maxConcurrent >= 1 else {
+                throw ValidationError("--max-concurrent must be at least 1")
             }
         }
 
@@ -223,8 +239,11 @@ extension BlastCommand {
             let request = BlastVerificationRequest(
                 taxonName: targetNode.name,
                 taxId: taxId,
-                sequences: subsampled
+                sequences: subsampled,
+                extraArgs: extraArgs,
+                maxConcurrentSubmissions: maxConcurrent
             )
+            _ = try request.blastURLAPIExtraParameters
 
             let result = try await BlastService.shared.verify(
                 request: request
@@ -306,6 +325,23 @@ extension BlastCommand {
             case .inconclusive:
                 print(formatter.dim("Verification: \(confidenceLabel) (no significant hits)"))
             }
+        }
+
+        func makeVerificationRequestForTesting(
+            taxonName: String,
+            sequences: [(id: String, sequence: String)]
+        ) throws -> BlastVerificationRequest {
+            BlastVerificationRequest(
+                taxonName: taxonName,
+                taxId: taxId,
+                sequences: sequences,
+                extraArgs: extraArgs,
+                maxConcurrentSubmissions: maxConcurrent
+            )
+        }
+
+        func extraParametersForTesting() throws -> [String: String] {
+            try BlastVerificationRequest.parseBlastURLAPIExtraParameters(extraArgs)
         }
     }
 }

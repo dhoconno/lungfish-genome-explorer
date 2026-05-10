@@ -63,6 +63,9 @@ struct MapCommand: AsyncParsableCommand {
     @Option(name: .customLong("rg-id"), help: "BAM read-group ID (default: sample name)")
     var readGroupID: String?
 
+    @Option(name: .customLong("rg-sm"), help: "BAM read-group sample/SM (default: sample name)")
+    var readGroupSampleName: String?
+
     @Option(name: .customLong("rg-lb"), help: "BAM read-group library/LB (default: sample name)")
     var readGroupLibrary: String?
 
@@ -85,9 +88,16 @@ struct MapCommand: AsyncParsableCommand {
     var minMapQ: Int = 0
 
     @Option(
-        name: .customLong("advanced-options"),
+        name: .customLong("extra-args"),
         parsing: .unconditional,
         help: "Additional mapper options, written exactly as they should be passed to the underlying tool"
+    )
+    var extraArgs: String = ""
+
+    @Option(
+        name: .customLong("advanced-options"),
+        parsing: .unconditional,
+        help: .hidden
     )
     var advancedOptions: String = ""
 
@@ -96,6 +106,7 @@ struct MapCommand: AsyncParsableCommand {
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let threadCount = globalOptions.effectiveThreads
+        warnIfDeprecatedAdvancedOptionsUsed()
 
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for url in inputURLs {
@@ -155,6 +166,7 @@ struct MapCommand: AsyncParsableCommand {
         let resolvedReadGroup = MappingReadGroup.resolved(
             sampleName: effectiveSampleName,
             id: readGroupID,
+            sample: readGroupSampleName,
             library: readGroupLibrary,
             platform: readGroupPlatform,
             platformUnit: readGroupPlatformUnit,
@@ -162,7 +174,7 @@ struct MapCommand: AsyncParsableCommand {
         )
         let advancedArguments: [String]
         do {
-            advancedArguments = try AdvancedCommandLineOptions.parse(advancedOptions)
+            advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions)
         } catch {
             print(formatter.error(error.localizedDescription))
             throw ExitCode.failure
@@ -198,10 +210,11 @@ struct MapCommand: AsyncParsableCommand {
             ("Min MAPQ", String(minMapQ)),
             ("Sample name", effectiveSampleName),
             ("Read group ID", resolvedReadGroup.id),
+            ("Read group SM", resolvedReadGroup.sampleName),
             ("Read group LB", resolvedReadGroup.library),
             ("Read group PL", resolvedReadGroup.platform),
             ("Read group PU", resolvedReadGroup.platformUnit),
-            ("Advanced options", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
+            ("Extra arguments", advancedArguments.isEmpty ? "none" : AdvancedCommandLineOptions.join(advancedArguments)),
             ("Output", outputDirectory.path),
         ]))
         print("")
@@ -232,6 +245,15 @@ struct MapCommand: AsyncParsableCommand {
             ("BAI", result.baiURL.path),
         ]))
         print("")
+    }
+
+    static func parseExtraArgs(_ extraArgs: String, deprecatedAdvancedOptions: String) throws -> [String] {
+        try AdvancedCommandLineOptions.parse(extraArgs) + AdvancedCommandLineOptions.parse(deprecatedAdvancedOptions)
+    }
+
+    private func warnIfDeprecatedAdvancedOptionsUsed() {
+        guard !advancedOptions.isEmpty else { return }
+        FileHandle.standardError.write(Data("warning: --advanced-options is deprecated, use --extra-args\n".utf8))
     }
 
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {

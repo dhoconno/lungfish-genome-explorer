@@ -1246,10 +1246,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 23 subcommands registered.
+    /// Verifies that FastqCommand has all 24 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 23, "FastqCommand should have 23 subcommands")
+        XCTAssertEqual(subcommands.count, 24, "FastqCommand should have 24 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1332,6 +1332,23 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(cmd.threshold, 20)
         XCTAssertEqual(cmd.windowSize, 4)
         XCTAssertEqual(cmd.mode, "cut-right")
+    }
+
+    /// Verifies that the combined fastp trim command defaults to adapter auto-detection
+    /// plus quality trimming in one pass.
+    func testFastpCombinedTrimDefaultsToAdapterAndQuality() throws {
+        let cmd = try FastqTrimSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.threshold, 20)
+        XCTAssertEqual(cmd.windowSize, 4)
+        XCTAssertEqual(cmd.mode, "cut-right")
+        XCTAssertTrue(cmd.adapterTrimming)
+        XCTAssertNil(cmd.adapterSequence)
+        let args = try cmd.fastpArgumentsForTesting(inputURL: URL(fileURLWithPath: "/tmp/input.fq"))
+        XCTAssertFalse(args.contains("--disable_adapter_trimming"), args.joined(separator: " "))
+        XCTAssertTrue(args.contains("--cut_right"), args.joined(separator: " "))
+        XCTAssertTrue(args.contains("--disable_length_filtering"), args.joined(separator: " "))
     }
 
     // MARK: - Adapter Trim Argument Parsing
@@ -1719,6 +1736,25 @@ final class BlastVerifyCommandTests: XCTestCase {
             "--reads", "30",
         ])
         XCTAssertEqual(cmd.readCount, 30)
+    }
+
+    func testBlastVerifyMaxConcurrentDefaultsAndParses() throws {
+        let defaultCommand = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+        ])
+        XCTAssertEqual(defaultCommand.maxConcurrent, 1)
+
+        let customCommand = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+            "--max-concurrent", "3",
+        ])
+        XCTAssertEqual(customCommand.maxConcurrent, 3)
     }
 
     /// Verifies that --include-children flag is parsed.

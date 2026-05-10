@@ -62,6 +62,8 @@ The table draws columns directly from the VCF specification, with one Lungfish-s
 
 The exact `INFO` and `FORMAT` columns depend on the caller. iVar emits `AF`, `DP`, `REF_DP`, `ALT_DP`, `ALT_QUAL`, and a `GFF_FEATURE`/`AA_REF`/`AA_ALT` triple when annotations are attached. LoFreq emits `AF`, `DP`, `SB`, and `DP4`. The browser shows whichever fields the loaded VCF defines; columns it has no data for stay empty.
 
+For multi-sample VCFs, the left-pane sample selector controls which sample genotype columns are visible in the table. Hide samples you are not comparing before opening the Query Builder; its Sample/Genotype category follows the visible samples and emits per-sample smart filters.
+
 ## Procedure
 
 The procedure has five steps. The first three open the browser and orient you in the table. The last two cover filtering and multi-track loading.
@@ -102,6 +104,14 @@ Type into the free-text field on the right of the filter bar to write a smart-fi
 - `Sample[NA12878].GT != Sample[NA12879].GT` keeps sites where those two samples have different stored genotype calls.
 - `Pos>=21000 Pos<=25500` restricts to the spike gene window.
 - `Source=iVar` keeps only rows from the `iVar variants` track when multiple tracks are open.
+
+Multi-sample variant databases also support per-sample smart filters:
+
+- `Sample[NA12878].GT=1/1` keeps variants where sample `NA12878` is homozygous alternate.
+- `Sample[NA12878].AF>=0.5` keeps variants where that sample's alternate allele fraction is at least 0.5, computed from `FORMAT.AD` when available.
+- `Sample[NA12878].DP>=30` keeps variants where that sample's genotype depth is at least 30.
+- `count(Sample[*].GT=1/1) >= 5` keeps variants with at least five homozygous-alternate samples.
+- `Sample[NA12878].GT != Sample[NA12879].GT` keeps variants where two samples have different genotype calls.
 
 Comparison operators are `=`, `!=`, `<`, `<=`, `>`, `>=`. String values may be unquoted when they have no spaces; quote them when they do (`Gene="ORF1ab"`). Combine clauses with spaces (AND) or with the literal token `OR`. The filter bar shows a count of matched rows directly under the input.
 

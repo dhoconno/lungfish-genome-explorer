@@ -28,6 +28,7 @@ struct FastqCommand: AsyncParsableCommand {
         subcommands: [
             FastqSubsampleSubcommand.self,
             FastqLengthFilterSubcommand.self,
+            FastqTrimSubcommand.self,
             FastqQualityTrimSubcommand.self,
             FastqAdapterTrimSubcommand.self,
             FastqFixedTrimSubcommand.self,
@@ -51,6 +52,147 @@ struct FastqCommand: AsyncParsableCommand {
             FastqDeaconRiboSubcommand.self,
         ]
     )
+}
+
+// MARK: - Combined fastp Trim
+
+struct FastqTrimSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "trim",
+        abstract: "Trim adapters and low-quality bases in one fastp pass"
+    )
+
+    @Argument(help: "Input FASTQ file")
+    var input: String
+
+    @Option(name: .customLong("threshold"), help: "Quality threshold (default: 20)")
+    var threshold: Int = 20
+
+    @Option(name: .customLong("window"), help: "Sliding window size (default: 4)")
+    var windowSize: Int = 4
+
+    @Option(name: .customLong("mode"), help: "Quality trim mode: cut-right, cut-front, cut-tail, cut-both (default: cut-right)")
+    var mode: String = "cut-right"
+
+    @Flag(
+        name: .customLong("adapter-trimming"),
+        inversion: .prefixedNo,
+        help: "Run fastp adapter trimming in the same pass (default: enabled)"
+    )
+    var adapterTrimming: Bool = true
+
+    @Option(name: .customLong("adapter"), help: "Adapter sequence (omit for auto-detect)")
+    var adapterSequence: String?
+
+    @Option(
+        name: .customLong("extra-args"),
+        parsing: .unconditional,
+        help: "Additional fastp arguments passed verbatim"
+    )
+    var extraArgs: String = ""
+
+    @OptionGroup var output: OutputOptions
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
+        let started = Date()
+        let args = try fastpArguments(inputURL: inputURL)
+        let result = try await NativeToolRunner.shared.run(.fastp, arguments: args)
+        try writeProvenance(inputURL: inputURL, arguments: args, result: result, started: started)
+        guard result.isSuccess else {
+            throw CLIError.conversionFailed(reason: "fastp combined trim failed: \(result.stderr)")
+        }
+        FileHandle.standardError.write(Data("Adapter and quality trimmed reads written to \(output.output)\n".utf8))
+    }
+
+    func fastpArgumentsForTesting(inputURL: URL) throws -> [String] {
+        try fastpArguments(inputURL: inputURL)
+    }
+
+    private func fastpArguments(inputURL: URL) throws -> [String] {
+        var args = [
+            "-i", inputURL.path,
+            "-o", output.output,
+            "-W", String(windowSize),
+            "-M", String(threshold),
+            "--disable_quality_filtering",
+            "--disable_length_filtering",
+            "--json", "/dev/null",
+            "--html", "/dev/null",
+        ]
+
+        if !adapterTrimming {
+            args.append("--disable_adapter_trimming")
+        } else if let adapterSequence {
+            args += ["--adapter_sequence", adapterSequence]
+        }
+
+        switch mode {
+        case "cut-right": args.append("--cut_right")
+        case "cut-front": args.append("--cut_front")
+        case "cut-tail": args.append("--cut_tail")
+        case "cut-both":
+            args.append("--cut_front")
+            args.append("--cut_right")
+        default:
+            throw ValidationError("Invalid trim mode: \(mode). Use: cut-right, cut-front, cut-tail, cut-both")
+        }
+        args += try AdvancedCommandLineOptions.parse(extraArgs)
+        return args
+    }
+
+    private func writeProvenance(
+        inputURL: URL,
+        arguments: [String],
+        result: NativeToolResult,
+        started: Date
+    ) throws {
+        let outputURL = URL(fileURLWithPath: output.output)
+        let completed = Date()
+        let step = StepExecution(
+            toolName: "fastp",
+            toolVersion: awaitlessFastpVersion,
+            command: ["fastp"] + arguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)],
+            outputs: FileManager.default.fileExists(atPath: outputURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)]
+                : [],
+            exitCode: result.exitCode,
+            wallTime: completed.timeIntervalSince(started),
+            stderr: result.stderr.nilIfEmpty,
+            startTime: started,
+            endTime: completed
+        )
+        var run = WorkflowRun(
+            name: "lungfish fastq trim",
+            startTime: started,
+            endTime: completed,
+            status: result.isSuccess ? .completed : .failed,
+            parameters: [
+                "threshold": .integer(threshold),
+                "window": .integer(windowSize),
+                "mode": .string(mode),
+                "adapterTrimming": .boolean(adapterTrimming),
+                "adapterSequence": adapterSequence.map(ParameterValue.string) ?? .null,
+                "operation": .string("combined fastp adapter+quality trim"),
+            ]
+        )
+        run.steps = [step]
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(
+            to: outputURL.deletingLastPathComponent()
+                .appendingPathComponent("\(outputURL.lastPathComponent).lungfish-provenance.json"),
+            options: .atomic
+        )
+    }
+
+    private var awaitlessFastpVersion: String {
+        "managed fastp"
+    }
 }
 
 // MARK: - Helpers
@@ -77,6 +219,12 @@ func validateInput(_ path: String) throws -> URL {
         throw CLIError.inputFileNotFound(path: path)
     }
     return URL(fileURLWithPath: path)
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 // MARK: - Subsample
@@ -196,6 +344,13 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("mode"), help: "Trim mode: cut-right, cut-front, cut-tail, cut-both (default: cut-right)")
     var mode: String = "cut-right"
 
+    @Option(
+        name: .customLong("extra-args"),
+        parsing: .unconditional,
+        help: "Additional fastp arguments passed verbatim"
+    )
+    var extraArgs: String = ""
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
@@ -203,6 +358,35 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
+        let args = try fastpArguments(inputURL: inputURL)
+
+        let startedAt = Date()
+        let result = try await runner.run(.fastp, arguments: args)
+        let wallTime = Date().timeIntervalSince(startedAt)
+        guard result.isSuccess else {
+            throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
+        }
+        try saveProvenance(
+            inputURL: inputURL,
+            outputURL: URL(fileURLWithPath: output.output),
+            argv: CommandLine.arguments,
+            fastpArguments: ["fastp"] + args,
+            exitCode: result.exitCode,
+            wallTime: wallTime,
+            stderr: result.stderr
+        )
+        FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
+    }
+
+    var extraArguments: [String] {
+        (try? AdvancedCommandLineOptions.parse(extraArgs)) ?? []
+    }
+
+    func fastpArgumentsForTesting(inputURL: URL) throws -> [String] {
+        try fastpArguments(inputURL: inputURL)
+    }
+
+    private func fastpArguments(inputURL: URL) throws -> [String] {
         var args = [
             "-i", inputURL.path,
             "-o", output.output,
@@ -225,13 +409,101 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         default:
             throw ValidationError("Invalid trim mode: \(mode). Use: cut-right, cut-front, cut-tail, cut-both")
         }
-
-        let result = try await runner.run(.fastp, arguments: args)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
-        }
-        FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
+        args += try AdvancedCommandLineOptions.parse(extraArgs)
+        return args
     }
+
+    func provenanceRunForTesting(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) -> WorkflowRun {
+        makeProvenanceRun(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            argv: argv,
+            fastpArguments: fastpArguments,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr
+        )
+    }
+
+    private func saveProvenance(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let run = makeProvenanceRun(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            argv: argv,
+            fastpArguments: fastpArguments,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr
+        )
+        try writeWorkflowRun(run, to: outputURL.deletingLastPathComponent())
+    }
+
+    private func makeProvenanceRun(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) -> WorkflowRun {
+        let parameters: [String: ParameterValue] = [
+            "threshold": .integer(threshold),
+            "windowSize": .integer(windowSize),
+            "mode": .string(mode),
+            "extraArgs": .string(extraArgs),
+            "output": .file(outputURL),
+        ]
+        let step = StepExecution(
+            toolName: "fastp",
+            toolVersion: "bundled",
+            command: fastpArguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: inputURL, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, role: .output)],
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        return WorkflowRun(
+            name: "lungfish fastq quality-trim",
+            endTime: Date(),
+            status: exitCode == 0 ? .completed : .failed,
+            steps: [step],
+            parameters: parameters.merging([
+                "argv": .array(argv.map { .string($0) }),
+                "command": .string(argv.map(shellEscape).joined(separator: " ")),
+            ]) { current, _ in current }
+        )
+    }
+}
+
+private func writeWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(run)
+    try data.write(
+        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+        options: .atomic
+    )
 }
 
 // MARK: - Adapter Trim

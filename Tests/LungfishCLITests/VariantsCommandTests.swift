@@ -24,6 +24,64 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(VariantsCommand.helpMessage().contains("query"))
     }
 
+    func testExtractSampleSubcommandWritesSingleSampleVCFAndProvenance() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("NA12878.vcf")
+        let command = try VariantsCommand.ExtractSampleSubcommand.parse([
+            "extract-sample",
+            bundleURL.path,
+            "--sample", "NA12878",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878"))
+        XCTAssertFalse(vcf.contains("NA12879"))
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertTrue(vcf.contains("rs300"))
+
+        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(run.name, "lungfish variants extract-sample")
+        XCTAssertEqual(run.steps.first?.toolName, "lungfish variants extract-sample")
+        XCTAssertEqual(run.steps.first?.exitCode, 0)
+        XCTAssertEqual(run.steps.first?.outputs.first?.path, outputURL.path)
+        XCTAssertEqual(run.parameters["sample"]?.stringValue, "NA12878")
+    }
+
+    func testQuerySubcommandFiltersWithSmartFilter() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("filtered.vcf")
+        let command = try VariantsCommand.QuerySubcommand.parse([
+            "query",
+            bundleURL.path,
+            "--filter", "Sample[NA12878].GT=1/1",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879"))
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertFalse(vcf.contains("rs200"))
+        XCTAssertTrue(vcf.contains("rs300"))
+
+        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(run.name, "lungfish variants query")
+        XCTAssertEqual(run.steps.first?.toolName, "lungfish variants query")
+        XCTAssertEqual(run.parameters["filter"]?.stringValue, "Sample[NA12878].GT=1/1")
+    }
+
     func testCallSubcommandParsesBundleAlignmentAndCaller() throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
@@ -59,6 +117,94 @@ final class VariantsCommandTests: XCTestCase {
         _ = try await command.executeForTesting(runtime: runtime) { lines.append($0) }
 
         XCTAssertEqual(capture.request?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
+    }
+
+    func testCallSubcommandAcceptsBcftoolsCallerAndPassesRequestToRuntime() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--extra-args", "--ploidy 1",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.caller.rawValue, "bcftools")
+        XCTAssertEqual(capture.request?.advancedArguments, ["--ploidy", "1"])
+    }
+
+    func testCallSubcommandAcceptsClair3CallerAndModel() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "clair3",
+            "--medaka-model", "r1041_e82_400bps_sup_v5.0.0",
+            "--extra-args", "--enable_phasing",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.caller.rawValue, "clair3")
+        XCTAssertEqual(capture.request?.medakaModel, "r1041_e82_400bps_sup_v5.0.0")
+        XCTAssertEqual(capture.request?.advancedArguments, ["--enable_phasing"])
+    }
+
+    func testPhaseSubcommandDryRunWritesCommandPlanAndProvenance() async throws {
+        let reference = try write("ref.fa", contents: ">chr1\nACGT\n", in: tempDir)
+        let bam = try write("sample.bam", contents: "bam-bytes", in: tempDir)
+        let outputVCF = tempDir.appendingPathComponent("phased.vcf.gz")
+        let outputDir = tempDir.appendingPathComponent("phase-plan", isDirectory: true)
+        let command = try VariantsCommand.PhaseSubcommand.parse([
+            "phase",
+            "--reference", reference.path,
+            "--bam", bam.path,
+            "--output-vcf", outputVCF.path,
+            "--output-dir", outputDir.path,
+            "--threads", "4",
+            "--extra-gatk-args", "--sample-ploidy 1",
+            "--extra-whatshap-args", "--ignore-read-groups",
+        ])
+        var lines: [String] = []
+
+        try await command.executeForTesting { lines.append($0) }
+
+        let planURL = outputDir.appendingPathComponent("phased-variant-command-plan.json")
+        let provenanceURL = outputDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let planJSON = try String(contentsOf: planURL, encoding: .utf8)
+        let provenance = try decodeProvenance(at: provenanceURL)
+
+        XCTAssertTrue(lines.contains { $0.contains("gatk HaplotypeCaller") })
+        XCTAssertTrue(lines.contains { $0.contains("whatshap phase") })
+        XCTAssertTrue(planJSON.contains(#""workflowName" : "lungfish variants phase""#))
+        XCTAssertTrue(planJSON.contains("whatshap phase"))
+        XCTAssertEqual(provenance.name, "lungfish variants phase")
+        XCTAssertEqual(provenance.parameters["packIDs"]?.stringValue, "gatk-core,phasing")
+        XCTAssertEqual(provenance.steps.first?.outputs.first?.path, planURL.path)
+    }
+
+    func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--advanced-options", "--ploidy 1",
+            "--format", "json",
+        ])
+
+        XCTAssertEqual(command.advancedOptions, "--ploidy 1")
     }
 
     func testCallSubcommandEmitsRunCompleteJSON() async throws {
@@ -168,46 +314,6 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.contains("Medaka requires ONT model metadata") })
     }
 
-    func testExtractSampleSubcommandWritesSingleSampleVCFAndProvenance() async throws {
-        let fixture = try makeVariantBundleFixture()
-        let outputURL = tempDir.appendingPathComponent("na12878.vcf")
-        let command = try VariantsCommand.ExtractSampleSubcommand.parse([
-            "extract-sample",
-            fixture.bundleURL.path,
-            "--sample", "NA12878",
-            "--output", outputURL.path,
-            "--format", "json",
-        ])
-
-        try await command.executeForTesting()
-
-        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878"))
-        XCTAssertTrue(vcf.contains("rs100"))
-        XCTAssertFalse(vcf.contains("NA12879"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("lungfish-provenance.json").path))
-    }
-
-    func testQuerySubcommandFiltersWithSmartFilter() async throws {
-        let fixture = try makeVariantBundleFixture()
-        let outputURL = tempDir.appendingPathComponent("hom-alt.vcf")
-        let command = try VariantsCommand.QuerySubcommand.parse([
-            "query",
-            fixture.bundleURL.path,
-            "--filter", "Sample[NA12878].GT=1/1",
-            "--output", outputURL.path,
-            "--format", "json",
-        ])
-
-        try await command.executeForTesting()
-
-        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertTrue(vcf.contains("rs100"))
-        XCTAssertTrue(vcf.contains("rs300"))
-        XCTAssertFalse(vcf.contains("rs200"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("lungfish-provenance.json").path))
-    }
-
     private func makeRuntime(
         onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil,
         onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil
@@ -310,53 +416,54 @@ final class VariantsCommandTests: XCTestCase {
         )
     }
 
-    private func makeVariantBundleFixture() throws -> (bundleURL: URL, dbURL: URL) {
-        let bundleURL = tempDir.appendingPathComponent("VariantBundle.lungfishref", isDirectory: true)
+    private func makeVariantBundleFixture() throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("Cohort.lungfishref", isDirectory: true)
         let variantsDir = bundleURL.appendingPathComponent("variants", isDirectory: true)
         try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
 
         let vcfURL = tempDir.appendingPathComponent("cohort.vcf")
-        try """
-        ##fileformat=VCFv4.3
-        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
-        ##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
-        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879
-        chr1\t100\trs100\tA\tG\t50\tPASS\t.\tGT:DP:AD\t1/1:40:0,40\t0/1:32:16,16
-        chr1\t200\trs200\tC\tT\t50\tPASS\t.\tGT:DP:AD\t0/1:20:10,10\t0/1:31:15,16
-        chr1\t300\trs300\tG\tA\t50\tPASS\t.\tGT:DP:AD\t1/1:38:0,38\t1/1:42:0,42
-        """.write(to: vcfURL, atomically: true, encoding: .utf8)
-
         let dbURL = variantsDir.appendingPathComponent("cohort.db")
-        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
-        let track = VariantTrackInfo(
-            id: "cohort",
-            name: "Cohort",
-            path: "variants/cohort.vcf.gz",
-            indexPath: "variants/cohort.vcf.gz.tbi",
-            databasePath: "variants/cohort.db",
-            variantType: .mixed,
-            variantCount: 3
-        )
+        try cohortVCF.write(to: vcfURL, atomically: true, encoding: .utf8)
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL, parseGenotypes: true)
+
         let manifest = BundleManifest(
             formatVersion: "1.0",
-            name: "VariantBundle",
-            identifier: "test.variant.bundle",
+            name: "Cohort",
+            identifier: "test.cohort",
             source: SourceInfo(organism: "Test", assembly: "TestAssembly", database: "Fixture"),
-            genome: GenomeInfo(
-                path: "genome/sequence.fa.gz",
-                indexPath: "genome/sequence.fa.gz.fai",
-                totalLength: 1_000,
-                chromosomes: [
-                    ChromosomeInfo(name: "chr1", length: 1_000, offset: 0, lineBases: 1_000, lineWidth: 1_001, aliases: [])
-                ]
-            ),
-            variants: [track]
+            genome: nil,
+            variants: [
+                VariantTrackInfo(
+                    id: "cohort",
+                    name: "Cohort",
+                    path: "variants/cohort.vcf.gz",
+                    indexPath: "variants/cohort.vcf.gz.tbi",
+                    databasePath: "variants/cohort.db",
+                    variantType: .mixed,
+                    variantCount: 3,
+                    source: "Fixture"
+                )
+            ]
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename))
-        return (bundleURL, dbURL)
+        return bundleURL
+    }
+
+    private var cohortVCF: String {
+        """
+        ##fileformat=VCFv4.2
+        ##contig=<ID=chr1,length=1000>
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        ##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879
+        chr1\t100\trs100\tA\tG\t60\tPASS\t.\tGT:DP:AD\t1/1:35:0,35\t0/1:32:16,16
+        chr1\t200\trs200\tC\tT\t50\tPASS\t.\tGT:DP:AD\t0/1:20:10,10\t0/1:22:11,11
+        chr1\t300\trs300\tG\tA\t70\tPASS\t.\tGT:DP:AD\t1/1:31:0,31\t1/1:34:0,34
+        """
     }
 }
 
@@ -374,6 +481,18 @@ private func decodeEvent(_ line: String) -> VariantsCommand.VariantCallingEvent?
         return nil
     }
     return try? JSONDecoder().decode(VariantsCommand.VariantCallingEvent.self, from: data)
+}
+
+private func write(_ name: String, contents: String, in directory: URL) throws -> URL {
+    let url = directory.appendingPathComponent(name)
+    try contents.write(to: url, atomically: true, encoding: .utf8)
+    return url
+}
+
+private func decodeProvenance(at url: URL) throws -> WorkflowRun {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(WorkflowRun.self, from: Data(contentsOf: url))
 }
 
 private func XCTAssertThrowsErrorAsync(

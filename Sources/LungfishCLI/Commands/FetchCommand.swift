@@ -118,12 +118,15 @@ struct NCBISubcommand: AsyncParsableCommand {
                 guard let content = String(data: data, encoding: .utf8) else {
                     throw CLIError.networkError(reason: "Invalid encoding in response for \(accession)")
                 }
-                if ncbiFormat == .gff3 && Self.gff3FeatureCount(in: content) == 0 && !globalOptions.quiet {
+                let resolvedContent = ncbiFormat == .gff3
+                    ? Self.normalizedGFF3Content(content, accession: accession)
+                    : content
+                if ncbiFormat == .gff3 && Self.gff3FeatureCount(in: resolvedContent) == 0 && !globalOptions.quiet {
                     Self.writeLineToStandardError(
                         formatter.warning("NCBI returned no GFF3 feature rows for \(accession); the file contains only comments/directives.")
                     )
                 }
-                fetchedRecords.append((accession: accession, content: content))
+                fetchedRecords.append((accession: accession, content: resolvedContent))
             } catch let error as CLIError {
                 throw error
             } catch {
@@ -448,6 +451,13 @@ struct NCBISubcommand: AsyncParsableCommand {
                 return !trimmed.isEmpty && !trimmed.hasPrefix("#")
             }
             .count
+    }
+
+    static func normalizedGFF3Content(_ content: String, accession: String) -> String {
+        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "##gff-version 3\n"
+        }
+        return content.hasSuffix("\n") ? content : content + "\n"
     }
 
     static func combinedContent(

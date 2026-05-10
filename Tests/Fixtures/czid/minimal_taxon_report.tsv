@@ -1,0 +1,4 @@
+sample_name	project_id	pipeline_version	nt_db_version	nr_db_version	tax_id	taxon_name	rank	nt_read_count	nt_rpm	nt_percent_identity	nt_alignment_length	nt_e_value	nr_read_count	nr_rpm
+Sample-CZ-001	Project-42	8.4	nt_2025_12_01	nr_2025_12_01	1	root	root	1200	1000000				1200	1000000
+Sample-CZ-001	Project-42	8.4	nt_2025_12_01	nr_2025_12_01	10239	Viruses	superkingdom	88	73333	99.1	132	1e-20	12	10000
+Sample-CZ-001	Project-42	8.4	nt_2025_12_01	nr_2025_12_01	2697049	Severe acute respiratory syndrome coronavirus 2	species	42	35000	97.8	151	2e-50	5	4166.7

@@ -59,6 +59,12 @@ public struct BlastVerificationRequest: Sendable {
     /// E-value threshold for significance (e.g., 1e-10).
     public let eValueThreshold: Double
 
+    /// Verbatim user-supplied pass-through option string for provenance surfaces.
+    public let extraArgs: String
+
+    /// Maximum concurrent BLAST submissions permitted for this process.
+    public let maxConcurrentSubmissions: Int
+
     /// Creates a new BLAST verification request.
     ///
     /// - Parameters:
@@ -70,6 +76,8 @@ public struct BlastVerificationRequest: Sendable {
     ///   - entrezQuery: Optional Entrez query filter (default: nil, no filter applied)
     ///   - maxTargetSeqs: Max target sequences per query (default: 5)
     ///   - eValueThreshold: E-value threshold (default: 1e-10)
+    ///   - extraArgs: Additional BLAST URL API parameters for provenance and pass-through.
+    ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions (default: 1).
     public init(
         taxonName: String,
         taxId: Int,
@@ -78,7 +86,9 @@ public struct BlastVerificationRequest: Sendable {
         database: String = "nt",
         entrezQuery: String? = nil,
         maxTargetSeqs: Int = 5,
-        eValueThreshold: Double = 1e-10
+        eValueThreshold: Double = 1e-10,
+        extraArgs: String = "",
+        maxConcurrentSubmissions: Int = 1
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -88,6 +98,8 @@ public struct BlastVerificationRequest: Sendable {
         self.entrezQuery = entrezQuery
         self.maxTargetSeqs = maxTargetSeqs
         self.eValueThreshold = eValueThreshold
+        self.extraArgs = extraArgs
+        self.maxConcurrentSubmissions = max(1, maxConcurrentSubmissions)
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.
@@ -101,6 +113,73 @@ public struct BlastVerificationRequest: Sendable {
     /// - Returns: A multi-FASTA string suitable for the BLAST QUERY parameter.
     public func toMultiFASTA() -> String {
         sequences.map { ">\($0.id)\n\($0.sequence)" }.joined(separator: "\n")
+    }
+
+    public var blastURLAPIExtraParameters: [String: String] {
+        (try? Self.parseBlastURLAPIExtraParameters(extraArgs)) ?? [:]
+    }
+
+    public static func parseBlastURLAPIExtraParameters(_ extraArgs: String) throws -> [String: String] {
+        let tokens = try shellLikeTokens(extraArgs)
+        var parameters: [String: String] = [:]
+        for token in tokens {
+            let parts = token.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  !parts[0].isEmpty,
+                  !parts[1].isEmpty,
+                  parts[0].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else {
+                throw BlastServiceError.invalidExtraArgument(token)
+            }
+            parameters[String(parts[0]).uppercased()] = String(parts[1])
+        }
+        return parameters
+    }
+
+    private static func shellLikeTokens(_ text: String) throws -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaped = false
+
+        for character in text {
+            if escaped {
+                current.append(character)
+                escaped = false
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+            } else if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current.removeAll(keepingCapacity: true)
+                }
+            } else {
+                current.append(character)
+            }
+        }
+        if escaped {
+            current.append("\\")
+        }
+        if quote != nil {
+            throw BlastServiceError.invalidExtraArgument(text)
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
     }
 }
 
@@ -177,7 +256,7 @@ public struct BlastJobSubmission: Sendable {
 /// Status of a BLAST job on the NCBI server.
 public enum BlastJobStatus: Sendable, Equatable {
     /// The job is still running. Poll again later.
-    case waiting
+    case waiting(queuePosition: Int?)
 
     /// The job has completed and results are ready for retrieval.
     case ready
@@ -187,6 +266,27 @@ public enum BlastJobStatus: Sendable, Equatable {
 
     /// The job was not found (invalid or expired RID).
     case unknown
+}
+
+// MARK: - BLAST Rate Limits
+
+/// Local enforcement knobs for NCBI BLAST etiquette.
+public struct BlastRateLimitConfiguration: Sendable, Equatable {
+    public var minSubmitInterval: TimeInterval
+    public var maxSequencesPerHour: Int
+    public var submissionSlotPollInterval: TimeInterval
+
+    public init(
+        minSubmitInterval: TimeInterval = 10,
+        maxSequencesPerHour: Int = 50,
+        submissionSlotPollInterval: TimeInterval = 1
+    ) {
+        self.minSubmitInterval = minSubmitInterval
+        self.maxSequencesPerHour = maxSequencesPerHour
+        self.submissionSlotPollInterval = submissionSlotPollInterval
+    }
+
+    public static let ncbiDefault = BlastRateLimitConfiguration()
 }
 
 // MARK: - BLAST Service Error
@@ -221,6 +321,9 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     /// A network transport error occurred while contacting NCBI BLAST.
     case networkFailed(message: String)
 
+    /// A BLAST URL API extra argument was not in KEY=VALUE form.
+    case invalidExtraArgument(String)
+
     public var errorDescription: String? {
         switch self {
         case .submissionFailed(let message):
@@ -243,6 +346,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "HTTP \(statusCode): \(body.prefix(200))"
         case .networkFailed(let message):
             return "Network error while contacting NCBI BLAST: \(message)"
+        case .invalidExtraArgument(let token):
+            return "Invalid BLAST extra argument '\(token)'. Use KEY=VALUE tokens."
         }
     }
 }

@@ -20,7 +20,14 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     case deduplicate(preset: FASTQDeduplicatePreset, substitutions: Int, optical: Bool, opticalDistance: Int)
 
     // Trim operations (produce trim position records)
-    case qualityTrim(threshold: Int, windowSize: Int, mode: FASTQQualityTrimMode)
+    case fastpTrim(
+        threshold: Int,
+        windowSize: Int,
+        mode: FASTQQualityTrimMode,
+        adapterMode: FASTQAdapterMode,
+        adapterSequence: String?
+    )
+    case qualityTrim(threshold: Int, windowSize: Int, mode: FASTQQualityTrimMode, extraArguments: [String] = [])
     case adapterTrim(mode: FASTQAdapterMode, sequence: String?, sequenceR2: String?, fastaFilename: String?)
     case fixedTrim(from5Prime: Int, from3Prime: Int)
 
@@ -62,7 +69,8 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         referenceURL: URL,
         wordLength: Int,
         dbMask: String,
-        saveUnoriented: Bool
+        saveUnoriented: Bool,
+        extraArguments: [String] = []
     )
 
     // Human read removal. `removeReads` is retained for backward compatibility,
@@ -81,6 +89,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .searchText: return "Search"
         case .searchMotif: return "Motif Search"
         case .deduplicate: return "Deduplicate"
+        case .fastpTrim: return "fastp Adapter + Quality Trim"
         case .qualityTrim: return "Quality Trim"
         case .adapterTrim: return "Adapter Trim"
         case .fixedTrim: return "Fixed Trim"
@@ -103,7 +112,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
     /// Whether this request produces a trim derivative (vs subset).
     var isTrimOperation: Bool {
         switch self {
-        case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
+        case .fastpTrim, .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return true
         case .subsampleProportion, .subsampleCount, .lengthFilter,
              .searchText, .searchMotif, .deduplicate, .contaminantFilter,
@@ -178,6 +187,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         case .searchText: return "searchText"
         case .searchMotif: return "searchMotif"
         case .deduplicate: return "deduplicate"
+        case .fastpTrim: return "fastpTrim"
         case .qualityTrim: return "qualityTrim"
         case .adapterTrim: return "adapterTrim"
         case .fixedTrim: return "fixedTrim"
@@ -217,8 +227,22 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             var params: [String: String] = ["preset": preset.rawValue, "substitutions": "\(substitutions)"]
             if optical { params["optical"] = "true"; params["opticalDistance"] = "\(opticalDistance)" }
             return params
-        case .qualityTrim(let threshold, let windowSize, let mode):
-            return ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
+            var params: [String: String] = [
+                "threshold": "\(threshold)",
+                "windowSize": "\(windowSize)",
+                "mode": "\(mode)",
+                "adapterMode": "\(adapterMode)",
+                "combinedFastpPass": "true",
+            ]
+            if let adapterSequence { params["adapterSequence"] = adapterSequence }
+            return params
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
+            var params = ["threshold": "\(threshold)", "windowSize": "\(windowSize)", "mode": "\(mode)"]
+            if !extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
         case .adapterTrim(let mode, let sequence, _, _):
             var params: [String: String] = ["mode": "\(mode)"]
             if let seq = sequence { params["sequence"] = seq }
@@ -266,8 +290,12 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return ["frame": "\(frameOffset + 1)"]
         case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
             return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
-        case .orient(_, let wordLength, _, _):
-            return ["wordLength": "\(wordLength)"]
+        case .orient(_, let wordLength, _, _, let extraArguments):
+            var params = ["wordLength": "\(wordLength)"]
+            if !extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
         case .humanReadScrub(let databaseID, _):
             return ["databaseID": Self.canonicalHumanScrubDatabaseID(for: databaseID)]
         case .ribosomalRNAFilter(let retention, let ensure):
@@ -277,6 +305,17 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
                 "retention": retention.rawValue,
                 "ensure": ensure.rawValue,
             ]
+        }
+    }
+}
+
+private extension FASTQQualityTrimMode {
+    var cliArgument: String {
+        switch self {
+        case .cutRight: return "cut-right"
+        case .cutFront: return "cut-front"
+        case .cutTail: return "cut-tail"
+        case .cutBoth: return "cut-both"
         }
     }
 }
@@ -365,7 +404,24 @@ extension FASTQDerivativeRequest {
             }
             return buildLungfishCommand(subcommand: "fastq deduplicate", args: args)
 
-        case .qualityTrim(let threshold, let windowSize, let mode):
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
+            var args = [
+                inputPath,
+                "--threshold", String(threshold),
+                "--window", String(windowSize),
+                "--mode", mode.cliArgument,
+            ]
+            if adapterMode == .autoDetect {
+                args.append("--adapter-trimming")
+            } else if adapterMode == .specified, let adapterSequence {
+                args += ["--adapter-trimming", "--adapter", adapterSequence]
+            } else {
+                args.append("--no-adapter-trimming")
+            }
+            args += ["-o", outputPath]
+            return buildLungfishCommand(subcommand: "fastq trim", args: args)
+
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
             let modeString: String
             switch mode {
             case .cutRight: modeString = "cut-right"
@@ -373,12 +429,16 @@ extension FASTQDerivativeRequest {
             case .cutTail: modeString = "cut-tail"
             case .cutBoth: modeString = "cut-both"
             }
-            return buildLungfishCommand(subcommand: "fastq quality-trim", args: [
+            var args = [
                 "--threshold", String(threshold),
                 "--window", String(windowSize),
                 "--mode", modeString,
                 inputPath, "-o", outputPath,
-            ])
+            ]
+            if !extraArguments.isEmpty {
+                args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+            }
+            return buildLungfishCommand(subcommand: "fastq quality-trim", args: args)
 
         case .adapterTrim(_, let sequence, _, _):
             var args = [inputPath, "-o", outputPath]
@@ -468,14 +528,16 @@ extension FASTQDerivativeRequest {
             if !trimBarcodes { args.append("--no-trim") }
             return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
 
-        case .orient(let referenceURL, let wordLength, _, _):
+        case .orient(let referenceURL, let wordLength, _, _, let extraArguments):
             // No direct lungfish CLI subcommand — show vsearch invocation.
-            return buildToolCommand(parts: [
+            var parts = [
                 "vsearch", "--orient", inputPath,
                 "--db", referenceURL.path,
                 "--fastaout", outputPath,
                 "--wordlength", String(wordLength),
-            ])
+            ]
+            parts += extraArguments
+            return buildToolCommand(parts: parts)
 
         case .humanReadScrub(let databaseID, _):
             // No direct lungfish CLI subcommand — show Deacon filter invocation.
@@ -650,7 +712,7 @@ public actor FASTQDerivativeService {
         }
 
         // Orient has its own execution path — produces an orient-map derivative
-        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented) = request {
+        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, _) = request {
             return try await createOrientDerivative(
                 sourceFASTQ: executionSourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
@@ -1842,7 +1904,29 @@ public actor FASTQDerivativeService {
                 toolCommand: "clumpify.sh dedupe=t subs=\(substitutions)\(optical ? " optical=t dupedist=\(opticalDistance)" : "")"
             )
 
-        case .qualityTrim(let threshold, let windowSize, let mode):
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
+            let result = try await runFastpCombinedTrim(
+                sourceFASTQ: sourceFASTQ,
+                outputFASTQ: outputFASTQ,
+                threshold: threshold,
+                windowSize: windowSize,
+                mode: mode,
+                adapterMode: adapterMode,
+                adapterSequence: adapterSequence,
+                isInterleaved: isInterleaved
+            )
+            return FASTQDerivativeOperation(
+                kind: .fastpTrim,
+                qualityThreshold: threshold,
+                windowSize: windowSize,
+                qualityTrimMode: mode,
+                adapterMode: adapterMode,
+                adapterSequence: adapterSequence,
+                toolUsed: "fastp",
+                toolCommand: result.toolCommand
+            )
+
+        case .qualityTrim(let threshold, let windowSize, let mode, _):
             let result = try await runFastpQualityTrim(
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
@@ -2791,8 +2875,23 @@ public actor FASTQDerivativeService {
             var commandLine: String?
 
             switch step.kind {
+            case .fastpTrim:
+                progress?(fraction, "Adapter and quality trimming (\(index + 1)/\(steps.count))...")
+                commandLine = "fastp (adapter+quality-trim) threshold=\(step.qualityThreshold ?? 20) window=\(step.windowSize ?? 4) mode=\((step.qualityTrimMode ?? .cutRight).rawValue) adapter=\((step.adapterMode ?? .autoDetect).rawValue) interleaved=\(currentIsInterleaved)"
+                _ = try await runFastpCombinedTrim(
+                    sourceFASTQ: currentURL,
+                    outputFASTQ: outputURL,
+                    threshold: step.qualityThreshold ?? 20,
+                    windowSize: step.windowSize ?? 4,
+                    mode: step.qualityTrimMode ?? .cutRight,
+                    adapterMode: step.adapterMode ?? .autoDetect,
+                    adapterSequence: step.adapterSequence,
+                    isInterleaved: currentIsInterleaved
+                )
+                currentURL = outputURL
+
             case .qualityTrim:
-                progress?(fraction, "Quality trimming (\(index + 1)/\(steps.count))…")
+                progress?(fraction, "Quality trimming (\(index + 1)/\(steps.count))...")
                 commandLine = "fastp (quality-trim) threshold=\(step.qualityThreshold ?? 20) window=\(step.windowSize ?? 4) mode=\((step.qualityTrimMode ?? .cutRight).rawValue) interleaved=\(currentIsInterleaved)"
                 _ = try await runFastpQualityTrim(
                     sourceFASTQ: currentURL,
@@ -3175,6 +3274,74 @@ public actor FASTQDerivativeService {
         }
 
         // Re-interleave R1+R2 into the final output
+        if isInterleaved, let r2 = r2Output {
+            try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
+        }
+
+        return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
+    }
+
+    private func runFastpCombinedTrim(
+        sourceFASTQ: URL,
+        outputFASTQ: URL,
+        threshold: Int,
+        windowSize: Int,
+        mode: FASTQQualityTrimMode,
+        adapterMode: FASTQAdapterMode,
+        adapterSequence: String?,
+        isInterleaved: Bool = false
+    ) async throws -> FastpResult {
+        let r1Output: URL
+        let r2Output: URL?
+        if isInterleaved {
+            r1Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R1.fastq")
+            r2Output = outputFASTQ.deletingLastPathComponent().appendingPathComponent("fastp_R2.fastq")
+        } else {
+            r1Output = outputFASTQ
+            r2Output = nil
+        }
+
+        var args = [
+            "-i", sourceFASTQ.path,
+            "-o", r1Output.path,
+            "-w", String(toolThreadCount),
+            "-W", String(windowSize),
+            "-M", String(threshold),
+            "--disable_quality_filtering",
+            "--disable_length_filtering",
+            "--json", "/dev/null",
+            "--html", "/dev/null",
+        ]
+        if isInterleaved, let r2 = r2Output {
+            args.append("--interleaved_in")
+            args += ["--out2", r2.path]
+        }
+
+        switch adapterMode {
+        case .autoDetect:
+            break
+        case .specified:
+            if let adapterSequence {
+                args += ["--adapter_sequence", adapterSequence]
+            }
+        case .fastaFile:
+            args.append("--disable_adapter_trimming")
+        }
+
+        switch mode {
+        case .cutRight: args.append("--cut_right")
+        case .cutFront: args.append("--cut_front")
+        case .cutTail: args.append("--cut_tail")
+        case .cutBoth:
+            args.append("--cut_front")
+            args.append("--cut_right")
+        }
+
+        let result = try await runner.run(.fastp, arguments: args)
+        guard result.isSuccess else {
+            throw FASTQDerivativeError.invalidOperation("fastp combined trim failed: \(result.stderr)")
+        }
+
         if isInterleaved, let r2 = r2Output {
             try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
         }

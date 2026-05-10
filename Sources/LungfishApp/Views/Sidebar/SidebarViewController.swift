@@ -1144,6 +1144,10 @@ public class SidebarViewController: NSViewController {
                 } else if url.pathExtension.lowercased() == "lungfishprimers" {
                     itemType = .primerSchemeBundle
                     icon = "line.horizontal.3.decrease.circle"
+                } else if url.pathExtension.lowercased() == "lungfishtax",
+                          fileManager.fileExists(atPath: url.appendingPathComponent("cz-id-manifest.json").path) {
+                    itemType = .czIdResult
+                    icon = "c.circle"
                 } else if FASTQBundle.isBundleURL(url) {
                     itemType = .fastqBundle
                     icon = "doc.text"
@@ -1164,7 +1168,8 @@ public class SidebarViewController: NSViewController {
             || itemType == .multipleSequenceAlignmentBundle
             || itemType == .phylogeneticTreeBundle
             || itemType == .fastqBundle
-            || itemType == .primerSchemeBundle)
+            || itemType == .primerSchemeBundle
+            || itemType == .czIdResult)
             ? url.deletingPathExtension().lastPathComponent
             : filename
 
@@ -1186,6 +1191,8 @@ public class SidebarViewController: NSViewController {
             } else if let readManifest = ReadManifest.load(from: url) {
                 subtitle = readManifest.classification.compositionLabel
             }
+        } else if itemType == .czIdResult {
+            subtitle = czIdResultTitle(for: url)
         }
 
         let item = SidebarItem(
@@ -1406,7 +1413,7 @@ public class SidebarViewController: NSViewController {
         }
 
         // CZ-ID imported result bundles
-        if name.hasPrefix("cz-id-") {
+        if name.hasPrefix("cz-id-"), url.pathExtension.lowercased() != "lungfishtax" {
             let sidecar = url.appendingPathComponent("cz-id-manifest.json")
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
@@ -3375,7 +3382,7 @@ public enum SidebarItemType {
     var isBundle: Bool {
         switch self {
         case .referenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerSchemeBundle:
+             .fastqBundle, .primerSchemeBundle, .czIdResult:
             return true
         default:
             return false

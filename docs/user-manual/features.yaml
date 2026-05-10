@@ -135,11 +135,13 @@ features:
       - Sources/LungfishWorkflow/Variants/VariantSQLiteImportCoordinator.swift
       - Sources/LungfishCLI/Commands/VariantsCommand.swift
     notes: >-
-      Runs LoFreq, iVar, or Medaka against a bundle-owned BAM alignment
+      Runs LoFreq, iVar, Medaka, or bcftools against a bundle-owned BAM alignment
       track, normalizes the resulting VCF, imports it into the bundle
       SQLite variant store, and attaches a new variant track. The iVar
       caller requires the user to confirm the BAM was primer-trimmed; the
-      Medaka caller requires an ONT basecaller model identifier.
+      Medaka caller requires an ONT basecaller model identifier. The
+      bcftools caller runs `mpileup` into `call` and records both native
+      tool stages in provenance.
   bam.primer-trim:
     title: Primer-trim a BAM with iVar
     entry_points:

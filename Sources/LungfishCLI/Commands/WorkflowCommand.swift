@@ -42,7 +42,7 @@ struct WorkflowDiffSubcommand: AsyncParsableCommand {
     @Argument(help: "Second workflow file or .lungfishflow bundle")
     var second: String
 
-    @Option(name: .customLong("format"), help: "Output format: text or json")
+    @Option(name: .customLong("format"), help: "Output format: text, json, or tsv")
     var format: OutputFormat = .text
 
     func run() async throws {
@@ -70,10 +70,8 @@ struct WorkflowDiffSubcommand: AsyncParsableCommand {
     }
 
     private static func loadWorkflow(at url: URL) throws -> WorkflowGraph {
-        let resolvedURL = try workflowJSONURL(for: url)
-        let data = try Data(contentsOf: resolvedURL)
-        let decoder = JSONDecoder()
-        return try decoder.decode(WorkflowGraph.self, from: data)
+        let data = try Data(contentsOf: try workflowJSONURL(for: url))
+        return try JSONDecoder().decode(WorkflowGraph.self, from: data)
     }
 
     private static func workflowJSONURL(for url: URL) throws -> URL {
@@ -82,8 +80,8 @@ struct WorkflowDiffSubcommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: url.path)
         }
         guard isDirectory.boolValue else { return url }
-
         let candidates = [
+            url.appendingPathComponent("graph.json"),
             url.appendingPathComponent("workflow.json"),
             url.appendingPathComponent("manifest.json"),
         ]
@@ -91,6 +89,25 @@ struct WorkflowDiffSubcommand: AsyncParsableCommand {
             return candidate
         }
         throw CLIError.inputFileNotFound(path: url.appendingPathComponent("workflow.json").path)
+    }
+}
+
+struct RunHeadlessSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "run-headless",
+        abstract: "Run a workflow quietly without the GUI",
+        discussion: """
+            Thin alias for `lungfish workflow run --quiet <workflow>`.
+            Use `lungfish workflow run --help` for the full workflow run option set.
+            """
+    )
+
+    @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow to pass to workflow run")
+    var workflow: String
+
+    func run() async throws {
+        var command = try RunSubcommand.parse([workflow, "--quiet"])
+        try await command.run()
     }
 }
 

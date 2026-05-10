@@ -262,7 +262,7 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         XCTAssertEqual(provenance.containerRuntime, "apple_containerization")
     }
 
-    func testManagedAssemblyProvenanceIncludesAdvancedOptions() throws {
+    func testManagedAssemblyProvenanceIncludesExtraArgs() throws {
         let tempDir = try makeTempDirectory(prefix: "managed-assembly-provenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
@@ -296,7 +296,12 @@ final class ManagedAssemblyArtifactTests: XCTestCase {
         )
 
         XCTAssertEqual(provenance.parameters.advancedArguments, ["--presets", "meta-large", "--tag", "sample 1"])
-        XCTAssertEqual(provenance.parameters.advancedOptions, "--presets meta-large --tag 'sample 1'")
+        XCTAssertEqual(provenance.parameters.extraArgs, "--presets meta-large --tag 'sample 1'")
+
+        let data = try JSONEncoder().encode(provenance.parameters)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(json["extraArgs"] as? String, "--presets meta-large --tag 'sample 1'")
+        XCTAssertNil(json["advanced_options"])
     }
 
     func testNormalizeHifiasmOutputsGeneratesContigFASTA() throws {

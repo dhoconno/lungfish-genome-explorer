@@ -97,17 +97,41 @@ For a sequencing run that produced ten or more samples, importing pair-by-pair i
 
 Lungfish creates one bundle per sample. A folder with ten paired samples produces ten bundles, each named for its shared stem. The provenance record for each bundle names the source folder and the exact two source files that landed in that bundle, so you can always trace a sample back to the run directory it came from.
 
+## Procedure: batch import with a sample sheet
+
+For paired Illumina runs with explicit sample metadata, use a CSV sample sheet instead of relying on filenames alone. The sheet must contain `sample`, `r1`, and `r2` columns. Any additional columns, such as `collection_date`, `batch_id`, `host`, or `operator`, are stored as bundle metadata for that sample.
+
+```csv
+sample,r1,r2,collection_date,batch_id
+Alpha,Alpha_R1.fastq.gz,Alpha_R2.fastq.gz,2026-05-10,B42
+Beta,/data/run/Beta_R1.fastq.gz,/data/run/Beta_R2.fastq.gz,2026-05-10,B42
+```
+
+Relative FASTQ paths are resolved next to the CSV file. In the Import Center, choose **Sequencing Reads > FASTQ Sample Sheet** and select the CSV. From the CLI, pass the sheet directly:
+
+```sh
+lungfish import fastq \
+  --samplesheet samples.csv \
+  --project ~/Projects/SARS-CoV-2-WW.lungfish \
+  --platform illumina
+```
+
+The top-level alias `lungfish import-fastq --samplesheet samples.csv --project <project>` is equivalent and is kept for scripts written against older documentation.
+
+Each row becomes one `.lungfishfastq` bundle. The provenance record for each bundle includes the sample-sheet path, checksum, file size, resolved R1/R2 paths, user-visible options and defaults, exit status, and wall time.
+
 ## Procedure: import from the command line
 
 The CLI command takes the same paths and produces the same bundles as the GUI. Use it from scripts, from a remote shell, or when you want to log the exact import command in a lab notebook.
 
 ```sh
-lungfish import-fastq \
+lungfish import fastq \
+  SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
   --project ~/Projects/SARS-CoV-2-WW.lungfish \
-  --files SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz
+  --platform illumina
 ```
 
-For a folder of samples, point `--files` at the folder; the CLI detects pairs the same way the GUI does. Run `lungfish import-fastq --help` for the full option list, including how to override the proposed sample name.
+For a folder of samples, pass the folder path; the CLI detects pairs the same way the GUI does. Run `lungfish import fastq --help` for the full option list.
 
 ## What gets recorded at import
 

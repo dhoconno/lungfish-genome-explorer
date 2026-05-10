@@ -46,8 +46,8 @@ final class WorkflowBuilderTests: XCTestCase {
         {
           "id": "00000000-0000-0000-0000-000000000020",
           "name": "Legacy Pipeline",
-          "nodes": {},
-          "connections": {},
+          "nodes": [],
+          "connections": [],
           "createdAt": 0,
           "modifiedAt": 0
         }
@@ -288,6 +288,17 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertEqual(node.outputPorts.count, 2)
         XCTAssertNotNil(node.outputPort(withId: "alignments"))
         XCTAssertNotNil(node.outputPort(withId: "stats"))
+    }
+
+    func testSampleSheetNodeFansOutFASTQSamples() {
+        let node = WorkflowNode(type: .sampleSheet, position: .zero)
+
+        XCTAssertEqual(node.outputPorts.count, 1)
+        let samples = node.outputPort(withId: "samples")
+        XCTAssertEqual(samples?.dataType, .fastqBundle)
+        XCTAssertTrue(samples?.allowsMultiple ?? false)
+        XCTAssertEqual(node.parameters["sample_sheet_mode"], "paired_illumina_fastq")
+        XCTAssertEqual(node.parameters["fan_out"], "true")
     }
 
     func testNodeCategories() {
@@ -614,6 +625,27 @@ final class WorkflowExporterTests: XCTestCase {
         XCTAssertTrue(script.contains("workflow"))
     }
 
+    func testNextflowExportCanReferenceLocalContainerAndCondaLockfile() throws {
+        var graph = WorkflowGraph(name: "Containerized Pipeline")
+        let fastqNode = graph.addNode(type: .fastqInput, position: .zero, label: "Reads")
+        let qcNode = graph.addNode(type: .qualityControl, position: .zero, label: "FastQC")
+
+        _ = try graph.addConnection(
+            sourceNodeId: fastqNode.id,
+            sourcePortId: "reads",
+            targetNodeId: qcNode.id,
+            targetPortId: "reads"
+        )
+
+        var configuration = NextflowExporter.Configuration()
+        configuration.containerReference = "oras://example.invalid/lungfish/bundle@sha256:abc123"
+        configuration.condaLockfile = "locks/read-mapping-lock.yml"
+        let script = try NextflowExporter(configuration: configuration).export(graph: graph)
+
+        XCTAssertTrue(script.contains("container 'oras://example.invalid/lungfish/bundle@sha256:abc123'"))
+        XCTAssertTrue(script.contains("params.conda_lockfile = 'locks/read-mapping-lock.yml'"))
+    }
+
     func testSnakemakeExport() throws {
         var graph = WorkflowGraph(
             name: "Variant Pipeline",
@@ -646,6 +678,27 @@ final class WorkflowExporterTests: XCTestCase {
         XCTAssertTrue(snakefile.contains("input:"))
         XCTAssertTrue(snakefile.contains("output:"))
         XCTAssertTrue(snakefile.contains("shell:"))
+    }
+
+    func testSnakemakeExportDefaultsToLockfileAndContainerReferencesWhenConfigured() throws {
+        var graph = WorkflowGraph(name: "Portable Pipeline")
+        let fastqNode = graph.addNode(type: .fastqInput, position: .zero)
+        let qcNode = graph.addNode(type: .qualityControl, position: .zero, label: "FastQC")
+
+        _ = try graph.addConnection(
+            sourceNodeId: fastqNode.id,
+            sourcePortId: "reads",
+            targetNodeId: qcNode.id,
+            targetPortId: "reads"
+        )
+
+        var configuration = SnakemakeExporter.Configuration()
+        configuration.containerReference = "oras://example.invalid/lungfish/bundle@sha256:def456"
+        configuration.condaLockfile = "locks/read-mapping-lock.yml"
+        let snakefile = try SnakemakeExporter(configuration: configuration).export(graph: graph)
+
+        XCTAssertTrue(snakefile.contains("\"oras://example.invalid/lungfish/bundle@sha256:def456\""))
+        XCTAssertTrue(snakefile.contains("CONDA_LOCKFILE = config.get(\"conda_lockfile\", \"locks/read-mapping-lock.yml\")"))
     }
 
     func testExportWithCycleError() {

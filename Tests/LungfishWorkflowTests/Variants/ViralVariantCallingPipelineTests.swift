@@ -78,7 +78,87 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--chunk_len 1000"))
     }
 
-    func testCallerParametersJSONIncludesAdvancedOptions() async throws {
+    func testClair3CommandLineUsesModelThreadsAndAdvancedArguments() throws {
+        let pipeline = try makePipeline(
+            caller: .clair3,
+            medakaModel: "r1041_e82_400bps_sup_v5.0.0",
+            advancedArguments: ["--enable_phasing"]
+        )
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("run_clair3.sh"))
+        XCTAssertTrue(plan.commandLine.contains("--bam_fn=\(plan.alignmentURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--ref_fn=\(plan.referenceURL.path)"))
+        XCTAssertTrue(plan.commandLine.contains("--output=\(plan.rawVCFURL.deletingLastPathComponent().path)"))
+        XCTAssertTrue(plan.commandLine.contains("--model_path=r1041_e82_400bps_sup_v5.0.0"))
+        XCTAssertTrue(plan.commandLine.contains("--threads=2"))
+        XCTAssertTrue(plan.commandLine.contains("--enable_phasing"))
+    }
+
+    func testPhasedVariantPlanBuildsGATKAndWhatsHapCommandsWithResolvedDefaults() throws {
+        let plan = PhasedVariantCallingPlan(
+            configuration: PhasedVariantCallingConfiguration(
+                referenceFASTAURL: URL(fileURLWithPath: "/tmp/ref.fa"),
+                inputBAMURL: URL(fileURLWithPath: "/tmp/sample.bam"),
+                outputVCFURL: URL(fileURLWithPath: "/tmp/phased.vcf.gz"),
+                outputDirectory: URL(fileURLWithPath: "/tmp/phased-plan", isDirectory: true),
+                threads: 4,
+                extraGATKArguments: ["--sample-ploidy", "1"],
+                extraWhatsHapArguments: ["--ignore-read-groups"]
+            ),
+            gatkVersion: "4.6.2.0",
+            whatsHapVersion: "2.3",
+            runtimeIdentity: PhasedVariantRuntimeIdentity(
+                gatkCondaEnvironment: "/tmp/conda/envs/gatk-core",
+                whatsHapCondaEnvironment: "/tmp/conda/envs/phasing"
+            )
+        )
+
+        XCTAssertEqual(plan.workflowName, "lungfish variants phase")
+        XCTAssertEqual(plan.commands.map(\.executable), ["gatk", "whatshap"])
+        XCTAssertTrue(plan.commands[0].shellCommand.contains("HaplotypeCaller"))
+        XCTAssertTrue(plan.commands[1].shellCommand.contains("whatshap phase"))
+        XCTAssertEqual(plan.options["threads"], "4")
+        XCTAssertEqual(plan.resolvedDefaults["emitReferenceConfidence"], "NONE")
+        XCTAssertEqual(plan.packIDs, ["gatk-core", "phasing"])
+    }
+
+    func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() throws {
+        let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "1"])
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
+        XCTAssertTrue(plan.commandLine.contains(" | bcftools call"))
+        XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
+    }
+
+    func testBcftoolsPipelineProvenanceCapturesMpileupPipeInputsAndChecksums() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .bcftools, toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let mpileupStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("mpileup")
+        })
+        let callStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("call")
+        })
+        let pipeRecord = try XCTUnwrap(mpileupStep.outputs.first { $0.path == "pipe:stdout:bcftools-mpileup" })
+
+        XCTAssertEqual(pipeRecord.format, .bcf)
+        XCTAssertEqual(pipeRecord.role, .output)
+        XCTAssertTrue(callStep.inputs.contains { $0.path == pipeRecord.path && $0.role == .input })
+        XCTAssertTrue(mpileupStep.inputs.contains { $0.path == mpileupStep.inputs[0].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(mpileupStep.inputs.contains { $0.path == mpileupStep.inputs[1].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(callStep.outputs.contains { $0.path == result.normalizedVCFURL.deletingLastPathComponent().appendingPathComponent("bcftools.raw.vcf").path })
+        XCTAssertTrue(result.commandLine.contains(" | "))
+        XCTAssertTrue(result.commandLine.contains("/envs/bcftools/bin/bcftools"))
+    }
+
+    func testCallerParametersJSONIncludesExtraArgs() async throws {
         let pipeline = try makePipeline(
             caller: .lofreq,
             advancedArguments: ["--call-indels", "--tag", "sample 1"],
@@ -96,6 +176,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         let data = try XCTUnwrap(result.callerParametersJSON.data(using: .utf8))
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
+        XCTAssertEqual(json["extraArgs"] as? String, "--call-indels --tag 'sample 1'")
         XCTAssertEqual(json["advancedOptions"] as? String, "--call-indels --tag 'sample 1'")
         XCTAssertEqual(json["advancedArguments"] as? [String], ["--call-indels", "--tag", "sample 1"])
         XCTAssertTrue(result.commandLine.contains("--call-indels --tag 'sample 1'"))
@@ -387,7 +468,7 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
             minimumAlleleFrequency: 0.05,
             minimumDepth: 10,
             ivarPrimerTrimConfirmed: true,
-            medakaModel: caller == .medaka ? medakaModel : nil,
+            medakaModel: (caller == .medaka || caller == .clair3) ? medakaModel : nil,
             advancedArguments: advancedArguments
         )
 
@@ -428,6 +509,22 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         try writeFakeTool(home: home, environment: "bcftools", executable: "bcftools", script: """
         #!/bin/sh
         if [ "$1" = "--version" ]; then echo "bcftools 1.20"; exit 0; fi
+        if [ "$1" = "mpileup" ]; then echo "BCF"; exit 0; fi
+        if [ "$1" = "call" ]; then
+          output=""
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = "-o" ]; then shift; output="$1"; fi
+            shift
+          done
+          cat > /dev/null
+          cat > "$output" <<'EOF'
+        ##fileformat=VCFv4.3
+        ##contig=<ID=chr1,length=20>
+        #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+        chr1	5	bcftools-1	A	G	80	PASS	.
+        EOF
+          exit 0
+        fi
         output=""
         input=""
         while [ "$#" -gt 0 ]; do

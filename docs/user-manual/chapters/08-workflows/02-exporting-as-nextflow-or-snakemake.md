@@ -83,13 +83,14 @@ command line.
 <!-- planned: nextflow-export-main-nf -->
 
 The generated `main.nf` declares one Nextflow process per Lungfish operation.
-Each process carries the exact command line Lungfish ran, the conda channel
-spec for the tool, and a `publishDir` directive that mirrors the project's
-output layout. The `nextflow.config` file declares a `standard` profile that
-runs locally and a `slurm` profile that submits each process as a SLURM job.
-The `provenance/` subdirectory is copied next to the pipeline so anyone
-inspecting the export can see, for any output, which input checksums and
-which tool version produced it.
+Each process carries the exact command line Lungfish ran, a pinned container
+reference or conda lockfile reference when one was exported, and a
+`publishDir` directive that mirrors the project's output layout. The
+`nextflow.config` file declares a `standard` profile that runs locally and a
+`slurm` profile that submits each process as a SLURM job. The `provenance/`
+subdirectory is copied next to the pipeline so anyone inspecting the export
+can see, for any output, which input checksums and which tool version
+produced it.
 
 ## Interpretation: what the export captures, and what it does not
 
@@ -102,8 +103,8 @@ What the export captures, by reading the provenance sidecars:
   resolved command line.
 - The tool name and version string for each step (for example,
   `minimap2 2.28-r1209` rather than just `minimap2`).
-- The conda channel and package name for each tool, so a fresh
-  `nextflow run` resolves the same package family.
+- The conda channel and package name for each tool, and any lockfile emitted
+  by `lungfish conda lock --pack <name> --output lockfile.yml`.
 - Input file checksums (SHA-256), so a downstream re-run can verify that the
   inputs match.
 - The Lungfish app version and the plugin pack versions in effect when the
@@ -111,11 +112,10 @@ What the export captures, by reading the provenance sidecars:
 
 What the export does not capture, and where the honest limits sit:
 
-- The full transitive conda dependency hash. The export pins the top-level
-  tool version. It does not pin every shared library that conda resolved
-  underneath. A re-run six months later may pull a newer `htslib`
-  underneath `samtools` and produce output that is logically equivalent but
-  not bit-identical.
+- Remote registry availability for OCI images. Lungfish records the image
+  digest and can export a deterministic OCI-layout tarball, but moving it to
+  another machine is still your responsibility if the other machine cannot
+  reach your registry or artifact store.
 - The exact host CPU microarchitecture. Tools that compile SIMD paths at
   install time (BWA-MEM2, for instance) may take a different code path on
   the collaborator's machine.
@@ -124,11 +124,34 @@ What the export does not capture, and where the honest limits sit:
   export needs network access to NCBI or ENA, or needs a local cache.
 
 If your collaborator needs the strongest possible reproducibility, export as
-Nextflow and pair the export with the OCI image Lungfish builds when you run
-**File > Export > Provenance > Container Image**. The OCI image pins every
-transitive dependency by content hash. The Nextflow export then resolves
-tools against the image rather than against conda, and re-runs are
-bit-identical across machines.
+Nextflow and pair the export with a container artifact:
+
+```bash
+lungfish bundle export MN908947.3.lungfishref \
+  --format container \
+  --output MN908947.3.oci.tar \
+  --plugin-pack read-mapping \
+  --plugin-pack variant-calling
+```
+
+The command writes a reproducible OCI-layout tarball. In builds that cannot
+invoke Docker or Apple Containers, Lungfish still writes a deterministic OCI
+layout with `oci-layout`, `index.json`, manifest, config, layer tar, pinned
+plugin-pack metadata, and `.lungfish-provenance.json`. The provenance records
+the exact argv, input and output paths, checksums where available, plugin pack
+identities, exit status, wall time, runtime user/host, and image digest. The
+Nextflow export can then use the image digest instead of resolving tools from
+conda.
+
+For conda-based collaborators, also export the lockfile:
+
+```bash
+lungfish conda lock --pack read-mapping --output locks/read-mapping-lock.yml
+lungfish conda install --from-lockfile locks/read-mapping-lock.yml
+```
+
+Nextflow and Snakemake exports include configured lockfile references so the
+same pinned environment can be recreated before running the workflow.
 
 ## Procedure: hand off to a collaborator on a different OS
 
@@ -144,13 +167,13 @@ for a small code repository.
    -profile standard`.
 
 If the collaborator is on Linux and you exported from macOS, the export
-itself is portable: `main.nf`, `nextflow.config`, and `provenance/` are all
-plain text. The portability question is the underlying tools, not the
-pipeline. Nextflow's conda integration handles the platform difference for
-the tools Lungfish ships, because every tool in the default plugin packs
-exists in bioconda for both `osx-arm64` and `linux-64`. If the collaborator
-is on a Linux cluster without internet access on compute nodes, ship the OCI
-image alongside the export and switch the Nextflow profile to use it.
+itself is portable: `main.nf`, `nextflow.config`, lockfiles, and
+`provenance/` are all plain text. The portability question is the underlying
+tools, not the pipeline. Nextflow's conda integration handles the platform
+difference for the tools Lungfish ships when the lockfile includes the target
+platform. If the collaborator is on a Linux cluster without internet access
+on compute nodes, ship the OCI tarball alongside the export and switch the
+Nextflow profile to use it.
 
 ## Procedure: edit the export so a collaborator can swap inputs
 

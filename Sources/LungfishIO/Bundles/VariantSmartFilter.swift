@@ -1,299 +1,377 @@
+// VariantSmartFilter.swift - Per-sample smart-filter parsing and SQL compilation
+// Copyright (c) 2024 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
 import Foundation
 
-public enum VariantSmartFilterError: Error, LocalizedError, Sendable, Equatable {
-    case empty
-    case unsupportedSyntax(String)
-    case invalidNumericValue(String)
+public enum VariantSmartFilterError: Error, LocalizedError, Sendable {
+    case emptyFilter
+    case unsupportedClause(String)
     case unsupportedField(String)
+    case invalidNumericValue(String)
+    case invalidCount(String)
 
     public var errorDescription: String? {
         switch self {
-        case .empty:
-            return "Smart filter is empty."
-        case .unsupportedSyntax(let text):
-            return "Unsupported smart-filter syntax: \(text)"
-        case .invalidNumericValue(let value):
-            return "Expected numeric smart-filter value, got '\(value)'."
+        case .emptyFilter:
+            return "Filter is empty."
+        case .unsupportedClause(let clause):
+            return "Unsupported smart-filter clause: \(clause)"
         case .unsupportedField(let field):
-            return "Unsupported per-sample field '\(field)'."
+            return "Unsupported sample field: \(field)"
+        case .invalidNumericValue(let value):
+            return "Expected a numeric smart-filter value, found: \(value)"
+        case .invalidCount(let value):
+            return "Expected an integer count threshold, found: \(value)"
         }
     }
 }
 
-public enum VariantSmartComparisonOp: String, Sendable, Equatable {
-    case gt = ">"
+public enum VariantSmartComparisonOp: String, CaseIterable, Sendable {
     case gte = ">="
-    case lt = "<"
     case lte = "<="
-    case eq = "="
     case neq = "!="
+    case gt = ">"
+    case lt = "<"
+    case eq = "="
 
-    static let parseOrder: [Self] = [.gte, .lte, .neq, .gt, .lt, .eq]
+    static let parseOrder: [VariantSmartComparisonOp] = [.gte, .lte, .neq, .gt, .lt, .eq]
+
+    var sql: String { rawValue }
 }
 
-public enum VariantSampleField: String, Sendable, Equatable {
+public enum VariantSampleField: String, Sendable {
     case genotype = "GT"
     case alleleFrequency = "AF"
     case depth = "DP"
 
     init(token: String) throws {
-        switch token.uppercased() {
-        case "GT": self = .genotype
-        case "AF": self = .alleleFrequency
-        case "DP": self = .depth
-        default: throw VariantSmartFilterError.unsupportedField(token)
+        guard let field = Self(rawValue: token.uppercased()) else {
+            throw VariantSmartFilterError.unsupportedField(token)
         }
+        self = field
     }
 }
 
-public struct VariantSmartBinding: Sendable, Equatable {
-    public enum Value: Sendable, Equatable {
-        case string(String)
-        case int64(Int64)
-        case double(Double)
-    }
-
-    public let value: Value
-
-    public var stringValue: String {
-        switch value {
-        case .string(let value): return value
-        case .int64(let value): return String(value)
-        case .double(let value): return String(value)
-        }
-    }
-
-    public static func string(_ value: String) -> Self { Self(value: .string(value)) }
-    public static func int64(_ value: Int64) -> Self { Self(value: .int64(value)) }
-    public static func double(_ value: Double) -> Self { Self(value: .double(value)) }
+public enum VariantSmartBinding: Equatable, Sendable {
+    case text(String)
+    case double(Double)
+    case int(Int)
 }
 
-public struct VariantSmartCompiledSQL: Sendable, Equatable {
+public struct VariantSmartCompiledSQL: Equatable, Sendable {
     public let sql: String
     public let bindings: [VariantSmartBinding]
+}
 
-    public init(sql: String, bindings: [VariantSmartBinding]) {
-        self.sql = sql
-        self.bindings = bindings
+public struct VariantSmartCompiledConditions: Equatable, Sendable {
+    public let conditions: [String]
+    public let bindings: [VariantSmartBinding]
+}
+
+public enum VariantSmartPredicate: CustomStringConvertible, Equatable, Sendable {
+    case sample(VariantSamplePredicate)
+    case count(VariantSampleCountPredicate)
+    case sampleFieldComparison(VariantSampleFieldComparison)
+
+    public var description: String {
+        switch self {
+        case .sample(let predicate):
+            return predicate.description
+        case .count(let predicate):
+            return predicate.description
+        case .sampleFieldComparison(let predicate):
+            return predicate.description
+        }
     }
 }
 
-public struct VariantSamplePredicate: Sendable, Equatable {
-    public let sample: String
+public struct VariantSamplePredicate: CustomStringConvertible, Equatable, Sendable {
+    public let sampleName: String?
     public let field: VariantSampleField
     public let op: VariantSmartComparisonOp
     public let value: String
 
-    public init(sample: String, field: VariantSampleField, op: VariantSmartComparisonOp, value: String) {
-        self.sample = sample
-        self.field = field
-        self.op = op
-        self.value = value
+    public var description: String {
+        let sample = sampleName ?? "*"
+        return "Sample[\(sample)].\(field.rawValue)\(op.rawValue)\(value)"
     }
 }
 
-public struct VariantSampleCountPredicate: Sendable, Equatable {
+public struct VariantSampleCountPredicate: CustomStringConvertible, Equatable, Sendable {
     public let predicate: VariantSamplePredicate
     public let op: VariantSmartComparisonOp
     public let count: Int
-}
 
-public struct VariantSampleFieldReference: Sendable, Equatable {
-    public let sample: String
-    public let field: VariantSampleField
-}
-
-public struct VariantSampleFieldComparison: Sendable, Equatable {
-    public let lhs: VariantSampleFieldReference
-    public let rhs: VariantSampleFieldReference
-    public let field: VariantSampleField
-    public let op: VariantSmartComparisonOp
-}
-
-public struct VariantSmartFilter: Sendable, Equatable {
-    public var sampleComparisons: [VariantSamplePredicate] = []
-    public var countComparisons: [VariantSampleCountPredicate] = []
-    public var sampleFieldComparisons: [VariantSampleFieldComparison] = []
-
-    public init(
-        sampleComparisons: [VariantSamplePredicate] = [],
-        countComparisons: [VariantSampleCountPredicate] = [],
-        sampleFieldComparisons: [VariantSampleFieldComparison] = []
-    ) {
-        self.sampleComparisons = sampleComparisons
-        self.countComparisons = countComparisons
-        self.sampleFieldComparisons = sampleFieldComparisons
+    public var description: String {
+        "count(\(predicate.description))\(op.rawValue)\(count)"
     }
+}
+
+public struct VariantSampleFieldReference: CustomStringConvertible, Equatable, Sendable {
+    public let sampleName: String
+    public let field: VariantSampleField
+
+    public var description: String {
+        "Sample[\(sampleName)].\(field.rawValue)"
+    }
+}
+
+public struct VariantSampleFieldComparison: CustomStringConvertible, Equatable, Sendable {
+    public let lhs: VariantSampleFieldReference
+    public let op: VariantSmartComparisonOp
+    public let rhs: VariantSampleFieldReference
+
+    public var description: String {
+        "\(lhs.description)\(op.rawValue)\(rhs.description)"
+    }
+}
+
+public struct VariantSmartFilter: Equatable, Sendable {
+    public let predicates: [VariantSmartPredicate]
 
     public static func parse(_ text: String) throws -> VariantSmartFilter {
-        let clauses = text
-            .split(separator: ";")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let clauses = text.split(separator: ";")
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        guard !clauses.isEmpty else { throw VariantSmartFilterError.empty }
-
-        var filter = VariantSmartFilter()
-        for clause in clauses {
-            if let count = try parseCountPredicate(clause) {
-                filter.countComparisons.append(count)
-            } else if let fieldComparison = try parseSampleFieldComparison(clause) {
-                filter.sampleFieldComparisons.append(fieldComparison)
-            } else if let predicate = try parseSamplePredicate(clause) {
-                filter.sampleComparisons.append(predicate)
-            } else {
-                throw VariantSmartFilterError.unsupportedSyntax(clause)
-            }
+        guard !clauses.isEmpty else {
+            throw VariantSmartFilterError.emptyFilter
         }
-        return filter
+        return VariantSmartFilter(predicates: try clauses.map(parseClause))
     }
 
-    public func compileSQL(limit: Int = 5000) -> VariantSmartCompiledSQL {
-        var conditions: [String] = []
+    public func compileSQL(limit: Int = 5000) throws -> VariantSmartCompiledSQL {
+        let compiled = try compileSQLConditions()
+        let boundedLimit = max(0, limit)
+        let whereClause = compiled.conditions.isEmpty ? "" : " WHERE " + compiled.conditions.joined(separator: " AND ")
+        let sql = """
+            SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
+            FROM variants\(whereClause)
+            ORDER BY chromosome, position
+            LIMIT \(boundedLimit)
+            """
+        return VariantSmartCompiledSQL(sql: sql, bindings: compiled.bindings)
+    }
+
+    public func compileSQLConditions() throws -> VariantSmartCompiledConditions {
         var bindings: [VariantSmartBinding] = []
-
-        for predicate in sampleComparisons {
-            conditions.append(Self.sql(for: predicate, bindings: &bindings))
-        }
-        for count in countComparisons {
-            conditions.append(Self.sql(for: count, bindings: &bindings))
-        }
-        for comparison in sampleFieldComparisons {
-            conditions.append(Self.sql(for: comparison, bindings: &bindings))
-        }
-
-        var sql = "SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants"
-        if !conditions.isEmpty {
-            sql += " WHERE " + conditions.joined(separator: " AND ")
-        }
-        sql += " ORDER BY chromosome, position LIMIT \(max(1, limit))"
-        return VariantSmartCompiledSQL(sql: sql, bindings: bindings)
+        let conditions = try predicates.map { try Self.sqlCondition(for: $0, bindings: &bindings) }
+        return VariantSmartCompiledConditions(conditions: conditions, bindings: bindings)
     }
 
-    private static func parseCountPredicate(_ text: String) throws -> VariantSampleCountPredicate? {
-        guard text.lowercased().hasPrefix("count("), let close = text.firstIndex(of: ")") else { return nil }
-        let innerStart = text.index(text.startIndex, offsetBy: 6)
-        let inner = String(text[innerStart..<close])
-        let tail = text[text.index(after: close)...].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let (op, rhs) = splitComparison(tail), let count = Int(rhs) else {
-            throw VariantSmartFilterError.unsupportedSyntax(text)
+    private static func parseClause(_ clause: String) throws -> VariantSmartPredicate {
+        if clause.hasPrefix("count(") {
+            return .count(try parseCount(clause))
+        }
+        if let fieldComparison = try parseSampleFieldComparison(clause) {
+            return .sampleFieldComparison(fieldComparison)
+        }
+        return .sample(try parseSamplePredicate(clause))
+    }
+
+    private static func parseCount(_ clause: String) throws -> VariantSampleCountPredicate {
+        guard let close = clause.firstIndex(of: ")") else {
+            throw VariantSmartFilterError.unsupportedClause(clause)
+        }
+        let start = clause.index(clause.startIndex, offsetBy: "count(".count)
+        let inner = String(clause[start..<close])
+        let rest = String(clause[clause.index(after: close)...]).trimmingCharacters(in: .whitespaces)
+        let (op, rhs) = try splitComparison(rest, original: clause)
+        guard let count = Int(rhs) else {
+            throw VariantSmartFilterError.invalidCount(rhs)
         }
         let predicate = try parseSamplePredicate(inner)
+        guard predicate.sampleName == nil else {
+            throw VariantSmartFilterError.unsupportedClause(clause)
+        }
         return VariantSampleCountPredicate(predicate: predicate, op: op, count: count)
     }
 
-    private static func parseSampleFieldComparison(_ text: String) throws -> VariantSampleFieldComparison? {
-        guard let (op, rhs) = splitComparison(text) else { return nil }
-        let lhsText = String(text[..<text.range(of: op.rawValue)!.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let lhs = try parseSampleFieldReference(lhsText),
-              let rhsRef = try parseSampleFieldReference(rhs) else {
-            return nil
-        }
-        guard lhs.field == rhsRef.field else {
-            throw VariantSmartFilterError.unsupportedSyntax(text)
-        }
-        return VariantSampleFieldComparison(lhs: lhs, rhs: rhsRef, field: lhs.field, op: op)
-    }
-
-    private static func parseSamplePredicate(_ text: String) throws -> VariantSamplePredicate? {
-        guard let (op, rhs) = splitComparison(text) else { return nil }
-        let lhs = String(text[..<text.range(of: op.rawValue)!.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let fieldRef = try parseSampleFieldReference(lhs) else { return nil }
-        if fieldRef.field != .genotype, Double(rhs) == nil {
-            throw VariantSmartFilterError.invalidNumericValue(rhs)
-        }
-        return VariantSamplePredicate(sample: fieldRef.sample, field: fieldRef.field, op: op, value: rhs)
-    }
-
-    private static func splitComparison(_ text: String) -> (VariantSmartComparisonOp, String)? {
+    private static func parseSampleFieldComparison(_ clause: String) throws -> VariantSampleFieldComparison? {
         for op in VariantSmartComparisonOp.parseOrder {
-            if let range = text.range(of: op.rawValue) {
-                let rhs = text[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !rhs.isEmpty else { return nil }
-                return (op, rhs)
+            guard let range = clause.range(of: op.rawValue) else { continue }
+            let lhsText = String(clause[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let rhsText = String(clause[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard rhsText.hasPrefix("Sample[") else { return nil }
+            let lhs = try parseFieldReference(lhsText, original: clause)
+            let rhs = try parseFieldReference(rhsText, original: clause)
+            guard lhs.field == rhs.field else {
+                throw VariantSmartFilterError.unsupportedClause(clause)
             }
+            return VariantSampleFieldComparison(lhs: lhs, op: op, rhs: rhs)
         }
         return nil
     }
 
-    private static func parseSampleFieldReference(_ text: String) throws -> VariantSampleFieldReference? {
-        let pattern = #"^Sample\[([^\]]+)\]\.([A-Za-z0-9_]+)$"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let match = regex.firstMatch(in: text, range: range), match.numberOfRanges == 3,
-              let sampleRange = Range(match.range(at: 1), in: text),
-              let fieldRange = Range(match.range(at: 2), in: text) else {
-            return nil
+    private static func parseSamplePredicate(_ clause: String) throws -> VariantSamplePredicate {
+        for op in VariantSmartComparisonOp.parseOrder {
+            guard let range = clause.range(of: op.rawValue) else { continue }
+            let lhsText = String(clause[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let rhs = String(clause[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            let fieldRef = try parseOptionalWildcardReference(lhsText, original: clause)
+            if fieldRef.field != .genotype {
+                _ = try numericBinding(for: fieldRef.field, value: rhs)
+            }
+            return VariantSamplePredicate(sampleName: fieldRef.sampleName, field: fieldRef.field, op: op, value: rhs)
         }
-        return VariantSampleFieldReference(
-            sample: String(text[sampleRange]),
-            field: try VariantSampleField(token: String(text[fieldRange]))
-        )
+        throw VariantSmartFilterError.unsupportedClause(clause)
     }
 
-    private static func sql(for predicate: VariantSamplePredicate, bindings: inout [VariantSmartBinding]) -> String {
-        var localConditions: [String] = []
-        if predicate.sample != "*" {
-            localConditions.append("g.sample_name = ?")
-            bindings.append(.string(predicate.sample))
+    private static func parseFieldReference(_ text: String, original: String) throws -> VariantSampleFieldReference {
+        let parsed = try parseSampleReference(text, original: original)
+        guard let sampleName = parsed.sampleName, sampleName != "*" else {
+            throw VariantSmartFilterError.unsupportedClause(original)
         }
-        localConditions.append(sqlComparison(alias: "g", field: predicate.field, op: predicate.op))
-        appendValueBinding(predicate, to: &bindings)
-        return "EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND \(localConditions.joined(separator: " AND ")))"
+        return VariantSampleFieldReference(sampleName: sampleName, field: parsed.field)
     }
 
-    private static func sql(for count: VariantSampleCountPredicate, bindings: inout [VariantSmartBinding]) -> String {
-        var localConditions: [String] = []
-        if count.predicate.sample != "*" {
-            localConditions.append("g.sample_name = ?")
-            bindings.append(.string(count.predicate.sample))
+    private static func parseOptionalWildcardReference(_ text: String, original: String) throws -> VariantSamplePredicate {
+        let parsed = try parseSampleReference(text, original: original)
+        let sampleName = parsed.sampleName == "*" ? nil : parsed.sampleName
+        return VariantSamplePredicate(sampleName: sampleName, field: parsed.field, op: .eq, value: "")
+    }
+
+    private static func parseSampleReference(_ text: String, original: String) throws -> (sampleName: String?, field: VariantSampleField) {
+        guard text.hasPrefix("Sample["),
+              let close = text.firstIndex(of: "]"),
+              close < text.endIndex,
+              text[text.index(after: close)] == "." else {
+            throw VariantSmartFilterError.unsupportedClause(original)
         }
-        localConditions.append(sqlComparison(alias: "g", field: count.predicate.field, op: count.predicate.op))
-        appendValueBinding(count.predicate, to: &bindings)
-        bindings.append(.int64(Int64(count.count)))
-        return "(SELECT COUNT(*) FROM genotypes g WHERE g.variant_id = variants.id AND \(localConditions.joined(separator: " AND "))) \(count.op.rawValue) ?"
+        let sampleStart = text.index(text.startIndex, offsetBy: "Sample[".count)
+        let sampleName = String(text[sampleStart..<close])
+        let fieldStart = text.index(close, offsetBy: 2)
+        let fieldText = String(text[fieldStart...])
+        guard !sampleName.isEmpty, !fieldText.isEmpty else {
+            throw VariantSmartFilterError.unsupportedClause(original)
+        }
+        return (sampleName: sampleName, field: try VariantSampleField(token: fieldText))
     }
 
-    private static func sql(for comparison: VariantSampleFieldComparison, bindings: inout [VariantSmartBinding]) -> String {
-        bindings.append(.string(comparison.lhs.sample))
-        bindings.append(.string(comparison.rhs.sample))
-        return """
-        EXISTS (
-            SELECT 1 FROM genotypes lhs
-            INNER JOIN genotypes rhs ON rhs.variant_id = lhs.variant_id
-            WHERE lhs.variant_id = variants.id
-              AND lhs.sample_name = ?
-              AND rhs.sample_name = ?
-              AND \(fieldExpression(alias: "lhs", field: comparison.field)) \(comparison.op.rawValue) \(fieldExpression(alias: "rhs", field: comparison.field))
-        )
-        """
+    private static func splitComparison(_ text: String, original: String) throws -> (VariantSmartComparisonOp, String) {
+        for op in VariantSmartComparisonOp.parseOrder {
+            guard text.hasPrefix(op.rawValue) else { continue }
+            let rhs = String(text.dropFirst(op.rawValue.count)).trimmingCharacters(in: .whitespaces)
+            guard !rhs.isEmpty else { throw VariantSmartFilterError.unsupportedClause(original) }
+            return (op, rhs)
+        }
+        throw VariantSmartFilterError.unsupportedClause(original)
     }
 
-    private static func sqlComparison(alias: String, field: VariantSampleField, op: VariantSmartComparisonOp) -> String {
-        "\(fieldExpression(alias: alias, field: field)) \(op.rawValue) ?"
-    }
-
-    private static func appendValueBinding(_ predicate: VariantSamplePredicate, to bindings: inout [VariantSmartBinding]) {
-        switch predicate.field {
-        case .genotype:
-            bindings.append(.string(predicate.value))
-        case .depth:
-            bindings.append(.int64(Int64(predicate.value) ?? 0))
-        case .alleleFrequency:
-            bindings.append(.double(Double(predicate.value) ?? 0))
+    private static func sqlCondition(
+        for predicate: VariantSmartPredicate,
+        bindings: inout [VariantSmartBinding]
+    ) throws -> String {
+        switch predicate {
+        case .sample(let predicate):
+            return try samplePredicateSQL(predicate, alias: "g", bindings: &bindings)
+        case .count(let predicate):
+            let inner = try genotypeValueCondition(
+                field: predicate.predicate.field,
+                op: predicate.predicate.op,
+                value: predicate.predicate.value,
+                alias: "g",
+                bindings: &bindings
+            )
+            bindings.append(.int(predicate.count))
+            return "(SELECT COUNT(*) FROM genotypes g WHERE g.variant_id = variants.id AND \(inner)) \(predicate.op.sql) ?"
+        case .sampleFieldComparison(let predicate):
+            bindings.append(.text(predicate.lhs.sampleName))
+            bindings.append(.text(predicate.rhs.sampleName))
+            let comparison = try fieldComparisonSQL(
+                field: predicate.lhs.field,
+                op: predicate.op,
+                lhsAlias: "lhs",
+                rhsAlias: "rhs"
+            )
+            return """
+                EXISTS (
+                    SELECT 1 FROM genotypes lhs
+                    JOIN genotypes rhs ON rhs.variant_id = lhs.variant_id
+                    WHERE lhs.variant_id = variants.id
+                      AND lhs.sample_name = ?
+                      AND rhs.sample_name = ?
+                      AND \(comparison)
+                )
+                """
         }
     }
 
-    private static func fieldExpression(alias: String, field: VariantSampleField) -> String {
+    private static func samplePredicateSQL(
+        _ predicate: VariantSamplePredicate,
+        alias: String,
+        bindings: inout [VariantSmartBinding]
+    ) throws -> String {
+        var parts = ["EXISTS (SELECT 1 FROM genotypes \(alias) WHERE \(alias).variant_id = variants.id"]
+        if let sampleName = predicate.sampleName {
+            bindings.append(.text(sampleName))
+            parts.append("AND \(alias).sample_name = ?")
+        }
+        parts.append("AND \(try genotypeValueCondition(field: predicate.field, op: predicate.op, value: predicate.value, alias: alias, bindings: &bindings)))")
+        return parts.joined(separator: " ")
+    }
+
+    private static func genotypeValueCondition(
+        field: VariantSampleField,
+        op: VariantSmartComparisonOp,
+        value: String,
+        alias: String,
+        bindings: inout [VariantSmartBinding]
+    ) throws -> String {
         switch field {
         case .genotype:
-            return "\(alias).genotype"
+            bindings.append(.text(value))
+            return "\(alias).genotype \(op.sql) ?"
         case .depth:
-            return "\(alias).depth"
+            bindings.append(try numericBinding(for: field, value: value))
+            return "\(alias).depth \(op.sql) ?"
         case .alleleFrequency:
-            let comma = "instr(\(alias).allele_depths, ',')"
-            let ref = "CAST(substr(\(alias).allele_depths, 1, \(comma) - 1) AS REAL)"
-            let alt = "CAST(substr(\(alias).allele_depths, \(comma) + 1) AS REAL)"
-            return "(CASE WHEN \(alias).allele_depths IS NOT NULL AND \(comma) > 0 AND (\(ref) + \(alt)) > 0 THEN \(alt) / (\(ref) + \(alt)) ELSE NULL END)"
+            bindings.append(try numericBinding(for: field, value: value))
+            return "\(alleleFrequencyExpression(alias: alias)) \(op.sql) ?"
         }
+    }
+
+    private static func fieldComparisonSQL(
+        field: VariantSampleField,
+        op: VariantSmartComparisonOp,
+        lhsAlias: String,
+        rhsAlias: String
+    ) throws -> String {
+        switch field {
+        case .genotype:
+            return "\(lhsAlias).genotype \(op.sql) \(rhsAlias).genotype"
+        case .depth:
+            return "\(lhsAlias).depth \(op.sql) \(rhsAlias).depth"
+        case .alleleFrequency:
+            return "\(alleleFrequencyExpression(alias: lhsAlias)) \(op.sql) \(alleleFrequencyExpression(alias: rhsAlias))"
+        }
+    }
+
+    private static func numericBinding(for field: VariantSampleField, value: String) throws -> VariantSmartBinding {
+        guard let number = Double(value) else {
+            throw VariantSmartFilterError.invalidNumericValue(value)
+        }
+        if field == .depth, number.rounded() == number {
+            return .int(Int(number))
+        }
+        return .double(number)
+    }
+
+    private static func alleleFrequencyExpression(alias: String) -> String {
+        """
+        (
+            CASE
+                WHEN \(alias).allele_depths IS NULL THEN NULL
+                WHEN instr(\(alias).allele_depths, ',') = 0 THEN NULL
+                ELSE
+                    CAST(substr(\(alias).allele_depths, instr(\(alias).allele_depths, ',') + 1) AS REAL)
+                    / NULLIF(
+                        CAST(substr(\(alias).allele_depths, 1, instr(\(alias).allele_depths, ',') - 1) AS REAL)
+                        + CAST(substr(\(alias).allele_depths, instr(\(alias).allele_depths, ',') + 1) AS REAL),
+                        0
+                    )
+            END
+        )
+        """
     }
 }

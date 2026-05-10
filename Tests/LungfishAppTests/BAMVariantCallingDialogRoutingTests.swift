@@ -46,6 +46,20 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
+    func testVariantCallingDialogUsesExtraArgumentsLabel() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/BAM/BAMVariantCallingToolPanes.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
+        XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
+    }
+
     @MainActor
     func testDialogStateBlocksIVarUntilPrimerTrimAcknowledged() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
@@ -70,6 +84,38 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         state.medakaModel = "r1041_e82_400bps_sup_v5.0.0"
 
         XCTAssertTrue(state.isRunEnabled)
+    }
+
+    @MainActor
+    func testDialogStateAllowsBcftoolsWithoutCallerSpecificPrerequisites() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+
+        state.selectCaller(.bcftools)
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.selectedToolID, "bcftools")
+        XCTAssertTrue(state.readinessText.contains("bcftools"))
+    }
+
+    func testCatalogIncludesBcftoolsFromRequiredSetupPack() {
+        let item = BAMVariantCallingCatalog.availableSidebarItems().first { $0.id == "bcftools" }
+
+        XCTAssertEqual(item?.title, "bcftools")
+        XCTAssertEqual(item?.subtitle, "Orthogonal mpileup/call cross-check for BAM alignments.")
+        XCTAssertEqual(item?.availability, .available)
+    }
+
+    func testCatalogIncludesClair3AndPhasedGATKWhatsHapLane() {
+        let items = BAMVariantCallingCatalog.availableSidebarItems()
+        let clair3 = items.first { $0.id == "clair3" }
+        let phased = items.first { $0.id == "gatk-whatshap-phased" }
+
+        XCTAssertEqual(clair3?.title, "Clair3")
+        XCTAssertEqual(clair3?.subtitle, "ONT-focused neural-network variant calling with Clair3.")
+        XCTAssertEqual(clair3?.availability, .available)
+        XCTAssertEqual(phased?.title, "GATK + WhatsHap Phased")
+        XCTAssertEqual(phased?.subtitle, "Phase-aware HaplotypeCaller plus WhatsHap command plan.")
+        XCTAssertEqual(phased?.availability, .available)
     }
 
     @MainActor
@@ -258,6 +304,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         let catalog = BAMVariantCallingCatalog(
             statusProvider: StubVariantCallingPackStatusProvider(states: [
                 "variant-calling": .needsInstall,
+                "lungfish-tools": .needsInstall,
                 "gatk-core": .ready,
             ])
         )
@@ -266,12 +313,32 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
         let gatk = try XCTUnwrap(items.first(where: { $0.id == "gatk-haplotype-caller" }))
         XCTAssertEqual(gatk.availability, .available)
-        for viral in ViralVariantCaller.allCases {
+        for viral in ViralVariantCaller.allCases where viral != .bcftools {
             XCTAssertEqual(
                 items.first(where: { $0.id == viral.rawValue })?.availability,
                 .disabled(reason: "Requires Variant Calling Pack")
             )
         }
+        XCTAssertEqual(
+            items.first(where: { $0.id == ViralVariantCaller.bcftools.rawValue })?.availability,
+            .disabled(reason: "Requires Third-Party Tools Pack")
+        )
+    }
+
+    func testCatalogGatesPhasedLaneOnBothGATKAndPhasingPacks() async throws {
+        let catalog = BAMVariantCallingCatalog(
+            statusProvider: StubVariantCallingPackStatusProvider(states: [
+                "variant-calling": .ready,
+                "lungfish-tools": .ready,
+                "gatk-core": .ready,
+                "phasing": .needsInstall,
+            ])
+        )
+
+        let items = await catalog.sidebarItems()
+        let phased = try XCTUnwrap(items.first(where: { $0.id == "gatk-whatshap-phased" }))
+
+        XCTAssertEqual(phased.availability, .disabled(reason: "Requires Variant Phasing Pack"))
     }
 
     @MainActor

@@ -124,6 +124,82 @@ private final class StubLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRu
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL
         ))
+        if result.exitCode == 0 {
+            try writeCompletedBundle(arguments: arguments)
+        }
         return result
+    }
+
+    private func writeCompletedBundle(arguments: [String]) throws {
+        let bundleURL = URL(fileURLWithPath: try value(after: "--bundle-path", in: arguments)).standardizedFileURL
+        let workflowURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+        let outputURL = URL(fileURLWithPath: try value(after: "--results-dir", in: arguments)).standardizedFileURL
+        let inputURLs = values(afterEvery: "--input", in: arguments).map { URL(fileURLWithPath: $0).standardizedFileURL }
+        let request = LocalWorkflowRunRequest(
+            workflowURL: workflowURL,
+            inputURLs: inputURLs,
+            outputDirectory: outputURL,
+            params: params(from: arguments)
+        )
+        try LocalWorkflowRunBundleStore.write(
+            request.manifest(
+                executionStatus: .completed,
+                startedAt: Date(),
+                completedAt: Date(),
+                exitCode: 0
+            ),
+            to: bundleURL
+        )
+
+        let step = StepExecution(
+            toolName: "lungfish-cli workflow run",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish-cli"] + arguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: workflowURL, format: .text, role: .input)]
+                + inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) },
+            outputs: [
+                FileRecord(path: bundleURL.path, format: .unknown, role: .output),
+                FileRecord(path: outputURL.path, format: .unknown, role: .output),
+                ProvenanceRecorder.fileRecord(url: bundleURL.appendingPathComponent("manifest.json"), format: .json, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: 0.01,
+            stderr: result.standardError,
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: "Run Local Workflow",
+            endTime: Date(),
+            status: .completed,
+            steps: [step],
+            parameters: request.effectiveParams.mapValues { .string($0) }
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+    }
+
+    private func value(after flag: String, in arguments: [String]) throws -> String {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(arguments.index(after: index)) else {
+            throw NSError(domain: "LocalWorkflowExecutionServiceTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing \(flag)"])
+        }
+        return arguments[arguments.index(after: index)]
+    }
+
+    private func values(afterEvery flag: String, in arguments: [String]) -> [String] {
+        arguments.indices.compactMap { index in
+            arguments[index] == flag && arguments.indices.contains(arguments.index(after: index))
+                ? arguments[arguments.index(after: index)]
+                : nil
+        }
+    }
+
+    private func params(from arguments: [String]) -> [String: String] {
+        values(afterEvery: "--param", in: arguments).reduce(into: [:]) { result, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return }
+            result[parts[0]] = parts[1]
+        }
     }
 }

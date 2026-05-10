@@ -109,15 +109,20 @@ downloads the database into the Lungfish conda root and writes a manifest
 the wizard then picks up.
 
 The default clinical-surveillance database is on the order of tens of
-gigabytes. Allow disk space and time accordingly. If you are running on a
-laptop with a small SSD, the Plugin Manager has a "Use external location"
-option that places the database under a user-chosen folder and symlinks it
-into place; that is the supported way to keep the database on an external
-drive without confusing the runtime.
+gigabytes, and the default profile should be planned as a 16 to 32 GB RAM
+operation before sample-size effects. Allow disk space and time
+accordingly. If you are running on a laptop with a small SSD, the Plugin
+Manager has a "Use external location" option that places the database
+under a user-chosen folder and symlinks it into place; that is the
+supported way to keep the database on an external drive without confusing
+the runtime.
 
 You only install the database once per machine. Updates are handled through
-the same Plugin Manager entry, which shows a version string and a "Check for
-updates" button.
+the same Plugin Manager entry, which shows an install date, version string,
+and update-available indicator. From the CLI, use
+`lungfish conda db info "NCBI Taxonomy"` for the bundled taxonomy support
+database and `lungfish conda db list` to inspect other classifier databases
+registered on the machine.
 
 ## Procedure: run a clinical batch
 

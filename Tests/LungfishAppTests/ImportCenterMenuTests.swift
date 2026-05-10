@@ -77,6 +77,7 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
     }
@@ -88,6 +89,33 @@ final class ImportCenterMenuTests: XCTestCase {
         let callVariantsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Call Variants…" }))
 
         XCTAssertEqual(callVariantsItem.identifier?.rawValue, MainMenuAccessibilityID.callVariants)
+    }
+
+    func testToolsMenuExposesWorkflowBuilderItemWithStableIdentifier() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" }))
+
+        XCTAssertEqual(workflowBuilderItem.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
+    }
+
+    func testWorkflowBuilderMenuItemRoutesThroughToolsMenuActionProtocol() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" }))
+        let selector = NSSelectorFromString("showWorkflowBuilder:")
+        let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
+        let recorder = WorkflowBuilderMenuActionRecorder()
+
+        XCTAssertNotNil(protocolMethod.name)
+        XCTAssertEqual(workflowBuilderItem.action, selector)
+        XCTAssertTrue(recorder.responds(to: selector))
+
+        recorder.perform(workflowBuilderItem.action, with: workflowBuilderItem)
+
+        XCTAssertEqual(recorder.workflowBuilderInvocationCount, 1)
     }
 
     func testToolsMenuOmitsGenericNFCoreWorkflowSurface() throws {
@@ -118,11 +146,28 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
     }
 
+    func testFASTQFASTAOperationsMenuIncludesLineageDemixingFreyjaEntry() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let operationsMenu = try XCTUnwrap(
+            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
+        )
+        let lineageMenu = try XCTUnwrap(
+            operationsMenu.items.first(where: { $0.title == "Lineage Demixing" })?.submenu
+        )
+        let freyja = try XCTUnwrap(lineageMenu.items.first(where: { $0.title == "Freyja…" }))
+
+        XCTAssertEqual(freyja.identifier?.rawValue, MainMenuAccessibilityID.freyjaDemix)
+        XCTAssertEqual(freyja.action, #selector(ToolsMenuActions.showFreyjaDemix(_:)))
+    }
+
     func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() throws {
         let viewModel = ImportCenterViewModel()
         let ids = Set(viewModel.allCards.map(\.id))
 
         XCTAssertTrue(ids.contains("fastq"))
+        XCTAssertTrue(ids.contains("fastq-sample-sheet"))
         XCTAssertTrue(ids.contains("ont-run"))
         XCTAssertTrue(ids.contains("bam-cram"))
         XCTAssertTrue(ids.contains("vcf"))
@@ -130,9 +175,12 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertTrue(ids.contains("esviritu"))
         XCTAssertTrue(ids.contains("taxtriage"))
         XCTAssertTrue(ids.contains("nvd"))
+        XCTAssertTrue(ids.contains("cz-id"))
         XCTAssertTrue(ids.contains("fasta"))
         XCTAssertTrue(ids.contains("annotation-track"))
         XCTAssertTrue(ids.contains("geneious-export"))
+        let czIdCard = try XCTUnwrap(viewModel.allCards.first { $0.id == "cz-id" })
+        XCTAssertTrue(czIdCard.description.contains("imported, not run locally"))
         let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "geneious-export" })
         XCTAssertEqual(card.title, "Geneious Export")
         XCTAssertEqual(card.importAction, .geneiousExport)
@@ -140,6 +188,25 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertFalse(ids.contains("project-files"))
         XCTAssertFalse(ids.contains("bundle-sample-metadata"))
         XCTAssertFalse(ids.contains("project-sample-metadata"))
+    }
+
+    func testImportCenterSampleSheetCardRoutesToBatchFASTQImport() throws {
+        let viewModel = ImportCenterViewModel()
+        let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "fastq-sample-sheet" })
+
+        XCTAssertEqual(card.title, "FASTQ Sample Sheet")
+        XCTAssertEqual(card.importAction, .fastqSampleSheet)
+        XCTAssertEqual(card.tab, .sequencingReads)
+        XCTAssertEqual(card.fileHint, ".csv with sample,r1,r2 columns")
+
+        guard case .openPanel(let config, let action) = card.importKind else {
+            return XCTFail("FASTQ sample sheet should use an open panel")
+        }
+        XCTAssertEqual(action, .fastqSampleSheet)
+        XCTAssertTrue(config.canChooseFiles)
+        XCTAssertFalse(config.canChooseDirectories)
+        XCTAssertFalse(config.allowsMultipleSelection)
+        XCTAssertTrue(config.allowedTypes?.contains { $0.preferredFilenameExtension == "csv" } ?? false)
     }
 
     func testImportCenterHasApplicationExportsTab() {
@@ -203,4 +270,30 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertTrue(todo.contains("Choose which dataset in the current project receives the metadata file"))
         XCTAssertTrue(todo.contains("Preview and matching UI"))
     }
+}
+
+@MainActor
+private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuActions {
+    private(set) var workflowBuilderInvocationCount = 0
+
+    @objc func showWorkflowBuilder(_ sender: Any?) {
+        workflowBuilderInvocationCount += 1
+    }
+
+    @objc func showFASTQQCReportingOperations(_ sender: Any?) {}
+    @objc func showFASTQDemultiplexingOperations(_ sender: Any?) {}
+    @objc func showFASTQTrimmingFilteringOperations(_ sender: Any?) {}
+    @objc func showFASTQDecontaminationOperations(_ sender: Any?) {}
+    @objc func showFASTQReadProcessingOperations(_ sender: Any?) {}
+    @objc func showFASTQSearchSubsettingOperations(_ sender: Any?) {}
+    @objc func showFASTQAlignmentOperations(_ sender: Any?) {}
+    @objc func showFASTQMappingOperations(_ sender: Any?) {}
+    @objc func showFASTQAssemblyOperations(_ sender: Any?) {}
+    @objc func showFASTQClassificationOperations(_ sender: Any?) {}
+    @objc func showFreyjaDemix(_ sender: Any?) {}
+    @objc func showBAMVariantCalling(_ sender: Any?) {}
+    @objc func searchNCBI(_ sender: Any?) {}
+    @objc func searchSRA(_ sender: Any?) {}
+    @objc func searchPathoplexus(_ sender: Any?) {}
+    @objc func showPluginManager(_ sender: Any?) {}
 }

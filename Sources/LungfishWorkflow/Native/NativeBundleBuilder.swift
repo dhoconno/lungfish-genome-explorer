@@ -697,7 +697,7 @@ public final class NativeBundleBuilder: ObservableObject {
                 let trackInfo = AnnotationTrackInfo(
                     id: input.id,
                     name: input.name,
-                    description: input.description,
+                    description: annotationDescription(for: input, featureCount: dbRecordCount),
                     path: dbOutputPath,
                     databasePath: dbRecordCount > 0 ? dbOutputPath : nil,
                     annotationType: input.annotationType,
@@ -735,7 +735,7 @@ public final class NativeBundleBuilder: ObservableObject {
                 let trackInfo = AnnotationTrackInfo(
                     id: input.id,
                     name: input.name,
-                    description: input.description,
+                    description: annotationDescription(for: input, featureCount: dbRecordCount),
                     path: trackPath,
                     databasePath: dbRecordCount > 0 ? dbOutputPath : nil,
                     annotationType: input.annotationType,
@@ -755,6 +755,22 @@ public final class NativeBundleBuilder: ObservableObject {
         )
 
         return annotationInfos
+    }
+
+    private func annotationDescription(for input: AnnotationInput, featureCount: Int) -> String? {
+        if let description = input.description {
+            return description
+        }
+
+        var detectionURL = input.url
+        if detectionURL.pathExtension.lowercased() == "gz" {
+            detectionURL = detectionURL.deletingPathExtension()
+        }
+        let ext = detectionURL.pathExtension.lowercased()
+        guard featureCount == 0, ["gff", "gff3", "gtf"].contains(ext) else {
+            return nil
+        }
+        return "No annotations found in source GFF3"
     }
 
     // MARK: - Variant Processing with Native Tools

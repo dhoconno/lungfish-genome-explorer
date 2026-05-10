@@ -105,14 +105,25 @@ extension EsVirituCommand {
         var minReadLength: Int = 100
 
         @Option(
-            name: .customLong("threads"),
-            help: "Number of threads (default: system CPU count)"
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional EsViritu arguments passed verbatim"
         )
-        var threads: Int?
+        var extraArgs: String = ""
 
         @OptionGroup var globalOptions: GlobalOptions
 
         // MARK: - Execution
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse esviritu detect arguments.")
+            }
+            return parsed
+        }
 
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -163,7 +174,7 @@ extension EsVirituCommand {
                     .appendingPathComponent("esviritu-\(sampleName)")
             }
 
-            let effectiveThreads = threads ?? ProcessInfo.processInfo.activeProcessorCount
+            let effectiveThreads = globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount
 
             // Build config.
             let config = EsVirituConfig(
@@ -174,7 +185,8 @@ extension EsVirituCommand {
                 databasePath: dbURL,
                 qualityFilter: !noQC,
                 minReadLength: minReadLength,
-                threads: effectiveThreads
+                threads: effectiveThreads,
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )
 
             // Print configuration.
@@ -226,6 +238,23 @@ extension EsVirituCommand {
             print("")
             print(formatter.success("Detection completed in \(String(format: "%.1f", result.runtime))s"))
             print("\(result.virusCount) virus(es) detected")
+        }
+
+        func makeConfigForTesting(
+            databaseURL: URL,
+            outputDirectory: URL
+        ) throws -> EsVirituConfig {
+            EsVirituConfig(
+                inputFiles: inputFiles.map { URL(fileURLWithPath: $0) },
+                isPairedEnd: pairedEnd,
+                sampleName: sampleName,
+                outputDirectory: outputDirectory,
+                databasePath: databaseURL,
+                qualityFilter: !noQC,
+                minReadLength: minReadLength,
+                threads: globalOptions.threads ?? ProcessInfo.processInfo.activeProcessorCount,
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+            )
         }
     }
 }

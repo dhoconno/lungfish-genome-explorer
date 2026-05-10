@@ -78,6 +78,7 @@ struct ClassificationWizardSheet: View {
     @State private var minimumHitGroups: Int = 2
     @State private var threads: Int = 4
     @State private var memoryMapping: Bool = false
+    @State private var extraArgumentsText: String = ""
 
     // MARK: - Callbacks
 
@@ -537,6 +538,15 @@ struct ClassificationWizardSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                HStack {
+                    Text("Extra arguments:")
+                        .font(.system(size: 12))
+                        .frame(width: 120, alignment: .trailing)
+                    TextField("Kraken2 arguments", text: $extraArgumentsText)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("classification-extra-arguments-field")
+                }
             }
             .padding(.top, 8)
         }
@@ -556,6 +566,7 @@ struct ClassificationWizardSheet: View {
     /// Builds a ClassificationConfig from the current settings and calls onRun.
     private func performRun() {
         guard let db = selectedDatabase, let dbPath = db.path else { return }
+        guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
         let samples = groupedSamples
         guard !samples.isEmpty else { return }
 
@@ -586,7 +597,8 @@ struct ClassificationWizardSheet: View {
                 threads: threads,
                 memoryMapping: memoryMapping,
                 quickMode: false,
-                outputDirectory: outputDir
+                outputDirectory: outputDir,
+                extraArguments: extraArguments
             )
         }
 

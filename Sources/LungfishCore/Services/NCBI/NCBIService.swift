@@ -250,6 +250,10 @@ public actor NCBIService: DatabaseService {
         logger.info("NCBIService.search: esearch returned \(searchResult.totalCount) total, \(searchResult.ids.count) IDs")
 
         guard !searchResult.ids.isEmpty else {
+            if let accessionResult = try await directAccessionSearchResultIfApplicable(query: query) {
+                return accessionResult
+            }
+
             // Return empty but with the total count (may be 0)
             logger.info("NCBIService.search: No results found")
             return SearchResults(
@@ -287,31 +291,65 @@ public actor NCBIService: DatabaseService {
         )
     }
 
-    public func fetch(accession: String) async throws -> DatabaseRecord {
-        // First search to get the UID
-        let ids = try await esearch(
-            database: .nucleotide,
-            term: accession,
-            retmax: 1
-        )
-
-        guard let uid = ids.first else {
-            throw DatabaseServiceError.notFound(accession: accession)
+    private func directAccessionSearchResultIfApplicable(query: SearchQuery) async throws -> SearchResults? {
+        let accession = query.term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.offset == 0,
+              query.limit > 0,
+              query.organism == nil,
+              query.dateRange == nil,
+              query.location == nil,
+              query.minLength == nil,
+              query.maxLength == nil,
+              isLikelyAccessionTerm(accession) else {
+            return nil
         }
 
-        // Fetch the GenBank record
-        let data = try await efetch(
-            database: .nucleotide,
-            ids: [uid],
-            format: .genbank
-        )
+        do {
+            let record = try await fetch(accession: accession)
+            let searchRecord = SearchResultRecord(
+                id: record.id,
+                accession: record.accession,
+                title: record.title,
+                organism: record.organism,
+                length: record.length,
+                date: record.collectionDate,
+                source: record.source
+            )
+            logger.info("NCBIService.search: ESearch returned no IDs; direct accession fetch recovered \(record.accession, privacy: .public)")
+            return SearchResults(totalCount: 1, records: [searchRecord])
+        } catch {
+            logger.warning(
+                "NCBIService.search: Direct accession fallback for \(accession, privacy: .public) failed after empty ESearch: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private nonisolated func isLikelyAccessionTerm(_ term: String) -> Bool {
+        guard !term.isEmpty,
+              term.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !term.contains("[") else {
+            return false
+        }
+
+        let patterns = [
+            #"^[A-Z]{1,4}_\d+(?:\.\d+)?$"#,
+            #"^[A-Z]{1,4}\d{5,9}(?:\.\d+)?$"#,
+        ]
+        return patterns.contains { pattern in
+            term.range(of: pattern, options: .regularExpression) != nil
+        }
+    }
+
+    public func fetch(accession: String) async throws -> DatabaseRecord {
+        let (data, resolvedIdentifier) = try await fetchGenBankDataByAccessionOrSearch(accession: accession)
 
         // Parse GenBank format
         guard let content = String(data: data, encoding: .utf8) else {
             throw DatabaseServiceError.parseError(message: "Invalid GenBank data encoding")
         }
 
-        return try parseGenBankRecord(content, uid: uid)
+        return try parseGenBankRecord(content, uid: resolvedIdentifier)
     }
 
     /// Fetches raw GenBank format data for an accession.
@@ -323,23 +361,7 @@ public actor NCBIService: DatabaseService {
     /// - Returns: A tuple containing the raw GenBank content and the resolved accession
     /// - Throws: `DatabaseServiceError` if the fetch fails
     public func fetchRawGenBank(accession: String) async throws -> (content: String, accession: String) {
-        // First search to get the UID
-        let ids = try await esearch(
-            database: .nucleotide,
-            term: accession,
-            retmax: 1
-        )
-
-        guard let uid = ids.first else {
-            throw DatabaseServiceError.notFound(accession: accession)
-        }
-
-        // Fetch the GenBank record
-        let data = try await efetch(
-            database: .nucleotide,
-            ids: [uid],
-            format: .genbank
-        )
+        let (data, _) = try await fetchGenBankDataByAccessionOrSearch(accession: accession)
 
         // Convert to string
         guard let content = String(data: data, encoding: .utf8) else {
@@ -350,6 +372,48 @@ public actor NCBIService: DatabaseService {
         let resolvedAccession = extractAccession(from: content) ?? accession
 
         return (content: content, accession: resolvedAccession)
+    }
+
+    private func fetchGenBankDataByAccessionOrSearch(accession: String) async throws -> (data: Data, resolvedIdentifier: String) {
+        do {
+            let data = try await efetch(
+                database: .nucleotide,
+                ids: [accession],
+                format: .genbank
+            )
+            if isLikelyGenBankData(data) {
+                return (data, accession)
+            }
+            logger.warning(
+                "NCBI direct GenBank efetch for \(accession, privacy: .public) returned non-GenBank content; falling back to esearch"
+            )
+        } catch {
+            logger.warning(
+                "NCBI direct GenBank efetch for \(accession, privacy: .public) failed; falling back to esearch: \(String(describing: error), privacy: .public)"
+            )
+        }
+
+        let ids = try await esearch(
+            database: .nucleotide,
+            term: accession,
+            retmax: 1
+        )
+
+        guard let uid = ids.first else {
+            throw DatabaseServiceError.notFound(accession: accession)
+        }
+
+        let data = try await efetch(
+            database: .nucleotide,
+            ids: [uid],
+            format: .genbank
+        )
+        return (data, uid)
+    }
+
+    private func isLikelyGenBankData(_ data: Data) -> Bool {
+        guard let content = String(data: data, encoding: .utf8) else { return false }
+        return content.hasPrefix("LOCUS") || content.contains("\nLOCUS")
     }
 
     /// Extracts the accession number from GenBank file content.
@@ -1035,32 +1099,78 @@ public actor NCBIService: DatabaseService {
         let redactedURLString = NCBIAPIKeyResolver.redactSecrets(in: components.url?.absoluteString ?? "nil")
         logger.debug("NCBIService.esearchWithCount: URL=\(redactedURLString, privacy: .public)")
 
-        let data = try await makeRequest(url: components.url!)
+        var payloadRetryAttempt = 0
+        while true {
+            let data = try await makeRequest(url: components.url!)
 
-        // Log raw response for debugging (truncated)
-        if let responseString = String(data: data, encoding: .utf8) {
-            let truncated = String(responseString.prefix(500))
-            logger.debug("NCBIService.esearchWithCount: Response (truncated)=\(truncated, privacy: .public)")
+            // Log raw response for debugging (truncated)
+            if let responseString = String(data: data, encoding: .utf8) {
+                let truncated = String(responseString.prefix(500))
+                logger.debug("NCBIService.esearchWithCount: Response (truncated)=\(truncated, privacy: .public)")
+            }
+
+            let response: ESearchResponse
+            do {
+                response = try JSONDecoder().decode(ESearchResponse.self, from: data)
+            } catch {
+                if retryPolicy.enabled,
+                   payloadRetryAttempt < retryPolicy.maxRetries {
+                    payloadRetryAttempt += 1
+                    let delay = retryDelaySeconds(forAttempt: payloadRetryAttempt)
+                    retryEvents.append(NCBIRetryEvent(
+                        attempt: payloadRetryAttempt,
+                        maxRetries: retryPolicy.maxRetries,
+                        statusCode: 200,
+                        delaySeconds: delay
+                    ))
+                    logger.warning(
+                        "NCBI esearch returned malformed payload; retrying attempt \(payloadRetryAttempt, privacy: .public)/\(self.retryPolicy.maxRetries, privacy: .public) after \(delay, privacy: .public)s: \(String(describing: error), privacy: .public)"
+                    )
+                    try await retrySleeper(delay)
+                    continue
+                }
+                throw error
+            }
+
+            if let payloadError = response.esearchresult?.error {
+                if isTransientESearchPayloadError(payloadError),
+                   retryPolicy.enabled,
+                   payloadRetryAttempt < retryPolicy.maxRetries {
+                    payloadRetryAttempt += 1
+                    let delay = retryDelaySeconds(forAttempt: payloadRetryAttempt)
+                    retryEvents.append(NCBIRetryEvent(
+                        attempt: payloadRetryAttempt,
+                        maxRetries: retryPolicy.maxRetries,
+                        statusCode: 200,
+                        delaySeconds: delay
+                    ))
+                    logger.warning(
+                        "NCBI esearch returned transient payload error; retrying attempt \(payloadRetryAttempt, privacy: .public)/\(self.retryPolicy.maxRetries, privacy: .public) after \(delay, privacy: .public)s: \(payloadError, privacy: .public)"
+                    )
+                    try await retrySleeper(delay)
+                    continue
+                }
+                logger.warning("NCBIService.esearchWithCount: Payload error: \(payloadError, privacy: .public)")
+                throw DatabaseServiceError.serverError(message: payloadError)
+            }
+
+            if let error = response.esearchresult?.errorlist?.phrasesnotfound?.first {
+                logger.warning("NCBIService.esearchWithCount: Phrase not found: \(error, privacy: .public)")
+                throw DatabaseServiceError.invalidQuery(reason: "Term not found: \(error)")
+            }
+
+            let ids = response.esearchresult?.idlist ?? []
+            let totalCount = Int(response.esearchresult?.count ?? "0") ?? 0
+
+            logger.info("NCBIService.esearchWithCount: Found \(totalCount) total results, returning \(ids.count) IDs")
+
+            return ESearchSearchResult(
+                ids: ids,
+                totalCount: totalCount,
+                retmax: retmax,
+                retstart: retstart
+            )
         }
-
-        let response = try JSONDecoder().decode(ESearchResponse.self, from: data)
-
-        if let error = response.esearchresult?.errorlist?.phrasesnotfound?.first {
-            logger.warning("NCBIService.esearchWithCount: Phrase not found: \(error, privacy: .public)")
-            throw DatabaseServiceError.invalidQuery(reason: "Term not found: \(error)")
-        }
-
-        let ids = response.esearchresult?.idlist ?? []
-        let totalCount = Int(response.esearchresult?.count ?? "0") ?? 0
-
-        logger.info("NCBIService.esearchWithCount: Found \(totalCount) total results, returning \(ids.count) IDs")
-
-        return ESearchSearchResult(
-            ids: ids,
-            totalCount: totalCount,
-            retmax: retmax,
-            retstart: retstart
-        )
     }
 
     /// Fetches records from an NCBI database.
@@ -1298,6 +1408,24 @@ public actor NCBIService: DatabaseService {
             case 200...299:
                 return data
             case 400:
+                if isTransientBadRequestBody(data),
+                   retryPolicy.enabled,
+                   retryAttempt < retryPolicy.maxRetries {
+                    retryAttempt += 1
+                    let delay = retryDelaySeconds(forAttempt: retryAttempt)
+                    retryEvents.append(NCBIRetryEvent(
+                        attempt: retryAttempt,
+                        maxRetries: retryPolicy.maxRetries,
+                        statusCode: statusCode,
+                        delaySeconds: delay
+                    ))
+                    let message = decodedHTTPErrorBody(data) ?? "Bad request"
+                    logger.warning(
+                        "NCBI transient HTTP 400 response; retrying attempt \(retryAttempt, privacy: .public)/\(self.retryPolicy.maxRetries, privacy: .public) after \(delay, privacy: .public)s: \(message, privacy: .public)"
+                    )
+                    try await retrySleeper(delay)
+                    continue
+                }
                 throw DatabaseServiceError.invalidQuery(reason: "Bad request")
             case 404:
                 throw DatabaseServiceError.notFound(accession: url.absoluteString)
@@ -1352,6 +1480,28 @@ public actor NCBIService: DatabaseService {
     private func retryDelaySeconds(forAttempt attempt: Int) -> TimeInterval {
         let multiplier = pow(2.0, Double(max(0, attempt - 1)))
         return min(retryPolicy.initialBackoffSeconds * multiplier, retryPolicy.maxBackoffSeconds)
+    }
+
+    private func isTransientESearchPayloadError(_ message: String) -> Bool {
+        message.localizedCaseInsensitiveContains("Search Backend failed")
+            || message.localizedCaseInsensitiveContains("address table is empty")
+    }
+
+    private func isTransientBadRequestBody(_ data: Data) -> Bool {
+        guard let message = decodedHTTPErrorBody(data) else { return false }
+        return message.localizedCaseInsensitiveContains("CEFetchPApplication")
+            || message.localizedCaseInsensitiveContains("proxy_stream")
+            || message.localizedCaseInsensitiveContains("Search Backend failed")
+            || message.localizedCaseInsensitiveContains("address table is empty")
+    }
+
+    private func decodedHTTPErrorBody(_ data: Data) -> String? {
+        guard let raw = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !raw.isEmpty else {
+            return nil
+        }
+        return raw.removingPercentEncoding ?? raw
     }
 
     /// Converts an FTP path to an HTTP(S) path.
@@ -1755,6 +1905,16 @@ struct ESearchResult: Codable {
     let retstart: String?
     let idlist: [String]?
     let errorlist: ESearchErrorList?
+    let error: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case count
+        case retmax
+        case retstart
+        case idlist
+        case errorlist
+        case error = "ERROR"
+    }
 }
 
 struct ESearchErrorList: Codable {

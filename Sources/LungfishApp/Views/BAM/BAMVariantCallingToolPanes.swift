@@ -74,10 +74,17 @@ struct BAMVariantCallingToolPanes: View {
             if state.selectedToolID == BAMVariantCallingToolID.gatkHaplotypeCaller.rawValue {
                 Text("GATK HaplotypeCaller will write a standard genotype VCF for the selected BAM.")
                     .foregroundStyle(.secondary)
+            } else if state.selectedToolID == BAMVariantCallingToolID.gatkWhatsHapPhased.rawValue {
+                Text("GATK HaplotypeCaller and WhatsHap will be assembled as a phase-aware command plan.")
+                    .foregroundStyle(.secondary)
             } else {
                 switch state.selectedCaller {
             case .lofreq:
                 Text("LoFreq is ready to run directly on the selected bundle alignment track.")
+                    .foregroundStyle(.secondary)
+
+            case .bcftools:
+                Text("bcftools will run mpileup and call as an orthogonal cross-check on the selected BAM.")
                     .foregroundStyle(.secondary)
 
             case .ivar:
@@ -105,6 +112,15 @@ struct BAMVariantCallingToolPanes: View {
                     TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
                         .textFieldStyle(.roundedBorder)
                 }
+
+            case .clair3:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Clair3 Model")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("r1041_e82_400bps_sup_v5.0.0", text: $state.medakaModel)
+                        .textFieldStyle(.roundedBorder)
+                }
                 }
             }
         }
@@ -112,7 +128,7 @@ struct BAMVariantCallingToolPanes: View {
 
     private var advancedOptionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Advanced Options")
+            Text("Extra arguments")
                 .font(.headline)
 
             TextField("--call-indels", text: $state.advancedOptionsText)

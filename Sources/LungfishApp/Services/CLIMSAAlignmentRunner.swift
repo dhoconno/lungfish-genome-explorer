@@ -101,7 +101,7 @@ actor CLIMSAAlignmentRunner {
             args += ["--threads", "\(threads)"]
         }
         if !extraArguments.isEmpty {
-            args += ["--extra-mafft-options", AdvancedCommandLineOptions.join(extraArguments)]
+            args += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
         }
         args += ["--format", "json"]
         return args

@@ -84,6 +84,20 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertNotNil(root.descendant(matching: "about-lab-website-button"))
     }
 
+    func testAboutWindowDeclaresSystemRequirements() throws {
+        let controller = AboutWindowController()
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let credits = try XCTUnwrap(root.descendant(matching: "about-credits-text-view") as? NSTextView)
+        let aboutText = credits.string
+
+        XCTAssertTrue(aboutText.contains("System Requirements"))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.minimumMacOSDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.cpuArchitectureDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.minimumRAMDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.recommendedRAMDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.recommendedDiskDisplay))
+    }
+
     func testThirdPartyLicensesWindowExposesStableAccessibilityIdentifiers() throws {
         let controller = ThirdPartyLicensesWindowController()
         let window = try XCTUnwrap(controller.window)

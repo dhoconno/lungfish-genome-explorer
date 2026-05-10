@@ -218,4 +218,45 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(item.title, "sars-cov-2-genomes")
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), analysisURL.resolvingSymlinksInPath())
     }
+
+    func testSelectItemRoutesProjectCzIdClassificationBundleAsTaxonomyResult() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarCzIdClassification-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL
+            .appendingPathComponent("Classifications", isDirectory: true)
+            .appendingPathComponent("Sample-CZ-001.lungfishtax", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = CzIdImportManifest(
+            schemaVersion: CzIdDataConverter.schemaVersion,
+            sampleName: "Sample-CZ-001",
+            projectId: nil,
+            pipelineVersion: "8.4",
+            ntDatabaseVersion: "nt_2025_12_01",
+            nrDatabaseVersion: "nr_2025_12_01",
+            sourceFiles: [],
+            rowCount: 3
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent("cz-id-manifest.json"))
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+
+        XCTAssertTrue(SidebarItemType.czIdResult.isBundle)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        let item = try XCTUnwrap(sidebar.selectedItems().first)
+        XCTAssertEqual(item.type, .czIdResult)
+        XCTAssertEqual(item.title, "Sample-CZ-001")
+        XCTAssertEqual(item.subtitle, "CZ-ID · Sample-CZ-001")
+    }
 }

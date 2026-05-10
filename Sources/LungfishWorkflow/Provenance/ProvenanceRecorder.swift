@@ -102,6 +102,7 @@ public actor ProvenanceRecorder {
     ///   - outputs: Output file records
     ///   - exitCode: Process exit code
     ///   - wallTime: Execution time in seconds
+    ///   - peakMemoryBytes: Peak resident memory in bytes, when available
     ///   - stderr: Standard error output (truncated to 10 KB)
     ///   - dependsOn: IDs of upstream steps
     /// - Returns: The step ID
@@ -117,6 +118,7 @@ public actor ProvenanceRecorder {
         outputs: [FileRecord],
         exitCode: Int32,
         wallTime: TimeInterval,
+        peakMemoryBytes: UInt64? = nil,
         stderr: String? = nil,
         dependsOn: [UUID] = []
     ) -> UUID? {
@@ -142,6 +144,7 @@ public actor ProvenanceRecorder {
             outputs: outputs,
             exitCode: exitCode,
             wallTime: wallTime,
+            peakMemoryBytes: peakMemoryBytes,
             stderr: truncatedStderr,
             dependsOn: dependsOn,
             endTime: Date()

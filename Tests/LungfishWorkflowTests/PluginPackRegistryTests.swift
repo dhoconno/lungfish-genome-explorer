@@ -228,7 +228,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }))
 
         XCTAssertEqual(pack.description, "Viral BAM variant calling from bundle-owned alignment tracks")
-        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["lofreq", "ivar", "medaka"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["lofreq", "ivar", "medaka", "clair3"])
         XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
 
         let lofreq = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "lofreq" }))
@@ -248,6 +248,13 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(medaka.version, "2.1.1")
         XCTAssertEqual(medaka.license, "MPL-2.0")
         XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
+
+        let clair3 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "clair3" }))
+        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=1.0.10"])
+        XCTAssertEqual(clair3.executables, ["run_clair3.sh"])
+        XCTAssertEqual(clair3.version, "1.0.10")
+        XCTAssertEqual(clair3.license, "BSD-3-Clause")
+        XCTAssertEqual(clair3.sourceURL, "https://github.com/HKU-BAL/Clair3")
     }
 
     func testVariantCallingPackUsesVersionProbeForLofreq() throws {
@@ -282,15 +289,47 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(gatk.sourceURL, "https://github.com/broadinstitute/gatk")
     }
 
+    func testPhasingPackDefinesWhatsHapForPhasedVariantPlans() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "phasing" }))
+
+        XCTAssertEqual(pack.name, "Variant Phasing")
+        XCTAssertEqual(pack.category, "Variant Calling")
+        XCTAssertEqual(pack.packages, ["whatshap"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["phasing"])
+
+        let whatshap = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "whatshap" }))
+        XCTAssertEqual(whatshap.displayName, "WhatsHap")
+        XCTAssertEqual(whatshap.installPackages, ["bioconda::whatshap=2.3"])
+        XCTAssertEqual(whatshap.executables, ["whatshap"])
+        XCTAssertEqual(whatshap.smokeTest?.arguments, ["--version"])
+        XCTAssertEqual(whatshap.version, "2.3")
+        XCTAssertEqual(whatshap.license, "MIT")
+        XCTAssertEqual(whatshap.sourceURL, "https://github.com/whatshap/whatshap")
+    }
+
+    func testWastewaterSurveillancePackIsActiveAndDefinesFreyja() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "wastewater-surveillance" }))
+
+        XCTAssertEqual(pack.name, "Wastewater Surveillance")
+        XCTAssertTrue(pack.packages.contains("freyja"))
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["freyja", "ivar", "pangolin", "nextclade", "minimap2"])
+        XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.environment, "freyja")
+        XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.installPackages, ["bioconda::freyja=2.0.0"])
+        XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.executables, ["freyja"])
+        XCTAssertNotNil(pack.toolRequirements.first(where: { $0.id == "pangolin" }))
+    }
+
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
             "gatk-core",
+            "phasing",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "wastewater-surveillance",
         ])
     }
 
@@ -309,10 +348,12 @@ final class PluginPackRegistryTests: XCTestCase {
             "read-mapping",
             "variant-calling",
             "gatk-core",
+            "phasing",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
+            "wastewater-surveillance",
         ])
     }
 

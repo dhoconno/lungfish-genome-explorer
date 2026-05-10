@@ -98,9 +98,11 @@ public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
         guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
             throw ProvenanceSignatureVerificationError.provenanceMissing(provenanceURL.path)
         }
-        let publicKey = Self.publicKey(forPrivateKey: privateKey)
-        let digest = try Self.sha256Hex(of: provenanceURL)
-        let signature = Self.signature(publicKey: publicKey, provenanceSHA256: digest)
+        let provenanceData = try Data(contentsOf: provenanceURL)
+        let signingKey = try Self.signingKey(for: privateKey)
+        let publicKey = Self.publicKeyArtifact(for: signingKey.publicKey.rawRepresentation)
+        let digest = Self.sha256Hex(provenanceData)
+        let signature = try signingKey.signature(for: provenanceData).base64EncodedString()
         let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
         let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
 
@@ -121,12 +123,13 @@ public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
         return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
     }
 
-    fileprivate static func publicKey(forPrivateKey privateKey: String) -> String {
-        "lfpub1:" + sha256Hex(Data(("lungfish-public-key\n" + privateKey).utf8))
+    fileprivate static func signingKey(for privateKey: String) throws -> Curve25519.Signing.PrivateKey {
+        let seed = SHA256.hash(data: Data(("lungfish-local-private-key-v1\n" + privateKey).utf8))
+        return try Curve25519.Signing.PrivateKey(rawRepresentation: Data(seed))
     }
 
-    fileprivate static func signature(publicKey: String, provenanceSHA256: String) -> String {
-        sha256Hex(Data(("lungfish-local-signature-v1\n\(publicKey)\n\(provenanceSHA256)").utf8))
+    fileprivate static func publicKeyArtifact(for rawRepresentation: Data) -> String {
+        "lfed25519:" + rawRepresentation.base64EncodedString()
     }
 
     fileprivate static func sha256Hex(of url: URL) throws -> String {
@@ -147,7 +150,6 @@ public enum ProvenanceSignatureVerifier {
         guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
             throw ProvenanceSignatureVerificationError.provenanceMissing(provenanceURL.path)
         }
-
         let resolvedSignatureURL = signatureURL ?? ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
         let resolvedPublicKeyURL = publicKeyURL ?? ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
         guard FileManager.default.fileExists(atPath: resolvedSignatureURL.path) else {
@@ -172,10 +174,7 @@ public enum ProvenanceSignatureVerifier {
 
         let actualDigest = try LocalProvenanceSigningProvider.sha256Hex(of: provenanceURL)
         guard envelope.provenanceSHA256 == actualDigest else {
-            throw ProvenanceSignatureVerificationError.provenanceDigestMismatch(
-                expected: envelope.provenanceSHA256,
-                actual: actualDigest
-            )
+            throw ProvenanceSignatureVerificationError.provenanceDigestMismatch(expected: envelope.provenanceSHA256, actual: actualDigest)
         }
 
         let publicKey = try String(contentsOf: resolvedPublicKeyURL, encoding: .utf8)
@@ -183,12 +182,11 @@ public enum ProvenanceSignatureVerifier {
         guard envelope.publicKeySHA256 == LocalProvenanceSigningProvider.sha256Hex(Data(publicKey.utf8)) else {
             throw ProvenanceSignatureVerificationError.publicKeyMismatch
         }
-
-        let expectedSignature = LocalProvenanceSigningProvider.signature(
-            publicKey: publicKey,
-            provenanceSHA256: actualDigest
-        )
-        guard envelope.signature == expectedSignature else {
+        let provenanceData = try Data(contentsOf: provenanceURL)
+        let rawPublicKey = try rawPublicKeyData(from: publicKey)
+        let verifier = try Curve25519.Signing.PublicKey(rawRepresentation: rawPublicKey)
+        guard let signatureData = Data(base64Encoded: envelope.signature),
+              verifier.isValidSignature(signatureData, for: provenanceData) else {
             throw ProvenanceSignatureVerificationError.signatureMismatch
         }
 
@@ -199,6 +197,15 @@ public enum ProvenanceSignatureVerifier {
             publicKeyURL: resolvedPublicKeyURL,
             signatureURL: resolvedSignatureURL
         )
+    }
+
+    private static func rawPublicKeyData(from artifact: String) throws -> Data {
+        let prefix = "lfed25519:"
+        guard artifact.hasPrefix(prefix),
+              let data = Data(base64Encoded: String(artifact.dropFirst(prefix.count))) else {
+            throw ProvenanceSignatureVerificationError.publicKeyMismatch
+        }
+        return data
     }
 }
 

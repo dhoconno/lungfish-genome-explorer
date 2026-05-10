@@ -173,9 +173,26 @@ extension TaxTriageCommand {
         )
         var revision: String = TaxTriageConfig.defaultRevision
 
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional TaxTriage/Nextflow pipeline arguments passed verbatim"
+        )
+        var extraArgs: String = ""
+
         @OptionGroup var globalOptions: GlobalOptions
 
         // MARK: - Validation
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse taxtriage run arguments.")
+            }
+            return parsed
+        }
 
         func validate() throws {
             // Must provide either --input or --samplesheet
@@ -302,7 +319,8 @@ extension TaxTriageCommand {
                 maxCpus: maxCpus ?? ProcessInfo.processInfo.activeProcessorCount,
                 profile: nfProfile,
                 containerRuntime: nil,
-                revision: revision
+                revision: revision,
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
             )
 
             // Print configuration summary
@@ -372,6 +390,43 @@ extension TaxTriageCommand {
             print(formatter.success(
                 "TaxTriage completed in \(runtimeStr)s"
             ))
+        }
+
+        func makeConfigForTesting() throws -> TaxTriageConfig {
+            let outputDirectory = URL(fileURLWithPath: outputDir)
+            let samples: [TaxTriageSample]
+            if let inputPath = input, let sid = sampleId {
+                samples = [
+                    TaxTriageSample(
+                        sampleId: sid,
+                        fastq1: URL(fileURLWithPath: inputPath),
+                        fastq2: input2.map { URL(fileURLWithPath: $0) },
+                        platform: platform.toPlatform()
+                    ),
+                ]
+            } else {
+                samples = []
+            }
+
+            let effectiveSkipAssembly = noSkipAssembly ? false : true
+            return TaxTriageConfig(
+                samples: samples,
+                platform: platform.toPlatform(),
+                outputDirectory: outputDirectory,
+                kraken2DatabasePath: databasePath.map { URL(fileURLWithPath: $0) },
+                classifiers: ["kraken2"],
+                topHitsCount: topHits,
+                k2Confidence: confidence,
+                rank: rank,
+                skipAssembly: effectiveSkipAssembly,
+                skipKrona: skipKrona,
+                maxMemory: maxMemory,
+                maxCpus: maxCpus ?? ProcessInfo.processInfo.activeProcessorCount,
+                profile: nfProfile,
+                containerRuntime: nil,
+                revision: revision,
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+            )
         }
     }
 }

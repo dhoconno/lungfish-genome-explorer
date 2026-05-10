@@ -112,7 +112,7 @@ public actor BAMVariantCallingPreflight {
         if request.caller == .ivar, !request.ivarPrimerTrimConfirmed {
             throw BAMVariantCallingPreflightError.ivarRequiresPrimerTrimConfirmation
         }
-        if request.caller == .medaka,
+        if (request.caller == .medaka || request.caller == .clair3),
            request.medakaModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
             throw BAMVariantCallingPreflightError.medakaRequiresModelMetadata
         }

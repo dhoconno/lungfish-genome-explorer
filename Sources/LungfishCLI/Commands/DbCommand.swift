@@ -16,6 +16,7 @@ import LungfishCore
 ///
 /// ```
 /// lungfish conda db list
+/// lungfish conda db info Standard-8
 /// lungfish conda db download Viral
 /// lungfish conda db remove Standard-8
 /// lungfish conda db recommend
@@ -31,6 +32,7 @@ struct DbCommand: AsyncParsableCommand {
         """,
         subcommands: [
             DbListSubcommand.self,
+            DbInfoSubcommand.self,
             DbDownloadSubcommand.self,
             DbRemoveSubcommand.self,
             DbRecommendSubcommand.self,
@@ -68,13 +70,76 @@ extension DbCommand {
             let rows = databases.map { db -> [String] in
                 let sizeGB = String(format: "%.1f GB", Double(db.sizeBytes) / 1_073_741_824)
                 let ramGB = String(format: "%.0f GB", Double(db.recommendedRAM) / 1_073_741_824)
-                return [db.name, db.status.rawValue, sizeGB, ramGB, db.description]
+                let update = db.isUpdateAvailable ? "yes (\(db.availableUpdateVersion ?? "unknown"))" : "no"
+                return [db.name, db.status.rawValue, sizeGB, ramGB, update, db.description]
             }
 
             print(formatter.table(
-                headers: ["Name", "Status", "Size", "RAM", "Description"],
+                headers: ["Name", "Status", "Size", "RAM", "Update", "Description"],
                 rows: rows
             ))
+        }
+    }
+}
+
+private func formatDatabaseBytes(_ bytes: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .file
+    formatter.allowedUnits = [.useMB, .useGB]
+    return formatter.string(fromByteCount: bytes)
+}
+
+// MARK: - db info
+
+extension DbCommand {
+
+    /// Shows installed version, install date, and update status for one database.
+    struct DbInfoSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "info",
+            abstract: "Show installed database version and update status"
+        )
+
+        @Argument(help: "Database name (e.g., 'Viral', 'Standard-8', 'PlusPF')")
+        var name: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let registry = MetagenomicsDatabaseRegistry.shared
+
+            guard let db = try await registry.database(named: name) else {
+                print(formatter.error("Database '\(name)' not found in catalog"))
+                print(formatter.info("Use 'lungfish conda db list' to see available databases"))
+                throw ExitCode.failure
+            }
+
+            let installedDate = db.installedAt ?? db.lastUpdated
+            let installed = installedDate.map(Self.formatDate) ?? "not installed"
+            let lastUpdated = db.lastUpdated.map(Self.formatDate) ?? "unknown"
+            let availableUpdate = db.availableUpdateVersion ?? "none"
+            let path = db.path?.path ?? "not installed"
+            let size = db.sizeOnDisk ?? db.sizeBytes
+
+            print(formatter.header("Database: \(db.name)"))
+            print("")
+            print(formatter.keyValueTable([
+                ("Tool", db.tool),
+                ("Status", db.status.rawValue),
+                ("Current version", db.version ?? "unknown"),
+                ("Installed", installed),
+                ("Last updated", lastUpdated),
+                ("Available update", availableUpdate),
+                ("Location", path),
+                ("Disk size", formatDatabaseBytes(size)),
+                ("Recommended RAM", formatDatabaseBytes(db.recommendedRAM)),
+                ("Description", db.description),
+            ]))
+        }
+
+        private static func formatDate(_ date: Date) -> String {
+            ISO8601DateFormatter().string(from: date)
         }
     }
 }

@@ -81,10 +81,17 @@ public enum CzIdDataConverter {
         at url: URL,
         outputDirectory: URL,
         command: [String]? = nil,
-        sourceInputURL: URL? = nil
+        sourceInputURL: URL? = nil,
+        sampleNameOverride: String? = nil,
+        additionalInputURLs: [URL] = [],
+        provenanceToolName: String = "lungfish cz-id import",
+        provenanceParameters: [String: ParameterValue] = [:]
     ) throws -> CzIdConversion {
         let startedAt = Date()
         let parsed = try parseTaxonReport(at: url)
+        let sampleName = sampleNameOverride?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? parsed.metadata.sampleName
+            ?? url.deletingPathExtension().lastPathComponent
 
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
@@ -97,7 +104,7 @@ public enum CzIdDataConverter {
 
         let manifest = CzIdImportManifest(
             schemaVersion: schemaVersion,
-            sampleName: parsed.metadata.sampleName ?? url.deletingPathExtension().lastPathComponent,
+            sampleName: sampleName,
             projectId: parsed.metadata.projectId,
             pipelineVersion: parsed.metadata.pipelineVersion,
             ntDatabaseVersion: parsed.metadata.ntDatabaseVersion,
@@ -138,7 +145,17 @@ public enum CzIdDataConverter {
             outputDirectory: outputDirectory,
             command: command ?? ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
             toolVersion: parsed.metadata.pipelineVersion ?? "unknown",
-            startedAt: startedAt
+            startedAt: startedAt,
+            additionalInputs: additionalInputURLs,
+            toolName: provenanceToolName,
+            parameters: provenanceParameters.merging(defaultProvenanceParameters(
+                parsed: parsed,
+                sampleName: sampleName,
+                outputDirectory: outputDirectory,
+                sourceInputURL: sourceInputURL,
+                reportURL: url,
+                reportPayloadURL: outputURL
+            )) { explicit, _ in explicit }
         )
 
         return CzIdConversion(parsed: parsed, result: result, manifest: manifest)
@@ -234,7 +251,10 @@ public enum CzIdDataConverter {
         outputDirectory: URL,
         command: [String],
         toolVersion: String,
-        startedAt: Date
+        startedAt: Date,
+        additionalInputs: [URL] = [],
+        toolName: String = "lungfish cz-id import",
+        parameters: [String: ParameterValue] = [:]
     ) throws {
         var inputRecords: [FileRecord] = []
         if let sourceInput {
@@ -245,6 +265,7 @@ public enum CzIdDataConverter {
         } else {
             inputRecords.append(fileRecord(for: input, role: .input))
         }
+        inputRecords.append(contentsOf: additionalInputs.map { fileRecord(for: $0, role: .input) })
         let outputRecords = outputs.map {
             FileRecord(
                 path: $0.path,
@@ -256,7 +277,7 @@ public enum CzIdDataConverter {
         }
         let endedAt = Date()
         let step = StepExecution(
-            toolName: "lungfish cz-id import",
+            toolName: toolName,
             toolVersion: toolVersion,
             command: command,
             inputs: inputRecords,
@@ -272,7 +293,8 @@ public enum CzIdDataConverter {
             startTime: startedAt,
             endTime: endedAt,
             status: .completed,
-            steps: [step]
+            steps: [step],
+            parameters: parameters
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
@@ -281,6 +303,28 @@ public enum CzIdDataConverter {
             to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
             options: .atomic
         )
+    }
+
+    private static func defaultProvenanceParameters(
+        parsed: CzIdParsedTaxonReport,
+        sampleName: String,
+        outputDirectory: URL,
+        sourceInputURL: URL?,
+        reportURL: URL,
+        reportPayloadURL: URL
+    ) -> [String: ParameterValue] {
+        [
+            "sampleName": .string(sampleName),
+            "czIdSchemaVersion": .string(schemaVersion),
+            "pipelineVersion": parsed.metadata.pipelineVersion.map(ParameterValue.string) ?? .string("unknown"),
+            "ntDatabaseVersion": parsed.metadata.ntDatabaseVersion.map(ParameterValue.string) ?? .string("unknown"),
+            "nrDatabaseVersion": parsed.metadata.nrDatabaseVersion.map(ParameterValue.string) ?? .string("unknown"),
+            "projectId": parsed.metadata.projectId.map(ParameterValue.string) ?? .null,
+            "reportPayload": .file(reportPayloadURL),
+            "sourcePath": sourceInputURL.map(ParameterValue.file) ?? .file(reportURL),
+            "outputDirectory": .file(outputDirectory),
+            "outputDefaults": .string("classification.kreport, classification.czid.tsv, cz-id-manifest.json, classification-result.json"),
+        ]
     }
 
     private static func fileSize(_ url: URL) -> UInt64? {
@@ -408,5 +452,9 @@ private extension FileManager {
 private extension String {
     var normalizedHeaderKey: String {
         lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

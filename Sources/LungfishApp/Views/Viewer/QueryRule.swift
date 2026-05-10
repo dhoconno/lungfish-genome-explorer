@@ -74,7 +74,7 @@ public struct QueryRule: Codable, Sendable, Identifiable {
         case .sampleGenotype:
             let parts = field.split(separator: ".", maxSplits: 1).map(String.init)
             guard parts.count == 2 else { return nil }
-            return "Sample[\(parts[0])].\(parts[1].uppercased())\(op)\(trimmedValue)"
+            return "Sample[\(parts[0])].\(parts[1])\(op)\(trimmedValue)"
         case .infoField:
             return "\(field)\(op)\(trimmedValue)"
         }
@@ -149,7 +149,7 @@ public enum QueryCategory: String, Codable, Sendable, CaseIterable, Identifiable
             if field == "Filter" { return ["="] }
             return ["<", "<=", ">", ">=", "="]
         case .sampleGenotype:
-            if field.uppercased().hasSuffix(".GT") { return ["=", "!="] }
+            if field.hasSuffix(".GT") { return ["=", "!="] }
             return ["<", "<=", ">", ">=", "=", "!="]
         case .infoField:
             return ["=", "~", "<", "<=", ">", ">="]

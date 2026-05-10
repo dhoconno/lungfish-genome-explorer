@@ -44,12 +44,12 @@ By the end of this chapter you will be able to install the NAO-MGS database, run
 
 Lungfish ships four classifiers, and the choice between them is mostly a question of what you are trying to answer. The table below is the short version. Chapters 02, 03, and 04 cover the others in detail.
 
-| Classifier | Best for | Database | Output unit | Time-series aware |
-|---|---|---|---|---|
-| Kraken2 | Broad survey of one sample | k-mer index, 8 to 64 GB | Per-taxon read count | No |
-| EsViritu | Viral content of one sample | Curated viral genomes | Per-virus coverage | No |
-| TaxTriage | Clinical triage of one sample | Pathogen-focused | Ranked candidate hits | No |
-| NAO-MGS | Wastewater surveillance over time | Surveillance-targeted | Per-pathogen relative abundance | Yes |
+| Classifier | Best for | Database | RAM to plan | Output unit | Time-series aware |
+|---|---|---|---|---|---|
+| Kraken2 | Broad survey of one sample | k-mer index, 8 to 64 GB | Database-sized; Viral fits in 16 GB, Standard/PlusPF need more | Per-taxon read count | No |
+| EsViritu | Viral content of one sample | Curated viral genomes, ~5 GB installed | 8 GB for default viral runs | Per-virus coverage | No |
+| TaxTriage | Clinical triage of one sample | Pathogen-focused | 16 to 32 GB for the default clinical profile | Ranked candidate hits | No |
+| NAO-MGS | Wastewater surveillance over time | Surveillance-targeted | 16 to 32 GB for default wastewater runs | Per-pathogen relative abundance | Yes |
 
 The "time-series aware" column is the load-bearing distinction. The other three classifiers do not know that today's sample is the next point in a sequence; NAO-MGS does, because Lungfish stores its outputs as a series keyed by sample date and site.
 
@@ -61,7 +61,7 @@ The "time-series aware" column is the load-bearing distinction. The other three 
 
 2. On the first page, pick the FASTQ bundle for the sample you are classifying. Paired reads are supported. Single-end reads are supported. Mixed runs in the same series are not, so pick one read configuration when you set the series up and stay with it.
 
-3. In the **Database** dropdown, choose your installed NAO-MGS database. If no database is listed, click **Install database** and pick the release you want from the bioconda-hosted index. The first install takes several minutes and writes to `~/.lungfish/conda/nao-mgs/`.
+3. In the **Database** dropdown, choose your installed NAO-MGS database. If no database is listed, click **Install database** and pick the release you want from the bioconda-hosted index. The first install takes several minutes and writes to `~/.lungfish/conda/nao-mgs/`. The database row records the installed version, install date, and update status; use `lungfish conda db list` for the same inventory from the CLI. Plan for 16 to 32 GB of RAM for default wastewater runs, with larger site panels scaling upward.
 
 4. In the **Sample date** field, enter the date the wastewater sample was collected, not the date you are running the analysis. This date is the x-axis position for the result. If you leave it blank, Lungfish uses the FASTQ file's modification date and warns you, which is almost never what you want for archived samples.
 

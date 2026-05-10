@@ -69,6 +69,20 @@ current. You will not need to type a single `conda` command. The
 `lungfish conda` subcommand wraps the bootstrap, the channel configuration,
 and the per-tool environment layout for you.
 
+## System requirements
+
+Plugin packs are supported on macOS 26 Tahoe or later on Apple Silicon
+Macs. A 16 GB Mac can run the default viral, mapping, variant-calling, and
+assembly examples in this manual. Broad metagenomics databases need more
+memory because tools such as Kraken2 load the active database into RAM.
+Keep at least 50 GB of free disk before installing packs; use a larger
+external or shared volume if you plan to install Standard or PlusPF
+classification databases.
+The About window repeats the hardware floor used by the app: macOS 26
+Tahoe or later, Apple Silicon, 16 GB RAM minimum, 32 GB RAM recommended
+for metagenomics and assembly, and 100 GB free disk recommended for a
+working set of tool packs, databases, and projects.
+
 ## The packs you will meet in this manual
 
 The table below lists the packs referenced by later chapters, the tools each
@@ -78,12 +92,14 @@ everything upfront. Install a pack the first time a chapter asks for it.
 | Pack | Tools | Used by |
 |---|---|---|
 | `read-mapping` | minimap2, BWA-MEM2, Bowtie2, BBMap, samtools | Map Reads chapter, Primer Trim chapter |
-| `variant-calling` | iVar, LoFreq, Medaka, bcftools, tabix, bgzip | Variants chapters |
+| `variant-calling` | iVar, LoFreq, Medaka, Clair3, bcftools, tabix, bgzip | Variants chapters |
 | `gatk-core` | GATK4 | Human germline variants dry-run chapters |
+| `phasing` | WhatsHap | Phased variant command plans |
 | `classification-kraken2` | Kraken2, KrakenTools | Kraken2 classification chapter |
 | `classification-esviritu` | EsViritu and its references | EsViritu classification chapter |
 | `classification-taxtriage` | TaxTriage workflow tools | TaxTriage classification chapter |
 | `classification-naomgs` | NAO-MGS pipeline tools | NAO-MGS classification chapter |
+| `wastewater-surveillance` | Freyja | Freyja lineage demixing chapter |
 | `assembly` | SPAdes, MEGAHIT, SKESA, Flye, Hifiasm | Assembly chapters |
 | `read-qc` | fastp | Read QC chapter |
 | `decontamination` | Deacon, RiboDetector | Host decontamination chapter |
@@ -175,6 +191,24 @@ badge.
 
 <!-- planned: plugin-manager-installed -->
 
+### Check database versions and update state
+
+Reference databases are tracked separately from conda environments. The
+Databases tab in Plugin Manager shows each installed database's install
+date, current version, and whether the built-in catalog knows about a
+newer version. The same information is available from the CLI:
+
+```bash
+lungfish conda db list
+lungfish conda db info Standard-8
+```
+
+`db info` prints the database tool, local version, install date, last
+updated date, available update, disk path, disk size, and RAM requirement.
+An "available update" value means the catalog version is newer than the
+installed version; "none" means the local copy matches the current catalog
+or no newer version can be determined.
+
 ## Interpretation
 
 ### What "already installed" means
@@ -223,10 +257,18 @@ export LUNGFISH_CONDA_ROOT=/shared/lungfish/conda
 lungfish conda install --pack read-mapping
 ```
 
-All managed tool lookup paths use the override while it is set. The user
-performing installs still needs write permission to that directory; users
-who only run workflows need read and execute permission for the installed
-environments.
+All managed tool lookup paths use the override while it is set. For a
+shared lab machine, the recommended pattern is:
+
+1. The admin user sets `LUNGFISH_CONDA_ROOT` and installs or updates packs.
+2. The admin leaves the installed root readable and executable by lab users.
+3. Routine users run workflows with the same `LUNGFISH_CONDA_ROOT`, but do
+   not mutate the root.
+
+Conda mutations take an exclusive `.install.lock` in the conda root. A
+second install waits rather than corrupting the shared environment. If a
+routine user tries to install into a read-only admin root, Lungfish stops
+with `conda root is read-only; reinstall as the admin user`.
 
 ## Next
 

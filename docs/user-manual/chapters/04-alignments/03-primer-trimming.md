@@ -111,9 +111,10 @@ Use `File > Import Center > Primer Scheme` to build a project-local
 scheme from a BED file, optional primer FASTA, and optional
 attachments. Lungfish writes `manifest.json`, `primers.bed`, optional
 `primers.fasta`, and `PROVENANCE.md` under
-`Primer Schemes/<name>.lungfishprimers`. There is not currently a
-`lungfish primers import --bed ...` command; CLI workflows consume an
-existing `.lungfishprimers` bundle with `--scheme`.
+`Primer Schemes/<name>.lungfishprimers`. CLI workflows can build the
+same bundle with `lungfish primers import --bed <bed> --fasta <ref>
+--output <name>.lungfishprimers`, then consume the bundle with
+`--scheme`.
 
 See [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes)
 for the layout and import procedure.

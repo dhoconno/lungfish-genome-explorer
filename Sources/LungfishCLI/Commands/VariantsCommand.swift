@@ -8,7 +8,7 @@ struct VariantsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "variants",
         abstract: "Call viral variants from a bundle-owned alignment track",
-        subcommands: [CallSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self]
+        subcommands: [CallSubcommand.self, PhaseSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self]
     )
 
     struct Runtime {
@@ -103,6 +103,10 @@ struct VariantsCommand: AsyncParsableCommand {
             return .ivar
         case .medaka:
             return .medaka
+        case .bcftools:
+            return .bcftools
+        case .clair3:
+            return .clair3
         }
     }
 }
@@ -116,17 +120,15 @@ extension VariantsCommand {
     }
 
     fileprivate static func openDefaultVariantDatabase(bundleURL: URL) throws -> OpenedVariantDatabase {
-        let manifest = try BundleManifest.load(from: bundleURL)
-        guard let track = manifest.variants.first(where: { $0.databasePath != nil }) else {
-            throw CLIError.validationFailed(errors: ["Bundle has no SQLite-backed variant track: \(bundleURL.path)"])
-        }
-        guard let databasePath = track.databasePath else {
-            throw CLIError.validationFailed(errors: ["Variant track '\(track.id)' has no SQLite database path."])
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(BundleManifest.self, from: Data(contentsOf: manifestURL))
+        guard let track = manifest.variants.first(where: { $0.databasePath != nil }),
+              let databasePath = track.databasePath else {
+            throw ValidationError("Bundle does not contain a variant track with a SQLite database.")
         }
         let databaseURL = bundleURL.appendingPathComponent(databasePath)
-        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
-            throw CLIError.inputFileNotFound(path: databaseURL.path)
-        }
         return OpenedVariantDatabase(
             manifest: manifest,
             track: track,
@@ -141,77 +143,269 @@ extension VariantsCommand {
         bundleURL: URL,
         databaseURL: URL,
         outputURL: URL,
-        options: [String: String],
-        startedAt: Date
+        parameters: [String: ParameterValue],
+        startedAt: Date,
+        completedAt: Date
     ) throws {
-        let endedAt = Date()
-        let inputRecords = [
-            fileRecord(url: bundleURL, format: nil, role: .input),
-            fileRecord(url: databaseURL, format: nil, role: .input),
-        ]
-        let outputRecord = fileRecord(url: outputURL, format: .vcf, role: .output)
         let step = StepExecution(
             toolName: workflowName,
             toolVersion: LungfishCLI.configuration.version,
             command: command,
-            inputs: inputRecords,
-            outputs: [outputRecord],
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: bundleURL, role: .input),
+                ProvenanceRecorder.fileRecord(url: databaseURL, role: .input),
+            ],
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: outputURL, format: .vcf, role: .output),
+            ],
             exitCode: 0,
-            wallTime: endedAt.timeIntervalSince(startedAt),
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
             startTime: startedAt,
-            endTime: endedAt
+            endTime: completedAt
         )
-        var parameters = options.reduce(into: [String: ParameterValue]()) { result, pair in
-            result[pair.key] = .string(pair.value)
-        }
-        parameters["bundle"] = .string(bundleURL.path)
-        parameters["database"] = .string(databaseURL.path)
-        parameters["output"] = .string(outputURL.path)
         let run = WorkflowRun(
             name: workflowName,
             startTime: startedAt,
-            endTime: endedAt,
+            endTime: completedAt,
             status: .completed,
+            appVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+            hostOS: WorkflowRun.currentHostOS,
             steps: [step],
             parameters: parameters
         )
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
-        try encoder.encode(run).write(to: outputURL.appendingPathExtension("lungfish-provenance.json"), options: .atomic)
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try encoder.encode(run).write(to: provenanceURL, options: .atomic)
     }
 
-    private static func fileRecord(url: URL, format: FileFormat?, role: FileRole) -> FileRecord {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let size = attrs?[.size] as? UInt64
-        return FileRecord(
-            path: url.path,
-            sha256: ProvenanceRecorder.sha256(of: url),
-            sizeBytes: size,
-            format: format,
-            role: role
+    static func writeCommandPlanProvenance(
+        workflowName: String,
+        workflowVersion: String,
+        command: [String],
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        parameters: [String: ParameterValue],
+        outputDirectory: URL,
+        startedAt: Date,
+        completedAt: Date,
+        exitCode: Int32 = 0,
+        stderr: String? = nil
+    ) throws {
+        let step = StepExecution(
+            toolName: workflowName,
+            toolVersion: workflowVersion,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: stderr,
+            startTime: startedAt,
+            endTime: completedAt
         )
+        let run = WorkflowRun(
+            name: workflowName,
+            startTime: startedAt,
+            endTime: completedAt,
+            status: exitCode == 0 ? .completed : .failed,
+            appVersion: workflowVersion,
+            hostOS: WorkflowRun.currentHostOS,
+            steps: [step],
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run)
+            .write(to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+    }
+
+    struct PhaseSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "phase",
+            abstract: "Construct a phase-aware GATK HaplotypeCaller plus WhatsHap command plan"
+        )
+
+        @Flag(name: .customLong("execute"), help: "Run GATK and WhatsHap through managed tool packs.")
+        var execute: Bool = false
+
+        @Flag(name: .customLong("dry-run"), help: "Write and print the command plan without running tools.")
+        var dryRun: Bool = false
+
+        @Option(name: .customLong("reference"), help: "Reference FASTA path")
+        var reference: String
+
+        @Option(name: .customLong("bam"), help: "Input BAM path")
+        var bam: String
+
+        @Option(name: .customLong("output-vcf"), help: "Final phased VCF path")
+        var outputVCF: String
+
+        @Option(name: .customLong("output-dir"), help: "Command-plan/provenance output directory")
+        var outputDirectory: String?
+
+        @Option(name: .customLong("sample"), help: "Optional sample name passed to WhatsHap")
+        var sampleName: String?
+
+        @Option(name: .customLong("threads"), help: "GATK PairHMM threads")
+        var threads: Int = 1
+
+        @Option(name: .customLong("extra-gatk-args"), parsing: .unconditional, help: "Additional GATK HaplotypeCaller arguments")
+        var extraGATKArgs: String = ""
+
+        @Option(name: .customLong("extra-whatshap-args"), parsing: .unconditional, help: "Additional WhatsHap phase arguments")
+        var extraWhatsHapArgs: String = ""
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse variants phase arguments.")
+            }
+            return parsed
+        }
+
+        func run() async throws {
+            try await executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) async throws {
+            let startedAt = Date()
+            let outputVCFURL = URL(fileURLWithPath: outputVCF)
+            let outputDirURL = URL(fileURLWithPath: outputDirectory ?? outputVCFURL.deletingLastPathComponent().path)
+            try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
+            let plan = try buildPlan(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL)
+            let planURL = outputDirURL.appendingPathComponent("phased-variant-command-plan.json")
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(plan).write(to: planURL, options: .atomic)
+
+            for command in plan.commands {
+                emit(command.shellCommand)
+            }
+
+            if execute && !dryRun {
+                try await runPlan(plan)
+                emit("Phased variant calling complete.")
+            } else {
+                emit("Command plan: \(planURL.path)")
+            }
+
+            let completedAt = Date()
+            try VariantsCommand.writeCommandPlanProvenance(
+                workflowName: plan.workflowName,
+                workflowVersion: plan.workflowVersion,
+                command: ["lungfish", "variants", "phase"] + originalArguments(outputDirURL: outputDirURL, outputVCFURL: outputVCFURL),
+                inputs: plan.inputs,
+                outputs: [ProvenanceRecorder.fileRecord(url: planURL, format: .json, role: .output)] + plan.outputs,
+                parameters: [
+                    "packIDs": .string(plan.packIDs.joined(separator: ",")),
+                    "execute": .string(String(execute && !dryRun)),
+                    "threads": .string(String(max(1, threads))),
+                    "containerRuntime": .string("none"),
+                    "gatkRuntime": .string(plan.runtimeIdentity.gatkCondaEnvironment),
+                    "whatsHapRuntime": .string(plan.runtimeIdentity.whatsHapCondaEnvironment),
+                    "options": .dictionary(plan.options.mapValues { .string($0) }),
+                    "resolvedDefaults": .dictionary(plan.resolvedDefaults.mapValues { .string($0) }),
+                ],
+                outputDirectory: outputDirURL,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        }
+
+        private func buildPlan(outputDirURL: URL, outputVCFURL: URL) throws -> PhasedVariantCallingPlan {
+            PhasedVariantCallingPlan(
+                configuration: PhasedVariantCallingConfiguration(
+                    referenceFASTAURL: URL(fileURLWithPath: reference),
+                    inputBAMURL: URL(fileURLWithPath: bam),
+                    outputVCFURL: outputVCFURL,
+                    outputDirectory: outputDirURL,
+                    threads: threads,
+                    sampleName: sampleName,
+                    extraGATKArguments: try GATKCLICommand.parseExtraArgs(extraGATKArgs),
+                    extraWhatsHapArguments: try GATKCLICommand.parseExtraArgs(extraWhatsHapArgs)
+                ),
+                gatkVersion: GATKCLICommand.defaultToolVersion(),
+                whatsHapVersion: PluginPack.builtInPack(id: "phasing")?
+                    .toolRequirements.first(where: { $0.id == "whatshap" })?.version ?? "unknown",
+                runtimeIdentity: PhasedVariantRuntimeIdentity(
+                    gatkCondaEnvironment: CondaManager.shared.rootPrefix
+                        .appendingPathComponent("envs/gatk-core", isDirectory: true).path,
+                    whatsHapCondaEnvironment: CondaManager.shared.rootPrefix
+                        .appendingPathComponent("envs/phasing", isDirectory: true).path
+                ),
+                workflowVersion: "lungfish-cli \(LungfishCLI.configuration.version)"
+            )
+        }
+
+        private func runPlan(_ plan: PhasedVariantCallingPlan) async throws {
+            for command in plan.commands {
+                let result = try await CondaManager.shared.runTool(
+                    name: command.executable,
+                    arguments: command.arguments,
+                    environment: command.environment,
+                    workingDirectory: nil,
+                    timeout: 24 * 60 * 60
+                )
+                guard result.exitCode == 0 else {
+                    throw CLIError.workflowFailed(reason: result.stderr.isEmpty ? result.stdout : result.stderr)
+                }
+            }
+        }
+
+        private func originalArguments(outputDirURL: URL, outputVCFURL: URL) -> [String] {
+            var args = [
+                "--reference", reference,
+                "--bam", bam,
+                "--output-vcf", outputVCFURL.path,
+                "--output-dir", outputDirURL.path,
+                "--threads", String(max(1, threads)),
+            ]
+            if let sampleName {
+                args += ["--sample", sampleName]
+            }
+            if !extraGATKArgs.isEmpty {
+                args += ["--extra-gatk-args", extraGATKArgs]
+            }
+            if !extraWhatsHapArgs.isEmpty {
+                args += ["--extra-whatshap-args", extraWhatsHapArgs]
+            }
+            if execute {
+                args.append("--execute")
+            }
+            if dryRun {
+                args.append("--dry-run")
+            }
+            return args
+        }
     }
 
     struct ExtractSampleSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "extract-sample",
-            abstract: "Export one sample from a bundle variant track as VCF"
+            abstract: "Extract one sample's variant calls from a bundle variant database"
         )
 
-        @Argument(help: "Path to a .lungfishref bundle with a SQLite variant track")
+        @Argument(help: "Path to a .lungfishref bundle with a variant database")
         var bundlePath: String
 
-        @Option(name: .customLong("sample"), help: "Sample name to export")
-        var sample: String
+        @Option(name: .customLong("sample"), help: "Sample name to extract")
+        var sampleName: String
 
-        @Option(name: .shortAndLong, help: "Output VCF path")
-        var output: String
+        @Option(name: [.short, .customLong("output")], help: "Output VCF path")
+        var outputPath: String
 
         @OptionGroup var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
-            let trimmed = arguments.first == configuration.commandName ? Array(arguments.dropFirst()) : arguments
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
                 throw ValidationError("Failed to parse variants extract-sample arguments.")
             }
@@ -220,47 +414,75 @@ extension VariantsCommand {
 
         func run() async throws {
             try await executeForTesting()
+            if !globalOptions.quiet {
+                print("Wrote sample VCF: \(outputPath)")
+            }
         }
 
         func executeForTesting() async throws {
             let startedAt = Date()
-            let bundleURL = URL(fileURLWithPath: bundlePath)
-            let outputURL = URL(fileURLWithPath: output)
+            let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
+            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
-            guard opened.db.sampleNames().contains(sample) else {
-                throw CLIError.validationFailed(errors: ["Sample '\(sample)' was not found in \(bundlePath)"])
+            guard opened.db.sampleNames().contains(sampleName) else {
+                throw ValidationError("Sample '\(sampleName)' was not found in \(bundleURL.path).")
             }
-            let records = opened.db.queryForTable(sampleNames: [sample], limit: Int.max)
-            try opened.db.writeVCF(records: records, sampleNames: [sample], to: outputURL)
+            let records = opened.db.queryForTable(sampleNames: [sampleName], limit: Int.max)
+            try opened.db.writeVCF(records: records, sampleNames: [sampleName], to: outputURL)
+            let completedAt = Date()
             try VariantsCommand.writeProvenance(
                 workflowName: "lungfish variants extract-sample",
-                command: ["lungfish", "variants", "extract-sample", bundlePath, "--sample", sample, "--output", output],
+                command: commandArgv(bundlePath: bundlePath, sampleName: sampleName, outputPath: outputPath),
                 bundleURL: bundleURL,
                 databaseURL: opened.databaseURL,
                 outputURL: outputURL,
-                options: ["sample": sample, "track": opened.track.id],
-                startedAt: startedAt
+                parameters: [
+                    "bundlePath": .string(bundleURL.path),
+                    "variantTrackID": .string(opened.track.id),
+                    "databasePath": .string(opened.databaseURL.path),
+                    "sample": .string(sampleName),
+                    "outputPath": .string(outputURL.path),
+                    "quiet": .boolean(globalOptions.quiet),
+                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                    "containerRuntime": .string("none"),
+                    "condaEnvironment": .string("none"),
+                ],
+                startedAt: startedAt,
+                completedAt: completedAt
             )
-            if !globalOptions.quiet {
-                print("Exported \(records.count) variants for \(sample) to \(output)")
-            }
+        }
+
+        private func commandArgv(bundlePath: String, sampleName: String, outputPath: String) -> [String] {
+            var argv = [
+                "lungfish", "variants", "extract-sample",
+                bundlePath,
+                "--sample", sampleName,
+                "--output", outputPath,
+                "--format", globalOptions.outputFormat.rawValue,
+            ]
+            if globalOptions.quiet { argv.append("--quiet") }
+            return argv
         }
     }
 
     struct QuerySubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "query",
-            abstract: "Filter a bundle variant track with smart-filter syntax"
+            abstract: "Query bundle variants with a per-sample smart filter"
         )
 
-        @Argument(help: "Path to a .lungfishref bundle with a SQLite variant track")
+        @Argument(help: "Path to a .lungfishref bundle with a variant database")
         var bundlePath: String
 
-        @Option(name: .customLong("filter"), help: "Smart-filter expression, for example Sample[NA12878].GT=1/1")
-        var filter: String
+        @Option(name: .customLong("filter"), help: "Smart filter, e.g. Sample[NA12878].GT=1/1")
+        var filterText: String
 
-        @Option(name: .shortAndLong, help: "Output VCF path")
-        var output: String
+        @Option(name: [.short, .customLong("output")], help: "Output VCF path")
+        var outputPath: String
 
         @Option(name: .customLong("limit"), help: "Maximum variants to export")
         var limit: Int = 5000
@@ -268,7 +490,9 @@ extension VariantsCommand {
         @OptionGroup var globalOptions: GlobalOptions
 
         static func parse(_ arguments: [String]) throws -> Self {
-            let trimmed = arguments.first == configuration.commandName ? Array(arguments.dropFirst()) : arguments
+            let trimmed = arguments.first == configuration.commandName
+                ? Array(arguments.dropFirst())
+                : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
                 throw ValidationError("Failed to parse variants query arguments.")
             }
@@ -277,27 +501,57 @@ extension VariantsCommand {
 
         func run() async throws {
             try await executeForTesting()
+            if !globalOptions.quiet {
+                print("Wrote filtered VCF: \(outputPath)")
+            }
         }
 
         func executeForTesting() async throws {
             let startedAt = Date()
-            let bundleURL = URL(fileURLWithPath: bundlePath)
-            let outputURL = URL(fileURLWithPath: output)
+            let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
+            let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
             let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
-            let records = try opened.db.query(smartFilter: filter, limit: limit)
-            try opened.db.writeVCF(records: records, sampleNames: opened.db.sampleNames(), to: outputURL)
+            let records = try opened.db.query(smartFilter: filterText, limit: limit)
+            try opened.db.writeVCF(records: records, sampleNames: [], to: outputURL)
+            let completedAt = Date()
             try VariantsCommand.writeProvenance(
                 workflowName: "lungfish variants query",
-                command: ["lungfish", "variants", "query", bundlePath, "--filter", filter, "--output", output, "--limit", String(limit)],
+                command: commandArgv(bundlePath: bundlePath, filterText: filterText, outputPath: outputPath),
                 bundleURL: bundleURL,
                 databaseURL: opened.databaseURL,
                 outputURL: outputURL,
-                options: ["filter": filter, "limit": String(limit), "track": opened.track.id],
-                startedAt: startedAt
+                parameters: [
+                    "bundlePath": .string(bundleURL.path),
+                    "variantTrackID": .string(opened.track.id),
+                    "databasePath": .string(opened.databaseURL.path),
+                    "filter": .string(filterText),
+                    "limit": .integer(limit),
+                    "outputPath": .string(outputURL.path),
+                    "quiet": .boolean(globalOptions.quiet),
+                    "outputFormat": .string(globalOptions.outputFormat.rawValue),
+                    "containerRuntime": .string("none"),
+                    "condaEnvironment": .string("none"),
+                ],
+                startedAt: startedAt,
+                completedAt: completedAt
             )
-            if !globalOptions.quiet {
-                print("Exported \(records.count) matching variants to \(output)")
-            }
+        }
+
+        private func commandArgv(bundlePath: String, filterText: String, outputPath: String) -> [String] {
+            var argv = [
+                "lungfish", "variants", "query",
+                bundlePath,
+                "--filter", filterText,
+                "--output", outputPath,
+                "--limit", String(limit),
+                "--format", globalOptions.outputFormat.rawValue,
+            ]
+            if globalOptions.quiet { argv.append("--quiet") }
+            return argv
         }
     }
 
@@ -313,7 +567,7 @@ extension VariantsCommand {
         @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier")
         var alignmentTrackID: String
 
-        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka")
+        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools, clair3")
         var caller: String
 
         @Option(name: [.customLong("name"), .customLong("output-track-name")], help: "Display name for the created variant track")
@@ -328,7 +582,7 @@ extension VariantsCommand {
         @Flag(name: .customLong("ivar-primer-trimmed"), help: "Confirm the BAM was primer-trimmed before iVar calling")
         var ivarPrimerTrimConfirmed: Bool = false
 
-        @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier for Medaka")
+        @Option(name: .customLong("medaka-model"), help: "Required ONT/basecaller model identifier or Clair3 model path")
         var medakaModel: String?
 
         @Option(name: .customLong("ivar-consensus-af"), help: "Allele frequency threshold above which an iVar haplotype counts as consensus (default 0.75)")
@@ -344,9 +598,9 @@ extension VariantsCommand {
         var ivarApplyStrandBias: Bool = false
 
         @Option(
-            name: .customLong("advanced-options"),
+            name: [.customLong("extra-args"), .customLong("advanced-options")],
             parsing: .unconditional,
-            help: "Additional caller options, written exactly as they should be passed to the underlying tool"
+            help: "Additional caller arguments, written exactly as they should be passed to the underlying tool"
         )
         var advancedOptions: String = ""
 
@@ -666,7 +920,7 @@ extension VariantsCommand {
                 command.append("--ivar-no-ignore-strand-bias")
             }
             if !advancedOptions.isEmpty {
-                command.append(contentsOf: ["--advanced-options", advancedOptions])
+                command.append(contentsOf: ["--extra-args", advancedOptions])
             }
             if globalOptions.quiet {
                 command.append("--quiet")
@@ -690,6 +944,7 @@ extension VariantsCommand {
                 "ivarPrimerTrimConfirmed": String(ivarPrimerTrimConfirmed),
                 "medakaModel": medakaModel ?? "",
                 "advancedArguments": advancedArguments.joined(separator: " "),
+                "extraArgs": AdvancedCommandLineOptions.join(advancedArguments),
                 "ivarConsensusAF": String(ivarConsensusAF),
                 "ivarMergeAFThreshold": String(ivarMergeAFThreshold),
                 "ivarBadQualityThreshold": String(ivarBadQualityThreshold),

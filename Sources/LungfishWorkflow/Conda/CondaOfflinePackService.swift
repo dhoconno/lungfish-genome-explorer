@@ -105,6 +105,9 @@ public struct CondaOfflinePackService {
     ) async throws -> CondaOfflinePackExportResult {
         let start = Date()
         let sourceCondaRoot = condaRoot.standardizedFileURL
+        let mutationLock = try CondaRootMutationLock.acquire(root: sourceCondaRoot)
+        defer { mutationLock.release() }
+
         let archiveKind = Self.archiveKind(for: output)
         let outputDirectory = archiveKind == nil
             ? output
@@ -208,6 +211,10 @@ public struct CondaOfflinePackService {
         commandLine: [String]
     ) async throws -> CondaOfflinePackInstallResult {
         let start = Date()
+        let destinationCondaRoot = condaRoot.standardizedFileURL
+        let mutationLock = try CondaRootMutationLock.acquire(root: destinationCondaRoot)
+        defer { mutationLock.release() }
+
         let prepared = try preparePackDirectory(from: packDirectory)
         defer { prepared.cleanup?() }
 
@@ -215,7 +222,7 @@ public struct CondaOfflinePackService {
         let manifestURL = resolvedPackDirectory.appendingPathComponent(Self.manifestFilename)
         let manifest = try readManifest(from: manifestURL)
         try validate(manifest: manifest, in: resolvedPackDirectory)
-        let destinationEnvsRoot = condaRoot.standardizedFileURL.appendingPathComponent("envs", isDirectory: true)
+        let destinationEnvsRoot = destinationCondaRoot.appendingPathComponent("envs", isDirectory: true)
         try fileManager.createDirectory(at: destinationEnvsRoot, withIntermediateDirectories: true)
 
         var installedEnvironments: [URL] = []

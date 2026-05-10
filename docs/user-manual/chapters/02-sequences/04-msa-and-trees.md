@@ -103,7 +103,64 @@ The tree viewport renders a rectangular phylogram by default. Branch length enco
 
 Three things to read off the tree. First, the topology: which tips group with which other tips. For the worked example, you should see Alpha tips form one clade, Delta tips form a separate clade, and Omicron tips form a third clade well separated from the other two by a long internal branch. Second, the support values: numbers at each internal node give the percentage of bootstrap replicates that recovered that exact split. Values above 95 are strong; values below 70 mean the split is uncertain and you should not draw fine-grained conclusions from it. Third, the root: if you set an outgroup, the tree is rooted there; if not, the tree is unrooted and the apparent root position is a display convention only.
 
-The tree viewport's toolbar offers a few controls. `Layout` switches between rectangular, circular, and unrooted radial; rectangular is the most readable for under fifty tips. `Tip labels` toggles label visibility for dense trees. `Support` toggles the numeric support annotations on internal nodes. `Export Newick` writes a plain `.nwk` file alongside the bundle, suitable for FigTree, iTOL, or any other downstream viewer.
+The tree viewport's toolbar offers a few controls. `Layout` switches between a branch-length phylogram and an equal-depth cladogram. `Color` can highlight support values or branch lengths. `Tip labels` can be switched from the original tree labels to a column in `metadata.tsv` when the bundle includes one. Right-click a node or tip to copy labels, copy Newick for a subtree, center the view, reveal provenance, re-root, collapse, or extract a subtree as a new bundle.
+
+## Procedure: re-root a tree
+
+Re-rooting changes where the tree is read from; it does not edit the source bundle. In the tree viewport, right-click the tip or internal node that should become the root and choose `Re-root Here`. Save the result as a new `.lungfishtree` bundle. The new bundle records the source bundle, selected node, resolved options, checksums, file sizes, command line, runtime identity, exit status, wall time, and any useful stderr in `.lungfish-provenance.json`.
+
+The same operation is available from the CLI:
+
+```bash
+lungfish tree reroot \
+  --bundle S-gene-10-isolates.lungfishtree \
+  --on Wuhan-Hu-1 \
+  --output S-gene-10-isolates-rooted.lungfishtree
+```
+
+Use a stable tip label, raw label, or normalized node id for `--on`. If more than one node matches a label, Lungfish reports the ambiguity instead of guessing.
+
+## Procedure: relabel tips from metadata
+
+Tip relabeling is useful when raw FASTA headers are accession-heavy but your analysis needs lineage, host, collection site, or another readable field. Add a tab-separated `metadata.tsv` file at the bundle root with an id column named `id`, `sample`, `sample_id`, `name`, or `tip`, followed by the columns you want to use:
+
+```tsv
+id	lineage	country
+OQ123456	BA.2	USA
+OQ123457	BA.5	Canada
+```
+
+Open the tree bundle and choose the column from the `Tip labels` control. To create a permanent derived bundle from the CLI, run:
+
+```bash
+lungfish tree relabel \
+  --bundle S-gene-10-isolates.lungfishtree \
+  --column lineage \
+  --output S-gene-10-isolates-lineage-labels.lungfishtree
+```
+
+The source bundle is not changed. The derived bundle's provenance includes the metadata file identity and the selected column.
+
+## Procedure: collapse and select tips
+
+For dense trees, right-click an internal node and choose `Collapse Clade`. The viewport keeps the clade available as a single highlighted node; right-click it again and choose `Expand Clade` to restore the full view. Click a tip to select it. Shift-click additional tips to build a highlighted tip set, then right-click and choose `Copy Selected Tip Names` to copy one name per line for downstream filtering or notes.
+
+Collapse and multi-selection are viewport operations. They do not write scientific output and therefore do not create bundle provenance.
+
+## Procedure: extract a subtree
+
+Subtree extraction creates a new `.lungfishtree` bundle containing the selected clade, leaving the source bundle unchanged. In the viewport, right-click an internal node or tip and choose `Extract Subtree as New Bundle...`. Use this when you want to preserve a focused clade with its own manifest, normalized tree, index, and provenance.
+
+The CLI equivalent is:
+
+```bash
+lungfish tree extract-subtree \
+  --bundle S-gene-10-isolates.lungfishtree \
+  --node node-12 \
+  --output Omicron-clade.lungfishtree
+```
+
+For compatibility with older workflows, `lungfish tree export subtree` still writes a plain Newick export plus sidecar provenance. Prefer `extract-subtree` when the result should remain a Lungfish bundle.
 
 ## What this chapter does not cover
 

@@ -377,6 +377,38 @@ final class ReferenceBundleBuilderTests: XCTestCase {
     }
 
     @MainActor
+    func testBuildWithHeaderOnlyGFF3KeepsManifestEntryAndNotesNoAnnotations() async throws {
+        let builder = ReferenceBundleBuilder()
+
+        let fastaURL = tempDirectory.appendingPathComponent("test.fa")
+        try ">chr1\nATCG\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let gffURL = tempDirectory.appendingPathComponent("empty.gff3")
+        try "##gff-version 3\n".write(to: gffURL, atomically: true, encoding: .utf8)
+
+        let outputDir = tempDirectory.appendingPathComponent("output")
+        let config = BuildConfiguration(
+            name: "Empty Annotation Test",
+            identifier: "empty.annotation.test",
+            fastaURL: fastaURL,
+            annotationFiles: [
+                AnnotationInput(url: gffURL, name: "Empty annotations", annotationType: .gene)
+            ],
+            outputDirectory: outputDir,
+            source: SourceInfo(organism: "Test", assembly: "v1"),
+            compressFASTA: false
+        )
+
+        let bundleURL = try await builder.build(configuration: config)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let track = try XCTUnwrap(manifest.annotations.first)
+
+        XCTAssertEqual(track.featureCount, 0)
+        XCTAssertEqual(track.description, "No annotations found in source GFF3")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(track.path).path))
+    }
+
+    @MainActor
     func testBuildWithVariants() async throws {
         let builder = ReferenceBundleBuilder()
 

@@ -700,6 +700,16 @@ public final class MainMenu {
             action: #selector(ToolsMenuActions.showFASTQClassificationOperations(_:)),
             keyEquivalent: ""
         )
+        let lineageDemixingItem = NSMenuItem(title: "Lineage Demixing", action: nil, keyEquivalent: "")
+        let lineageDemixingMenu = NSMenu(title: "Lineage Demixing")
+        let freyjaItem = lineageDemixingMenu.addItem(
+            withTitle: "Freyja\u{2026}",
+            action: #selector(ToolsMenuActions.showFreyjaDemix(_:)),
+            keyEquivalent: ""
+        )
+        freyjaItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.freyjaDemix)
+        lineageDemixingItem.submenu = lineageDemixingMenu
+        fastqOperationsMenu.addItem(lineageDemixingItem)
         fastqOperationsMenu.addItem(.separator())
         fastqOperationsMenu.addItem(
             withTitle: "Reverse Complement Selection",
@@ -722,6 +732,15 @@ public final class MainMenu {
             keyEquivalent: ""
         )
         callVariantsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.callVariants)
+
+        toolsMenu.addItem(.separator())
+
+        let workflowBuilderItem = toolsMenu.addItem(
+            withTitle: "Workflow Builder\u{2026}",
+            action: #selector(ToolsMenuActions.showWorkflowBuilder(_:)),
+            keyEquivalent: ""
+        )
+        workflowBuilderItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowBuilder)
 
         toolsMenu.addItem(.separator())
 
@@ -1017,10 +1036,13 @@ public final class MainMenu {
     func showFASTQMappingOperations(_ sender: Any?)
     func showFASTQAssemblyOperations(_ sender: Any?)
     func showFASTQClassificationOperations(_ sender: Any?)
+    func showFreyjaDemix(_ sender: Any?)
     func showBAMVariantCalling(_ sender: Any?)
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)
+    /// Opens the Workflow Builder window for constructing and running local workflows.
+    func showWorkflowBuilder(_ sender: Any?)
     /// Opens the Plugin Manager window for browsing and installing bioconda tools.
     func showPluginManager(_ sender: Any?)
 }

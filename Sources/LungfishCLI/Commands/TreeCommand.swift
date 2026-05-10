@@ -11,6 +11,9 @@ struct TreeCommand: AsyncParsableCommand {
         subcommands: [
             InferSubcommand.self,
             ExportSubcommand.self,
+            RerootSubcommand.self,
+            ExtractSubtreeSubcommand.self,
+            RelabelSubcommand.self,
         ]
     )
 
@@ -20,7 +23,8 @@ struct TreeCommand: AsyncParsableCommand {
             abstract: "Infer phylogenetic trees from native alignment bundles",
             subcommands: [
                 InferIQTreeSubcommand.self,
-            ]
+            ],
+            defaultSubcommand: InferIQTreeSubcommand.self
         )
     }
 
@@ -221,6 +225,135 @@ struct TreeCommand: AsyncParsableCommand {
         }
     }
 
+    struct RerootSubcommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "reroot",
+            abstract: "Re-root a .lungfishtree bundle and write a new bundle with provenance"
+        )
+
+        @Option(name: .customLong("bundle"), help: "Input .lungfishtree bundle")
+        var bundlePath: String
+
+        @Option(name: .customLong("on"), help: "Tip label, internal node label, or normalized node ID to root on")
+        var selector: String
+
+        @Option(name: .customLong("output"), help: "Output .lungfishtree bundle path")
+        var outputPath: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() throws {
+            try executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) throws {
+            try executeTreeTransform(
+                bundlePath: bundlePath,
+                outputPath: outputPath,
+                toolName: "lungfish tree reroot",
+                argv: canonicalArgv(),
+                globalOptions: globalOptions,
+                emit: emit
+            ) { bundle, outputURL, provenance in
+                try bundle.rerootedBundle(on: selector, to: outputURL, provenance: provenance)
+            }
+        }
+
+        private func canonicalArgv() -> [String] {
+            var argv = ["lungfish", "tree", "reroot", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--on", selector, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            if globalOptions.outputFormat == .json {
+                argv += ["--format", "json"]
+            }
+            return argv
+        }
+    }
+
+    struct ExtractSubtreeSubcommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "extract-subtree",
+            abstract: "Extract a selected clade as a new .lungfishtree bundle with provenance"
+        )
+
+        @Option(name: .customLong("bundle"), help: "Input .lungfishtree bundle")
+        var bundlePath: String
+
+        @Option(name: .customLong("node"), help: "Normalized node ID or unique node label to extract")
+        var node: String
+
+        @Option(name: .customLong("output"), help: "Output .lungfishtree bundle path")
+        var outputPath: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() throws {
+            try executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) throws {
+            try executeTreeTransform(
+                bundlePath: bundlePath,
+                outputPath: outputPath,
+                toolName: "lungfish tree extract-subtree",
+                argv: canonicalArgv(),
+                globalOptions: globalOptions,
+                emit: emit
+            ) { bundle, outputURL, provenance in
+                try bundle.extractSubtreeBundle(nodeID: node, to: outputURL, provenance: provenance)
+            }
+        }
+
+        private func canonicalArgv() -> [String] {
+            var argv = ["lungfish", "tree", "extract-subtree", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--node", node, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            if globalOptions.outputFormat == .json {
+                argv += ["--format", "json"]
+            }
+            return argv
+        }
+    }
+
+    struct RelabelSubcommand: ParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "relabel",
+            abstract: "Relabel tree tips from bundle metadata.tsv and write a new bundle with provenance"
+        )
+
+        @Option(name: .customLong("bundle"), help: "Input .lungfishtree bundle")
+        var bundlePath: String
+
+        @Option(name: .customLong("column"), help: "metadata.tsv column to use for tip labels")
+        var column: String
+
+        @Option(name: .customLong("output"), help: "Output .lungfishtree bundle path")
+        var outputPath: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() throws {
+            try executeForTesting { print($0) }
+        }
+
+        func executeForTesting(emit: @escaping (String) -> Void) throws {
+            try executeTreeTransform(
+                bundlePath: bundlePath,
+                outputPath: outputPath,
+                toolName: "lungfish tree relabel",
+                argv: canonicalArgv(),
+                globalOptions: globalOptions,
+                emit: emit
+            ) { bundle, outputURL, provenance in
+                try bundle.relabeledBundle(column: column, to: outputURL, provenance: provenance)
+            }
+        }
+
+        private func canonicalArgv() -> [String] {
+            var argv = ["lungfish", "tree", "relabel", "--bundle", URL(fileURLWithPath: bundlePath).standardizedFileURL.path, "--column", column, "--output", URL(fileURLWithPath: outputPath).standardizedFileURL.path]
+            if globalOptions.outputFormat == .json {
+                argv += ["--format", "json"]
+            }
+            return argv
+        }
+    }
+
     struct InferIQTreeSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "iqtree",
@@ -272,6 +405,13 @@ struct TreeCommand: AsyncParsableCommand {
             help: "Additional IQ-TREE options, written exactly as they should be passed to IQ-TREE"
         )
         var extraIQTreeOptions: String = ""
+
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional IQ-TREE arguments passed verbatim"
+        )
+        var extraArgs: String = ""
 
         @Option(name: .customLong("iqtree-path"), help: "Override path to iqtree3 executable")
         var iqtreePath: String?
@@ -501,6 +641,9 @@ struct TreeCommand: AsyncParsableCommand {
             if keepIdenticalSequences {
                 argv.append("--keep-identical")
             }
+            if extraArgs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                argv += ["--extra-args", extraArgs]
+            }
             if extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 argv += ["--extra-iqtree-options", extraIQTreeOptions]
             }
@@ -592,7 +735,11 @@ struct TreeCommand: AsyncParsableCommand {
         }
 
         private func parsedAdvancedArguments() throws -> [String] {
-            try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
+            let text = [extraIQTreeOptions, extraArgs]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            return try AdvancedCommandLineOptions.parse(text)
         }
     }
 }
@@ -690,6 +837,102 @@ private final class TreeExportCLIEventEmitter: @unchecked Sendable {
             return
         }
         emitLine(line)
+    }
+}
+
+private final class TreeTransformCLIEventEmitter: @unchecked Sendable {
+    private struct Event: Encodable {
+        let event: String
+        let progress: Double?
+        let message: String?
+        let output: String?
+        let error: String?
+    }
+
+    private let enabled: Bool
+    private let emitLine: (String) -> Void
+    private let lock = NSLock()
+
+    init(enabled: Bool, emit: @escaping (String) -> Void) {
+        self.enabled = enabled
+        self.emitLine = emit
+    }
+
+    func emitStart(message: String) {
+        emit(Event(event: "treeTransformStart", progress: 0, message: message, output: nil, error: nil))
+    }
+
+    func emitProgress(_ progress: Double, message: String) {
+        emit(Event(event: "treeTransformProgress", progress: max(0, min(1, progress)), message: message, output: nil, error: nil))
+    }
+
+    func emitComplete(output: String) {
+        emit(Event(event: "treeTransformComplete", progress: 1, message: nil, output: output, error: nil))
+    }
+
+    func emitFailed(_ message: String) {
+        emit(Event(event: "treeTransformFailed", progress: nil, message: nil, output: nil, error: message))
+    }
+
+    private func emit(_ event: Event) {
+        guard enabled else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(event),
+              let line = String(data: data, encoding: .utf8) else {
+            return
+        }
+        emitLine(line)
+    }
+}
+
+private func executeTreeTransform(
+    bundlePath: String,
+    outputPath: String,
+    toolName: String,
+    argv: [String],
+    globalOptions: GlobalOptions,
+    emit: @escaping (String) -> Void,
+    transform: (PhylogeneticTreeBundle, URL, PhylogeneticTreeBundleTransformProvenance) throws -> PhylogeneticTreeBundle
+) throws {
+    let emitter = TreeTransformCLIEventEmitter(
+        enabled: globalOptions.outputFormat == .json,
+        emit: emit
+    )
+    let bundleURL = URL(fileURLWithPath: bundlePath).standardizedFileURL
+    let outputURL = URL(fileURLWithPath: outputPath).standardizedFileURL
+    emitter.emitStart(message: "Starting tree transform.")
+    do {
+        guard FileManager.default.fileExists(atPath: bundleURL.path) else {
+            throw ValidationError("Input tree bundle not found: \(bundleURL.path)")
+        }
+        guard FileManager.default.fileExists(atPath: outputURL.path) == false else {
+            throw ValidationError("Output bundle already exists: \(outputURL.path)")
+        }
+        try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        emitter.emitProgress(0.25, message: "Loading tree bundle.")
+        let bundle = try PhylogeneticTreeBundle.load(from: bundleURL)
+        emitter.emitProgress(0.65, message: "Writing transformed tree bundle.")
+        _ = try transform(
+            bundle,
+            outputURL,
+            PhylogeneticTreeBundleTransformProvenance(
+                toolName: toolName,
+                argv: argv,
+                command: shellCommand(argv)
+            )
+        )
+        emitter.emitComplete(output: outputURL.path)
+        if globalOptions.outputFormat != .json && !globalOptions.quiet {
+            emit("Wrote tree bundle: \(outputURL.path)")
+            emit("Provenance: \(outputURL.appendingPathComponent(".lungfish-provenance.json").path)")
+        }
+    } catch {
+        emitter.emitFailed(treeCommandErrorDescription(error))
+        try? FileManager.default.removeItem(at: outputURL)
+        throw error
     }
 }
 
@@ -952,7 +1195,9 @@ private func rewriteManifestAndProvenance(
         options["seed"] = String(seed)
     }
     if advancedArguments.isEmpty == false {
-        options["advancedArguments"] = AdvancedCommandLineOptions.join(advancedArguments)
+        let joined = AdvancedCommandLineOptions.join(advancedArguments)
+        options["advancedArguments"] = joined
+        options["extraArgs"] = joined
     }
     if let rows {
         options["rows"] = rows

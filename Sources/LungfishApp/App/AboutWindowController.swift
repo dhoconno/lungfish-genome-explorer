@@ -272,6 +272,12 @@ final class AboutWindowController: NSWindowController {
         appendSecondary("Wisconsin National Primate Research Center")
         appendSecondary("Early testing and feedback")
 
+        // System Requirements
+        appendHeading("System Requirements")
+        for line in HardwareRequirements.aboutLines {
+            appendBody(line)
+        }
+
         // Bundled bootstrap tooling stays separate from the pinned managed pack.
         appendHeading("Bundled Bootstrap")
 

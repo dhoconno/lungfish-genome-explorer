@@ -82,7 +82,7 @@ The `-g` flag is what triggers codon-merge. Without it, iVar emits per-position 
 
 The Lungfish iVar TSV-to-VCF converter examines each iVar TSV row's codon-position and codon-content fields. When two adjacent SNPs share the same codon coordinates, the converter merges them into a single VCF row with multi-base REF and ALT. Position 28881 G→A and position 28882 G→A in the SARS-CoV-2 N gene fall inside codon 203; the merged row reads `28881  GG  AA` rather than two single-base rows.
 
-Position 28883 G→C is in codon 204, so it stays on its own row. The merge is positional (within-codon coordinate boundary) plus content-aware (both rows must read as alternates of the same codon's bases). The merge is not phase-aware: iVar does not know whether the two changes are on the same molecule. The single-row representation makes the codon boundary visible in the table; for haplotype-phased calls you need a tool that consumes phased BAMs (HaplotypeCaller, WhatsHap), which Lungfish does not currently wrap.
+Position 28883 G→C is in codon 204, so it stays on its own row. The merge is positional (within-codon coordinate boundary) plus content-aware (both rows must read as alternates of the same codon's bases). The merge is not phase-aware: iVar does not know whether the two changes are on the same molecule. The single-row representation makes the codon boundary visible in the table. For haplotype-phased calls, use `lungfish variants phase` to build a GATK HaplotypeCaller plus WhatsHap command plan, or choose the GATK+WhatsHap phased lane in the BAM Variant Calling dialog when the `gatk-core` and `phasing` packs are installed.
 
 ## LoFreq variant calling internals
 
@@ -190,17 +190,51 @@ Every operation that produces a file writes a `*.lungfish-provenance.json` sidec
 
 The `steps[]` array decomposes a multi-process pipeline into one entry per process. The `inputs[]` and `outputs[]` arrays carry SHA-256 checksums and byte sizes for every file. When a workflow consumes a sidecar's output later, it reads the same `inputs[]` records and verifies the checksums match what is on disk.
 
+Recent Lungfish builds also preserve `peakMemoryBytes` on a step when the
+runner can observe peak resident memory. Operation rows in the app retain
+wall time and peak RAM while they are visible in the Operations Panel, and
+the persisted provenance sidecars are the long-term record.
+
+To summarize completed operation cost across a project or exported bundle,
+run:
+
+```bash
+lungfish ops stats /path/to/project-or-bundle
+```
+
+The command recursively scans `.lungfish-provenance.json` sidecars,
+ignores failed and cancelled runs, and reports completed run count, total
+wall time, average wall time by operation name, and the largest peak RAM
+value recorded by any step.
+
 ## Plugin pack environment pinning
 
 Plugin packs are versioned recipes for per-tool conda environments. The pack version pins the recipe (which tools, which channel constraints, which compiled-against versions) but does NOT pin every transitive dependency. A re-install of the same pack version six months from now may resolve to slightly different transitive package versions if upstream channels have moved.
 
 For bit-identical reproduction across machines, pair the provenance sidecar with one of:
 
-- An OCI image build (Lungfish exports container images via `lungfish bundle export <bundle> --format container`)
-- A conda lockfile (commit a `conda-lock.yml` alongside the pack manifest)
-- A Snakemake / Nextflow export with the conda environment YAML files included
+- An OCI image artifact from `lungfish bundle export <bundle> --format container --output <bundle>.oci.tar`
+- A conda lockfile from `lungfish conda lock --pack <name> --output lockfile.yml`
+- A Snakemake / Nextflow export with lockfile or container references included
 
 Without one of these, "same plugin pack version" guarantees the same recipe but not the same resolved environment. Clinical validation workflows must use the OCI path; research workflows can usually rely on the pack version alone.
+
+### Conda lockfiles
+
+`lungfish conda lock --pack <name> --output lockfile.yml` writes a
+conda-lock-compatible YAML file for a built-in plugin pack. The lockfile
+contains the pack ID, channels, platforms, content hash, and one package
+record per pinned requirement. Reinstall with:
+
+```bash
+lungfish conda install --from-lockfile lockfile.yml
+```
+
+Both commands write `.lungfish-provenance.json` next to their output or conda
+root. The lock provenance records the exact command, pack identity, resolved
+channels and platforms, output path, runtime identity, exit status, and wall
+time. The install provenance records the lockfile input, destination conda
+root, installed environment names, command line, exit status, and wall time.
 
 ## Determinism and reproducibility caveats
 
@@ -239,7 +273,7 @@ Lungfish supports two container runtimes for pinned-environment execution.
 | Apple Containers | macOS 26+, arm64 | Default on supported Macs; lower overhead, native filesystem access |
 | Docker | macOS, Linux, cross-platform | Portable across teams with mixed environments |
 
-The `lungfish bundle export <bundle> --format container` command produces an OCI image with every plugin pack baked in at content-addressed digests. The exported image is reproducible: a re-pull of the same digest produces the exact same environment. Pair this with a Nextflow export to get a reproducible pipeline that survives across machines and time.
+The `lungfish bundle export <bundle> --format container --output <image>.oci.tar` command produces a deterministic OCI-layout tarball with bundle payload files, pinned plugin pack metadata, `oci-layout`, `index.json`, manifest, config, layer tar, and `.lungfish-provenance.json`. When a real image builder is available, the same CLI surface can wrap that runtime; test and offline builds still emit the deterministic OCI layout rather than a documentation-only placeholder. Pair this with a Nextflow export to get a reproducible pipeline that survives across machines and time.
 
 ## Multi-threading and chunking
 

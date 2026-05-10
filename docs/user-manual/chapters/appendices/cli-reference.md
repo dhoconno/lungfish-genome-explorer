@@ -74,15 +74,26 @@ Bring local files into a project.
 
 Imports a FASTA, GenBank, or GFF3+FASTA pair as a reference bundle.
 
-`lungfish import-fastq --project <path> --files <fastq...>`
+`lungfish import fastq <fastq-or-folder...> --project <path>`
 
 Imports FASTQ files into the project's `Imports/` folder. Auto-pairs files with `_1`/`_2` or `_R1`/`_R2` suffixes.
 
 ```bash
-lungfish import-fastq \
+lungfish import fastq \
+    SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     --project ~/Documents/MyProject \
-    --files SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz
+    --platform illumina
 ```
+
+`lungfish import fastq --samplesheet <csv> --project <path>`
+
+Imports a paired Illumina CSV sample sheet with `sample`, `r1`, and `r2`
+columns. Extra columns become per-bundle metadata, and each bundle's
+provenance records the sample-sheet checksum plus the resolved per-sample
+FASTQ paths.
+
+`lungfish import-fastq --samplesheet <csv> --project <path>` is an alias for
+the same command.
 
 `lungfish import vcf <path> [--reference <bundle>]`
 
@@ -113,6 +124,20 @@ lungfish bundle create \
 
 Lists every reference bundle in the project's `Reference Sequences/` folder.
 
+`lungfish bundle export <bundle> --format container --output <image.oci.tar> [--plugin-pack <name>...]`
+
+Exports a deterministic OCI-layout tarball for a bundle. The artifact contains
+the bundle payload, pinned plugin-pack metadata, OCI manifest/config/layer
+files, and `.lungfish-provenance.json`.
+
+```bash
+lungfish bundle export MN908947.3.lungfishref \
+    --format container \
+    --output MN908947.3.oci.tar \
+    --plugin-pack read-mapping \
+    --plugin-pack variant-calling
+```
+
 `lungfish extract-annotations --bundle <bundle> --track <id> --output <path>`
 
 Extracts annotation features from a bundle as a new FASTA bundle.
@@ -121,14 +146,15 @@ Extracts annotation features from a bundle as a new FASTA bundle.
 
 Map reads to a reference and prepare alignments for variant calling.
 
-`lungfish map <fastq...> --reference <path> [--paired] [--preset <preset>] [--sample-name <name>] [-o <dir>]`
+`lungfish map <fastq...> --reference <path> [--paired] [--preset <preset>] [--sample-name <name>] [--rg-id <id>] [--rg-sm <sample>] [--rg-lb <library>] [--rg-pl <platform>] [--rg-pu <unit>] [--extra-args <args>] [-o <dir>]`
 
-Runs the configured mapper (default minimap2). `--preset` accepts `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi). `-o` names the output directory.
+Runs the configured mapper (default minimap2). `--preset` accepts `sr` (Illumina short reads), `map-ont` (Nanopore), `map-hifi` (PacBio HiFi). Read-group fields default to the sample name, except `--rg-pl`, which defaults from the selected preset. `--extra-args` passes additional mapper arguments through verbatim. `-o` names the output directory.
 
 ```bash
 lungfish map SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     --reference MN908947.3.fasta \
     --paired --preset sr --sample-name SRR36291587 \
+    --extra-args "--eqx" \
     -o mapping/
 ```
 
@@ -152,15 +178,17 @@ Marks duplicates with samtools markdup.
 
 Run variant callers against an alignment track.
 
-`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka> [--ivar-primer-trimmed] [--min-af <float>] [--name <name>]`
+`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka|bcftools> [--ivar-primer-trimmed] [--min-af <float>] [--extra-args <args>] [--name <name>]`
 
 | Flag | Meaning |
 |---|---|
 | `--caller ivar` | Run iVar (default for amplicon). Requires primer-trimmed BAM. |
 | `--caller lofreq` | Run LoFreq (designed for shotgun). Run on un-trimmed BAM. |
 | `--caller medaka` | Run Medaka (designed for ONT). Requires `--medaka-model`. |
+| `--caller bcftools` | Run `bcftools mpileup -Ou | bcftools call -mv -Ov` as an orthogonal short-read cross-check. |
 | `--ivar-primer-trimmed` | Acknowledge that the BAM is primer-trimmed (auto-set when sidecar present). |
 | `--min-af <float>` | Minimum allele frequency threshold (iVar default: 0.05). |
+| `--extra-args <args>` | Additional caller options forwarded to the selected caller. For bcftools, these are passed to `bcftools call`. |
 | `--name <name>` | Output track name. |
 
 ```bash
@@ -171,6 +199,15 @@ lungfish variants call \
     --ivar-primer-trimmed \
     --min-af 0.05 \
     --name "iVar variants"
+```
+
+```bash
+lungfish variants call \
+    --bundle MN908947.3.lungfishref \
+    --alignment-track <id> \
+    --caller bcftools \
+    --extra-args "--ploidy 1" \
+    --name "bcftools variants"
 ```
 
 ## Classification
@@ -205,17 +242,19 @@ Extracts reads assigned to a taxon as a new FASTQ bundle.
 
 Run de novo assemblers.
 
-`lungfish assemble --tool <tool> --reads <fastq...> [--mode <mode>] [--genome-size <size>] [--output <path>]`
+`lungfish assemble <fastq...> [--assembler <tool>] [--read-type <type>] [--profile <profile>] [--extra-args <args>] [--output <path>]`
 
 | Flag | Values | Meaning |
 |---|---|---|
-| `--tool` | `spades`, `megahit`, `skesa`, `flye`, `hifiasm` | Assembler to run |
-| `--mode` | `isolate`, `viral`, `plasmid`, `meta`, `rna` | SPAdes mode (ignored by other tools) |
-| `--genome-size` | `30k`, `5m`, etc. | Hint for Flye coverage estimation |
+| `--assembler` | `spades`, `megahit`, `skesa`, `flye`, `hifiasm` | Assembler to run |
+| `--read-type` | `illumina-short-reads`, `ont-reads`, `pacbio-hifi` | Read class for compatibility checks |
+| `--profile` | Tool-specific profile IDs | Curated assembler settings |
+| `--extra-args` | Quoted argument string | Additional assembler arguments passed through verbatim |
 
 ```bash
-lungfish assemble --tool spades --mode viral \
-    --reads SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
+lungfish assemble SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
+    --assembler spades --read-type illumina-short-reads \
+    --extra-args "--careful" \
     --output Assemblies/
 ```
 
@@ -268,6 +307,10 @@ lungfish workflow run nf-core/viralrecon \
 
 Useful viralrecon flags include `--results-dir`, `--version`, `--workdir`, `--param key=value`, `--cpus`, `--memory`, `--resume`, `--dry-run`, and `--prepare-only`. See [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md).
 
+`lungfish run-headless <workflow>`
+
+Runs `lungfish workflow run --quiet <workflow>` as a discoverable CI-friendly alias. Use `workflow run` directly when you need input, executor, parameter, or bundle flags. See [Running in CI](06-running-in-ci.md).
+
 `lungfish workflow list`
 
 Lists workflows in the project.
@@ -276,6 +319,12 @@ Lists workflows in the project.
 
 Validates a workflow file without running it.
 
+`lungfish workflow diff <old.lungfishflow> <new.lungfishflow> [--format text|json|tsv]`
+
+Compares two saved workflow JSON files or `.lungfishflow` bundles. The diff
+reports version changes, added or removed nodes, node parameter changes, and
+connection changes.
+
 ## Plugin packs
 
 Manage tool dependencies through Lungfish's conda wrapper.
@@ -283,6 +332,15 @@ Manage tool dependencies through Lungfish's conda wrapper.
 `lungfish conda install --pack <name>...`
 
 Installs one or more plugin packs into `~/.lungfish/conda`.
+
+`lungfish conda lock --pack <name> --output <lockfile.yml>`
+
+Writes a conda-lock-compatible lockfile for a built-in plugin pack.
+
+`lungfish conda install --from-lockfile <lockfile.yml>`
+
+Recreates the environments pinned in a lockfile without resolving fresh
+package versions. The install writes provenance to the conda root.
 
 `lungfish conda list`
 
@@ -307,6 +365,14 @@ Reads Lungfish provenance from a bundle or output directory, preferring the root
 ```bash
 lungfish provenance bibliography MN908947.3.lungfishref
 ```
+
+`lungfish provenance verify <file-or-bundle> [--signature <path>] [--public-key <path>]`
+
+Verifies a signed provenance sidecar. By default Lungfish expects
+`<sidecar>.signature.json` and `<sidecar>.pub` beside the sidecar. Verification
+fails if the sidecar, signature, or public key is missing, if the provenance
+digest changed after signing, or if the public key does not match the
+signature artifact.
 
 Runnable workflow exports are generated from the app's workflow export surface. There is not currently a `lungfish provenance show` command; inspect the sidecar or bundle provenance roll-up directly, or use the bibliography subcommand above when you need citations.
 

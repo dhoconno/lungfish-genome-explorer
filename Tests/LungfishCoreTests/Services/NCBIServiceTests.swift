@@ -26,6 +26,86 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(ids, ["12345", "67890", "11111"])
     }
 
+    func testESearchRetriesTransientBackendErrorPayload() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: NCBIRetryPolicy(
+                enabled: true,
+                maxRetries: 2,
+                initialBackoffSeconds: 0.01,
+                maxBackoffSeconds: 0.01
+            ),
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "esearch.fcgi",
+            responses: [
+                .json([
+                    "esearchresult": [
+                        "ERROR": "Search Backend failed: Couldn't resolve #pmquerysrv-mz?dbaf=nuccore, the address table is empty."
+                    ]
+                ]),
+                .json([
+                    "esearchresult": [
+                        "count": "1",
+                        "retmax": "1",
+                        "retstart": "0",
+                        "idlist": ["9629357"]
+                    ]
+                ]),
+            ]
+        )
+
+        let ids = try await service.esearch(database: .nucleotide, term: "NC_001802", retmax: 1)
+
+        XCTAssertEqual(ids, ["9629357"])
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        let recordedDelays = await retryDelays.values
+        XCTAssertEqual(recordedDelays, [0.01])
+    }
+
+    func testESearchRetriesTransientMalformedJSONPayload() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: NCBIRetryPolicy(
+                enabled: true,
+                maxRetries: 2,
+                initialBackoffSeconds: 0.01,
+                maxBackoffSeconds: 0.01
+            ),
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "esearch.fcgi",
+            responses: [
+                .text(#"{"esearchresult":{"count":"1","idlist":["#),
+                .json([
+                    "esearchresult": [
+                        "count": "1",
+                        "retmax": "1",
+                        "retstart": "0",
+                        "idlist": ["9629357"]
+                    ]
+                ]),
+            ]
+        )
+
+        let ids = try await service.esearch(database: .nucleotide, term: "NC_001802", retmax: 1)
+
+        XCTAssertEqual(ids, ["9629357"])
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        let recordedDelays = await retryDelays.values
+        XCTAssertEqual(recordedDelays, [0.01])
+    }
+
     func testESearchEmptyResults() async throws {
         await mockClient.registerNCBISearch(ids: [])
 
@@ -229,6 +309,42 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(results.records[1].accession, "AB456.1")
     }
 
+    func testSearchFallsBackToDirectFetchForExactAccessionWhenESearchIsEmpty() async throws {
+        await mockClient.registerSequence(
+            pattern: "esearch.fcgi",
+            responses: [
+                .json([
+                    "esearchresult": [
+                        "count": "0",
+                        "retmax": "1",
+                        "retstart": "0",
+                        "idlist": []
+                    ]
+                ])
+            ]
+        )
+
+        let gbContent = """
+        LOCUS       NC_001802              9181 bp    RNA     linear   VRL
+        ACCESSION   NC_001802
+        VERSION     NC_001802.1
+        DEFINITION  Human immunodeficiency virus 1, complete genome.
+        SOURCE      Human immunodeficiency virus 1
+          ORGANISM  Human immunodeficiency virus 1
+        ORIGIN
+                1 atgggtgcga
+        //
+        """
+        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
+
+        let results = try await service.search(SearchQuery(term: "NC_001802", limit: 1))
+
+        XCTAssertEqual(results.totalCount, 1)
+        XCTAssertEqual(results.records.count, 1)
+        XCTAssertEqual(results.records.first?.accession, "NC_001802")
+        XCTAssertEqual(results.records.first?.title, "Human immunodeficiency virus 1, complete genome.")
+    }
+
     // MARK: - Fetch Tests (DatabaseService Protocol)
 
     func testFetchReturnsRecord() async throws {
@@ -252,6 +368,28 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(record.accession, "NC_002549")
         XCTAssertEqual(record.source, .ncbi)
         XCTAssertFalse(record.sequence.isEmpty)
+    }
+
+    func testFetchUsesAccessionEFetchBeforeSearching() async throws {
+        let gbContent = """
+        LOCUS       NC_002549              18959 bp    RNA     linear   VRL
+        ACCESSION   NC_002549
+        VERSION     NC_002549.1
+        DEFINITION  Zaire ebolavirus, complete genome.
+        ORIGIN
+                1 atggatgact
+        //
+        """
+        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
+
+        let record = try await service.fetch(accession: "NC_002549.1")
+
+        XCTAssertEqual(record.accession, "NC_002549")
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let url = try XCTUnwrap(requests.first?.url?.absoluteString)
+        XCTAssertTrue(url.contains("efetch.fcgi"))
+        XCTAssertTrue(url.contains("id=NC_002549.1"))
     }
 
     // MARK: - Rate Limiting Tests
@@ -289,6 +427,37 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(retryEvents.map(\.maxRetries), [5, 5])
         XCTAssertEqual(retryEvents.map(\.statusCode), [429, 429])
         XCTAssertEqual(retryEvents.map(\.delaySeconds), [5, 10])
+    }
+
+    func testEFetchRetriesTransientHTTP400ProxyStreamBody() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: NCBIRetryPolicy(
+                enabled: true,
+                maxRetries: 2,
+                initialBackoffSeconds: 0.01,
+                maxBackoffSeconds: 0.01
+            ),
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "efetch.fcgi",
+            responses: [
+                .text("+Error%3A+CEFetchPApplication%3A%3Aproxy_stream()%3A+OIA%3C%2Fa%3E%3Cbr%3E", statusCode: 400),
+                .text(">NC_001802.1\nACGT\n"),
+            ]
+        )
+
+        let data = try await service.efetch(database: .nucleotide, ids: ["NC_001802"], format: .fasta)
+
+        XCTAssertEqual(String(data: data, encoding: .utf8), ">NC_001802.1\nACGT\n")
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        let recordedDelays = await retryDelays.values
+        XCTAssertEqual(recordedDelays, [0.01])
     }
 
     func testEFetchDoesNotRetryHTTP429WhenRetryPolicyDisabled() async throws {
@@ -441,6 +610,30 @@ final class NCBIServiceTests: XCTestCase {
         // Verify accession is extracted (uses VERSION line which includes version number)
         XCTAssertTrue(result.accession == "NC_002549.1" || result.accession == "NC_002549",
                       "Accession should be extracted from GenBank content")
+    }
+
+    func testFetchRawGenBankUsesAccessionEFetchBeforeSearching() async throws {
+        let gbContent = """
+        LOCUS       NC_002549              18959 bp    RNA     linear   VRL 01-JAN-2024
+        DEFINITION  Zaire ebolavirus, complete genome.
+        ACCESSION   NC_002549
+        VERSION     NC_002549.1
+        FEATURES             Location/Qualifiers
+             source          1..18959
+        ORIGIN
+                1 atggatgact ctcgagaagt
+        //
+        """
+        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
+
+        let result = try await service.fetchRawGenBank(accession: "NC_002549.1")
+
+        XCTAssertTrue(result.content.contains("FEATURES"))
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1)
+        let url = try XCTUnwrap(requests.first?.url?.absoluteString)
+        XCTAssertTrue(url.contains("efetch.fcgi"))
+        XCTAssertTrue(url.contains("id=NC_002549.1"))
     }
 
     func testFetchRawGenBankNotFound() async throws {

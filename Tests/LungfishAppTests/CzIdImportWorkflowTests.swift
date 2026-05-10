@@ -7,6 +7,65 @@ import LungfishWorkflow
 @testable import LungfishApp
 
 final class CzIdImportWorkflowTests: XCTestCase {
+    func testProjectImportWorkflowWritesClassificationBundleWithFirstClassProvenance() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let sourceURL = tempDir.appendingPathComponent("source report.tsv")
+        try czIdReportText().write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let imported = try await CzIdProjectImportWorkflow.importFromURL(
+            sourceURL,
+            projectURL: projectURL,
+            sampleName: "GUI Sample 01"
+        )
+
+        let bundleURL = projectURL
+            .appendingPathComponent("Classifications", isDirectory: true)
+            .appendingPathComponent("GUI-Sample-01.lungfishtax", isDirectory: true)
+        XCTAssertEqual(imported.bundleURL.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("classification.czid.tsv").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("classification-result.json").path))
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(step.toolName, "lungfish import cz-id")
+        XCTAssertEqual(step.command, [
+            "lungfish",
+            "import",
+            "cz-id",
+            sourceURL.path,
+            "--project",
+            projectURL.standardizedFileURL.path,
+            "--sample-name",
+            "GUI Sample 01",
+        ])
+        XCTAssertFalse(step.command.joined(separator: " ").contains("cz-id import"))
+        XCTAssertFalse(step.command.contains("--output-dir"))
+        XCTAssertEqual(provenance.parameters["outputBundle"]?.fileValue?.standardizedFileURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL, bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL)
+    }
+
+    func testProjectImportWorkflowUsesPreviewSampleNameWhenNotProvided() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let sourceURL = tempDir.appendingPathComponent("taxon_report.tsv")
+        try czIdReportText().write(to: sourceURL, atomically: true, encoding: .utf8)
+
+        let imported = try await CzIdProjectImportWorkflow.importFromURL(sourceURL, projectURL: projectURL)
+
+        XCTAssertEqual(imported.sampleName, "Sample-CZ-001")
+        XCTAssertEqual(imported.bundleURL.lastPathComponent, "Sample-CZ-001.lungfishtax")
+    }
+
     func testPreviewDetectsExtractedFolderReportAndSummarizesSample() async throws {
         let tempDir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -84,6 +143,42 @@ final class CzIdImportWorkflowTests: XCTestCase {
 
         let outputs = try XCTUnwrap(firstStep["outputs"] as? [[String: Any]])
         XCTAssertTrue(outputs.contains { ($0["path"] as? String) == finalPayloadURL.path })
+    }
+
+    func testZipConversionProvenanceParametersDoNotRecordTemporaryExtractionPath() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let extractedDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("czid-preview-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: extractedDir, withIntermediateDirectories: true)
+        let reportURL = extractedDir.appendingPathComponent("taxon_report.tsv")
+        try czIdReportText().write(to: reportURL, atomically: true, encoding: .utf8)
+        let archiveURL = tempDir.appendingPathComponent("czid-export.zip")
+        try Data("archive bytes".utf8).write(to: archiveURL)
+        let outputDirectory = tempDir.appendingPathComponent("zip-import.lungfishtax", isDirectory: true)
+
+        _ = try CzIdDataConverter.convertTaxonReport(
+            at: reportURL,
+            outputDirectory: outputDirectory,
+            command: ["lungfish", "import", "cz-id", archiveURL.path, "--project", tempDir.path, "--sample-name", "Zip Sample"],
+            sourceInputURL: archiveURL,
+            sampleNameOverride: "Zip Sample",
+            provenanceToolName: "lungfish import cz-id"
+        )
+
+        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
+        let parameterPaths = provenance.parameters.values.compactMap(\.fileValue).map(\.path)
+        XCTAssertFalse(parameterPaths.contains { $0.contains("/czid-preview-") }, parameterPaths.joined(separator: "\n"))
+        XCTAssertEqual(
+            provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL,
+            outputDirectory.appendingPathComponent("classification.czid.tsv").standardizedFileURL
+        )
+        XCTAssertEqual(provenance.parameters["sourcePath"]?.fileValue?.standardizedFileURL, archiveURL.standardizedFileURL)
     }
 
     @MainActor

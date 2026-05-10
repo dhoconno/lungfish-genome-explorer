@@ -6,6 +6,31 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testBuildInvocationRoutesCombinedFastpTrimToFastqTrimCommand() throws {
+        let service = FASTQOperationExecutionService()
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+
+        let invocation = try service.buildInvocation(
+            for: .derivative(
+                request: .fastpTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    adapterMode: .autoDetect,
+                    adapterSequence: nil
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments.first, "trim")
+        XCTAssertTrue(invocation.arguments.contains("--adapter-trimming"))
+        XCTAssertTrue(invocation.arguments.contains("--threshold"))
+        XCTAssertTrue(invocation.arguments.contains("--window"))
+    }
+
     func testExecuteDerivativeDiscoversStagedFASTQFileAndImportsIt() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -1045,7 +1070,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--memory-gb", "24",
                 "--min-contig-length", "1000",
                 "--profile", "meta-sensitive",
-                "--advanced-options", "--k-min 21",
+                "--extra-args", "--k-min 21",
             ]
         )
     }
@@ -1079,7 +1104,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 "--threads", "8",
                 "--output", "<derived>",
                 "--profile", "haploid-viral",
-                "--advanced-options", "--primary",
+                "--extra-args", "--primary",
             ]
         )
         XCTAssertFalse(invocation.arguments.contains("--n-hap"))
@@ -1475,6 +1500,38 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "-o",
             "<derived>",
         ])
+    }
+
+    func testQualityTrimInvocationIncludesExtraArgs() throws {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .qualityTrim(
+                threshold: 20,
+                windowSize: 4,
+                mode: .cutRight,
+                extraArguments: ["--length_required", "75"]
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/input.fastq")],
+            outputMode: .perInput
+        )
+
+        let invocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(Array(invocation.arguments.suffix(2)), ["--extra-args", "--length_required 75"])
+    }
+
+    func testClassificationInvocationIncludesExtraArgs() throws {
+        let baseInput = [URL(fileURLWithPath: "/tmp/input.fastq")]
+
+        let kraken2 = try FASTQOperationExecutionService().buildInvocation(
+            for: .classify(
+                tool: .kraken2,
+                inputURLs: baseInput,
+                databaseName: "kraken-db",
+                extraArguments: ["--minimum-base-quality", "20"]
+            )
+        )
+
+        XCTAssertEqual(Array(kraken2.arguments.suffix(2)), ["--extra-args", "--minimum-base-quality 20"])
     }
 
     func testDerivativeLaunchRejectsAdapterRequestsThatNeedMultipleAdapterShapes() {

@@ -410,7 +410,9 @@ public actor EsVirituPipeline {
                 outputDirectory: safeOutputDir,
                 databasePath: config.databasePath,
                 qualityFilter: config.qualityFilter,
-                threads: config.threads
+                minReadLength: config.minReadLength,
+                threads: config.threads,
+                extraArguments: config.extraArguments
             )
             logger.info("Created symlinks to avoid spaces in paths: \(symlinkPaths.map(\.lastPathComponent))")
         }
@@ -424,6 +426,7 @@ public actor EsVirituPipeline {
                 "qualityFilter": .boolean(config.qualityFilter),
                 "threads": .integer(config.threads),
                 "pairedEnd": .boolean(config.isPairedEnd),
+                "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
             ]
         )
 

@@ -189,7 +189,8 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertEqual(params["memoryGB"], .int(32))
         XCTAssertEqual(params["minContigLength"], .int(500))
         XCTAssertEqual(params["careful"], .bool(true))
-        XCTAssertEqual(params["advancedOptions"], .string("--phred-offset 33 --label 'sample 1'"))
+        XCTAssertEqual(params["extraArgs"], .string("--phred-offset 33 --label 'sample 1'"))
+        XCTAssertNil(params["advancedOptions"])
 
         // Paths and raw custom args must not appear
         XCTAssertNil(params["forwardReads"])
@@ -236,7 +237,8 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertEqual(params["sampleName"], .string("ONT_Run1"))
         XCTAssertEqual(params["threads"], .int(8))
         XCTAssertEqual(params["isPairedEnd"], .bool(false))
-        XCTAssertEqual(params["advancedOptions"], .string("-A 2 --tag 'sample 1'"))
+        XCTAssertEqual(params["extraArgs"], .string("-A 2 --tag 'sample 1'"))
+        XCTAssertNil(params["advancedOptions"])
 
         // Paths must not appear
         XCTAssertNil(params["inputFiles"])
@@ -244,7 +246,7 @@ final class ConfigSummaryParametersTests: XCTestCase {
         XCTAssertNil(params["outputDirectory"])
     }
 
-    func testMappingRunRequestSummaryIncludesAdvancedOptions() {
+    func testMappingRunRequestSummaryIncludesExtraArgsAndReadGroupParameters() {
         let request = MappingRunRequest(
             tool: .bbmap,
             modeID: MappingMode.bbmapStandard.id,
@@ -252,6 +254,13 @@ final class ConfigSummaryParametersTests: XCTestCase {
             referenceFASTAURL: URL(fileURLWithPath: "/ref/genome.fasta"),
             outputDirectory: URL(fileURLWithPath: "/output"),
             sampleName: "Sample1",
+            readGroup: MappingReadGroup(
+                id: "rg-1",
+                sampleName: "sample-rg",
+                library: "library-rg",
+                platform: "ILLUMINA",
+                platformUnit: "unit-rg"
+            ),
             pairedEnd: false,
             threads: 4,
             advancedArguments: ["minid=0.97", "idtag=sample 1"]
@@ -259,7 +268,14 @@ final class ConfigSummaryParametersTests: XCTestCase {
 
         let params = request.summaryParameters()
 
-        XCTAssertEqual(params["advancedOptions"], .string("minid=0.97 'idtag=sample 1'"))
+        XCTAssertEqual(params["extraArgs"], .string("minid=0.97 'idtag=sample 1'"))
+        XCTAssertNil(params["advancedOptions"])
+        XCTAssertEqual(params["readGroup.id"], .string("rg-1"))
+        XCTAssertEqual(params["readGroup.sm"], .string("sample-rg"))
+        XCTAssertEqual(params["readGroup.lb"], .string("library-rg"))
+        XCTAssertEqual(params["readGroup.pl"], .string("ILLUMINA"))
+        XCTAssertEqual(params["readGroup.pu"], .string("unit-rg"))
+        XCTAssertNil(params["readGroupID"])
         XCTAssertNil(params["inputFASTQURLs"])
         XCTAssertNil(params["referenceFASTAURL"])
         XCTAssertNil(params["outputDirectory"])

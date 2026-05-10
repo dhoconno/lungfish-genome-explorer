@@ -69,19 +69,23 @@ For the drag-drop path, drag a `.vcf` or `.vcf.gz` from Finder onto the sidebar.
 
 For the CLI path, run `lungfish import vcf <path-to-vcf> --project <path-to-project>`. Pass `--reference <bundle-name>` to skip inference and force a specific bundle.
 
-After import, two `variants` CLI helpers work directly against the bundle's SQLite variant store:
+After import, the `lungfish variants` CLI can extract or filter the bundle-owned variant database without reopening the app. To write one sample's calls:
 
 ```bash
-lungfish variants extract-sample MN908947.3.lungfishref \
+lungfish variants extract-sample ./Project.lungfish/References/Cohort.lungfishref \
   --sample NA12878 \
   --output NA12878.vcf
+```
 
-lungfish variants query MN908947.3.lungfishref \
+To export a smart-filtered subset:
+
+```bash
+lungfish variants query ./Project.lungfish/References/Cohort.lungfishref \
   --filter "Sample[NA12878].GT=1/1" \
   --output NA12878-hom-alt.vcf
 ```
 
-The query command accepts the same per-sample smart filters as the browser, including `Sample[NA12878].AF>=0.5`, `Sample[NA12878].DP>=30`, `count(Sample[*].GT=1/1) >= 5`, and `Sample[NA12878].GT != Sample[NA12879].GT`. Each export writes a matching `.lungfish-provenance.json` sidecar next to the VCF with the command, bundle path, database path, options, checksums, file sizes, exit status, and wall time.
+The query filter accepts the same per-sample syntax as the browser, including `Sample[NA12878].AF>=0.5`, `Sample[NA12878].DP>=30`, `count(Sample[*].GT=1/1) >= 5`, and `Sample[NA12878].GT != Sample[NA12879].GT`. Both commands write a `.lungfish-provenance.json` sidecar beside the output VCF with the command, options, bundle path, database path, output checksum, exit status, and wall time.
 
 ## Worked example
 

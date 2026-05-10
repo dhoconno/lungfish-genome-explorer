@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import CryptoKit
 import LungfishWorkflow
 import UniformTypeIdentifiers
 import os.log
@@ -10,6 +11,25 @@ import LungfishCore
 
 /// Logger for workflow builder operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "WorkflowBuilderViewController")
+
+private struct WorkflowBundleProvenance: Codable {
+    let toolName: String
+    let toolVersion: String
+    let workflowName: String
+    let graphID: UUID
+    let savedAt: Date
+    let argv: [String]
+    let command: String
+    let outputPath: String
+    let files: [WorkflowBundleFileProvenance]
+    let exitStatus: Int
+}
+
+private struct WorkflowBundleFileProvenance: Codable {
+    let path: String
+    let size: UInt64
+    let sha256: String
+}
 
 // MARK: - WorkflowBuilderViewController
 
@@ -50,6 +70,18 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Whether the workflow has unsaved changes.
     public private(set) var hasUnsavedChanges: Bool = false
+
+    /// Active project context used to bind the pinned project output anchor.
+    public var activeProjectURL: URL?
+
+    /// Preferred sample context used to preselect the pinned sample input anchor.
+    public var preferredSampleURL: URL?
+
+    private static let workflowBundleType = UTType(exportedAs: "org.lungfish.workflow", conformingTo: .package)
+
+    public var workflowVersionDisplayText: String {
+        "v\(graph.version)"
+    }
 
     // MARK: - Lifecycle
 
@@ -121,7 +153,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         )
     }
 
-    @objc private func windowDidBecomeMain(_ notification: Notification) {
+    @objc public func windowDidBecomeMain(_ notification: Notification) {
         guard notification.object as? NSWindow === view.window else { return }
 
         // Set up toolbar
@@ -173,10 +205,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Opens a workflow from a file.
     public func openWorkflow() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
+        panel.allowedContentTypes = Self.workflowContentTypes
         panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Select a workflow file"
+        panel.canChooseDirectories = true
+        panel.message = "Select a Lungfish workflow bundle or workflow JSON file"
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -187,7 +219,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Loads a workflow from the specified URL.
     public func loadWorkflow(from url: URL) {
         do {
-            let data = try Data(contentsOf: url)
+            let data = try Data(contentsOf: Self.workflowJSONURL(for: url))
             let decoder = JSONDecoder()
             let loadedGraph = try decoder.decode(WorkflowGraph.self, from: data)
 
@@ -222,8 +254,8 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Saves the current workflow with a new name.
     public func saveWorkflowAs() {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "\(graph.name).json"
+        panel.allowedContentTypes = Self.workflowContentTypes
+        panel.nameFieldStringValue = "\(graph.name).lungfishflow"
         panel.message = "Save workflow as"
 
         panel.begin { [weak self] response in
@@ -234,16 +266,22 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func saveWorkflow(to url: URL) {
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(graph)
-            try data.write(to: url)
+            let savedURL: URL
+            if url.pathExtension.lowercased() == "json" {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(graph)
+                try data.write(to: url, options: .atomic)
+                workflowURL = url
+                savedURL = url
+            } else {
+                savedURL = try saveWorkflowBundle(to: url)
+            }
 
-            workflowURL = url
             hasUnsavedChanges = false
             updateWindowTitle()
 
-            logger.info("Saved workflow to: \(url.path)")
+            logger.info("Saved workflow to: \(savedURL.path)")
         } catch {
             logger.error("Failed to save workflow: \(error.localizedDescription)")
 
@@ -255,6 +293,233 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 alert.beginSheetModal(for: window)
             }
         }
+    }
+
+    @discardableResult
+    public func saveWorkflowBundleForTesting(to url: URL) throws -> URL {
+        try saveWorkflowBundle(to: url)
+    }
+
+    @discardableResult
+    private func saveWorkflowBundle(to requestedURL: URL) throws -> URL {
+        let bundleURL = normalizedWorkflowBundleURL(for: requestedURL)
+        let fileManager = FileManager.default
+
+        try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let graphData = try encoder.encode(graph)
+        let graphURL = bundleURL.appendingPathComponent("graph.json")
+        try graphData.write(to: graphURL)
+        let workflowFileURL = bundleURL.appendingPathComponent("workflow.json")
+        try graphData.write(to: workflowFileURL)
+
+        let graphAttributes = try fileManager.attributesOfItem(atPath: graphURL.path)
+        let graphSize = graphAttributes[.size] as? UInt64 ?? UInt64(graphData.count)
+        let workflowAttributes = try fileManager.attributesOfItem(atPath: workflowFileURL.path)
+        let workflowSize = workflowAttributes[.size] as? UInt64 ?? UInt64(graphData.count)
+
+        let historyURL = try appendWorkflowVersionHistory(in: bundleURL)
+        let historyData = try Data(contentsOf: historyURL)
+        let provenance = WorkflowBundleProvenance(
+            toolName: "Workflow Builder",
+            toolVersion: Self.appVersion,
+            workflowName: graph.name,
+            graphID: graph.id,
+            savedAt: Date(),
+            argv: ["Lungfish", "Tools > Workflow Builder", "Save"],
+            command: "Lungfish \"Tools > Workflow Builder\" save \(bundleURL.path)",
+            outputPath: bundleURL.path,
+            files: [
+                WorkflowBundleFileProvenance(
+                    path: "graph.json",
+                    size: graphSize,
+                    sha256: Self.sha256Hex(graphData)
+                ),
+                WorkflowBundleFileProvenance(
+                    path: "workflow.json",
+                    size: workflowSize,
+                    sha256: Self.sha256Hex(graphData)
+                ),
+                WorkflowBundleFileProvenance(
+                    path: "versions/history.json",
+                    size: UInt64(historyData.count),
+                    sha256: Self.sha256Hex(historyData)
+                )
+            ],
+            exitStatus: 0
+        )
+        let provenanceData = try encoder.encode(provenance)
+        try provenanceData.write(to: bundleURL.appendingPathComponent("provenance.json"))
+
+        workflowURL = bundleURL
+        return bundleURL
+    }
+
+    private func normalizedWorkflowBundleURL(for url: URL) -> URL {
+        if url.pathExtension == "lungfishflow" {
+            return url
+        }
+        return url.deletingPathExtension().appendingPathExtension("lungfishflow")
+    }
+
+    private func appendWorkflowVersionHistory(in bundleURL: URL) throws -> URL {
+        let historyDirectory = bundleURL.appendingPathComponent("versions", isDirectory: true)
+        try FileManager.default.createDirectory(at: historyDirectory, withIntermediateDirectories: true)
+        let historyURL = historyDirectory.appendingPathComponent("history.json")
+        var history = (try? JSONDecoder().decode([WorkflowVersionHistoryEntry].self, from: Data(contentsOf: historyURL))) ?? []
+        history.append(WorkflowVersionHistoryEntry(version: graph.version, savedAt: Date(), workflowName: graph.name))
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(history).write(to: historyURL, options: .atomic)
+        return historyURL
+    }
+
+    private static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "debug"
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data)
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    @objc public func runWorkflow(_ sender: Any?) {
+        let issues = graph.validate()
+        if issues.contains(where: { $0.severity == .error }) {
+            let alert = NSAlert()
+            alert.messageText = "Workflow Not Ready"
+            alert.informativeText = issues.map(\.description).joined(separator: "\n")
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
+        }
+
+        guard let projectURL = activeProjectURL else {
+            let alert = NSAlert()
+            alert.messageText = "No Active Project"
+            alert.informativeText = "Open a Lungfish project before running a workflow so the Sample input and Project output anchors can be bound."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
+        }
+
+        let samples = WorkflowBuilderRunSampleDiscovery.discoverSamples(
+            in: projectURL,
+            preferredSampleURL: preferredSampleURL
+        )
+        guard !samples.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Sample Inputs Found"
+            alert.informativeText = "Import or select a Lungfish sample bundle in the active project before running this workflow."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
+        }
+
+        showRunBindingSheet(samples: samples, projectURL: projectURL)
+    }
+
+    public func configureRunContext(projectURL: URL?, preferredSampleURL: URL?) {
+        activeProjectURL = projectURL?.standardizedFileURL
+        self.preferredSampleURL = preferredSampleURL?.standardizedFileURL
+    }
+
+    private func showRunBindingSheet(samples: [WorkflowBuilderRunSample], projectURL: URL) {
+        let popup = NSPopUpButton(frame: NSRect(x: 92, y: 38, width: 360, height: 26), pullsDown: false)
+        popup.setAccessibilityIdentifier("WorkflowBuilderRunSamplePopup")
+        for sample in samples {
+            popup.addItem(withTitle: sample.displayName)
+            popup.lastItem?.representedObject = sample.url
+        }
+
+        let sampleLabel = NSTextField(labelWithString: "Sample:")
+        sampleLabel.frame = NSRect(x: 0, y: 42, width: 80, height: 18)
+        let projectLabel = NSTextField(labelWithString: "Project:")
+        projectLabel.frame = NSRect(x: 0, y: 8, width: 80, height: 18)
+        let projectValue = NSTextField(labelWithString: projectURL.lastPathComponent)
+        projectValue.frame = NSRect(x: 92, y: 6, width: 360, height: 22)
+        projectValue.lineBreakMode = .byTruncatingMiddle
+
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 452, height: 72))
+        accessoryView.addSubview(sampleLabel)
+        accessoryView.addSubview(popup)
+        accessoryView.addSubview(projectLabel)
+        accessoryView.addSubview(projectValue)
+
+        let alert = NSAlert()
+        alert.messageText = "Run Workflow"
+        alert.informativeText = "Bind the pinned Sample input and Project output anchors before dispatching this workflow."
+        alert.accessoryView = accessoryView
+        alert.addButton(withTitle: "Run")
+        alert.addButton(withTitle: "Cancel")
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn,
+                      let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
+                self?.startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+            }
+        } else {
+            let response = alert.runModal()
+            guard response == .alertFirstButtonReturn,
+                  let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
+            startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+        }
+    }
+
+    private func startWorkflowRun(sampleURL: URL, projectURL: URL) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let bundleURL = try self.ensureWorkflowBundleForRun(projectURL: projectURL)
+                let binding = WorkflowBuilderRunBinding(sampleURL: sampleURL, projectURL: projectURL)
+                _ = try await WorkflowBuilderRunService().run(
+                    graph: self.graph,
+                    workflowBundleURL: bundleURL,
+                    binding: binding
+                )
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Workflow Run Failed"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                self.presentAlert(alert)
+            }
+        }
+    }
+
+    private func ensureWorkflowBundleForRun(projectURL: URL) throws -> URL {
+        if let workflowURL {
+            return try saveWorkflowBundle(to: workflowURL)
+        }
+
+        let workflowsURL = projectURL.appendingPathComponent("Workflows", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowsURL, withIntermediateDirectories: true)
+        let filename = Self.sanitizedWorkflowFilename(graph.name)
+        return try saveWorkflowBundle(to: workflowsURL.appendingPathComponent("\(filename).lungfishflow", isDirectory: true))
+    }
+
+    private func presentAlert(_ alert: NSAlert) {
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    private static func sanitizedWorkflowFilename(_ name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsed.isEmpty ? "workflow" : collapsed.replacingOccurrences(of: " ", with: "-")
     }
 
     // MARK: - Export Operations
@@ -361,13 +626,39 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     // MARK: - Helpers
 
     private func updateWindowTitle() {
-        view.window?.subtitle = graph.name
+        view.window?.subtitle = "\(graph.name) \(workflowVersionDisplayText)"
         if hasUnsavedChanges {
             view.window?.isDocumentEdited = true
         } else {
             view.window?.isDocumentEdited = false
         }
     }
+
+    private static var workflowContentTypes: [UTType] {
+        [workflowBundleType, .json]
+    }
+
+    private static func workflowJSONURL(for url: URL) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        guard isDirectory.boolValue else { return url }
+        let candidates = [
+            url.appendingPathComponent("graph.json"),
+            url.appendingPathComponent("workflow.json"),
+        ]
+        if let candidate = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return candidate
+        }
+        throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: url.appendingPathComponent("graph.json").path])
+    }
+}
+
+private struct WorkflowVersionHistoryEntry: Codable {
+    let version: String
+    let savedAt: Date
+    let workflowName: String
 }
 
 // MARK: - WorkflowCanvasViewDelegate
@@ -389,6 +680,33 @@ extension WorkflowBuilderViewController: WorkflowCanvasViewDelegate {
     }
 }
 
+// MARK: - NSWindowDelegate
+
+extension WorkflowBuilderViewController: NSWindowDelegate {
+    public func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard hasUnsavedChanges else {
+            return true
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Save changes to current workflow?"
+        alert.informativeText = "Your changes will be lost if you don't save them."
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            saveWorkflow()
+            return !hasUnsavedChanges
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
 // MARK: - NSToolbarDelegate
 
 extension WorkflowBuilderViewController: NSToolbarDelegate {
@@ -396,6 +714,7 @@ extension WorkflowBuilderViewController: NSToolbarDelegate {
     public func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .toggleSidebar,
+            .workflowRun,
             .flexibleSpace,
             .workflowZoomIn,
             .workflowZoomOut,
@@ -416,6 +735,7 @@ extension WorkflowBuilderViewController: NSToolbarDelegate {
             .workflowZoomIn,
             .workflowZoomOut,
             .workflowZoomReset,
+            .workflowRun,
             .workflowGridToggle,
             .workflowSnapToggle,
             .workflowExport
@@ -428,6 +748,16 @@ extension WorkflowBuilderViewController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .workflowRun:
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Run"
+            item.paletteLabel = "Run Workflow"
+            item.toolTip = "Validate and run the workflow"
+            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run Workflow")
+            item.target = self
+            item.action = #selector(runWorkflow(_:))
+            return item
+
         case .workflowZoomIn:
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Zoom In"
@@ -534,6 +864,7 @@ extension WorkflowBuilderViewController: NSToolbarDelegate {
 
 public extension NSToolbarItem.Identifier {
     static let workflowZoomIn = NSToolbarItem.Identifier("workflowZoomIn")
+    static let workflowRun = NSToolbarItem.Identifier("workflowRun")
     static let workflowZoomOut = NSToolbarItem.Identifier("workflowZoomOut")
     static let workflowZoomReset = NSToolbarItem.Identifier("workflowZoomReset")
     static let workflowGridToggle = NSToolbarItem.Identifier("workflowGridToggle")
