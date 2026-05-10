@@ -440,9 +440,13 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
     ///
     /// Uses Kahn's algorithm for topological sorting.
     ///
+    /// Pinned builder anchors are GUI/binding scaffolding rather than executable
+    /// scientific steps, so they are excluded by default.
+    ///
+    /// - Parameter includingPinned: Whether to include pinned sample/project anchors.
     /// - Returns: Array of nodes in topological order
     /// - Throws: `WorkflowGraphError.cycleDetected` if the graph has cycles
-    public func topologicalSort() throws -> [WorkflowNode] {
+    public func topologicalSort(includingPinned: Bool = false) throws -> [WorkflowNode] {
         var inDegree = [UUID: Int]()
         var queue = [UUID]()
         var result = [WorkflowNode]()
@@ -484,7 +488,10 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
             throw WorkflowGraphError.cycleDetected
         }
 
-        return result
+        if includingPinned {
+            return result
+        }
+        return result.filter { !$0.isPinned }
     }
 
     // MARK: - Validation

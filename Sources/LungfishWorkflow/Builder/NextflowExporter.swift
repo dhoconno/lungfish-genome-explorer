@@ -92,7 +92,8 @@ public struct NextflowExporter: Sendable {
         // Get nodes in topological order
         let orderedNodes: [WorkflowNode]
         do {
-            orderedNodes = try graph.topologicalSort().filter { !$0.isPinned || $0.type == .sampleInput }
+            orderedNodes = try graph.topologicalSort(includingPinned: true)
+                .filter { !$0.isPinned || $0.type == .sampleInput }
         } catch {
             throw NextflowExportError.cycleDetected
         }
