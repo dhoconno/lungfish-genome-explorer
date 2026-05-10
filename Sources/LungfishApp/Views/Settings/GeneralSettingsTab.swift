@@ -9,6 +9,10 @@ import LungfishCore
 struct GeneralSettingsTab: View {
 
     @State private var settings = AppSettings.shared
+    @State private var ncbiAPIKey = ""
+    @State private var ncbiKeyStatus = "Checking NCBI API key settings..."
+    @State private var ncbiKeyError: String?
+    @State private var hasStoredNCBIAPIKey = false
 
     var body: some View {
         Form {
@@ -58,6 +62,33 @@ struct GeneralSettingsTab: View {
                 )
             }
 
+            Section("NCBI") {
+                SecureField("API key:", text: $ncbiAPIKey)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Button("Save API Key") {
+                        Task { await saveNCBIAPIKey() }
+                    }
+                    .disabled(ncbiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button("Clear Stored Key") {
+                        Task { await clearNCBIAPIKey() }
+                    }
+                    .disabled(!hasStoredNCBIAPIKey)
+                }
+
+                Text(ncbiKeyStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let ncbiKeyError {
+                    Text(ncbiKeyError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
             HStack {
                 Spacer()
                 Button("Restore Defaults") {
@@ -71,5 +102,48 @@ struct GeneralSettingsTab: View {
         .onChange(of: settings.maxUndoLevels) { _, _ in settings.save() }
         .onChange(of: settings.vcfImportProfile) { _, _ in settings.save() }
         .onChange(of: settings.tempFileRetentionHours) { _, _ in settings.save() }
+        .task {
+            await refreshNCBIAPIKeyStatus()
+        }
+    }
+
+    private func saveNCBIAPIKey() async {
+        do {
+            try await settings.storeNCBIAPIKey(ncbiAPIKey)
+            ncbiAPIKey = ""
+            ncbiKeyError = nil
+            await refreshNCBIAPIKeyStatus()
+        } catch {
+            ncbiKeyError = "Could not save NCBI API key: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearNCBIAPIKey() async {
+        do {
+            try await settings.deleteNCBIAPIKey()
+            ncbiAPIKey = ""
+            ncbiKeyError = nil
+            await refreshNCBIAPIKeyStatus()
+        } catch {
+            ncbiKeyError = "Could not clear NCBI API key: \(error.localizedDescription)"
+        }
+    }
+
+    private func refreshNCBIAPIKeyStatus() async {
+        hasStoredNCBIAPIKey = await settings.hasStoredNCBIAPIKey()
+        let hasEnvironmentKey = ProcessInfo.processInfo.environment["NCBI_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+
+        switch (hasStoredNCBIAPIKey, hasEnvironmentKey) {
+        case (true, true):
+            ncbiKeyStatus = "Using the stored Keychain API key. NCBI_API_KEY is available as a fallback."
+        case (true, false):
+            ncbiKeyStatus = "Using the stored Keychain API key."
+        case (false, true):
+            ncbiKeyStatus = "Using NCBI_API_KEY from the process environment."
+        case (false, false):
+            ncbiKeyStatus = "No NCBI API key configured. Requests use the public NCBI rate limit."
+        }
     }
 }

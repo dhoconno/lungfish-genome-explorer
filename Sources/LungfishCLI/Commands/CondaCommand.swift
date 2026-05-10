@@ -30,6 +30,8 @@ struct CondaCommand: AsyncParsableCommand {
                 EnvsSubcommand.self,
                 SetupSubcommand.self,
                 PacksSubcommand.self,
+                OfflineExportSubcommand.self,
+                OfflineInstallSubcommand.self,
                 ClassifyCommand.self,
                 DbCommand.self,
                 ExtractSubcommand.self,
@@ -378,6 +380,98 @@ extension CondaCommand {
                 print("  \(pack.description)")
                 print("  Packages: \(pack.packages.joined(separator: ", "))")
                 print("")
+            }
+        }
+    }
+}
+
+// MARK: - Offline Packs
+
+extension CondaCommand {
+    struct OfflineExportSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "offline-export",
+            abstract: "Export installed conda environments for offline transfer"
+        )
+
+        @Option(name: .long, help: "Built-in tool pack ID to export")
+        var pack: String
+
+        @Option(name: .shortAndLong, help: "Directory where the offline pack directory will be written")
+        var output: String
+
+        @Option(name: .customLong("conda-root"), help: "Conda root to export from (default: managed storage conda root)")
+        var condaRoot: String?
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            guard let pluginPack = PluginPack.builtInPack(id: pack) else {
+                print(formatter.error("Unknown tool pack: \(pack)"))
+                print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
+                throw ExitCode.failure
+            }
+
+            let root = condaRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? CondaManager.shared.rootPrefix
+            let outputURL = URL(fileURLWithPath: output, isDirectory: true)
+
+            do {
+                let result = try await CondaOfflinePackService().exportPack(
+                    pack: pluginPack,
+                    condaRoot: root,
+                    outputDirectory: outputURL,
+                    commandLine: CondaOfflinePackService.redactedCommandLine(CommandLine.arguments)
+                )
+                print(formatter.success("Offline pack exported: \(result.packDirectory.path)"))
+                print("Manifest: \(result.manifestURL.path)")
+                print("Provenance: \(result.provenanceURL.path)")
+            } catch {
+                print(formatter.error("Offline export failed: \(error.localizedDescription)"))
+                throw ExitCode.failure
+            }
+        }
+    }
+
+    struct OfflineInstallSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "offline-install",
+            abstract: "Install conda environments from an offline pack"
+        )
+
+        @Argument(help: "Path to an offline pack directory created by 'conda offline-export'")
+        var packDirectory: String
+
+        @Option(name: .customLong("conda-root"), help: "Conda root to install into (default: managed storage conda root)")
+        var condaRoot: String?
+
+        @Flag(name: .long, help: "Replace existing environments with matching names")
+        var overwrite: Bool = false
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let root = condaRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                ?? CondaManager.shared.rootPrefix
+            let packURL = URL(fileURLWithPath: packDirectory, isDirectory: true)
+
+            do {
+                let result = try await CondaOfflinePackService().installPack(
+                    from: packURL,
+                    condaRoot: root,
+                    overwrite: overwrite,
+                    commandLine: CondaOfflinePackService.redactedCommandLine(CommandLine.arguments)
+                )
+                print(formatter.success("Offline pack installed"))
+                for environment in result.installedEnvironments {
+                    print("  \(environment.lastPathComponent): \(environment.path)")
+                }
+                print("Provenance: \(result.provenanceURL.path)")
+            } catch {
+                print(formatter.error("Offline install failed: \(error.localizedDescription)"))
+                throw ExitCode.failure
             }
         }
     }

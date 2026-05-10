@@ -692,6 +692,31 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.displayStateLabel, "Completed with Warnings")
     }
 
+    func testRecordRetryMetadataSurfacesRetryStatusAndLog() {
+        let id = center.start(title: "NCBI Fetch", detail: "Fetching...")
+
+        center.recordRetry(
+            id: id,
+            attempt: 2,
+            maxRetries: 5,
+            statusCode: 429,
+            delaySeconds: 10,
+            message: "NCBI rate limit response"
+        )
+
+        let item = center.items.first { $0.id == id }
+        XCTAssertEqual(item?.retryEvents.count, 1)
+        XCTAssertEqual(item?.retryEvents.first?.attempt, 2)
+        XCTAssertEqual(item?.retryEvents.first?.maxRetries, 5)
+        XCTAssertEqual(item?.retryEvents.first?.statusCode, 429)
+        XCTAssertEqual(item?.retryEvents.first?.delaySeconds, 10)
+        XCTAssertEqual(item?.displayStateLabel, "Retrying")
+        XCTAssertEqual(item?.detail, "Retrying after HTTP 429 (attempt 2/5, next in 10s)")
+        XCTAssertTrue(item?.logEntries.contains {
+            $0.level == .warning && $0.message.contains("NCBI rate limit response")
+        } == true)
+    }
+
     // MARK: - Failure Report Data Completeness
 
     func testFailedItemWithAllFieldsHasCompleteReportData() {

@@ -49,6 +49,47 @@ public struct OperationLogEntry: Sendable, Identifiable {
     }
 }
 
+public struct OperationRetryMetadata: Sendable, Identifiable, Codable, Equatable {
+    public let id: UUID
+    public let timestamp: Date
+    public let attempt: Int
+    public let maxRetries: Int
+    public let statusCode: Int
+    public let delaySeconds: TimeInterval
+    public let message: String?
+
+    public init(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        attempt: Int,
+        maxRetries: Int,
+        statusCode: Int,
+        delaySeconds: TimeInterval,
+        message: String? = nil
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.attempt = attempt
+        self.maxRetries = maxRetries
+        self.statusCode = statusCode
+        self.delaySeconds = delaySeconds
+        self.message = message
+    }
+
+    public var displayText: String {
+        "Retrying after HTTP \(statusCode) (attempt \(attempt)/\(maxRetries), next in \(Self.formatDelay(delaySeconds)))"
+    }
+
+    private static func formatDelay(_ seconds: TimeInterval) -> String {
+        if seconds >= 60 {
+            let minutes = Int(seconds) / 60
+            let remainder = Int(seconds) % 60
+            return remainder == 0 ? "\(minutes)m" : "\(minutes)m \(remainder)s"
+        }
+        return "\(Int(seconds.rounded()))s"
+    }
+}
+
 /// Log level for operation log entries.
 ///
 /// Separate from ``LogLevel`` in WorkflowExecutionView to avoid coupling
@@ -96,6 +137,8 @@ public final class OperationCenter: ObservableObject {
         public var cliCommand: String?
         /// Step-by-step log entries recorded during this operation.
         public var logEntries: [OperationLogEntry] = []
+        /// Retry metadata for rate limits or transient failures.
+        public var retryEvents: [OperationRetryMetadata] = []
         /// User-facing error summary shown prominently on failure.
         public var errorMessage: String?
         /// Extended diagnostic detail (stack trace, stderr, etc.) for debugging.
@@ -108,7 +151,7 @@ public final class OperationCenter: ObservableObject {
         public var displayStateLabel: String {
             switch state {
             case .running:
-                return "Running"
+                return retryEvents.isEmpty ? "Running" : "Retrying"
             case .completed:
                 return hasWarnings ? "Completed with Warnings" : "Completed"
             case .cancelled:
@@ -341,6 +384,32 @@ public final class OperationCenter: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         let entry = OperationLogEntry(level: level, message: message)
         items[index].logEntries.append(entry)
+    }
+
+    public func recordRetry(
+        id: UUID,
+        attempt: Int,
+        maxRetries: Int,
+        statusCode: Int,
+        delaySeconds: TimeInterval,
+        message: String? = nil
+    ) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        let retry = OperationRetryMetadata(
+            attempt: attempt,
+            maxRetries: maxRetries,
+            statusCode: statusCode,
+            delaySeconds: delaySeconds,
+            message: message
+        )
+        items[index].retryEvents.append(retry)
+        items[index].detail = retry.displayText
+
+        var logMessage = retry.displayText
+        if let message, !message.isEmpty {
+            logMessage = "\(message): \(logMessage)"
+        }
+        items[index].logEntries.append(OperationLogEntry(level: .warning, message: logMessage))
     }
 
     public func complete(id: UUID, detail: String) {

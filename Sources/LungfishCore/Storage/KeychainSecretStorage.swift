@@ -43,6 +43,9 @@ public actor KeychainSecretStorage {
     /// Keychain account key for the Google Gemini API key.
     public static let geminiAPIKey = "ai.gemini.apiKey"
 
+    /// Keychain account key for the NCBI Entrez/Datasets API key.
+    public static let ncbiAPIKey = "ncbi.apiKey"
+
     // MARK: - Operations
 
     /// Stores a secret string in the Keychain under the given key.
@@ -160,7 +163,7 @@ public actor KeychainSecretStorage {
 
     /// Deletes all secrets stored by this app in the Keychain.
     public func deleteAll() throws {
-        for key in [Self.openAIAPIKey, Self.anthropicAPIKey, Self.geminiAPIKey] {
+        for key in [Self.openAIAPIKey, Self.anthropicAPIKey, Self.geminiAPIKey, Self.ncbiAPIKey] {
             try delete(forKey: key)
         }
     }
