@@ -794,7 +794,7 @@ public final class ReferenceBundleBuilder: ObservableObject {
             let trackInfo = AnnotationTrackInfo(
                 id: input.id,
                 name: input.name,
-                description: input.description,
+                description: annotationDescription(for: input, featureCount: featureCount),
                 path: outputPath,
                 annotationType: input.annotationType,
                 featureCount: featureCount
@@ -820,6 +820,22 @@ public final class ReferenceBundleBuilder: ObservableObject {
         return content.components(separatedBy: .newlines)
             .filter { !$0.isEmpty && !$0.hasPrefix("#") }
             .count
+    }
+
+    private func annotationDescription(for input: AnnotationInput, featureCount: Int) -> String? {
+        if let description = input.description {
+            return description
+        }
+
+        var detectionURL = input.url
+        if detectionURL.pathExtension.lowercased() == "gz" {
+            detectionURL = detectionURL.deletingPathExtension()
+        }
+        let ext = detectionURL.pathExtension.lowercased()
+        guard featureCount == 0, ["gff", "gff3", "gtf"].contains(ext) else {
+            return nil
+        }
+        return "No annotations found in source GFF3"
     }
 
     private func processVariants(

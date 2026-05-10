@@ -86,6 +86,13 @@ final class FetchNCBIGFF3Tests: XCTestCase {
         XCTAssertEqual(NCBISubcommand.gff3FeatureCount(in: headerOnly), 0)
     }
 
+    func testEmptyGFF3ResponseNormalizesToValidHeaderOnlyDocument() {
+        let normalized = NCBISubcommand.normalizedGFF3Content("", accession: "NO_ANNOTATIONS.1")
+
+        XCTAssertEqual(normalized, "##gff-version 3\n")
+        XCTAssertEqual(NCBISubcommand.gff3FeatureCount(in: normalized), 0)
+    }
+
     func testMultiAccessionGFF3OutputSeparatesRecordsWithComments() {
         let combined = NCBISubcommand.combinedContent(
             for: [
