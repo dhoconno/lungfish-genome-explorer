@@ -136,6 +136,31 @@ final class DatabasesTabTests: XCTestCase {
         }
     }
 
+    func testDatabaseTrackingSummaryIncludesInstallDateAndUpdateIndicator() {
+        let installedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let db = MetagenomicsDatabaseInfo(
+            name: "Standard-8",
+            tool: MetagenomicsTool.kraken2.rawValue,
+            version: "20230101",
+            sizeBytes: 8 * 1_073_741_824,
+            sizeOnDisk: 8 * 1_073_741_824,
+            downloadURL: "https://example.com/standard-8.tar.gz",
+            description: "Older installed database",
+            collection: .standard8,
+            path: URL(fileURLWithPath: "/tmp/standard-8"),
+            installedAt: installedAt,
+            lastUpdated: installedAt,
+            status: .ready,
+            recommendedRAM: 8 * 1_073_741_824
+        )
+
+        let summary = PluginManagerViewModel.databaseTrackingSummary(for: db)
+
+        XCTAssertTrue(summary.contains("Installed"))
+        XCTAssertTrue(summary.contains("Update available"))
+        XCTAssertTrue(summary.contains(MetagenomicsDatabaseInfo.latestBuildDate))
+    }
+
     // MARK: - testDownloadProgressUpdate
 
     /// Verifies that download progress state is correctly tracked in the view model.

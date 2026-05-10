@@ -54,6 +54,27 @@ struct ProvenanceRecordingTests {
         #expect(run?.steps[0].outputs.count == 1)
     }
 
+    @Test("Record a step with peak memory")
+    func testRecordStepPeakMemory() async {
+        let recorder = ProvenanceRecorder()
+        let runID = await recorder.beginRun(name: "Memory Test")
+
+        await recorder.recordStep(
+            runID: runID,
+            toolName: "kraken2",
+            toolVersion: "2.17.1",
+            command: ["kraken2", "--db", "Standard-8"],
+            inputs: [],
+            outputs: [],
+            exitCode: 0,
+            wallTime: 12.0,
+            peakMemoryBytes: 3_221_225_472
+        )
+
+        let run = await recorder.getRun(runID)
+        #expect(run?.steps.first?.peakMemoryBytes == 3_221_225_472)
+    }
+
     @Test("Step returns nil for nonexistent run")
     func testRecordStepNonexistentRun() async {
         let recorder = ProvenanceRecorder()

@@ -96,13 +96,13 @@ has no analogous breadth check.
 ## Installing the EsViritu database
 
 The EsViritu tool itself ships inside the `classification` plugin pack.
-The strain database is a separate, larger artefact: roughly 2 GB
-compressed, around 6 GB uncompressed, holding several thousand viral
-reference genomes with strain-level annotations. Lungfish does not bundle
-this database, because most users will only ever run a subset of
-classifiers and the database would balloon every install.
-Plan for 16 GB of RAM for the default viral database. Larger custom slices
-scale with the number and length of references included.
+The strain database is a separate artefact: roughly 400 MB compressed,
+around 5 GB uncompressed, holding 19,925 curated viral assemblies across
+63 families. Lungfish does not bundle this database, because most users
+will only ever run a subset of classifiers and the database would balloon
+every install. Plan for at least 8 GB of RAM for the default viral
+database. Larger custom slices scale with the number and length of
+references included.
 
 Install the database before your first EsViritu run.
 
@@ -113,6 +113,10 @@ Install the database before your first EsViritu run.
    reports progress in the Operations Panel.
 4. Wait until the row's status badge reads **Database ready**. On a
    typical broadband connection this is 5 to 15 minutes.
+5. Confirm the row's install date and update status. From the CLI, the
+   same tracking surface is `lungfish conda db info "EsViritu Viral DB"`,
+   which reports the database version, install date, available update,
+   disk path, disk size, and RAM requirement.
 
 If you skip this step, the Classification wizard still lets you choose
 EsViritu, but the **Run** button stays disabled and an inline notice

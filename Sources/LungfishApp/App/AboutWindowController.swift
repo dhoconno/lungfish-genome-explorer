@@ -274,10 +274,9 @@ final class AboutWindowController: NSWindowController {
 
         // System Requirements
         appendHeading("System Requirements")
-        appendBody("Minimum macOS 26 Tahoe")
-        appendBody("Apple Silicon required")
-        appendBody("16 GB RAM recommended")
-        appendBody("50 GB free disk recommended")
+        for line in HardwareRequirements.aboutLines {
+            appendBody(line)
+        }
 
         // Bundled bootstrap tooling stays separate from the pinned managed pack.
         appendHeading("Bundled Bootstrap")

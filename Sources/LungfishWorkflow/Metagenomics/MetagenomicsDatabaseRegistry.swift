@@ -249,7 +249,10 @@ public actor MetagenomicsDatabaseRegistry {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let manifest = try decoder.decode(DatabaseManifest.self, from: data)
-                for db in manifest.databases {
+                for var db in manifest.databases {
+                    if db.path != nil, db.installedAt == nil {
+                        db.installedAt = db.lastUpdated
+                    }
                     databases[db.name] = db
                 }
                 logger.info(
@@ -362,12 +365,14 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         var info: MetagenomicsDatabaseInfo
+        let now = Date()
         if let existing = databases[dbName] {
             // Update the existing catalog entry with the path.
             info = existing
             info.path = url
             info.status = .ready
-            info.lastUpdated = Date()
+            info.installedAt = info.installedAt ?? now
+            info.lastUpdated = now
         } else {
             // Create a new entry for a user-imported database.
             info = MetagenomicsDatabaseInfo(
@@ -382,7 +387,8 @@ public actor MetagenomicsDatabaseRegistry {
                 path: url,
                 isExternal: false,
                 bookmarkData: nil,
-                lastUpdated: Date(),
+                installedAt: now,
+                lastUpdated: now,
                 status: .ready,
                 recommendedRAM: sizeOnDisk  // conservative: assume RAM ~= DB size
             )
@@ -754,8 +760,10 @@ public actor MetagenomicsDatabaseRegistry {
         }
 
         // Update registry.
+        let installedAt = db.installedAt ?? Date()
         db.path = destDir
         db.status = .ready
+        db.installedAt = installedAt
         db.lastUpdated = Date()
         db.sizeOnDisk = Self.directorySize(at: destDir)
         databases[name] = db

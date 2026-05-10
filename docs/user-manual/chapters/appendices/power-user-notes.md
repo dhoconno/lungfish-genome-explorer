@@ -190,6 +190,23 @@ Every operation that produces a file writes a `*.lungfish-provenance.json` sidec
 
 The `steps[]` array decomposes a multi-process pipeline into one entry per process. The `inputs[]` and `outputs[]` arrays carry SHA-256 checksums and byte sizes for every file. When a workflow consumes a sidecar's output later, it reads the same `inputs[]` records and verifies the checksums match what is on disk.
 
+Recent Lungfish builds also preserve `peakMemoryBytes` on a step when the
+runner can observe peak resident memory. Operation rows in the app retain
+wall time and peak RAM while they are visible in the Operations Panel, and
+the persisted provenance sidecars are the long-term record.
+
+To summarize completed operation cost across a project or exported bundle,
+run:
+
+```bash
+lungfish ops stats /path/to/project-or-bundle
+```
+
+The command recursively scans `.lungfish-provenance.json` sidecars,
+ignores failed and cancelled runs, and reports completed run count, total
+wall time, average wall time by operation name, and the largest peak RAM
+value recorded by any step.
+
 ## Plugin pack environment pinning
 
 Plugin packs are versioned recipes for per-tool conda environments. The pack version pins the recipe (which tools, which channel constraints, which compiled-against versions) but does NOT pin every transitive dependency. A re-install of the same pack version six months from now may resolve to slightly different transitive package versions if upstream channels have moved.

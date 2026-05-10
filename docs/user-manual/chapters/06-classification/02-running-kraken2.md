@@ -64,14 +64,20 @@ with the Classification wizard.
 
 | Database | Size on disk | Minimum RAM to plan | Scope | Use when |
 |---|---|---|---|---|
-| Viral | ~0.5 GB | 16 GB | Viral RefSeq genomes only | You expect a viral signal and want a fast, lightweight classification |
-| Standard | ~50 GB | About 64 GB | Bacteria, archaea, viruses, human | You are doing general microbiome or contamination screening on a workstation with enough RAM |
-| PlusPF | ~80 GB | About 96 GB | Standard plus protozoa and fungi | You want eukaryotic pathogens included, and have enough RAM available |
+| Viral | ~0.5 GB | 1 GB | Viral RefSeq genomes only | You expect a viral signal and want a fast, lightweight classification |
+| Standard-8 | ~8 GB | 8 GB | Standard database capped by minimizer-space subsampling | You are on a 16 GB Mac and want a broader screen than Viral |
+| Standard-16 | ~16 GB | 16 GB | Standard database capped less aggressively | You have at least 16 GB RAM and want the default laptop-friendly broad screen |
+| Standard | ~67 GB | 67 GB | Archaea, bacteria, viruses, plasmid, human, UniVec | You are doing general microbiome or contamination screening on a workstation with enough RAM |
+| PlusPF-8 / PlusPF-16 | ~8-16 GB | 8-16 GB | PlusPF capped for smaller machines | You want protozoa and fungi represented on a laptop-class machine |
+| PlusPF | ~72 GB | 72 GB | Standard plus protozoa and fungi | You want eukaryotic pathogens included, and have enough RAM available |
 | Custom | varies | At least the uncompressed index size plus working headroom | User-built from selected RefSeq taxa | None of the above match your sample and you have built (or imported) your own index |
 
 Kraken2 loads the entire database into memory at run time, so RAM is the
 binding constraint, not disk. Standard and PlusPF will not run on a laptop
 with 16 GB of memory. Viral fits comfortably on any modern Mac.
+If RAM is below the database requirement, Lungfish can use Kraken2 memory
+mapping where supported, but the run will be much slower than an in-RAM
+classification.
 
 ### What "hit confidence" means in Kraken2
 
@@ -108,7 +114,11 @@ home connection and runs on any Mac.
 The Plugin Manager fetches the index from the Kraken2 maintainers' public
 mirror, verifies its checksum, and installs it under
 `~/.lungfish/conda/databases/kraken2/<scope>/`. When the row turns green
-and the size is shown, the database is ready.
+and the size is shown, the database is ready. The row also shows the
+install date and update status. From the CLI, use
+`lungfish conda db info Viral` or replace `Viral` with the database name
+you installed to see the local version, install date, available update,
+disk path, and RAM requirement.
 
 <!-- planned: kraken2-plugin-manager -->
 
