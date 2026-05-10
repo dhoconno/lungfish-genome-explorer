@@ -731,6 +731,161 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         }
     }
 
+    func testLocalNextflowPrepareOnlyWritesRunBundleManifestInputsStatusAndProvenance() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-nextflow-cli-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let workflowURL = tempDirectory.appendingPathComponent("demo.nf")
+        try "nextflow.enable.dsl=2\nworkflow { }\n"
+            .write(to: workflowURL, atomically: true, encoding: .utf8)
+        let readsURL = tempDirectory.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: readsURL, atomically: true, encoding: .utf8)
+        let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("demo.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            workflowURL.path,
+            "--input", readsURL.path,
+            "--results-dir", resultsURL.path,
+            "--bundle-path", bundleURL.path,
+            "--param", "sample=S1",
+            "--prepare-only",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: manifestURL.path))
+        let manifest = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: manifestURL)) as? [String: Any]
+        )
+        XCTAssertEqual(manifest["workflowName"] as? String, "demo")
+        XCTAssertEqual(manifest["workflowPath"] as? String, workflowURL.standardizedFileURL.path)
+        XCTAssertEqual(manifest["engine"] as? String, "nextflow")
+        XCTAssertEqual(manifest["executionStatus"] as? String, "prepared")
+        XCTAssertEqual(manifest["outputDirectoryName"] as? String, "results")
+        XCTAssertEqual(manifest["stdoutLogPath"] as? String, "logs/stdout.log")
+        XCTAssertEqual(manifest["stderrLogPath"] as? String, "logs/stderr.log")
+        XCTAssertTrue((manifest["commandPreview"] as? String)?.contains("nextflow run \(workflowURL.path)") == true)
+        XCTAssertTrue((manifest["commandPreview"] as? String)?.contains("--input \(readsURL.path)") == true)
+        XCTAssertTrue((manifest["commandPreview"] as? String)?.contains("--sample S1") == true)
+
+        let params = try XCTUnwrap(manifest["params"] as? [String: String])
+        XCTAssertEqual(params["sample"], "S1")
+        XCTAssertEqual(params["input"], readsURL.path)
+        XCTAssertEqual(params["outdir"], resultsURL.standardizedFileURL.path)
+
+        let inputBindings = try XCTUnwrap(manifest["inputBindings"] as? [[String: Any]])
+        XCTAssertEqual(inputBindings.count, 1)
+        XCTAssertEqual(inputBindings.first?["path"] as? String, readsURL.standardizedFileURL.path)
+        XCTAssertNotNil(inputBindings.first?["sha256"])
+        XCTAssertNotNil(inputBindings.first?["sizeBytes"])
+
+        let statusHistory = try XCTUnwrap(manifest["statusHistory"] as? [[String: Any]])
+        XCTAssertEqual(statusHistory.compactMap { $0["status"] as? String }, ["prepared"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("logs").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("reports").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("outputs").path))
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: provenanceURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.steps.first?.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        XCTAssertTrue(provenance.steps.first?.command.contains(workflowURL.path) == true)
+        XCTAssertTrue(provenance.steps.first?.command.contains("--prepare-only") == true)
+        XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
+            input.path == workflowURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+        } == true)
+        XCTAssertTrue(provenance.steps.first?.inputs.contains { input in
+            input.path == readsURL.standardizedFileURL.path && input.sha256 != nil && input.sizeBytes != nil
+        } == true)
+        XCTAssertTrue(provenance.steps.first?.outputs.contains { output in
+            output.path == bundleURL.standardizedFileURL.path
+        } == true)
+    }
+
+    func testLocalSnakemakeExecutionUsesInjectedRunnerAndUpdatesBundleStatusLogsAndProvenance() async throws {
+        let originalRunner = RunSubcommand.localWorkflowProcessRunner
+        let runner = StubLocalWorkflowProcessRunner(result: .init(
+            exitCode: 0,
+            standardOutput: "building all\ncomplete\n",
+            standardError: "snakemake warning\n"
+        ))
+        RunSubcommand.localWorkflowProcessRunner = runner
+        defer { RunSubcommand.localWorkflowProcessRunner = originalRunner }
+
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("local-snakemake-cli-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let snakefileURL = tempDirectory.appendingPathComponent("Snakefile")
+        try "rule all:\n    shell: \"true\"\n".write(to: snakefileURL, atomically: true, encoding: .utf8)
+        let readsURL = tempDirectory.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: readsURL, atomically: true, encoding: .utf8)
+        let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let bundleURL = tempDirectory.appendingPathComponent("snake.lungfishrun", isDirectory: true)
+
+        let command = try RunSubcommand.parse([
+            snakefileURL.path,
+            "--input", readsURL.path,
+            "--results-dir", resultsURL.path,
+            "--bundle-path", bundleURL.path,
+            "--param", "sample=S1",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(invocation.executableName, "snakemake")
+        XCTAssertEqual(invocation.workingDirectory.path, resultsURL.standardizedFileURL.path)
+        XCTAssertTrue(invocation.arguments.starts(with: [
+            "--snakefile", snakefileURL.standardizedFileURL.path,
+            "--directory", resultsURL.standardizedFileURL.path,
+            "--cores", "all",
+        ]))
+        XCTAssertTrue(invocation.arguments.contains("--config"))
+        XCTAssertTrue(invocation.arguments.contains("input=\(readsURL.standardizedFileURL.path)"))
+        XCTAssertTrue(invocation.arguments.contains("outdir=\(resultsURL.standardizedFileURL.path)"))
+        XCTAssertTrue(invocation.arguments.contains("sample=S1"))
+
+        let manifest = try LocalWorkflowRunBundleStore.read(from: bundleURL)
+        XCTAssertEqual(manifest.workflowName, "Snakefile")
+        XCTAssertEqual(manifest.engine, .snakemake)
+        XCTAssertEqual(manifest.executionStatus, .completed)
+        XCTAssertEqual(manifest.exitCode, 0)
+        XCTAssertEqual(manifest.params["sample"], "S1")
+        XCTAssertEqual(manifest.params["cores"], "all")
+        XCTAssertEqual(manifest.statusHistory.map(\.status), [.prepared, .running, .completed])
+        XCTAssertEqual(manifest.stdoutLogPath, "logs/stdout.log")
+        XCTAssertEqual(manifest.stderrLogPath, "logs/stderr.log")
+        XCTAssertEqual(
+            try String(contentsOf: bundleURL.appendingPathComponent("logs/stdout.log"), encoding: .utf8),
+            "building all\ncomplete\n"
+        )
+        XCTAssertEqual(
+            try String(contentsOf: bundleURL.appendingPathComponent("logs/stderr.log"), encoding: .utf8),
+            "snakemake warning\n"
+        )
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.steps.first?.exitCode, 0)
+        XCTAssertEqual(provenance.steps.first?.stderr, "snakemake warning\n")
+        XCTAssertEqual(provenance.parameters["cores"], .string("all"))
+    }
+
     func testRunHelpAdvertisesOnlyViralReconNFCoreWorkflow() {
         let help = RunSubcommand.helpMessage()
 
@@ -787,6 +942,34 @@ final class WorkflowCommandRegressionTests: XCTestCase {
             pipe.fileHandleForWriting.closeFile()
             throw error
         }
+    }
+}
+
+private final class StubLocalWorkflowProcessRunner: LocalWorkflowProcessRunning, @unchecked Sendable {
+    struct Invocation: Equatable {
+        let executableName: String
+        let arguments: [String]
+        let workingDirectory: URL
+    }
+
+    private(set) var invocations: [Invocation] = []
+    let result: LocalWorkflowProcessResult
+
+    init(result: LocalWorkflowProcessResult) {
+        self.result = result
+    }
+
+    func runWorkflow(
+        executableName: String,
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> LocalWorkflowProcessResult {
+        invocations.append(Invocation(
+            executableName: executableName,
+            arguments: arguments,
+            workingDirectory: workingDirectory
+        ))
+        return result
     }
 }
 

@@ -502,6 +502,28 @@ public class WorkflowConfigurationPanel: NSPanel {
         updateRunButtonState()
     }
 
+    public func localWorkflowRunRequest(
+        parameters: WorkflowParameters? = nil,
+        outputDirectory: URL? = nil
+    ) throws -> LocalWorkflowRunRequest {
+        guard let workflowDefinition else {
+            throw WorkflowConfigurationPanelError.missingWorkflow
+        }
+        guard let resolvedOutputDirectory = outputDirectory ?? outputPathControl.url else {
+            throw WorkflowConfigurationPanelError.missingOutputDirectory
+        }
+        let resolvedParameters = parameters ?? parameterFormView?.currentValues() ?? WorkflowParameters()
+        let params = Dictionary(uniqueKeysWithValues: resolvedParameters.map { key, value in
+            (key, value.toArgumentString())
+        })
+        return LocalWorkflowRunRequest(
+            workflowURL: workflowDefinition.path,
+            engine: workflowDefinition.engineType,
+            outputDirectory: resolvedOutputDirectory,
+            params: params
+        )
+    }
+
     /// Presents the panel as a sheet attached to the specified window.
     ///
     /// - Parameter window: The parent window to attach the sheet to
@@ -772,6 +794,18 @@ public class WorkflowConfigurationPanel: NSPanel {
 
     var testingLoadedSchemaTitle: String? { schema?.title }
     var testingWorkflowPath: URL? { workflowPathControl.url?.standardizedFileURL }
+    func testingSetOutputDirectory(_ url: URL) {
+        outputPathControl.url = url
+        updateRunButtonState()
+    }
+    func testingLocalWorkflowRunRequest(parameters: WorkflowParameters = WorkflowParameters()) throws -> LocalWorkflowRunRequest {
+        try localWorkflowRunRequest(parameters: parameters)
+    }
+}
+
+public enum WorkflowConfigurationPanelError: Error, Equatable {
+    case missingWorkflow
+    case missingOutputDirectory
 }
 
 // MARK: - ParameterFormDelegate

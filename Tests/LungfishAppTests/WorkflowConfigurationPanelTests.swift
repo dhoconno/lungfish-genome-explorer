@@ -54,6 +54,24 @@ final class WorkflowConfigurationPanelTests: XCTestCase {
         XCTAssertEqual(panel.testingWorkflowPath, noSchemaWorkflow.standardizedFileURL)
     }
 
+    func testPanelBuildsLocalWorkflowRunRequestForSelectedWorkflowAndOutputDirectory() throws {
+        let panel = WorkflowConfigurationPanel()
+        let workflowURL = try makeWorkflowDirectory(named: "workflow-request", includeSchema: false)
+        let outputURL = workflowURL.deletingLastPathComponent().appendingPathComponent("results", isDirectory: true)
+        var parameters = WorkflowParameters()
+        parameters.set("sample", string: "S1")
+
+        panel.setWorkflow(workflowURL)
+        panel.testingSetOutputDirectory(outputURL)
+
+        let request = try panel.testingLocalWorkflowRunRequest(parameters: parameters)
+
+        XCTAssertEqual(request.workflowURL, workflowURL.standardizedFileURL)
+        XCTAssertEqual(request.engine, .nextflow)
+        XCTAssertEqual(request.outputDirectory, outputURL.standardizedFileURL)
+        XCTAssertEqual(request.params["sample"], "S1")
+    }
+
     private func makeWorkflowDirectory(named name: String, includeSchema: Bool) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("WorkflowConfigurationPanelTests-\(UUID().uuidString)", isDirectory: true)
