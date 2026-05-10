@@ -20,6 +20,20 @@ RETAINED_FIXTURES = [
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
 ]
+REQUIRED_MSA_PAYLOAD_FILES = [
+    "alignment/input.unaligned.fasta",
+    "alignment/primary.aligned.fasta",
+    "alignment/source.original",
+    "manifest.json",
+    "analysis-metadata.json",
+    "metadata/rows.json",
+    "metadata/source-row-map.json",
+    "metadata/coordinate-maps.json",
+    ".viewstate.json",
+    "cache/alignment-index.sqlite",
+    "metadata/annotations.json",
+    "metadata/annotations.sqlite",
+]
 
 
 class FixtureProvenanceScriptTests(unittest.TestCase):
@@ -181,7 +195,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             payload = fixture / "taxtriage-result.json"
             payload.write_text('{"outputDirectory": "\\/tmp\\/stale"}\n', encoding="utf-8")
             (fixture / ".lungfish-provenance.json").write_text(
-                json.dumps(self._valid_sidecar(fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
+                json.dumps(self._valid_sidecar(root, fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
                 encoding="utf-8",
             )
 
@@ -324,6 +338,63 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("MAFFT input fileSize mismatch", result.stderr)
             self.assertIn("MAFFT input checksum mismatch", result.stderr)
 
+    def test_audit_fails_when_nested_mafft_required_payload_file_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            (fixture / "alignment" / "primary.aligned.fasta").unlink()
+            (fixture / ".lungfish-provenance.json").write_text(
+                json.dumps(
+                    self._valid_sidecar(root, fixture, "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa"),
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing required MAFFT payload file alignment/primary.aligned.fasta", result.stderr)
+
+    def test_audit_fails_when_root_alignment_input_checksum_or_size_is_wrong(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["input"]["fileSize"] = 999
+            provenance["input"]["checksumSHA256"] = "wrong"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("alignment input fileSize mismatch", result.stderr)
+            self.assertIn("alignment input checksum mismatch", result.stderr)
+
     def test_audit_passes_when_existing_retained_fixtures_have_valid_sidecars(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -345,6 +416,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             root = Path(temp_dir)
             for fixture in RETAINED_FIXTURES:
                 (root / fixture).mkdir(parents=True)
+            self._write_root_alignment_source(root)
             nested_msa = (
                 root
                 / "Tests"
@@ -354,8 +426,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 / "Multiple Sequence Alignments"
                 / "sars-cov-2-genomes-mafft.lungfishmsa"
             )
-            (nested_msa / "alignment").mkdir()
-            (nested_msa / "alignment" / "source.original").write_text(">source\nACGT\n", encoding="utf-8")
+            self._write_complete_msa_payload(nested_msa)
             project_input = (
                 root
                 / "Tests"
@@ -377,7 +448,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             (existing_fixture / "taxtriage-result.json").write_text("{}\n", encoding="utf-8")
             existing_sidecar = existing_fixture / ".lungfish-provenance.json"
             existing_sidecar.write_text(
-                json.dumps(self._valid_sidecar(existing_fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
+                json.dumps(self._valid_sidecar(root, existing_fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
                 encoding="utf-8",
             )
             original_existing_sidecar = existing_sidecar.read_text(encoding="utf-8")
@@ -420,25 +491,109 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             )
             self.assertEqual(audit.returncode, 0, audit.stderr)
 
+    def test_backfill_fails_when_required_alignment_payload_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for fixture in RETAINED_FIXTURES:
+                (root / fixture).mkdir(parents=True)
+            self._write_root_alignment_source(root)
+            nested_msa = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            self._write_complete_msa_payload(nested_msa)
+            (nested_msa / "manifest.json").unlink()
+            project_input = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish" / "Inputs"
+            project_input.mkdir(parents=True, exist_ok=True)
+            (project_input / "sars-cov-2-genomes.fasta").write_text(">alpha\nACGT\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [str(BACKFILL_SCRIPT), "--root", str(root), "--created-at", "2026-05-10T12:00:00Z"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env={**os.environ, "GIT_AUTHOR_NAME": "Test User"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing required MAFFT payload file manifest.json", result.stderr)
+
+    def test_backfill_fails_when_root_alignment_source_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for fixture in RETAINED_FIXTURES:
+                (root / fixture).mkdir(parents=True)
+            nested_msa = (
+                root
+                / "Tests"
+                / "Fixtures"
+                / "alignment"
+                / "sarscov2-mafft-e2e.lungfish"
+                / "Multiple Sequence Alignments"
+                / "sars-cov-2-genomes-mafft.lungfishmsa"
+            )
+            self._write_complete_msa_payload(nested_msa)
+            project_input = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish" / "Inputs"
+            project_input.mkdir(parents=True, exist_ok=True)
+            (project_input / "sars-cov-2-genomes.fasta").write_text(">alpha\nACGT\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [str(BACKFILL_SCRIPT), "--root", str(root), "--created-at", "2026-05-10T12:00:00Z"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                env={**os.environ, "GIT_AUTHOR_NAME": "Test User"},
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing required scientific input Tests/Fixtures/sarscov2/genome.fasta", result.stderr)
+
     def _make_retained_fixtures(self, root):
+        self._write_root_alignment_source(root)
         for fixture in RETAINED_FIXTURES:
             fixture_path = root / fixture
             fixture_path.mkdir(parents=True)
             payload = fixture_path / "payload.txt"
             payload.write_text(f"{fixture}\n", encoding="utf-8")
             if fixture.endswith(".lungfishmsa"):
-                input_dir = fixture_path / "Inputs"
-                input_dir.mkdir()
+                self._write_complete_msa_payload(fixture_path)
+                input_dir = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish" / "Inputs"
+                input_dir.mkdir(parents=True, exist_ok=True)
                 (input_dir / "sars-cov-2-genomes.fasta").write_text(">alpha\nACGT\n", encoding="utf-8")
         for fixture in RETAINED_FIXTURES:
             fixture_path = root / fixture
-            sidecar = self._valid_sidecar(fixture_path, fixture)
+            sidecar = self._valid_sidecar(root, fixture_path, fixture)
             (fixture_path / ".lungfish-provenance.json").write_text(
                 json.dumps(sidecar, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
 
-    def _valid_sidecar(self, fixture_path, relative_fixture):
+    def _write_root_alignment_source(self, root):
+        source = root / "Tests" / "Fixtures" / "sarscov2"
+        source.mkdir(parents=True, exist_ok=True)
+        (source / "genome.fasta").write_text(">MT192765.1\nACGT\n", encoding="utf-8")
+
+    def _write_complete_msa_payload(self, fixture_path):
+        for relative_path in REQUIRED_MSA_PAYLOAD_FILES:
+            path = fixture_path / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.suffix == ".sqlite":
+                path.write_bytes(b"SQLite fixture\n")
+            elif path.suffix == ".json":
+                path.write_text("{}\n", encoding="utf-8")
+            elif path.suffix == ".fasta" or path.name == "source.original":
+                path.write_text(">alpha\nACGT\n", encoding="utf-8")
+            else:
+                path.write_text(f"{relative_path}\n", encoding="utf-8")
+
+    def _valid_sidecar(self, root, fixture_path, relative_fixture):
         files = []
         for path in sorted(fixture_path.rglob("*")):
             if path.is_file() and path.name != ".lungfish-provenance.json":
@@ -485,6 +640,13 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             record["warnings"] = [
                 "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
             ]
+            input_path = root / "Tests" / "Fixtures" / "sarscov2" / "genome.fasta"
+            input_data = input_path.read_bytes()
+            record["input"] = {
+                "path": "Tests/Fixtures/sarscov2/genome.fasta",
+                "fileSize": len(input_data),
+                "checksumSHA256": hashlib.sha256(input_data).hexdigest(),
+            }
         elif relative_fixture.endswith(".lungfishmsa"):
             record["workflowName"] = "multiple-sequence-alignment-mafft"
             record["toolName"] = "lungfish align mafft"
@@ -502,15 +664,22 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                     "executablePath": "/usr/bin/mafft",
                 }
             ]
-            input_path = fixture_path / "Inputs" / "sars-cov-2-genomes.fasta"
+            input_path = fixture_path / "alignment" / "source.original"
             input_data = input_path.read_bytes()
-            input_entry = {
-                "path": "Inputs/sars-cov-2-genomes.fasta",
+            record["input"] = {
+                "path": "alignment/source.original",
                 "fileSize": len(input_data),
                 "checksumSHA256": hashlib.sha256(input_data).hexdigest(),
             }
-            record["input"] = dict(input_entry)
-            record["inputFiles"] = [input_entry]
+            project_input_path = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish" / "Inputs" / "sars-cov-2-genomes.fasta"
+            project_input_data = project_input_path.read_bytes()
+            record["inputFiles"] = [
+                {
+                    "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+                    "fileSize": len(project_input_data),
+                    "checksumSHA256": hashlib.sha256(project_input_data).hexdigest(),
+                }
+            ]
             record["options"]["name"] = "sars-cov-2-genomes-mafft"
         return record
 

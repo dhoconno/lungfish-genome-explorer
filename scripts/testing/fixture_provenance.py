@@ -86,6 +86,20 @@ RETAINED_PAYLOAD_SCAN_ROOTS = [
     "Tests/Fixtures/analyses",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
 ]
+REQUIRED_MSA_PAYLOAD_FILES = [
+    "alignment/input.unaligned.fasta",
+    "alignment/primary.aligned.fasta",
+    "alignment/source.original",
+    "manifest.json",
+    "analysis-metadata.json",
+    "metadata/rows.json",
+    "metadata/source-row-map.json",
+    "metadata/coordinate-maps.json",
+    ".viewstate.json",
+    "cache/alignment-index.sqlite",
+    "metadata/annotations.json",
+    "metadata/annotations.sqlite",
+]
 
 
 def sha256_file(path):
@@ -333,7 +347,7 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
         if not isinstance(input_record, dict):
             errors.append(f"missing input object for MAFFT provenance: {sidecar_path}")
         else:
-            errors.extend(validate_input_file_entry(root, fixture_path, input_record, sidecar_path, "input"))
+            errors.extend(validate_referenced_file_entry(root, fixture_path, input_record, sidecar_path, "input", "MAFFT"))
         input_files = record.get("inputFiles")
         if not isinstance(input_files, list) or not input_files:
             errors.append(f"missing inputFiles for MAFFT provenance: {sidecar_path}")
@@ -342,10 +356,26 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
                 if not isinstance(input_file, dict):
                     errors.append(f"invalid inputFiles[{index}] object for MAFFT provenance: {sidecar_path}")
                     continue
-                errors.extend(validate_input_file_entry(root, fixture_path, input_file, sidecar_path, f"inputFiles[{index}]"))
+                errors.extend(validate_referenced_file_entry(root, fixture_path, input_file, sidecar_path, f"inputFiles[{index}]", "MAFFT"))
+        errors.extend(validate_required_msa_payload_files(fixture_path, sidecar_path))
         if not isinstance(record.get("options"), dict) or record["options"].get("name") != "sars-cov-2-genomes-mafft":
             errors.append(f"missing MAFFT options for nested alignment provenance: {sidecar_path}")
     else:
+        input_record = record.get("input")
+        if not isinstance(input_record, dict):
+            errors.append(f"missing input object for root alignment provenance: {sidecar_path}")
+        else:
+            errors.extend(validate_referenced_file_entry(root, fixture_path, input_record, sidecar_path, "input", "alignment"))
+        input_files = record.get("inputFiles")
+        if input_files is not None:
+            if not isinstance(input_files, list):
+                errors.append(f"invalid inputFiles list for root alignment provenance: {sidecar_path}")
+            else:
+                for index, input_file in enumerate(input_files):
+                    if not isinstance(input_file, dict):
+                        errors.append(f"invalid inputFiles[{index}] object for root alignment provenance: {sidecar_path}")
+                        continue
+                    errors.extend(validate_referenced_file_entry(root, fixture_path, input_file, sidecar_path, f"inputFiles[{index}]", "alignment"))
         warnings = record.get("warnings")
         expected_warning = "deterministic synthetic derivatives"
         if not isinstance(warnings, list) or not any(expected_warning in str(warning) for warning in warnings):
@@ -378,36 +408,44 @@ def validate_mafft_external_invocation(mafft, sidecar_path):
     return errors
 
 
-def validate_input_file_entry(root, fixture_path, entry, sidecar_path, field_name):
+def validate_required_msa_payload_files(fixture_path, sidecar_path):
+    errors = []
+    for relative_path in REQUIRED_MSA_PAYLOAD_FILES:
+        if not (fixture_path / relative_path).is_file():
+            errors.append(f"missing required MAFFT payload file {relative_path}: {sidecar_path}")
+    return errors
+
+
+def validate_referenced_file_entry(root, fixture_path, entry, sidecar_path, field_name, context):
     errors = []
     path = entry.get("path")
     if not is_non_empty_string(path):
-        return [f"invalid MAFFT {field_name}.path: {sidecar_path}"]
+        return [f"invalid {context} {field_name}.path: {sidecar_path}"]
     if Path(path).is_absolute():
-        errors.append(f"MAFFT {field_name}.path must be relative: {sidecar_path}")
+        errors.append(f"{context} {field_name}.path must be relative: {sidecar_path}")
         return errors
     if any(marker in path for marker in PROVENANCE_STALE_PATH_MARKERS):
-        errors.append(f"stale path marker in MAFFT {field_name}.path {path}: {sidecar_path}")
+        errors.append(f"stale path marker in {context} {field_name}.path {path}: {sidecar_path}")
 
     candidate_paths = [fixture_path / path, root / path]
     actual_path = next((candidate for candidate in candidate_paths if candidate.is_file()), None)
     if actual_path is None:
-        errors.append(f"MAFFT {field_name}.path does not exist {path}: {sidecar_path}")
+        errors.append(f"{context} {field_name}.path does not exist {path}: {sidecar_path}")
         return errors
 
     recorded_size = entry.get("fileSize", entry.get("size"))
     actual_size = actual_path.stat().st_size
     if not is_integer(recorded_size):
-        errors.append(f"invalid MAFFT {field_name}.fileSize: {sidecar_path}")
+        errors.append(f"invalid {context} {field_name}.fileSize: {sidecar_path}")
     elif recorded_size != actual_size:
-        errors.append(f"MAFFT input fileSize mismatch for {field_name}: recorded {recorded_size}, actual {actual_size}: {sidecar_path}")
+        errors.append(f"{context} input fileSize mismatch for {field_name}: recorded {recorded_size}, actual {actual_size}: {sidecar_path}")
 
     recorded_checksum = entry.get("checksumSHA256")
     actual_checksum = sha256_file(actual_path)
     if not is_non_empty_string(recorded_checksum):
-        errors.append(f"invalid MAFFT {field_name}.checksumSHA256: {sidecar_path}")
+        errors.append(f"invalid {context} {field_name}.checksumSHA256: {sidecar_path}")
     elif recorded_checksum != actual_checksum:
-        errors.append(f"MAFFT input checksum mismatch for {field_name}: recorded {recorded_checksum}, actual {actual_checksum}: {sidecar_path}")
+        errors.append(f"{context} input checksum mismatch for {field_name}: recorded {recorded_checksum}, actual {actual_checksum}: {sidecar_path}")
     return errors
 
 

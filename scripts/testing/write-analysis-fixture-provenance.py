@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fixture_provenance import (
+    REQUIRED_MSA_PAYLOAD_FILES,
     RETAINED_FIXTURES,
     directory_checksum,
     directory_size,
@@ -163,6 +164,7 @@ def build_alignment_root_record(root, relative_fixture):
 
 def build_msa_record(root, relative_fixture):
     fixture_path = root / relative_fixture
+    require_msa_payload_files(fixture_path)
     entries = file_entries(fixture_path)
     project_path = "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
     input_fasta = f"{project_path}/Inputs/sars-cov-2-genomes.fasta"
@@ -279,11 +281,14 @@ def file_reference(path, relative_path):
             "fileSize": path.stat().st_size,
             "path": relative_path,
         }
-    return {
-        "checksumSHA256": None,
-        "fileSize": None,
-        "path": relative_path,
-    }
+    raise ValueError(f"missing required scientific input {relative_path}: {path}")
+
+
+def require_msa_payload_files(fixture_path):
+    for relative_path in REQUIRED_MSA_PAYLOAD_FILES:
+        path = fixture_path / relative_path
+        if not path.is_file():
+            raise ValueError(f"missing required MAFFT payload file {relative_path}: {path}")
 
 
 def file_entries_for_single(path):
@@ -378,7 +383,11 @@ def main():
             skipped.append(relative_fixture)
             continue
 
-        record = build_record(root, relative_fixture, metadata, created_at, executed_argv, args.overwrite)
+        try:
+            record = build_record(root, relative_fixture, metadata, created_at, executed_argv, args.overwrite)
+        except ValueError as error:
+            print(error, file=sys.stderr)
+            return 1
         sidecar_path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         if args.overwrite and had_sidecar:
             overwritten.append(relative_fixture)
