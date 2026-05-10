@@ -1,4 +1,5 @@
 import XCTest
+import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishCore
 @testable import LungfishIO
@@ -51,6 +52,35 @@ final class ImportCommandMetadataTests: XCTestCase {
         let metadata = database.sampleMetadata(name: "test")
         XCTAssertEqual(metadata["lineage"], "B.1.1.7")
         XCTAssertEqual(metadata["status"], "confirmed")
+    }
+
+    func testVCFSubcommandRejectsVCFv3BeforeCopying() async throws {
+        let vcfURL = tempDir.appendingPathComponent("legacy.vcf")
+        try """
+        ##fileformat=VCFv3.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\t.\tA\tG\t30\tPASS\t.
+        """.write(to: vcfURL, atomically: true, encoding: .utf8)
+
+        let outputURL = tempDir.appendingPathComponent("output", isDirectory: true)
+        let command = try ImportCommand.VCFSubcommand.parse([
+            vcfURL.path,
+            "--output-dir",
+            outputURL.path,
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected VCFv3 import to fail")
+        } catch let exitCode as ExitCode {
+            XCTAssertEqual(exitCode, .failure)
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: outputURL.appendingPathComponent("legacy.vcf").path),
+            "Unsupported VCFv3 input must fail before copying into the output directory"
+        )
     }
 
     private func makeVariantBundle() throws -> URL {

@@ -194,6 +194,56 @@ struct ProvenancePersistenceTests {
         #expect(loaded?.steps[0].toolName == "samtools")
         #expect(loaded?.steps[0].inputs[0].sha256 == "abc123")
     }
+
+    @Test("Saved provenance JSON includes runtime user")
+    func testSavedJSONIncludesRuntimeUser() async throws {
+        let recorder = ProvenanceRecorder()
+        let runID = await recorder.beginRun(name: "Runtime User Test")
+
+        await recorder.completeRun(runID, status: .completed)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("provenance-runtime-user-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try await recorder.save(runID: runID, to: tempDir)
+
+        let provenanceFile = tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let data = try Data(contentsOf: provenanceFile)
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let runtime = json?["runtime"] as? [String: Any]
+
+        #expect(runtime?["user"] as? String == WorkflowRun.currentUser)
+    }
+
+    @Test("Existing provenance JSON without runtime user still decodes")
+    func testLegacyJSONWithoutRuntimeStillDecodes() throws {
+        let id = UUID()
+        let json = """
+        {
+          "id": "\(id.uuidString)",
+          "name": "Legacy Run",
+          "startTime": "2026-05-09T12:00:00Z",
+          "endTime": "2026-05-09T12:00:01Z",
+          "status": "completed",
+          "appVersion": "Lungfish 1.0 (1)",
+          "hostOS": "macOS 15.0.0 (arm64)",
+          "steps": [],
+          "parameters": {}
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decoded = try decoder.decode(WorkflowRun.self, from: data)
+
+        #expect(decoded.id == id)
+        #expect(decoded.name == "Legacy Run")
+        #expect(decoded.appVersion == "Lungfish 1.0 (1)")
+        #expect(decoded.hostOS == "macOS 15.0.0 (arm64)")
+        #expect(decoded.runtime.user == nil)
+    }
 }
 
 @Suite("Provenance Export")
@@ -298,6 +348,7 @@ struct ProvenanceExportTests {
         let exporter = ProvenanceExporter()
         let methods = exporter.exportMethods(sampleRun())
 
+        #expect(methods.hasPrefix("<!-- This is an automatically-generated draft. Read it before submitting. -->"))
         #expect(methods.contains("Methods"))
         #expect(methods.contains("fastp v0.23.4"))
         #expect(methods.contains("samtools v1.21"))

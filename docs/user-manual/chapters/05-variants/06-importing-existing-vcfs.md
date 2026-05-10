@@ -47,7 +47,7 @@ By the end of this chapter you will be able to import a plain VCF or a bgzipped+
 | Bgzipped VCF | `.vcf.gz` | `.tbi` recommended | If the index is missing, Lungfish builds one. |
 | Bgzipped VCF, indexed | `.vcf.gz` plus `.vcf.gz.tbi` | Tabix index alongside | Preferred form. Imports without modification. |
 
-Lungfish reads VCF 4.0, 4.1, 4.2, and 4.3. Older VCFv3 files are not accepted directly (see Troubleshooting). Multi-sample VCFs are supported: each sample column becomes a separately filterable source in the variant browser.
+Lungfish reads VCF 4.0, 4.1, 4.2, 4.3, and 4.4. Older VCFv3 files are not accepted directly; convert them first with [bcftools convert](https://samtools.github.io/bcftools/bcftools.html#convert) or `vcf-convert` from [vcftools](https://vcftools.github.io/perl_module.html) (see Troubleshooting). Multi-sample VCFs are supported: each sample column becomes a separately filterable source in the variant browser.
 
 ## Procedure
 
@@ -89,7 +89,7 @@ A common sanity check is to look at the first few `POS` values in the imported t
 
 **Missing index.** A `.vcf.gz` without a `.tbi` is fine. Lungfish builds the index during import. A `.vcf.gz` with a `.tbi` that is older than the `.vcf.gz` (the index has gone stale) is rejected with a warning. Delete the stale `.tbi` and re-import.
 
-**Very old VCFv3 files.** VCFv3 was superseded in 2011 and is not accepted directly. Convert it first with `bcftools view --no-version old.vcf -Oz -o new.vcf.gz` and import the converted file. Lungfish will not perform this conversion automatically because VCFv3-to-VCFv4 conversion can change how multi-allelic sites are represented, and that is a decision the user should make explicitly.
+**Very old VCFv3 files.** VCFv3 was superseded in 2011 and is not accepted directly. Convert it first with [bcftools convert](https://samtools.github.io/bcftools/bcftools.html#convert) or `vcf-convert` from [vcftools](https://vcftools.github.io/perl_module.html), then import the converted VCF 4.x file. Lungfish will not perform this conversion automatically because VCFv3-to-VCFv4 conversion can change how multi-allelic sites are represented, and that is a decision the user should make explicitly.
 
 ## Next
 

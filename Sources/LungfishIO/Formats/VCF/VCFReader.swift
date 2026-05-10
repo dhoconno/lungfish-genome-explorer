@@ -304,6 +304,10 @@ public final class VCFReader: Sendable {
                         if trimmed.isEmpty { continue }
 
                         // Skip meta-information lines
+                        if trimmed.hasPrefix("##fileformat=") {
+                            try self.validateFileFormat(String(trimmed.dropFirst(13)))
+                            continue
+                        }
                         if trimmed.hasPrefix("##") { continue }
 
                         // Parse header line
@@ -366,6 +370,7 @@ public final class VCFReader: Sendable {
 
             if trimmed.hasPrefix("##fileformat=") {
                 fileFormat = String(trimmed.dropFirst(13))
+                try validateFileFormat(fileFormat)
             } else if trimmed.hasPrefix("##INFO=") {
                 if let def = parseFieldDefinition(trimmed.dropFirst(7)) {
                     infoFields[def.id] = def
@@ -420,6 +425,12 @@ public final class VCFReader: Sendable {
         let fields = line.split(separator: "\t").map(String.init)
         guard fields.count > 9 else { return [] }
         return Array(fields.dropFirst(9))
+    }
+
+    private func validateFileFormat(_ fileFormat: String) throws {
+        if fileFormat.hasPrefix("VCFv3.") {
+            throw VCFError.unsupportedVCFVersion(version: fileFormat)
+        }
     }
 
     private func parseVariantLine(_ line: String, sampleNames: [String], lineNumber: Int) throws -> VCFVariant {
@@ -740,6 +751,7 @@ extension VCFReader {
 public enum VCFError: Error, LocalizedError, Sendable {
 
     case missingHeader
+    case unsupportedVCFVersion(version: String)
     case invalidLineFormat(line: Int, expected: Int, got: Int)
     case invalidPosition(line: Int, value: String)
     case invalidAllele(line: Int, field: String, value: String)
@@ -749,6 +761,8 @@ public enum VCFError: Error, LocalizedError, Sendable {
         switch self {
         case .missingHeader:
             return "VCF file missing header line (#CHROM...)"
+        case .unsupportedVCFVersion:
+            return "VCFv3 is not supported. Convert to VCF 4.x with bcftools convert or vcf-convert (vcftools) before importing. See https://samtools.github.io/bcftools/bcftools.html#convert and https://vcftools.github.io/perl_module.html"
         case .invalidLineFormat(let line, let expected, let got):
             return "VCF line \(line): expected at least \(expected) fields, got \(got)"
         case .invalidPosition(let line, let value):

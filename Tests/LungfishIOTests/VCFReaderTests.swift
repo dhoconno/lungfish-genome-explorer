@@ -268,6 +268,32 @@ final class VCFReaderTests: XCTestCase {
         }
     }
 
+    func testVCFv3HeaderThrowsUnsupportedVersionWithConverterPointer() async throws {
+        let vcf = """
+        ##fileformat=VCFv3.3
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\t.\tA\tG\t30\tPASS\t.
+        """
+
+        let url = try createTempVCF(content: vcf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = VCFReader()
+
+        do {
+            _ = try await reader.readHeader(from: url)
+            XCTFail("Expected unsupported VCF version error")
+        } catch VCFError.unsupportedVCFVersion(let version) {
+            XCTAssertEqual(version, "VCFv3.3")
+            XCTAssertEqual(
+                VCFError.unsupportedVCFVersion(version: version).errorDescription,
+                "VCFv3 is not supported. Convert to VCF 4.x with bcftools convert or vcf-convert (vcftools) before importing. See https://samtools.github.io/bcftools/bcftools.html#convert and https://vcftools.github.io/perl_module.html"
+            )
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
     func testInvalidLineFormatThrows() async throws {
         let vcf = """
         ##fileformat=VCFv4.3

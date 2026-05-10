@@ -93,7 +93,7 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertTrue(provenance.contains("\"featureCount\" : 1"))
     }
 
-    func testRejectsGFFWithNoImportableAnnotations() async throws {
+    func testAttachesEmptyGFFWithNoAnnotationsManifestEntry() async throws {
         let bundleURL = try makeBundle(named: "M1")
         let gffURL = tempRoot.appendingPathComponent("empty.gff3")
         try """
@@ -102,19 +102,17 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
         """.write(to: gffURL, atomically: true, encoding: .utf8)
 
-        do {
-            _ = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
-                sourceURL: gffURL,
-                bundleURL: bundleURL
-            )
-            XCTFail("Expected zero-feature annotation import to fail")
-        } catch {
-            XCTAssertTrue(error.localizedDescription.contains("No importable annotations"))
-        }
+        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: gffURL,
+            bundleURL: bundleURL
+        )
 
         let manifest = try BundleManifest.load(from: bundleURL)
-        XCTAssertTrue(manifest.annotations.isEmpty)
-        XCTAssertFalse(FileManager.default.fileExists(
+        XCTAssertEqual(result.featureCount, 0)
+        XCTAssertEqual(manifest.annotations.count, 1)
+        XCTAssertEqual(manifest.annotations.first?.featureCount, 0)
+        XCTAssertEqual(manifest.annotations.first?.description, "Imported from empty.gff3 (no annotations found)")
+        XCTAssertTrue(FileManager.default.fileExists(
             atPath: bundleURL.appendingPathComponent("annotations/empty.db").path
         ))
     }
