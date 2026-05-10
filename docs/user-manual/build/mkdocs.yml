@@ -10,7 +10,6 @@ exclude_docs: |
 
 theme:
   name: material
-  custom_dir: theme/
   font:
     text: Inter
     code: IBM Plex Mono
@@ -28,7 +27,7 @@ theme:
     - search.highlight
 
 extra_css:
-  - build/theme/extra.css
+  - css/extra.css
 
 markdown_extensions:
   - admonition
