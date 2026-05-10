@@ -10,6 +10,7 @@ final class CondaPacksCommandTests: XCTestCase {
                 "lungfish-tools",
                 "read-mapping",
                 "variant-calling",
+                "gatk-core",
                 "assembly",
                 "multiple-sequence-alignment",
                 "phylogenetics",
