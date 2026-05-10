@@ -210,7 +210,7 @@ dialog.CzIdImportSheet:
   chapter: 06-classification/07-importing-cz-id-results
   anchor: procedure
   scope: dialog
-  description: Import a CZ-ID taxon report TSV, ZIP archive, or extracted folder.
+  description: Import, not run, a CZ-ID taxon report TSV, ZIP archive, or extracted folder.
 
 dialog.AssemblyWizard:
   chapter: 07-assembly/01-when-to-assemble

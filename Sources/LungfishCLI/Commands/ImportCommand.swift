@@ -63,6 +63,7 @@ struct ImportCommand: AsyncParsableCommand {
             TaxTriageSubcommand.self,
             NaoMgsSubcommand.self,
             NvdSubcommand.self,
+            CzIdSubcommand.self,
             MetadataSubcommand.self,
         ]
     )
