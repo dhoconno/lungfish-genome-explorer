@@ -318,6 +318,83 @@ final class TreeCommandTests: XCTestCase {
         XCTAssertTrue(recorder.joined().contains(#""event":"treeExportComplete""#))
     }
 
+    func testTreeExtractSubtreeWritesNativeBundleWithProvenance() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandExtractSubtreeTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeTreeBundle(in: tempDir, newick: "((A:0.1,B:0.2)Clade:0.3,C:0.4);")
+        let outputURL = tempDir.appendingPathComponent("Extracted.lungfishtree", isDirectory: true)
+        let command = try TreeCommand.ExtractSubtreeSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--node", "Clade",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+        let recorder = TreeLineRecorder()
+
+        try command.executeForTesting { recorder.append($0) }
+
+        let bundle = try PhylogeneticTreeBundle.load(from: outputURL)
+        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B"])
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-extract-subtree")
+        XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree extract-subtree")
+        XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, bundleURL.path)
+        XCTAssertTrue(recorder.joined().contains(#""event":"treeTransformComplete""#))
+    }
+
+    func testTreeRerootWritesNativeBundleWithProvenance() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandRerootTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeTreeBundle(in: tempDir, newick: "((A:0.1,B:0.2)Clade:0.3,C:0.4);")
+        let outputURL = tempDir.appendingPathComponent("Rerooted.lungfishtree", isDirectory: true)
+        let command = try TreeCommand.RerootSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--on", "C",
+            "--output", outputURL.path,
+        ])
+
+        try command.executeForTesting { _ in }
+
+        let bundle = try PhylogeneticTreeBundle.load(from: outputURL)
+        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B", "C"])
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-reroot")
+        XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree reroot")
+        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["on"] as? String, "C")
+    }
+
+    func testTreeRelabelWritesNativeBundleWithMetadataProvenance() throws {
+        let tempDir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            .appendingPathComponent(".build/test-artifacts/TreeCommandRelabelTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let bundleURL = try makeTreeBundle(in: tempDir, newick: "(A:0.1,B:0.2,C:0.3);")
+        try """
+        id\tlineage
+        A\tBA.1
+        B\tBA.2
+        C\tBA.5
+        """.write(to: bundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
+        let outputURL = tempDir.appendingPathComponent("Relabeled.lungfishtree", isDirectory: true)
+        let command = try TreeCommand.RelabelSubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--column", "lineage",
+            "--output", outputURL.path,
+        ])
+
+        try command.executeForTesting { _ in }
+
+        let bundle = try PhylogeneticTreeBundle.load(from: outputURL)
+        XCTAssertEqual(Set(bundle.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["BA.1", "BA.2", "BA.5"])
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-relabel")
+        XCTAssertEqual((provenanceJSON["metadataFile"] as? [String: Any])?["path"] as? String, bundleURL.appendingPathComponent("metadata.tsv").path)
+    }
+
     private func writeFakeIQTreeExecutable(in directory: URL, expectedInput: String? = nil) throws -> URL {
         let url = directory.appendingPathComponent("iqtree3")
         let expectedInputCheck: String
@@ -392,6 +469,14 @@ final class TreeCommandTests: XCTestCase {
         let data = try Data(contentsOf: url)
         let object = try JSONSerialization.jsonObject(with: data)
         return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func makeTreeBundle(in directory: URL, newick: String) throws -> URL {
+        let sourceURL = directory.appendingPathComponent("source-\(UUID().uuidString).nwk")
+        try newick.write(to: sourceURL, atomically: true, encoding: .utf8)
+        let bundleURL = directory.appendingPathComponent("Tree-\(UUID().uuidString).lungfishtree", isDirectory: true)
+        _ = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: bundleURL)
+        return bundleURL
     }
 }
 

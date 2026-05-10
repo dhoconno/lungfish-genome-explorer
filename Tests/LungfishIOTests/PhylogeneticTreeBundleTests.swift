@@ -198,6 +198,102 @@ final class PhylogeneticTreeBundleTests: XCTestCase {
         XCTAssertEqual(subtree, "(A:0.1,B:0.2)Clade:0.3;")
     }
 
+    func testExtractSubtreeWritesNewBundleWithSourceBundleProvenance() throws {
+        let sourceURL = try writeSource(
+            name: "extract-source.nwk",
+            contents: "((A:0.1,B:0.2)Clade:0.3,C:0.4);"
+        )
+        let sourceBundleURL = workspaceURL.appendingPathComponent("ExtractSource.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let cladeID = try XCTUnwrap(sourceBundle.normalizedTree.nodes.first { $0.displayLabel == "Clade" }?.id)
+        let outputURL = workspaceURL.appendingPathComponent("Extracted.lungfishtree", isDirectory: true)
+
+        let extracted = try sourceBundle.extractSubtreeBundle(
+            nodeID: cladeID,
+            to: outputURL,
+            provenance: .init(
+                toolName: "lungfish tree extract-subtree",
+                argv: ["lungfish", "tree", "extract-subtree", "--bundle", sourceBundleURL.path, "--node", cladeID, "--output", outputURL.path],
+                options: ["node": cladeID]
+            )
+        )
+
+        XCTAssertEqual(Set(extracted.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B"])
+        XCTAssertEqual(try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8), "(A:0.1,B:0.2)Clade:0.3;\n")
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-extract-subtree")
+        XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish tree extract-subtree")
+        XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, sourceBundleURL.path)
+        XCTAssertEqual((provenanceJSON["output"] as? [String: Any])?["path"] as? String, outputURL.path)
+        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["node"] as? String, cladeID)
+        XCTAssertNotNil((provenanceJSON["inputTreeFile"] as? [String: Any])?["sha256"])
+        XCTAssertNotNil(provenanceJSON["wallTimeSeconds"])
+    }
+
+    func testRerootWritesNewBundleWithoutMutatingSourceBundle() throws {
+        let sourceURL = try writeSource(
+            name: "reroot-source.nwk",
+            contents: "((A:0.1,B:0.2)Clade:0.3,C:0.4);"
+        )
+        let sourceBundleURL = workspaceURL.appendingPathComponent("RerootSource.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        let outputURL = workspaceURL.appendingPathComponent("Rerooted.lungfishtree", isDirectory: true)
+
+        let rerooted = try sourceBundle.rerootedBundle(
+            on: "C",
+            to: outputURL,
+            provenance: .init(
+                toolName: "lungfish tree reroot",
+                argv: ["lungfish", "tree", "reroot", "--bundle", sourceBundleURL.path, "--on", "C", "--output", outputURL.path],
+                options: ["on": "C"]
+            )
+        )
+
+        XCTAssertEqual(Set(rerooted.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["A", "B", "C"])
+        XCTAssertEqual(
+            try String(contentsOf: sourceBundleURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8),
+            "((A:0.1,B:0.2)Clade:0.3,C:0.4);\n"
+        )
+        XCTAssertTrue(try String(contentsOf: outputURL.appendingPathComponent("tree/primary.nwk"), encoding: .utf8).contains("C:0.0"))
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-reroot")
+        XCTAssertEqual((provenanceJSON["input"] as? [String: Any])?["path"] as? String, sourceBundleURL.path)
+        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["on"] as? String, "C")
+    }
+
+    func testRelabelFromMetadataColumnWritesNewBundle() throws {
+        let sourceURL = try writeSource(
+            name: "relabel-source.nwk",
+            contents: "(A:0.1,B:0.2,C:0.3);"
+        )
+        let sourceBundleURL = workspaceURL.appendingPathComponent("RelabelSource.lungfishtree", isDirectory: true)
+        let sourceBundle = try PhylogeneticTreeBundleImporter.importTree(from: sourceURL, to: sourceBundleURL)
+        try """
+        id\tlineage\tcountry
+        A\tBA.1\tUSA
+        B\tBA.2\tCanada
+        C\tBA.5\tMexico
+        """.write(to: sourceBundleURL.appendingPathComponent("metadata.tsv"), atomically: true, encoding: .utf8)
+        let outputURL = workspaceURL.appendingPathComponent("Relabeled.lungfishtree", isDirectory: true)
+
+        let relabeled = try sourceBundle.relabeledBundle(
+            column: "lineage",
+            to: outputURL,
+            provenance: .init(
+                toolName: "lungfish tree relabel",
+                argv: ["lungfish", "tree", "relabel", "--bundle", sourceBundleURL.path, "--column", "lineage", "--output", outputURL.path],
+                options: ["column": "lineage"]
+            )
+        )
+
+        XCTAssertEqual(Set(relabeled.normalizedTree.nodes.filter(\.isTip).map(\.displayLabel)), ["BA.1", "BA.2", "BA.5"])
+        XCTAssertEqual(try String(contentsOf: outputURL.appendingPathComponent("metadata.tsv"), encoding: .utf8).split(separator: "\n").count, 4)
+        let provenanceJSON = try jsonObject(at: outputURL.appendingPathComponent(".lungfish-provenance.json"))
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "phylogenetic-tree-relabel")
+        XCTAssertEqual((provenanceJSON["options"] as? [String: Any])?["column"] as? String, "lineage")
+        XCTAssertEqual((provenanceJSON["metadataFile"] as? [String: Any])?["path"] as? String, sourceBundleURL.appendingPathComponent("metadata.tsv").path)
+    }
+
     private func writeSource(name: String, contents: String) throws -> URL {
         let url = workspaceURL.appendingPathComponent(name)
         try Data(contents.utf8).write(to: url, options: .atomic)
