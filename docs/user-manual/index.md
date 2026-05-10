@@ -11,6 +11,8 @@ Welcome. This manual is the documentation for Lungfish, the macOS app for viral 
 
 The pilot chapter is [Calling Variants from Amplicon Reads](chapters/05-variants/01-calling-variants-from-amplicons.md). It walks the full SARS-CoV-2 amplicon-Illumina workflow end to end and is the right starting point if you want to see what Lungfish does in action.
 
+[:material-file-pdf-box: Download as PDF](pdf/lungfish-user-manual.pdf){ .md-button }
+
 ## Foundations
 
 Read these first if you are new to genomics or new to Lungfish. Each is 5-10 minutes.
