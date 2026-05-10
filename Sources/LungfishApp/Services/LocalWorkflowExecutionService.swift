@@ -87,6 +87,7 @@ final class LocalWorkflowExecutionService {
             )
             logProcessOutput(result, operationID: operationID)
             if result.exitCode == 0 {
+                try verifyCompletedRunBundle(at: bundleURL)
                 operationCenter.log(id: operationID, level: .info, message: "Status: completed")
                 operationCenter.complete(
                     id: operationID,
@@ -165,6 +166,29 @@ final class LocalWorkflowExecutionService {
         }
     }
 
+    private func verifyCompletedRunBundle(at bundleURL: URL) throws {
+        let manifest = try LocalWorkflowRunBundleStore.read(from: bundleURL)
+        guard manifest.executionStatus == .completed, manifest.exitCode == 0 else {
+            throw LocalWorkflowExecutionError.incompleteRunBundle(bundleURL.path)
+        }
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
+            throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        guard provenance.status == .completed,
+              let step = provenance.steps.first,
+              step.exitCode == 0,
+              !step.command.isEmpty,
+              step.outputs.contains(where: { $0.path == bundleURL.standardizedFileURL.path || $0.path == bundleURL.path }) else {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+    }
+
     private func writePrepareOnlyProvenance(
         request: LocalWorkflowRunRequest,
         bundleURL: URL,
@@ -237,6 +261,9 @@ protocol LocalWorkflowCLIProcessRunning {
 
 enum LocalWorkflowExecutionError: Error, Equatable {
     case nonZeroExit(Int32)
+    case incompleteRunBundle(String)
+    case missingProvenance(String)
+    case invalidProvenance(String)
 }
 
 struct ProcessLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {

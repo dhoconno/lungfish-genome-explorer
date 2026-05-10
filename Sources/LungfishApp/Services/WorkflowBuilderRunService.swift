@@ -60,16 +60,45 @@ public final class WorkflowBuilderRunService {
     }
 
     public typealias NodeExecutor = @MainActor (WorkflowNode, WorkflowBuilderRunBinding) async throws -> Void
+    private typealias GraphExecutor = @MainActor (
+        WorkflowGraph,
+        URL,
+        WorkflowBuilderRunBinding,
+        UUID,
+        URL
+    ) async throws -> GraphExecutionResult
+
+    private struct GraphExecutionResult {
+        let bundleURL: URL
+    }
+
+    private enum ExecutionMode {
+        case graph(GraphExecutor)
+        case nodes(NodeExecutor)
+    }
 
     private let operationCenter: OperationCenter
-    private let nodeExecutor: NodeExecutor
+    private let executionMode: ExecutionMode
 
-    public init(
-        operationCenter: OperationCenter = .shared,
-        nodeExecutor: @escaping NodeExecutor = { _, _ in }
-    ) {
+    public init(operationCenter: OperationCenter = .shared) {
         self.operationCenter = operationCenter
-        self.nodeExecutor = nodeExecutor
+        self.executionMode = .graph(Self.makeDefaultGraphExecutor(
+            operationCenter: operationCenter,
+            processRunner: ProcessLocalWorkflowCLIProcessRunner()
+        ))
+    }
+
+    public init(operationCenter: OperationCenter = .shared, nodeExecutor: @escaping NodeExecutor) {
+        self.operationCenter = operationCenter
+        self.executionMode = .nodes(nodeExecutor)
+    }
+
+    init(operationCenter: OperationCenter = .shared, localWorkflowProcessRunner: LocalWorkflowCLIProcessRunning) {
+        self.operationCenter = operationCenter
+        self.executionMode = .graph(Self.makeDefaultGraphExecutor(
+            operationCenter: operationCenter,
+            processRunner: localWorkflowProcessRunner
+        ))
     }
 
     public func run(
@@ -126,28 +155,33 @@ public final class WorkflowBuilderRunService {
         )
         try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
 
-        for (index, node) in sortedNodes.enumerated() {
-            let nodeOperationID = operationCenter.start(
-                title: node.label,
-                detail: "Running workflow node",
-                operationType: .workflow,
-                targetBundleURL: workflowBundleURL,
-                cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
-                workflowRunID: runID
-            )
-            setNodeStatus(node.id, in: &record, status: .running, startedAt: Date())
+        var additionalOutputs: [LocalWorkflowInputBinding] = []
+        switch executionMode {
+        case .graph(let graphExecutor):
+            for node in sortedNodes {
+                setNodeStatus(node.id, in: &record, status: .running, startedAt: Date())
+            }
             try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
 
             do {
-                try await nodeExecutor(node, binding)
-                setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
-                operationCenter.complete(id: nodeOperationID, detail: "Completed workflow node")
-                operationCenter.update(id: parentOperationID, progress: Double(index + 1) / Double(sortedNodes.count), detail: "Completed \(node.label)")
+                let executionResult = try await graphExecutor(graph, workflowBundleURL, binding, runID, runDirectoryURL)
+                additionalOutputs.append(LocalWorkflowInputBinding(url: executionResult.bundleURL, role: .output))
+                for node in sortedNodes {
+                    setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
+                }
+                operationCenter.update(
+                    id: parentOperationID,
+                    progress: 1,
+                    detail: "Executed workflow through local workflow runner"
+                )
                 try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
             } catch {
+                let failingNodeID = failingNodeID(from: error) ?? sortedNodes.first?.id
                 let message = errorMessage(for: error)
-                setNodeStatus(node.id, in: &record, status: .failed, completedAt: Date(), errorMessage: message)
-                markPendingNodesSkipped(in: &record)
+                if let failingNodeID {
+                    setNodeStatus(failingNodeID, in: &record, status: .failed, completedAt: Date(), errorMessage: message)
+                }
+                markUnfinishedNodesSkipped(in: &record, except: failingNodeID)
                 record.status = .failed
                 record.completedAt = Date()
                 record.errorMessage = message
@@ -155,14 +189,55 @@ public final class WorkflowBuilderRunService {
                 record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
                 record.provenance.stderr = message
                 try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
-                operationCenter.fail(id: nodeOperationID, detail: message, errorMessage: "Workflow node failed", errorDetail: message)
                 operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
-                throw normalizedNodeFailure(error, node: node, message: message)
+                if let failingNode = sortedNodes.first(where: { $0.id == failingNodeID }) {
+                    throw normalizedNodeFailure(error, node: failingNode, message: message)
+                }
+                throw error
+            }
+
+        case .nodes(let nodeExecutor):
+            for (index, node) in sortedNodes.enumerated() {
+                let nodeOperationID = operationCenter.start(
+                    title: node.label,
+                    detail: "Running workflow node",
+                    operationType: .workflow,
+                    targetBundleURL: workflowBundleURL,
+                    cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
+                    workflowRunID: runID
+                )
+                setNodeStatus(node.id, in: &record, status: .running, startedAt: Date())
+                try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
+
+                do {
+                    try await nodeExecutor(node, binding)
+                    setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
+                    operationCenter.complete(id: nodeOperationID, detail: "Completed workflow node")
+                    operationCenter.update(id: parentOperationID, progress: Double(index + 1) / Double(sortedNodes.count), detail: "Completed \(node.label)")
+                    try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
+                } catch {
+                    let message = errorMessage(for: error)
+                    setNodeStatus(node.id, in: &record, status: .failed, completedAt: Date(), errorMessage: message)
+                    markPendingNodesSkipped(in: &record)
+                    record.status = .failed
+                    record.completedAt = Date()
+                    record.errorMessage = message
+                    record.provenance.exitStatus = 1
+                    record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
+                    record.provenance.stderr = message
+                    try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
+                    operationCenter.fail(id: nodeOperationID, detail: message, errorMessage: "Workflow node failed", errorDetail: message)
+                    operationCenter.fail(id: parentOperationID, detail: "Workflow failed: \(message)", errorMessage: "Workflow failed", errorDetail: message)
+                    throw normalizedNodeFailure(error, node: node, message: message)
+                }
             }
         }
 
         record.status = .succeeded
         record.completedAt = Date()
+        if !additionalOutputs.isEmpty {
+            record.provenance.outputs.append(contentsOf: additionalOutputs)
+        }
         record.provenance.exitStatus = 0
         record.provenance.wallTimeSeconds = record.completedAt?.timeIntervalSince(startedAt)
         try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
@@ -173,6 +248,87 @@ public final class WorkflowBuilderRunService {
         )
 
         return RunResult(runID: runID, runDirectoryURL: runDirectoryURL, parentOperationID: parentOperationID)
+    }
+
+    private static func makeDefaultGraphExecutor(
+        operationCenter: OperationCenter,
+        processRunner: LocalWorkflowCLIProcessRunning
+    ) -> GraphExecutor {
+        let localWorkflowService = LocalWorkflowExecutionService(
+            operationCenter: operationCenter,
+            processRunner: processRunner
+        )
+        return { graph, _, binding, runID, runDirectoryURL in
+            try validateDefaultGraphCanRun(graph)
+
+            let generatedDirectory = runDirectoryURL.appendingPathComponent("generated", isDirectory: true)
+            try FileManager.default.createDirectory(at: generatedDirectory, withIntermediateDirectories: true)
+            let generatedWorkflowURL = generatedDirectory.appendingPathComponent("workflow-\(runID.uuidString).nf")
+            let script = try NextflowExporter().export(graph: graph)
+            try script.write(to: generatedWorkflowURL, atomically: true, encoding: .utf8)
+
+            let outputDirectory = runDirectoryURL.appendingPathComponent("outputs", isDirectory: true)
+            let request = LocalWorkflowRunRequest(
+                workflowURL: generatedWorkflowURL,
+                inputURLs: provenanceInputURLs(for: binding.sample),
+                outputDirectory: outputDirectory,
+                params: inputParameterBindings(for: graph, binding: binding)
+            )
+            let result = try await localWorkflowService.run(
+                request,
+                bundleRoot: runDirectoryURL.appendingPathComponent("local-runs", isDirectory: true)
+            )
+            return GraphExecutionResult(bundleURL: result.bundleURL)
+        }
+    }
+
+    private static func validateDefaultGraphCanRun(_ graph: WorkflowGraph) throws {
+        for node in graph.nodes.values where node.type.category == .input && node.type != .fastqInput {
+            throw ExecutionError.nodeFailed(
+                nodeID: node.id,
+                message: "Unsupported Workflow Builder input node '\(node.label)' (\(node.type.displayName)). Production runs currently bind only FASTQ Input nodes to the selected sample; refusing to mark this node successful without executable work and provenance."
+            )
+        }
+    }
+
+    private static func inputParameterBindings(
+        for graph: WorkflowGraph,
+        binding: WorkflowBuilderRunBinding
+    ) -> [String: String] {
+        graph.nodes.values
+            .filter { $0.type == .fastqInput }
+            .reduce(into: [:]) { params, node in
+                params[sanitizeNextflowIdentifier(node.label)] = binding.sample.path
+            }
+    }
+
+    private static func provenanceInputURLs(for sample: LocalWorkflowInputBinding) -> [URL] {
+        let sampleURL = URL(fileURLWithPath: sample.path).standardizedFileURL
+        var urls = [sampleURL]
+        guard let enumerator = FileManager.default.enumerator(
+            at: sampleURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return urls
+        }
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            if values?.isRegularFile == true {
+                urls.append(url.standardizedFileURL)
+            }
+        }
+        return urls
+    }
+
+    private static func sanitizeNextflowIdentifier(_ name: String) -> String {
+        var sanitized = name.replacingOccurrences(of: " ", with: "_")
+        sanitized = sanitized.replacingOccurrences(of: "-", with: "_")
+        sanitized = sanitized.filter { $0.isLetter || $0.isNumber || $0 == "_" }
+        if let first = sanitized.first, first.isNumber {
+            sanitized = "_" + sanitized
+        }
+        return sanitized.lowercased()
     }
 
     private func makeInitialRecord(
@@ -245,6 +401,25 @@ public final class WorkflowBuilderRunService {
             record.nodeRecords[index].status = .skipped
             record.nodeRecords[index].completedAt = Date()
         }
+    }
+
+    private func markUnfinishedNodesSkipped(in record: inout WorkflowBuilderRunRecord, except failedNodeID: UUID?) {
+        for index in record.nodeRecords.indices where record.nodeRecords[index].nodeID != failedNodeID {
+            switch record.nodeRecords[index].status {
+            case .pending, .running:
+                record.nodeRecords[index].status = .skipped
+                record.nodeRecords[index].completedAt = Date()
+            case .succeeded, .failed, .skipped:
+                break
+            }
+        }
+    }
+
+    private func failingNodeID(from error: Error) -> UUID? {
+        if case ExecutionError.nodeFailed(let nodeID, _) = error {
+            return nodeID
+        }
+        return nil
     }
 
     private func errorMessage(for error: Error) -> String {
