@@ -2,7 +2,7 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T23:00:48Z",
+  "createdAt": "2026-05-10T23:06:35Z",
   "exitStatus": 0,
   "files": [
     {
@@ -84,10 +84,10 @@
       "size": 2071
     },
     {
-      "checksumSHA256": "8060056d2e8b9c356bae358b53289f392fc257c6c57a97f3010559c9fb9f810c",
-      "fileSize": 2705,
+      "checksumSHA256": "e5e93cb861eacae1b957c90801fdf0f29f4d789743592f6fb969b08493892017",
+      "fileSize": 1986,
       "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/source-row-map.json",
-      "size": 2705
+      "size": 1986
     },
     {
       "checksumSHA256": "cc4284c627c927b9397965fae09365175daad5b9884807bb0d676fe1495578c8",
@@ -114,10 +114,10 @@
     }
   },
   "output": {
-    "checksumSHA256": "ed9d7bd47738ee0448ae5dd739f22c628546084b0aaa8e02166b3233ea9608a6",
-    "fileSize": 5136375,
+    "checksumSHA256": "51ddc3e3d28ed6316f4d32374ba2c1ffef27c99bf7916d4ee7ffb192b8e76287",
+    "fileSize": 5135656,
     "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-    "size": 5136375
+    "size": 5135656
   },
   "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
@@ -126,9 +126,9 @@
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "2a78e0f413a9dfec6a4ed67ad7b10d90923bdad6",
+    "gitRevision": "222ca0cd7561c14a70379f3873f7e8a654f75854",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 26025,
+    "processIdentifier": 29455,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

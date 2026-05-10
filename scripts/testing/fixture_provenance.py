@@ -62,6 +62,10 @@ REQUIRED_TOP_LEVEL_FIELDS = [
     "stderr",
 ]
 STALE_PATH_MARKERS = [".worktrees", "alignment-tree-viewers"]
+RETAINED_PAYLOAD_SCAN_ROOTS = [
+    "Tests/Fixtures/analyses",
+    "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+]
 
 
 def sha256_file(path):
@@ -241,6 +245,37 @@ def stale_string_errors(value, sidecar_path, trail=""):
     return errors
 
 
+def validate_retained_payload_text(root):
+    root = Path(root)
+    errors = []
+    for relative_root in RETAINED_PAYLOAD_SCAN_ROOTS:
+        scan_root = root / relative_root
+        if not scan_root.is_dir():
+            errors.append(f"missing retained fixture scan directory: {scan_root}")
+            continue
+        for path in sorted(scan_root.rglob("*")):
+            if not path.is_file() or is_binary_file(path):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for line_number, line in enumerate(text.splitlines(), start=1):
+                for marker in STALE_PATH_MARKERS:
+                    if marker in line:
+                        errors.append(f"stale path marker {marker!r} in payload {path}:{line_number}")
+                        break
+    return errors
+
+
+def is_binary_file(path):
+    try:
+        chunk = path.read_bytes()[:4096]
+    except OSError:
+        return True
+    return b"\0" in chunk
+
+
 def main(argv=None):
     import argparse
     import sys
@@ -252,6 +287,7 @@ def main(argv=None):
     errors = []
     for relative_fixture in RETAINED_FIXTURES:
         errors.extend(validate_fixture_sidecar(args.root.resolve(), relative_fixture))
+    errors.extend(validate_retained_payload_text(args.root.resolve()))
 
     if errors:
         for error in errors:

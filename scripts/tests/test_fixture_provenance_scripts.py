@@ -80,6 +80,29 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("checksum mismatch", result.stderr)
 
+    def test_audit_fails_when_payload_metadata_contains_stale_worktree_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "kraken2-2026-01-15T11-00-00"
+            payload = fixture / "payload.txt"
+            payload.write_text(
+                "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/input.fasta\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("payload.txt", result.stderr)
+
     def test_audit_passes_when_existing_retained_fixtures_have_valid_sidecars(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
