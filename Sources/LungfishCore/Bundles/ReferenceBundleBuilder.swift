@@ -74,6 +74,15 @@ public struct BuildConfiguration: Sendable {
     /// without requiring schema changes to `BuildConfiguration`.
     public let metadata: [MetadataGroup]?
 
+    /// Human-readable workflow/tool name for bundle-level provenance.
+    public let provenanceWorkflowName: String?
+
+    /// Exact argv to store in bundle-level provenance when the builder is called from a CLI workflow.
+    public let provenanceCommand: [String]?
+
+    /// User-visible input files to record in provenance, replacing temporary staged inputs when needed.
+    public let provenanceInputFiles: [URL]?
+
     /// Creates a new build configuration.
     public init(
         name: String,
@@ -85,7 +94,10 @@ public struct BuildConfiguration: Sendable {
         outputDirectory: URL,
         source: SourceInfo,
         compressFASTA: Bool = true,
-        metadata: [MetadataGroup]? = nil
+        metadata: [MetadataGroup]? = nil,
+        provenanceWorkflowName: String? = nil,
+        provenanceCommand: [String]? = nil,
+        provenanceInputFiles: [URL]? = nil
     ) {
         self.name = name
         self.identifier = identifier
@@ -97,6 +109,9 @@ public struct BuildConfiguration: Sendable {
         self.source = source
         self.compressFASTA = compressFASTA
         self.metadata = metadata
+        self.provenanceWorkflowName = provenanceWorkflowName
+        self.provenanceCommand = provenanceCommand
+        self.provenanceInputFiles = provenanceInputFiles
     }
 }
 
