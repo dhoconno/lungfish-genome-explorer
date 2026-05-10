@@ -228,6 +228,154 @@ public struct GATKVariantsToTableConfiguration: Sendable, Codable, Equatable {
     }
 }
 
+public struct GATKBaseQualityScoreRecalibrationConfiguration: Sendable, Codable, Equatable {
+    public let referenceFASTAURL: URL
+    public let inputBAMURL: URL
+    public let outputBAMURL: URL
+    public let knownSitesVCFURLs: [URL]
+    public let recalibrationTableURL: URL
+    public let intervalsURL: URL?
+    public let createOutputBAMIndex: Bool
+    public let extraArguments: [String]
+
+    public init(
+        referenceFASTAURL: URL,
+        inputBAMURL: URL,
+        outputBAMURL: URL,
+        knownSitesVCFURLs: [URL],
+        recalibrationTableURL: URL,
+        intervalsURL: URL? = nil,
+        createOutputBAMIndex: Bool = true,
+        extraArguments: [String] = []
+    ) {
+        self.referenceFASTAURL = referenceFASTAURL
+        self.inputBAMURL = inputBAMURL
+        self.outputBAMURL = outputBAMURL
+        self.knownSitesVCFURLs = knownSitesVCFURLs
+        self.recalibrationTableURL = recalibrationTableURL
+        self.intervalsURL = intervalsURL
+        self.createOutputBAMIndex = createOutputBAMIndex
+        self.extraArguments = extraArguments
+    }
+}
+
+public struct GATKMarkDuplicatesConfiguration: Sendable, Codable, Equatable {
+    public let inputBAMURLs: [URL]
+    public let outputBAMURL: URL
+    public let metricsURL: URL
+    public let createIndex: Bool
+    public let removeDuplicates: Bool
+    public let validationStringency: String?
+    public let extraArguments: [String]
+
+    public init(
+        inputBAMURLs: [URL],
+        outputBAMURL: URL,
+        metricsURL: URL,
+        createIndex: Bool = true,
+        removeDuplicates: Bool = false,
+        validationStringency: String? = nil,
+        extraArguments: [String] = []
+    ) {
+        self.inputBAMURLs = inputBAMURLs
+        self.outputBAMURL = outputBAMURL
+        self.metricsURL = metricsURL
+        self.createIndex = createIndex
+        self.removeDuplicates = removeDuplicates
+        self.validationStringency = validationStringency
+        self.extraArguments = extraArguments
+    }
+}
+
+public enum GATKValidateSamFileMode: String, Sendable, Codable, Equatable {
+    case summary = "SUMMARY"
+    case verbose = "VERBOSE"
+}
+
+public struct GATKValidateSamFileConfiguration: Sendable, Codable, Equatable {
+    public let inputBAMURL: URL
+    public let outputReportURL: URL?
+    public let referenceFASTAURL: URL?
+    public let mode: GATKValidateSamFileMode
+    public let validateIndex: Bool
+    public let ignoreWarnings: Bool
+    public let extraArguments: [String]
+
+    public init(
+        inputBAMURL: URL,
+        outputReportURL: URL? = nil,
+        referenceFASTAURL: URL? = nil,
+        mode: GATKValidateSamFileMode = .summary,
+        validateIndex: Bool = true,
+        ignoreWarnings: Bool = false,
+        extraArguments: [String] = []
+    ) {
+        self.inputBAMURL = inputBAMURL
+        self.outputReportURL = outputReportURL
+        self.referenceFASTAURL = referenceFASTAURL
+        self.mode = mode
+        self.validateIndex = validateIndex
+        self.ignoreWarnings = ignoreWarnings
+        self.extraArguments = extraArguments
+    }
+}
+
+public struct GATKLeftAlignAndTrimVariantsConfiguration: Sendable, Codable, Equatable {
+    public let referenceFASTAURL: URL
+    public let inputVCFURL: URL
+    public let outputVCFURL: URL
+    public let intervalsURL: URL?
+    public let splitMultiAllelics: Bool
+    public let maxIndelLength: Int
+    public let maxLeadingBases: Int
+    public let extraArguments: [String]
+
+    public init(
+        referenceFASTAURL: URL,
+        inputVCFURL: URL,
+        outputVCFURL: URL,
+        intervalsURL: URL? = nil,
+        splitMultiAllelics: Bool = false,
+        maxIndelLength: Int = 200,
+        maxLeadingBases: Int = 1000,
+        extraArguments: [String] = []
+    ) {
+        self.referenceFASTAURL = referenceFASTAURL
+        self.inputVCFURL = inputVCFURL
+        self.outputVCFURL = outputVCFURL
+        self.intervalsURL = intervalsURL
+        self.splitMultiAllelics = splitMultiAllelics
+        self.maxIndelLength = maxIndelLength
+        self.maxLeadingBases = maxLeadingBases
+        self.extraArguments = extraArguments
+    }
+}
+
+public struct GATKCollectVariantCallingMetricsConfiguration: Sendable, Codable, Equatable {
+    public let inputVCFURL: URL
+    public let outputMetricsPrefixURL: URL
+    public let dbSNPVCFURL: URL
+    public let sequenceDictionaryURL: URL?
+    public let isGVCFInput: Bool
+    public let extraArguments: [String]
+
+    public init(
+        inputVCFURL: URL,
+        outputMetricsPrefixURL: URL,
+        dbSNPVCFURL: URL,
+        sequenceDictionaryURL: URL? = nil,
+        isGVCFInput: Bool = false,
+        extraArguments: [String] = []
+    ) {
+        self.inputVCFURL = inputVCFURL
+        self.outputMetricsPrefixURL = outputMetricsPrefixURL
+        self.dbSNPVCFURL = dbSNPVCFURL
+        self.sequenceDictionaryURL = sequenceDictionaryURL
+        self.isGVCFInput = isGVCFInput
+        self.extraArguments = extraArguments
+    }
+}
+
 public enum GATKCommandBuilder {
     public static let jointGenotypingCombineGVCFsThreshold = 50
 
@@ -319,6 +467,116 @@ public enum GATKCommandBuilder {
         }
         arguments += config.extraArguments
         return GATKCommand(arguments: arguments, workingDirectory: config.outputTableURL.deletingLastPathComponent())
+    }
+
+    public static func baseQualityScoreRecalibrationCommands(
+        _ config: GATKBaseQualityScoreRecalibrationConfiguration
+    ) -> [GATKCommand] {
+        var recalibratorArguments = [
+            "BaseRecalibrator",
+            "-R", config.referenceFASTAURL.path,
+            "-I", config.inputBAMURL.path,
+            "-O", config.recalibrationTableURL.path,
+        ]
+        for knownSitesURL in config.knownSitesVCFURLs {
+            recalibratorArguments += ["--known-sites", knownSitesURL.path]
+        }
+        if let intervalsURL = config.intervalsURL {
+            recalibratorArguments += ["-L", intervalsURL.path]
+        }
+        recalibratorArguments += config.extraArguments
+
+        var applyArguments = [
+            "ApplyBQSR",
+            "-R", config.referenceFASTAURL.path,
+            "-I", config.inputBAMURL.path,
+            "--bqsr-recal-file", config.recalibrationTableURL.path,
+            "-O", config.outputBAMURL.path,
+            "--create-output-bam-index", String(config.createOutputBAMIndex),
+        ]
+        if let intervalsURL = config.intervalsURL {
+            applyArguments += ["-L", intervalsURL.path]
+        }
+        applyArguments += config.extraArguments
+
+        return [
+            GATKCommand(arguments: recalibratorArguments, workingDirectory: config.recalibrationTableURL.deletingLastPathComponent()),
+            GATKCommand(arguments: applyArguments, workingDirectory: config.outputBAMURL.deletingLastPathComponent()),
+        ]
+    }
+
+    public static func markDuplicatesCommand(_ config: GATKMarkDuplicatesConfiguration) -> GATKCommand {
+        var arguments = ["MarkDuplicates"]
+        for inputBAMURL in config.inputBAMURLs {
+            arguments += ["-I", inputBAMURL.path]
+        }
+        arguments += [
+            "-O", config.outputBAMURL.path,
+            "-M", config.metricsURL.path,
+            "--CREATE_INDEX", String(config.createIndex),
+            "--REMOVE_DUPLICATES", String(config.removeDuplicates),
+        ]
+        if let validationStringency = config.validationStringency {
+            arguments += ["--VALIDATION_STRINGENCY", validationStringency]
+        }
+        arguments += config.extraArguments
+        return GATKCommand(arguments: arguments, workingDirectory: config.outputBAMURL.deletingLastPathComponent())
+    }
+
+    public static func validateSamFileCommand(_ config: GATKValidateSamFileConfiguration) -> GATKCommand {
+        var arguments = [
+            "ValidateSamFile",
+            "-I", config.inputBAMURL.path,
+            "--MODE", config.mode.rawValue,
+            "--VALIDATE_INDEX", String(config.validateIndex),
+            "--IGNORE_WARNINGS", String(config.ignoreWarnings),
+        ]
+        if let outputReportURL = config.outputReportURL {
+            arguments += ["-O", outputReportURL.path]
+        }
+        if let referenceFASTAURL = config.referenceFASTAURL {
+            arguments += ["-R", referenceFASTAURL.path]
+        }
+        arguments += config.extraArguments
+        return GATKCommand(arguments: arguments, workingDirectory: config.outputReportURL?.deletingLastPathComponent())
+    }
+
+    public static func leftAlignAndTrimVariantsCommand(
+        _ config: GATKLeftAlignAndTrimVariantsConfiguration
+    ) -> GATKCommand {
+        var arguments = [
+            "LeftAlignAndTrimVariants",
+            "-R", config.referenceFASTAURL.path,
+            "-V", config.inputVCFURL.path,
+            "-O", config.outputVCFURL.path,
+            "--split-multi-allelics", String(config.splitMultiAllelics),
+            "--max-indel-length", String(config.maxIndelLength),
+            "--max-leading-bases", String(config.maxLeadingBases),
+        ]
+        if let intervalsURL = config.intervalsURL {
+            arguments += ["-L", intervalsURL.path]
+        }
+        arguments += config.extraArguments
+        return GATKCommand(arguments: arguments, workingDirectory: config.outputVCFURL.deletingLastPathComponent())
+    }
+
+    public static func collectVariantCallingMetricsCommand(
+        _ config: GATKCollectVariantCallingMetricsConfiguration
+    ) -> GATKCommand {
+        var arguments = [
+            "CollectVariantCallingMetrics",
+            "-I", config.inputVCFURL.path,
+            "-O", config.outputMetricsPrefixURL.path,
+            "--DBSNP", config.dbSNPVCFURL.path,
+        ]
+        if let sequenceDictionaryURL = config.sequenceDictionaryURL {
+            arguments += ["--SEQUENCE_DICTIONARY", sequenceDictionaryURL.path]
+        }
+        if config.isGVCFInput {
+            arguments += ["--GVCF_INPUT", "true"]
+        }
+        arguments += config.extraArguments
+        return GATKCommand(arguments: arguments, workingDirectory: config.outputMetricsPrefixURL.deletingLastPathComponent())
     }
 
     private static func combineGVCFsCommands(_ config: GATKJointGenotypingConfiguration) -> [GATKCommand] {

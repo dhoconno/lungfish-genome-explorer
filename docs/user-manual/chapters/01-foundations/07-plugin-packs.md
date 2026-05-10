@@ -79,6 +79,7 @@ everything upfront. Install a pack the first time a chapter asks for it.
 |---|---|---|
 | `read-mapping` | minimap2, BWA-MEM2, Bowtie2, BBMap, samtools | Map Reads chapter, Primer Trim chapter |
 | `variant-calling` | iVar, LoFreq, Medaka, bcftools, tabix, bgzip | Variants chapters |
+| `gatk-core` | GATK4 | Human germline variants dry-run chapters |
 | `classification-kraken2` | Kraken2, KrakenTools | Kraken2 classification chapter |
 | `classification-esviritu` | EsViritu and its references | EsViritu classification chapter |
 | `classification-taxtriage` | TaxTriage workflow tools | TaxTriage classification chapter |
@@ -92,6 +93,15 @@ takes 30 seconds to 3 minutes depending on your network. The first install
 on a fresh machine is slower because it also writes the micromamba
 bootstrap and resolves the channel index for the first time. Subsequent
 installs reuse the cached index.
+
+`gatk-core` is larger than the viral caller packs because GATK4 is a Java
+toolkit with its runtime dependencies. Lungfish pins it as
+`bioconda::gatk4=4.6.2.0`, runs `gatk --version` as the smoke test, and
+budgets roughly 600 MB of installed space for the environment. The current
+`lungfish gatk` commands construct dry-run command lines only: they do not
+execute GATK, create scientific outputs, or attach bundles. When execution
+is added, the output bundle must record full Lungfish provenance for the
+final stored payload, not just the staging command.
 
 ## Procedure
 

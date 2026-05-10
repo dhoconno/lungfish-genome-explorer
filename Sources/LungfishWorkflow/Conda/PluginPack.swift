@@ -394,6 +394,34 @@ public extension PluginPack {
             estimatedSizeMB: 260
         ),
         PluginPack(
+            id: "gatk-core",
+            name: "GATK Core",
+            description: "GATK4 command construction and dry-run support for human germline workflows",
+            sfSymbol: "person.text.rectangle",
+            packages: ["gatk4"],
+            category: "Variant Calling",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "gatk4",
+                    displayName: "GATK4",
+                    environment: "gatk-core",
+                    installPackages: ["bioconda::gatk4=4.6.2.0"],
+                    executables: ["gatk"],
+                    smokeTest: .command(
+                        executable: "gatk",
+                        arguments: ["--version"],
+                        timeoutSeconds: 30,
+                        requiredOutputSubstring: "The Genome Analysis Toolkit"
+                    ),
+                    version: "4.6.2.0",
+                    license: "BSD-3-Clause",
+                    sourceURL: "https://github.com/broadinstitute/gatk"
+                ),
+            ],
+            estimatedSizeMB: 600
+        ),
+        PluginPack(
             id: "assembly",
             name: "Genome Assembly",
             description: "De novo genome assembly from short and long reads",
