@@ -130,6 +130,7 @@ struct VariantQueryBuilderView: View {
                             availableInfoKeys: availableInfoKeys,
                             infoKeyDefinitions: infoKeyDefinitions,
                             availableVariantTypes: availableVariantTypes,
+                            sampleNames: sampleNames,
                             onRemove: { removeRule(rule.id) }
                         )
                     }
@@ -258,6 +259,7 @@ private struct RuleRowView: View {
     let availableInfoKeys: Set<String>
     let infoKeyDefinitions: [InfoKeyDefinition]
     let availableVariantTypes: [String]
+    let sampleNames: [String]
     let onRemove: () -> Void
 
     var body: some View {
@@ -408,6 +410,12 @@ private struct RuleRowView: View {
         case .infoField:
             // Show ALL available INFO keys (the power-user category)
             fields = availableInfoKeys.sorted()
+        case .sampleGenotype:
+            if !sampleNames.isEmpty {
+                fields = sampleNames.flatMap { sample in
+                    ["\(sample).GT", "\(sample).AF", "\(sample).DP"]
+                }
+            }
         default:
             break
         }

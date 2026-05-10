@@ -20,6 +20,66 @@ final class VariantsCommandTests: XCTestCase {
     func testVariantsCommandNameAndHelp() {
         XCTAssertEqual(VariantsCommand.configuration.commandName, "variants")
         XCTAssertTrue(VariantsCommand.helpMessage().contains("call"))
+        XCTAssertTrue(VariantsCommand.helpMessage().contains("extract-sample"))
+        XCTAssertTrue(VariantsCommand.helpMessage().contains("query"))
+    }
+
+    func testExtractSampleSubcommandWritesSingleSampleVCFAndProvenance() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("NA12878.vcf")
+        let command = try VariantsCommand.ExtractSampleSubcommand.parse([
+            "extract-sample",
+            bundleURL.path,
+            "--sample", "NA12878",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878"))
+        XCTAssertFalse(vcf.contains("NA12879"))
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertTrue(vcf.contains("rs300"))
+
+        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(run.name, "lungfish variants extract-sample")
+        XCTAssertEqual(run.steps.first?.toolName, "lungfish variants extract-sample")
+        XCTAssertEqual(run.steps.first?.exitCode, 0)
+        XCTAssertEqual(run.steps.first?.outputs.first?.path, outputURL.path)
+        XCTAssertEqual(run.parameters["sample"]?.stringValue, "NA12878")
+    }
+
+    func testQuerySubcommandFiltersWithSmartFilter() async throws {
+        let bundleURL = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("filtered.vcf")
+        let command = try VariantsCommand.QuerySubcommand.parse([
+            "query",
+            bundleURL.path,
+            "--filter", "Sample[NA12878].GT=1/1",
+            "--output", outputURL.path,
+            "--quiet",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879"))
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertFalse(vcf.contains("rs200"))
+        XCTAssertTrue(vcf.contains("rs300"))
+
+        let provenanceURL = outputURL.deletingLastPathComponent().appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(run.name, "lungfish variants query")
+        XCTAssertEqual(run.steps.first?.toolName, "lungfish variants query")
+        XCTAssertEqual(run.parameters["filter"]?.stringValue, "Sample[NA12878].GT=1/1")
     }
 
     func testCallSubcommandParsesBundleAlignmentAndCaller() throws {
@@ -266,6 +326,56 @@ final class VariantsCommandTests: XCTestCase {
                 )
             }
         )
+    }
+
+    private func makeVariantBundleFixture() throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("Cohort.lungfishref", isDirectory: true)
+        let variantsDir = bundleURL.appendingPathComponent("variants", isDirectory: true)
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+
+        let vcfURL = tempDir.appendingPathComponent("cohort.vcf")
+        let dbURL = variantsDir.appendingPathComponent("cohort.db")
+        try cohortVCF.write(to: vcfURL, atomically: true, encoding: .utf8)
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL, parseGenotypes: true)
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Cohort",
+            identifier: "test.cohort",
+            source: SourceInfo(organism: "Test", assembly: "TestAssembly", database: "Fixture"),
+            genome: nil,
+            variants: [
+                VariantTrackInfo(
+                    id: "cohort",
+                    name: "Cohort",
+                    path: "variants/cohort.vcf.gz",
+                    indexPath: "variants/cohort.vcf.gz.tbi",
+                    databasePath: "variants/cohort.db",
+                    variantType: .mixed,
+                    variantCount: 3,
+                    source: "Fixture"
+                )
+            ]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename))
+        return bundleURL
+    }
+
+    private var cohortVCF: String {
+        """
+        ##fileformat=VCFv4.2
+        ##contig=<ID=chr1,length=1000>
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        ##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879
+        chr1\t100\trs100\tA\tG\t60\tPASS\t.\tGT:DP:AD\t1/1:35:0,35\t0/1:32:16,16
+        chr1\t200\trs200\tC\tT\t50\tPASS\t.\tGT:DP:AD\t0/1:20:10,10\t0/1:22:11,11
+        chr1\t300\trs300\tG\tA\t70\tPASS\t.\tGT:DP:AD\t1/1:31:0,31\t1/1:34:0,34
+        """
     }
 }
 
