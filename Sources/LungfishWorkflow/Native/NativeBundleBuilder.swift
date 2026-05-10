@@ -117,6 +117,11 @@ public final class NativeBundleBuilder: ObservableObject {
             .replacingOccurrences(of: "/", with: "-")
         let bundleURL = configuration.outputDirectory
             .appendingPathComponent("\(bundleName).lungfishref")
+        let buildStart = Date()
+        let provenanceRunID = await ProvenanceRecorder.shared.beginRun(
+            name: provenanceWorkflowName(for: configuration),
+            parameters: provenanceParameters(for: configuration, bundleURL: bundleURL)
+        )
 
         do {
             // Step 1: Validate inputs
@@ -203,6 +208,13 @@ public final class NativeBundleBuilder: ObservableObject {
                 try self.validateBundle(at: bundleURL)
             }
 
+            try await writeBundleProvenance(
+                configuration: configuration,
+                bundleURL: bundleURL,
+                runID: provenanceRunID,
+                wallTime: Date().timeIntervalSince(buildStart)
+            )
+
             updateProgress(.complete, 1.0, "Bundle created successfully", progressHandler)
 
             logger.info("Native bundle build complete: \(bundleURL.path)")
@@ -210,6 +222,7 @@ public final class NativeBundleBuilder: ObservableObject {
             return bundleURL
 
         } catch {
+            await ProvenanceRecorder.shared.completeRun(provenanceRunID, status: isCancelled ? .cancelled : .failed)
             if FileManager.default.fileExists(atPath: bundleURL.path) {
                 try? FileManager.default.removeItem(at: bundleURL)
             }
@@ -260,6 +273,155 @@ public final class NativeBundleBuilder: ObservableObject {
         }
 
         return tools
+    }
+
+    private func provenanceWorkflowName(for configuration: BuildConfiguration) -> String {
+        configuration.provenanceWorkflowName ?? "NativeBundleBuilder.build"
+    }
+
+    private func provenanceParameters(
+        for configuration: BuildConfiguration,
+        bundleURL: URL
+    ) -> [String: ParameterValue] {
+        var parameters: [String: ParameterValue] = [
+            "name": .string(configuration.name),
+            "identifier": .string(configuration.identifier),
+            "output_directory": .file(configuration.outputDirectory),
+            "bundle_path": .file(bundleURL),
+            "compress_fasta": .boolean(configuration.compressFASTA),
+            "annotation_count": .integer(configuration.annotationFiles.count),
+            "variant_count": .integer(configuration.variantFiles.count),
+            "signal_count": .integer(configuration.signalFiles.count),
+        ]
+
+        if let sourceURL = configuration.source.sourceURL {
+            parameters["source_url"] = sourceURL.isFileURL ? .file(sourceURL) : .string(sourceURL.absoluteString)
+        }
+
+        let inputURLs = provenanceInputURLs(for: configuration)
+        if !inputURLs.isEmpty {
+            parameters["input_files"] = .array(inputURLs.map { .file($0) })
+        }
+
+        if !configuration.annotationFiles.isEmpty {
+            parameters["annotation_ids"] = .array(configuration.annotationFiles.map { .string($0.id) })
+        }
+
+        return parameters
+    }
+
+    private func writeBundleProvenance(
+        configuration: BuildConfiguration,
+        bundleURL: URL,
+        runID: UUID,
+        wallTime: TimeInterval
+    ) async throws {
+        let workflowName = provenanceWorkflowName(for: configuration)
+        let inputRecords = provenanceInputURLs(for: configuration).map {
+            ProvenanceRecorder.fileRecord(url: $0, role: .input)
+        }
+        let outputRecords = try bundleOutputFileRecords(at: bundleURL)
+        let command = configuration.provenanceCommand ?? fallbackProvenanceCommand(
+            for: configuration,
+            bundleURL: bundleURL
+        )
+
+        await ProvenanceRecorder.shared.recordStep(
+            runID: runID,
+            toolName: workflowName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: wallTime,
+            stderr: nil
+        )
+        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+        try await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+    }
+
+    private func provenanceInputURLs(for configuration: BuildConfiguration) -> [URL] {
+        if let provenanceInputFiles = configuration.provenanceInputFiles {
+            return uniqueExistingFileURLs(provenanceInputFiles)
+        }
+
+        var urls = [configuration.fastaURL]
+        urls.append(contentsOf: configuration.annotationFiles.map(\.url))
+        urls.append(contentsOf: configuration.variantFiles.map(\.url))
+        urls.append(contentsOf: configuration.signalFiles.map(\.url))
+        return uniqueExistingFileURLs(urls)
+    }
+
+    private func uniqueExistingFileURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var unique: [URL] = []
+        for url in urls where url.isFileURL {
+            let path = url.standardizedFileURL.path
+            guard FileManager.default.fileExists(atPath: path), !seen.contains(path) else { continue }
+            seen.insert(path)
+            unique.append(url.standardizedFileURL)
+        }
+        return unique
+    }
+
+    private func bundleOutputFileRecords(at bundleURL: URL) throws -> [FileRecord] {
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(
+            at: bundleURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [],
+            errorHandler: nil
+        ) else {
+            return []
+        }
+
+        let provenanceURL = bundleURL
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            .standardizedFileURL
+        var outputURLs: [URL] = []
+
+        for case let fileURL as URL in enumerator {
+            let standardized = fileURL.standardizedFileURL
+            if standardized.path == provenanceURL.path {
+                continue
+            }
+            let values = try standardized.resourceValues(forKeys: [.isRegularFileKey])
+            if values.isRegularFile == true {
+                outputURLs.append(standardized)
+            }
+        }
+
+        return outputURLs
+            .sorted { $0.path < $1.path }
+            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+    }
+
+    private func fallbackProvenanceCommand(
+        for configuration: BuildConfiguration,
+        bundleURL: URL
+    ) -> [String] {
+        var command = [
+            "NativeBundleBuilder.build",
+            "--name", configuration.name,
+            "--identifier", configuration.identifier,
+            "--fasta", configuration.fastaURL.path,
+            "--output-directory", configuration.outputDirectory.path,
+            "--bundle", bundleURL.path,
+            "--compress-fasta", String(configuration.compressFASTA),
+        ]
+
+        for annotation in configuration.annotationFiles {
+            command.append(contentsOf: ["--annotation", annotation.url.path])
+        }
+        for variant in configuration.variantFiles {
+            command.append(contentsOf: ["--variant", variant.url.path])
+        }
+        for signal in configuration.signalFiles {
+            command.append(contentsOf: ["--signal", signal.url.path])
+        }
+
+        return command
     }
 
     private func executeStep(
@@ -499,6 +661,7 @@ public final class NativeBundleBuilder: ObservableObject {
             }
             let ext = detectionURL.pathExtension.lowercased()
             let isGFF3 = ["gff", "gff3", "gtf"].contains(ext)
+            let isGenBank = isGenBankAnnotation(detectionURL)
 
             if isGFF3 {
                 // GFF3/GTF → SQLite directly
@@ -544,7 +707,7 @@ public final class NativeBundleBuilder: ObservableObject {
             } else {
                 // GenBank/BED → BED → SQLite (existing pipeline, no BigBed)
                 let bedURL = annotationsDir.appendingPathComponent("\(input.id).bed")
-                let featureCount = try await convertAnnotationToBED(
+                _ = try await convertAnnotationToBED(
                     from: input.url,
                     to: bedURL
                 )
@@ -554,6 +717,18 @@ public final class NativeBundleBuilder: ObservableObject {
                 let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbOutputURL)
                 logger.info("Created annotation database with \(dbRecordCount) records for \(input.name)")
 
+                let trackPath: String
+                if isGenBank {
+                    let gffOutputPath = "annotations/\(input.id).gff3"
+                    let gffOutputURL = annotationsDir.appendingPathComponent("\(input.id).gff3")
+                    let database = try AnnotationDatabase(url: dbOutputURL)
+                    try AnnotationDatabaseGFFExporter.export(database: database, to: gffOutputURL)
+                    trackPath = gffOutputPath
+                    logger.info("Created GenBank-derived GFF3 sidecar for \(input.name)")
+                } else {
+                    trackPath = dbOutputPath
+                }
+
                 // Clean up BED file — no longer needed since we don't create BigBed
                 try? FileManager.default.removeItem(at: bedURL)
 
@@ -561,10 +736,10 @@ public final class NativeBundleBuilder: ObservableObject {
                     id: input.id,
                     name: input.name,
                     description: input.description,
-                    path: dbOutputPath,
+                    path: trackPath,
                     databasePath: dbRecordCount > 0 ? dbOutputPath : nil,
                     annotationType: input.annotationType,
-                    featureCount: featureCount
+                    featureCount: dbRecordCount
                 )
                 annotationInfos.append(trackInfo)
             }
@@ -810,6 +985,10 @@ public final class NativeBundleBuilder: ObservableObject {
         try indexContent.write(to: indexURL, atomically: true, encoding: .utf8)
     }
 
+    private func isGenBankAnnotation(_ url: URL) -> Bool {
+        ["gb", "gbk", "genbank", "gbff", "embl"].contains(url.pathExtension.lowercased())
+    }
+
     /// Converts an annotation file to BED12+ format.
     ///
     /// Detects GenBank files by extension and routes them through the full
@@ -826,8 +1005,7 @@ public final class NativeBundleBuilder: ObservableObject {
         if detectionURL.pathExtension.lowercased() == "gz" {
             detectionURL = detectionURL.deletingPathExtension()
         }
-        let ext = detectionURL.pathExtension.lowercased()
-        if ["gb", "gbk", "genbank", "gbff"].contains(ext) {
+        if isGenBankAnnotation(detectionURL) {
             return try await convertGenBankToBED(from: sourceURL, to: outputURL)
         }
 

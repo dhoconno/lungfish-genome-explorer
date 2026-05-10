@@ -609,7 +609,14 @@ extension ImportCommand {
                 annotationFiles: buildInputs.annotationInputs,
                 outputDirectory: refsDirectory,
                 source: sourceInfo,
-                compressFASTA: true
+                compressFASTA: true,
+                provenanceWorkflowName: "lungfish import fasta",
+                provenanceCommand: provenanceCommand(
+                    sourceURL: inputURL,
+                    outputDirectory: outputDirectory,
+                    bundleName: bundleName
+                ),
+                provenanceInputFiles: [inputURL]
             )
 
             let bundleURL = try await NativeBundleBuilder().build(configuration: configuration)
@@ -684,6 +691,27 @@ extension ImportCommand {
                 .replacingOccurrences(of: " ", with: "_")
                 .replacingOccurrences(of: "/", with: "-")
             return directory.appendingPathComponent("\(safe).lungfishref", isDirectory: true)
+        }
+
+        private func provenanceCommand(
+            sourceURL: URL,
+            outputDirectory: URL,
+            bundleName: String
+        ) -> [String] {
+            var command = [
+                "lungfish",
+                "import",
+                "fasta",
+                sourceURL.path,
+                "--output-dir",
+                outputDirectory.path,
+                "--name",
+                bundleName,
+            ]
+            if globalOptions.quiet {
+                command.append("--quiet")
+            }
+            return command
         }
 
         private func prepareBuildInputs(
