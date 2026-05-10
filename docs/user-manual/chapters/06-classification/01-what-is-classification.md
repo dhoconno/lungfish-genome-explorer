@@ -4,8 +4,8 @@ chapter_id: 06-classification/01-what-is-classification
 audience: bench-scientist
 prereqs: [01-foundations/02-sequencing-reads, 03-reads/01-importing-fastq]
 estimated_reading_min: 8
-task: Understand the question read classifiers answer and choose between Kraken2, EsViritu, TaxTriage, and NAO-MGS.
-tags: [classification, taxonomy, kraken2, esviritu, taxtriage, nao-mgs]
+task: Understand the question read classifiers answer and choose between Kraken2, EsViritu, TaxTriage, NAO-MGS, and imported CZ-ID results.
+tags: [classification, taxonomy, kraken2, esviritu, taxtriage, nao-mgs, cz-id]
 tools: []
 entry_points:
   - "Tools > FASTQ/FASTA Operations > Classification"
@@ -37,20 +37,23 @@ So what should you do with this? Before you run anything, decide which question 
 
 ## What you will learn
 
-By the end of this chapter you will be able to articulate what read classification produces (a per-read taxonomic assignment, summarized as a sunburst and a table), tell the four classifiers Lungfish ships apart, pick the right one for your question, and find the Unified Metagenomics Wizard.
+By the end of this chapter you will be able to articulate what read classification produces (a per-read taxonomic assignment, summarized as a sunburst and a table), tell the four runnable classifiers Lungfish ships apart, understand when imported CZ-ID results fit, pick the right path for your question, and find the Unified Metagenomics Wizard.
 
-## The four classifiers
+## Classifiers and imported results
 
-Lungfish bundles four classifiers because no single tool does everything well. A general-purpose tool with a giant database is the right answer when you have no prior hypothesis, but it is overkill (and sometimes wrong) when you already know you are looking for a virus and want to call the strain. A surveillance pipeline that flags pathogens with confidence scores is the right answer in a clinical lab, but it adds noise to a routine wastewater run.
+Lungfish bundles four runnable classifiers because no single tool does everything well. A general-purpose tool with a giant database is the right answer when you have no prior hypothesis, but it is overkill (and sometimes wrong) when you already know you are looking for a virus and want to call the strain. A surveillance pipeline that flags pathogens with confidence scores is the right answer in a clinical lab, but it adds noise to a routine wastewater run.
+
+Lungfish also imports CZ-ID taxon report TSVs. CZ-ID is a hosted metagenomics platform, so Lungfish does not run it locally or submit reads to it. The import path preserves an upstream CZ-ID result beside the rest of the project, converts the taxon report into Lungfish's taxonomy result schema, and records the CZ-ID pipeline and database metadata when those columns are present.
 
 The table below gives the high-level regime each classifier was designed for. Each tool has its own chapter later in this part with a full walkthrough.
 
-| Classifier | Question it answers best | Database | Resolution | Typical regime |
+| Classifier or import | Question it answers best | Database | Resolution | Typical regime |
 |---|---|---|---|---|
 | Kraken2 | "What domains and broad taxa are in this sample?" | Large, multi-domain (bacteria, archaea, viruses, fungi, human) | Genus or species, depending on database build | Discovery, contamination triage, broad metagenomics |
 | EsViritu | "Which virus is this, and at what strain?" | Curated viral, with strain-level annotation | Strain (subtype, lineage) within virus | Targeted viral identification once you suspect a virus |
 | TaxTriage | "Is there a clinically reportable pathogen here, and how confident are we?" | Clinical-surveillance reference set | Species, with confidence flags | Clinical surveillance and reporting workflows |
 | NAO-MGS | "How are pathogen levels in this site changing over time?" | Surveillance-tuned, wastewater-oriented | Species or strain, time-series friendly | Longitudinal wastewater monitoring |
+| CZ-ID import | "How do I bring an upstream hosted CZ-ID result into this project?" | Upstream CZ-ID NT/NR database versions, recorded from the export when present | Taxon report rows as exported by CZ-ID | Labs that already ran CZ-ID outside Lungfish |
 
 A few features cut across all four. They all consume FASTQ (single or paired) from a Lungfish FASTQ bundle. They all emit a taxonomy result that opens in the same viewport class. They all record their database version and command line in the project's provenance sidecar, so a methods export later names the exact build you used. And they all need their reference database installed before they will run, which is the one piece of upfront work this part covers in detail.
 
@@ -65,6 +68,8 @@ If your Kraken2 result (or some prior knowledge) says you are looking at a virus
 If you are working in a clinical-surveillance setting and you need a confidence-scored, reportable answer, run **TaxTriage**. TaxTriage is a pipeline that combines multiple classifiers and emits per-organism confidence flags so a downstream reviewer can see at a glance which calls are well-supported and which are tentative. The trade is that it is heavier than a single Kraken2 run and assumes a clinical reference set, so it is not the right tool for an environmental discovery sample.
 
 If you are running wastewater surveillance and you want signals that compare cleanly across samples and across weeks, run **NAO-MGS**. Its database and reporting are tuned for the longitudinal wastewater regime: relative abundances that mean the same thing from one Cassette to the next, and outputs structured for time-series plotting. Use it for monitoring; pick a different tool for one-off identification.
+
+If your lab already ran **CZ-ID**, import the taxon report instead of rerunning another classifier just to view it in Lungfish. The current importer accepts a taxon report TSV, converts it to a Lungfish classification result directory, and records the upstream pipeline version plus NT/NR database versions when the export includes them. It is imported, not native: use the CZ-ID website or your upstream automation to run the analysis, then bring the result into Lungfish for side-by-side review and provenance.
 
 A useful rule of thumb: when in doubt, run Kraken2 first to see the lay of the land, then run a more specific tool on the same FASTQ to refine the answer. Lungfish keeps each classification result as its own track on the FASTQ bundle, so you can have a Kraken2 result and an EsViritu result side by side without them overwriting each other.
 
@@ -102,4 +107,4 @@ The Run button always says "Run". When you click it, the classifier launches in 
 
 ## Next
 
-Continue to [Running Kraken2](02-running-kraken2.md) for general-purpose classification, or jump to the classifier that matches your question.
+Continue to [Running Kraken2](02-running-kraken2.md) for general-purpose classification, jump to the classifier that matches your question, or see [Importing CZ-ID Results](07-importing-cz-id-results.md) when you already have a CZ-ID export.

@@ -267,34 +267,44 @@ public struct NextflowExporter: Sendable {
 
     private func channelTypeForPort(_ port: NodePort) -> String {
         switch port.dataType {
-        case .fastq, .fasta, .bam, .vcf:
-            return "path"
-        case .csv, .tsv:
-            return "path"
-        case .html:
-            return "path"
-        case .any:
+        case .accession, .any:
             return "val"
+        default:
+            return "path"
         }
     }
 
     private func outputPatternForPort(_ port: NodePort, nodeType: WorkflowNodeType) -> String {
         switch port.dataType {
-        case .fastq:
+        case .fastqBundle:
             return "\"*.{fastq,fq,fastq.gz,fq.gz}\""
-        case .fasta:
+        case .fastaBundle:
             return "\"*.{fasta,fa,fna,fasta.gz}\""
-        case .bam:
+        case .referenceBundle, .assemblyBundle:
+            return "\"*.{lungfishref,fa,fasta,fna}\""
+        case .bamTrack:
             return "\"*.{bam,cram}\""
-        case .vcf:
+        case .variantTrack:
             return "\"*.{vcf,vcf.gz}\""
-        case .csv:
+        case .sampleSheet:
             return "\"*.csv\""
-        case .tsv:
+        case .taxonomyBundle:
+            return "\"*.lungfishtax\""
+        case .msaBundle:
+            return "\"*.lungfishmsa\""
+        case .treeBundle:
+            return "\"*.lungfishtree\""
+        case .primerSchemeBundle:
+            return "\"*.lungfishprimers\""
+        case .bedFile:
+            return "\"*.bed\""
+        case .gff3File:
+            return "\"*.{gff,gff3}\""
+        case .tsvFile:
             return "\"*.{tsv,txt}\""
-        case .html:
+        case .reportFile:
             return "\"*.html\""
-        case .any:
+        case .accession, .any:
             return "\"*\""
         }
     }

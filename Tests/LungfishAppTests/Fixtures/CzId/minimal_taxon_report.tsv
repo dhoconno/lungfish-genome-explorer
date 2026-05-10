@@ -1,0 +1,4 @@
+tax_id	taxon_name	rank	nt_read_count	nt_rpm	nt_percent_identity	nt_alignment_length	nt_e_value	nr_read_count	nr_rpm	nr_percent_identity	nr_alignment_length	nr_e_value	pipeline_version	nt_db_version	nr_db_version	sample_name	project_id
+1	root	root	1200	1000000	0	0	0	1200	1000000	0	0	0	8.4	nt_2025_12_01	nr_2025_12_01	Sample-CZ-001	Project-42
+9606	Homo sapiens	species	100	83333.33	99.1	142	1e-40	20	16666.67	98.7	88	1e-20	8.4	nt_2025_12_01	nr_2025_12_01	Sample-CZ-001	Project-42
+2697049	Severe acute respiratory syndrome coronavirus 2	species	42	35000	97.8	151	2e-50	5	4166.67	96.5	74	3e-12	8.4	nt_2025_12_01	nr_2025_12_01	Sample-CZ-001	Project-42

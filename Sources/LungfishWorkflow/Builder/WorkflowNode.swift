@@ -95,30 +95,30 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return []
         case .qualityControl:
             return [
-                NodePort(id: "reads", name: "Reads", dataType: .fastq, direction: .input)
+                NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .input)
             ]
         case .trimming:
             return [
-                NodePort(id: "reads", name: "Reads", dataType: .fastq, direction: .input)
+                NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .input)
             ]
         case .alignment:
             return [
-                NodePort(id: "reads", name: "Reads", dataType: .fastq, direction: .input),
-                NodePort(id: "reference", name: "Reference", dataType: .fasta, direction: .input)
+                NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .input),
+                NodePort(id: "reference", name: "Reference", dataType: .referenceBundle, direction: .input)
             ]
         case .variantCalling:
             return [
-                NodePort(id: "alignments", name: "Alignments", dataType: .bam, direction: .input),
-                NodePort(id: "reference", name: "Reference", dataType: .fasta, direction: .input)
+                NodePort(id: "alignments", name: "Alignments", dataType: .bamTrack, direction: .input),
+                NodePort(id: "reference", name: "Reference", dataType: .referenceBundle, direction: .input)
             ]
         case .quantification:
             return [
-                NodePort(id: "alignments", name: "Alignments", dataType: .bam, direction: .input),
+                NodePort(id: "alignments", name: "Alignments", dataType: .bamTrack, direction: .input),
                 NodePort(id: "annotation", name: "Annotation", dataType: .any, direction: .input)
             ]
         case .assembly:
             return [
-                NodePort(id: "reads", name: "Reads", dataType: .fastq, direction: .input)
+                NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .input)
             ]
         case .report:
             return [
@@ -136,49 +136,49 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         switch self {
         case .fastqInput:
             return [
-                NodePort(id: "reads", name: "Reads", dataType: .fastq, direction: .output)
+                NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .output)
             ]
         case .fastaInput:
             return [
-                NodePort(id: "sequence", name: "Sequence", dataType: .fasta, direction: .output)
+                NodePort(id: "sequence", name: "Sequence", dataType: .referenceBundle, direction: .output)
             ]
         case .bamInput:
             return [
-                NodePort(id: "alignments", name: "Alignments", dataType: .bam, direction: .output)
+                NodePort(id: "alignments", name: "Alignments", dataType: .bamTrack, direction: .output)
             ]
         case .sampleSheet:
             return [
-                NodePort(id: "samples", name: "Samples", dataType: .csv, direction: .output)
+                NodePort(id: "samples", name: "Samples", dataType: .sampleSheet, direction: .output)
             ]
         case .qualityControl:
             return [
-                NodePort(id: "report", name: "Report", dataType: .html, direction: .output)
+                NodePort(id: "report", name: "Report", dataType: .reportFile, direction: .output)
             ]
         case .trimming:
             return [
-                NodePort(id: "trimmed", name: "Trimmed", dataType: .fastq, direction: .output),
-                NodePort(id: "report", name: "Report", dataType: .html, direction: .output)
+                NodePort(id: "trimmed", name: "Trimmed", dataType: .fastqBundle, direction: .output),
+                NodePort(id: "report", name: "Report", dataType: .reportFile, direction: .output)
             ]
         case .alignment:
             return [
-                NodePort(id: "alignments", name: "Alignments", dataType: .bam, direction: .output),
-                NodePort(id: "stats", name: "Stats", dataType: .tsv, direction: .output)
+                NodePort(id: "alignments", name: "Alignments", dataType: .bamTrack, direction: .output),
+                NodePort(id: "stats", name: "Stats", dataType: .tsvFile, direction: .output)
             ]
         case .variantCalling:
             return [
-                NodePort(id: "variants", name: "Variants", dataType: .vcf, direction: .output)
+                NodePort(id: "variants", name: "Variants", dataType: .variantTrack, direction: .output)
             ]
         case .quantification:
             return [
-                NodePort(id: "counts", name: "Counts", dataType: .tsv, direction: .output)
+                NodePort(id: "counts", name: "Counts", dataType: .tsvFile, direction: .output)
             ]
         case .assembly:
             return [
-                NodePort(id: "contigs", name: "Contigs", dataType: .fasta, direction: .output)
+                NodePort(id: "contigs", name: "Contigs", dataType: .assemblyBundle, direction: .output)
             ]
         case .report:
             return [
-                NodePort(id: "report", name: "Report", dataType: .html, direction: .output)
+                NodePort(id: "report", name: "Report", dataType: .reportFile, direction: .output)
             ]
         case .export:
             return []
@@ -215,25 +215,43 @@ public enum NodeCategory: String, Sendable, Codable, CaseIterable {
 
 /// Data types that can flow through workflow connections.
 public enum PortDataType: String, Sendable, Codable, CaseIterable {
-    case fastq = "fastq"
-    case fasta = "fasta"
-    case bam = "bam"
-    case vcf = "vcf"
-    case csv = "csv"
-    case tsv = "tsv"
-    case html = "html"
+    case accession = "accession"
+    case referenceBundle = "reference_bundle"
+    case fastqBundle = "fastq_bundle"
+    case fastaBundle = "fasta_bundle"
+    case bamTrack = "bam_track"
+    case variantTrack = "variant_track"
+    case primerSchemeBundle = "primer_scheme_bundle"
+    case assemblyBundle = "assembly_bundle"
+    case taxonomyBundle = "taxonomy_bundle"
+    case msaBundle = "msa_bundle"
+    case treeBundle = "tree_bundle"
+    case sampleSheet = "sample_sheet"
+    case bedFile = "bed_file"
+    case gff3File = "gff3_file"
+    case tsvFile = "tsv_file"
+    case reportFile = "report_file"
     case any = "any"
 
     /// Human-readable display name
     public var displayName: String {
         switch self {
-        case .fastq: return "FASTQ"
-        case .fasta: return "FASTA"
-        case .bam: return "BAM"
-        case .vcf: return "VCF"
-        case .csv: return "CSV"
-        case .tsv: return "TSV"
-        case .html: return "HTML"
+        case .accession: return "Accession"
+        case .referenceBundle: return "Reference Bundle"
+        case .fastqBundle: return "FASTQ Bundle"
+        case .fastaBundle: return "FASTA Bundle"
+        case .bamTrack: return "BAM Track"
+        case .variantTrack: return "Variant Track"
+        case .primerSchemeBundle: return "Primer Scheme Bundle"
+        case .assemblyBundle: return "Assembly Bundle"
+        case .taxonomyBundle: return "Taxonomy Bundle"
+        case .msaBundle: return "MSA Bundle"
+        case .treeBundle: return "Tree Bundle"
+        case .sampleSheet: return "Sample Sheet"
+        case .bedFile: return "BED File"
+        case .gff3File: return "GFF3 File"
+        case .tsvFile: return "TSV File"
+        case .reportFile: return "Report File"
         case .any: return "Any"
         }
     }
@@ -241,20 +259,29 @@ public enum PortDataType: String, Sendable, Codable, CaseIterable {
     /// Color for the port (NSColor is not Sendable, so we use RGB values)
     public var colorComponents: (red: Double, green: Double, blue: Double) {
         switch self {
-        case .fastq: return (0.2, 0.6, 0.9)   // Blue
-        case .fasta: return (0.2, 0.8, 0.4)   // Green
-        case .bam: return (0.8, 0.4, 0.8)     // Purple
-        case .vcf: return (0.9, 0.5, 0.2)     // Orange
-        case .csv: return (0.6, 0.6, 0.6)     // Gray
-        case .tsv: return (0.5, 0.5, 0.7)     // Light purple
-        case .html: return (0.9, 0.3, 0.3)    // Red
-        case .any: return (0.7, 0.7, 0.7)     // Light gray
+        case .accession: return (0.6, 0.6, 0.6)
+        case .referenceBundle, .fastaBundle, .assemblyBundle: return (0.2, 0.8, 0.4)
+        case .fastqBundle: return (0.2, 0.6, 0.9)
+        case .bamTrack: return (0.8, 0.4, 0.8)
+        case .variantTrack: return (0.9, 0.5, 0.2)
+        case .primerSchemeBundle, .bedFile, .gff3File: return (0.7, 0.5, 0.2)
+        case .taxonomyBundle: return (0.3, 0.7, 0.6)
+        case .msaBundle, .treeBundle: return (0.4, 0.5, 0.9)
+        case .sampleSheet, .tsvFile: return (0.5, 0.5, 0.7)
+        case .reportFile: return (0.9, 0.3, 0.3)
+        case .any: return (0.7, 0.7, 0.7)
         }
     }
 
     /// Check if this type is compatible with another type for connection
     public func isCompatible(with other: PortDataType) -> Bool {
         if self == .any || other == .any {
+            return true
+        }
+        if self == .referenceBundle && other == .assemblyBundle {
+            return true
+        }
+        if self == .assemblyBundle && other == .referenceBundle {
             return true
         }
         return self == other
