@@ -32,7 +32,7 @@ private extension FASTQOperationLaunchRequest {
             return inputURLs.first
         case .assemble(let request, _):
             return request.inputURLs.first
-        case .classify(_, let inputURLs, _):
+        case .classify(_, let inputURLs, _, _):
             return inputURLs.first
         }
     }
@@ -69,7 +69,7 @@ private extension FASTQOperationLaunchRequest {
             return "Map Reads"
         case .assemble(let request, _):
             return request.tool.displayName
-        case .classify(let tool, _, _):
+        case .classify(let tool, _, _, _):
             return tool.title
         }
     }

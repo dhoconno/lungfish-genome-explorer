@@ -212,10 +212,21 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
 
         let args = try fastpArguments(inputURL: inputURL)
 
+        let startedAt = Date()
         let result = try await runner.run(.fastp, arguments: args)
+        let wallTime = Date().timeIntervalSince(startedAt)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
         }
+        try saveProvenance(
+            inputURL: inputURL,
+            outputURL: URL(fileURLWithPath: output.output),
+            argv: CommandLine.arguments,
+            fastpArguments: ["fastp"] + args,
+            exitCode: result.exitCode,
+            wallTime: wallTime,
+            stderr: result.stderr
+        )
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -253,6 +264,98 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         args += try AdvancedCommandLineOptions.parse(extraArgs)
         return args
     }
+
+    func provenanceRunForTesting(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) -> WorkflowRun {
+        makeProvenanceRun(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            argv: argv,
+            fastpArguments: fastpArguments,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr
+        )
+    }
+
+    private func saveProvenance(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let run = makeProvenanceRun(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            argv: argv,
+            fastpArguments: fastpArguments,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr
+        )
+        try writeWorkflowRun(run, to: outputURL.deletingLastPathComponent())
+    }
+
+    private func makeProvenanceRun(
+        inputURL: URL,
+        outputURL: URL,
+        argv: [String],
+        fastpArguments: [String],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) -> WorkflowRun {
+        let parameters: [String: ParameterValue] = [
+            "threshold": .integer(threshold),
+            "windowSize": .integer(windowSize),
+            "mode": .string(mode),
+            "extraArgs": .string(extraArgs),
+            "output": .file(outputURL),
+        ]
+        let step = StepExecution(
+            toolName: "fastp",
+            toolVersion: "bundled",
+            command: fastpArguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: inputURL, role: .input)],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, role: .output)],
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        return WorkflowRun(
+            name: "lungfish fastq quality-trim",
+            endTime: Date(),
+            status: exitCode == 0 ? .completed : .failed,
+            steps: [step],
+            parameters: parameters.merging([
+                "argv": .array(argv.map { .string($0) }),
+                "command": .string(argv.map(shellEscape).joined(separator: " ")),
+            ]) { current, _ in current }
+        )
+    }
+}
+
+private func writeWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(run)
+    try data.write(
+        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+        options: .atomic
+    )
 }
 
 // MARK: - Adapter Trim

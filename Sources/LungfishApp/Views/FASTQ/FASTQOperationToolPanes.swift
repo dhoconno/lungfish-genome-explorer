@@ -223,6 +223,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                labeledTextField("Extra arguments", text: $state.qualityTrimExtraArguments)
 
             case .adapterRemoval:
                 Picker("Adapter Mode", selection: $state.adapterRemovalMode) {
@@ -330,6 +331,7 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     Text("none").tag("none")
                 }
                 .pickerStyle(.segmented)
+                labeledTextField("Extra arguments", text: $state.orientExtraArguments)
                 Text("Select a reference sequence in the Inputs section.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

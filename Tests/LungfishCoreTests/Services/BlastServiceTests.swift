@@ -558,6 +558,30 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertEqual(requests.count, 1, "Rejected submissions must not reach NCBI")
     }
 
+    func testSubmitPassesExtraURLAPIParametersInRequestBody() async throws {
+        await mockClient.register(
+            pattern: "blast/Blast.cgi",
+            response: .text(mockSubmissionResponse(rid: "TEST789", rtoe: 15))
+        )
+
+        _ = try await service.submit(
+            query: ">read1\nATGC",
+            program: "blastn",
+            database: "nt",
+            entrezQuery: nil,
+            evalue: 1e-10,
+            maxTargetSeqs: 5,
+            megablast: true,
+            extraParameters: ["MEGABLAST": "off", "WORD_SIZE": "11", "FILTER": "L"]
+        )
+
+        let requests = await mockClient.requests
+        let body = String(data: try XCTUnwrap(requests.first?.httpBody), encoding: .utf8)!
+        XCTAssertTrue(body.contains("MEGABLAST=off"))
+        XCTAssertTrue(body.contains("WORD_SIZE=11"))
+        XCTAssertTrue(body.contains("FILTER=L"))
+    }
+
     func testSubmitHTTPError() async throws {
         await mockClient.register(
             pattern: "blast/Blast.cgi",

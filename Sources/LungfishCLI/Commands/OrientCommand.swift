@@ -122,11 +122,27 @@ struct OrientCommand: AsyncParsableCommand {
 
         // Run pipeline
         let pipeline = OrientPipeline()
+        let startedAt = Date()
         let result = try await pipeline.run(config: config) { fraction, message in
             if !globalOptions.quiet {
                 print("\r\(formatter.info(message))", terminator: "")
             }
         }
+        let vsearchArguments = config.vsearchArguments(
+            orientedOutput: result.orientedFASTQ,
+            tabbedOutput: result.tabbedOutput,
+            unmatchedOutput: result.unorientedFASTQ
+        )
+        try saveProvenance(
+            inputURL: inputURL,
+            referenceURL: referenceURL,
+            result: result,
+            argv: CommandLine.arguments,
+            vsearchArguments: ["vsearch"] + vsearchArguments,
+            exitCode: 0,
+            stderr: nil,
+            fallbackWallTime: Date().timeIntervalSince(startedAt)
+        )
 
         // Clear progress line
         print("")
@@ -171,4 +187,111 @@ struct OrientCommand: AsyncParsableCommand {
             extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
         )
     }
+
+    func provenanceRunForTesting(
+        inputURL: URL,
+        referenceURL: URL,
+        result: OrientResult,
+        argv: [String],
+        vsearchArguments: [String],
+        exitCode: Int32,
+        stderr: String?
+    ) throws -> WorkflowRun {
+        try makeProvenanceRun(
+            inputURL: inputURL,
+            referenceURL: referenceURL,
+            result: result,
+            argv: argv,
+            vsearchArguments: vsearchArguments,
+            exitCode: exitCode,
+            stderr: stderr,
+            fallbackWallTime: result.wallClockSeconds
+        )
+    }
+
+    private func saveProvenance(
+        inputURL: URL,
+        referenceURL: URL,
+        result: OrientResult,
+        argv: [String],
+        vsearchArguments: [String],
+        exitCode: Int32,
+        stderr: String?,
+        fallbackWallTime: TimeInterval
+    ) throws {
+        let run = try makeProvenanceRun(
+            inputURL: inputURL,
+            referenceURL: referenceURL,
+            result: result,
+            argv: argv,
+            vsearchArguments: vsearchArguments,
+            exitCode: exitCode,
+            stderr: stderr,
+            fallbackWallTime: fallbackWallTime
+        )
+        try writeOrientWorkflowRun(run, to: result.orientedFASTQ.deletingLastPathComponent())
+    }
+
+    private func makeProvenanceRun(
+        inputURL: URL,
+        referenceURL: URL,
+        result: OrientResult,
+        argv: [String],
+        vsearchArguments: [String],
+        exitCode: Int32,
+        stderr: String?,
+        fallbackWallTime: TimeInterval
+    ) throws -> WorkflowRun {
+        var outputs = [
+            ProvenanceRecorder.fileRecord(url: result.orientedFASTQ, role: .output),
+            ProvenanceRecorder.fileRecord(url: result.tabbedOutput, format: .text, role: .output),
+        ]
+        if let unorientedFASTQ = result.unorientedFASTQ {
+            outputs.append(ProvenanceRecorder.fileRecord(url: unorientedFASTQ, role: .output))
+        }
+        let step = StepExecution(
+            toolName: "vsearch",
+            toolVersion: "bundled",
+            command: vsearchArguments,
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: inputURL, role: .input),
+                ProvenanceRecorder.fileRecord(url: referenceURL, role: .reference),
+            ],
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: result.wallClockSeconds > 0 ? result.wallClockSeconds : fallbackWallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        return WorkflowRun(
+            name: "lungfish orient",
+            endTime: Date(),
+            status: exitCode == 0 ? .completed : .failed,
+            steps: [step],
+            parameters: [
+                "wordLength": .integer(wordLength),
+                "mask": .string(mask),
+                "saveUnoriented": .boolean(saveUnoriented),
+                "threads": .integer(globalOptions.threads ?? 0),
+                "extraArgs": .string(extraArgs),
+                "argv": .array(argv.map { .string($0) }),
+                "command": .string(argv.map(shellEscape).joined(separator: " ")),
+                "forwardCount": .integer(result.forwardCount),
+                "reverseComplementedCount": .integer(result.reverseComplementedCount),
+                "unmatchedCount": .integer(result.unmatchedCount),
+            ]
+        )
+    }
+}
+
+private func writeOrientWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    let data = try encoder.encode(run)
+    try data.write(
+        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+        options: .atomic
+    )
 }

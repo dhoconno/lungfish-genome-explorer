@@ -107,6 +107,73 @@ public struct BlastVerificationRequest: Sendable {
     public func toMultiFASTA() -> String {
         sequences.map { ">\($0.id)\n\($0.sequence)" }.joined(separator: "\n")
     }
+
+    public var blastURLAPIExtraParameters: [String: String] {
+        (try? Self.parseBlastURLAPIExtraParameters(extraArgs)) ?? [:]
+    }
+
+    public static func parseBlastURLAPIExtraParameters(_ extraArgs: String) throws -> [String: String] {
+        let tokens = try shellLikeTokens(extraArgs)
+        var parameters: [String: String] = [:]
+        for token in tokens {
+            let parts = token.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  !parts[0].isEmpty,
+                  !parts[1].isEmpty,
+                  parts[0].allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) else {
+                throw BlastServiceError.invalidExtraArgument(token)
+            }
+            parameters[String(parts[0]).uppercased()] = String(parts[1])
+        }
+        return parameters
+    }
+
+    private static func shellLikeTokens(_ text: String) throws -> [String] {
+        var tokens: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaped = false
+
+        for character in text {
+            if escaped {
+                current.append(character)
+                escaped = false
+                continue
+            }
+            if character == "\\" {
+                escaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote {
+                    quote = nil
+                } else {
+                    current.append(character)
+                }
+                continue
+            }
+            if character == "\"" || character == "'" {
+                quote = character
+            } else if character.isWhitespace {
+                if !current.isEmpty {
+                    tokens.append(current)
+                    current.removeAll(keepingCapacity: true)
+                }
+            } else {
+                current.append(character)
+            }
+        }
+        if escaped {
+            current.append("\\")
+        }
+        if quote != nil {
+            throw BlastServiceError.invalidExtraArgument(text)
+        }
+        if !current.isEmpty {
+            tokens.append(current)
+        }
+        return tokens
+    }
 }
 
 // MARK: - Subsample Strategy
@@ -247,6 +314,9 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
     /// A network transport error occurred while contacting NCBI BLAST.
     case networkFailed(message: String)
 
+    /// A BLAST URL API extra argument was not in KEY=VALUE form.
+    case invalidExtraArgument(String)
+
     public var errorDescription: String? {
         switch self {
         case .submissionFailed(let message):
@@ -269,6 +339,8 @@ public enum BlastServiceError: Error, LocalizedError, Sendable {
             return "HTTP \(statusCode): \(body.prefix(200))"
         case .networkFailed(let message):
             return "Network error while contacting NCBI BLAST: \(message)"
+        case .invalidExtraArgument(let token):
+            return "Invalid BLAST extra argument '\(token)'. Use KEY=VALUE tokens."
         }
     }
 }

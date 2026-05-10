@@ -56,7 +56,7 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         )
 
         XCTAssertEqual(args.suffix(4), [
-            "--extra-mafft-options",
+            "--extra-args",
             "--op 1.53 --leavegappyregion",
             "--format",
             "json",

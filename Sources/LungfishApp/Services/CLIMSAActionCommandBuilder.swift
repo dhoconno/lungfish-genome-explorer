@@ -187,7 +187,7 @@ enum CLIMSAActionCommandBuilder {
         }
         if let extraIQTreeOptions,
            extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            args += ["--extra-iqtree-options", extraIQTreeOptions]
+            args += ["--extra-args", extraIQTreeOptions]
         }
         if let iqtreePath, iqtreePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
             args += ["--iqtree-path", iqtreePath]

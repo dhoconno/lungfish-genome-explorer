@@ -446,8 +446,11 @@ struct FASTQOperationExecutionService {
             }
             return CLIInvocation(subcommand: "assemble", arguments: arguments)
 
-        case .classify(let tool, let inputURLs, let databaseName):
-            let arguments = inputURLs.map(\.path) + ["--db", databaseName]
+        case .classify(let tool, let inputURLs, let databaseName, let extraArguments):
+            var arguments = inputURLs.map(\.path) + ["--db", databaseName]
+            if !extraArguments.isEmpty {
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+            }
             switch tool {
             case .kraken2:
                 return CLIInvocation(subcommand: "classify", arguments: arguments)
@@ -567,8 +570,8 @@ struct FASTQOperationExecutionService {
             _ = preset
             return arguments
 
-        case .qualityTrim(let threshold, let windowSize, let mode):
-            return [
+        case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
+            var arguments = [
                 "quality-trim",
                 inputURL.path,
                 "--threshold",
@@ -580,6 +583,10 @@ struct FASTQOperationExecutionService {
                 "-o",
                 outputTarget,
             ]
+            if !extraArguments.isEmpty {
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+            }
+            return arguments
 
         case .adapterTrim(let mode, let sequence, let sequenceR2, let fastaFilename):
             guard sequenceR2 == nil, fastaFilename == nil else {
@@ -837,13 +844,13 @@ struct FASTQOperationExecutionService {
             }
             return arguments
 
-        case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented):
+        case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments):
             guard !saveUnoriented else {
                 throw FASTQOperationExecutionError.unsupportedOrient(
                     "saveUnoriented is not encodable"
                 )
             }
-            return [
+            var arguments = [
                 "orient",
                 inputURL.path,
                 "--reference",
@@ -855,6 +862,10 @@ struct FASTQOperationExecutionService {
                 "-o",
                 outputTarget,
             ]
+            if !extraArguments.isEmpty {
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+            }
+            return arguments
 
         case .humanReadScrub(let databaseID, _):
             return [
@@ -1781,7 +1792,7 @@ private extension FASTQOperationLaunchRequest {
             return inputURLs
         case .assemble(let request, _):
             return request.inputURLs
-        case .classify(_, let inputURLs, _):
+        case .classify(_, let inputURLs, _, _):
             return inputURLs
         }
     }
@@ -1815,8 +1826,8 @@ private extension FASTQOperationLaunchRequest {
             return .map(inputURLs: inputURLs, referenceURL: referenceURL, outputMode: outputMode)
         case .assemble(let request, let outputMode):
             return .assemble(request: request.replacingInputURLs(with: inputURLs), outputMode: outputMode)
-        case .classify(let tool, _, let databaseName):
-            return .classify(tool: tool, inputURLs: inputURLs, databaseName: databaseName)
+        case .classify(let tool, _, let databaseName, let extraArguments):
+            return .classify(tool: tool, inputURLs: inputURLs, databaseName: databaseName, extraArguments: extraArguments)
         }
     }
 
@@ -1830,7 +1841,7 @@ private extension FASTQOperationLaunchRequest {
             return "Map Reads"
         case .assemble(let request, _):
             return request.tool.displayName
-        case .classify(let tool, _, _):
+        case .classify(let tool, _, _, _):
             return tool.title
         }
     }
@@ -1863,8 +1874,12 @@ private extension FASTQOperationLaunchRequest {
                 "assembler": request.tool.rawValue,
                 "readType": request.readType.rawValue,
             ]
-        case .classify(_, _, let databaseName):
-            return ["database": databaseName]
+        case .classify(_, _, let databaseName, let extraArguments):
+            var params = ["database": databaseName]
+            if !extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
         }
     }
 
@@ -1892,7 +1907,7 @@ private extension FASTQOperationLaunchRequest {
             return "mapping"
         case .assemble(let request, _):
             return "assembly-\(request.tool.rawValue)"
-        case .classify(let tool, _, _):
+        case .classify(let tool, _, _, _):
             return tool.title.lowercased()
         }
     }
@@ -1912,7 +1927,7 @@ private extension FASTQOperationLaunchRequest {
             return false
         case .derivative:
             return !isRibosomalRNAFilterRequest
-        case .classify(let tool, _, _):
+        case .classify(let tool, _, _, _):
             switch tool {
             case .esViritu, .taxTriage:
                 return true

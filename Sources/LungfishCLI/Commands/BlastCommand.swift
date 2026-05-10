@@ -103,7 +103,7 @@ extension BlastCommand {
         @Option(
             name: .customLong("extra-args"),
             parsing: .unconditional,
-            help: "Additional BLAST API arguments recorded for provenance"
+            help: "Additional BLAST URL API parameters as KEY=VALUE tokens (for example WORD_SIZE=11)"
         )
         var extraArgs: String = ""
 
@@ -242,6 +242,7 @@ extension BlastCommand {
                 sequences: subsampled,
                 extraArgs: extraArgs
             )
+            _ = try request.blastURLAPIExtraParameters
 
             let result = try await BlastService.shared.verify(
                 request: request
@@ -335,6 +336,10 @@ extension BlastCommand {
                 sequences: sequences,
                 extraArgs: extraArgs
             )
+        }
+
+        func extraParametersForTesting() throws -> [String: String] {
+            try BlastVerificationRequest.parseBlastURLAPIExtraParameters(extraArgs)
         }
     }
 }

@@ -63,6 +63,7 @@ struct TaxTriageWizardSheet: View {
     @State private var topHitsCount: Int = 10
     @State private var maxMemoryGB: Int = 16
     @State private var maxCpus: Int = ProcessInfo.processInfo.activeProcessorCount
+    @State private var extraArgumentsText: String = ""
 
     // Prerequisite state
     @State private var nextflowAvailable: Bool? = nil
@@ -478,6 +479,15 @@ struct TaxTriageWizardSheet: View {
                 // Skip Krona
                 Toggle("Skip Krona visualization", isOn: $skipKrona)
                     .font(.system(size: 12))
+
+                HStack {
+                    Text("Extra arguments:")
+                        .font(.system(size: 12))
+                        .frame(width: 120, alignment: .trailing)
+                    TextField("TaxTriage arguments", text: $extraArgumentsText)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier("taxtriage-extra-arguments-field")
+                }
             }
             .padding(.top, 8)
         }
@@ -632,6 +642,7 @@ struct TaxTriageWizardSheet: View {
 
     /// Builds a TaxTriageConfig from the current settings and calls onRun.
     private func performRun() {
+        guard let extraArguments = try? AdvancedCommandLineOptions.parse(extraArgumentsText) else { return }
         let taxSamples = samples.compactMap { wizardSample -> TaxTriageSample? in
             guard let r1 = wizardSample.fastq1 else { return nil }
             var sampleMeta = FASTQSampleMetadata(sampleName: wizardSample.sampleId)
@@ -680,7 +691,8 @@ struct TaxTriageWizardSheet: View {
             skipKrona: skipKrona,
             maxMemory: "\(maxMemoryGB).GB",
             maxCpus: maxCpus,
-            sourceBundleURLs: sourceBundleURLs
+            sourceBundleURLs: sourceBundleURLs,
+            extraArguments: extraArguments
         )
 
         onRun?(config)
