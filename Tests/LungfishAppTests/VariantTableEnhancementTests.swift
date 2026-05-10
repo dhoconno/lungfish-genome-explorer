@@ -570,13 +570,39 @@ final class VariantTableEnhancementTests: XCTestCase {
         XCTAssertNil(rule.toFilterClause())
     }
 
-    func testQueryRuleSampleGenotypeReturnsNil() {
-        let rule = QueryRule(category: .sampleGenotype, field: "GQ", op: ">=", value: "20")
-        XCTAssertNil(rule.toFilterClause())
+    func testQueryRuleSampleGenotypeBuildsPerSampleClause() {
+        let rule = QueryRule(category: .sampleGenotype, field: "NA12878.GT", op: "=", value: "1/1")
+        XCTAssertEqual(rule.toFilterClause(), "Sample[NA12878].GT=1/1")
     }
 
-    func testQueryCategoryAllCasesExcludesUnsupportedSampleGenotype() {
-        XCTAssertFalse(QueryCategory.allCases.contains(.sampleGenotype))
+    func testVariantBrowserSampleGenotypeFilterNarrowsRows() throws {
+        let vcfContent = """
+        ##fileformat=VCFv4.2
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879
+        chr1\t100\trsHomAlt\tA\tG\t60\tPASS\t.\tGT:DP\t1/1:35\t0/1:30
+        chr1\t200\trsHet\tC\tT\t50\tPASS\t.\tGT:DP\t0/1:20\t0/1:22
+        chr1\t300\trsOtherHomAlt\tG\tA\t70\tPASS\t.\tGT:DP\t1/1:31\t1/1:34
+        """
+        let drawer = try createDrawerWithAnnotationsAndVariants(vcfContent: vcfContent)
+
+        switchToVariantsAndWait(drawer)
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["rsHomAlt", "rsHet", "rsOtherHomAlt"])
+
+        drawer.debugSetVariantFilterText("Sample[NA12878].GT=1/1")
+        drawer.debugRefreshDisplayedAnnotations()
+        waitForVariantQueryToFinish(drawer)
+
+        XCTAssertEqual(drawer.displayedAnnotations.map(\.name), ["rsHomAlt", "rsOtherHomAlt"])
+        XCTAssertFalse(
+            drawer.debugParseVariantInfoFilterKeys("Sample[NA12878].GT=1/1").contains("Sample[NA12878].GT"),
+            "Sample genotype filters must not be downgraded to INFO filters"
+        )
+    }
+
+    func testQueryCategoryAllCasesIncludesSampleGenotype() {
+        XCTAssertTrue(QueryCategory.allCases.contains(.sampleGenotype))
     }
 
     func testQueryPresetBuiltInsExist() {
@@ -920,9 +946,13 @@ final class VariantTableEnhancementTests: XCTestCase {
     /// Switches to the variants tab and drains the RunLoop until variant query results arrive.
     private func switchToVariantsAndWait(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
         drawer.switchToTab(.variants)
+        waitForVariantQueryToFinish(drawer, timeout: timeout)
+    }
+
+    private func waitForVariantQueryToFinish(_ drawer: AnnotationTableDrawerView, timeout: TimeInterval = 2.0) {
         let deadline = Date().addingTimeInterval(timeout)
-        while (drawer.displayedAnnotations.isEmpty && drawer.isVariantQuerying) && Date() < deadline {
+        repeat {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-        }
+        } while drawer.isVariantQuerying && Date() < deadline
     }
 }

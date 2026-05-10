@@ -80,6 +80,12 @@ public final class AppSettings: Sendable {
     /// Temporary file retention in hours before cleanup.
     public var tempFileRetentionHours: Int = 24
 
+    /// Provenance signing provider. Supported values: "off", "local", "cosign".
+    public var provenanceSigningProvider: String = "off"
+
+    /// Optional public key path used by verification workflows and audit handoff.
+    public var provenanceSigningPublicKeyPath: String = ""
+
     // MARK: - Appearance
 
     /// Nucleotide base color configuration (persisted as hex strings).
@@ -270,6 +276,8 @@ public final class AppSettings: Sendable {
         var maxUndoLevels: Int
         var vcfImportProfile: String
         var tempFileRetentionHours: Int
+        var provenanceSigningProvider: String
+        var provenanceSigningPublicKeyPath: String
         // Appearance
         var sequenceAppearance: SequenceAppearance
         var annotationTypeColorHexes: [String: String]
@@ -298,6 +306,8 @@ public final class AppSettings: Sendable {
             maxUndoLevels: Int,
             vcfImportProfile: String,
             tempFileRetentionHours: Int,
+            provenanceSigningProvider: String,
+            provenanceSigningPublicKeyPath: String,
             sequenceAppearance: SequenceAppearance,
             annotationTypeColorHexes: [String: String],
             variantColorThemeName: String,
@@ -322,6 +332,8 @@ public final class AppSettings: Sendable {
             self.maxUndoLevels = maxUndoLevels
             self.vcfImportProfile = vcfImportProfile
             self.tempFileRetentionHours = tempFileRetentionHours
+            self.provenanceSigningProvider = provenanceSigningProvider
+            self.provenanceSigningPublicKeyPath = provenanceSigningPublicKeyPath
             self.sequenceAppearance = sequenceAppearance
             self.annotationTypeColorHexes = annotationTypeColorHexes
             self.variantColorThemeName = variantColorThemeName
@@ -350,6 +362,8 @@ public final class AppSettings: Sendable {
             maxUndoLevels = try container.decodeIfPresent(Int.self, forKey: .maxUndoLevels) ?? 100
             vcfImportProfile = try container.decodeIfPresent(String.self, forKey: .vcfImportProfile) ?? "auto"
             tempFileRetentionHours = try container.decodeIfPresent(Int.self, forKey: .tempFileRetentionHours) ?? 24
+            provenanceSigningProvider = try container.decodeIfPresent(String.self, forKey: .provenanceSigningProvider) ?? "off"
+            provenanceSigningPublicKeyPath = try container.decodeIfPresent(String.self, forKey: .provenanceSigningPublicKeyPath) ?? ""
             // Appearance
             sequenceAppearance = try container.decodeIfPresent(SequenceAppearance.self, forKey: .sequenceAppearance) ?? .default
             annotationTypeColorHexes = try container.decodeIfPresent([String: String].self, forKey: .annotationTypeColorHexes) ?? [
@@ -411,12 +425,23 @@ public final class AppSettings: Sendable {
         return validNames.contains(trimmed) ? trimmed : VariantColorTheme.modern.name
     }
 
+    private static func normalizedProvenanceSigningProvider(_ raw: String) -> String {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "local", "cosign":
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        default:
+            return "off"
+        }
+    }
+
     private func makeSnapshot() -> Snapshot {
         Snapshot(
             defaultZoomWindow: Self.clamp(defaultZoomWindow, to: Self.defaultZoomWindowBounds),
             maxUndoLevels: Self.clamp(maxUndoLevels, to: Self.maxUndoLevelsBounds),
             vcfImportProfile: Self.normalizedImportProfile(vcfImportProfile),
             tempFileRetentionHours: Self.clamp(tempFileRetentionHours, to: Self.tempRetentionHoursBounds),
+            provenanceSigningProvider: Self.normalizedProvenanceSigningProvider(provenanceSigningProvider),
+            provenanceSigningPublicKeyPath: provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines),
             sequenceAppearance: sequenceAppearance,
             annotationTypeColorHexes: annotationTypeColorHexes,
             variantColorThemeName: Self.normalizedVariantThemeName(variantColorThemeName),
@@ -444,6 +469,8 @@ public final class AppSettings: Sendable {
         maxUndoLevels = Self.clamp(snapshot.maxUndoLevels, to: Self.maxUndoLevelsBounds)
         vcfImportProfile = Self.normalizedImportProfile(snapshot.vcfImportProfile)
         tempFileRetentionHours = Self.clamp(snapshot.tempFileRetentionHours, to: Self.tempRetentionHoursBounds)
+        provenanceSigningProvider = Self.normalizedProvenanceSigningProvider(snapshot.provenanceSigningProvider)
+        provenanceSigningPublicKeyPath = snapshot.provenanceSigningPublicKeyPath.trimmingCharacters(in: .whitespacesAndNewlines)
         sequenceAppearance = snapshot.sequenceAppearance
         annotationTypeColorHexes = snapshot.annotationTypeColorHexes
         variantColorThemeName = Self.normalizedVariantThemeName(snapshot.variantColorThemeName)
@@ -522,6 +549,8 @@ public final class AppSettings: Sendable {
             maxUndoLevels = fresh.maxUndoLevels
             vcfImportProfile = fresh.vcfImportProfile
             tempFileRetentionHours = fresh.tempFileRetentionHours
+            provenanceSigningProvider = fresh.provenanceSigningProvider
+            provenanceSigningPublicKeyPath = fresh.provenanceSigningPublicKeyPath
         case .appearance:
             sequenceAppearance = fresh.sequenceAppearance
             annotationTypeColorHexes = fresh.annotationTypeColorHexes
@@ -615,6 +644,29 @@ public final class AppSettings: Sendable {
 
     public func deleteNCBIAPIKey() async throws {
         try await KeychainSecretStorage.shared.delete(forKey: KeychainSecretStorage.ncbiAPIKey)
+        NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
+    }
+
+    // MARK: - Secret-backed Provenance Signing Settings
+
+    public func storeProvenanceSigningPrivateKey(_ value: String) async throws {
+        try await KeychainSecretStorage.shared.store(
+            secret: value.trimmingCharacters(in: .whitespacesAndNewlines),
+            forKey: KeychainSecretStorage.provenanceSigningPrivateKey
+        )
+        NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
+    }
+
+    public func retrieveProvenanceSigningPrivateKey() async throws -> String? {
+        try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.provenanceSigningPrivateKey)
+    }
+
+    public func hasStoredProvenanceSigningPrivateKey() async -> Bool {
+        await KeychainSecretStorage.shared.hasSecret(forKey: KeychainSecretStorage.provenanceSigningPrivateKey)
+    }
+
+    public func deleteProvenanceSigningPrivateKey() async throws {
+        try await KeychainSecretStorage.shared.delete(forKey: KeychainSecretStorage.provenanceSigningPrivateKey)
         NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
     }
 }

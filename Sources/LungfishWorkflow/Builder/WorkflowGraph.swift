@@ -85,6 +85,45 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         self.modifiedAt = Date()
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case version
+        case author
+        case nodes
+        case connections
+        case createdAt
+        case modifiedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        let decodedVersion = try container.decodeIfPresent(String.self, forKey: .version) ?? WorkflowVersion.defaultVersion
+        version = WorkflowVersion.normalized(decodedVersion)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        nodes = try container.decodeIfPresent([UUID: WorkflowNode].self, forKey: .nodes) ?? [:]
+        connections = try container.decodeIfPresent([UUID: WorkflowConnection].self, forKey: .connections) ?? [:]
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date(timeIntervalSince1970: 0)
+        modifiedAt = try container.decodeIfPresent(Date.self, forKey: .modifiedAt) ?? createdAt
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encode(WorkflowVersion.normalized(version), forKey: .version)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(connections, forKey: .connections)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(modifiedAt, forKey: .modifiedAt)
+    }
+
     // MARK: - Node Management
 
     /// Adds a new node to the graph.
@@ -116,6 +155,29 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
         nodes[node.id] = node
         modifiedAt = Date()
+    }
+
+    /// Adds a node with a caller-supplied identifier. Intended for saved workflow
+    /// round-trips and deterministic tests where stable IDs make diffs readable.
+    @discardableResult
+    public mutating func addStableNode(
+        id: UUID,
+        type: WorkflowNodeType,
+        label: String? = nil,
+        position: CGPoint,
+        parameters: [String: String] = [:],
+        notes: String? = nil
+    ) throws -> WorkflowNode {
+        let node = WorkflowNode(
+            id: id,
+            type: type,
+            label: label,
+            position: position,
+            parameters: parameters,
+            notes: notes
+        )
+        try addNode(node)
+        return node
     }
 
     /// Removes a node and all its connections from the graph.
@@ -472,6 +534,10 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
             }
         }
 
+        if !WorkflowVersion.isValidSemVer(version) {
+            issues.append(.invalidWorkflowVersion(version))
+        }
+
         return issues
     }
 
@@ -544,6 +610,7 @@ public enum WorkflowValidationIssue: Sendable, Hashable {
     case unknownNodeParameter(nodeId: UUID, nodeName: String, parameter: String)
     case missingNodeParameter(nodeId: UUID, nodeName: String, parameter: String)
     case invalidNodeParameter(nodeId: UUID, nodeName: String, parameter: String, reason: String)
+    case invalidWorkflowVersion(String)
 
     /// Human-readable description of the issue
     public var description: String {
@@ -564,13 +631,15 @@ public enum WorkflowValidationIssue: Sendable, Hashable {
             return "Node '\(nodeName)' is missing required parameter '\(parameter)'"
         case .invalidNodeParameter(_, let nodeName, let parameter, let reason):
             return "Node '\(nodeName)' has invalid parameter '\(parameter)': \(reason)"
+        case .invalidWorkflowVersion(let version):
+            return "Workflow version '\(version)' is not a semver-style version"
         }
     }
 
     /// Severity of the issue
     public var severity: ValidationSeverity {
         switch self {
-        case .emptyWorkflow, .containsCycles:
+        case .emptyWorkflow, .containsCycles, .invalidWorkflowVersion:
             return .error
         case .disconnectedInput:
             return .warning

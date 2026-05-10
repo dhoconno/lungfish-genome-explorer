@@ -408,6 +408,12 @@ private struct RuleRowView: View {
         case .infoField:
             // Show ALL available INFO keys (the power-user category)
             fields = availableInfoKeys.sorted()
+        case .sampleGenotype:
+            if !sampleNames.isEmpty {
+                fields = sampleNames.flatMap { sample in
+                    ["\(sample).GT", "\(sample).AF", "\(sample).DP"]
+                }
+            }
         default:
             break
         }

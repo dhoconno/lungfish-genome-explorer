@@ -20,6 +20,8 @@ final class VariantsCommandTests: XCTestCase {
     func testVariantsCommandNameAndHelp() {
         XCTAssertEqual(VariantsCommand.configuration.commandName, "variants")
         XCTAssertTrue(VariantsCommand.helpMessage().contains("call"))
+        XCTAssertTrue(VariantsCommand.helpMessage().contains("extract-sample"))
+        XCTAssertTrue(VariantsCommand.helpMessage().contains("query"))
     }
 
     func testCallSubcommandParsesBundleAlignmentAndCaller() throws {
@@ -166,6 +168,46 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertTrue(lines.contains { $0.contains("Medaka requires ONT model metadata") })
     }
 
+    func testExtractSampleSubcommandWritesSingleSampleVCFAndProvenance() async throws {
+        let fixture = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("na12878.vcf")
+        let command = try VariantsCommand.ExtractSampleSubcommand.parse([
+            "extract-sample",
+            fixture.bundleURL.path,
+            "--sample", "NA12878",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878"))
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertFalse(vcf.contains("NA12879"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("lungfish-provenance.json").path))
+    }
+
+    func testQuerySubcommandFiltersWithSmartFilter() async throws {
+        let fixture = try makeVariantBundleFixture()
+        let outputURL = tempDir.appendingPathComponent("hom-alt.vcf")
+        let command = try VariantsCommand.QuerySubcommand.parse([
+            "query",
+            fixture.bundleURL.path,
+            "--filter", "Sample[NA12878].GT=1/1",
+            "--output", outputURL.path,
+            "--format", "json",
+        ])
+
+        try await command.executeForTesting()
+
+        let vcf = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(vcf.contains("rs100"))
+        XCTAssertTrue(vcf.contains("rs300"))
+        XCTAssertFalse(vcf.contains("rs200"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.appendingPathExtension("lungfish-provenance.json").path))
+    }
+
     private func makeRuntime(
         onRunPipeline: (@Sendable (VariantsCommand.CallContext) -> Void)? = nil,
         onPreflight: (@Sendable (BundleVariantCallingRequest) -> Void)? = nil
@@ -266,6 +308,55 @@ final class VariantsCommandTests: XCTestCase {
                 )
             }
         )
+    }
+
+    private func makeVariantBundleFixture() throws -> (bundleURL: URL, dbURL: URL) {
+        let bundleURL = tempDir.appendingPathComponent("VariantBundle.lungfishref", isDirectory: true)
+        let variantsDir = bundleURL.appendingPathComponent("variants", isDirectory: true)
+        try FileManager.default.createDirectory(at: variantsDir, withIntermediateDirectories: true)
+
+        let vcfURL = tempDir.appendingPathComponent("cohort.vcf")
+        try """
+        ##fileformat=VCFv4.3
+        ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+        ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+        ##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878\tNA12879
+        chr1\t100\trs100\tA\tG\t50\tPASS\t.\tGT:DP:AD\t1/1:40:0,40\t0/1:32:16,16
+        chr1\t200\trs200\tC\tT\t50\tPASS\t.\tGT:DP:AD\t0/1:20:10,10\t0/1:31:15,16
+        chr1\t300\trs300\tG\tA\t50\tPASS\t.\tGT:DP:AD\t1/1:38:0,38\t1/1:42:0,42
+        """.write(to: vcfURL, atomically: true, encoding: .utf8)
+
+        let dbURL = variantsDir.appendingPathComponent("cohort.db")
+        try VariantDatabase.createFromVCF(vcfURL: vcfURL, outputURL: dbURL)
+        let track = VariantTrackInfo(
+            id: "cohort",
+            name: "Cohort",
+            path: "variants/cohort.vcf.gz",
+            indexPath: "variants/cohort.vcf.gz.tbi",
+            databasePath: "variants/cohort.db",
+            variantType: .mixed,
+            variantCount: 3
+        )
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "VariantBundle",
+            identifier: "test.variant.bundle",
+            source: SourceInfo(organism: "Test", assembly: "TestAssembly", database: "Fixture"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                totalLength: 1_000,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 1_000, offset: 0, lineBases: 1_000, lineWidth: 1_001, aliases: [])
+                ]
+            ),
+            variants: [track]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename))
+        return (bundleURL, dbURL)
     }
 }
 

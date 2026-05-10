@@ -774,6 +774,39 @@ public final class VariantDatabase: @unchecked Sendable {
         return Int(sqlite3_column_int64(stmt, 0))
     }
 
+    /// Queries variants using the shared smart-filter grammar.
+    public func query(smartFilter text: String, limit: Int = 5000) throws -> [VariantDatabaseRecord] {
+        let filter = try VariantSmartFilter.parse(text)
+        return try query(smartFilter: filter, limit: limit)
+    }
+
+    /// Queries variants using a parsed smart filter.
+    public func query(smartFilter filter: VariantSmartFilter, limit: Int = 5000) throws -> [VariantDatabaseRecord] {
+        guard let db else { return [] }
+        let compiled = filter.compileSQL(limit: limit)
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, compiled.sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            let msg = String(cString: sqlite3_errmsg(db))
+            throw VariantDatabaseError.createFailed("Failed to prepare smart-filter query: \(msg)")
+        }
+        for (offset, binding) in compiled.bindings.enumerated() {
+            bindSmartFilterValue(binding, to: stmt, index: Int32(offset + 1))
+        }
+        return readVariantRows(stmt: stmt)
+    }
+
+    private func bindSmartFilterValue(_ binding: VariantSmartBinding, to stmt: OpaquePointer, index: Int32) {
+        switch binding.value {
+        case .string(let value):
+            sqliteBindText(stmt, index, value)
+        case .int64(let value):
+            sqlite3_bind_int64(stmt, index, value)
+        case .double(let value):
+            sqlite3_bind_double(stmt, index, value)
+        }
+    }
+
     /// A filter expression on a VCF INFO field (e.g., `DP>20`, `AF>=0.05`).
     public struct InfoFilter: Sendable {
         public let key: String
@@ -1908,6 +1941,72 @@ public final class VariantDatabase: @unchecked Sendable {
             let rows = variant.id.flatMap { genotypeMap[$0] } ?? []
             return (variant: variant, genotypes: rows)
         }
+    }
+
+    /// Writes records as a small VCF projection using genotypes stored in the database.
+    public func writeVCF(
+        records: [VariantDatabaseRecord],
+        sampleNames requestedSampleNames: [String],
+        to outputURL: URL
+    ) throws {
+        let existingSamples = sampleNames()
+        let outputSamples = requestedSampleNames.isEmpty
+            ? existingSamples
+            : requestedSampleNames.filter { existingSamples.contains($0) }
+        let variantIDs = records.compactMap(\.id)
+        let genotypeMap = genotypes(forVariantIds: variantIDs)
+
+        var lines: [String] = [
+            "##fileformat=VCFv4.3",
+            "##source=lungfish variants query",
+            #"##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">"#,
+            #"##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">"#,
+            #"##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">"#,
+            #"##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">"#,
+        ]
+        var header = "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO"
+        if !outputSamples.isEmpty {
+            header += "\tFORMAT\t" + outputSamples.joined(separator: "\t")
+        }
+        lines.append(header)
+
+        for record in records {
+            let quality = record.quality.map { String(format: "%.3f", $0) } ?? "."
+            let filter = record.filter?.isEmpty == false ? record.filter! : "."
+            let info = record.info?.isEmpty == false ? record.info! : "."
+            var fields = [
+                record.chromosome,
+                String(record.position + 1),
+                record.variantID.isEmpty ? "." : record.variantID,
+                record.ref,
+                record.alt,
+                quality,
+                filter,
+                info,
+            ]
+            if !outputSamples.isEmpty {
+                fields.append("GT:DP:GQ:AD")
+                let bySample = Dictionary(
+                    uniqueKeysWithValues: (record.id.flatMap { genotypeMap[$0] } ?? []).map { ($0.sampleName, $0) }
+                )
+                for sample in outputSamples {
+                    fields.append(Self.vcfSamplePayload(from: bySample[sample]))
+                }
+            }
+            lines.append(fields.joined(separator: "\t"))
+        }
+
+        try lines.joined(separator: "\n").appending("\n").write(to: outputURL, atomically: true, encoding: .utf8)
+    }
+
+    private static func vcfSamplePayload(from genotype: GenotypeRecord?) -> String {
+        guard let genotype else { return "." }
+        return [
+            genotype.genotype ?? ".",
+            genotype.depth.map(String.init) ?? ".",
+            genotype.genotypeQuality.map(String.init) ?? ".",
+            genotype.alleleDepths ?? ".",
+        ].joined(separator: ":")
     }
 
     /// Reads genotype rows from a prepared statement.

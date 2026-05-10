@@ -95,10 +95,17 @@ Type into the free-text field on the right of the filter bar to write a smart-fi
 - `Filter=PASS` keeps only rows whose `Filter` column reads `PASS`.
 - `AF>=0.5` keeps only rows where the allele frequency reaches half of reads or more.
 - `DP>=50` keeps only rows with depth at or above 50 reads.
+- `Sample[NA12878].GT=1/1` keeps rows where sample `NA12878` is homozygous alternate.
+- `Sample[NA12878].AF>=0.5` keeps rows where sample `NA12878` has alternate allele balance of at least 0.5.
+- `Sample[NA12878].DP>=30` keeps rows where sample `NA12878` has at least 30 reads at the site.
+- `count(Sample[*].GT=1/1) >= 5` keeps cohort sites with at least five homozygous alternate sample calls.
+- `Sample[NA12878].GT != Sample[NA12879].GT` keeps sites where those two samples have different stored genotype calls.
 - `Pos>=21000 Pos<=25500` restricts to the spike gene window.
 - `Source=iVar` keeps only rows from the `iVar variants` track when multiple tracks are open.
 
 Comparison operators are `=`, `!=`, `<`, `<=`, `>`, `>=`. String values may be unquoted when they have no spaces; quote them when they do (`Gene="ORF1ab"`). Combine clauses with spaces (AND) or with the literal token `OR`. The filter bar shows a count of matched rows directly under the input.
+
+For multi-sample VCFs, open the Samples view or sample selector and leave visible only the samples you want to compare. The variant table and genotype rows use that same visible-sample set, so hiding a sample removes its genotype column from the browser without changing the imported VCF.
 
 <!-- planned: variant-browser-filter -->
 

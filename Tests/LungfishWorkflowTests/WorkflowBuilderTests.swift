@@ -25,6 +25,101 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertTrue(graph.allConnections.isEmpty)
     }
 
+    func testWorkflowGraphVersionDefaultsAndRoundTripsAsSemver() throws {
+        var graph = WorkflowGraph(name: "Versioned Pipeline")
+        graph.version = "1.2.3"
+
+        XCTAssertTrue(WorkflowVersion.isValidSemVer(graph.version))
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(graph)
+        let json = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertTrue(json.contains(#""version":"1.2.3""#), json)
+
+        let decoded = try JSONDecoder().decode(WorkflowGraph.self, from: data)
+        XCTAssertEqual(decoded.version, "1.2.3")
+    }
+
+    func testWorkflowGraphLegacyFilesWithoutVersionDecodeToDefaultSemver() throws {
+        let json = """
+        {
+          "id": "00000000-0000-0000-0000-000000000020",
+          "name": "Legacy Pipeline",
+          "nodes": {},
+          "connections": {},
+          "createdAt": 0,
+          "modifiedAt": 0
+        }
+        """
+
+        let decoded = try JSONDecoder().decode(WorkflowGraph.self, from: Data(json.utf8))
+
+        XCTAssertEqual(decoded.version, "1.0.0")
+        XCTAssertTrue(WorkflowVersion.isValidSemVer(decoded.version))
+    }
+
+    func testWorkflowDiffReportsVersionNodeAndParameterChanges() throws {
+        var original = WorkflowGraph(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000021")!,
+            name: "Audit Pipeline",
+            version: "1.0.0"
+        )
+        let input = try original.addStableNode(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000022")!,
+            type: .fastqInput,
+            label: "Reads",
+            position: .zero
+        )
+        let trim = try original.addStableNode(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000023")!,
+            type: .trimming,
+            label: "Trim",
+            position: CGPoint(x: 200, y: 0),
+            parameters: ["minimum_length": "20"]
+        )
+        _ = try original.addConnection(
+            sourceNodeId: input.id,
+            sourcePortId: "reads",
+            targetNodeId: trim.id,
+            targetPortId: "reads"
+        )
+
+        var revised = original
+        revised.version = "1.1.0"
+        var revisedTrim = try XCTUnwrap(revised.getNode(trim.id))
+        revisedTrim.parameters["minimum_length"] = "35"
+        try revised.updateNode(revisedTrim)
+        _ = try revised.addStableNode(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000024")!,
+            type: .qualityControl,
+            label: "QC",
+            position: CGPoint(x: 400, y: 0)
+        )
+
+        let diff = WorkflowGraphDiff.compare(original, revised)
+        let text = diff.textDescription
+
+        XCTAssertTrue(diff.hasChanges)
+        XCTAssertTrue(text.contains("Version: 1.0.0 -> 1.1.0"), text)
+        XCTAssertTrue(text.contains("Added nodes"), text)
+        XCTAssertTrue(text.contains("QC"), text)
+        XCTAssertTrue(text.contains("minimum_length: 20 -> 35"), text)
+    }
+
+    func testWorkflowDiffJSONReportIsCodable() throws {
+        let original = WorkflowGraph(name: "Same", version: "1.0.0")
+        var revised = original
+        revised.version = "1.0.1"
+
+        let report = WorkflowGraphDiff.compare(original, revised).jsonReport
+        let data = try JSONEncoder().encode(report)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertEqual(object?["fromVersion"] as? String, "1.0.0")
+        XCTAssertEqual(object?["toVersion"] as? String, "1.0.1")
+    }
+
     func testAddNode() {
         var graph = WorkflowGraph(name: "Test")
 

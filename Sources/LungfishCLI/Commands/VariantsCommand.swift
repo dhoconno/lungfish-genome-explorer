@@ -8,7 +8,7 @@ struct VariantsCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "variants",
         abstract: "Call viral variants from a bundle-owned alignment track",
-        subcommands: [CallSubcommand.self]
+        subcommands: [CallSubcommand.self, ExtractSampleSubcommand.self, QuerySubcommand.self]
     )
 
     struct Runtime {
@@ -108,6 +108,199 @@ struct VariantsCommand: AsyncParsableCommand {
 }
 
 extension VariantsCommand {
+    fileprivate struct OpenedVariantDatabase {
+        let manifest: BundleManifest
+        let track: VariantTrackInfo
+        let databaseURL: URL
+        let db: VariantDatabase
+    }
+
+    fileprivate static func openDefaultVariantDatabase(bundleURL: URL) throws -> OpenedVariantDatabase {
+        let manifest = try BundleManifest.load(from: bundleURL)
+        guard let track = manifest.variants.first(where: { $0.databasePath != nil }) else {
+            throw CLIError.validationFailed(errors: ["Bundle has no SQLite-backed variant track: \(bundleURL.path)"])
+        }
+        guard let databasePath = track.databasePath else {
+            throw CLIError.validationFailed(errors: ["Variant track '\(track.id)' has no SQLite database path."])
+        }
+        let databaseURL = bundleURL.appendingPathComponent(databasePath)
+        guard FileManager.default.fileExists(atPath: databaseURL.path) else {
+            throw CLIError.inputFileNotFound(path: databaseURL.path)
+        }
+        return OpenedVariantDatabase(
+            manifest: manifest,
+            track: track,
+            databaseURL: databaseURL,
+            db: try VariantDatabase(url: databaseURL)
+        )
+    }
+
+    fileprivate static func writeProvenance(
+        workflowName: String,
+        command: [String],
+        bundleURL: URL,
+        databaseURL: URL,
+        outputURL: URL,
+        options: [String: String],
+        startedAt: Date
+    ) throws {
+        let endedAt = Date()
+        let inputRecords = [
+            fileRecord(url: bundleURL, format: nil, role: .input),
+            fileRecord(url: databaseURL, format: nil, role: .input),
+        ]
+        let outputRecord = fileRecord(url: outputURL, format: .vcf, role: .output)
+        let step = StepExecution(
+            toolName: workflowName,
+            toolVersion: LungfishCLI.configuration.version,
+            command: command,
+            inputs: inputRecords,
+            outputs: [outputRecord],
+            exitCode: 0,
+            wallTime: endedAt.timeIntervalSince(startedAt),
+            startTime: startedAt,
+            endTime: endedAt
+        )
+        var parameters = options.reduce(into: [String: ParameterValue]()) { result, pair in
+            result[pair.key] = .string(pair.value)
+        }
+        parameters["bundle"] = .string(bundleURL.path)
+        parameters["database"] = .string(databaseURL.path)
+        parameters["output"] = .string(outputURL.path)
+        let run = WorkflowRun(
+            name: workflowName,
+            startTime: startedAt,
+            endTime: endedAt,
+            status: .completed,
+            steps: [step],
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(run).write(to: outputURL.appendingPathExtension("lungfish-provenance.json"), options: .atomic)
+    }
+
+    private static func fileRecord(url: URL, format: FileFormat?, role: FileRole) -> FileRecord {
+        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let size = attrs?[.size] as? UInt64
+        return FileRecord(
+            path: url.path,
+            sha256: ProvenanceRecorder.sha256(of: url),
+            sizeBytes: size,
+            format: format,
+            role: role
+        )
+    }
+
+    struct ExtractSampleSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "extract-sample",
+            abstract: "Export one sample from a bundle variant track as VCF"
+        )
+
+        @Argument(help: "Path to a .lungfishref bundle with a SQLite variant track")
+        var bundlePath: String
+
+        @Option(name: .customLong("sample"), help: "Sample name to export")
+        var sample: String
+
+        @Option(name: .shortAndLong, help: "Output VCF path")
+        var output: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName ? Array(arguments.dropFirst()) : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse variants extract-sample arguments.")
+            }
+            return parsed
+        }
+
+        func run() async throws {
+            try await executeForTesting()
+        }
+
+        func executeForTesting() async throws {
+            let startedAt = Date()
+            let bundleURL = URL(fileURLWithPath: bundlePath)
+            let outputURL = URL(fileURLWithPath: output)
+            let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
+            guard opened.db.sampleNames().contains(sample) else {
+                throw CLIError.validationFailed(errors: ["Sample '\(sample)' was not found in \(bundlePath)"])
+            }
+            let records = opened.db.queryForTable(sampleNames: [sample], limit: Int.max)
+            try opened.db.writeVCF(records: records, sampleNames: [sample], to: outputURL)
+            try VariantsCommand.writeProvenance(
+                workflowName: "lungfish variants extract-sample",
+                command: ["lungfish", "variants", "extract-sample", bundlePath, "--sample", sample, "--output", output],
+                bundleURL: bundleURL,
+                databaseURL: opened.databaseURL,
+                outputURL: outputURL,
+                options: ["sample": sample, "track": opened.track.id],
+                startedAt: startedAt
+            )
+            if !globalOptions.quiet {
+                print("Exported \(records.count) variants for \(sample) to \(output)")
+            }
+        }
+    }
+
+    struct QuerySubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "query",
+            abstract: "Filter a bundle variant track with smart-filter syntax"
+        )
+
+        @Argument(help: "Path to a .lungfishref bundle with a SQLite variant track")
+        var bundlePath: String
+
+        @Option(name: .customLong("filter"), help: "Smart-filter expression, for example Sample[NA12878].GT=1/1")
+        var filter: String
+
+        @Option(name: .shortAndLong, help: "Output VCF path")
+        var output: String
+
+        @Option(name: .customLong("limit"), help: "Maximum variants to export")
+        var limit: Int = 5000
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        static func parse(_ arguments: [String]) throws -> Self {
+            let trimmed = arguments.first == configuration.commandName ? Array(arguments.dropFirst()) : arguments
+            guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
+                throw ValidationError("Failed to parse variants query arguments.")
+            }
+            return parsed
+        }
+
+        func run() async throws {
+            try await executeForTesting()
+        }
+
+        func executeForTesting() async throws {
+            let startedAt = Date()
+            let bundleURL = URL(fileURLWithPath: bundlePath)
+            let outputURL = URL(fileURLWithPath: output)
+            let opened = try VariantsCommand.openDefaultVariantDatabase(bundleURL: bundleURL)
+            let records = try opened.db.query(smartFilter: filter, limit: limit)
+            try opened.db.writeVCF(records: records, sampleNames: opened.db.sampleNames(), to: outputURL)
+            try VariantsCommand.writeProvenance(
+                workflowName: "lungfish variants query",
+                command: ["lungfish", "variants", "query", bundlePath, "--filter", filter, "--output", output, "--limit", String(limit)],
+                bundleURL: bundleURL,
+                databaseURL: opened.databaseURL,
+                outputURL: outputURL,
+                options: ["filter": filter, "limit": String(limit), "track": opened.track.id],
+                startedAt: startedAt
+            )
+            if !globalOptions.quiet {
+                print("Exported \(records.count) matching variants to \(output)")
+            }
+        }
+    }
+
     struct CallSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             commandName: "call",
