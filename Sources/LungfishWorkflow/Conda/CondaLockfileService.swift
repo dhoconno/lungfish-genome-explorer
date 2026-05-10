@@ -1,7 +1,7 @@
 import Foundation
 
 public protocol CondaLockInstalling: Sendable {
-    func install(environment: String, packageSpecs: [String]) async throws
+    func install(environment: String, packageSpecs: [String], condaRoot: URL) async throws
 }
 
 public struct CondaManagerLockInstaller: CondaLockInstalling {
@@ -11,8 +11,12 @@ public struct CondaManagerLockInstaller: CondaLockInstalling {
         self.manager = manager
     }
 
-    public func install(environment: String, packageSpecs: [String]) async throws {
-        try await manager.install(packages: packageSpecs, environment: environment)
+    public func install(environment: String, packageSpecs: [String], condaRoot: URL) async throws {
+        let resolvedRoot = condaRoot.standardizedFileURL
+        let installManager = manager.rootPrefix.standardizedFileURL == resolvedRoot
+            ? manager
+            : CondaManager(rootPrefix: resolvedRoot)
+        try await installManager.install(packages: packageSpecs, environment: environment)
     }
 }
 
@@ -89,7 +93,8 @@ public struct CondaLockfileService {
         for package in packages {
             try await installer.install(
                 environment: package.name,
-                packageSpecs: ["\(package.name)=\(package.version)"]
+                packageSpecs: ["\(package.name)=\(package.version)"],
+                condaRoot: condaRoot
             )
             installed.append(package.name)
         }

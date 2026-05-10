@@ -185,6 +185,14 @@ public actor CondaManager {
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
     }
 
+    init(rootPrefix: URL) {
+        self.init(
+            rootPrefix: rootPrefix,
+            bundledMicromambaProvider: Self.defaultBundledMicromambaURL,
+            bundledMicromambaVersionProvider: Self.defaultBundledMicromambaVersion
+        )
+    }
+
     init(
         storageConfigStore: ManagedStorageConfigStore,
         bundledMicromambaProvider: @escaping BundledMicromambaProvider,

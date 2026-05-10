@@ -69,7 +69,14 @@ final class CondaLockfileServiceTests: XCTestCase {
     }
 
     func testInstallFromLockfilePlansExactEnvironmentCreatesAndWritesProvenance() async throws {
-        let lockfile = tempRoot.appendingPathComponent("lock.yml")
+        let customCondaRoot = tempRoot.appendingPathComponent("conda", isDirectory: true)
+        let lockfile = customCondaRoot
+            .appendingPathComponent("locks", isDirectory: true)
+            .appendingPathComponent("lock.yml")
+        try FileManager.default.createDirectory(
+            at: lockfile.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try """
         version: 1
         metadata:
@@ -93,17 +100,35 @@ final class CondaLockfileServiceTests: XCTestCase {
         let recorder = RecordingCondaLockInstaller()
         let result = try await CondaLockfileService().install(
             fromLockfile: lockfile,
-            condaRoot: tempRoot.appendingPathComponent("conda", isDirectory: true),
+            condaRoot: customCondaRoot,
             installer: recorder,
             commandLine: ["lungfish", "conda", "install", "--from-lockfile", lockfile.path]
         )
 
         let calls = await recorder.calls
         XCTAssertEqual(calls, [
-            .init(environment: "minimap2", packageSpecs: ["minimap2=2.30"]),
-            .init(environment: "bwa-mem2", packageSpecs: ["bwa-mem2=2.3"]),
+            .init(environment: "minimap2", packageSpecs: ["minimap2=2.30"], condaRoot: customCondaRoot),
+            .init(environment: "bwa-mem2", packageSpecs: ["bwa-mem2=2.3"], condaRoot: customCondaRoot),
         ])
         XCTAssertTrue(FileManager.default.fileExists(atPath: result.provenanceURL.path))
+        XCTAssertTrue(result.provenanceURL.path.hasPrefix(customCondaRoot.standardizedFileURL.path))
+
+        let minimap2Env = customCondaRoot.appendingPathComponent("envs/minimap2", isDirectory: true)
+        let bwaEnv = customCondaRoot.appendingPathComponent("envs/bwa-mem2", isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: minimap2Env.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bwaEnv.path))
+
+        let provenance = try JSONDecoder.lungfishProvenance.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: result.provenanceURL)
+        )
+        XCTAssertEqual(provenance.parameters["lockfilePath"]?.stringValue, lockfile.standardizedFileURL.path)
+        XCTAssertTrue(provenance.parameters["lockfilePath"]?.stringValue?.hasPrefix(customCondaRoot.standardizedFileURL.path) == true)
+        XCTAssertEqual(provenance.parameters["destinationCondaRoot"]?.stringValue, customCondaRoot.standardizedFileURL.path)
+        XCTAssertEqual(
+            provenance.steps.first?.outputs.map(\.path).sorted(),
+            [bwaEnv.path, minimap2Env.path].sorted()
+        )
     }
 }
 
@@ -111,11 +136,24 @@ private actor RecordingCondaLockInstaller: CondaLockInstalling {
     struct Call: Equatable {
         let environment: String
         let packageSpecs: [String]
+        let condaRoot: URL
     }
 
     private(set) var calls: [Call] = []
 
-    func install(environment: String, packageSpecs: [String]) async throws {
-        calls.append(.init(environment: environment, packageSpecs: packageSpecs))
+    func install(environment: String, packageSpecs: [String], condaRoot: URL) async throws {
+        try FileManager.default.createDirectory(
+            at: condaRoot.appendingPathComponent("envs/\(environment)", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        calls.append(.init(environment: environment, packageSpecs: packageSpecs, condaRoot: condaRoot))
+    }
+}
+
+private extension JSONDecoder {
+    static var lungfishProvenance: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
     }
 }
