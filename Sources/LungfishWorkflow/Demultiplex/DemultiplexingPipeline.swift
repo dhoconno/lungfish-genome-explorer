@@ -144,7 +144,6 @@ public struct DemultiplexConfig: Sendable {
     /// Defaults to `false` (indels allowed). ONT reads have significant indel
     /// rates even in barcode regions — benchmarking showed that allowing indels
     /// improved detection by 18% (50→59 both-end reads on 100-read test set).
-    /// See `docs/research/cutadapt-demux-pipeline-spec.md`.
     public let useNoIndels: Bool
 
     /// When true, capture per-read trim positions even in full mode so that

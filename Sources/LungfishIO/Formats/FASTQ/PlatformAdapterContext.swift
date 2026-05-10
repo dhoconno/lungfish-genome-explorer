@@ -76,7 +76,6 @@ public enum BarcodeKitType: String, Codable, Sendable, CaseIterable {
 /// The rear flanks (CAGCACCT / AGGTGCTG) sit between the barcode and insert DNA.
 /// They are concatenated into the adapter definition so cutadapt trims both in a
 /// single pass — this is more robust to indels than a separate flank-trimming step.
-/// See `docs/research/cutadapt-demux-pipeline-spec.md` for benchmarking details.
 public struct ONTNativeAdapterContext: PlatformAdapterContext {
     public init() {}
 

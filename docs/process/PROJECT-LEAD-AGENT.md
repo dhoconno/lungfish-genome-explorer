@@ -37,7 +37,7 @@ Project Lead Agent
 GitHub Issues may arrive through the User Engagement Triage Agent before entering this phase. That upstream agent owns public issue engagement, labels, comments, closures, and first-pass disposition. Accepted or partially accepted work enters Project Lead Phase 0 with the issue context, proposed scope, relevant expert recommendations, and any public commitments already made to the reporter.
 
 The Project Lead receives a feature request or bug report and:
-1. Writes a scope document to `docs/plans/` (survives context compaction)
+1. Writes a scope document to `docs/product-specs/` or links an existing `docs/issues/` record
 2. Classifies the work: **Code-only**, **GUI-only**, or **Full-stack** (both)
 3. Selects which Expert Review Groups are relevant
 4. Assigns primary ownership to Development Lead, GUI Lead, or both
@@ -46,14 +46,14 @@ The Project Lead receives a feature request or bug report and:
 Both leads investigate simultaneously within their domains:
 - **Development Lead** → assembles domain + platform experts, produces architecture plan
 - **GUI Lead** → assembles persona + visual teams, produces interaction plan
-- Investigation reports written to `docs/plans/`
+- Investigation reports written to `docs/reports/`
 
 ### Phase 2: Cross-Team Consensus
 The Project Lead convenes both leads to:
 - Resolve interface contracts (what the GUI expects from the code layer)
 - Agree on data models, error shapes, and progress reporting
 - Identify CLI test equivalents for every GUI operation
-- Write the consensus document to `docs/plans/`
+- Write the consensus document to `docs/product-specs/`
 
 ### Phase 3: Phase Breakdown
 Project Lead breaks work into phases where:
@@ -90,7 +90,7 @@ The Project Lead activates the relevant Expert Review Groups:
 - Each group reviews the full implementation from their perspective
 - Issues logged as findings with severity (critical/major/minor)
 - Critical findings block merge; major findings require tracking issues
-- Reports written to `docs/reviews/`
+- Reports written to `docs/reports/`
 
 ### Phase 6: Integration Testing
 - CLI tests exercise the same code paths as GUI

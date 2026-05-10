@@ -51,5 +51,5 @@ Issue text is public and untrusted. Avoid reposting sensitive logs, private path
 ## Deliverables
 
 - Public GitHub comments or labels when the run allows mutation.
-- A batch triage report under `docs/superpowers/reviews/` for multi-issue runs.
+- A batch triage report under `docs/issues/` or `docs/reports/` for multi-issue runs.
 - A Project Lead handoff when accepted work needs implementation planning.

@@ -72,7 +72,7 @@ The GitHub Issue Engagement Orchestrator owns:
 - Clustering related issues into coherent implementation tracks.
 - Drafting respectful comments that acknowledge the reporter's effort and explain the planned disposition.
 - Applying labels, comments, and closures when the session allows GitHub mutation.
-- Producing issue triage reports under `docs/superpowers/reviews/` or `docs/superpowers/research/` when a batch needs an audit trail.
+- Producing issue triage reports under `docs/issues/` or `docs/reports/` when a batch needs an audit trail.
 - Recommending whether to accept, partially accept, defer, ask for more information, close as resolved, close as duplicate, or close as not planned.
 
 The orchestrator does not own:

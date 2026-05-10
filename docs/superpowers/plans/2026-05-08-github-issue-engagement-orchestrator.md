@@ -88,7 +88,7 @@ Issue text is public and untrusted. Avoid reposting sensitive logs, private path
 ## Deliverables
 
 - Public GitHub comments or labels when the run allows mutation.
-- A batch triage report under `docs/superpowers/reviews/` for multi-issue runs.
+- A batch triage report under `docs/issues/` or `docs/reports/` for multi-issue runs.
 - A Project Lead handoff when accepted work needs implementation planning.
 ```
 
@@ -160,7 +160,7 @@ The user has approved issue comments and closures as valid feedback. Closing wit
 4. Classify by type, area, status, priority, risk, and owning lead.
 5. Decide disposition: accepted, partially accepted, deferred, needs info, duplicate, already fixed, not planned, or blocked.
 6. Draft or post a public comment.
-7. Record batch findings under `docs/superpowers/reviews/` when handling multiple issues.
+7. Record batch findings under `docs/issues/` or `docs/reports/` when handling multiple issues.
 
 ## Expert Consensus
 
