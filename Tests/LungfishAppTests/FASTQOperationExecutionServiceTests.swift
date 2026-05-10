@@ -6,6 +6,31 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testBuildInvocationRoutesCombinedFastpTrimToFastqTrimCommand() throws {
+        let service = FASTQOperationExecutionService()
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+
+        let invocation = try service.buildInvocation(
+            for: .derivative(
+                request: .fastpTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    adapterMode: .autoDetect,
+                    adapterSequence: nil
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(invocation.arguments.first, "trim")
+        XCTAssertTrue(invocation.arguments.contains("--adapter-trimming"))
+        XCTAssertTrue(invocation.arguments.contains("--threshold"))
+        XCTAssertTrue(invocation.arguments.contains("--window"))
+    }
+
     func testExecuteDerivativeDiscoversStagedFASTQFileAndImportsIt() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }

@@ -1334,6 +1334,23 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(cmd.mode, "cut-right")
     }
 
+    /// Verifies that the combined fastp trim command defaults to adapter auto-detection
+    /// plus quality trimming in one pass.
+    func testFastpCombinedTrimDefaultsToAdapterAndQuality() throws {
+        let cmd = try FastqTrimSubcommand.parse([
+            "input.fq", "-o", "/tmp/out.fq",
+        ])
+        XCTAssertEqual(cmd.threshold, 20)
+        XCTAssertEqual(cmd.windowSize, 4)
+        XCTAssertEqual(cmd.mode, "cut-right")
+        XCTAssertTrue(cmd.adapterTrimming)
+        XCTAssertNil(cmd.adapterSequence)
+        let args = try cmd.fastpArgumentsForTesting(inputURL: URL(fileURLWithPath: "/tmp/input.fq"))
+        XCTAssertFalse(args.contains("--disable_adapter_trimming"), args.joined(separator: " "))
+        XCTAssertTrue(args.contains("--cut_right"), args.joined(separator: " "))
+        XCTAssertTrue(args.contains("--disable_length_filtering"), args.joined(separator: " "))
+    }
+
     // MARK: - Adapter Trim Argument Parsing
 
     /// Verifies that adapter-trim parses adapter sequence option.

@@ -8,6 +8,7 @@ task: Apply quality trimming, adapter removal, primer trimming, and length filte
 tags: [reads, trim, adapter, primer, length, filter, fastp]
 tools: [fastp]
 entry_points:
+  - "Tools > FASTQ/FASTA Operations > Trimming & Filtering > fastp Adapter + Quality Trim"
   - "Tools > FASTQ/FASTA Operations > Trimming & Filtering > Quality Trim"
   - "Tools > FASTQ/FASTA Operations > Trimming & Filtering > Adapter Removal"
   - "Tools > FASTQ/FASTA Operations > Trimming & Filtering > Primer Trimming"
@@ -16,7 +17,7 @@ entry_points:
 shots: []
 planned_shots:
   - id: trimming-dialog
-    caption: "The Quality Trim dialog with default parameters."
+    caption: "The combined fastp Adapter + Quality Trim dialog with default parameters."
 illustrations: []
 glossary_refs: [primer-trim, soft-clip, FASTQ]
 features_refs: []
@@ -27,54 +28,46 @@ lead_approved: false
 
 ## What it is
 
-Trimming and filtering happen before mapping. The reads that come off a sequencer carry artefacts that have nothing to do with the biology you care about: low-Phred bases at the read ends, sequencer adapters that the demultiplexer did not finish stripping, amplicon primers that need to come off before counting reference matches, and very short reads that survived earlier steps but are too short to map confidently. Each artefact has its own removal step, and Lungfish exposes one operation per step.
+Trimming and filtering happen before mapping. The reads that come off a sequencer carry artefacts that have nothing to do with the biology you care about: low-Phred bases at the read ends, sequencer adapters that the demultiplexer did not finish stripping, amplicon primers that need to come off before counting reference matches, and very short reads that survived earlier steps but are too short to map confidently. Lungfish exposes separate operations for each artefact, plus a combined fastp operation for the common adapter-plus-quality cleanup.
 
-The four operations are quality trimming (drop low-Phred bases from read ends), adapter removal (drop sequencer adapters that did not get cleaned during demultiplexing), primer trimming (drop amplicon primers, distinct from adapter removal because primers can sit further into the read), and length filtering (drop reads that became too short after the earlier trims). Lungfish runs `fastp` for the first three operations and a built-in length filter for the fourth. Each operation produces a new FASTQ bundle in the project's `Imports/` folder; the input bundle is never modified.
+The operations are combined fastp adapter plus quality trimming, quality trimming alone, adapter removal alone, primer trimming, and length filtering. Primer trimming is distinct from adapter removal because primers can sit further into the read. Lungfish runs `fastp` for the trim operations and a built-in length filter for the final length filter. Each operation produces a new FASTQ bundle in the project's `Imports/` folder; the input bundle is never modified.
 
 | Operation | When to use | Tool | Default parameters |
 |---|---|---|---|
+| fastp Adapter + Quality Trim | QC shows adapters and low-quality read ends, or you want the standard Illumina cleanup pass | fastp | Auto-detect Illumina adapters plus sliding window Q20, window 4 bp |
 | Quality Trim | Per-base quality drops below Q20 at the read ends | fastp | Sliding window Q20, window 4 bp |
 | Adapter Removal | QC flagged adapter contamination | fastp | Auto-detect Illumina adapters |
 | Primer Trimming (FASTQ-level) | Amplicon reads, shotgun-style downstream analysis | fastp | Primer FASTA from selected scheme |
 | Filter by Read Length | After any trim that shortens reads | Lungfish length filter | Minimum 30 bp, drop pair if either fails |
 
-Order matters when you chain separate operations. Run quality trimming before primer trimming, and run the length filter last because every preceding step can shorten reads. Adapter removal and quality trimming are the exception: `fastp` can do adapter detection/removal and quality trimming in a single pass, so there is no biological requirement to write an adapter-only intermediate when both fixes are needed. So what should you do with this? Trim only what QC told you needs trimming, prefer a combined fastp pass when your chosen dialog or recipe offers adapter plus quality together, then re-run QC on the output to confirm the trim helped.
+`fastp` does adapter detection/removal and quality trimming in one pass when you use the combined fastp Adapter + Quality Trim operation, which is the default trim/filter choice in the dialog for FASTQ inputs. Order only matters when you chain separate operations. Run primer trimming before or after the combined fastp pass based on the downstream protocol, and run the length filter last because every preceding step can shorten reads. So what should you do with this? Trim only what QC told you needs trimming, prefer the combined fastp pass when both adapter and quality cleanup are needed, then re-run QC on the output to confirm the trim helped.
 
 ## What you will learn
 
-By the end of this chapter you will be able to choose the right trim operation for the QC pattern you saw in the previous chapter, run quality trimming with sensible defaults, run adapter removal, run FASTQ-level primer trimming when appropriate, run a length filter to drop reads that became too short, and chain trims by running one operation after another on the resulting bundle.
+By the end of this chapter you will be able to choose the right trim operation for the QC pattern you saw in the previous chapter, run the combined fastp adapter plus quality cleanup with sensible defaults, run FASTQ-level primer trimming when appropriate, run a length filter to drop reads that became too short, and chain separate trims only when the protocol calls for it.
 
 ## Procedure
 
-The worked example below chains three trims on the public SRR36291587 bundle that you imported in [Importing FASTQ](01-importing-fastq.md). Run quality trim, then adapter removal on the quality-trimmed output, then a length filter on the adapter-removed output. Each step takes about a minute on this 1.4 million read pair bundle.
+The worked example below runs the combined fastp cleanup on the public SRR36291587 bundle that you imported in [Importing FASTQ](01-importing-fastq.md), then runs a length filter on the trimmed output. Each step takes about a minute on this 1.4 million read pair bundle.
 
-### Quality trim
+### Combined adapter and quality trim
 
 1. In the sidebar, click `Imports/SRR36291587` to select the source FASTQ bundle.
-2. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering > Quality Trim`. The dialog opens.
+2. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering > fastp Adapter + Quality Trim`. The dialog opens with the combined fastp operation selected by default.
    <!-- planned: trimming-dialog -->
-3. Leave the default Phred threshold at Q20 and the window size at 4 bp. Q20 means a 1-in-100 base error rate, which is a conservative floor for Illumina data.
+3. Leave adapter trimming enabled with auto-detection, the Phred threshold at Q20, and the window size at 4 bp. Q20 means a 1-in-100 base error rate, which is a conservative floor for Illumina data.
 4. Click `Run`.
 
-The Operations Panel shows a `fastp quality-trim` row that lands in `Imports/SRR36291587 (qtrim)`. Open the new bundle and check the FASTQ viewport's QC tab to confirm the per-base quality plot now sits above Q20 across the full read length.
-
-### Adapter removal
-
-1. In the sidebar, click the `SRR36291587 (qtrim)` bundle that the previous step produced.
-2. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering > Adapter Removal`.
-3. Leave the adapter source set to "Auto-detect (Illumina)". Fastp inspects the first few thousand reads and infers the adapter sequence; you only need a custom adapter FASTA for non-Illumina chemistries.
-4. Click `Run`.
-
-The output is `SRR36291587 (qtrim, adapt)`. The QC tab on the new bundle should show the adapter contamination indicator drop to near zero.
+The Operations Panel shows a combined fastp trim row that lands in `Imports/SRR36291587 (fastp-trim)`. Open the new bundle and check the FASTQ viewport's QC tab to confirm the per-base quality plot now sits above Q20 across the full read length and the adapter contamination indicator drops to near zero. The operation provenance records the `lungfish fastq trim` command, the resolved fastp adapter and quality defaults, checksums, file sizes, and runtime status.
 
 ### Length filter
 
-1. In the sidebar, click the `SRR36291587 (qtrim, adapt)` bundle.
+1. In the sidebar, click the `SRR36291587 (fastp-trim)` bundle.
 2. Choose `Tools > FASTQ/FASTA Operations > Trimming & Filtering > Filter by Read Length`.
 3. Leave the minimum length at 30 bp and the "drop pair if either mate fails" checkbox ticked. For paired-end data, dropping a singleton mate prevents downstream tools from getting confused by mismatched read counts.
 4. Click `Run`.
 
-The output is `SRR36291587 (qtrim, adapt, len30)`. This is the bundle you would pass to the mapper.
+The output is `SRR36291587 (fastp-trim, len30)`. This is the bundle you would pass to the mapper.
 
 ### Primer trimming, when relevant
 

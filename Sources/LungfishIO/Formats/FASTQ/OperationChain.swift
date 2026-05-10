@@ -72,7 +72,7 @@ public enum OperationContract {
                 acceptedFormats: [.fastq],
                 requiredPairing: [.interleaved, .splitPaired]
             )
-        case .qualityTrim:
+        case .qualityTrim, .fastpTrim:
             return OperationInput(
                 acceptedFormats: [.fastq],
                 requiredPairing: nil
@@ -204,6 +204,16 @@ public enum OperationContract {
                 severity: .error,
                 stepIndex: mergeIdx,
                 message: "Paired-end merge must come after quality trimming — low-quality tails reduce merge accuracy."
+            ))
+        }
+
+        if let mergeIdx = firstIndex[.pairedEndMerge],
+           let trimIdx = firstIndex[.fastpTrim],
+           mergeIdx < trimIdx {
+            issues.append(OrderingIssue(
+                severity: .error,
+                stepIndex: mergeIdx,
+                message: "Paired-end merge must come after fastp adapter and quality trimming — residual adapters and low-quality tails reduce merge accuracy."
             ))
         }
 

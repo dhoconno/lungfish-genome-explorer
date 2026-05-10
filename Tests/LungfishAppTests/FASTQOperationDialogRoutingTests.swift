@@ -11,8 +11,6 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
         )
 
-        state.selectTool(.qualityTrim)
-
         XCTAssertEqual(
             state.visibleSections,
             [.inputs, .primarySettings, .advancedSettings, .output, .readiness]
@@ -21,6 +19,32 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.outputSectionTitle, "Output")
         XCTAssertEqual(state.readinessText, "Ready to configure output.")
         XCTAssertEqual(state.outputStrategyOptions, [.perInput, .groupedResult])
+        XCTAssertEqual(state.selectedToolID, .fastpTrim)
+    }
+
+    func testTrimFilterDefaultBuildsCombinedFastpAdapterAndQualityRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .fastpTrim(
+                    threshold: 20,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    adapterMode: .autoDetect,
+                    adapterSequence: nil
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testSubsampleByProportionWaitsForARealProportionBeforeBuildingLaunchRequest() {

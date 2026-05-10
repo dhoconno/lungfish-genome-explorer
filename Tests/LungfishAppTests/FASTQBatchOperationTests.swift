@@ -47,6 +47,7 @@ final class FASTQBatchOperationTests: XCTestCase {
         XCTAssertEqual(FASTQDerivativeRequest.searchText(query: "test", field: .id, regex: false).operationKindString, "searchText")
         XCTAssertEqual(FASTQDerivativeRequest.searchMotif(pattern: "ATG", regex: false).operationKindString, "searchMotif")
         XCTAssertEqual(FASTQDerivativeRequest.deduplicate(preset: .exactPCR, substitutions: 0, optical: false, opticalDistance: 40).operationKindString, "deduplicate")
+        XCTAssertEqual(FASTQDerivativeRequest.fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .autoDetect, adapterSequence: nil).operationKindString, "fastpTrim")
         XCTAssertEqual(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).operationKindString, "qualityTrim")
         XCTAssertEqual(FASTQDerivativeRequest.adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil).operationKindString, "adapterTrim")
         XCTAssertEqual(FASTQDerivativeRequest.fixedTrim(from5Prime: 10, from3Prime: 5).operationKindString, "fixedTrim")
@@ -110,6 +111,7 @@ final class FASTQBatchOperationTests: XCTestCase {
 
     func testIsTrimOperation() {
         XCTAssertTrue(FASTQDerivativeRequest.qualityTrim(threshold: 20, windowSize: 4, mode: .cutRight).isTrimOperation)
+        XCTAssertTrue(FASTQDerivativeRequest.fastpTrim(threshold: 20, windowSize: 4, mode: .cutRight, adapterMode: .autoDetect, adapterSequence: nil).isTrimOperation)
         XCTAssertTrue(FASTQDerivativeRequest.fixedTrim(from5Prime: 10, from3Prime: 5).isTrimOperation)
         XCTAssertFalse(FASTQDerivativeRequest.lengthFilter(min: 100, max: nil).isTrimOperation)
         XCTAssertFalse(FASTQDerivativeRequest.subsampleCount(100).isTrimOperation)

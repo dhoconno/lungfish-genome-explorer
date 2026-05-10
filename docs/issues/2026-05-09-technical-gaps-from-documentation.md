@@ -898,9 +898,9 @@ The chapter referenced (`06-bundles/03-primer-scheme-bundles.md`) does not exist
 
 **Acceptance criteria:**
 
-- [ ] `lungfish primers import --bed <bed> --fasta <ref> --output <name>.lungfishprimers` is documented and works end-to-end
-- [ ] A new chapter or appendix walks through the workflow with a worked example
-- [ ] The forward reference in `04-alignments/03` resolves to the new chapter
+- [x] `lungfish primers import --bed <bed> --fasta <ref> --output <name>.lungfishprimers` is documented and works end-to-end
+- [x] A new chapter or appendix walks through the workflow with a worked example
+- [x] The forward reference in `04-alignments/03` resolves to the new chapter
 
 ---
 
@@ -912,8 +912,8 @@ The chapter referenced (`06-bundles/03-primer-scheme-bundles.md`) does not exist
 
 **Acceptance criteria:**
 
-- [ ] The trim chapter is updated to say "fastp does adapter and quality in one pass via the combined dialog checkbox; order only matters when chaining separate operations"
-- [ ] The combined operation in the dialog is the default
+- [x] The trim chapter is updated to say "fastp does adapter and quality in one pass via the combined dialog checkbox; order only matters when chaining separate operations"
+- [x] The combined operation in the dialog is the default
 
 ---
 

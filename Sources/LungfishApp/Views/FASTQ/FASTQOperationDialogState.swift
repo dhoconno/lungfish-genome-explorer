@@ -322,6 +322,24 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
+        case .fastpTrim:
+            let sequence = trimmedNonEmpty(adapterRemovalSequence)
+            if adapterRemovalMode == .specified, sequence == nil {
+                return nil
+            }
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
+            return .derivative(
+                request: .fastpTrim(
+                    threshold: qualityTrimThreshold,
+                    windowSize: qualityTrimWindowSize,
+                    mode: qualityTrimMode,
+                    adapterMode: adapterRemovalMode,
+                    adapterSequence: adapterRemovalMode == .specified ? sequence : nil
+                ),
+                inputURLs: selectedInputURLs,
+                outputMode: outputMode
+            )
+
         case .qualityTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else { return nil }
             return .derivative(
@@ -829,6 +847,8 @@ final class FASTQOperationDialogState {
             return "Recompute the QC summary for the selected FASTQ datasets."
         case .demultiplexBarcodes:
             return "Split pooled reads into sample-specific outputs using a barcode definition."
+        case .fastpTrim:
+            return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim:
             return "Trim low-quality bases from read ends."
         case .adapterRemoval:
@@ -926,7 +946,7 @@ final class FASTQOperationDialogState {
         case .demultiplexing:
             return [.demultiplexBarcodes]
         case .trimmingFiltering:
-            return [.qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
+            return [.fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength]
         case .decontamination:
             return [.removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates]
         case .readProcessing:
@@ -960,6 +980,15 @@ final class FASTQOperationDialogState {
 
     private var selectedToolConfigurationReadinessText: String? {
         switch selectedToolID {
+        case .fastpTrim:
+            guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
+                return "Enter a positive quality threshold and window size."
+            }
+            if adapterRemovalMode == .specified, trimmedNonEmpty(adapterRemovalSequence) == nil {
+                return "Enter an adapter sequence or switch to auto-detect."
+            }
+            return nil
+
         case .qualityTrim:
             guard qualityTrimThreshold > 0, qualityTrimWindowSize > 0 else {
                 return "Enter a positive quality threshold and window size."
@@ -1293,6 +1322,7 @@ final class FASTQOperationDialogState {
 enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case refreshQCSummary
     case demultiplexBarcodes
+    case fastpTrim
     case qualityTrim
     case adapterRemoval
     case primerTrimming
@@ -1332,6 +1362,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Refresh QC Summary"
         case .demultiplexBarcodes: return "Demultiplex Barcodes"
+        case .fastpTrim: return "fastp Adapter + Quality Trim"
         case .qualityTrim: return "Quality Trim"
         case .adapterRemoval: return "Adapter Removal"
         case .primerTrimming: return "Primer Trimming"
@@ -1373,6 +1404,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         switch self {
         case .refreshQCSummary: return "Rebuild the QC summary for the current FASTQ data."
         case .demultiplexBarcodes: return "Split pooled reads into barcode-defined samples."
+        case .fastpTrim: return "Run fastp adapter detection/removal and quality trimming in one pass."
         case .qualityTrim: return "Trim low-quality bases from read ends."
         case .adapterRemoval: return "Remove adapter sequence from reads."
         case .primerTrimming: return "Trim PCR primer sequence from reads."
@@ -1416,7 +1448,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .qcReporting
         case .demultiplexBarcodes:
             return .demultiplexing
-        case .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
+        case .fastpTrim, .qualityTrim, .adapterRemoval, .primerTrimming, .trimFixedBases, .filterByReadLength:
             return .trimmingFiltering
         case .removeHumanReads, .removeRibosomalRNA, .removeContaminants, .removeDuplicates:
             return .decontamination
@@ -1441,7 +1473,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset]
         case .demultiplexBarcodes:
             return [.fastqDataset, .barcodeDefinition]
-        case .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
+        case .fastpTrim, .qualityTrim, .adapterRemoval, .trimFixedBases, .filterByReadLength,
              .removeRibosomalRNA, .removeDuplicates, .mergeOverlappingPairs, .repairPairedEndFiles,
              .reverseComplement, .translate, .correctSequencingErrors, .subsampleByProportion, .subsampleByCount,
              .extractReadsByID, .extractReadsByMotif, .selectReadsBySequence, .mafft, .viralRecon,
@@ -1543,7 +1575,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .qualityTrim, .mergeOverlappingPairs,
+        case .refreshQCSummary, .fastpTrim, .qualityTrim, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -1652,7 +1684,7 @@ extension FASTQOperationCategoryID {
         case .demultiplexing:
             return .demultiplexBarcodes
         case .trimmingFiltering:
-            return .qualityTrim
+            return .fastpTrim
         case .decontamination:
             return .removeHumanReads
         case .readProcessing:

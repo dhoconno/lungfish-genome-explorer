@@ -45,6 +45,9 @@ final class PrimerSchemeImportTests: XCTestCase {
         XCTAssertEqual(loaded.manifest.source, "imported")
         XCTAssertNil(loaded.fastaURL)
         XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.provenanceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: result.bundleURL.appendingPathComponent(".lungfish-provenance.json").path
+        ))
     }
 
     @MainActor

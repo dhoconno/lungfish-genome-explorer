@@ -559,6 +559,14 @@ public actor BatchProcessingEngine {
                 windowSize: step.windowSize ?? 4,
                 mode: step.qualityTrimMode ?? .cutRight
             )
+        case .fastpTrim:
+            return .fastpTrim(
+                threshold: step.qualityThreshold ?? 20,
+                windowSize: step.windowSize ?? 4,
+                mode: step.qualityTrimMode ?? .cutRight,
+                adapterMode: step.adapterMode ?? .autoDetect,
+                adapterSequence: step.adapterSequence
+            )
         case .adapterTrim:
             return .adapterTrim(
                 mode: step.adapterMode ?? .autoDetect,

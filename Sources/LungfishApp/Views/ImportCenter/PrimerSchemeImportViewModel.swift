@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 import Observation
 
 /// View model that writes a user-authored `.lungfishprimers` bundle from a BED
@@ -78,99 +79,45 @@ final class PrimerSchemeImportViewModel {
         guard !trimmedCanonical.isEmpty else { throw ImportError.emptyCanonical }
 
         let safeName = trimmedName.replacingOccurrences(of: "/", with: "_")
-        let folder: URL
+        let outputURL = URL(fileURLWithPath: "\(safeName).lungfishprimers")
         do {
-            folder = try PrimerSchemesFolder.ensureFolder(in: projectURL)
-        } catch {
-            throw ImportError.writeFailed(underlying: error as NSError)
-        }
-        let bundleURL = folder.appendingPathComponent("\(safeName).lungfishprimers", isDirectory: true)
-
-        if FileManager.default.fileExists(atPath: bundleURL.path) {
-            throw ImportError.bundleAlreadyExists(name: safeName, url: bundleURL)
-        }
-
-        let counts: (primerCount: Int, ampliconCount: Int)
-        do {
-            counts = try Self.parseCounts(bedURL: bedURL)
-        } catch {
-            throw ImportError.bedUnreadable(underlying: error as NSError)
-        }
-
-        do {
-            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: bedURL, to: bundleURL.appendingPathComponent("primers.bed"))
-            if let fastaURL {
-                try FileManager.default.copyItem(at: fastaURL, to: bundleURL.appendingPathComponent("primers.fasta"))
-            }
-            if !attachments.isEmpty {
-                let attachmentsDir = bundleURL.appendingPathComponent("attachments", isDirectory: true)
-                try FileManager.default.createDirectory(at: attachmentsDir, withIntermediateDirectories: true)
-                for attachment in attachments {
-                    try FileManager.default.copyItem(
-                        at: attachment,
-                        to: attachmentsDir.appendingPathComponent(attachment.lastPathComponent)
-                    )
-                }
-            }
-        } catch {
-            throw ImportError.copyFailed(path: bundleURL.lastPathComponent, underlying: error as NSError)
-        }
-
-        let references: [PrimerSchemeManifest.ReferenceAccession] =
-            [.init(accession: trimmedCanonical, canonical: true, equivalent: false)]
-            + equivalentAccessions
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .map { .init(accession: $0, canonical: false, equivalent: true) }
-
-        let manifest = PrimerSchemeManifest(
-            schemaVersion: 1,
-            name: safeName,
-            displayName: displayName.isEmpty ? safeName : displayName,
-            description: nil,
-            organism: nil,
-            referenceAccessions: references,
-            primerCount: counts.primerCount,
-            ampliconCount: counts.ampliconCount,
-            source: "imported",
-            sourceURL: nil,
-            version: nil,
-            created: Date(),
-            imported: Date(),
-            attachments: attachments.isEmpty
-                ? nil
-                : attachments.map { .init(path: "attachments/\($0.lastPathComponent)", description: nil) }
-        )
-
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        let manifestData: Data
-        do {
-            manifestData = try encoder.encode(manifest)
-            try manifestData.write(to: bundleURL.appendingPathComponent("manifest.json"))
-        } catch {
-            throw ImportError.writeFailed(underlying: error as NSError)
-        }
-
-        let provenance = """
-            # PROVENANCE
-
-            Imported via Lungfish Genome Explorer on \(ISO8601DateFormatter().string(from: Date())).
-            BED source: \(bedURL.path)
-            """
-        do {
-            try provenance.write(
-                to: bundleURL.appendingPathComponent("PROVENANCE.md"),
-                atomically: true,
-                encoding: .utf8
+            let result = try PrimerSchemeImportService.importBundle(
+                request: PrimerSchemeImportRequest(
+                    bedURL: bedURL,
+                    fastaURL: fastaURL,
+                    attachments: attachments,
+                    outputURL: outputURL,
+                    projectURL: projectURL,
+                    displayName: displayName.isEmpty ? safeName : displayName,
+                    canonicalAccession: trimmedCanonical,
+                    equivalentAccessions: equivalentAccessions,
+                    argv: [
+                        "Lungfish", "Import Center", "Primer Scheme Import",
+                        "--bed", bedURL.path,
+                        "--fasta", fastaURL?.path ?? "",
+                        "--output", outputURL.path,
+                        "--project", projectURL.path,
+                        "--reference-accession", trimmedCanonical,
+                    ].filter { !$0.isEmpty },
+                    workflowName: "Lungfish Import Center primer scheme import",
+                    toolVersion: WorkflowRun.currentAppVersion
+                )
             )
+            return ImportResult(bundleURL: result.bundleURL)
+        } catch let error as PrimerSchemeImportError {
+            switch error {
+            case .unreadableBED:
+                throw ImportError.bedUnreadable(underlying: error as NSError)
+            case .bundleAlreadyExists(let url):
+                throw ImportError.bundleAlreadyExists(name: safeName, url: url)
+            case .writeFailed:
+                throw ImportError.writeFailed(underlying: error as NSError)
+            default:
+                throw ImportError.copyFailed(path: outputURL.lastPathComponent, underlying: error as NSError)
+            }
         } catch {
             throw ImportError.writeFailed(underlying: error as NSError)
         }
-
-        return ImportResult(bundleURL: bundleURL)
     }
 
     /// Parses `bedURL` and returns `(primerCount, ampliconCount)`.
@@ -179,29 +126,6 @@ final class PrimerSchemeImportViewModel {
     /// `ampliconCount` is the distinct amplicon names — primer names in column 4
     /// with trailing `_LEFT`/`_RIGHT` stripped and any trailing `-N` variant tag removed.
     private static func parseCounts(bedURL: URL) throws -> (primerCount: Int, ampliconCount: Int) {
-        let content = try String(contentsOf: bedURL, encoding: .utf8)
-        let lines = content
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .filter { !$0.hasPrefix("#") && !$0.isEmpty }
-        let primerCount = lines.count
-        var ampliconNames = Set<String>()
-        for line in lines {
-            let cols = line.split(separator: "\t")
-            guard cols.count >= 4 else { continue }
-            var name = String(cols[3])
-            if name.hasSuffix("_LEFT") {
-                name = String(name.dropLast("_LEFT".count))
-            } else if name.hasSuffix("_RIGHT") {
-                name = String(name.dropLast("_RIGHT".count))
-            }
-            // Strip a trailing variant tag like "-2", "-3" that follows after the stripped _LEFT/_RIGHT.
-            if let dashIndex = name.lastIndex(of: "-"),
-               name.distance(from: dashIndex, to: name.endIndex) <= 3,
-               name[name.index(after: dashIndex)...].allSatisfy(\.isNumber) {
-                name = String(name[..<dashIndex])
-            }
-            ampliconNames.insert(name)
-        }
-        return (primerCount, ampliconNames.count)
+        try PrimerSchemeImportService.parseCounts(bedURL: bedURL)
     }
 }
