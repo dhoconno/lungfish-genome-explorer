@@ -9,7 +9,6 @@ build:
     - libgdk-pixbuf2.0-dev
     - libffi-dev
     - shared-mime-info
-    - imagemagick
     - fonts-inter
   commands:
     - pip install -r docs/requirements.txt
@@ -18,5 +17,4 @@ build:
     - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Regular.ttf" -o ~/.local/share/fonts/IBMPlexMono-Regular.ttf
     - curl -sL "https://github.com/google/fonts/raw/main/ofl/ibmplexmono/IBMPlexMono-Bold.ttf" -o ~/.local/share/fonts/IBMPlexMono-Bold.ttf
     - fc-cache -f ~/.local/share/fonts/
-    - bash docs/user-manual/build/scripts/resize-images.sh || true
     - ENABLE_PDF_EXPORT=1 mkdocs build -f docs/user-manual/build/mkdocs.yml -d $READTHEDOCS_OUTPUT/html

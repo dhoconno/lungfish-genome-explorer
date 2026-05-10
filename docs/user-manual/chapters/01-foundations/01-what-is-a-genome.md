@@ -51,7 +51,7 @@ Lungfish treats the two objects very differently in the user interface. Referenc
 
 Bacterial chromosomes and the genomes of many viruses are physically circular: the molecule has no ends, and base 1 is whatever position the curator chose to call base 1. Eukaryotic chromosomes are linear, with two physical ends. Some virus families, including influenza and the segmented bunyaviruses, distribute their genome across several physically separate molecules called segments. Each segment gets its own accession.
 
-![Side-by-side schematic contrasting a linear chromosome and a circular genome](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.source.png)
+![Side-by-side schematic contrasting a linear chromosome and a circular genome](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png)
 
 For the analysis tools in this manual the distinction is mostly cosmetic. Lungfish, like every aligner and variant caller it wraps, treats every reference as linear. A circular genome is unrolled at the curator's chosen origin. A read that physically spans the origin in the lab will, in the file, look like two pieces (one near the end and one near position 1) that the alignment tool may or may not stitch back together. For SARS-CoV-2 this is irrelevant in practice, because the molecule is RNA and is not circular at all. The "circular by convention" issue matters more for plasmids and bacterial genomes, which the current Lungfish toolset does not target.
 
@@ -61,7 +61,7 @@ DNA viruses (such as adenoviruses, herpesviruses, and HPV) and RNA viruses (such
 
 A coordinate is the way a tool points at a specific base on a reference. Across the bioinformatics ecosystem there are two conventions for counting, and the difference is a frequent source of off-by-one bugs. Lungfish presents 1-based, inclusive coordinates to the user everywhere in the GUI, and it preserves whatever convention each underlying file format uses internally.
 
-![SARS-CoV-2 MN908947.3 coordinate ruler with 1-based position ticks](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.source.png)
+![SARS-CoV-2 MN908947.3 coordinate ruler with 1-based position ticks](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.png)
 
 In a 1-based, inclusive scheme, the very first base of the genome is position 1, and a range from position 100 to position 110 contains 11 bases (positions 100, 101, 102, ..., 110). VCF files, GFF3 annotation files, and SAM/BAM read-alignment positions all use this convention. In a 0-based, half-open scheme, the first base is position 0, and a range from position 100 to position 110 contains 10 bases (positions 100 through 109). BED files and most programming-language string slices use this second convention. If you ever write a script that mixes a BED region with a VCF position, you will at some point be off by one. The Lungfish GUI hides this entirely: every position you see in the inspector, in the variant table, and in the genome ruler is 1-based.
 
@@ -73,7 +73,7 @@ For multi-chromosome organisms (a human genome, a fungal genome, an assembly fro
 
 The full variant notation packs a chromosome, a position, and an observed change into a single string. Reading it is a small skill that pays off across every variant table you will ever look at.
 
-![Annotated breakdown of variant notation showing chromosome name, position, reference base, and alternate base](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.source.png)
+![Annotated breakdown of variant notation showing chromosome name, position, reference base, and alternate base](../../assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.png)
 
 The string `MN908947.3:21618 C>T` decomposes into four pieces. The chromosome name is `MN908947.3`. The 1-based position is `21618`. The reference base, called REF in VCF terminology, is `C`. The alternate base, called ALT, is `T`. The `>` separator is read aloud as "to," so the whole string is "MN908947.3 colon 21618, C to T." It says: at position 21,618 on the SARS-CoV-2 Wuhan-Hu-1 reference, where the reference has a C, this sample carries a T instead. Biologically, that particular substitution sits inside the spike gene and changes amino acid 614 from aspartate to glycine. It is the D614G variant that became a defining marker of the early pandemic.
 

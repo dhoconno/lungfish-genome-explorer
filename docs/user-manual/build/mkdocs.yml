@@ -35,10 +35,11 @@ plugins:
       cover_title: Lungfish User Manual
       cover_subtitle: Documentation for the macOS app for viral genome analysis
       output_path: pdf/lungfish-user-manual.pdf
-      custom_template_path: build/pdf-templates
+      custom_template_path: docs/user-manual/build/pdf-templates
       toc_level: 3
       cover: true
       toc_title: Table of Contents
+      debug_html: true
       verbose: true
       enabled_if_env: ENABLE_PDF_EXPORT
 

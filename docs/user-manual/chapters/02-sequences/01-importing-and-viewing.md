@@ -75,7 +75,7 @@ sequence plus every feature the submitter recorded. A GFF3 carries
 features only and must be imported alongside the FASTA those features
 refer to.
 
-![Reference bundle folder connected to FASTA, FAI, manifest, and provenance files](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.source.png)
+![Reference bundle folder connected to FASTA, FAI, manifest, and provenance files](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png)
 
 | Format | Extension | Carries sequence | Carries annotations | Notes |
 |---|---|---|---|---|
@@ -183,7 +183,7 @@ ORF1ab, and other coding regions as Creamsicle-coloured blocks.
 
 <!-- planned: sequence-viewport-genbank -->
 
-![Stylized sequence viewport with track viewer, sequence panel, and feature inspector panes](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.source.png)
+![Stylized sequence viewport with track viewer, sequence panel, and feature inspector panes](../../assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.png)
 
 The sequence viewport renders the genome on a single horizontal axis.
 Three panes stack vertically inside the viewport. The **position ruler**

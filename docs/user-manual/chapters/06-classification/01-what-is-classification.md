@@ -33,7 +33,7 @@ This is different from mapping reads to a reference. Mapping assumes you already
 
 The output is not a yes-or-no answer. It is a distribution. A typical run produces something like "63% human, 22% bacterial (mostly *Streptococcus*), 4% SARS-CoV-2, 11% unclassified". Lungfish renders that distribution three ways inside the same taxonomy viewport: a sunburst diagram (concentric rings, one per taxonomic rank), a sortable per-taxon table, and a breadcrumb bar that tracks where you have drilled down. All three update together when you click.
 
-![Reads file feeding a classifier box producing a taxonomy sunburst with bacteria, virus, and host outputs](../../assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.source.png)
+![Reads file feeding a classifier box producing a taxonomy sunburst with bacteria, virus, and host outputs](../../assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.png)
 
 So what should you do with this? Before you run anything, decide which question you are actually asking, because the four classifiers Lungfish ships answer slightly different questions. Then pick the matching tool from the Unified Metagenomics Wizard at `Tools > FASTQ/FASTA Operations > Classification` and let it pick the right database.
 
