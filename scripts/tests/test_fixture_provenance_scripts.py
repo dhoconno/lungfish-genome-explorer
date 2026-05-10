@@ -61,6 +61,56 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("missing required field", result.stderr)
             self.assertIn(".lungfish-provenance.json", result.stderr)
 
+    def test_audit_fails_when_required_sidecar_fields_have_invalid_types(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "kraken2-2026-01-15T11-00-00"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance.update(
+                {
+                    "schemaVersion": "1",
+                    "workflowName": "",
+                    "toolName": "",
+                    "toolVersion": "",
+                    "createdAt": "",
+                    "argv": "not-an-argv-list",
+                    "reproducibleShellCommand": "",
+                    "options": "not-options-object",
+                    "runtimeIdentity": "not-runtime-object",
+                    "exitStatus": "zero",
+                    "wallTimeSeconds": "fast",
+                    "stderr": 0,
+                }
+            )
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            for field in [
+                "schemaVersion",
+                "workflowName",
+                "toolName",
+                "toolVersion",
+                "createdAt",
+                "argv",
+                "reproducibleShellCommand",
+                "options",
+                "runtimeIdentity",
+                "exitStatus",
+                "wallTimeSeconds",
+                "stderr",
+            ]:
+                self.assertIn(f"invalid {field}", result.stderr)
+
     def test_audit_fails_when_recorded_checksum_or_size_does_not_match(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

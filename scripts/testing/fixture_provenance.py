@@ -159,6 +159,8 @@ def validate_fixture_sidecar(root, relative_fixture):
     if "reproducibleCommand" not in record and "reproducibleShellCommand" not in record:
         errors.append(f"missing required field reproducibleCommand or reproducibleShellCommand: {sidecar_path}")
 
+    errors.extend(validate_required_field_types(record, sidecar_path))
+
     output = record.get("output")
     if not isinstance(output, dict):
         errors.append(f"invalid output object: {sidecar_path}")
@@ -220,6 +222,48 @@ def validate_fixture_sidecar(root, relative_fixture):
     errors.extend(stale_string_errors(record, sidecar_path))
     errors.extend(validate_fixture_specific_provenance(relative_fixture, record, sidecar_path))
     return errors
+
+
+def validate_required_field_types(record, sidecar_path):
+    errors = []
+    if "schemaVersion" in record and not is_integer(record["schemaVersion"]):
+        errors.append(f"invalid schemaVersion: expected integer: {sidecar_path}")
+    for field in ["workflowName", "toolName", "toolVersion", "createdAt"]:
+        if field in record and not is_non_empty_string(record[field]):
+            errors.append(f"invalid {field}: expected non-empty string: {sidecar_path}")
+
+    if "argv" in record:
+        argv = record["argv"]
+        if not isinstance(argv, list) or not argv or not all(isinstance(argument, str) for argument in argv):
+            errors.append(f"invalid argv: expected non-empty list of strings: {sidecar_path}")
+
+    for field in ["reproducibleCommand", "reproducibleShellCommand"]:
+        if field in record and not is_non_empty_string(record[field]):
+            errors.append(f"invalid {field}: expected non-empty string: {sidecar_path}")
+
+    if "options" in record and not isinstance(record["options"], dict):
+        errors.append(f"invalid options: expected object: {sidecar_path}")
+    if "runtimeIdentity" in record and not isinstance(record["runtimeIdentity"], dict):
+        errors.append(f"invalid runtimeIdentity: expected object: {sidecar_path}")
+    if "exitStatus" in record and not is_integer(record["exitStatus"]):
+        errors.append(f"invalid exitStatus: expected integer: {sidecar_path}")
+    if "wallTimeSeconds" in record and not is_number(record["wallTimeSeconds"]):
+        errors.append(f"invalid wallTimeSeconds: expected number: {sidecar_path}")
+    if "stderr" in record and record["stderr"] is not None and not isinstance(record["stderr"], str):
+        errors.append(f"invalid stderr: expected string or null: {sidecar_path}")
+    return errors
+
+
+def is_integer(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def is_non_empty_string(value):
+    return isinstance(value, str) and bool(value.strip())
 
 
 def normalize_files(raw_files, sidecar_path, errors):
