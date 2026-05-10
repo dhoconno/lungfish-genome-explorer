@@ -48,6 +48,7 @@ enum CLIProvenanceSupport {
         outputs: [FileRecord],
         exitCode: Int32,
         wallTime: TimeInterval,
+        peakMemoryBytes: UInt64? = nil,
         stderr: String?,
         status: RunStatus,
         outputDirectory: URL
@@ -62,6 +63,7 @@ enum CLIProvenanceSupport {
             outputs: outputs,
             exitCode: exitCode,
             wallTime: wallTime,
+            peakMemoryBytes: peakMemoryBytes,
             stderr: stderr
         )
         await ProvenanceRecorder.shared.completeRun(runID, status: status)

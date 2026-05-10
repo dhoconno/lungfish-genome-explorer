@@ -91,10 +91,11 @@ final class AppShellAccessibilityTests: XCTestCase {
         let aboutText = credits.string
 
         XCTAssertTrue(aboutText.contains("System Requirements"))
-        XCTAssertTrue(aboutText.contains("macOS 26 Tahoe"))
-        XCTAssertTrue(aboutText.contains("Apple Silicon required"))
-        XCTAssertTrue(aboutText.contains("16 GB RAM recommended"))
-        XCTAssertTrue(aboutText.contains("50 GB free disk recommended"))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.minimumMacOSDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.cpuArchitectureDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.minimumRAMDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.recommendedRAMDisplay))
+        XCTAssertTrue(aboutText.contains(HardwareRequirements.recommendedDiskDisplay))
     }
 
     func testThirdPartyLicensesWindowExposesStableAccessibilityIdentifiers() throws {

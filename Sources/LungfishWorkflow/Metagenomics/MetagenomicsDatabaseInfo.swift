@@ -84,6 +84,9 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
     /// Date when the database was last verified or updated.
     public var lastUpdated: Date?
 
+    /// Date when this database was first installed or registered locally.
+    public var installedAt: Date?
+
     /// Current operational status.
     public var status: DatabaseStatus
 
@@ -124,6 +127,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         path: URL? = nil,
         isExternal: Bool = false,
         bookmarkData: Data? = nil,
+        installedAt: Date? = nil,
         lastUpdated: Date? = nil,
         status: DatabaseStatus = .missing,
         recommendedRAM: Int64
@@ -139,6 +143,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
         self.path = path
         self.isExternal = isExternal
         self.bookmarkData = bookmarkData
+        self.installedAt = installedAt
         self.lastUpdated = lastUpdated
         self.status = status
         self.recommendedRAM = recommendedRAM
@@ -162,6 +167,7 @@ public struct MetagenomicsDatabaseInfo: Sendable, Codable, Identifiable, Equatab
             && lhs.path?.absoluteString == rhs.path?.absoluteString
             && lhs.isExternal == rhs.isExternal
             && lhs.bookmarkData == rhs.bookmarkData
+            && lhs.installedAt == rhs.installedAt
             && lhs.lastUpdated == rhs.lastUpdated
             && lhs.status == rhs.status
             && lhs.recommendedRAM == rhs.recommendedRAM
@@ -177,6 +183,22 @@ extension MetagenomicsDatabaseInfo {
     /// Updated when new builds are published at
     /// `https://benlangmead.github.io/aws-indexes/k2`.
     static let latestBuildDate = "20240904"
+
+    /// Latest catalog version for this database, when it can be determined.
+    public var availableUpdateVersion: String? {
+        guard status == .ready, path != nil else { return nil }
+        guard let catalogEntry = Self.builtInCatalog.first(where: { entry in
+            entry.name == name && entry.tool == tool
+        }) else { return nil }
+        guard let latestVersion = catalogEntry.version else { return nil }
+        guard latestVersion != version else { return nil }
+        return latestVersion
+    }
+
+    /// Whether the installed database is older than the built-in catalog entry.
+    public var isUpdateAvailable: Bool {
+        availableUpdateVersion != nil
+    }
 
     /// Complete built-in catalog of all metagenomics databases.
     ///

@@ -118,8 +118,11 @@ supported way to keep the database on an external drive without confusing
 the runtime.
 
 You only install the database once per machine. Updates are handled through
-the same Plugin Manager entry, which shows a version string and a "Check for
-updates" button.
+the same Plugin Manager entry, which shows an install date, version string,
+and update-available indicator. From the CLI, use
+`lungfish conda db info "NCBI Taxonomy"` for the bundled taxonomy support
+database and `lungfish conda db list` to inspect other classifier databases
+registered on the machine.
 
 ## Procedure: run a clinical batch
 

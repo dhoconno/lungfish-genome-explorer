@@ -895,6 +895,17 @@ private struct DatabaseRow: View {
                                 .background(Color.lungfishAttentionFill)
                                 .clipShape(RoundedRectangle(cornerRadius: 4))
                         }
+
+                        if database.isUpdateAvailable {
+                            Text("Update available")
+                                .font(.caption2)
+                                .fontWeight(.medium)
+                                .foregroundStyle(Color.lungfishCreamsicleFallback)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.lungfishAttentionFill)
+                                .clipShape(RoundedRectangle(cornerRadius: 4))
+                        }
                     }
 
                     HStack(spacing: 8) {
@@ -918,6 +929,11 @@ private struct DatabaseRow: View {
                     Text(database.description)
                         .font(.caption)
                         .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(1)
+
+                    Text(PluginManagerViewModel.databaseTrackingSummary(for: database))
+                        .font(.caption2)
+                        .foregroundStyle(database.isUpdateAvailable ? Color.lungfishCreamsicleFallback : Color.lungfishSecondaryText)
                         .lineLimit(1)
                 }
 

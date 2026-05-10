@@ -18,6 +18,17 @@ final class DbCommandParsingTests: XCTestCase {
         XCTAssertTrue(command is DbCommand.DbListSubcommand)
     }
 
+    /// Verifies that `db info <name>` parses the database name.
+    func testDbInfoParsing() throws {
+        let args = ["info", "Standard-8"]
+        let command = try DbCommand.parseAsRoot(args)
+        guard let info = command as? DbCommand.DbInfoSubcommand else {
+            XCTFail("Expected DbInfoSubcommand")
+            return
+        }
+        XCTAssertEqual(info.name, "Standard-8")
+    }
+
     /// Verifies that `db download <name>` parses the database name.
     func testDbDownloadParsing() throws {
         let args = ["download", "Viral"]

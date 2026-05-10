@@ -78,6 +78,10 @@ memory because tools such as Kraken2 load the active database into RAM.
 Keep at least 50 GB of free disk before installing packs; use a larger
 external or shared volume if you plan to install Standard or PlusPF
 classification databases.
+The About window repeats the hardware floor used by the app: macOS 26
+Tahoe or later, Apple Silicon, 16 GB RAM minimum, 32 GB RAM recommended
+for metagenomics and assembly, and 100 GB free disk recommended for a
+working set of tool packs, databases, and projects.
 
 ## The packs you will meet in this manual
 
@@ -184,6 +188,24 @@ which prints every installed pack and its on-disk version, or open
 badge.
 
 <!-- planned: plugin-manager-installed -->
+
+### Check database versions and update state
+
+Reference databases are tracked separately from conda environments. The
+Databases tab in Plugin Manager shows each installed database's install
+date, current version, and whether the built-in catalog knows about a
+newer version. The same information is available from the CLI:
+
+```bash
+lungfish conda db list
+lungfish conda db info Standard-8
+```
+
+`db info` prints the database tool, local version, install date, last
+updated date, available update, disk path, disk size, and RAM requirement.
+An "available update" value means the catalog version is newer than the
+installed version; "none" means the local copy matches the current catalog
+or no newer version can be determined.
 
 ## Interpretation
 

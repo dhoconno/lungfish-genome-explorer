@@ -121,6 +121,8 @@ public final class OperationCenter: ObservableObject {
         public var operationType: OperationType
         public var startedAt: Date
         public var finishedAt: Date?
+        public var wallTimeSeconds: TimeInterval?
+        public var peakMemoryBytes: UInt64?
         /// File URLs produced by this operation (e.g. .lungfishref bundle paths).
         /// Set when the operation completes via ``complete(id:detail:bundleURLs:)``.
         public var bundleURLs: [URL]
@@ -178,6 +180,8 @@ public final class OperationCenter: ObservableObject {
             operationType: OperationType = .download,
             startedAt: Date = Date(),
             finishedAt: Date? = nil,
+            wallTimeSeconds: TimeInterval? = nil,
+            peakMemoryBytes: UInt64? = nil,
             bundleURLs: [URL] = [],
             outputURLs: [URL] = [],
             targetBundleURL: URL? = nil,
@@ -192,6 +196,8 @@ public final class OperationCenter: ObservableObject {
             self.operationType = operationType
             self.startedAt = startedAt
             self.finishedAt = finishedAt
+            self.wallTimeSeconds = wallTimeSeconds
+            self.peakMemoryBytes = peakMemoryBytes
             self.bundleURLs = bundleURLs
             self.outputURLs = outputURLs
             self.targetBundleURL = targetBundleURL
@@ -289,6 +295,7 @@ public final class OperationCenter: ObservableObject {
         detail: String,
         operationType: OperationType = .download,
         targetBundleURL: URL? = nil,
+        startedAt: Date = Date(),
         cliCommand: String? = nil,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
@@ -301,6 +308,7 @@ public final class OperationCenter: ObservableObject {
                 progress: 0,
                 state: .running,
                 operationType: operationType,
+                startedAt: startedAt,
                 targetBundleURL: targetBundleURL,
                 onCancel: onCancel,
                 cliCommand: cliCommand
@@ -324,6 +332,15 @@ public final class OperationCenter: ObservableObject {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
+    }
+
+    /// Updates resource usage observed for an operation.
+    public func updateResourceStats(id: UUID, peakMemoryBytes: UInt64? = nil) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        if let peakMemoryBytes {
+            let existing = items[index].peakMemoryBytes ?? 0
+            items[index].peakMemoryBytes = max(existing, peakMemoryBytes)
+        }
     }
 
     /// Updates byte progress for an operation, computing the progress fraction automatically.
@@ -413,12 +430,12 @@ public final class OperationCenter: ObservableObject {
         items[index].logEntries.append(OperationLogEntry(level: .warning, message: logMessage))
     }
 
-    public func complete(id: UUID, detail: String) {
+    public func complete(id: UUID, detail: String, finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
-        items[index].finishedAt = Date()
+        finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
         postStateChangedNotification(id: id, state: .completed)
@@ -438,14 +455,14 @@ public final class OperationCenter: ObservableObject {
     /// This is the primary mechanism for getting built bundles from background
     /// tasks to the AppDelegate for import into the sidebar. It avoids
     /// fragile callback chains through sheet controllers that get deallocated.
-    public func complete(id: UUID, detail: String, bundleURLs: [URL]) {
+    public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
         items[index].bundleURLs = bundleURLs
         items[index].outputURLs = []
-        items[index].finishedAt = Date()
+        finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
 
@@ -466,14 +483,14 @@ public final class OperationCenter: ObservableObject {
     /// Unlike ``complete(id:detail:bundleURLs:)``, these URLs are not sent to
     /// `onBundleReady` because they are user-facing files rather than project
     /// bundles that should be imported into the sidebar.
-    public func complete(id: UUID, detail: String, outputURLs: [URL]) {
+    public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
         items[index].bundleURLs = []
         items[index].outputURLs = outputURLs
-        items[index].finishedAt = Date()
+        finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
         postStateChangedNotification(id: id, state: .completed)
@@ -492,13 +509,19 @@ public final class OperationCenter: ObservableObject {
     ///   - detail: Status detail text (shown in the detail row).
     ///   - errorMessage: Optional user-facing error summary (shown prominently in red).
     ///   - errorDetail: Optional extended diagnostic text (stderr, stack trace, etc.).
-    public func fail(id: UUID, detail: String, errorMessage: String? = nil, errorDetail: String? = nil) {
+    public func fail(
+        id: UUID,
+        detail: String,
+        errorMessage: String? = nil,
+        errorDetail: String? = nil,
+        finishedAt: Date = Date()
+    ) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
         items[index].state = .failed
         items[index].detail = detail
         items[index].errorMessage = errorMessage
         items[index].errorDetail = errorDetail
-        items[index].finishedAt = Date()
+        finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
         postStateChangedNotification(id: id, state: .failed)
@@ -515,7 +538,7 @@ public final class OperationCenter: ObservableObject {
               items[index].state == .running else { return }
         items[index].state = .cancelled
         items[index].detail = "Cancelled by user"
-        items[index].finishedAt = Date()
+        finishItem(at: index, finishedAt: Date())
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
         postStateChangedNotification(id: id, state: .cancelled)
@@ -550,6 +573,11 @@ public final class OperationCenter: ObservableObject {
             .sorted { ($0.finishedAt ?? .distantPast) > ($1.finishedAt ?? .distantPast) }
 
         items = running + Array(finished.prefix(max(0, keepLimit - running.count)))
+    }
+
+    private func finishItem(at index: Int, finishedAt: Date) {
+        items[index].finishedAt = finishedAt
+        items[index].wallTimeSeconds = max(0, finishedAt.timeIntervalSince(items[index].startedAt))
     }
 }
 

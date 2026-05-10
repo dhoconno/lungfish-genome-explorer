@@ -541,6 +541,32 @@ final class PluginManagerViewModel {
 
     // MARK: - Helpers
 
+    static func databaseTrackingSummary(for database: MetagenomicsDatabaseInfo) -> String {
+        var parts: [String] = []
+        if let installedAt = database.installedAt ?? database.lastUpdated {
+            parts.append("Installed \(databaseTrackingDateFormatter.string(from: installedAt))")
+        } else {
+            parts.append("Not installed")
+        }
+
+        parts.append("Version \(database.version ?? "unknown")")
+
+        if let availableUpdate = database.availableUpdateVersion {
+            parts.append("Update available: \(availableUpdate)")
+        } else if database.status == .ready {
+            parts.append("Up to date")
+        }
+
+        return parts.joined(separator: " · ")
+    }
+
+    private static let databaseTrackingDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     private func refreshStorageLocationState() {
         storageLocationPath = AppSettings.shared.managedStorageRootURL.path
         storageLocationDisplayState = AppSettings.shared.managedStorageDisplayState

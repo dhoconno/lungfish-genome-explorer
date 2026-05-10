@@ -147,6 +147,34 @@ final class MetagenomicsDatabaseInfoTests: XCTestCase {
         XCTAssertNil(decoded.collection)
     }
 
+    func testDatabaseInfoTracksInstallDateAndAvailableUpdate() {
+        let installedAt = Date(timeIntervalSince1970: 1_710_000_000)
+        let info = MetagenomicsDatabaseInfo(
+            name: "Standard-8",
+            tool: MetagenomicsTool.kraken2.rawValue,
+            version: "20230101",
+            sizeBytes: 8 * 1_073_741_824,
+            description: "Older installed Standard-8",
+            collection: .standard8,
+            path: URL(fileURLWithPath: "/tmp/standard-8"),
+            installedAt: installedAt,
+            lastUpdated: installedAt,
+            status: .ready,
+            recommendedRAM: 8 * 1_073_741_824
+        )
+
+        XCTAssertEqual(info.installedAt, installedAt)
+        XCTAssertTrue(info.isUpdateAvailable)
+        XCTAssertEqual(info.availableUpdateVersion, MetagenomicsDatabaseInfo.latestBuildDate)
+    }
+
+    func testCatalogDatabaseWithoutLocalInstallDoesNotReportUpdateAvailable() {
+        let info = MetagenomicsDatabaseInfo.catalogEntry(for: .standard8)!
+
+        XCTAssertFalse(info.isUpdateAvailable)
+        XCTAssertNil(info.availableUpdateVersion)
+    }
+
     // MARK: - Built-in Catalog
 
     func testBuiltInCatalogComplete() {
