@@ -4,6 +4,7 @@
 !*/
 !.gitignore
 !.github/**
+!.readthedocs.yaml
 !.vscode/launch.json
 !.claude/agents/*.md
 !.codex/agents/*.md

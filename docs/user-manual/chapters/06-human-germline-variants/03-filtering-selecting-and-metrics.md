@@ -21,6 +21,9 @@ brand_reviewed: false
 lead_approved: false
 ---
 
+!!! note "Coming soon"
+    Human germline variant support is in active development. The pages in this section document the dry-run CLI commands available today. Full execution workflows, GUI integration, and expanded documentation are on the way.
+
 ## What it is
 
 Lungfish exposes dry-run builders for the common post-calling commands:

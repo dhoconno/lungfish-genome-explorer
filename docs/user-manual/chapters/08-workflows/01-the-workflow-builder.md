@@ -232,7 +232,7 @@ downstream nodes skipped in the run record for inspection.
 ## Worked example: SARS-CoV-2 reads to variants
 
 This walkthrough composes the same reads-to-variants pipeline you ran step
-by step in [Reads to variants](../04-variants/01-reads-to-variants.md), but
+by step in [Calling Variants from Amplicons](../05-variants/01-calling-variants-from-amplicons.md), but
 as a single saved workflow.
 
 Open a project that already contains a paired-end FASTQ bundle for a

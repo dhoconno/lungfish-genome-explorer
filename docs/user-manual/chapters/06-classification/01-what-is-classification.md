@@ -99,7 +99,7 @@ A classifier without its database is a program with nothing to compare against. 
 
 Instead, Lungfish installs each classifier and its default database on demand through the Plugin Manager. The first time you open the Unified Metagenomics Wizard and pick (for example) Kraken2, the wizard checks whether the Kraken2 plugin pack is installed. If it is not, it opens the Plugin Manager so you can install it. The install runs `micromamba` against the bioconda channel for the tool itself and downloads the matched database from the official source for the data, both with full provenance recording.
 
-You only do this once per classifier. After install, the wizard runs the tool directly. See [Installing classifier databases](../07-plugins/01-plugin-manager.md) for the install walkthrough and the disk-space figures for each database build.
+You only do this once per classifier. After install, the wizard runs the tool directly. See [Plugin Packs](../01-foundations/07-plugin-packs.md) for the install walkthrough and the disk-space figures for each database build.
 
 A practical consequence: if you are setting up a new Lungfish install for a project that needs all four classifiers, plan for an afternoon of one-time downloads and roughly 100 to 200 GB of disk. If you only need one classifier, you only install one.
 
