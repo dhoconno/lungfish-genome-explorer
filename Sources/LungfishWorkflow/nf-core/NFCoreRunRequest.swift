@@ -121,7 +121,15 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
         self.presentationMode = presentationMode
     }
 
-    public func manifest(createdAt: Date = Date()) -> NFCoreRunBundleManifest {
+    public func manifest(
+        createdAt: Date = Date(),
+        executionStatus: NFCoreRunExecutionStatus = .prepared,
+        startedAt: Date? = nil,
+        completedAt: Date? = nil,
+        exitCode: Int32? = nil,
+        stdoutLogPath: String? = nil,
+        stderrLogPath: String? = nil
+    ) -> NFCoreRunBundleManifest {
         NFCoreRunBundleManifest(
             workflow: workflow,
             version: version,
@@ -131,6 +139,12 @@ public struct NFCoreRunRequest: Sendable, Codable, Equatable {
             workflowPinnedVersion: workflow.pinnedVersion,
             resume: resume,
             workDirectory: workDirectory,
+            executionStatus: executionStatus,
+            startedAt: startedAt,
+            completedAt: completedAt,
+            exitCode: exitCode,
+            stdoutLogPath: stdoutLogPath,
+            stderrLogPath: stderrLogPath,
             createdAt: createdAt
         )
     }

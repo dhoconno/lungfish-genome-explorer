@@ -184,6 +184,45 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return []
         }
     }
+
+    /// Typed parameter definitions supported by this node type.
+    public var parameterDefinitions: [ParameterDefinition] {
+        switch self {
+        case .trimming:
+            var minimumLength = ParameterDefinition(
+                name: "minimum_length",
+                title: "Minimum length",
+                description: "Minimum read length retained after trimming.",
+                type: .integer,
+                defaultValue: .integer(20)
+            )
+            minimumLength.minimum = 1
+
+            var qualifiedQuality = ParameterDefinition(
+                name: "qualified_quality_phred",
+                title: "Qualified quality",
+                description: "Phred score threshold used by fastp.",
+                type: .integer,
+                defaultValue: .integer(15)
+            )
+            qualifiedQuality.minimum = 0
+            qualifiedQuality.maximum = 93
+
+            return [minimumLength, qualifiedQuality]
+        case .qualityControl:
+            return [
+                ParameterDefinition(
+                    name: "fail_on_error",
+                    title: "Fail on QC error",
+                    description: "Treat quality-control failures as workflow failures.",
+                    type: .boolean,
+                    defaultValue: .boolean(false)
+                )
+            ]
+        default:
+            return []
+        }
+    }
 }
 
 // MARK: - NodeCategory
@@ -538,6 +577,160 @@ public struct WorkflowNode: Sendable, Codable, Identifiable, Hashable {
     public static func == (lhs: WorkflowNode, rhs: WorkflowNode) -> Bool {
         lhs.id == rhs.id
     }
+
+    /// Resolves custom string parameters into typed values, applying node defaults.
+    public func resolvedParameters() throws -> [String: ParameterValue] {
+        let definitions = Dictionary(uniqueKeysWithValues: type.parameterDefinitions.map { ($0.name, $0) })
+        var resolved: [String: ParameterValue] = [:]
+
+        for key in parameters.keys where definitions[key] == nil {
+            throw WorkflowNodeParameterError.unknown(parameter: key, nodeName: label)
+        }
+
+        for definition in type.parameterDefinitions {
+            if let rawValue = parameters[definition.name] {
+                resolved[definition.name] = try Self.parseParameterValue(rawValue, definition: definition, nodeName: label)
+            } else if let defaultValue = definition.defaultValue {
+                resolved[definition.name] = defaultValue
+            } else if definition.isRequired {
+                throw WorkflowNodeParameterError.missing(parameter: definition.name, nodeName: label)
+            }
+        }
+
+        return resolved
+    }
+
+    /// Returns validation failures for custom parameters on this node.
+    public func parameterValidationIssues() -> [WorkflowNodeParameterError] {
+        do {
+            _ = try resolvedParameters()
+            return []
+        } catch let error as WorkflowNodeParameterError {
+            return [error]
+        } catch {
+            return [.invalid(parameter: "parameters", nodeName: label, reason: error.localizedDescription)]
+        }
+    }
+
+    private static func parseParameterValue(
+        _ rawValue: String,
+        definition: ParameterDefinition,
+        nodeName: String
+    ) throws -> ParameterValue {
+        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed: ParameterValue
+
+        switch definition.type {
+        case .string:
+            parsed = .string(rawValue)
+        case .integer:
+            guard let integer = Int(value) else {
+                throw WorkflowNodeParameterError.invalid(
+                    parameter: definition.name,
+                    nodeName: nodeName,
+                    reason: "Expected integer value"
+                )
+            }
+            try validateNumeric(Double(integer), definition: definition, nodeName: nodeName)
+            parsed = .integer(integer)
+        case .number:
+            guard let number = Double(value) else {
+                throw WorkflowNodeParameterError.invalid(
+                    parameter: definition.name,
+                    nodeName: nodeName,
+                    reason: "Expected number value"
+                )
+            }
+            try validateNumeric(number, definition: definition, nodeName: nodeName)
+            parsed = .number(number)
+        case .boolean:
+            switch value.lowercased() {
+            case "true", "1", "yes":
+                parsed = .boolean(true)
+            case "false", "0", "no":
+                parsed = .boolean(false)
+            default:
+                throw WorkflowNodeParameterError.invalid(
+                    parameter: definition.name,
+                    nodeName: nodeName,
+                    reason: "Expected boolean value"
+                )
+            }
+        case .file, .directory:
+            parsed = .file(URL(fileURLWithPath: rawValue).standardizedFileURL)
+        case .array:
+            let values = rawValue
+                .split(separator: ",")
+                .map { ParameterValue.string(String($0).trimmingCharacters(in: .whitespacesAndNewlines)) }
+            parsed = .array(values)
+        case .object:
+            throw WorkflowNodeParameterError.invalid(
+                parameter: definition.name,
+                nodeName: nodeName,
+                reason: "Object parameters are not supported in workflow builder nodes yet"
+            )
+        }
+
+        if let allowed = definition.allowedValues, !allowed.contains(parsed) {
+            throw WorkflowNodeParameterError.invalid(
+                parameter: definition.name,
+                nodeName: nodeName,
+                reason: "Value is not one of the allowed values"
+            )
+        }
+
+        if let pattern = definition.pattern,
+           case .string(let stringValue) = parsed,
+           stringValue.range(of: pattern, options: .regularExpression) == nil {
+            throw WorkflowNodeParameterError.invalid(
+                parameter: definition.name,
+                nodeName: nodeName,
+                reason: "Value does not match required pattern"
+            )
+        }
+
+        return parsed
+    }
+
+    private static func validateNumeric(
+        _ value: Double,
+        definition: ParameterDefinition,
+        nodeName: String
+    ) throws {
+        if let minimum = definition.minimum, value < minimum {
+            throw WorkflowNodeParameterError.invalid(
+                parameter: definition.name,
+                nodeName: nodeName,
+                reason: "Value must be at least \(minimum)"
+            )
+        }
+        if let maximum = definition.maximum, value > maximum {
+            throw WorkflowNodeParameterError.invalid(
+                parameter: definition.name,
+                nodeName: nodeName,
+                reason: "Value must be at most \(maximum)"
+            )
+        }
+    }
 }
 
 // Note: CGPoint is already Codable in CoreGraphics (macOS 10.9+)
+
+// MARK: - WorkflowNodeParameterError
+
+public enum WorkflowNodeParameterError: Error, LocalizedError, Sendable, Hashable {
+    case unknown(parameter: String, nodeName: String)
+    case missing(parameter: String, nodeName: String)
+    case invalid(parameter: String, nodeName: String, reason: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .unknown(let parameter, let nodeName):
+            return "Node '\(nodeName)' has unknown parameter '\(parameter)'"
+        case .missing(let parameter, let nodeName):
+            return "Node '\(nodeName)' is missing required parameter '\(parameter)'"
+        case .invalid(let parameter, let nodeName, let reason):
+            return "Node '\(nodeName)' has invalid parameter '\(parameter)': \(reason)"
+        }
+    }
+}

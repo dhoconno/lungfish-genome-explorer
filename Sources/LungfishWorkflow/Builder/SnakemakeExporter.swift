@@ -95,7 +95,7 @@ public struct SnakemakeExporter: Sendable {
 
         // Add rule definitions
         for node in orderedNodes where node.type.category != .input {
-            snakefile += generateRule(node: node, graph: graph)
+            snakefile += try generateRule(node: node, graph: graph)
             snakefile += "\n"
         }
 
@@ -207,7 +207,7 @@ public struct SnakemakeExporter: Sendable {
 
     // MARK: - Rule Generation
 
-    private func generateRule(node: WorkflowNode, graph: WorkflowGraph) -> String {
+    private func generateRule(node: WorkflowNode, graph: WorkflowGraph) throws -> String {
         var rule = ""
 
         let ruleName = sanitizeIdentifier(node.label)
@@ -283,7 +283,7 @@ public struct SnakemakeExporter: Sendable {
         // Shell section
         rule += "    shell:\n"
         rule += "        \"\"\"\n"
-        rule += generateShellScript(for: node)
+        rule += try generateShellScript(for: node)
         rule += "        \"\"\"\n"
 
         return rule
@@ -372,7 +372,7 @@ public struct SnakemakeExporter: Sendable {
         }
     }
 
-    private func generateShellScript(for node: WorkflowNode) -> String {
+    private func generateShellScript(for node: WorkflowNode) throws -> String {
         switch node.type {
         case .qualityControl:
             return """
@@ -381,11 +381,16 @@ public struct SnakemakeExporter: Sendable {
 
             """
         case .trimming:
+            let parameters = try node.resolvedParameters()
+            let minimumLength = parameters["minimum_length"]?.toArgumentString() ?? "20"
+            let quality = parameters["qualified_quality_phred"]?.toArgumentString() ?? "15"
             return """
                     fastp \\
                         -i {input.reads} \\
                         -o {output.trimmed} \\
                         --html {output.report} \\
+                        --length_required \(minimumLength) \\
+                        --qualified_quality_phred \(quality) \\
                         --thread {threads} \\
                         > {log} 2>&1
 

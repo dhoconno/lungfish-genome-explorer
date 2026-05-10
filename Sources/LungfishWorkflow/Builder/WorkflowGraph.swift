@@ -445,6 +445,33 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
             }
         }
 
+        // Check typed node parameters before exporters emit runnable scripts.
+        for node in nodes.values {
+            for parameterError in node.parameterValidationIssues() {
+                switch parameterError {
+                case .unknown(let parameter, _):
+                    issues.append(.unknownNodeParameter(
+                        nodeId: node.id,
+                        nodeName: node.label,
+                        parameter: parameter
+                    ))
+                case .missing(let parameter, _):
+                    issues.append(.missingNodeParameter(
+                        nodeId: node.id,
+                        nodeName: node.label,
+                        parameter: parameter
+                    ))
+                case .invalid(let parameter, _, let reason):
+                    issues.append(.invalidNodeParameter(
+                        nodeId: node.id,
+                        nodeName: node.label,
+                        parameter: parameter,
+                        reason: reason
+                    ))
+                }
+            }
+        }
+
         return issues
     }
 
@@ -514,6 +541,9 @@ public enum WorkflowValidationIssue: Sendable, Hashable {
     case disconnectedInput(nodeId: UUID, nodeName: String)
     case disconnectedOutput(nodeId: UUID, nodeName: String)
     case missingRequiredInput(nodeId: UUID, nodeName: String, portName: String)
+    case unknownNodeParameter(nodeId: UUID, nodeName: String, parameter: String)
+    case missingNodeParameter(nodeId: UUID, nodeName: String, parameter: String)
+    case invalidNodeParameter(nodeId: UUID, nodeName: String, parameter: String, reason: String)
 
     /// Human-readable description of the issue
     public var description: String {
@@ -528,21 +558,25 @@ public enum WorkflowValidationIssue: Sendable, Hashable {
             return "Output node '\(name)' has no input"
         case .missingRequiredInput(_, let nodeName, let portName):
             return "Node '\(nodeName)' is missing required input '\(portName)'"
+        case .unknownNodeParameter(_, let nodeName, let parameter):
+            return "Node '\(nodeName)' has unknown parameter '\(parameter)'"
+        case .missingNodeParameter(_, let nodeName, let parameter):
+            return "Node '\(nodeName)' is missing required parameter '\(parameter)'"
+        case .invalidNodeParameter(_, let nodeName, let parameter, let reason):
+            return "Node '\(nodeName)' has invalid parameter '\(parameter)': \(reason)"
         }
     }
 
     /// Severity of the issue
     public var severity: ValidationSeverity {
         switch self {
-        case .emptyWorkflow:
-            return .error
-        case .containsCycles:
+        case .emptyWorkflow, .containsCycles:
             return .error
         case .disconnectedInput:
             return .warning
         case .disconnectedOutput:
             return .warning
-        case .missingRequiredInput:
+        case .missingRequiredInput, .unknownNodeParameter, .missingNodeParameter, .invalidNodeParameter:
             return .error
         }
     }

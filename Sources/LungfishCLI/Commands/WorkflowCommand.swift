@@ -260,22 +260,67 @@ struct RunSubcommand: AsyncParsableCommand {
             workDirectory: workDir.map { URL(fileURLWithPath: $0) }
         )
         let runBundleURL = try resolveRunBundleURL(workflowName: supportedWorkflow.name)
-        try NFCoreRunBundleStore.write(request.manifest(), to: runBundleURL)
+        let bundleCreatedAt = Date()
+        try NFCoreRunBundleStore.write(
+            request.manifest(createdAt: bundleCreatedAt, executionStatus: .prepared),
+            to: runBundleURL
+        )
 
         if !globalOptions.quiet {
             print(formatter.info("Created run bundle: \(runBundleURL.path)"))
             print(formatter.info(request.commandPreview))
         }
         if prepareOnly {
+            try writeRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: true,
+                status: .completed,
+                exitCode: 0,
+                wallTime: Date().timeIntervalSince(bundleCreatedAt),
+                stderr: nil
+            )
             print(runBundleURL.path)
             return
         }
 
+        let processStartedAt = Date()
+        try NFCoreRunBundleStore.write(
+            request.manifest(
+                createdAt: bundleCreatedAt,
+                executionStatus: .running,
+                startedAt: processStartedAt
+            ),
+            to: runBundleURL
+        )
         let processResult = try await runNextflow(
             arguments: request.nextflowArguments,
             workingDirectory: runBundleURL.appendingPathComponent("outputs", isDirectory: true)
         )
         try writeProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
+        let processCompletedAt = Date()
+        let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
+        try NFCoreRunBundleStore.write(
+            request.manifest(
+                createdAt: bundleCreatedAt,
+                executionStatus: executionStatus,
+                startedAt: processStartedAt,
+                completedAt: processCompletedAt,
+                exitCode: processResult.exitCode,
+                stdoutLogPath: "logs/stdout.log",
+                stderrLogPath: "logs/stderr.log"
+            ),
+            to: runBundleURL
+        )
+        try writeRunBundleProvenance(
+            request: request,
+            bundleURL: runBundleURL,
+            prepareOnly: false,
+            status: processResult.exitCode == 0 ? .completed : .failed,
+            exitCode: processResult.exitCode,
+            wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
+            stderr: processResult.standardError
+        )
         if processResult.exitCode != 0 {
             throw CLIError.workflowFailed(reason: "Nextflow exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)")
         }
@@ -357,6 +402,67 @@ struct RunSubcommand: AsyncParsableCommand {
         try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
         try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
         try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+    }
+
+    private func writeRunBundleProvenance(
+        request: NFCoreRunRequest,
+        bundleURL: URL,
+        prepareOnly: Bool,
+        status: RunStatus,
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let command = ["lungfish-cli"] + request.cliArguments(
+            bundlePath: bundleURL,
+            prepareOnly: prepareOnly
+        ) + (globalOptions.quiet ? ["--quiet"] : [])
+        let inputs = request.inputURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
+        }
+        let outputs = [
+            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
+            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(
+                url: bundleURL.appendingPathComponent("manifest.json"),
+                format: .json,
+                role: .output
+            )
+        ]
+        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
+        parameters["executor"] = .string(request.executor.rawValue)
+        parameters["resume"] = .boolean(request.resume)
+        parameters["prepareOnly"] = .boolean(prepareOnly)
+        if let workDirectory = request.workDirectory {
+            parameters["workDirectory"] = .file(workDirectory)
+        }
+
+        let step = StepExecution(
+            toolName: "lungfish-cli workflow run",
+            toolVersion: LungfishCLI.configuration.version,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: request.displayTitle,
+            endTime: Date(),
+            status: status,
+            steps: [step],
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(run)
+        try data.write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
     }
 }
 

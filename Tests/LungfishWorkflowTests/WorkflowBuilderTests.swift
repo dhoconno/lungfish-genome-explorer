@@ -311,6 +311,87 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertNil(connection.validate(sourceNode: referenceNode, targetNode: assemblyConsumer))
     }
 
+    func testNodeParameterValidationRejectsInvalidTypedValue() throws {
+        var graph = WorkflowGraph(name: "Typed parameters")
+        let inputNode = graph.addNode(type: .fastqInput, position: .zero)
+        let trimmingNode = WorkflowNode(
+            type: .trimming,
+            position: .zero,
+            parameters: ["minimum_length": "not-an-integer"]
+        )
+        try graph.addNode(trimmingNode)
+
+        _ = try graph.addConnection(
+            sourceNodeId: inputNode.id,
+            sourcePortId: "reads",
+            targetNodeId: trimmingNode.id,
+            targetPortId: "reads"
+        )
+
+        let issues = graph.validate()
+        XCTAssertTrue(issues.contains { issue in
+            if case .invalidNodeParameter(let nodeId, _, let parameter, let reason) = issue {
+                return nodeId == trimmingNode.id
+                    && parameter == "minimum_length"
+                    && reason.contains("integer")
+            }
+            return false
+        })
+
+        XCTAssertThrowsError(try NextflowExporter().export(graph: graph)) { error in
+            let description = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            XCTAssertTrue(description.contains("minimum_length"))
+            XCTAssertTrue(description.contains("integer"))
+        }
+    }
+
+    func testNodeParameterResolvedDefaultsAreTypedAndExported() throws {
+        var graph = WorkflowGraph(name: "Trim defaults")
+        let inputNode = graph.addNode(type: .fastqInput, position: .zero, label: "Reads")
+        let trimmingNode = graph.addNode(type: .trimming, position: .zero, label: "Trim")
+
+        _ = try graph.addConnection(
+            sourceNodeId: inputNode.id,
+            sourcePortId: "reads",
+            targetNodeId: trimmingNode.id,
+            targetPortId: "reads"
+        )
+
+        let resolved = try trimmingNode.resolvedParameters()
+        XCTAssertEqual(resolved["minimum_length"], .integer(20))
+        XCTAssertEqual(resolved["qualified_quality_phred"], .integer(15))
+
+        let script = try NextflowExporter().export(graph: graph)
+        XCTAssertTrue(script.contains("--length_required 20"))
+        XCTAssertTrue(script.contains("--qualified_quality_phred 15"))
+    }
+
+    func testNodeParameterValidationRejectsUnknownExporterParameter() throws {
+        var graph = WorkflowGraph(name: "Unknown parameters")
+        let inputNode = graph.addNode(type: .fastqInput, position: .zero)
+        let trimmingNode = WorkflowNode(
+            type: .trimming,
+            position: .zero,
+            parameters: ["min-len": "30"]
+        )
+        try graph.addNode(trimmingNode)
+
+        _ = try graph.addConnection(
+            sourceNodeId: inputNode.id,
+            sourcePortId: "reads",
+            targetNodeId: trimmingNode.id,
+            targetPortId: "reads"
+        )
+
+        let issues = graph.validate()
+        XCTAssertTrue(issues.contains { issue in
+            if case .unknownNodeParameter(_, _, let parameter) = issue {
+                return parameter == "min-len"
+            }
+            return false
+        })
+    }
+
     // MARK: - PortDataType Tests
 
     func testPortDataTypeCompatibility() {
