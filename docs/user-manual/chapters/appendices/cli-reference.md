@@ -113,6 +113,20 @@ lungfish bundle create \
 
 Lists every reference bundle in the project's `Reference Sequences/` folder.
 
+`lungfish bundle export <bundle> --format container --output <image.oci.tar> [--plugin-pack <name>...]`
+
+Exports a deterministic OCI-layout tarball for a bundle. The artifact contains
+the bundle payload, pinned plugin-pack metadata, OCI manifest/config/layer
+files, and `.lungfish-provenance.json`.
+
+```bash
+lungfish bundle export MN908947.3.lungfishref \
+    --format container \
+    --output MN908947.3.oci.tar \
+    --plugin-pack read-mapping \
+    --plugin-pack variant-calling
+```
+
 `lungfish extract-annotations --bundle <bundle> --track <id> --output <path>`
 
 Extracts annotation features from a bundle as a new FASTA bundle.
@@ -283,6 +297,15 @@ Manage tool dependencies through Lungfish's conda wrapper.
 `lungfish conda install --pack <name>...`
 
 Installs one or more plugin packs into `~/.lungfish/conda`.
+
+`lungfish conda lock --pack <name> --output <lockfile.yml>`
+
+Writes a conda-lock-compatible lockfile for a built-in plugin pack.
+
+`lungfish conda install --from-lockfile <lockfile.yml>`
+
+Recreates the environments pinned in a lockfile without resolving fresh
+package versions. The install writes provenance to the conda root.
 
 `lungfish conda list`
 

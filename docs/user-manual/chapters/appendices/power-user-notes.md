@@ -196,11 +196,28 @@ Plugin packs are versioned recipes for per-tool conda environments. The pack ver
 
 For bit-identical reproduction across machines, pair the provenance sidecar with one of:
 
-- An OCI image build (Lungfish exports container images via `lungfish bundle export <bundle> --format container`)
-- A conda lockfile (commit a `conda-lock.yml` alongside the pack manifest)
-- A Snakemake / Nextflow export with the conda environment YAML files included
+- An OCI image artifact from `lungfish bundle export <bundle> --format container --output <bundle>.oci.tar`
+- A conda lockfile from `lungfish conda lock --pack <name> --output lockfile.yml`
+- A Snakemake / Nextflow export with lockfile or container references included
 
 Without one of these, "same plugin pack version" guarantees the same recipe but not the same resolved environment. Clinical validation workflows must use the OCI path; research workflows can usually rely on the pack version alone.
+
+### Conda lockfiles
+
+`lungfish conda lock --pack <name> --output lockfile.yml` writes a
+conda-lock-compatible YAML file for a built-in plugin pack. The lockfile
+contains the pack ID, channels, platforms, content hash, and one package
+record per pinned requirement. Reinstall with:
+
+```bash
+lungfish conda install --from-lockfile lockfile.yml
+```
+
+Both commands write `.lungfish-provenance.json` next to their output or conda
+root. The lock provenance records the exact command, pack identity, resolved
+channels and platforms, output path, runtime identity, exit status, and wall
+time. The install provenance records the lockfile input, destination conda
+root, installed environment names, command line, exit status, and wall time.
 
 ## Determinism and reproducibility caveats
 
@@ -239,7 +256,7 @@ Lungfish supports two container runtimes for pinned-environment execution.
 | Apple Containers | macOS 26+, arm64 | Default on supported Macs; lower overhead, native filesystem access |
 | Docker | macOS, Linux, cross-platform | Portable across teams with mixed environments |
 
-The `lungfish bundle export <bundle> --format container` command produces an OCI image with every plugin pack baked in at content-addressed digests. The exported image is reproducible: a re-pull of the same digest produces the exact same environment. Pair this with a Nextflow export to get a reproducible pipeline that survives across machines and time.
+The `lungfish bundle export <bundle> --format container --output <image>.oci.tar` command produces a deterministic OCI-layout tarball with bundle payload files, pinned plugin pack metadata, `oci-layout`, `index.json`, manifest, config, layer tar, and `.lungfish-provenance.json`. When a real image builder is available, the same CLI surface can wrap that runtime; test and offline builds still emit the deterministic OCI layout rather than a documentation-only placeholder. Pair this with a Nextflow export to get a reproducible pipeline that survives across machines and time.
 
 ## Multi-threading and chunking
 

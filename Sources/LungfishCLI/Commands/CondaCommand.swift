@@ -20,6 +20,10 @@ struct CondaCommand: AsyncParsableCommand {
             Install bioinformatics tools from bioconda and conda-forge using micromamba.
             Each tool is installed in its own isolated environment to prevent dependency
             conflicts. Tools are stored in \(managedStorageRootDescription()).
+
+            Use 'lungfish conda lock --pack <pack> --output lockfile.yml' to write
+            a conda-lock-compatible lockfile, then reproduce it with
+            'lungfish conda install --from-lockfile lockfile.yml'.
             """,
             subcommands: [
                 InstallSubcommand.self,
@@ -29,6 +33,7 @@ struct CondaCommand: AsyncParsableCommand {
                 RunSubcommand.self,
                 EnvsSubcommand.self,
                 SetupSubcommand.self,
+                LockSubcommand.self,
                 PacksSubcommand.self,
                 ExportPackSubcommand.self,
                 OfflineExportSubcommand.self,
@@ -85,6 +90,9 @@ extension CondaCommand {
         @Option(name: .customLong("from-bundle"), help: "Offline conda pack directory, .tar, .tgz, or .tar.gz archive")
         var fromBundle: String?
 
+        @Option(name: .customLong("from-lockfile"), help: "conda-lock-compatible lockfile created by 'lungfish conda lock'")
+        var fromLockfile: String?
+
         @Option(name: .customLong("conda-root"), help: "Conda root to install into when using --offline (default: managed storage conda root)")
         var condaRoot: String?
 
@@ -97,6 +105,31 @@ extension CondaCommand {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let manager = CondaManager.shared
             let packStatusService = CondaCommand.packStatusServiceOverride ?? PluginPackStatusService.shared
+
+            if let fromLockfile {
+                guard packages.isEmpty else {
+                    throw ValidationError("Package names cannot be combined with --from-lockfile")
+                }
+                guard !isPack else {
+                    throw ValidationError("--pack cannot be combined with --from-lockfile")
+                }
+                guard !offline, fromBundle == nil else {
+                    throw ValidationError("--from-lockfile cannot be combined with --offline or --from-bundle")
+                }
+                let root = condaRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
+                    ?? CondaManager.shared.rootPrefix
+                let result = try await CondaLockfileService().install(
+                    fromLockfile: URL(fileURLWithPath: fromLockfile),
+                    condaRoot: root,
+                    commandLine: CondaOfflinePackService.redactedCommandLine(CommandLine.arguments)
+                )
+                print(formatter.success("Installed environments from lockfile"))
+                for environment in result.installedEnvironments {
+                    print("  \(environment)")
+                }
+                print("Provenance: \(result.provenanceURL.path)")
+                return
+            }
 
             if offline || fromBundle != nil {
                 guard offline else {
@@ -175,6 +208,43 @@ extension CondaCommand {
 
                 print("")
                 print(formatter.success("Installation complete"))
+            }
+        }
+    }
+}
+
+// MARK: - Conda Lockfiles
+
+extension CondaCommand {
+    struct LockSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "lock",
+            abstract: "Write a conda-lock-compatible lockfile for a plugin pack"
+        )
+
+        @Option(name: .long, help: "Built-in tool pack ID to lock")
+        var pack: String
+
+        @Option(name: .shortAndLong, help: "Lockfile output path")
+        var output: String
+
+        @OptionGroup var globalOptions: GlobalOptions
+
+        func run() async throws {
+            let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            guard let pluginPack = PluginPack.builtInPack(id: pack) else {
+                print(formatter.error("Unknown tool pack: \(pack)"))
+                print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
+                throw ExitCode.failure
+            }
+            let result = try CondaLockfileService().writeLockfile(
+                for: pluginPack,
+                to: URL(fileURLWithPath: output),
+                commandLine: CondaOfflinePackService.redactedCommandLine(CommandLine.arguments)
+            )
+            if !globalOptions.quiet {
+                print(formatter.success("Lockfile written: \(result.lockfileURL.path)"))
+                print("Provenance: \(result.provenanceURL.path)")
             }
         }
     }
