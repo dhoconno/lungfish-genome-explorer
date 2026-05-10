@@ -44,6 +44,12 @@ private final class StorageLocationChangeObserver {
     }
 }
 
+struct OfflinePackCommandGuidance: Equatable {
+    let exportCommand: String
+    let installCommand: String
+    let copyText: String
+}
+
 /// View model for the Plugin Manager window.
 ///
 /// Bridges between the ``CondaManager`` actor and the SwiftUI view layer.
@@ -298,6 +304,38 @@ final class PluginManagerViewModel {
         focusedPackID = packID
     }
 
+    func offlinePackCommandGuidance(for pack: PluginPack) -> OfflinePackCommandGuidance {
+        let archivePath = "./\(pack.id)-conda-offline-pack.tgz"
+        let exportCommand = shellCommand([
+            "lungfish",
+            "conda",
+            "export-pack",
+            "--pack",
+            pack.id,
+            "--output",
+            archivePath,
+        ])
+        let installCommand = shellCommand([
+            "lungfish",
+            "conda",
+            "install",
+            "--offline",
+            "--from-bundle",
+            archivePath,
+        ])
+        return OfflinePackCommandGuidance(
+            exportCommand: exportCommand,
+            installCommand: installCommand,
+            copyText: [exportCommand, installCommand].joined(separator: "\n")
+        )
+    }
+
+    func copyOfflinePackCommandGuidance(for pack: PluginPack) {
+        let guidance = offlinePackCommandGuidance(for: pack)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(guidance.copyText, forType: .string)
+    }
+
     /// Installs or reinstalls a plugin pack through the shared status service.
     func installPack(_ pack: PluginPack, reinstall: Bool = false) {
         installingPacks.insert(pack.id)
@@ -526,4 +564,8 @@ final class PluginManagerViewModel {
         errorMessage = message
         showingError = true
     }
+}
+
+private func shellCommand(_ argv: [String]) -> String {
+    argv.map(shellEscape).joined(separator: " ")
 }

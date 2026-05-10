@@ -45,6 +45,10 @@ enum PluginManagerAccessibilityID {
         "plugin-manager-pack-remove-\(slug(id))"
     }
 
+    static func packCopyOfflineCommandsButton(_ id: String) -> String {
+        "plugin-manager-pack-copy-offline-commands-\(slug(id))"
+    }
+
     static func databaseRow(_ name: String) -> String {
         "plugin-manager-database-\(slug(name))"
     }
@@ -362,13 +366,17 @@ private struct PacksTabView: View {
                                         status: required,
                                         isInstalling: viewModel.installingPacks.contains(required.pack.id),
                                         progressMessage: viewModel.packProgressMessage[required.pack.id],
+                                        offlineGuidance: viewModel.offlinePackCommandGuidance(for: required.pack),
                                         onInstallAll: {
                                             viewModel.installPack(
                                                 required.pack,
                                                 reinstall: required.shouldReinstall
                                             )
                                         },
-                                        onRemoveAll: nil
+                                        onRemoveAll: nil,
+                                        onCopyOfflineCommands: {
+                                            viewModel.copyOfflinePackCommandGuidance(for: required.pack)
+                                        }
                                     )
                                     .id(required.pack.id)
                                 }
@@ -384,6 +392,7 @@ private struct PacksTabView: View {
                                             status: status,
                                             isInstalling: viewModel.installingPacks.contains(status.pack.id),
                                             progressMessage: viewModel.packProgressMessage[status.pack.id],
+                                            offlineGuidance: viewModel.offlinePackCommandGuidance(for: status.pack),
                                             onInstallAll: {
                                                 viewModel.installPack(
                                                     status.pack,
@@ -392,6 +401,9 @@ private struct PacksTabView: View {
                                             },
                                             onRemoveAll: {
                                                 viewModel.removePack(status.pack)
+                                            },
+                                            onCopyOfflineCommands: {
+                                                viewModel.copyOfflinePackCommandGuidance(for: status.pack)
                                             }
                                         )
                                         .id(status.pack.id)
@@ -441,8 +453,10 @@ private struct PackCard: View {
     let status: PluginPackStatus
     let isInstalling: Bool
     let progressMessage: String?
+    let offlineGuidance: OfflinePackCommandGuidance
     let onInstallAll: () -> Void
     let onRemoveAll: (() -> Void)?
+    let onCopyOfflineCommands: () -> Void
 
     private var pack: PluginPack {
         status.pack
@@ -573,6 +587,41 @@ private struct PackCard: View {
                 }
 
                 Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 10)
+
+            Divider()
+                .padding(.leading, 14)
+
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "externaldrive")
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishSecondaryText)
+                    .frame(width: 14, height: 14)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(offlineGuidance.exportCommand)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    Text(offlineGuidance.installCommand)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(Color.lungfishSecondaryText)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                Spacer(minLength: 8)
+
+                Button("Copy") {
+                    onCopyOfflineCommands()
+                }
+                .controlSize(.mini)
+                .help("Copy offline export and install commands")
+                .accessibilityIdentifier(PluginManagerAccessibilityID.packCopyOfflineCommandsButton(pack.id))
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 10)

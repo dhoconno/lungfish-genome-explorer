@@ -19,6 +19,29 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         try super.tearDownWithError()
     }
 
+    func testCommandLineRedactionCoversCommonSecretFlags() {
+        let redacted = CondaOfflinePackService.redactedCommandLine([
+            "lungfish",
+            "conda",
+            "export-pack",
+            "--password", "plain-password",
+            "--access-token=inline-token",
+            "--client-secret", "client-secret-value",
+            "--from-bundle", "/offline/read-mapping.tgz",
+        ])
+
+        XCTAssertEqual(redacted[4], "<redacted>")
+        XCTAssertTrue(redacted.contains("--access-token=<redacted>"))
+        XCTAssertEqual(redacted[6], "--client-secret")
+        XCTAssertEqual(redacted[7], "<redacted>")
+        XCTAssertTrue(redacted.contains("/offline/read-mapping.tgz"))
+
+        let joined = redacted.joined(separator: " ")
+        XCTAssertFalse(joined.contains("plain-password"))
+        XCTAssertFalse(joined.contains("inline-token"))
+        XCTAssertFalse(joined.contains("client-secret-value"))
+    }
+
     func testExportWritesManifestAndProvenanceWithoutSecrets() async throws {
         let condaRoot = tempRoot.appendingPathComponent("source-conda", isDirectory: true)
         let envURL = condaRoot.appendingPathComponent("envs/samtools", isDirectory: true)
@@ -58,13 +81,33 @@ final class CondaOfflinePackServiceTests: XCTestCase {
             from: Data(contentsOf: manifestURL)
         )
         XCTAssertEqual(manifest.packID, "read-mapping")
+        XCTAssertEqual(manifest.packVersion, WorkflowRun.currentAppVersion)
         XCTAssertEqual(manifest.environments.map(\.name), ["samtools"])
+        XCTAssertEqual(manifest.environments.first?.sourcePath, envURL.standardizedFileURL.path)
         XCTAssertEqual(manifest.files.count, 1)
         XCTAssertNotNil(manifest.files.first?.sha256)
+        XCTAssertEqual(manifest.files.first?.sizeBytes, UInt64(Data("samtools binary\n".utf8).count))
+
+        let provenance = try decoder.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: provenanceURL)
+        )
+        XCTAssertEqual(provenance.name, "Conda Offline Pack Export")
+        XCTAssertEqual(provenance.parameters["packID"], .string("read-mapping"))
+        XCTAssertEqual(provenance.parameters["packVersion"], .string(WorkflowRun.currentAppVersion))
+        XCTAssertEqual(provenance.parameters["runtimeUser"], .string(WorkflowRun.currentUser))
+        XCTAssertNotNil(provenance.parameters["runtimeHostName"]?.stringValue)
+        XCTAssertFalse(provenance.hostOS.isEmpty)
+        XCTAssertEqual(provenance.runtime.user, WorkflowRun.currentUser)
+
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertEqual(step.toolName, "lungfish-cli")
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertNotNil(step.wallTime)
+        XCTAssertTrue(step.command.contains("offline-export"))
+        XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
 
         let provenanceText = try String(contentsOf: provenanceURL, encoding: .utf8)
-        XCTAssertTrue(provenanceText.contains("\"toolName\" : \"lungfish-cli\""))
-        XCTAssertTrue(provenanceText.contains("offline-export"))
         XCTAssertFalse(provenanceText.contains("SECRET_SHOULD_NOT_APPEAR"))
     }
 
@@ -103,9 +146,64 @@ final class CondaOfflinePackServiceTests: XCTestCase {
         ))
         XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
 
-        let provenanceText = try String(contentsOf: install.provenanceURL, encoding: .utf8)
-        XCTAssertTrue(provenanceText.contains("offline-install"))
-        let provenance = ProvenanceRecorder.load(from: destinationCondaRoot)
-        XCTAssertEqual(provenance?.parameters["destinationCondaRoot"], .string(destinationCondaRoot.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: install.provenanceURL))
+        XCTAssertEqual(provenance.parameters["destinationCondaRoot"], .string(destinationCondaRoot.path))
+        XCTAssertEqual(provenance.parameters["packID"], .string("read-mapping"))
+        XCTAssertEqual(provenance.parameters["packVersion"], .string(WorkflowRun.currentAppVersion))
+        XCTAssertEqual(provenance.parameters["runtimeUser"], .string(WorkflowRun.currentUser))
+        XCTAssertNotNil(provenance.parameters["runtimeHostName"]?.stringValue)
+
+        let step = try XCTUnwrap(provenance.steps.first)
+        XCTAssertTrue(step.command.contains("offline-install"))
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertNotNil(step.wallTime)
+        XCTAssertTrue(step.inputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(step.outputs.allSatisfy { $0.sha256 != nil && $0.sizeBytes != nil })
+    }
+
+    func testExportAndInstallSupportTarAndTgzArchiveDestinations() async throws {
+        for archiveExtension in ["tar", "tgz"] {
+            let condaRoot = tempRoot.appendingPathComponent("source-\(archiveExtension)", isDirectory: true)
+            let envURL = condaRoot.appendingPathComponent("envs/samtools", isDirectory: true)
+            try FileManager.default.createDirectory(at: envURL, withIntermediateDirectories: true)
+            try Data("samtools binary \(archiveExtension)\n".utf8).write(to: envURL.appendingPathComponent("samtools"))
+
+            let pack = PluginPack(
+                id: "read-mapping",
+                name: "Read Mapping",
+                description: "Read mapping tools",
+                sfSymbol: "map",
+                packages: ["samtools"],
+                category: "Analysis"
+            )
+            let archiveURL = tempRoot.appendingPathComponent("read-mapping-offline.\(archiveExtension)")
+            let export = try await CondaOfflinePackService().exportPack(
+                pack: pack,
+                condaRoot: condaRoot,
+                output: archiveURL,
+                commandLine: ["lungfish-cli", "conda", "export-pack", "--pack", "read-mapping", "--output", archiveURL.path]
+            )
+
+            XCTAssertEqual(export.archiveURL, archiveURL)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: archiveURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: export.manifestURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: export.provenanceURL.path))
+
+            let destinationCondaRoot = tempRoot.appendingPathComponent("destination-\(archiveExtension)", isDirectory: true)
+            let install = try await CondaOfflinePackService().installPack(
+                from: archiveURL,
+                condaRoot: destinationCondaRoot,
+                overwrite: false,
+                commandLine: ["lungfish-cli", "conda", "install", "--offline", "--from-bundle", archiveURL.path]
+            )
+
+            XCTAssertEqual(install.installedEnvironments.map(\.lastPathComponent), ["samtools"])
+            XCTAssertTrue(FileManager.default.fileExists(
+                atPath: destinationCondaRoot.appendingPathComponent("envs/samtools/samtools").path
+            ))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: install.provenanceURL.path))
+        }
     }
 }
