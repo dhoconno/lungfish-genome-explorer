@@ -69,7 +69,7 @@ extension ImportCommand {
 
             let classificationsURL = projectURL.appendingPathComponent("Classifications", isDirectory: true)
             let bundleURL = classificationsURL.appendingPathComponent(
-                "\(Self.bundleFileName(for: trimmedSampleName)).lungfishtax",
+                "\(CzIdProjectImportWorkflow.bundleFileName(for: trimmedSampleName)).lungfishtax",
                 isDirectory: true
             )
             guard !fileManager.fileExists(atPath: bundleURL.path) else {
@@ -97,14 +97,11 @@ extension ImportCommand {
             }
 
             let conversion = try await CzIdImportPreview.withResolvedReport(from: inputURL) { resolved in
-                let sourceInput = resolved.selectedSourceURL.standardizedFileURL == resolved.reportURL.standardizedFileURL
-                    ? nil
-                    : resolved.selectedSourceURL
                 return try CzIdDataConverter.convertTaxonReport(
                     at: resolved.reportURL,
                     outputDirectory: bundleURL,
                     command: command,
-                    sourceInputURL: sourceInput,
+                    sourceInputURL: resolved.selectedSourceURL,
                     sampleNameOverride: trimmedSampleName,
                     additionalInputURLs: [metadataURL, nonHostFastqURL].compactMap { $0 },
                     provenanceToolName: "lungfish import cz-id",
@@ -136,15 +133,5 @@ extension ImportCommand {
             }
         }
 
-        private static func bundleFileName(for sampleName: String) -> String {
-            let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-            let scalars = sampleName.unicodeScalars.map { scalar -> Character in
-                allowed.contains(scalar) ? Character(scalar) : "-"
-            }
-            let name = String(scalars)
-                .replacingOccurrences(of: "--+", with: "-", options: .regularExpression)
-                .trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
-            return name.isEmpty ? "cz-id-sample" : name
-        }
     }
 }

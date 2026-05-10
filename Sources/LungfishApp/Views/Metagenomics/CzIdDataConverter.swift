@@ -153,7 +153,8 @@ public enum CzIdDataConverter {
                 sampleName: sampleName,
                 outputDirectory: outputDirectory,
                 sourceInputURL: sourceInputURL,
-                reportURL: url
+                reportURL: url,
+                reportPayloadURL: outputURL
             )) { explicit, _ in explicit }
         )
 
@@ -309,7 +310,8 @@ public enum CzIdDataConverter {
         sampleName: String,
         outputDirectory: URL,
         sourceInputURL: URL?,
-        reportURL: URL
+        reportURL: URL,
+        reportPayloadURL: URL
     ) -> [String: ParameterValue] {
         [
             "sampleName": .string(sampleName),
@@ -318,7 +320,7 @@ public enum CzIdDataConverter {
             "ntDatabaseVersion": parsed.metadata.ntDatabaseVersion.map(ParameterValue.string) ?? .string("unknown"),
             "nrDatabaseVersion": parsed.metadata.nrDatabaseVersion.map(ParameterValue.string) ?? .string("unknown"),
             "projectId": parsed.metadata.projectId.map(ParameterValue.string) ?? .null,
-            "reportPayload": .file(reportURL),
+            "reportPayload": .file(reportPayloadURL),
             "sourcePath": sourceInputURL.map(ParameterValue.file) ?? .file(reportURL),
             "outputDirectory": .file(outputDirectory),
             "outputDefaults": .string("classification.kreport, classification.czid.tsv, cz-id-manifest.json, classification-result.json"),

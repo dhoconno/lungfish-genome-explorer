@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import XCTest
+@testable import LungfishApp
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -23,7 +24,7 @@ final class ImportCzIdCommandTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: projectURL) }
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
-        var command = try ImportCommand.CzIdSubcommand.parse([
+        let command = try ImportCommand.CzIdSubcommand.parse([
             fixture.path,
             "--project", projectURL.path,
             "--sample-name", "Imported-CZ-Sample",
@@ -41,15 +42,22 @@ final class ImportCzIdCommandTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("classification.czid.tsv").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("cz-id-manifest.json").path))
 
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
         let result = try ClassificationResult.load(from: bundleURL)
         XCTAssertEqual(result.config.databaseName, "CZ-ID")
         XCTAssertEqual(result.config.databaseVersion, "nt=nt_2025_12_01; nr=nr_2025_12_01")
+        XCTAssertEqual(result.config.inputFiles.map(\.standardizedFileURL), [bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL])
         XCTAssertEqual(result.toolVersion, "8.4")
         XCTAssertEqual(result.tree.node(taxId: 2697049)?.readsDirect, 42)
 
+        let manifest = try decoder.decode(
+            CzIdImportManifest.self,
+            from: try Data(contentsOf: bundleURL.appendingPathComponent("cz-id-manifest.json"))
+        )
+        XCTAssertEqual(manifest.sourceFiles.map(\.standardizedFileURL), [bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL])
+
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let provenance = try decoder.decode(WorkflowRun.self, from: try Data(contentsOf: provenanceURL))
         XCTAssertEqual(provenance.name, "CZ-ID Import")
         XCTAssertEqual(provenance.status, .completed)
@@ -75,6 +83,7 @@ final class ImportCzIdCommandTests: XCTestCase {
         XCTAssertNotNil(step.wallTime)
         XCTAssertTrue(step.inputs.contains { $0.path == fixture.path && $0.sha256 != nil && $0.sizeBytes != nil })
         XCTAssertTrue(step.outputs.contains { $0.path == bundleURL.appendingPathComponent("classification-result.json").path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertEqual(provenance.parameters["reportPayload"]?.fileValue?.standardizedFileURL, bundleURL.appendingPathComponent("classification.czid.tsv").standardizedFileURL)
     }
 
     private func fixtureURL(_ relativePath: String) throws -> URL {
