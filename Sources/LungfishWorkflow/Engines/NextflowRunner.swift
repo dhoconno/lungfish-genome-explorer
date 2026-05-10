@@ -168,6 +168,7 @@ public actor NextflowRunner: WorkflowRunner {
         let (executionId, stateMachine) = await baseRunner.registerExecution(workflowId: workflow.id)
 
         // Mark as running
+        try await stateMachine.transition(to: .starting)
         try await stateMachine.transition(to: .running)
 
         // Build command arguments

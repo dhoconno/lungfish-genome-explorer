@@ -23,6 +23,7 @@ public enum OperationType: String, Sendable {
     case blastVerification = "BLAST"
     case bamPrimerTrim = "Primer Trim"
     case variantCalling = "Variant Calling"
+    case workflow = "Workflow"
     case viralRecon = "Viral Recon"
     case applicationExportImport = "Application Export"
     case multipleSequenceAlignmentImport = "MSA Import"

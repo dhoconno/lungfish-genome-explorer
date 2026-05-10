@@ -49,6 +49,8 @@ struct RunSubcommand: AsyncParsableCommand {
             """
     )
 
+    nonisolated(unsafe) static var localWorkflowProcessRunner: LocalWorkflowProcessRunning = ProcessLocalWorkflowProcessRunner()
+
     @Argument(help: "Workflow file (*.nf, Snakefile) or supported nf-core workflow: nf-core/viralrecon")
     var workflow: String
 
@@ -224,11 +226,124 @@ struct RunSubcommand: AsyncParsableCommand {
             print(formatter.info("Starting workflow execution..."))
         }
 
-        // TODO: Integrate with actual workflow runners
-        // This is a placeholder for Phase 3 implementation
-        print(formatter.warning("Workflow execution not yet implemented in CLI"))
-        print("Would execute: \(workflow)")
-        print("With \(workflowParams.count) parameters")
+        try await runLocalWorkflow(
+            workflowParams: workflowParams,
+            isNextflow: isNextflow,
+            isSnakemake: isSnakemake,
+            formatter: formatter
+        )
+    }
+
+    private func runLocalWorkflow(
+        workflowParams: [String: String],
+        isNextflow: Bool,
+        isSnakemake: Bool,
+        formatter: TerminalFormatter
+    ) async throws {
+        guard isNextflow || isSnakemake else {
+            throw CLIError.unsupportedFormat(format: "Unknown workflow format")
+        }
+
+        let workflowURL = URL(fileURLWithPath: workflow).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: workflowURL.path) else {
+            throw CLIError.inputFileNotFound(path: workflowURL.path)
+        }
+
+        let inputURLs = input.map { URL(fileURLWithPath: $0).standardizedFileURL }
+        for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
+            throw CLIError.inputFileNotFound(path: inputURL.path)
+        }
+
+        let request = LocalWorkflowRunRequest(
+            workflowURL: workflowURL,
+            engine: isNextflow ? .nextflow : .snakemake,
+            inputURLs: inputURLs,
+            outputDirectory: URL(fileURLWithPath: resultsDir),
+            params: workflowParams,
+            resume: resume,
+            workDirectory: workDir.map { URL(fileURLWithPath: $0) },
+            cpus: cpus,
+            memory: memory
+        )
+        let runBundleURL = try resolveRunBundleURL(workflowName: request.workflowName)
+        let bundleCreatedAt = Date()
+        let preparedEvent = LocalWorkflowRunStatusEvent(status: .prepared, timestamp: bundleCreatedAt)
+        try LocalWorkflowRunBundleStore.write(
+            request.manifest(
+                createdAt: bundleCreatedAt,
+                executionStatus: .prepared,
+                statusHistory: [preparedEvent]
+            ),
+            to: runBundleURL
+        )
+
+        if !globalOptions.quiet {
+            print(formatter.info("Created run bundle: \(runBundleURL.path)"))
+            print(formatter.info(request.commandPreview))
+        }
+        if prepareOnly {
+            try writeLocalRunBundleProvenance(
+                request: request,
+                bundleURL: runBundleURL,
+                prepareOnly: true,
+                status: .completed,
+                exitCode: 0,
+                wallTime: Date().timeIntervalSince(bundleCreatedAt),
+                stderr: nil
+            )
+            print(runBundleURL.path)
+            return
+        }
+
+        let processStartedAt = Date()
+        let runningEvent = LocalWorkflowRunStatusEvent(status: .running, timestamp: processStartedAt)
+        try LocalWorkflowRunBundleStore.write(
+            request.manifest(
+                createdAt: bundleCreatedAt,
+                executionStatus: .running,
+                statusHistory: [preparedEvent, runningEvent],
+                startedAt: processStartedAt
+            ),
+            to: runBundleURL
+        )
+        let launch = request.processLaunch
+        let processResult = try await Self.localWorkflowProcessRunner.runWorkflow(
+            executableName: launch.executableName,
+            arguments: launch.arguments,
+            workingDirectory: launch.workingDirectory
+        )
+        try writeLocalProcessLogs(processResult, to: runBundleURL.appendingPathComponent("logs", isDirectory: true))
+        let processCompletedAt = Date()
+        let executionStatus: NFCoreRunExecutionStatus = processResult.exitCode == 0 ? .completed : .failed
+        let completedEvent = LocalWorkflowRunStatusEvent(status: executionStatus, timestamp: processCompletedAt)
+        try LocalWorkflowRunBundleStore.write(
+            request.manifest(
+                createdAt: bundleCreatedAt,
+                executionStatus: executionStatus,
+                statusHistory: [preparedEvent, runningEvent, completedEvent],
+                startedAt: processStartedAt,
+                completedAt: processCompletedAt,
+                exitCode: processResult.exitCode,
+                stdoutLogPath: "logs/stdout.log",
+                stderrLogPath: "logs/stderr.log"
+            ),
+            to: runBundleURL
+        )
+        try writeLocalRunBundleProvenance(
+            request: request,
+            bundleURL: runBundleURL,
+            prepareOnly: false,
+            status: processResult.exitCode == 0 ? .completed : .failed,
+            exitCode: processResult.exitCode,
+            wallTime: processCompletedAt.timeIntervalSince(processStartedAt),
+            stderr: processResult.standardError
+        )
+        if processResult.exitCode != 0 {
+            throw CLIError.workflowFailed(
+                reason: "\(request.engine.displayName) exited with status \(processResult.exitCode). See \(runBundleURL.appendingPathComponent("logs/stderr.log").path)"
+            )
+        }
+        print(runBundleURL.path)
     }
 
     private func runNFCoreWorkflow(
@@ -404,6 +519,12 @@ struct RunSubcommand: AsyncParsableCommand {
         try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
     }
 
+    private func writeLocalProcessLogs(_ result: LocalWorkflowProcessResult, to logsURL: URL) throws {
+        try FileManager.default.createDirectory(at: logsURL, withIntermediateDirectories: true)
+        try result.standardOutput.write(to: logsURL.appendingPathComponent("stdout.log"), atomically: true, encoding: .utf8)
+        try result.standardError.write(to: logsURL.appendingPathComponent("stderr.log"), atomically: true, encoding: .utf8)
+    }
+
     private func writeRunBundleProvenance(
         request: NFCoreRunRequest,
         bundleURL: URL,
@@ -464,12 +585,136 @@ struct RunSubcommand: AsyncParsableCommand {
             options: .atomic
         )
     }
+
+    private func writeLocalRunBundleProvenance(
+        request: LocalWorkflowRunRequest,
+        bundleURL: URL,
+        prepareOnly: Bool,
+        status: RunStatus,
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) throws {
+        let command = ["lungfish-cli"] + request.cliArguments(
+            bundlePath: bundleURL,
+            prepareOnly: prepareOnly
+        ) + (globalOptions.quiet ? ["--quiet"] : [])
+        let inputs = [ProvenanceRecorder.fileRecord(url: request.workflowURL, format: .text, role: .input)]
+            + request.inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) }
+        let outputs = [
+            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
+            FileRecord(path: request.outputDirectory.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(
+                url: bundleURL.appendingPathComponent("manifest.json"),
+                format: .json,
+                role: .output
+            ),
+        ]
+        var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
+        parameters["engine"] = .string(request.engine.rawValue)
+        parameters["workflowPath"] = .file(request.workflowURL)
+        parameters["resume"] = .boolean(request.resume)
+        parameters["prepareOnly"] = .boolean(prepareOnly)
+        if let workDirectory = request.workDirectory {
+            parameters["workDirectory"] = .file(workDirectory)
+        }
+        if let cpus = request.cpus {
+            parameters["cpus"] = .integer(cpus)
+        }
+        if let memory = request.memory {
+            parameters["memory"] = .string(memory)
+        }
+
+        let step = StepExecution(
+            toolName: "lungfish-cli workflow run",
+            toolVersion: LungfishCLI.configuration.version,
+            command: command,
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr,
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: "Run \(request.workflowDisplayName)",
+            endTime: Date(),
+            status: status,
+            steps: [step],
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(run)
+        try data.write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
+    }
 }
 
 private struct NFCoreWorkflowProcessResult {
     let exitCode: Int32
     let standardOutput: String
     let standardError: String
+}
+
+struct LocalWorkflowProcessResult: Sendable, Equatable {
+    let exitCode: Int32
+    let standardOutput: String
+    let standardError: String
+}
+
+protocol LocalWorkflowProcessRunning: Sendable {
+    func runWorkflow(
+        executableName: String,
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> LocalWorkflowProcessResult
+}
+
+struct ProcessLocalWorkflowProcessRunner: LocalWorkflowProcessRunning {
+    func runWorkflow(
+        executableName: String,
+        arguments: [String],
+        workingDirectory: URL
+    ) async throws -> LocalWorkflowProcessResult {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+                let stdoutURL = workingDirectory.appendingPathComponent(".lungfish-workflow-stdout.log")
+                let stderrURL = workingDirectory.appendingPathComponent(".lungfish-workflow-stderr.log")
+                _ = FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+                _ = FileManager.default.createFile(atPath: stderrURL.path, contents: nil)
+                let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+                let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                process.arguments = [executableName] + arguments
+                process.currentDirectoryURL = workingDirectory
+                process.standardOutput = stdoutHandle
+                process.standardError = stderrHandle
+                process.terminationHandler = { process in
+                    try? stdoutHandle.close()
+                    try? stderrHandle.close()
+                    let stdout = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
+                    let stderr = (try? String(contentsOf: stderrURL, encoding: .utf8)) ?? ""
+                    try? FileManager.default.removeItem(at: stdoutURL)
+                    try? FileManager.default.removeItem(at: stderrURL)
+                    continuation.resume(returning: LocalWorkflowProcessResult(
+                        exitCode: process.terminationStatus,
+                        standardOutput: stdout,
+                        standardError: stderr
+                    ))
+                }
+                try process.run()
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
 }
 
 // MARK: - List Subcommand
