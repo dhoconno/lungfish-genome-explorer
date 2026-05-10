@@ -2,26 +2,30 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:34:34Z",
+  "createdAt": "2026-05-10T22:58:05Z",
   "exitStatus": 0,
   "files": [
     {
       "checksumSHA256": "20882bab173849a5bd4b8c012b8d0d36c6bde0b1df51599fa63ffc84d09dbb6c",
+      "fileSize": 326,
       "path": "alignment-result.json",
       "size": 326
     },
     {
       "checksumSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize": 0,
       "path": "sample.sorted.bam",
       "size": 0
     },
     {
       "checksumSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "fileSize": 0,
       "path": "sample.sorted.bam.bai",
       "size": 0
     }
   ],
   "historicalBackfill": true,
+  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
   "options": {
     "fixtureToolName": "minimap2",
     "fixtureWorkflowName": "minimap2-alignment-output",
@@ -39,19 +43,20 @@
   },
   "output": {
     "checksumSHA256": "c17e279397dbc12917e79d08bbb27b64eb3dd072d18cbea745614138319d79c8",
+    "fileSize": 326,
     "path": "Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
     "size": 326
   },
-  "reproducibleCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
+  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/minimap2-2026-01-15T14-00-00",
   "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "68ae1af0cd8050ac5460e5cf894365903a492ccb",
+    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 5714,
+    "processIdentifier": 24054,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

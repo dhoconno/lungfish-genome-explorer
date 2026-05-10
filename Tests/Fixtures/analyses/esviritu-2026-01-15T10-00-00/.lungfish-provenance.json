@@ -1,7 +1,82 @@
 {
-    "provenanceId": "550E8400-E29B-41D4-A716-446655440000",
-    "tool": "esviritu",
-    "version": "1.0.0",
-    "timestamp": "2026-01-15T10:00:00Z",
-    "inputFiles": ["testSample_R1.fastq.gz"]
+  "argv": [
+    "scripts/testing/write-analysis-fixture-provenance.py"
+  ],
+  "createdAt": "2026-05-10T22:58:05Z",
+  "exitStatus": 0,
+  "files": [
+    {
+      "checksumSHA256": "257e96047dc0c1f5e4221c6468da43defbc59f0e36c34b0f2b42df4c769e2037",
+      "fileSize": 696,
+      "path": "esviritu-result.json",
+      "size": 696
+    },
+    {
+      "checksumSHA256": "d28789ec42a523c9e10b2b53da1ef8b79cc922e74fc9512e58c0454deb43409b",
+      "fileSize": 197,
+      "path": "testSample.detected_virus.info.tsv",
+      "size": 197
+    },
+    {
+      "checksumSHA256": "d7914e3a496ec07ab67578012e421e005f2ff6e6c08ebc3eab172e55935443a3",
+      "fileSize": 180,
+      "path": "testSample.tax_profile.tsv",
+      "size": 180
+    },
+    {
+      "checksumSHA256": "358b4cb2593fbd6d8f848534e49633b7fc7cf2150d20fbfeb3dda1ff0d856da7",
+      "fileSize": 95,
+      "path": "testSample.virus_coverage_windows.tsv",
+      "size": 95
+    }
+  ],
+  "historicalBackfill": true,
+  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00",
+  "options": {
+    "fixtureToolName": "esviritu",
+    "fixtureWorkflowName": "esviritu-analysis-output",
+    "inputPaths": [],
+    "outputDirectory": "Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00",
+    "purpose": "Retained GUI sidebar fixture for single-sample ESViritu analysis output.",
+    "resolvedDefaults": {
+      "backfillMode": "historical-fixture-sidecar-only",
+      "overwriteExistingSidecar": false
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00",
+      "tool": "esviritu"
+    }
+  },
+  "output": {
+    "checksumSHA256": "a8967c956e07fea1e4d4c09b35908a4aa738fdfbaba185a88b740cb58351be5e",
+    "fileSize": 1168,
+    "path": "Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00",
+    "size": 1168
+  },
+  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00",
+  "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "runtimeIdentity": {
+    "condaEnvironment": "base",
+    "containerImage": null,
+    "executablePath": "/Users/dho/miniforge3/bin/python3",
+    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
+    "processIdentifier": 24054,
+    "pythonVersion": "3.12.8"
+  },
+  "schemaVersion": 1,
+  "stderr": null,
+  "tool": {
+    "name": "write-analysis-fixture-provenance.py",
+    "version": "0.4.0-alpha.12"
+  },
+  "toolName": "write-analysis-fixture-provenance.py",
+  "toolVersion": "0.4.0-alpha.12",
+  "wallTimeSeconds": 0.0,
+  "warning": "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun.",
+  "warnings": [
+    "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun."
+  ],
+  "workflowName": "analysis-fixture-provenance-historical-backfill"
 }

@@ -2,31 +2,36 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:34:34Z",
+  "createdAt": "2026-05-10T22:58:05Z",
   "exitStatus": 0,
   "files": [
     {
       "checksumSHA256": "4a19fcf83e9b921ffb94333132afc11bf50713e9a3f195452c32a9ba17554d4e",
+      "fileSize": 707,
       "path": "classification-result.json",
       "size": 707
     },
     {
       "checksumSHA256": "6b6e996d18adf068140ac0c82037463b3e61fb1c77e180568f7c53ca1019250f",
+      "fileSize": 223,
       "path": "reads.bracken",
       "size": 223
     },
     {
       "checksumSHA256": "81e3c1da85ae9ece31b4bf85b21027a214e22c103dd35efb44392463b3ddf5a2",
+      "fileSize": 300,
       "path": "reads.kraken",
       "size": 300
     },
     {
       "checksumSHA256": "c308521c25e3bbb19b224020588b1f705ae2f57aa2b9ba0dfca7c1f2ee09305f",
+      "fileSize": 210,
       "path": "reads.kreport",
       "size": 210
     }
   ],
   "historicalBackfill": true,
+  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
   "options": {
     "fixtureToolName": "kraken2",
     "fixtureWorkflowName": "kraken2-classification-output",
@@ -44,19 +49,20 @@
   },
   "output": {
     "checksumSHA256": "4bd5fd59d3439a29a5e70ec40a7afc3382618e09f92f5f56ef0ce238c56134c8",
+    "fileSize": 1440,
     "path": "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
     "size": 1440
   },
-  "reproducibleCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
+  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
   "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "68ae1af0cd8050ac5460e5cf894365903a492ccb",
+    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 5714,
+    "processIdentifier": 24054,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

@@ -2,41 +2,48 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:34:34Z",
+  "createdAt": "2026-05-10T22:58:05Z",
   "exitStatus": 0,
   "files": [
     {
       "checksumSHA256": "93497419f2c9a974307943e5d939433e02acf1b7d3b6db430954058e8121fdb0",
+      "fileSize": 428,
       "path": "esviritu-batch-manifest.json",
       "size": 428
     },
     {
       "checksumSHA256": "c4415a3c8d85a2a98dd52fe9195d83522d2ae4be505383b7ea172a410c77cd5f",
+      "fileSize": 95,
       "path": "esviritu-batch-summary.tsv",
       "size": 95
     },
     {
       "checksumSHA256": "b124702a9f6735acd84fd5f10d9ff28973d7b68df42a9bba03d2a137069ea259",
+      "fileSize": 695,
       "path": "sample1/esviritu-result.json",
       "size": 695
     },
     {
       "checksumSHA256": "437fbe431be6a059964525713190553d2f0ed5e7e0614e942afa0a09cafd83f1",
+      "fileSize": 139,
       "path": "sample1/sample1.detected_virus.info.tsv",
       "size": 139
     },
     {
       "checksumSHA256": "34d2ec1b4643fc61d6e9bfec8df7ab3113f3f9f719510f33adf10dcf4eccd94c",
+      "fileSize": 695,
       "path": "sample2/esviritu-result.json",
       "size": 695
     },
     {
       "checksumSHA256": "29a6ad933247289392027ae947d3404fc2c646b5b1eb88cb139bca2a80d34bf1",
+      "fileSize": 86,
       "path": "sample2/sample2.detected_virus.info.tsv",
       "size": 86
     }
   ],
   "historicalBackfill": true,
+  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/esviritu-batch-2026-01-15T15-00-00",
   "options": {
     "fixtureToolName": "esviritu-batch",
     "fixtureWorkflowName": "esviritu-batch-analysis-output",
@@ -54,19 +61,20 @@
   },
   "output": {
     "checksumSHA256": "3239ca5a25e8f0fa4365b74ae322236a69e2b2ec1816754c2be3781323aa9cbb",
+    "fileSize": 2138,
     "path": "Tests/Fixtures/analyses/esviritu-batch-2026-01-15T15-00-00",
     "size": 2138
   },
-  "reproducibleCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/esviritu-batch-2026-01-15T15-00-00",
+  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/esviritu-batch-2026-01-15T15-00-00",
   "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "68ae1af0cd8050ac5460e5cf894365903a492ccb",
+    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 5714,
+    "processIdentifier": 24054,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

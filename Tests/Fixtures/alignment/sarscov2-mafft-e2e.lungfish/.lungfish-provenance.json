@@ -1,60 +1,148 @@
 {
   "argv": [
-    "/opt/homebrew/opt/python@3.14/bin/python3.14",
-    "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+    "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-03T20:52:54Z",
+  "createdAt": "2026-05-10T22:58:05Z",
   "exitStatus": 0,
-  "files": {
-    "Inputs/sars-cov-2-genomes.fasta": {
+  "files": [
+    {
       "checksumSHA256": "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
       "fileSize": 151156,
-      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta"
+      "path": "Inputs/sars-cov-2-genomes.fasta",
+      "size": 151156
     },
-    "Inputs/source-metadata.tsv": {
+    {
       "checksumSHA256": "27add1f5e7c574adf82a0d600cceda41052585a1e8e750eb6819bd54c6803772",
       "fileSize": 1407,
-      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/source-metadata.tsv"
+      "path": "Inputs/source-metadata.tsv",
+      "size": 1407
     },
-    "README.md": {
+    {
+      "checksumSHA256": "43d7a353088790b99f13c72738e8468902a66cf310a9915a24cb0d2a0d3df885",
+      "fileSize": 287,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/.viewstate.json",
+      "size": 287
+    },
+    {
+      "checksumSHA256": "6bfc057c9ae609c250adce77a47384643f263cb33300973a8745b716c8852824",
+      "fileSize": 151156,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/input.unaligned.fasta",
+      "size": 151156
+    },
+    {
+      "checksumSHA256": "ce110e98e830e47ba7e1c468993898b21a88e7a6d26c7f11e302a258705265ad",
+      "fileSize": 149331,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/primary.aligned.fasta",
+      "size": 149331
+    },
+    {
+      "checksumSHA256": "d7814f4cebea8ca8926e4ff41ab114fd5308daeab7f55814622d8fc82c1c8594",
+      "fileSize": 151816,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/alignment/source.original",
+      "size": 151816
+    },
+    {
+      "checksumSHA256": "f6029d765f82a6c698b21a14dcc0b97aa8b7dd4cb9ac3e3163da2498b84275f9",
+      "fileSize": 81,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/analysis-metadata.json",
+      "size": 81
+    },
+    {
+      "checksumSHA256": "fcb16906765f5fec3c8036bfbba3cc254d67a0299a9fbd154dfe22623669de8c",
+      "fileSize": 692224,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/cache/alignment-index.sqlite",
+      "size": 692224
+    },
+    {
+      "checksumSHA256": "efada128616ffd71f968e2dad84aa6f61b57eba440eaca77b968d2988056c5c6",
+      "fileSize": 32248,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/manifest.json",
+      "size": 32248
+    },
+    {
+      "checksumSHA256": "407835b2433df20817e59ff239df8ed899c8760e5bec4b04e2899df2b9ccad26",
+      "fileSize": 92,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.json",
+      "size": 92
+    },
+    {
+      "checksumSHA256": "d7f066cf5e2a2904b062cbe9889f9ec33d21b4670e9fddf7fd774a6ef79f4717",
+      "fileSize": 32768,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/annotations.sqlite",
+      "size": 32768
+    },
+    {
+      "checksumSHA256": "fa1948feb3a7d922e28e7236df940451e9c20588dee46fd16ba20b89c9806c4d",
+      "fileSize": 3767968,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/coordinate-maps.json",
+      "size": 3767968
+    },
+    {
+      "checksumSHA256": "872f59a07ce20aeca71912dc594484384b849477b6577768c31e944de79f953f",
+      "fileSize": 2071,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/rows.json",
+      "size": 2071
+    },
+    {
+      "checksumSHA256": "8060056d2e8b9c356bae358b53289f392fc257c6c57a97f3010559c9fb9f810c",
+      "fileSize": 2705,
+      "path": "Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa/metadata/source-row-map.json",
+      "size": 2705
+    },
+    {
       "checksumSHA256": "45c22b12cbdf25ef0f787ce71b9b01da50576e94af8ea1373d5be95669137b05",
       "fileSize": 1145,
-      "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/README.md"
+      "path": "README.md",
+      "size": 1145
+    }
+  ],
+  "historicalBackfill": true,
+  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+  "options": {
+    "fixtureToolName": "create_sarscov2_alignment_fixture.py",
+    "fixtureWorkflowName": "sars-cov-2-alignment-fixture-generation",
+    "inputPaths": [],
+    "outputDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+    "purpose": "Retained SARS-CoV-2 MAFFT end-to-end alignment fixture bundle.",
+    "resolvedDefaults": {
+      "backfillMode": "historical-fixture-sidecar-only",
+      "overwriteExistingSidecar": false
+    },
+    "userVisibleOptions": {
+      "fixtureDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+      "tool": "create_sarscov2_alignment_fixture.py"
     }
   },
-  "input": {
-    "checksumSHA256": "1833c8720be7a62a4f132beefb68d2cbc32c3e20bd85a8939dba178850ba1ba4",
-    "fileSize": 30322,
-    "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/sarscov2/genome.fasta"
-  },
-  "options": {
-    "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
-    "outputDirectory": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-    "recordCount": 5,
-    "sourceAccession": "MT192765.1",
-    "sourceFasta": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/sarscov2/genome.fasta"
-  },
   "output": {
-    "checksumSHA256": "a071efe872a83d584d0ea2822dc8b4a73f02eb7801673e36eea0e3ecc2d461cf",
-    "fileSize": 153708,
-    "path": "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
+    "checksumSHA256": "6a6b15146c9de285c4d69b13732e928f98f35878e7d53eaeae4f8f5fc9399107",
+    "fileSize": 5136455,
+    "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+    "size": 5136455
   },
-  "reproducibleCommand": "'/opt/homebrew/opt/python@3.14/bin/python3.14' /Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+  "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
-    "executablePath": "/opt/homebrew/opt/python@3.14/bin/python3.14",
-    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
-    "processIdentifier": 78002,
-    "pythonVersion": "3.14.3"
+    "executablePath": "/Users/dho/miniforge3/bin/python3",
+    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
+    "processIdentifier": 24054,
+    "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,
   "stderr": null,
-  "toolName": "create_sarscov2_alignment_fixture.py",
-  "toolVersion": "0.1.0",
-  "wallTimeSeconds": 0.059105750027811155,
+  "tool": {
+    "name": "write-analysis-fixture-provenance.py",
+    "version": "0.4.0-alpha.12"
+  },
+  "toolName": "write-analysis-fixture-provenance.py",
+  "toolVersion": "0.4.0-alpha.12",
+  "wallTimeSeconds": 0.0,
+  "warning": "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun.",
   "warnings": [
-    "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
+    "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun."
   ],
-  "workflowName": "sars-cov-2-alignment-fixture-generation"
+  "workflowName": "analysis-fixture-provenance-historical-backfill"
 }
