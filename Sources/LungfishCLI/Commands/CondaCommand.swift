@@ -93,7 +93,7 @@ extension CondaCommand {
         @Option(name: .customLong("from-lockfile"), help: "conda-lock-compatible lockfile created by 'lungfish conda lock'")
         var fromLockfile: String?
 
-        @Option(name: .customLong("conda-root"), help: "Conda root to install into when using --offline (default: managed storage conda root)")
+        @Option(name: .customLong("conda-root"), help: "Conda root to install into when using --offline or --from-lockfile (default: managed storage conda root)")
         var condaRoot: String?
 
         @Flag(name: .long, help: "Replace existing environments when using --offline")

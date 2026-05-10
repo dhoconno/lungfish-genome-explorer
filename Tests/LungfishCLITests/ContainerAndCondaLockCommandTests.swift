@@ -24,6 +24,10 @@ final class ContainerAndCondaLockCommandTests: XCTestCase {
         XCTAssertTrue(help.contains("lock"))
         XCTAssertTrue(help.contains("--from-lockfile"))
 
+        let installHelp = CondaCommand.InstallSubcommand.helpMessage()
+        XCTAssertTrue(installHelp.contains("--from-lockfile"))
+        XCTAssertTrue(installHelp.contains("--conda-root"))
+
         let lock = try CondaCommand.parseAsRoot([
             "lock",
             "--pack", "read-mapping",
@@ -34,6 +38,7 @@ final class ContainerAndCondaLockCommandTests: XCTestCase {
         let install = try CondaCommand.parseAsRoot([
             "install",
             "--from-lockfile", "/tmp/read-mapping-lock.yml",
+            "--conda-root", "/tmp/custom-conda-root",
         ])
         XCTAssertTrue(install is CondaCommand.InstallSubcommand)
     }
