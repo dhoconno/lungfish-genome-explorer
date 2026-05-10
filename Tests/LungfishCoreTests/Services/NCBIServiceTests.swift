@@ -74,6 +74,45 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("api_key=environment-api-key"))
     }
 
+    func testNCBIAPIKeyResolverPrefersExplicitThenStoredThenEnvironment() async throws {
+        let environment = ["NCBI_API_KEY": "environment-api-key"]
+
+        let explicit = try await NCBIAPIKeyResolver.resolve(
+            explicitAPIKey: " explicit-api-key ",
+            storedAPIKey: { "stored-api-key" },
+            environment: environment
+        )
+        XCTAssertEqual(explicit, "explicit-api-key")
+
+        let stored = try await NCBIAPIKeyResolver.resolve(
+            explicitAPIKey: nil,
+            storedAPIKey: { " stored-api-key " },
+            environment: environment
+        )
+        XCTAssertEqual(stored, "stored-api-key")
+
+        let fallback = try await NCBIAPIKeyResolver.resolve(
+            explicitAPIKey: nil,
+            storedAPIKey: { nil },
+            environment: environment
+        )
+        XCTAssertEqual(fallback, "environment-api-key")
+
+        let missing = try await NCBIAPIKeyResolver.resolve(
+            explicitAPIKey: "   ",
+            storedAPIKey: { "\n\t" },
+            environment: [:]
+        )
+        XCTAssertNil(missing)
+
+        XCTAssertEqual(
+            NCBIAPIKeyResolver.redactSecrets(
+                in: "https://eutils.ncbi.nlm.nih.gov/?db=sra&api_key=SECRET&retmode=json"
+            ),
+            "https://eutils.ncbi.nlm.nih.gov/?db=sra&api_key=<redacted>&retmode=json"
+        )
+    }
+
     // MARK: - EFetch Tests
 
     func testEFetchFASTA() async throws {

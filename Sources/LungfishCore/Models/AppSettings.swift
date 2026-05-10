@@ -594,4 +594,27 @@ public final class AppSettings: Sendable {
         let b = Int(round(rgb.blueComponent * 255))
         return String(format: "#%02X%02X%02X", r, g, b)
     }
+
+    // MARK: - Secret-backed NCBI Settings
+
+    public func storeNCBIAPIKey(_ value: String) async throws {
+        try await KeychainSecretStorage.shared.store(
+            secret: value.trimmingCharacters(in: .whitespacesAndNewlines),
+            forKey: KeychainSecretStorage.ncbiAPIKey
+        )
+        NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
+    }
+
+    public func retrieveNCBIAPIKey() async throws -> String? {
+        try await KeychainSecretStorage.shared.retrieve(forKey: KeychainSecretStorage.ncbiAPIKey)
+    }
+
+    public func hasStoredNCBIAPIKey() async -> Bool {
+        await KeychainSecretStorage.shared.hasSecret(forKey: KeychainSecretStorage.ncbiAPIKey)
+    }
+
+    public func deleteNCBIAPIKey() async throws {
+        try await KeychainSecretStorage.shared.delete(forKey: KeychainSecretStorage.ncbiAPIKey)
+        NotificationCenter.default.post(name: .appSettingsChanged, object: nil)
+    }
 }

@@ -764,7 +764,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
         let isMultiLine = item.detail.contains("\n") || item.detail.count > 60
         let hasExpandableContent = isMultiLine || item.cliCommand != nil || !item.outputURLs.isEmpty || !item.logEntries.isEmpty
-            || (item.state == .failed && item.errorMessage != nil)
+            || !item.retryEvents.isEmpty || (item.state == .failed && item.errorMessage != nil)
 
         if isExpanded {
             detailField.stringValue = item.detail
@@ -1242,6 +1242,16 @@ private enum OperationLogDocument {
             lines.append("Log Entries:")
             item.logEntries.forEach { entry in
                 lines.append("[\(displayTimestamp(entry.timestamp))] [\(entry.level.rawValue.uppercased())] \(entry.message)")
+            }
+        }
+
+        if !item.retryEvents.isEmpty {
+            lines.append("")
+            lines.append("Retry Metadata:")
+            item.retryEvents.forEach { retry in
+                lines.append(
+                    "[\(displayTimestamp(retry.timestamp))] HTTP \(retry.statusCode) attempt \(retry.attempt)/\(retry.maxRetries); next retry in \(retry.delaySeconds)s"
+                )
             }
         }
 

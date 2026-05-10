@@ -62,6 +62,60 @@ public struct NCBIRetryEvent: Sendable, Codable, Equatable {
     }
 }
 
+public enum NCBIAPIKeyResolver {
+    public typealias StoredAPIKeyProvider = @Sendable () async throws -> String?
+
+    public static func resolve(
+        explicitAPIKey: String?,
+        storedAPIKey: StoredAPIKeyProvider,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) async throws -> String? {
+        if let explicit = normalized(explicitAPIKey) {
+            return explicit
+        }
+        if let stored = try await normalized(storedAPIKey()) {
+            return stored
+        }
+        return resolve(explicitAPIKey: nil, environment: environment)
+    }
+
+    public static func resolve(
+        explicitAPIKey: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let explicit = normalized(explicitAPIKey) {
+            return explicit
+        }
+        return normalized(environment["NCBI_API_KEY"])
+    }
+
+    public static func redactSecrets(in value: String) -> String {
+        guard !value.isEmpty else { return value }
+        var redacted = value
+        let patterns = [
+            #"(?i)(api_key=)[^&\s'"]+"#,
+            #"(?i)(--ncbi-api-key(?:=|\s+))[^&\s'"]+"#,
+            #"(?i)(NCBI_API_KEY=)[^&\s'"]+"#,
+        ]
+        for pattern in patterns {
+            redacted = redacted.replacingOccurrences(
+                of: pattern,
+                with: "$1<redacted>",
+                options: .regularExpression
+            )
+        }
+        return redacted
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+}
+
 // MARK: - NCBI Service
 
 /// Service for accessing NCBI databases via Entrez E-utilities.
@@ -122,7 +176,7 @@ public actor NCBIService: DatabaseService {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
     ) {
-        let resolvedAPIKey = Self.resolvedAPIKey(apiKey: apiKey, environment: environment)
+        let resolvedAPIKey = NCBIAPIKeyResolver.resolve(explicitAPIKey: apiKey, environment: environment)
         self.apiKey = resolvedAPIKey
         self.httpClient = httpClient
         self.retryPolicy = retryPolicy
@@ -139,19 +193,30 @@ public actor NCBIService: DatabaseService {
         retryEvents.removeAll()
     }
 
-    private nonisolated static func resolvedAPIKey(
-        apiKey: String?,
-        environment: [String: String]
-    ) -> String? {
-        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return apiKey
+    public static func configured(
+        apiKey: String? = nil,
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        secretStorage: KeychainSecretStorage = .shared,
+        retryPolicy: NCBIRetryPolicy = .rateLimitDefaults,
+        retrySleeper: @escaping @Sendable (TimeInterval) async throws -> Void = { delay in
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
         }
-        guard let environmentAPIKey = environment["NCBI_API_KEY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-            !environmentAPIKey.isEmpty else {
-            return nil
-        }
-        return environmentAPIKey
+    ) async throws -> NCBIService {
+        let resolvedAPIKey = try await NCBIAPIKeyResolver.resolve(
+            explicitAPIKey: apiKey,
+            storedAPIKey: {
+                try await secretStorage.retrieve(forKey: KeychainSecretStorage.ncbiAPIKey)
+            },
+            environment: environment
+        )
+        return NCBIService(
+            apiKey: resolvedAPIKey,
+            httpClient: httpClient,
+            environment: [:],
+            retryPolicy: retryPolicy,
+            retrySleeper: retrySleeper
+        )
     }
 
     // MARK: - DatabaseService Protocol
@@ -967,7 +1032,8 @@ public actor NCBIService: DatabaseService {
             components.queryItems?.append(URLQueryItem(name: "api_key", value: apiKey))
         }
 
-        logger.debug("NCBIService.esearchWithCount: URL=\(components.url?.absoluteString ?? "nil", privacy: .public)")
+        let redactedURLString = NCBIAPIKeyResolver.redactSecrets(in: components.url?.absoluteString ?? "nil")
+        logger.debug("NCBIService.esearchWithCount: URL=\(redactedURLString, privacy: .public)")
 
         let data = try await makeRequest(url: components.url!)
 
