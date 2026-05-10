@@ -4,6 +4,9 @@ title: Lungfish User Manual
 
 # Lungfish User Manual
 
+!!! warning "Under development"
+    This documentation is under active development and is **not yet ready for use**. Chapters may be incomplete, screenshots may be missing, and content may change without notice. Do not rely on these pages as a reference for production work. If you have questions, contact the development team directly.
+
 Welcome. This manual is the documentation for Lungfish, the macOS app for viral genome analysis. It is organised into three parts: **Foundations** (what to know before you start), **Working with the app** (every workflow Lungfish supports, organised by what you are trying to do), and **Reference** (the CLI, keyboard shortcuts, troubleshooting, and the glossary).
 
 The pilot chapter is [Calling Variants from Amplicon Reads](chapters/05-variants/01-calling-variants-from-amplicons.md). It walks the full SARS-CoV-2 amplicon-Illumina workflow end to end and is the right starting point if you want to see what Lungfish does in action.
