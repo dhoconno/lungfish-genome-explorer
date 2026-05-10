@@ -46,6 +46,9 @@ public actor KeychainSecretStorage {
     /// Keychain account key for the NCBI Entrez/Datasets API key.
     public static let ncbiAPIKey = "ncbi.apiKey"
 
+    /// Keychain account key for the local provenance signing private key.
+    public static let provenanceSigningPrivateKey = "provenance.signing.privateKey"
+
     // MARK: - Operations
 
     /// Stores a secret string in the Keychain under the given key.
@@ -163,7 +166,7 @@ public actor KeychainSecretStorage {
 
     /// Deletes all secrets stored by this app in the Keychain.
     public func deleteAll() throws {
-        for key in [Self.openAIAPIKey, Self.anthropicAPIKey, Self.geminiAPIKey, Self.ncbiAPIKey] {
+        for key in [Self.openAIAPIKey, Self.anthropicAPIKey, Self.geminiAPIKey, Self.ncbiAPIKey, Self.provenanceSigningPrivateKey] {
             try delete(forKey: key)
         }
     }

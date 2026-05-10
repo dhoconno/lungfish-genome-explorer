@@ -13,6 +13,10 @@ struct GeneralSettingsTab: View {
     @State private var ncbiKeyStatus = "Checking NCBI API key settings..."
     @State private var ncbiKeyError: String?
     @State private var hasStoredNCBIAPIKey = false
+    @State private var provenanceSigningKey = ""
+    @State private var provenanceSigningStatus = "Checking provenance signing settings..."
+    @State private var provenanceSigningError: String?
+    @State private var hasStoredProvenanceSigningKey = false
 
     var body: some View {
         Form {
@@ -89,6 +93,43 @@ struct GeneralSettingsTab: View {
                 }
             }
 
+            Section("Provenance Signing") {
+                Picker("Provider:", selection: $settings.provenanceSigningProvider) {
+                    Text("Off").tag("off")
+                    Text("Local").tag("local")
+                    Text("Cosign Plan").tag("cosign")
+                }
+                .pickerStyle(.segmented)
+
+                SecureField("Local signing key:", text: $provenanceSigningKey)
+                    .textFieldStyle(.roundedBorder)
+
+                TextField("Public key path:", text: $settings.provenanceSigningPublicKeyPath)
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Button("Save Signing Key") {
+                        Task { await saveProvenanceSigningKey() }
+                    }
+                    .disabled(provenanceSigningKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    Button("Clear Signing Key") {
+                        Task { await clearProvenanceSigningKey() }
+                    }
+                    .disabled(!hasStoredProvenanceSigningKey)
+                }
+
+                Text(provenanceSigningStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let provenanceSigningError {
+                    Text(provenanceSigningError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
             HStack {
                 Spacer()
                 Button("Restore Defaults") {
@@ -102,8 +143,11 @@ struct GeneralSettingsTab: View {
         .onChange(of: settings.maxUndoLevels) { _, _ in settings.save() }
         .onChange(of: settings.vcfImportProfile) { _, _ in settings.save() }
         .onChange(of: settings.tempFileRetentionHours) { _, _ in settings.save() }
+        .onChange(of: settings.provenanceSigningProvider) { _, _ in settings.save() }
+        .onChange(of: settings.provenanceSigningPublicKeyPath) { _, _ in settings.save() }
         .task {
             await refreshNCBIAPIKeyStatus()
+            await refreshProvenanceSigningStatus()
         }
     }
 
@@ -144,6 +188,50 @@ struct GeneralSettingsTab: View {
             ncbiKeyStatus = "Using NCBI_API_KEY from the process environment."
         case (false, false):
             ncbiKeyStatus = "No NCBI API key configured. Requests use the public NCBI rate limit."
+        }
+    }
+
+    private func saveProvenanceSigningKey() async {
+        do {
+            try await settings.storeProvenanceSigningPrivateKey(provenanceSigningKey)
+            provenanceSigningKey = ""
+            provenanceSigningError = nil
+            await refreshProvenanceSigningStatus()
+        } catch {
+            provenanceSigningError = "Could not save signing key: \(error.localizedDescription)"
+        }
+    }
+
+    private func clearProvenanceSigningKey() async {
+        do {
+            try await settings.deleteProvenanceSigningPrivateKey()
+            provenanceSigningKey = ""
+            provenanceSigningError = nil
+            await refreshProvenanceSigningStatus()
+        } catch {
+            provenanceSigningError = "Could not clear signing key: \(error.localizedDescription)"
+        }
+    }
+
+    private func refreshProvenanceSigningStatus() async {
+        hasStoredProvenanceSigningKey = await settings.hasStoredProvenanceSigningPrivateKey()
+        let hasEnvironmentKey = ProcessInfo.processInfo.environment["LUNGFISH_PROVENANCE_SIGNING_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false
+
+        switch settings.provenanceSigningProvider {
+        case "local":
+            if hasStoredProvenanceSigningKey {
+                provenanceSigningStatus = "Local signing is enabled with a stored Keychain key."
+            } else if hasEnvironmentKey {
+                provenanceSigningStatus = "Local signing is enabled with LUNGFISH_PROVENANCE_SIGNING_KEY."
+            } else {
+                provenanceSigningStatus = "Local signing is enabled but no signing key is stored."
+            }
+        case "cosign":
+            provenanceSigningStatus = "Cosign signing is documented as a command plan; local verification uses sidecar artifacts."
+        default:
+            provenanceSigningStatus = "Provenance signing is off."
         }
     }
 }

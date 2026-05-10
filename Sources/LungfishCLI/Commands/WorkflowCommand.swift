@@ -24,9 +24,71 @@ struct WorkflowCommand: AsyncParsableCommand {
             RunSubcommand.self,
             ListSubcommand.self,
             WorkflowValidateSubcommand.self,
+            WorkflowDiffSubcommand.self,
         ],
         defaultSubcommand: RunSubcommand.self
     )
+}
+
+struct WorkflowDiffSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "diff",
+        abstract: "Compare two saved Lungfish workflows"
+    )
+
+    @Argument(help: "First workflow file or .lungfishflow bundle")
+    var first: String
+
+    @Argument(help: "Second workflow file or .lungfishflow bundle")
+    var second: String
+
+    @Option(name: .customLong("format"), help: "Output format: text, json, or tsv")
+    var format: OutputFormat = .text
+
+    func run() async throws {
+        let firstGraph = try Self.loadWorkflow(at: URL(fileURLWithPath: first))
+        let secondGraph = try Self.loadWorkflow(at: URL(fileURLWithPath: second))
+        let diff = WorkflowGraphDiff.compare(firstGraph, secondGraph)
+
+        switch format {
+        case .text:
+            print(diff.textDescription)
+        case .json:
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(diff.jsonReport)
+            print(String(data: data, encoding: .utf8) ?? "{}")
+        case .tsv:
+            print("field\tvalue")
+            print("fromVersion\t\(diff.jsonReport.fromVersion)")
+            print("toVersion\t\(diff.jsonReport.toVersion)")
+            print("hasChanges\t\(diff.hasChanges)")
+            for change in diff.changes {
+                print("change\t\(change)")
+            }
+        }
+    }
+
+    private static func loadWorkflow(at url: URL) throws -> WorkflowGraph {
+        let data = try Data(contentsOf: try workflowJSONURL(for: url))
+        return try JSONDecoder().decode(WorkflowGraph.self, from: data)
+    }
+
+    private static func workflowJSONURL(for url: URL) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: url.path)
+        }
+        guard isDirectory.boolValue else { return url }
+        let candidates = [
+            url.appendingPathComponent("workflow.json"),
+            url.appendingPathComponent("manifest.json"),
+        ]
+        if let candidate = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return candidate
+        }
+        throw CLIError.inputFileNotFound(path: url.appendingPathComponent("workflow.json").path)
+    }
 }
 
 struct RunHeadlessSubcommand: AsyncParsableCommand {
@@ -599,10 +661,9 @@ struct RunSubcommand: AsyncParsableCommand {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(run)
-        try data.write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try data.write(to: provenanceURL, options: .atomic)
+        try signProvenanceIfConfigured(at: provenanceURL)
     }
 
     private func writeLocalRunBundleProvenance(
@@ -666,10 +727,14 @@ struct RunSubcommand: AsyncParsableCommand {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(run)
-        try data.write(
-            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
-        )
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try data.write(to: provenanceURL, options: .atomic)
+        try signProvenanceIfConfigured(at: provenanceURL)
+    }
+
+    private func signProvenanceIfConfigured(at provenanceURL: URL) throws {
+        guard let provider = ProvenanceSigningConfiguration.defaultProvider() else { return }
+        _ = try provider.sign(provenanceURL: provenanceURL)
     }
 }
 
