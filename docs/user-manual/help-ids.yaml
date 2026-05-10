@@ -198,7 +198,7 @@ dialog.BAMVariantCallingDialog:
   chapter: 05-variants/01-calling-variants-from-amplicons
   anchor: step-6-call-variants-with-ivar
   scope: dialog
-  description: Call variants with iVar, LoFreq, or Medaka against a bundle alignment track.
+  description: Call variants with iVar, LoFreq, Medaka, or bcftools against a bundle alignment track.
 
 dialog.UnifiedMetagenomicsWizard:
   chapter: 06-classification/01-what-is-classification

@@ -80,6 +80,10 @@ struct BAMVariantCallingToolPanes: View {
                 Text("LoFreq is ready to run directly on the selected bundle alignment track.")
                     .foregroundStyle(.secondary)
 
+            case .bcftools:
+                Text("bcftools will run mpileup and call as an orthogonal cross-check on the selected BAM.")
+                    .foregroundStyle(.secondary)
+
             case .ivar:
                 if let auto = state.autoConfirmedPrimerTrim {
                     Toggle(

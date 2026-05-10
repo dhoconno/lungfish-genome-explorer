@@ -5,6 +5,7 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
     case lofreq
     case ivar
     case medaka
+    case bcftools
     case gatkHaplotypeCaller = "gatk-haplotype-caller"
 
     var displayName: String {
@@ -15,6 +16,8 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
             return ViralVariantCaller.ivar.displayName
         case .medaka:
             return ViralVariantCaller.medaka.displayName
+        case .bcftools:
+            return ViralVariantCaller.bcftools.displayName
         case .gatkHaplotypeCaller:
             return "GATK HaplotypeCaller"
         }
@@ -24,6 +27,8 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
         switch self {
         case .lofreq, .ivar, .medaka:
             return "variant-calling"
+        case .bcftools:
+            return "lungfish-tools"
         case .gatkHaplotypeCaller:
             return "gatk-core"
         }
@@ -52,6 +57,7 @@ struct BAMVariantCallingCatalog: Sendable {
     static func availableSidebarItems() -> [DatasetOperationToolSidebarItem] {
         sidebarItems(availabilityByPackID: [
             "variant-calling": .available,
+            "lungfish-tools": .available,
             "gatk-core": .available,
         ])
     }
@@ -94,6 +100,8 @@ struct BAMVariantCallingCatalog: Sendable {
             return "Amplicon-oriented calling for primer-trimmed viral BAMs."
         case .medaka:
             return "ONT-focused consensus and variant calling with Medaka."
+        case .bcftools:
+            return "Orthogonal mpileup/call cross-check for BAM alignments."
         case .gatkHaplotypeCaller:
             return "Germline SNP and indel calling with standard VCF genotypes."
         }

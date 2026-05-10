@@ -59,6 +59,39 @@ final class VariantsCommandTests: XCTestCase {
         XCTAssertEqual(capture.request?.advancedArguments, ["--call-indels", "--tag", "sample 1"])
     }
 
+    func testCallSubcommandAcceptsBcftoolsCallerAndPassesRequestToRuntime() async throws {
+        let capture = CapturedVariantRequest()
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--extra-args", "--ploidy 1",
+            "--format", "json",
+        ])
+        let runtime = try makeRuntime(onPreflight: { request in
+            capture.request = request
+        })
+
+        _ = try await command.executeForTesting(runtime: runtime) { _ in }
+
+        XCTAssertEqual(capture.request?.caller.rawValue, "bcftools")
+        XCTAssertEqual(capture.request?.advancedArguments, ["--ploidy", "1"])
+    }
+
+    func testCallSubcommandKeepsAdvancedOptionsAliasForExistingScripts() throws {
+        let command = try VariantsCommand.CallSubcommand.parse([
+            "call",
+            "--bundle", tempDir.path,
+            "--alignment-track", "aln-1",
+            "--caller", "bcftools",
+            "--advanced-options", "--ploidy 1",
+            "--format", "json",
+        ])
+
+        XCTAssertEqual(command.advancedOptions, "--ploidy 1")
+    }
+
     func testCallSubcommandEmitsRunCompleteJSON() async throws {
         let command = try VariantsCommand.CallSubcommand.parse([
             "call",
