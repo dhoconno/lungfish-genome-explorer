@@ -250,6 +250,10 @@ public actor NCBIService: DatabaseService {
         logger.info("NCBIService.search: esearch returned \(searchResult.totalCount) total, \(searchResult.ids.count) IDs")
 
         guard !searchResult.ids.isEmpty else {
+            if let accessionResult = try await directAccessionSearchResultIfApplicable(query: query) {
+                return accessionResult
+            }
+
             // Return empty but with the total count (may be 0)
             logger.info("NCBIService.search: No results found")
             return SearchResults(
@@ -285,6 +289,56 @@ public actor NCBIService: DatabaseService {
             hasMore: hasMore,
             nextCursor: hasMore ? String(query.offset + records.count) : nil
         )
+    }
+
+    private func directAccessionSearchResultIfApplicable(query: SearchQuery) async throws -> SearchResults? {
+        let accession = query.term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard query.offset == 0,
+              query.limit > 0,
+              query.organism == nil,
+              query.dateRange == nil,
+              query.location == nil,
+              query.minLength == nil,
+              query.maxLength == nil,
+              isLikelyAccessionTerm(accession) else {
+            return nil
+        }
+
+        do {
+            let record = try await fetch(accession: accession)
+            let searchRecord = SearchResultRecord(
+                id: record.id,
+                accession: record.accession,
+                title: record.title,
+                organism: record.organism,
+                length: record.length,
+                date: record.collectionDate,
+                source: record.source
+            )
+            logger.info("NCBIService.search: ESearch returned no IDs; direct accession fetch recovered \(record.accession, privacy: .public)")
+            return SearchResults(totalCount: 1, records: [searchRecord])
+        } catch {
+            logger.warning(
+                "NCBIService.search: Direct accession fallback for \(accession, privacy: .public) failed after empty ESearch: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private nonisolated func isLikelyAccessionTerm(_ term: String) -> Bool {
+        guard !term.isEmpty,
+              term.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              !term.contains("[") else {
+            return false
+        }
+
+        let patterns = [
+            #"^[A-Z]{1,4}_\d+(?:\.\d+)?$"#,
+            #"^[A-Z]{1,4}\d{5,9}(?:\.\d+)?$"#,
+        ]
+        return patterns.contains { pattern in
+            term.range(of: pattern, options: .regularExpression) != nil
+        }
     }
 
     public func fetch(accession: String) async throws -> DatabaseRecord {
@@ -1055,7 +1109,28 @@ public actor NCBIService: DatabaseService {
                 logger.debug("NCBIService.esearchWithCount: Response (truncated)=\(truncated, privacy: .public)")
             }
 
-            let response = try JSONDecoder().decode(ESearchResponse.self, from: data)
+            let response: ESearchResponse
+            do {
+                response = try JSONDecoder().decode(ESearchResponse.self, from: data)
+            } catch {
+                if retryPolicy.enabled,
+                   payloadRetryAttempt < retryPolicy.maxRetries {
+                    payloadRetryAttempt += 1
+                    let delay = retryDelaySeconds(forAttempt: payloadRetryAttempt)
+                    retryEvents.append(NCBIRetryEvent(
+                        attempt: payloadRetryAttempt,
+                        maxRetries: retryPolicy.maxRetries,
+                        statusCode: 200,
+                        delaySeconds: delay
+                    ))
+                    logger.warning(
+                        "NCBI esearch returned malformed payload; retrying attempt \(payloadRetryAttempt, privacy: .public)/\(self.retryPolicy.maxRetries, privacy: .public) after \(delay, privacy: .public)s: \(String(describing: error), privacy: .public)"
+                    )
+                    try await retrySleeper(delay)
+                    continue
+                }
+                throw error
+            }
 
             if let payloadError = response.esearchresult?.error {
                 if isTransientESearchPayloadError(payloadError),

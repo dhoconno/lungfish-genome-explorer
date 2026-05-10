@@ -68,6 +68,44 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(recordedDelays, [0.01])
     }
 
+    func testESearchRetriesTransientMalformedJSONPayload() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: NCBIRetryPolicy(
+                enabled: true,
+                maxRetries: 2,
+                initialBackoffSeconds: 0.01,
+                maxBackoffSeconds: 0.01
+            ),
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "esearch.fcgi",
+            responses: [
+                .text(#"{"esearchresult":{"count":"1","idlist":["#),
+                .json([
+                    "esearchresult": [
+                        "count": "1",
+                        "retmax": "1",
+                        "retstart": "0",
+                        "idlist": ["9629357"]
+                    ]
+                ]),
+            ]
+        )
+
+        let ids = try await service.esearch(database: .nucleotide, term: "NC_001802", retmax: 1)
+
+        XCTAssertEqual(ids, ["9629357"])
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 2)
+        let recordedDelays = await retryDelays.values
+        XCTAssertEqual(recordedDelays, [0.01])
+    }
+
     func testESearchEmptyResults() async throws {
         await mockClient.registerNCBISearch(ids: [])
 
@@ -269,6 +307,42 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(results.records.count, 2)
         XCTAssertEqual(results.records[0].accession, "AB123.1")
         XCTAssertEqual(results.records[1].accession, "AB456.1")
+    }
+
+    func testSearchFallsBackToDirectFetchForExactAccessionWhenESearchIsEmpty() async throws {
+        await mockClient.registerSequence(
+            pattern: "esearch.fcgi",
+            responses: [
+                .json([
+                    "esearchresult": [
+                        "count": "0",
+                        "retmax": "1",
+                        "retstart": "0",
+                        "idlist": []
+                    ]
+                ])
+            ]
+        )
+
+        let gbContent = """
+        LOCUS       NC_001802              9181 bp    RNA     linear   VRL
+        ACCESSION   NC_001802
+        VERSION     NC_001802.1
+        DEFINITION  Human immunodeficiency virus 1, complete genome.
+        SOURCE      Human immunodeficiency virus 1
+          ORGANISM  Human immunodeficiency virus 1
+        ORIGIN
+                1 atgggtgcga
+        //
+        """
+        await mockClient.register(pattern: "efetch.fcgi", response: .text(gbContent))
+
+        let results = try await service.search(SearchQuery(term: "NC_001802", limit: 1))
+
+        XCTAssertEqual(results.totalCount, 1)
+        XCTAssertEqual(results.records.count, 1)
+        XCTAssertEqual(results.records.first?.accession, "NC_001802")
+        XCTAssertEqual(results.records.first?.title, "Human immunodeficiency virus 1, complete genome.")
     }
 
     // MARK: - Fetch Tests (DatabaseService Protocol)
