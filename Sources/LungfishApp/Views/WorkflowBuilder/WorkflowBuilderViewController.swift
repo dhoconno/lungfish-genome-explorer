@@ -71,6 +71,12 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Whether the workflow has unsaved changes.
     public private(set) var hasUnsavedChanges: Bool = false
 
+    /// Active project context used to bind the pinned project output anchor.
+    public var activeProjectURL: URL?
+
+    /// Preferred sample context used to preselect the pinned sample input anchor.
+    public var preferredSampleURL: URL?
+
     private static let workflowBundleType = UTType(exportedAs: "org.lungfish.workflow", conformingTo: .package)
 
     // MARK: - Lifecycle
@@ -290,9 +296,6 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         let bundleURL = normalizedWorkflowBundleURL(for: requestedURL)
         let fileManager = FileManager.default
 
-        if fileManager.fileExists(atPath: bundleURL.path) {
-            try fileManager.removeItem(at: bundleURL)
-        }
         try fileManager.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
         let encoder = JSONEncoder()
@@ -347,22 +350,137 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     @objc public func runWorkflow(_ sender: Any?) {
         let issues = graph.validate()
-        let alert = NSAlert()
         if issues.contains(where: { $0.severity == .error }) {
+            let alert = NSAlert()
             alert.messageText = "Workflow Not Ready"
             alert.informativeText = issues.map(\.description).joined(separator: "\n")
             alert.alertStyle = .warning
-        } else {
-            alert.messageText = "Workflow Run Setup Required"
-            alert.informativeText = "Sample binding and Operation Center dispatch are not available for this project yet. Save the workflow bundle or export it to Nextflow/Snakemake for reproducible execution."
-            alert.alertStyle = .informational
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
         }
-        alert.addButton(withTitle: "OK")
+
+        guard let projectURL = activeProjectURL else {
+            let alert = NSAlert()
+            alert.messageText = "No Active Project"
+            alert.informativeText = "Open a Lungfish project before running a workflow so the Sample input and Project output anchors can be bound."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
+        }
+
+        let samples = WorkflowBuilderRunSampleDiscovery.discoverSamples(
+            in: projectURL,
+            preferredSampleURL: preferredSampleURL
+        )
+        guard !samples.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "No Sample Inputs Found"
+            alert.informativeText = "Import or select a Lungfish sample bundle in the active project before running this workflow."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            presentAlert(alert)
+            return
+        }
+
+        showRunBindingSheet(samples: samples, projectURL: projectURL)
+    }
+
+    public func configureRunContext(projectURL: URL?, preferredSampleURL: URL?) {
+        activeProjectURL = projectURL?.standardizedFileURL
+        self.preferredSampleURL = preferredSampleURL?.standardizedFileURL
+    }
+
+    private func showRunBindingSheet(samples: [WorkflowBuilderRunSample], projectURL: URL) {
+        let popup = NSPopUpButton(frame: NSRect(x: 92, y: 38, width: 360, height: 26), pullsDown: false)
+        popup.setAccessibilityIdentifier("WorkflowBuilderRunSamplePopup")
+        for sample in samples {
+            popup.addItem(withTitle: sample.displayName)
+            popup.lastItem?.representedObject = sample.url
+        }
+
+        let sampleLabel = NSTextField(labelWithString: "Sample:")
+        sampleLabel.frame = NSRect(x: 0, y: 42, width: 80, height: 18)
+        let projectLabel = NSTextField(labelWithString: "Project:")
+        projectLabel.frame = NSRect(x: 0, y: 8, width: 80, height: 18)
+        let projectValue = NSTextField(labelWithString: projectURL.lastPathComponent)
+        projectValue.frame = NSRect(x: 92, y: 6, width: 360, height: 22)
+        projectValue.lineBreakMode = .byTruncatingMiddle
+
+        let accessoryView = NSView(frame: NSRect(x: 0, y: 0, width: 452, height: 72))
+        accessoryView.addSubview(sampleLabel)
+        accessoryView.addSubview(popup)
+        accessoryView.addSubview(projectLabel)
+        accessoryView.addSubview(projectValue)
+
+        let alert = NSAlert()
+        alert.messageText = "Run Workflow"
+        alert.informativeText = "Bind the pinned Sample input and Project output anchors before dispatching this workflow."
+        alert.accessoryView = accessoryView
+        alert.addButton(withTitle: "Run")
+        alert.addButton(withTitle: "Cancel")
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn,
+                      let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
+                self?.startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+            }
+        } else {
+            let response = alert.runModal()
+            guard response == .alertFirstButtonReturn,
+                  let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
+            startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+        }
+    }
+
+    private func startWorkflowRun(sampleURL: URL, projectURL: URL) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let bundleURL = try self.ensureWorkflowBundleForRun(projectURL: projectURL)
+                let binding = WorkflowBuilderRunBinding(sampleURL: sampleURL, projectURL: projectURL)
+                _ = try await WorkflowBuilderRunService().run(
+                    graph: self.graph,
+                    workflowBundleURL: bundleURL,
+                    binding: binding
+                )
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "Workflow Run Failed"
+                alert.informativeText = error.localizedDescription
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                self.presentAlert(alert)
+            }
+        }
+    }
+
+    private func ensureWorkflowBundleForRun(projectURL: URL) throws -> URL {
+        if let workflowURL {
+            return try saveWorkflowBundle(to: workflowURL)
+        }
+
+        let workflowsURL = projectURL.appendingPathComponent("Workflows", isDirectory: true)
+        try FileManager.default.createDirectory(at: workflowsURL, withIntermediateDirectories: true)
+        let filename = Self.sanitizedWorkflowFilename(graph.name)
+        return try saveWorkflowBundle(to: workflowsURL.appendingPathComponent("\(filename).lungfishflow", isDirectory: true))
+    }
+
+    private func presentAlert(_ alert: NSAlert) {
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
             alert.runModal()
         }
+    }
+
+    private static func sanitizedWorkflowFilename(_ name: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_ "))
+        let scalars = name.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" }
+        let collapsed = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsed.isEmpty ? "workflow" : collapsed.replacingOccurrences(of: " ", with: "-")
     }
 
     // MARK: - Export Operations

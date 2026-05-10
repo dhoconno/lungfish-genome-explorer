@@ -6435,6 +6435,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             workflowBuilderWindowController = NSWindowController(window: window)
         }
 
+        if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
+            let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+            viewController.configureRunContext(
+                projectURL: sidebarController?.currentProjectURL,
+                preferredSampleURL: sidebarController?.selectedFileURL
+            )
+        }
+
         workflowBuilderWindowController?.showWindow(sender)
         workflowBuilderWindowController?.window?.makeKeyAndOrderFront(sender)
         NSApp.activate(ignoringOtherApps: true)

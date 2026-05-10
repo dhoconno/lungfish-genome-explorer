@@ -171,11 +171,17 @@ what makes the workflow reusable across samples.
 ### Run the workflow
 
 Click the **Run** button in the toolbar. If the graph is incomplete, the
-builder shows the validation errors. If the graph is structurally ready but
-the active project/sample binding is unavailable, the builder opens an
-explanatory setup sheet instead of silently doing nothing. Operation Center
-dispatch, run IDs, failure stop/resume, and per-node resume actions are still
-tracked as docs-040b follow-up work.
+builder shows the validation errors. If the graph is structurally ready, the
+builder opens a run sheet that binds the pinned **Sample input** anchor to a
+sample bundle from the active project and binds **Project output** to that
+project. Press **Run** in the sheet to create a durable workflow run.
+
+Each run is written under `runs/<run-id>/` inside the `.lungfishflow` bundle.
+The run record includes timestamps, graph checksum, sample/project bindings,
+per-node status, error state, and run-level reproducibility provenance. The
+Operation Center receives a parent workflow row and one child row per node,
+all carrying the same durable run id. The first failing node marks the run
+failed and leaves downstream nodes skipped in the run record for inspection.
 
 ## Worked example: SARS-CoV-2 reads to variants
 
@@ -207,16 +213,17 @@ Press `Cmd-S` and save the workflow as `sarscov2-reads-to-variants`. The
 file lands at `Workflows/sarscov2-reads-to-variants.lungfishflow` inside the
 project.
 
-Click **Run** to validate the graph. In builds where project/sample binding
-is not yet connected, use the saved `.lungfishflow` bundle or export to
-Nextflow/Snakemake as the reproducible handoff.
+Click **Run** to validate the graph, choose the active sample bundle, and
+dispatch the workflow through Operation Center. Inspect the generated
+`runs/<run-id>/run.json` and `runs/<run-id>/provenance.json` files in the
+saved workflow bundle when you need the exact binding and status history.
 
 ## Interpretation
 
 A saved workflow bundle is a reproducible graph asset. Full run history under
-`runs/`, Operation Center row provenance, downstream stop-on-failure, and
-resume semantics are planned for the execution plumbing that follows the
-current builder wiring.
+`runs/`, Operation Center row provenance, and downstream stop-on-failure are
+part of the native workflow bundle. Treat the run record as the source of
+truth when comparing graph revisions or diagnosing a failed workflow node.
 
 A common surprise the first time you save a workflow: the node graph
 captures parameters but not paths. If your workflow needs a primer scheme
