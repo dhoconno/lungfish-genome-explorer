@@ -44,6 +44,7 @@ extension ViewerViewController {
         hideTaxTriageView()
         hideNaoMgsView()
         hideNvdView()
+        hideCzIdView()
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()

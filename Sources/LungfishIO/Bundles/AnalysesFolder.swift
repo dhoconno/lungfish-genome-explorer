@@ -23,13 +23,13 @@ public enum AnalysesFolder {
     /// The set of recognised tool names used to parse directory entries.
     public static let knownTools: Set<String> = [
         "esviritu", "kraken2", "taxtriage", "minimap2", "bwa-mem2", "bowtie2", "bbmap",
-        "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd",
+        "spades", "megahit", "skesa", "flye", "hifiasm", "naomgs", "nvd", "cz-id",
         "mafft",
     ]
 
     /// Tools whose imported results use `{tool}-{sampleName}` naming
     /// instead of the standard `{tool}-{timestamp}` convention.
-    private static let importedResultTools: Set<String> = ["naomgs", "nvd"]
+    private static let importedResultTools: Set<String> = ["naomgs", "nvd", "cz-id"]
 
     // MARK: - Analysis Metadata
 
@@ -93,6 +93,7 @@ public enum AnalysesFolder {
         case "bbmap": return "BBMap"
         case "naomgs": return "NAO-MGS"
         case "nvd": return "NVD"
+        case "cz-id": return "CZ-ID"
         case "mafft": return "MAFFT"
         default: return tool.capitalized
         }
@@ -297,10 +298,16 @@ public enum AnalysesFolder {
         let manifest = url.appendingPathComponent("manifest.json")
         let hitsSqlite = url.appendingPathComponent("hits.sqlite")
         let classificationResult = url.appendingPathComponent("classification-result.json")
+        let czIdManifest = url.appendingPathComponent("cz-id-manifest.json")
         let assemblyResult = url.appendingPathComponent("assembly-result.json")
         let mappingResult = url.appendingPathComponent("mapping-result.json")
         let msaManifest = url.appendingPathComponent("manifest.json")
         let alignedFASTA = url.appendingPathComponent("alignment/primary.aligned.fasta")
+
+        if fm.fileExists(atPath: czIdManifest.path),
+           fm.fileExists(atPath: classificationResult.path) {
+            return "cz-id"
+        }
 
         // Kraken2: has classification-result.json
         if fm.fileExists(atPath: classificationResult.path) {

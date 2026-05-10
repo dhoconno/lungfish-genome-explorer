@@ -125,6 +125,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         hideTaxTriageView()
         hideNaoMgsView()
         hideNvdView()
+        hideCzIdView()
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()

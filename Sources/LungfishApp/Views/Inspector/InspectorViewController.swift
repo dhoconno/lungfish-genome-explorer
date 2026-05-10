@@ -4179,6 +4179,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .taxTriageResult: return "Comprehensive Triage Result"
         case .naoMgsResult: return "NAO-MGS Surveillance Result"
         case .nvdResult: return "NVD Classification Result"
+        case .czIdResult: return "CZ-ID Classification Result"
         case .analysisResult: return "Analysis Result"
         }
     }

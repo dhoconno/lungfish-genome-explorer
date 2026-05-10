@@ -206,6 +206,12 @@ dialog.UnifiedMetagenomicsWizard:
   scope: dialog
   description: Run a classifier (Kraken2, EsViritu, TaxTriage, NAO-MGS) against a FASTQ bundle.
 
+dialog.CzIdImportSheet:
+  chapter: 06-classification/07-importing-cz-id-results
+  anchor: procedure
+  scope: dialog
+  description: Import a CZ-ID taxon report TSV, ZIP archive, or extracted folder.
+
 dialog.AssemblyWizard:
   chapter: 07-assembly/01-when-to-assemble
   anchor: procedure
@@ -351,6 +357,12 @@ viewport.NAOMGSResultViewer:
   anchor: interpretation
   scope: viewport
   description: NAO-MGS surveillance viewport with longitudinal abundance charts.
+
+viewport.CzIdResultViewer:
+  chapter: 06-classification/07-importing-cz-id-results
+  anchor: what-it-is
+  scope: viewport
+  description: Imported CZ-ID taxonomy result viewport.
 
 # === Inspector sections (right-pane workflows) ===
 
