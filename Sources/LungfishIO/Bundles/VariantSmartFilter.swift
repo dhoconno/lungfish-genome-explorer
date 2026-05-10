@@ -64,6 +64,11 @@ public struct VariantSmartCompiledSQL: Equatable, Sendable {
     public let bindings: [VariantSmartBinding]
 }
 
+public struct VariantSmartCompiledConditions: Equatable, Sendable {
+    public let conditions: [String]
+    public let bindings: [VariantSmartBinding]
+}
+
 public enum VariantSmartPredicate: CustomStringConvertible, Equatable, Sendable {
     case sample(VariantSamplePredicate)
     case count(VariantSampleCountPredicate)
@@ -136,17 +141,22 @@ public struct VariantSmartFilter: Equatable, Sendable {
     }
 
     public func compileSQL(limit: Int = 5000) throws -> VariantSmartCompiledSQL {
-        var bindings: [VariantSmartBinding] = []
-        let conditions = try predicates.map { try Self.sqlCondition(for: $0, bindings: &bindings) }
+        let compiled = try compileSQLConditions()
         let boundedLimit = max(0, limit)
-        let whereClause = conditions.isEmpty ? "" : " WHERE " + conditions.joined(separator: " AND ")
+        let whereClause = compiled.conditions.isEmpty ? "" : " WHERE " + compiled.conditions.joined(separator: " AND ")
         let sql = """
             SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count
             FROM variants\(whereClause)
             ORDER BY chromosome, position
             LIMIT \(boundedLimit)
             """
-        return VariantSmartCompiledSQL(sql: sql, bindings: bindings)
+        return VariantSmartCompiledSQL(sql: sql, bindings: compiled.bindings)
+    }
+
+    public func compileSQLConditions() throws -> VariantSmartCompiledConditions {
+        var bindings: [VariantSmartBinding] = []
+        let conditions = try predicates.map { try Self.sqlCondition(for: $0, bindings: &bindings) }
+        return VariantSmartCompiledConditions(conditions: conditions, bindings: bindings)
     }
 
     private static func parseClause(_ clause: String) throws -> VariantSmartPredicate {

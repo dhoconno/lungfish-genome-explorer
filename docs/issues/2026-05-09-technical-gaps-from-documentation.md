@@ -691,7 +691,7 @@ The Workflow Builder and Export chapters need updates to match the actual implem
 - [ ] **CLI**: `lungfish variants extract-sample <bundle> --sample <name> --output <file>` derives a per-sample VCF from the SQLite store.
 - [ ] **CLI**: `lungfish variants query <bundle> --filter "<smart-filter expr>" --output <file>` runs an arbitrary smart-filter query and emits a derived VCF or TSV.
 - [ ] Documentation extends `05-variants/06-importing-existing-vcfs.md` and `05-variants/02-reading-the-variant-browser.md` with per-sample filter examples
-- [ ] An automated benchmark verifies filter latency stays under 1 second for a 1000-sample, 100,000-row variant store
+- [ ] An automated benchmark verifies filter latency stays under 1 second for a 1000-sample, 100,000-row variant store. Run the gated benchmark with `LUNGFISH_RUN_VARIANT_BENCHMARKS=1 swift test --filter VariantSmartFilterTests/testSmartFilterQueryStaysUnderOneSecondAtScale`; normal `VariantSmartFilterTests` runs skip the generated scale fixture.
 
 **Out of scope:**
 

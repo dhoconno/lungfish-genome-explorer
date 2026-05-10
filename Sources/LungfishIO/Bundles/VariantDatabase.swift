@@ -259,6 +259,17 @@ private func sqliteBindTextOrNull(_ stmt: OpaquePointer?, _ index: Int32, _ text
     }
 }
 
+private func sqliteBindVariantSmartBinding(_ stmt: OpaquePointer?, _ index: Int32, _ binding: VariantSmartBinding) {
+    switch binding {
+    case .text(let value):
+        sqliteBindText(stmt, index, value)
+    case .double(let value):
+        sqlite3_bind_double(stmt, index, value)
+    case .int(let value):
+        sqlite3_bind_int64(stmt, index, Int64(value))
+    }
+}
+
 // MARK: - VariantDatabase (Reader)
 
 /// Runtime profile for VCF import resource tuning.
@@ -880,6 +891,7 @@ public final class VariantDatabase: @unchecked Sendable {
         types: Set<String> = [],
         infoFilters: [InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = [],
         limit: Int = 5000
     ) -> [VariantDatabaseRecord] {
@@ -908,18 +920,18 @@ public final class VariantDatabase: @unchecked Sendable {
         if useHighImpactJoin { sql += " \(highImpactJoinSQL())" }
 
         var conditions: [String] = []
-        var bindings: [(Int32, String)] = []
+        var bindings: [(Int32, VariantSmartBinding)] = []
         var paramIndex: Int32 = 1
 
         if let chromosome {
             conditions.append("variants.chromosome = ?")
-            bindings.append((paramIndex, chromosome))
+            bindings.append((paramIndex, .text(chromosome)))
             paramIndex += 1
         }
 
         if !nameFilter.isEmpty {
             conditions.append("variants.variant_id LIKE ?")
-            bindings.append((paramIndex, "%\(nameFilter)%"))
+            bindings.append((paramIndex, .text("%\(nameFilter)%")))
             paramIndex += 1
         }
 
@@ -927,7 +939,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = types.map { _ in "?" }.joined(separator: ",")
             conditions.append("variants.variant_type IN (\(placeholders))")
             for t in types.sorted() {
-                bindings.append((paramIndex, t))
+                bindings.append((paramIndex, .text(t)))
                 paramIndex += 1
             }
         }
@@ -937,7 +949,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = sortedNames.map { _ in "?" }.joined(separator: ",")
             conditions.append("EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND g.sample_name IN (\(placeholders)))")
             for sampleName in sortedNames {
-                bindings.append((paramIndex, sampleName))
+                bindings.append((paramIndex, .text(sampleName)))
                 paramIndex += 1
             }
         }
@@ -945,7 +957,16 @@ public final class VariantDatabase: @unchecked Sendable {
         for filter in effectiveInfoFilters {
             let (filterSQL, filterBindings) = filter.sqlCondition(paramIndex: &paramIndex)
             conditions.append(filterSQL)
-            bindings.append(contentsOf: filterBindings)
+            bindings.append(contentsOf: filterBindings.map { ($0.0, .text($0.1)) })
+        }
+
+        if let smartFilter {
+            guard let compiledSmartFilter = try? smartFilter.compileSQLConditions() else { return [] }
+            conditions.append(contentsOf: compiledSmartFilter.conditions)
+            for binding in compiledSmartFilter.bindings {
+                bindings.append((paramIndex, binding))
+                paramIndex += 1
+            }
         }
 
         if !supersededFilters.qualitySuperseded {
@@ -962,7 +983,7 @@ public final class VariantDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
 
         for (idx, value) in bindings {
-            sqliteBindText(stmt, idx, value)
+            sqliteBindVariantSmartBinding(stmt, idx, value)
         }
 
         return readVariantRows(stmt: stmt!)
@@ -1017,6 +1038,7 @@ public final class VariantDatabase: @unchecked Sendable {
         types: Set<String> = [],
         infoFilters: [InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = []
     ) -> Int {
         guard let db else { return 0 }
@@ -1039,18 +1061,18 @@ public final class VariantDatabase: @unchecked Sendable {
         if useHighImpactJoin { sql += " \(highImpactJoinSQL())" }
 
         var conditions: [String] = []
-        var bindings: [(Int32, String)] = []
+        var bindings: [(Int32, VariantSmartBinding)] = []
         var paramIndex: Int32 = 1
 
         if let chromosome {
             conditions.append("variants.chromosome = ?")
-            bindings.append((paramIndex, chromosome))
+            bindings.append((paramIndex, .text(chromosome)))
             paramIndex += 1
         }
 
         if !nameFilter.isEmpty {
             conditions.append("variants.variant_id LIKE ?")
-            bindings.append((paramIndex, "%\(nameFilter)%"))
+            bindings.append((paramIndex, .text("%\(nameFilter)%")))
             paramIndex += 1
         }
 
@@ -1058,7 +1080,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = types.map { _ in "?" }.joined(separator: ",")
             conditions.append("variants.variant_type IN (\(placeholders))")
             for t in types.sorted() {
-                bindings.append((paramIndex, t))
+                bindings.append((paramIndex, .text(t)))
                 paramIndex += 1
             }
         }
@@ -1068,7 +1090,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = sortedNames.map { _ in "?" }.joined(separator: ",")
             conditions.append("EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND g.sample_name IN (\(placeholders)))")
             for sampleName in sortedNames {
-                bindings.append((paramIndex, sampleName))
+                bindings.append((paramIndex, .text(sampleName)))
                 paramIndex += 1
             }
         }
@@ -1076,7 +1098,16 @@ public final class VariantDatabase: @unchecked Sendable {
         for filter in effectiveInfoFilters {
             let (filterSQL, filterBindings) = filter.sqlCondition(paramIndex: &paramIndex)
             conditions.append(filterSQL)
-            bindings.append(contentsOf: filterBindings)
+            bindings.append(contentsOf: filterBindings.map { ($0.0, .text($0.1)) })
+        }
+
+        if let smartFilter {
+            guard let compiledSmartFilter = try? smartFilter.compileSQLConditions() else { return 0 }
+            conditions.append(contentsOf: compiledSmartFilter.conditions)
+            for binding in compiledSmartFilter.bindings {
+                bindings.append((paramIndex, binding))
+                paramIndex += 1
+            }
         }
 
         if !conditions.isEmpty {
@@ -1088,7 +1119,7 @@ public final class VariantDatabase: @unchecked Sendable {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
 
         for (idx, value) in bindings {
-            sqliteBindText(stmt, idx, value)
+            sqliteBindVariantSmartBinding(stmt, idx, value)
         }
 
         guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
@@ -1105,6 +1136,7 @@ public final class VariantDatabase: @unchecked Sendable {
         types: Set<String> = [],
         infoFilters: [InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = [],
         limit: Int = 5000
     ) -> [VariantDatabaseRecord] {
@@ -1133,13 +1165,13 @@ public final class VariantDatabase: @unchecked Sendable {
 
         let colPrefix = useQualifiedCols ? "variants." : ""
         var conditions: [String] = ["\(colPrefix)chromosome = ?1", "\(colPrefix)position < ?2", "\(colPrefix)end_pos > ?3"]
-        var textBindings: [(Int32, String)] = [(1, chromosome)]
+        var bindings: [(Int32, VariantSmartBinding)] = [(1, .text(chromosome))]
         let intBindings: [(Int32, Int)] = [(2, end), (3, start)]
         var paramIndex: Int32 = 4
 
         if !nameFilter.isEmpty {
             conditions.append("\(colPrefix)variant_id LIKE ?\(paramIndex)")
-            textBindings.append((paramIndex, "%\(nameFilter)%"))
+            bindings.append((paramIndex, .text("%\(nameFilter)%")))
             paramIndex += 1
         }
 
@@ -1147,7 +1179,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = types.enumerated().map { "?\(paramIndex + Int32($0.offset))" }.joined(separator: ",")
             conditions.append("\(colPrefix)variant_type IN (\(placeholders))")
             for t in types.sorted() {
-                textBindings.append((paramIndex, t))
+                bindings.append((paramIndex, .text(t)))
                 paramIndex += 1
             }
         }
@@ -1157,7 +1189,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = sortedNames.enumerated().map { "?\(paramIndex + Int32($0.offset))" }.joined(separator: ",")
             conditions.append("EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND g.sample_name IN (\(placeholders)))")
             for sampleName in sortedNames {
-                textBindings.append((paramIndex, sampleName))
+                bindings.append((paramIndex, .text(sampleName)))
                 paramIndex += 1
             }
         }
@@ -1165,7 +1197,16 @@ public final class VariantDatabase: @unchecked Sendable {
         for filter in effectiveInfoFilters {
             let (filterSQL, filterBindings) = filter.sqlCondition(paramIndex: &paramIndex)
             conditions.append(filterSQL)
-            textBindings.append(contentsOf: filterBindings)
+            bindings.append(contentsOf: filterBindings.map { ($0.0, .text($0.1)) })
+        }
+
+        if let smartFilter {
+            guard let compiledSmartFilter = try? smartFilter.compileSQLConditions() else { return [] }
+            conditions.append(contentsOf: compiledSmartFilter.conditions)
+            for binding in compiledSmartFilter.bindings {
+                bindings.append((paramIndex, binding))
+                paramIndex += 1
+            }
         }
 
         sql += " WHERE " + conditions.joined(separator: " AND ")
@@ -1175,8 +1216,8 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
 
-        for (idx, value) in textBindings {
-            sqliteBindText(stmt, idx, value)
+        for (idx, value) in bindings {
+            sqliteBindVariantSmartBinding(stmt, idx, value)
         }
         for (idx, value) in intBindings {
             sqlite3_bind_int64(stmt, idx, Int64(value))
@@ -1194,6 +1235,7 @@ public final class VariantDatabase: @unchecked Sendable {
         types: Set<String> = [],
         infoFilters: [InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = []
     ) -> Int {
         guard let db else { return 0 }
@@ -1215,13 +1257,13 @@ public final class VariantDatabase: @unchecked Sendable {
         if useHighImpactJoin { sql += " \(highImpactJoinSQL())" }
 
         var conditions: [String] = ["variants.chromosome = ?1", "variants.position < ?2", "variants.end_pos > ?3"]
-        var textBindings: [(Int32, String)] = [(1, chromosome)]
+        var bindings: [(Int32, VariantSmartBinding)] = [(1, .text(chromosome))]
         let intBindings: [(Int32, Int)] = [(2, end), (3, start)]
         var paramIndex: Int32 = 4
 
         if !nameFilter.isEmpty {
             conditions.append("variants.variant_id LIKE ?\(paramIndex)")
-            textBindings.append((paramIndex, "%\(nameFilter)%"))
+            bindings.append((paramIndex, .text("%\(nameFilter)%")))
             paramIndex += 1
         }
 
@@ -1229,7 +1271,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = types.enumerated().map { "?\(paramIndex + Int32($0.offset))" }.joined(separator: ",")
             conditions.append("variants.variant_type IN (\(placeholders))")
             for t in types.sorted() {
-                textBindings.append((paramIndex, t))
+                bindings.append((paramIndex, .text(t)))
                 paramIndex += 1
             }
         }
@@ -1239,7 +1281,7 @@ public final class VariantDatabase: @unchecked Sendable {
             let placeholders = sortedNames.enumerated().map { "?\(paramIndex + Int32($0.offset))" }.joined(separator: ",")
             conditions.append("EXISTS (SELECT 1 FROM genotypes g WHERE g.variant_id = variants.id AND g.sample_name IN (\(placeholders)))")
             for sampleName in sortedNames {
-                textBindings.append((paramIndex, sampleName))
+                bindings.append((paramIndex, .text(sampleName)))
                 paramIndex += 1
             }
         }
@@ -1247,7 +1289,16 @@ public final class VariantDatabase: @unchecked Sendable {
         for filter in effectiveInfoFilters {
             let (filterSQL, filterBindings) = filter.sqlCondition(paramIndex: &paramIndex)
             conditions.append(filterSQL)
-            textBindings.append(contentsOf: filterBindings)
+            bindings.append(contentsOf: filterBindings.map { ($0.0, .text($0.1)) })
+        }
+
+        if let smartFilter {
+            guard let compiledSmartFilter = try? smartFilter.compileSQLConditions() else { return 0 }
+            conditions.append(contentsOf: compiledSmartFilter.conditions)
+            for binding in compiledSmartFilter.bindings {
+                bindings.append((paramIndex, binding))
+                paramIndex += 1
+            }
         }
 
         sql += " WHERE " + conditions.joined(separator: " AND ")
@@ -1256,8 +1307,8 @@ public final class VariantDatabase: @unchecked Sendable {
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return 0 }
 
-        for (idx, value) in textBindings {
-            sqliteBindText(stmt, idx, value)
+        for (idx, value) in bindings {
+            sqliteBindVariantSmartBinding(stmt, idx, value)
         }
         for (idx, value) in intBindings {
             sqlite3_bind_int64(stmt, idx, Int64(value))
