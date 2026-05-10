@@ -91,6 +91,12 @@ extension BlastCommand {
         @Option(name: .customLong("reads"), help: "Number of reads to submit (default: 20)")
         var readCount: Int = 20
 
+        @Option(
+            name: .customLong("max-concurrent"),
+            help: "Maximum in-flight BLAST submissions for this process (default: 1)"
+        )
+        var maxConcurrent: Int = 1
+
         @Flag(name: .customLong("include-children"), help: "Include reads classified to descendant taxa")
         var includeChildren: Bool = false
 
@@ -108,6 +114,9 @@ extension BlastCommand {
         func validate() throws {
             guard readCount >= 1, readCount <= 100 else {
                 throw ValidationError("--reads must be between 1 and 100")
+            }
+            guard maxConcurrent >= 1 else {
+                throw ValidationError("--max-concurrent must be at least 1")
             }
         }
 

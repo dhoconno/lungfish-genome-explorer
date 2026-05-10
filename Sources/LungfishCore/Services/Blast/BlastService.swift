@@ -56,9 +56,6 @@ public actor BlastService {
     /// Email placeholder sent with BLAST requests (NCBI policy).
     private let toolEmail = "lungfish-app@users.noreply.github.com"
 
-    /// Minimum interval between job submissions (NCBI guideline: 10 seconds).
-    private let minSubmitInterval: TimeInterval = 10.0
-
     /// Minimum interval between status polls (NCBI guideline: at least 10 seconds).
     private let minPollInterval: TimeInterval = 10.0
 
@@ -85,16 +82,28 @@ public actor BlastService {
     /// The HTTP client used for requests (injectable for testing).
     private let httpClient: HTTPClient
 
+    /// Local NCBI BLAST etiquette limits.
+    private let rateLimits: BlastRateLimitConfiguration
+
     /// Timestamp of the last BLAST submission (for rate limiting).
     private var lastSubmitTime: Date?
+
+    /// Rolling one-hour sequence submission ledger.
+    private var submittedSequenceEvents: [(date: Date, count: Int)] = []
 
     // MARK: - Initialization
 
     /// Creates a new BLAST service.
     ///
-    /// - Parameter httpClient: HTTP client for making requests (defaults to URLSession).
-    public init(httpClient: HTTPClient = URLSessionHTTPClient()) {
+    /// - Parameters:
+    ///   - httpClient: HTTP client for making requests (defaults to URLSession).
+    ///   - rateLimits: Local submission limits for NCBI BLAST etiquette.
+    public init(
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        rateLimits: BlastRateLimitConfiguration = .ncbiDefault
+    ) {
         self.httpClient = httpClient
+        self.rateLimits = rateLimits
     }
 
     // MARK: - Request Building
@@ -289,7 +298,8 @@ public actor BlastService {
             entrezQuery: request.entrezQuery,
             evalue: request.eValueThreshold,
             maxTargetSeqs: request.maxTargetSeqs,
-            megablast: request.program == "blastn"
+            megablast: request.program == "blastn",
+            sequenceCount: request.sequences.count
         )
 
         logger.info("BLAST job submitted: RID=\(submission.rid, privacy: .public), RTOE=\(submission.rtoe, privacy: .public)s")
@@ -497,10 +507,11 @@ public actor BlastService {
         entrezQuery: String?,
         evalue: Double,
         maxTargetSeqs: Int,
-        megablast: Bool
+        megablast: Bool,
+        sequenceCount: Int = 1
     ) async throws -> BlastJobSubmission {
         // Enforce rate limit
-        try await enforceSubmitRateLimit()
+        try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
 
         // Build form-encoded body
         var params: [(String, String)] = [
@@ -551,6 +562,7 @@ public actor BlastService {
         }
 
         lastSubmitTime = Date()
+        recordSubmission(sequenceCount: sequenceCount, at: lastSubmitTime!)
 
         let responseBody = String(data: data, encoding: .utf8) ?? ""
         return try parseSubmissionResponse(responseBody)
@@ -726,7 +738,10 @@ public actor BlastService {
                 logger.info("BLAST job \(rid, privacy: .public) is ready after \(Int(elapsed), privacy: .public)s")
                 return try await getResults(rid: rid)
 
-            case .waiting:
+            case .waiting(let queuePosition):
+                if let queuePosition {
+                    progress?(progressFraction, "BLAST job \(rid) is waiting at upstream queue position \(queuePosition).")
+                }
                 let interval = adaptivePollInterval(attempt: pollCount)
                 try await Task.sleep(for: .seconds(interval))
 
@@ -975,7 +990,7 @@ public actor BlastService {
         case "READY":
             return .ready
         case "WAITING":
-            return .waiting
+            return .waiting(queuePosition: extractQBlastValue(from: body, key: "ThereAre").flatMap(Int.init))
         default:
             return .error(message: "BLAST status: \(status)")
         }
@@ -1456,15 +1471,33 @@ public actor BlastService {
     ///
     /// If the last submission was too recent, this method sleeps until
     /// the minimum interval has elapsed.
-    private func enforceSubmitRateLimit() async throws {
+    private func enforceSubmitRateLimit(sequenceCount: Int) async throws {
+        try enforceHourlySequenceLimit(sequenceCount: sequenceCount, now: Date())
+
         if let lastTime = lastSubmitTime {
             let elapsed = Date().timeIntervalSince(lastTime)
-            if elapsed < minSubmitInterval {
-                let waitTime = minSubmitInterval - elapsed
+            if elapsed < rateLimits.minSubmitInterval {
+                let waitTime = rateLimits.minSubmitInterval - elapsed
                 logger.debug("Rate limiting: waiting \(waitTime, privacy: .public)s before next submission")
                 try await Task.sleep(for: .seconds(waitTime))
             }
         }
+    }
+
+    private func enforceHourlySequenceLimit(sequenceCount: Int, now: Date) throws {
+        submittedSequenceEvents.removeAll { now.timeIntervalSince($0.date) >= 3600 }
+
+        let used = submittedSequenceEvents.reduce(0) { $0 + $1.count }
+        guard used + sequenceCount <= rateLimits.maxSequencesPerHour else {
+            let retryAfter = submittedSequenceEvents.first
+                .map { max(1, 3600 - now.timeIntervalSince($0.date)) }
+                ?? 3600
+            throw BlastServiceError.rateLimitExceeded(retryAfter: retryAfter)
+        }
+    }
+
+    private func recordSubmission(sequenceCount: Int, at date: Date) {
+        submittedSequenceEvents.append((date: date, count: max(0, sequenceCount)))
     }
 }
 

@@ -182,7 +182,7 @@ public struct BlastJobSubmission: Sendable {
 /// Status of a BLAST job on the NCBI server.
 public enum BlastJobStatus: Sendable, Equatable {
     /// The job is still running. Poll again later.
-    case waiting
+    case waiting(queuePosition: Int?)
 
     /// The job has completed and results are ready for retrieval.
     case ready
@@ -192,6 +192,27 @@ public enum BlastJobStatus: Sendable, Equatable {
 
     /// The job was not found (invalid or expired RID).
     case unknown
+}
+
+// MARK: - BLAST Rate Limits
+
+/// Local enforcement knobs for NCBI BLAST etiquette.
+public struct BlastRateLimitConfiguration: Sendable, Equatable {
+    public var minSubmitInterval: TimeInterval
+    public var maxSequencesPerHour: Int
+    public var submissionSlotPollInterval: TimeInterval
+
+    public init(
+        minSubmitInterval: TimeInterval = 10,
+        maxSequencesPerHour: Int = 50,
+        submissionSlotPollInterval: TimeInterval = 1
+    ) {
+        self.minSubmitInterval = minSubmitInterval
+        self.maxSequencesPerHour = maxSequencesPerHour
+        self.submissionSlotPollInterval = submissionSlotPollInterval
+    }
+
+    public static let ncbiDefault = BlastRateLimitConfiguration()
 }
 
 // MARK: - BLAST Service Error

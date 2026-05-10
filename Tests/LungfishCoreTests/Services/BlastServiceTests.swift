@@ -515,6 +515,49 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertFalse(body.contains("ENTREZ_QUERY"))
     }
 
+    func testSubmitRejectsMoreThanFiftySequencesPerHour() async throws {
+        let rateLimits = BlastRateLimitConfiguration(
+            minSubmitInterval: 0,
+            maxSequencesPerHour: 50,
+            submissionSlotPollInterval: 0.001
+        )
+        service = BlastService(httpClient: mockClient, rateLimits: rateLimits)
+        await mockClient.registerSequence(pattern: "blast/Blast.cgi", responses: [
+            .text(mockSubmissionResponse(rid: "FIRST", rtoe: 30)),
+            .text(mockSubmissionResponse(rid: "SECOND", rtoe: 30)),
+        ])
+
+        _ = try await service.submit(
+            query: ">read1\nATGC",
+            program: "blastn",
+            database: "nt",
+            entrezQuery: nil,
+            evalue: 1e-10,
+            maxTargetSeqs: 10,
+            megablast: true,
+            sequenceCount: 30
+        )
+
+        do {
+            _ = try await service.submit(
+                query: ">read2\nATGC",
+                program: "blastn",
+                database: "nt",
+                entrezQuery: nil,
+                evalue: 1e-10,
+                maxTargetSeqs: 10,
+                megablast: true,
+                sequenceCount: 21
+            )
+            XCTFail("Expected hourly BLAST sequence rate limit to reject the second submission")
+        } catch BlastServiceError.rateLimitExceeded(let retryAfter) {
+            XCTAssertGreaterThan(retryAfter, 0)
+        }
+
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 1, "Rejected submissions must not reach NCBI")
+    }
+
     func testSubmitHTTPError() async throws {
         await mockClient.register(
             pattern: "blast/Blast.cgi",
@@ -625,7 +668,19 @@ final class BlastServiceTests: XCTestCase {
         """
 
         let status = await service.parseStatusResponse(body)
-        XCTAssertEqual(status, .waiting)
+        XCTAssertEqual(status, .waiting(queuePosition: nil))
+    }
+
+    func testStatusParsingWaitingQueuePosition() async {
+        let body = """
+        <!--QBlastInfoBegin
+            Status=WAITING
+            ThereAre = 7
+        QBlastInfoEnd-->
+        """
+
+        let status = await service.parseStatusResponse(body)
+        XCTAssertEqual(status, .waiting(queuePosition: 7))
     }
 
     func testStatusParsingFailed() async {
@@ -1103,10 +1158,12 @@ final class BlastServiceTests: XCTestCase {
     // MARK: - BlastJobStatus Equatable
 
     func testJobStatusEquatable() {
-        XCTAssertEqual(BlastJobStatus.waiting, BlastJobStatus.waiting)
+        XCTAssertEqual(BlastJobStatus.waiting(queuePosition: nil), BlastJobStatus.waiting(queuePosition: nil))
+        XCTAssertEqual(BlastJobStatus.waiting(queuePosition: 3), BlastJobStatus.waiting(queuePosition: 3))
+        XCTAssertNotEqual(BlastJobStatus.waiting(queuePosition: 3), BlastJobStatus.waiting(queuePosition: 4))
         XCTAssertEqual(BlastJobStatus.ready, BlastJobStatus.ready)
         XCTAssertEqual(BlastJobStatus.unknown, BlastJobStatus.unknown)
-        XCTAssertNotEqual(BlastJobStatus.waiting, BlastJobStatus.ready)
+        XCTAssertNotEqual(BlastJobStatus.waiting(queuePosition: nil), BlastJobStatus.ready)
         XCTAssertEqual(BlastJobStatus.error(message: "x"), BlastJobStatus.error(message: "x"))
         XCTAssertNotEqual(BlastJobStatus.error(message: "x"), BlastJobStatus.error(message: "y"))
     }

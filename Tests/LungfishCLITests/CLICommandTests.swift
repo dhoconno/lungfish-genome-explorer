@@ -1721,6 +1721,25 @@ final class BlastVerifyCommandTests: XCTestCase {
         XCTAssertEqual(cmd.readCount, 30)
     }
 
+    func testBlastVerifyMaxConcurrentDefaultsAndParses() throws {
+        let defaultCommand = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+        ])
+        XCTAssertEqual(defaultCommand.maxConcurrent, 1)
+
+        let customCommand = try BlastCommand.VerifySubcommand.parse([
+            "--kreport", "/tmp/class.kreport",
+            "--source", "/tmp/reads.fastq",
+            "--kraken-output", "/tmp/class.kraken",
+            "--taxid", "562",
+            "--max-concurrent", "3",
+        ])
+        XCTAssertEqual(customCommand.maxConcurrent, 3)
+    }
+
     /// Verifies that --include-children flag is parsed.
     func testBlastVerifyIncludeChildren() throws {
         let cmd = try BlastCommand.VerifySubcommand.parse([
