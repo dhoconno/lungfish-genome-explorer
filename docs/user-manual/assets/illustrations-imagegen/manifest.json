@@ -1,0 +1,224 @@
+{
+  "generatedAt": "2026-05-10T13:30:41.184Z",
+  "mode": "built-in image_gen source PNGs wrapped as self-contained SVG files",
+  "count": 24,
+  "note": "Some SVG dimensions intentionally preserve the accepted imagegen art aspect ratio where the fixed raster target would create large gutters.",
+  "illustrations": [
+    {
+      "chapter": "01-foundations/01-what-is-a-genome",
+      "id": "linear-vs-circular-genomes",
+      "targetDimensions": "1200x600",
+      "svgWidth": 1200,
+      "svgHeight": 600,
+      "svg": "01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.svg",
+      "sourcePng": "01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.source.png"
+    },
+    {
+      "chapter": "01-foundations/01-what-is-a-genome",
+      "id": "position-coordinates",
+      "targetDimensions": "1400x300",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/01-what-is-a-genome/position-coordinates.svg",
+      "sourcePng": "01-foundations/01-what-is-a-genome/position-coordinates.source.png"
+    },
+    {
+      "chapter": "01-foundations/01-what-is-a-genome",
+      "id": "variant-notation",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "01-foundations/01-what-is-a-genome/variant-notation.svg",
+      "sourcePng": "01-foundations/01-what-is-a-genome/variant-notation.source.png"
+    },
+    {
+      "chapter": "01-foundations/02-sequencing-reads",
+      "id": "fastq-record-anatomy",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/02-sequencing-reads/fastq-record-anatomy.svg",
+      "sourcePng": "01-foundations/02-sequencing-reads/fastq-record-anatomy.source.png"
+    },
+    {
+      "chapter": "01-foundations/02-sequencing-reads",
+      "id": "paired-end-reads",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "01-foundations/02-sequencing-reads/paired-end-reads.svg",
+      "sourcePng": "01-foundations/02-sequencing-reads/paired-end-reads.source.png"
+    },
+    {
+      "chapter": "01-foundations/02-sequencing-reads",
+      "id": "phred-quality-bar",
+      "targetDimensions": "1400x400",
+      "svgWidth": 1400,
+      "svgHeight": 560,
+      "svg": "01-foundations/02-sequencing-reads/phred-quality-bar.svg",
+      "sourcePng": "01-foundations/02-sequencing-reads/phred-quality-bar.source.png"
+    },
+    {
+      "chapter": "01-foundations/02-sequencing-reads",
+      "id": "platform-read-length-comparison",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "01-foundations/02-sequencing-reads/platform-read-length-comparison.svg",
+      "sourcePng": "01-foundations/02-sequencing-reads/platform-read-length-comparison.source.png"
+    },
+    {
+      "chapter": "01-foundations/03-amplicon-vs-shotgun",
+      "id": "amplicon-vs-shotgun",
+      "targetDimensions": "1400x800",
+      "svgWidth": 1400,
+      "svgHeight": 800,
+      "svg": "01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.svg",
+      "sourcePng": "01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.source.png"
+    },
+    {
+      "chapter": "01-foundations/03-amplicon-vs-shotgun",
+      "id": "primer-scheme-diagram",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 700,
+      "svg": "01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.svg",
+      "sourcePng": "01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.source.png"
+    },
+    {
+      "chapter": "01-foundations/03-amplicon-vs-shotgun",
+      "id": "primer-trim-soft-clip",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.svg",
+      "sourcePng": "01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.source.png"
+    },
+    {
+      "chapter": "01-foundations/04-alignment-files",
+      "id": "read-mapping-cartoon",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/04-alignment-files/read-mapping-cartoon.svg",
+      "sourcePng": "01-foundations/04-alignment-files/read-mapping-cartoon.source.png"
+    },
+    {
+      "chapter": "01-foundations/04-alignment-files",
+      "id": "coverage-histogram",
+      "targetDimensions": "1400x350",
+      "svgWidth": 1400,
+      "svgHeight": 512,
+      "svg": "01-foundations/04-alignment-files/coverage-histogram.svg",
+      "sourcePng": "01-foundations/04-alignment-files/coverage-histogram.source.png"
+    },
+    {
+      "chapter": "01-foundations/04-alignment-files",
+      "id": "pileup-view",
+      "targetDimensions": "1000x700",
+      "svgWidth": 1000,
+      "svgHeight": 1400,
+      "svg": "01-foundations/04-alignment-files/pileup-view.svg",
+      "sourcePng": "01-foundations/04-alignment-files/pileup-view.source.png"
+    },
+    {
+      "chapter": "01-foundations/04-alignment-files",
+      "id": "cigar-anatomy",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/04-alignment-files/cigar-anatomy.svg",
+      "sourcePng": "01-foundations/04-alignment-files/cigar-anatomy.source.png"
+    },
+    {
+      "chapter": "01-foundations/05-variants-and-vcf",
+      "id": "vcf-row-anatomy",
+      "targetDimensions": "1600x500",
+      "svgWidth": 1600,
+      "svgHeight": 500,
+      "svg": "01-foundations/05-variants-and-vcf/vcf-row-anatomy.svg",
+      "sourcePng": "01-foundations/05-variants-and-vcf/vcf-row-anatomy.source.png"
+    },
+    {
+      "chapter": "01-foundations/05-variants-and-vcf",
+      "id": "allele-frequency-haploid-vs-diploid",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.svg",
+      "sourcePng": "01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.source.png"
+    },
+    {
+      "chapter": "01-foundations/05-variants-and-vcf",
+      "id": "filter-flag-cartoon",
+      "targetDimensions": "1200x500",
+      "svgWidth": 1200,
+      "svgHeight": 500,
+      "svg": "01-foundations/05-variants-and-vcf/filter-flag-cartoon.svg",
+      "sourcePng": "01-foundations/05-variants-and-vcf/filter-flag-cartoon.source.png"
+    },
+    {
+      "chapter": "02-sequences/01-importing-and-viewing",
+      "id": "reference-bundle-anatomy",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "02-sequences/01-importing-and-viewing/reference-bundle-anatomy.svg",
+      "sourcePng": "02-sequences/01-importing-and-viewing/reference-bundle-anatomy.source.png"
+    },
+    {
+      "chapter": "02-sequences/01-importing-and-viewing",
+      "id": "viewport-panes",
+      "targetDimensions": "1400x800",
+      "svgWidth": 1400,
+      "svgHeight": 800,
+      "svg": "02-sequences/01-importing-and-viewing/viewport-panes.svg",
+      "sourcePng": "02-sequences/01-importing-and-viewing/viewport-panes.source.png"
+    },
+    {
+      "chapter": "02-sequences/02-downloading-from-ncbi",
+      "id": "ncbi-accession-anatomy",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.svg",
+      "sourcePng": "02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.source.png"
+    },
+    {
+      "chapter": "02-sequences/04-msa-and-trees",
+      "id": "msa-column-homology",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "02-sequences/04-msa-and-trees/msa-column-homology.svg",
+      "sourcePng": "02-sequences/04-msa-and-trees/msa-column-homology.source.png"
+    },
+    {
+      "chapter": "02-sequences/04-msa-and-trees",
+      "id": "tree-anatomy",
+      "targetDimensions": "1400x700",
+      "svgWidth": 1400,
+      "svgHeight": 700,
+      "svg": "02-sequences/04-msa-and-trees/tree-anatomy.svg",
+      "sourcePng": "02-sequences/04-msa-and-trees/tree-anatomy.source.png"
+    },
+    {
+      "chapter": "06-classification/01-what-is-classification",
+      "id": "classification-question",
+      "targetDimensions": "1400x500",
+      "svgWidth": 1400,
+      "svgHeight": 500,
+      "svg": "06-classification/01-what-is-classification/classification-question.svg",
+      "sourcePng": "06-classification/01-what-is-classification/classification-question.source.png"
+    },
+    {
+      "chapter": "07-assembly/01-when-to-assemble",
+      "id": "assembly-vs-mapping",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "07-assembly/01-when-to-assemble/assembly-vs-mapping.svg",
+      "sourcePng": "07-assembly/01-when-to-assemble/assembly-vs-mapping.source.png"
+    }
+  ]
+}
