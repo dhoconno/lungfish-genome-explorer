@@ -220,6 +220,27 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(viewModel.focusedPackID, "metagenomics")
     }
 
+    func testOfflinePackGuidanceIncludesDocsCompatibleCommandsForSelectedPack() throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "metagenomics"))
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: []),
+            automaticallyRefresh: false
+        )
+
+        let guidance = viewModel.offlinePackCommandGuidance(for: pack)
+
+        XCTAssertEqual(
+            guidance.exportCommand,
+            "lungfish conda export-pack --pack metagenomics --output ./metagenomics-conda-offline-pack.tgz"
+        )
+        XCTAssertEqual(
+            guidance.installCommand,
+            "lungfish conda install --offline --from-bundle ./metagenomics-conda-offline-pack.tgz"
+        )
+        XCTAssertTrue(guidance.copyText.contains(guidance.exportCommand))
+        XCTAssertTrue(guidance.copyText.contains(guidance.installCommand))
+    }
+
     func testRefreshPackStatusesExposesLoadingStateWhileStatusesArePending() async {
         let required = PluginPackStatus(
             pack: .requiredSetupPack,
