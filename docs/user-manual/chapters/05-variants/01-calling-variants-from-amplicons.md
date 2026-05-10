@@ -47,8 +47,8 @@ This part of the manual is deliberately viral. Human germline workflows use
 GATK, diploid genotype assumptions, known-sites resources, and cohort-scale
 joint genotyping; they are introduced separately in
 [Human Germline Variants](../06-human-germline-variants/01-haplotype-caller.md).
-The current GATK chapters cover dry-run command construction only, not
-GATK execution or bundle attachment.
+The GATK chapters cover HaplotypeCaller execution and attachment as a separate
+workflow so the viral iVar path here stays focused.
 
 ## Vocabulary you will need
 

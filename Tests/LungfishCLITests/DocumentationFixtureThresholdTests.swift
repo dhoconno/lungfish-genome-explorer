@@ -50,7 +50,7 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
 
         let chapter = try String(
             contentsOf: repositoryRoot
-                .appendingPathComponent("docs/user-manual/chapters/04-variants/01-reads-to-variants.md"),
+                .appendingPathComponent("docs/user-manual/chapters/05-variants/01-calling-variants-from-amplicons.md"),
             encoding: .utf8
         )
         XCTAssertFalse(chapter.contains("default 0.03"))
@@ -58,7 +58,8 @@ final class DocumentationFixtureThresholdTests: XCTestCase {
         XCTAssertFalse(chapter.contains("position 23700"))
         XCTAssertFalse(chapter.contains("position 26060"))
         XCTAssertFalse(chapter.contains("FILTER `sb`"))
-        XCTAssertTrue(chapter.contains("Include GFF3 Annotations"))
-        XCTAssertTrue(chapter.contains("28881 GG>AA"))
+        XCTAssertTrue(chapter.contains("Attach annotations"))
+        XCTAssertTrue(chapter.contains("REF GG"))
+        XCTAssertTrue(chapter.contains("ALT AA"))
     }
 }

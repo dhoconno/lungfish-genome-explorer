@@ -14,6 +14,17 @@ public enum BuiltInPrimerSchemeService {
     ///
     /// - Parameter bundle: The bundle whose Resources/PrimerSchemes folder should be enumerated. Defaults to `.main`.
     public static func listBuiltInSchemes(in bundle: Bundle = .main) -> [PrimerSchemeBundle] {
+        let bundledSchemes = loadSchemes(in: bundle)
+        if !bundledSchemes.isEmpty {
+            return bundledSchemes
+        }
+        if bundle.bundleURL != Bundle.module.bundleURL {
+            return loadSchemes(in: Bundle.module)
+        }
+        return []
+    }
+
+    private static func loadSchemes(in bundle: Bundle) -> [PrimerSchemeBundle] {
         guard let resourceURL = bundle.resourceURL else { return [] }
         let folderURL = resourceURL.appendingPathComponent("PrimerSchemes", isDirectory: true)
         guard let contents = try? FileManager.default.contentsOfDirectory(

@@ -196,16 +196,14 @@ final class HelpResourceTests: XCTestCase {
 
     func testMarkdownFilesExistInBundle() {
         for topic in helpTopics {
-            let url = Bundle.module.url(forResource: topic.filename, withExtension: "md", subdirectory: "Help")
-                ?? Bundle.module.url(forResource: topic.filename, withExtension: "md")
+            let url = HelpResourceLocator.markdownURL(for: topic.filename)
             XCTAssertNotNil(url, "Help file missing for topic: \(topic.id) (expected \(topic.filename).md)")
         }
     }
 
     func testMarkdownFilesAreNonEmpty() {
         for topic in helpTopics {
-            let url = Bundle.module.url(forResource: topic.filename, withExtension: "md", subdirectory: "Help")
-                ?? Bundle.module.url(forResource: topic.filename, withExtension: "md")
+            let url = HelpResourceLocator.markdownURL(for: topic.filename)
             guard let url else { continue }
             let content = try? String(contentsOf: url, encoding: .utf8)
             XCTAssertNotNil(content, "Cannot read help file: \(topic.filename).md")
@@ -214,12 +212,12 @@ final class HelpResourceTests: XCTestCase {
     }
 
     func testHelpBookBundleExists() {
-        let helpBookURL = Bundle.module.url(forResource: "Lungfish", withExtension: "help")
-        XCTAssertNotNil(helpBookURL, "Expected Lungfish.help to be copied as a module resource")
+        let helpBookURL = HelpResourceLocator.helpBookURL()
+        XCTAssertNotNil(helpBookURL, "Expected Lungfish.help to be available as an app help resource")
     }
 
     func testHelpBookHTMLTopicsExist() {
-        guard let helpBookURL = Bundle.module.url(forResource: "Lungfish", withExtension: "help") else {
+        guard let helpBookURL = HelpResourceLocator.helpBookURL() else {
             XCTFail("Missing Lungfish.help bundle")
             return
         }
@@ -233,8 +231,7 @@ final class HelpResourceTests: XCTestCase {
     }
 
     func testGettingStartedContainsKeyContent() {
-        guard let url = Bundle.module.url(forResource: "getting-started", withExtension: "md", subdirectory: "Help")
-                ?? Bundle.module.url(forResource: "getting-started", withExtension: "md"),
+        guard let url = HelpResourceLocator.markdownURL(for: "getting-started"),
               let content = try? String(contentsOf: url, encoding: .utf8) else {
             XCTFail("Cannot load getting-started.md")
             return
@@ -246,8 +243,7 @@ final class HelpResourceTests: XCTestCase {
     }
 
     func testAIAssistantDocContainsKeyContent() {
-        guard let url = Bundle.module.url(forResource: "ai-assistant", withExtension: "md", subdirectory: "Help")
-                ?? Bundle.module.url(forResource: "ai-assistant", withExtension: "md"),
+        guard let url = HelpResourceLocator.markdownURL(for: "ai-assistant"),
               let content = try? String(contentsOf: url, encoding: .utf8) else {
             XCTFail("Cannot load ai-assistant.md")
             return
@@ -259,8 +255,7 @@ final class HelpResourceTests: XCTestCase {
     }
 
     func testVCFDocContainsKeyContent() {
-        guard let url = Bundle.module.url(forResource: "vcf-variants", withExtension: "md", subdirectory: "Help")
-                ?? Bundle.module.url(forResource: "vcf-variants", withExtension: "md"),
+        guard let url = HelpResourceLocator.markdownURL(for: "vcf-variants"),
               let content = try? String(contentsOf: url, encoding: .utf8) else {
             XCTFail("Cannot load vcf-variants.md")
             return

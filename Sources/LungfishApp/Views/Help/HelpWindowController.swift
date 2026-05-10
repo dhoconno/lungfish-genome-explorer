@@ -46,10 +46,34 @@ enum HelpBookIntegration {
     }
 
     private static func hasBundledHelpBook() -> Bool {
-        if Bundle.main.url(forResource: "Lungfish", withExtension: "help") != nil {
-            return true
-        }
-        return Bundle.main.url(forResource: "Lungfish.help", withExtension: nil) != nil
+        HelpResourceLocator.helpBookURL() != nil
+    }
+}
+
+enum HelpResourceLocator {
+    static func markdownURL(for filename: String) -> URL? {
+        RuntimeResourceLocator.path("Help/\(filename).md", in: .app)
+            ?? debugSourceResourceURL("Help/\(filename).md")
+    }
+
+    static func helpBookURL() -> URL? {
+        RuntimeResourceLocator.path("Lungfish.help", in: .app)
+            ?? RuntimeResourceLocator.path("HelpBook/Lungfish.help", in: .app)
+            ?? debugSourceResourceURL("HelpBook/Lungfish.help")
+    }
+
+    private static func debugSourceResourceURL(_ relativePath: String) -> URL? {
+        #if DEBUG
+        let resourcesRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources", isDirectory: true)
+        let candidate = resourcesRoot.appendingPathComponent(relativePath)
+        return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
+        #else
+        return nil
+        #endif
     }
 }
 
@@ -223,7 +247,7 @@ final class HelpViewController: NSViewController {
     }
 
     private func loadMarkdownFile(_ name: String) -> String? {
-        if let url = RuntimeResourceLocator.path("Help/\(name).md", in: .app) {
+        if let url = HelpResourceLocator.markdownURL(for: name) {
             return try? String(contentsOf: url, encoding: .utf8)
         }
         logger.warning("Help file not found: \(name, privacy: .public).md")
