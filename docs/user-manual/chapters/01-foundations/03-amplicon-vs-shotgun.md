@@ -82,7 +82,7 @@ MN908947.3	999	1021	nCoV-2019_1_LEFT	1	+
 
 (BED is zero-based half-open, so a primer at one-based positions 1000 to 1021 is written as 999 to 1021.)
 
-Lungfish packages primer schemes as `.lungfishprimers` bundles. A bundle is a folder containing the BED file, the primer sequences as FASTA, and a small provenance manifest naming the source, the version, and the reference accession the coordinates apply to. Bundles live in the project's `Primer Schemes/` folder and appear in the primer picker whenever a workflow needs one.
+Lungfish packages primer schemes as `.lungfishprimers` bundles. A bundle is a folder containing the BED file, optional primer sequences as FASTA, and a provenance note naming the source and reference accession the coordinates apply to. Bundles live in the project's `Primer Schemes/` folder and appear in the primer picker whenever a workflow needs one. The bundle layout is documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
 
 <!-- ILLUSTRATION: primer-scheme-diagram -->
 

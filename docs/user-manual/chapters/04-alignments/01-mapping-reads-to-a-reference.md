@@ -250,7 +250,8 @@ matching FASTQs.
 For a one-shot viral consensus workflow that runs mapping, primer trim,
 variant calling, and consensus generation in sequence, Lungfish also
 exposes a viral recon wizard wrapping the nf-core viralrecon pipeline.
-That wizard is a separate procedure covered in its own chapter and is
+That wizard is a separate procedure covered in [Viral Recon
+Wizard](05-viral-recon-wizard.md) and is
 not the right tool for one-off mapping experiments where you want to
 inspect the alignment before deciding what to do next.
 

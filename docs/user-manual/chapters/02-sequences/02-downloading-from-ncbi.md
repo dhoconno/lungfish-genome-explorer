@@ -134,13 +134,26 @@ Every NCBI fetch writes a `<filename>.lungfish-provenance.json` next to the outp
 
 Two practical uses for this. First, if a colleague hands you a FASTA and you want to know where it came from, the sidecar answers that question. Second, if a project is rebuilt later and the upstream record at NCBI has changed (versions go from `.3` to `.4`, for example), the checksum mismatch flags the change before it propagates into your variant calls.
 
-## Pathoplexus and SRA: when not to use this dialog
+## Pathoplexus and SRA: when not to use NCBI fetch
 
 Two adjacent workflows live in different places and are worth flagging so you do not get lost.
 
-The same dialog has a `Pathoplexus` tab for pathogen-genomics submissions that are mirrored at Pathoplexus rather than NCBI. The mechanics are the same (accession, format, save location), but the underlying source is different. Use Pathoplexus when an outbreak record is hosted there but not yet on NCBI.
+The database browser has a `Pathoplexus` tab for pathogen-genomics submissions that are hosted at Pathoplexus rather than NCBI. Use it when an outbreak record is available there, when you need Pathoplexus metadata, or when the record has not yet propagated to INSDC.
 
-For raw sequencing reads (FASTQs from the SRA), use the SRA chapter ([R02, Importing reads from SRA](../03-reads/02-importing-from-sra.md)) instead. SRA accessions begin with `SRR`, `ERR`, or `DRR` and route through `lungfish fetch sra`, which uses an ENA mirror and falls back to the SRA Toolkit. The NCBI dialog covered in this chapter does not handle them.
+To search Pathoplexus:
+
+1. Choose `Tools > Search Online Databases`, then select `Pathoplexus`.
+2. On first use, read and accept the ABS/data-use notice. Lungfish stores that consent locally and shows the search panel after acceptance.
+3. Choose an organism chip. The current dialog supports CCHF, Sudan ebolavirus, Zaire ebolavirus, HMPV, Marburg virus, measles virus, mpox, RSV-A, RSV-B, and West Nile virus. If no organism is selected, the app defaults to mpox.
+4. Enter an accession or free-text search term, then add filters if needed: country, clade, lineage, host, nucleotide mutations, amino-acid mutations, INSDC availability, collection date range, or sequence length range.
+
+To download Pathoplexus records:
+
+1. Click search. Lungfish requests latest-version, open data-use records. If a result set is large, the dialog asks whether to load the first thousand records, load all records, or cancel.
+2. Download selected records. Restricted records are rejected in the UI.
+3. Review the imported bundle. When a record has an INSDC accession, Lungfish tries the GenBank path first and appends Pathoplexus metadata. If GenBank retrieval fails or no INSDC accession exists, Lungfish builds a FASTA-backed bundle from the Pathoplexus record.
+
+For raw sequencing reads (FASTQs from the SRA), use the SRA chapter ([R02, Downloading from SRA](../03-reads/02-downloading-from-sra.md)) instead. SRA accessions begin with `SRR`, `ERR`, or `DRR` and route through `lungfish fetch sra`, which uses an ENA mirror and falls back to the SRA Toolkit. The NCBI dialog covered in this chapter does not handle them.
 
 ## Troubleshooting
 

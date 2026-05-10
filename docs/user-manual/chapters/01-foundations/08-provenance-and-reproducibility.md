@@ -163,7 +163,7 @@ python provenance/scripts/ivar_to_vcf.py variants.tsv \
 tabix -p vcf SRR36291587.ivar.vcf.gz
 ```
 
-The Methods Section export starts with `<!-- This is an automatically-generated draft. Read it before submitting. -->`, followed by a paragraph along the lines of: "Reads were mapped to MN908947.3 with minimap2 v2.28, sorted and indexed with samtools v1.21, primer-trimmed with iVar v1.4.4 against the QIAseq Direct SARS-CoV-2 primer scheme, and called against the same reference with iVar variants v1.4.4 at minimum allele frequency 0.05 and minimum depth 10, codon-annotated with the matching GFF3." The exact wording is templated from the workflow type and the tool versions in each sidecar.
+The Methods Section export starts with `<!-- This is an automatically-generated draft. Read it before submitting. -->`, followed by a paragraph along the lines of: "Reads were mapped to MN908947.3 with minimap2, sorted and indexed with samtools, primer-trimmed with iVar against the QIAseq Direct SARS-CoV-2 primer scheme, and called against the same reference with iVar variants at minimum allele frequency 0.05 and minimum depth 10, codon-annotated with the matching GFF3." The exact wording is templated from the workflow type and the tool versions in each sidecar; use [Tool Versions](../appendices/tool-versions.md#appendix-tool-versions) only as the release-level reference.
 
 ## Reproducibility checklist
 
