@@ -63,6 +63,9 @@ struct MapCommand: AsyncParsableCommand {
     @Option(name: .customLong("rg-id"), help: "BAM read-group ID (default: sample name)")
     var readGroupID: String?
 
+    @Option(name: .customLong("rg-sm"), help: "BAM read-group sample/SM (default: sample name)")
+    var readGroupSampleName: String?
+
     @Option(name: .customLong("rg-lb"), help: "BAM read-group library/LB (default: sample name)")
     var readGroupLibrary: String?
 
@@ -155,6 +158,7 @@ struct MapCommand: AsyncParsableCommand {
         let resolvedReadGroup = MappingReadGroup.resolved(
             sampleName: effectiveSampleName,
             id: readGroupID,
+            readGroupSampleName: readGroupSampleName,
             library: readGroupLibrary,
             platform: readGroupPlatform,
             platformUnit: readGroupPlatformUnit,
@@ -198,6 +202,7 @@ struct MapCommand: AsyncParsableCommand {
             ("Min MAPQ", String(minMapQ)),
             ("Sample name", effectiveSampleName),
             ("Read group ID", resolvedReadGroup.id),
+            ("Read group SM", resolvedReadGroup.sampleName),
             ("Read group LB", resolvedReadGroup.library),
             ("Read group PL", resolvedReadGroup.platform),
             ("Read group PU", resolvedReadGroup.platformUnit),

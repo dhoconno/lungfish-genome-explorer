@@ -249,10 +249,27 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(loaded.readGroup.library, "sample")
         XCTAssertEqual(loaded.readGroup.platform, "ONT")
         XCTAssertEqual(loaded.readGroup.platformUnit, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.id, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.sm, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.lb, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.pl, "ONT")
+        XCTAssertEqual(loaded.parameters.readGroup.pu, "sample")
         XCTAssertEqual(summary["readGroupID"], .string("sample"))
+        XCTAssertEqual(summary["readGroupSampleName"], .string("sample"))
         XCTAssertEqual(summary["readGroupLibrary"], .string("sample"))
         XCTAssertEqual(summary["readGroupPlatform"], .string("ONT"))
         XCTAssertEqual(summary["readGroupPlatformUnit"], .string("sample"))
+
+        let sidecarURL = tempDir.appendingPathComponent(MappingProvenance.filename)
+        let sidecarData = try Data(contentsOf: sidecarURL)
+        let sidecar = try XCTUnwrap(JSONSerialization.jsonObject(with: sidecarData) as? [String: Any])
+        let parameters = try XCTUnwrap(sidecar["parameters"] as? [String: Any])
+        let readGroup = try XCTUnwrap(parameters["readGroup"] as? [String: Any])
+        XCTAssertEqual(readGroup["id"] as? String, "sample")
+        XCTAssertEqual(readGroup["sm"] as? String, "sample")
+        XCTAssertEqual(readGroup["lb"] as? String, "sample")
+        XCTAssertEqual(readGroup["pl"] as? String, "ONT")
+        XCTAssertEqual(readGroup["pu"] as? String, "sample")
     }
 
     func testMapperInvocationUsesProvidedReferenceLocator() throws {

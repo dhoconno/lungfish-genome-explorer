@@ -26,17 +26,18 @@ public struct MappingReadGroup: Sendable, Codable, Equatable {
     }
 
     public static func resolved(
-        sampleName: String,
+        sampleName defaultSampleName: String,
         id: String? = nil,
+        readGroupSampleName: String? = nil,
         library: String? = nil,
         platform: String? = nil,
         platformUnit: String? = nil,
         defaultPlatform: String
     ) -> MappingReadGroup {
-        let resolvedSample = clean(sampleName, fallback: "sample")
+        let resolvedSample = clean(defaultSampleName, fallback: "sample")
         return MappingReadGroup(
             id: clean(id, fallback: resolvedSample),
-            sampleName: resolvedSample,
+            sampleName: clean(readGroupSampleName, fallback: resolvedSample),
             library: clean(library, fallback: resolvedSample),
             platform: clean(platform, fallback: defaultPlatform),
             platformUnit: clean(platformUnit, fallback: resolvedSample)
