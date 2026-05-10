@@ -1961,6 +1961,18 @@ public class InspectorViewController: NSViewController {
             return
         }
 
+        if let gatkRequest = state.pendingGATKRequest {
+            launchGATKVariantCallingOperation(
+                request: gatkRequest,
+                bundleURL: bundleURL,
+                alignmentTrackID: state.selectedAlignmentTrackID,
+                outputTrackID: state.generatedTrackID,
+                outputTrackName: state.outputTrackName.trimmingCharacters(in: .whitespacesAndNewlines),
+                displayName: state.selectedToolDisplayName
+            )
+            return
+        }
+
         guard let request = state.pendingRequest else {
             presentSimpleAlert(
                 title: "Variant Calling Not Ready",
@@ -2065,6 +2077,120 @@ public class InspectorViewController: NSViewController {
                 await runner.cancel()
             }
         }
+    }
+
+    private func launchGATKVariantCallingOperation(
+        request: GATKPipelineExecutionRequest,
+        bundleURL: URL,
+        alignmentTrackID: String,
+        outputTrackID: String,
+        outputTrackName: String,
+        displayName: String
+    ) {
+        let commandPreview = request.commands.map(\.shellCommand).joined(separator: " && ")
+        let operationTitle = "Calling variants with \(displayName)"
+        let shouldReloadMappingViewer = (parent as? MainSplitViewController)?
+            .viewerController
+            .activeMappingViewportController != nil
+        let opID = OperationCenter.shared.start(
+            title: operationTitle,
+            detail: "Running \(displayName)...",
+            operationType: .variantCalling,
+            targetBundleURL: bundleURL,
+            cliCommand: commandPreview
+        )
+
+        let task = Task(priority: .userInitiated) { [weak self] in
+            do {
+                let executor = GATKPipelineExecutor(runner: ManagedGATKCommandRunner())
+                let result = try await executor.run(request)
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.update(
+                            id: opID,
+                            progress: 0.75,
+                            detail: "Attaching GATK variants to bundle..."
+                        )
+                    }
+                }
+
+                let outputVCFURL = try Self.primaryGATKVCFOutputURL(from: request)
+                let attachment = try await GATKBundleVariantAttachmentService().attach(
+                    request: GATKBundleVariantAttachmentRequest(
+                        bundleURL: bundleURL,
+                        alignmentTrackID: alignmentTrackID,
+                        outputTrackID: outputTrackID,
+                        outputTrackName: outputTrackName.isEmpty ? displayName : outputTrackName,
+                        outputVCFURL: outputVCFURL,
+                        executionProvenanceURL: result.provenanceURL,
+                        executionRequest: request
+                    )
+                )
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        if let self, let split = self.parent as? MainSplitViewController {
+                            split.sidebarController.reloadFromFilesystem()
+                            do {
+                                if shouldReloadMappingViewer {
+                                    try split.viewerController.reloadMappingViewerBundleIfDisplayed()
+                                } else {
+                                    try split.viewerController.displayBundle(at: bundleURL)
+                                }
+                            } catch {
+                                self.presentSimpleAlert(
+                                    title: shouldReloadMappingViewer ? "Mapping Viewer Reload Failed" : "Variant Calling Reload Failed",
+                                    message: "GATK completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                )
+                            }
+                        }
+
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Created variant track \(attachment.trackInfo.name)"
+                        )
+                    }
+                }
+            } catch is CancellationError {
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: error.localizedDescription,
+                            errorMessage: error.localizedDescription
+                        )
+                        self?.presentSimpleAlert(
+                            title: "GATK Variant Calling Failed",
+                            message: error.localizedDescription
+                        )
+                    }
+                }
+            }
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+        }
+    }
+
+    private static func primaryGATKVCFOutputURL(
+        from request: GATKPipelineExecutionRequest
+    ) throws -> URL {
+        guard let output = request.outputs.first(where: { $0.format == .vcf })?.url else {
+            throw NSError(
+                domain: "Lungfish.GATKVariantCalling",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "GATK request did not declare a VCF output."]
+            )
+        }
+        return output
     }
 
     @MainActor
