@@ -246,20 +246,78 @@ final class WorkflowBuilderTests: XCTestCase {
 
         let error = connection.validate(sourceNode: bamNode, targetNode: trimmingNode)
         if case .incompatibleTypes(let source, let target) = error {
-            XCTAssertEqual(source, .bam)
-            XCTAssertEqual(target, .fastq)
+            XCTAssertEqual(source, .bamTrack)
+            XCTAssertEqual(target, .fastqBundle)
         } else {
             XCTFail("Expected incompatibleTypes error")
         }
     }
 
+    func testWorkflowPortTypeCatalogStableIdentifiers() {
+        XCTAssertEqual(PortDataType.accession.rawValue, "accession")
+        XCTAssertEqual(PortDataType.referenceBundle.rawValue, "reference_bundle")
+        XCTAssertEqual(PortDataType.fastqBundle.rawValue, "fastq_bundle")
+        XCTAssertEqual(PortDataType.fastaBundle.rawValue, "fasta_bundle")
+        XCTAssertEqual(PortDataType.bamTrack.rawValue, "bam_track")
+        XCTAssertEqual(PortDataType.variantTrack.rawValue, "variant_track")
+        XCTAssertEqual(PortDataType.primerSchemeBundle.rawValue, "primer_scheme_bundle")
+        XCTAssertEqual(PortDataType.assemblyBundle.rawValue, "assembly_bundle")
+        XCTAssertEqual(PortDataType.taxonomyBundle.rawValue, "taxonomy_bundle")
+        XCTAssertEqual(PortDataType.msaBundle.rawValue, "msa_bundle")
+        XCTAssertEqual(PortDataType.treeBundle.rawValue, "tree_bundle")
+        XCTAssertEqual(PortDataType.sampleSheet.rawValue, "sample_sheet")
+        XCTAssertEqual(PortDataType.bedFile.rawValue, "bed_file")
+        XCTAssertEqual(PortDataType.gff3File.rawValue, "gff3_file")
+        XCTAssertEqual(PortDataType.any.rawValue, "any")
+    }
+
+    func testGraphRejectsMismatchedCatalogPortConnection() {
+        var graph = WorkflowGraph(name: "Typed ports")
+        let bamNode = graph.addNode(type: .bamInput, position: .zero)
+        let trimmingNode = graph.addNode(type: .trimming, position: .zero)
+
+        XCTAssertThrowsError(try graph.addConnection(
+            sourceNodeId: bamNode.id,
+            sourcePortId: "alignments",
+            targetNodeId: trimmingNode.id,
+            targetPortId: "reads"
+        )) { error in
+            guard case WorkflowGraphError.invalidConnection(.incompatibleTypes(let source, let target)) = error else {
+                return XCTFail("Expected incompatibleTypes error, got \(error)")
+            }
+            XCTAssertEqual(source, .bamTrack)
+            XCTAssertEqual(target, .fastqBundle)
+        }
+    }
+
+    func testReferenceBundlePromotesToAssemblyBundleCompatibleInput() {
+        var referenceNode = WorkflowNode(type: .fastaInput, position: .zero)
+        referenceNode.outputPorts = [
+            NodePort(id: "reference", name: "Reference", dataType: .referenceBundle, direction: .output)
+        ]
+
+        var assemblyConsumer = WorkflowNode(type: .assembly, position: .zero)
+        assemblyConsumer.inputPorts = [
+            NodePort(id: "assembly", name: "Assembly", dataType: .assemblyBundle, direction: .input)
+        ]
+
+        let connection = WorkflowConnection(
+            sourceNodeId: referenceNode.id,
+            sourcePortId: "reference",
+            targetNodeId: assemblyConsumer.id,
+            targetPortId: "assembly"
+        )
+
+        XCTAssertNil(connection.validate(sourceNode: referenceNode, targetNode: assemblyConsumer))
+    }
+
     // MARK: - PortDataType Tests
 
     func testPortDataTypeCompatibility() {
-        XCTAssertTrue(PortDataType.fastq.isCompatible(with: .fastq))
-        XCTAssertFalse(PortDataType.fastq.isCompatible(with: .bam))
-        XCTAssertTrue(PortDataType.any.isCompatible(with: .fastq))
-        XCTAssertTrue(PortDataType.fastq.isCompatible(with: .any))
+        XCTAssertTrue(PortDataType.fastqBundle.isCompatible(with: .fastqBundle))
+        XCTAssertFalse(PortDataType.fastqBundle.isCompatible(with: .bamTrack))
+        XCTAssertTrue(PortDataType.any.isCompatible(with: .fastqBundle))
+        XCTAssertTrue(PortDataType.fastqBundle.isCompatible(with: .any))
     }
 
     // MARK: - Serialization Tests

@@ -38,7 +38,7 @@ The four operations are quality trimming (drop low-Phred bases from read ends), 
 | Primer Trimming (FASTQ-level) | Amplicon reads, shotgun-style downstream analysis | fastp | Primer FASTA from selected scheme |
 | Filter by Read Length | After any trim that shortens reads | Lungfish length filter | Minimum 30 bp, drop pair if either fails |
 
-Order matters. Run quality trimming first so adapter detection sees clean ends. Run adapter removal next so primer detection is not confused by adapter remnants. Run primer trimming third when the protocol is amplicon. Run the length filter last, because every preceding step can shorten reads. If you would rather do this in one pass, the Quality Trim dialog has an "also remove adapters" checkbox that asks fastp to handle quality and adapters in a single read of the file. So what should you do with this? Trim only what QC told you needs trimming, then re-run QC on the output to confirm the trim helped.
+Order matters when you chain separate operations. Run quality trimming before primer trimming, and run the length filter last because every preceding step can shorten reads. Adapter removal and quality trimming are the exception: `fastp` can do adapter detection/removal and quality trimming in a single pass, so there is no biological requirement to write an adapter-only intermediate when both fixes are needed. So what should you do with this? Trim only what QC told you needs trimming, prefer a combined fastp pass when your chosen dialog or recipe offers adapter plus quality together, then re-run QC on the output to confirm the trim helped.
 
 ## What you will learn
 
