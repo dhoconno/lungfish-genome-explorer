@@ -2,7 +2,7 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:58:05Z",
+  "createdAt": "2026-05-10T23:19:32Z",
   "exitStatus": 0,
   "files": [
     {
@@ -25,7 +25,6 @@
     }
   ],
   "historicalBackfill": true,
-  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
   "options": {
     "fixtureToolName": "spades",
     "fixtureWorkflowName": "spades-assembly-output",
@@ -48,15 +47,14 @@
     "size": 751
   },
   "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
-  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/spades-2026-01-15T13-00-00",
   "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
+    "gitRevision": "06d97a401e825b16cbaabade40d462875484789d",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 24054,
+    "processIdentifier": 38076,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

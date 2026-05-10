@@ -2,7 +2,7 @@
   "argv": [
     "scripts/testing/write-analysis-fixture-provenance.py"
   ],
-  "createdAt": "2026-05-10T22:58:05Z",
+  "createdAt": "2026-05-10T23:19:32Z",
   "exitStatus": 0,
   "files": [
     {
@@ -12,14 +12,13 @@
       "size": 67
     },
     {
-      "checksumSHA256": "ac9f59471cc5f5d1541f20fbc27b6345adff05ade7f9e5a967485ea7f2663866",
-      "fileSize": 758,
+      "checksumSHA256": "4058454159dca197a497fa218e0e7fb5867dde5e3afa60da83cbc3ff3f6c4c45",
+      "fileSize": 617,
       "path": "taxtriage-result.json",
-      "size": 758
+      "size": 617
     }
   ],
   "historicalBackfill": true,
-  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00",
   "options": {
     "fixtureToolName": "taxtriage",
     "fixtureWorkflowName": "taxtriage-analysis-output",
@@ -36,21 +35,20 @@
     }
   },
   "output": {
-    "checksumSHA256": "eaf656252fddf031d8d838b2cf005926fc601664a74cca5b8507bb400c28c9c0",
-    "fileSize": 825,
+    "checksumSHA256": "9301db5c5f6fe05161e8241924f17335ad8af7807f686d7efea98da599cbd568",
+    "fileSize": 684,
     "path": "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00",
-    "size": 825
+    "size": 684
   },
   "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
-  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00",
   "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
     "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "9ebbaa5c510b43560ccc2fb30f3e5a2bc6c8500d",
+    "gitRevision": "06d97a401e825b16cbaabade40d462875484789d",
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 24054,
+    "processIdentifier": 38076,
     "pythonVersion": "3.12.8"
   },
   "schemaVersion": 1,

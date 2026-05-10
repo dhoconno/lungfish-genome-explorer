@@ -1,8 +1,9 @@
 {
   "argv": [
-    "scripts/testing/write-analysis-fixture-provenance.py"
+    "python3",
+    "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
   ],
-  "createdAt": "2026-05-10T23:06:35Z",
+  "createdAt": "2026-05-03T20:52:54Z",
   "exitStatus": 0,
   "files": [
     {
@@ -96,22 +97,17 @@
       "size": 1065
     }
   ],
-  "historicalBackfill": true,
-  "historicalPayloadCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+  "input": {
+    "checksumSHA256": "1833c8720be7a62a4f132beefb68d2cbc32c3e20bd85a8939dba178850ba1ba4",
+    "fileSize": 30322,
+    "path": "Tests/Fixtures/sarscov2/genome.fasta"
+  },
   "options": {
-    "fixtureToolName": "create_sarscov2_alignment_fixture.py",
-    "fixtureWorkflowName": "sars-cov-2-alignment-fixture-generation",
-    "inputPaths": [],
+    "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
     "outputDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-    "purpose": "Retained SARS-CoV-2 MAFFT end-to-end alignment fixture bundle.",
-    "resolvedDefaults": {
-      "backfillMode": "historical-fixture-sidecar-only",
-      "overwriteExistingSidecar": false
-    },
-    "userVisibleOptions": {
-      "fixtureDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-      "tool": "create_sarscov2_alignment_fixture.py"
-    }
+    "recordCount": 5,
+    "sourceAccession": "MT192765.1",
+    "sourceFasta": "Tests/Fixtures/sarscov2/genome.fasta"
   },
   "output": {
     "checksumSHA256": "51ddc3e3d28ed6316f4d32374ba2c1ffef27c99bf7916d4ee7ffb192b8e76287",
@@ -119,30 +115,21 @@
     "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "size": 5135656
   },
-  "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
-  "reproducibleGitCheckoutCommand": "git checkout 68ae1af0 -- Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
-  "reproducibleShellCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+  "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
-    "executablePath": "/Users/dho/miniforge3/bin/python3",
-    "gitRevision": "222ca0cd7561c14a70379f3873f7e8a654f75854",
-    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
-    "processIdentifier": 29455,
-    "pythonVersion": "3.12.8"
+    "executablePath": "python3",
+    "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+    "pythonVersion": "3.14.3"
   },
   "schemaVersion": 1,
   "stderr": null,
-  "tool": {
-    "name": "write-analysis-fixture-provenance.py",
-    "version": "0.4.0-alpha.12"
-  },
-  "toolName": "write-analysis-fixture-provenance.py",
-  "toolVersion": "0.4.0-alpha.12",
-  "wallTimeSeconds": 0.0,
-  "warning": "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun.",
+  "toolName": "create_sarscov2_alignment_fixture.py",
+  "toolVersion": "0.1.0",
+  "wallTimeSeconds": 0.059105750027811155,
   "warnings": [
-    "This is a historical fixture backfill for repository provenance hygiene; it records the retained fixture payload and does not claim the original biological workflow was rerun."
+    "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
   ],
-  "workflowName": "analysis-fixture-provenance-historical-backfill"
+  "workflowName": "sars-cov-2-alignment-fixture-generation"
 }

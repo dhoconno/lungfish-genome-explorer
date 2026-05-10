@@ -1,19 +1,19 @@
 {
     "config": {
-        "samples": [{"name": "testSample", "fastq1": "/tmp/testSample_R1.fastq.gz"}],
+        "samples": [{"name": "testSample", "fastq1": "testSample_R1.fastq.gz"}],
         "database": "nt",
         "threads": 4,
-        "outputDirectory": "/tmp/taxtriage-2026-01-15T12-00-00"
+        "outputDirectory": "."
     },
     "runtime": 120.5,
     "exitCode": 0,
-    "outputDirectory": "/tmp/taxtriage-2026-01-15T12-00-00",
-    "reportFiles": ["/tmp/taxtriage-2026-01-15T12-00-00/sample_report.tsv"],
+    "outputDirectory": ".",
+    "reportFiles": ["sample_report.tsv"],
     "metricsFiles": [],
     "kronaFiles": [],
     "logFile": null,
     "traceFile": null,
-    "allOutputFiles": ["/tmp/taxtriage-2026-01-15T12-00-00/sample_report.tsv"],
+    "allOutputFiles": ["sample_report.tsv"],
     "deduplicatedReadCounts": {"SARS-CoV-2": 500, "Influenza A": 100},
     "perSampleDeduplicatedReadCounts": null,
     "sourceBundleURLs": null,

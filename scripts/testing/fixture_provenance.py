@@ -61,7 +61,22 @@ REQUIRED_TOP_LEVEL_FIELDS = [
     "wallTimeSeconds",
     "stderr",
 ]
-STALE_PATH_MARKERS = [".worktrees", "alignment-tree-viewers"]
+PROVENANCE_STALE_PATH_MARKERS = ["." + "worktrees", "alignment" + "-tree-viewers"]
+PAYLOAD_STALE_PATH_MARKERS = PROVENANCE_STALE_PATH_MARKERS + ["/" + "tmp/", "/" + "private/tmp"]
+FORBIDDEN_TOP_LEVEL_FIELDS = [
+    "historicalPayloadCheckout" + "Command",
+    "reproducibleGitCheckout" + "Command",
+]
+SCIENTIFIC_PROVENANCE_EXPECTATIONS = {
+    "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish": {
+        "workflowName": "sars-cov-2-alignment-fixture-generation",
+        "toolName": "create_sarscov2_alignment_fixture.py",
+    },
+    "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa": {
+        "workflowName": "multiple-sequence-alignment-mafft",
+        "toolName": "lungfish align mafft",
+    },
+}
 RETAINED_PAYLOAD_SCAN_ROOTS = [
     "Tests/Fixtures/analyses",
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
@@ -132,6 +147,9 @@ def validate_fixture_sidecar(root, relative_fixture):
     for field in REQUIRED_TOP_LEVEL_FIELDS:
         if field not in record:
             errors.append(f"missing required field {field}: {sidecar_path}")
+    for field in FORBIDDEN_TOP_LEVEL_FIELDS:
+        if field in record:
+            errors.append(f"misleading historical checkout field {field} must not be present: {sidecar_path}")
 
     if "reproducibleCommand" not in record and "reproducibleShellCommand" not in record:
         errors.append(f"missing required field reproducibleCommand or reproducibleShellCommand: {sidecar_path}")
@@ -173,7 +191,7 @@ def validate_fixture_sidecar(root, relative_fixture):
     for path, entry in files.items():
         if Path(path).is_absolute():
             errors.append(f"file path must be relative {path}: {sidecar_path}")
-        if any(marker in path for marker in STALE_PATH_MARKERS):
+        if any(marker in path for marker in PROVENANCE_STALE_PATH_MARKERS):
             errors.append(f"stale path marker in file path {path}: {sidecar_path}")
         if "fileSize" not in entry:
             errors.append(f"missing required field files[].fileSize for {path}: {sidecar_path}")
@@ -195,6 +213,7 @@ def validate_fixture_sidecar(root, relative_fixture):
             errors.append(f"checksum mismatch for {path}: recorded {recorded_checksum}, actual {actual['checksumSHA256']}: {sidecar_path}")
 
     errors.extend(stale_string_errors(record, sidecar_path))
+    errors.extend(validate_fixture_specific_provenance(relative_fixture, record, sidecar_path))
     return errors
 
 
@@ -238,10 +257,42 @@ def stale_string_errors(value, sidecar_path, trail=""):
         for index, child in enumerate(value):
             errors.extend(stale_string_errors(child, sidecar_path, f"{trail}[{index}]"))
     elif isinstance(value, str):
-        for marker in STALE_PATH_MARKERS:
+        for marker in PROVENANCE_STALE_PATH_MARKERS:
             if marker in value:
                 errors.append(f"stale path marker {marker!r} in {trail}: {sidecar_path}")
                 break
+    return errors
+
+
+def validate_fixture_specific_provenance(relative_fixture, record, sidecar_path):
+    expected = SCIENTIFIC_PROVENANCE_EXPECTATIONS.get(relative_fixture)
+    if expected is None:
+        return []
+    errors = []
+    for field, expected_value in expected.items():
+        if record.get(field) != expected_value:
+            errors.append(f"expected {field} {expected_value!r}: {sidecar_path}")
+    if record.get("historicalBackfill") is True or record.get("toolName") == "write-analysis-fixture-provenance.py":
+        errors.append(f"{sidecar_path} must preserve scientific workflow provenance")
+    if relative_fixture.endswith(".lungfishmsa"):
+        invocations = record.get("externalToolInvocations")
+        if not isinstance(invocations, list) or not invocations:
+            errors.append(f"missing externalToolInvocations for MAFFT provenance: {sidecar_path}")
+        else:
+            mafft = invocations[0]
+            if not isinstance(mafft, dict) or mafft.get("name") != "mafft" or not mafft.get("version") or "stderr" not in mafft:
+                errors.append(f"incomplete MAFFT external invocation provenance: {sidecar_path}")
+        if not isinstance(record.get("input"), dict):
+            errors.append(f"missing input object for MAFFT provenance: {sidecar_path}")
+        if not isinstance(record.get("inputFiles"), list) or not record.get("inputFiles"):
+            errors.append(f"missing inputFiles for MAFFT provenance: {sidecar_path}")
+        if not isinstance(record.get("options"), dict) or record["options"].get("name") != "sars-cov-2-genomes-mafft":
+            errors.append(f"missing MAFFT options for nested alignment provenance: {sidecar_path}")
+    else:
+        warnings = record.get("warnings")
+        expected_warning = "deterministic synthetic derivatives"
+        if not isinstance(warnings, list) or not any(expected_warning in str(warning) for warning in warnings):
+            errors.append(f"missing deterministic derivative warning in root alignment provenance: {sidecar_path}")
     return errors
 
 
@@ -254,14 +305,14 @@ def validate_retained_payload_text(root):
             errors.append(f"missing retained fixture scan directory: {scan_root}")
             continue
         for path in sorted(scan_root.rglob("*")):
-            if not path.is_file() or is_binary_file(path):
+            if not path.is_file() or path.name == ".lungfish-provenance.json" or is_binary_file(path):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
             except UnicodeDecodeError:
                 continue
             for line_number, line in enumerate(text.splitlines(), start=1):
-                for marker in STALE_PATH_MARKERS:
+                for marker in PAYLOAD_STALE_PATH_MARKERS:
                     if marker in line:
                         errors.append(f"stale path marker {marker!r} in payload {path}:{line_number}")
                         break

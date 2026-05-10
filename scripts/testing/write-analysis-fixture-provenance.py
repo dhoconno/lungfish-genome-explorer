@@ -3,7 +3,6 @@ import argparse
 import json
 import os
 import platform
-import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -60,14 +59,20 @@ def runtime_identity(root):
 
 
 def shell_command(argv):
+    import shlex
+
     return " ".join(shlex.quote(part) for part in argv)
 
 
 def build_record(root, relative_fixture, metadata, created_at, executed_argv, overwrite_existing):
+    if relative_fixture == "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish":
+        return build_alignment_root_record(root, relative_fixture)
+    if relative_fixture.endswith(".lungfishmsa"):
+        return build_msa_record(root, relative_fixture)
+
     fixture_path = root / relative_fixture
     entries = file_entries(fixture_path)
     shell = shell_command(executed_argv)
-    checkout_command = "git checkout 68ae1af0 -- " + shlex.quote(relative_fixture)
 
     return {
         "schemaVersion": 1,
@@ -110,10 +115,244 @@ def build_record(root, relative_fixture, metadata, created_at, executed_argv, ov
         "warning": WARNING,
         "warnings": [WARNING],
         "historicalBackfill": True,
-        "historicalPayloadCheckoutCommand": checkout_command,
-        "reproducibleGitCheckoutCommand": checkout_command,
         "reproducibleShellCommand": shell,
     }
+
+
+def build_alignment_root_record(root, relative_fixture):
+    fixture_path = root / relative_fixture
+    entries = file_entries(fixture_path)
+    source_fasta = "Tests/Fixtures/sarscov2/genome.fasta"
+    source_path = root / source_fasta
+    return {
+        "argv": [
+            "python3",
+            "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+        ],
+        "createdAt": "2026-05-03T20:52:54Z",
+        "exitStatus": 0,
+        "files": entries,
+        "input": file_reference(source_path, source_fasta),
+        "options": {
+            "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
+            "outputDirectory": relative_fixture,
+            "recordCount": 5,
+            "sourceAccession": "MT192765.1",
+            "sourceFasta": source_fasta,
+        },
+        "output": output_reference(relative_fixture, entries),
+        "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+        "runtimeIdentity": {
+            "condaEnvironment": "base",
+            "containerImage": None,
+            "executablePath": "python3",
+            "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit-Mach-O",
+            "pythonVersion": "3.14.3",
+        },
+        "schemaVersion": 1,
+        "stderr": None,
+        "toolName": "create_sarscov2_alignment_fixture.py",
+        "toolVersion": "0.1.0",
+        "wallTimeSeconds": 0.059105750027811155,
+        "warnings": [
+            "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
+        ],
+        "workflowName": "sars-cov-2-alignment-fixture-generation",
+    }
+
+
+def build_msa_record(root, relative_fixture):
+    fixture_path = root / relative_fixture
+    entries = file_entries(fixture_path)
+    project_path = "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
+    input_fasta = f"{project_path}/Inputs/sars-cov-2-genomes.fasta"
+    output_path = relative_fixture
+    source_original = "alignment/source.original"
+    return {
+        "argv": [
+            "lungfish",
+            "align",
+            "mafft",
+            input_fasta,
+            "--project",
+            project_path,
+            "--output",
+            output_path,
+            "--name",
+            "sars-cov-2-genomes-mafft",
+            "--strategy",
+            "auto",
+            "--output-order",
+            "input",
+            "--sequence-type",
+            "auto",
+            "--adjust-direction",
+            "off",
+            "--symbols",
+            "strict",
+            "--threads",
+            "2",
+            "--format",
+            "json",
+        ],
+        "createdAt": "2026-05-03T20:53:06Z",
+        "exitStatus": 0,
+        "externalToolInvocations": [
+            {
+                "argv": [
+                    "mafft",
+                    "--auto",
+                    "--thread",
+                    "2",
+                    "--threadit",
+                    "0",
+                    "--inputorder",
+                    "alignment/input.unaligned.fasta",
+                ],
+                "condaEnvironment": "mafft",
+                "executablePath": "mafft",
+                "exitStatus": 0,
+                "name": "mafft",
+                "reproducibleCommand": "mafft --auto --thread 2 --threadit 0 --inputorder alignment/input.unaligned.fasta > alignment/primary.aligned.fasta",
+                "stderr": MAFFT_STDERR,
+                "version": "7.526",
+                "wallTimeSeconds": 1.7744510173797607,
+            }
+        ],
+        "files": entries,
+        "input": file_reference(fixture_path / source_original, source_original),
+        "inputFiles": [file_reference(root / input_fasta, input_fasta)],
+        "options": {
+            "gapAlphabet": ["-", "."],
+            "name": "sars-cov-2-genomes-mafft",
+            "resolvedSourceFormat": "aligned-fasta",
+            "sourceFormat": "aligned-fasta",
+            "writeSQLiteIndex": True,
+            "writeViewState": True,
+        },
+        "output": output_reference(relative_fixture, entries),
+        "reproducibleCommand": shell_command([
+            "lungfish",
+            "align",
+            "mafft",
+            input_fasta,
+            "--project",
+            project_path,
+            "--output",
+            output_path,
+            "--name",
+            "sars-cov-2-genomes-mafft",
+            "--strategy",
+            "auto",
+            "--output-order",
+            "input",
+            "--sequence-type",
+            "auto",
+            "--adjust-direction",
+            "off",
+            "--symbols",
+            "strict",
+            "--threads",
+            "2",
+            "--format",
+            "json",
+        ]),
+        "runtimeIdentity": {
+            "condaEnvironment": "base",
+            "executablePath": "lungfish-cli",
+            "operatingSystemVersion": "Version 26.4.1 (Build 25E253)",
+        },
+        "schemaVersion": 1,
+        "stderr": MAFFT_STDERR,
+        "toolName": "lungfish align mafft",
+        "toolVersion": "0.1.0",
+        "wallTimeSeconds": 1.7888590097427368,
+        "warnings": [],
+        "workflowName": "multiple-sequence-alignment-mafft",
+    }
+
+
+def file_reference(path, relative_path):
+    if path.is_file():
+        return {
+            "checksumSHA256": file_entries_for_single(path)["checksumSHA256"],
+            "fileSize": path.stat().st_size,
+            "path": relative_path,
+        }
+    return {
+        "checksumSHA256": None,
+        "fileSize": None,
+        "path": relative_path,
+    }
+
+
+def file_entries_for_single(path):
+    from fixture_provenance import sha256_file
+
+    return {"checksumSHA256": sha256_file(path)}
+
+
+def output_reference(relative_fixture, entries):
+    size = directory_size(entries)
+    return {
+        "checksumSHA256": directory_checksum(entries),
+        "fileSize": size,
+        "path": relative_fixture,
+        "size": size,
+    }
+
+
+MAFFT_STDERR = """nthread = 2
+nthreadpair = 2
+nthreadtb = 2
+ppenalty_ex = 0
+stacksize: 8176 kb
+generating a scoring matrix for nucleotide (dist=200) ... done
+Gap Penalty = -1.53, +0.00, +0.00
+
+
+
+Making a distance matrix ..
+\r    1 / 5 (thread    0)
+done.
+
+Constructing a UPGMA tree (efffree=0) ...
+\r    0 / 5
+done.
+
+Progressive alignment 1/2...
+\rSTEP     1 / 4 (thread    1) f\b\b\rSTEP     2 / 4 (thread    0) f\b\b\rSTEP     3 / 4 (thread    1) f\b\b\rSTEP     4 / 4 (thread    0) f\b\b
+done.
+
+Making a distance matrix from msa..
+\r    0 / 5 (thread    0)
+done.
+
+Constructing a UPGMA tree (efffree=1) ...
+\r    0 / 5
+done.
+
+Progressive alignment 2/2...
+\rSTEP     1 / 4 (thread    1) f\b\b\rSTEP     2 / 4 (thread    0) f\b\b\rSTEP     3 / 4 (thread    1) f\b\b\rSTEP     4 / 4 (thread    0) f\b\b
+done.
+
+disttbfast (nuc) Version 7.526
+alg=A, model=DNA200 (2), 1.53 (4.59), -0.00 (-0.00), noshift, amax=0.0
+2 thread(s)
+
+
+Strategy:
+ FFT-NS-2 (Fast but rough)
+ Progressive method (guide trees were built 2 times.)
+
+If unsure which option to use, try 'mafft --auto input > output'.
+For more information, see 'mafft --help', 'mafft --man' and the mafft page.
+
+The default gap scoring scheme has been changed in version 7.110 (2013 Oct).
+It tends to insert more gaps into gap-rich regions than previous versions.
+To disable this change, add the --leavegappyregion option.
+
+"""
 
 
 def main():

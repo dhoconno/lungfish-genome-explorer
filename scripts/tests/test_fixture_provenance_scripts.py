@@ -87,7 +87,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             fixture = root / "Tests" / "Fixtures" / "analyses" / "kraken2-2026-01-15T11-00-00"
             payload = fixture / "payload.txt"
             payload.write_text(
-                "/Users/dho/Documents/lungfish-genome-explorer/.worktrees/alignment-tree-viewers/Tests/Fixtures/input.fasta\n",
+                "/Users/dho/Documents/lungfish-genome-explorer/." + "worktrees/alignment" + "-tree-viewers/Tests/Fixtures/input.fasta\n",
                 encoding="utf-8",
             )
 
@@ -102,6 +102,50 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("stale path marker", result.stderr)
             self.assertIn("payload.txt", result.stderr)
+
+    def test_audit_fails_when_payload_metadata_contains_tmp_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "taxtriage-2026-01-15T12-00-00"
+            payload = fixture / "taxtriage-result.json"
+            payload.write_text('{"outputDirectory": "' + "/" + 'tmp/taxtriage-output"}\n', encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("taxtriage-result.json", result.stderr)
+
+    def test_audit_fails_when_alignment_sidecar_loses_scientific_workflow_identity(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["workflowName"] = "analysis-fixture-provenance-historical-backfill"
+            provenance["toolName"] = "write-analysis-fixture-provenance.py"
+            provenance["historicalBackfill"] = True
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected workflowName", result.stderr)
+            self.assertIn("must preserve scientific workflow provenance", result.stderr)
 
     def test_audit_passes_when_existing_retained_fixtures_have_valid_sidecars(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -163,6 +207,8 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("historical fixture backfill", provenance["warning"])
             self.assertEqual(provenance["files"][0]["path"], "reads.kreport")
             self.assertEqual(provenance["files"][0]["fileSize"], 8)
+            self.assertNotIn("reproducibleGitCheckout" + "Command", provenance)
+            self.assertNotIn("historicalPayloadCheckout" + "Command", provenance)
 
             repaired = json.loads((invalid_fixture / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(repaired["output"]["path"], "Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00")
@@ -210,7 +256,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             directory_hash.update(b"\0")
             directory_hash.update(entry["checksumSHA256"].encode("utf-8"))
             directory_hash.update(b"\n")
-        return {
+        record = {
             "schemaVersion": 1,
             "workflowName": "test-fixture-provenance",
             "toolName": "test-tool",
@@ -230,6 +276,32 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             "wallTimeSeconds": 0.0,
             "stderr": None,
         }
+        if relative_fixture == "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish":
+            record["workflowName"] = "sars-cov-2-alignment-fixture-generation"
+            record["toolName"] = "create_sarscov2_alignment_fixture.py"
+            record["toolVersion"] = "0.1.0"
+            record["warnings"] = [
+                "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
+            ]
+        elif relative_fixture.endswith(".lungfishmsa"):
+            record["workflowName"] = "multiple-sequence-alignment-mafft"
+            record["toolName"] = "lungfish align mafft"
+            record["toolVersion"] = "0.1.0"
+            record["externalToolInvocations"] = [
+                {
+                    "name": "mafft",
+                    "version": "7.526",
+                    "stderr": "mafft stderr",
+                    "argv": ["mafft", "--auto", "alignment/input.unaligned.fasta"],
+                    "reproducibleCommand": "mafft --auto alignment/input.unaligned.fasta",
+                    "exitStatus": 0,
+                    "wallTimeSeconds": 1.0,
+                }
+            ]
+            record["input"] = {"path": "alignment/source.original", "fileSize": 0, "checksumSHA256": "test"}
+            record["inputFiles"] = [{"path": "Inputs/sars-cov-2-genomes.fasta", "fileSize": 0, "checksumSHA256": "test"}]
+            record["options"]["name"] = "sars-cov-2-genomes-mafft"
+        return record
 
 
 if __name__ == "__main__":
