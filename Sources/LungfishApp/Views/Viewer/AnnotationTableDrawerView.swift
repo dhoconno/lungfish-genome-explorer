@@ -588,6 +588,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let maxSampleCountInclusive: Bool
         let nameFilter: String
         let geneList: [String]
+        let smartFilter: [String]
         let selectedSamples: [String]
     }
 
@@ -2789,6 +2790,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             maxSampleCountInclusive: effectiveQuery.maxSampleCountInclusive,
             nameFilter: effectiveQuery.nameFilter,
             geneList: activeGeneList ?? [],
+            smartFilter: effectiveQuery.smartFilter?.predicates.map(\.description).sorted() ?? [],
             selectedSamples: selectedSamples.sorted()
         )
 
@@ -2951,6 +2953,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                         types: frozenTypeFilter,
                         infoFilters: mergedInfoFilters,
                         sampleNames: selectedSamples,
+                        smartFilter: frozenQuery.smartFilter,
                         activeTokens: frozenActiveTokens,
                         limit: max(initialLimit, maxDisplay),
                         shouldCancel: shouldCancel
@@ -2971,6 +2974,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                                 types: frozenTypeFilter,
                                 infoFilters: mergedInfoFilters,
                                 sampleNames: selectedSamples,
+                                smartFilter: frozenQuery.smartFilter,
                                 activeTokens: frozenActiveTokens,
                                 limit: max(limit, maxDisplay),
                                 shouldCancel: shouldCancel
@@ -3018,6 +3022,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                                 nameFilter: frozenQuery.nameFilter, types: frozenTypeFilter,
                                 infoFilters: mergedInfoFilters,
                                 sampleNames: selectedSamples,
+                                smartFilter: frozenQuery.smartFilter,
                                 activeTokens: frozenActiveTokens,
                                 limit: limit,
                                 shouldCancel: shouldCancel
@@ -3062,6 +3067,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                                 nameFilter: frozenQuery.nameFilter, types: frozenTypeFilter,
                                 infoFilters: mergedInfoFilters,
                                 sampleNames: selectedSamples,
+                                smartFilter: frozenQuery.smartFilter,
                                 activeTokens: frozenActiveTokens,
                                 limit: limit,
                                 shouldCancel: shouldCancel
@@ -3503,6 +3509,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         var filterValue: String?
         /// If set, restrict results to variants overlapping these gene names.
         var geneList: [String]?
+        /// Per-sample genotype/depth/frequency predicates that must be executed in SQL.
+        var smartFilter: VariantSmartFilter?
 
         var hasPostFilters: Bool {
             minQuality != nil || maxQuality != nil || minSampleCount != nil || maxSampleCount != nil || filterValue != nil
@@ -3644,7 +3652,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         if text.contains(";") {
             var query = VariantFilterQuery()
             var nameTokens: [String] = []
+            var smartClauses: [String] = []
             for clause in parseSearchClauses(text) {
+                let rawClause = {
+                    if let key = clause.key {
+                        return "\(key)\(clause.op)\(clause.value)"
+                    }
+                    return clause.value
+                }()
+                if (try? VariantSmartFilter.parse(rawClause)) != nil {
+                    smartClauses.append(rawClause)
+                    continue
+                }
                 guard let rawKeyText = clause.key?.trimmingCharacters(in: .whitespacesAndNewlines), !rawKeyText.isEmpty else {
                     if let parsed = VariantDatabase.InfoFilter.parse(clause.value) {
                         query.infoFilters.append(resolveVariantInfoFilter(parsed))
@@ -3740,6 +3759,9 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 }
             }
             query.nameFilter = nameTokens.joined(separator: " ")
+            if !smartClauses.isEmpty {
+                query.smartFilter = try? VariantSmartFilter.parse(smartClauses.joined(separator: "; "))
+            }
             if let region = query.region, region.chromosome.isEmpty {
                 query.region = nil
             }
@@ -3846,7 +3868,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 continue
             }
             if let parsed = VariantDatabase.InfoFilter.parse(token) {
-                query.infoFilters.append(resolveVariantInfoFilter(parsed))
+                if (try? VariantSmartFilter.parse(token)) != nil {
+                    query.smartFilter = try? VariantSmartFilter.parse(
+                        ([query.smartFilter?.predicates.map(\.description).joined(separator: "; "), token]
+                            .compactMap { $0 }
+                            .filter { !$0.isEmpty })
+                            .joined(separator: "; ")
+                    )
+                } else {
+                    query.infoFilters.append(resolveVariantInfoFilter(parsed))
+                }
                 idx += 1
                 continue
             }
@@ -3913,6 +3944,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     func debugParseVariantInfoFilterKeys(_ text: String) -> [String] {
         parseVariantFilterText(text).infoFilters.map(\.key)
+    }
+
+    func debugParseVariantSmartFilterDescriptions(_ text: String) -> [String] {
+        parseVariantFilterText(text).smartFilter?.predicates.map(\.description) ?? []
     }
 
     func debugSetVariantScopeRegionEnabled(_ enabled: Bool) {
@@ -8152,6 +8187,7 @@ private struct VariantQueryContext: @unchecked Sendable {
         nameFilter: String = "", types: Set<String> = [],
         infoFilters: [VariantDatabase.InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = [],
         limit: Int = 5000,
         shouldCancel: (() -> Bool)? = nil
@@ -8171,6 +8207,7 @@ private struct VariantQueryContext: @unchecked Sendable {
                     chromosome: queryChrom, start: start, end: end,
                     nameFilter: nameFilter, types: types,
                     infoFilters: infoFilters, sampleNames: sampleNames,
+                    smartFilter: smartFilter,
                     activeTokens: activeTokens, limit: chunkLimit
                 )
                 if !records.isEmpty {
@@ -8186,6 +8223,7 @@ private struct VariantQueryContext: @unchecked Sendable {
         nameFilter: String = "", types: Set<String> = [],
         infoFilters: [VariantDatabase.InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         shouldCancel: (() -> Bool)? = nil
     ) -> Int {
         var count = 0
@@ -8198,7 +8236,8 @@ private struct VariantQueryContext: @unchecked Sendable {
                 count += handle.db.queryCountInRegion(
                     chromosome: queryChrom, start: start, end: end,
                     nameFilter: nameFilter, types: types,
-                    infoFilters: infoFilters, sampleNames: sampleNames
+                    infoFilters: infoFilters, sampleNames: sampleNames,
+                    smartFilter: smartFilter
                 )
             }
         }
@@ -8210,6 +8249,7 @@ private struct VariantQueryContext: @unchecked Sendable {
         nameFilter: String = "", types: Set<String> = [],
         infoFilters: [VariantDatabase.InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = [],
         limit: Int = 5000,
         shouldCancel: (() -> Bool)? = nil
@@ -8234,6 +8274,7 @@ private struct VariantQueryContext: @unchecked Sendable {
                 nameFilter: nameFilter,
                 types: types.isEmpty ? [] : requestedVariantTypes,
                 infoFilters: infoFilters, sampleNames: sampleNames,
+                smartFilter: smartFilter,
                 activeTokens: activeTokens, limit: remaining
             )
             results.append(contentsOf: variantRecordsToSearchResults(records, db: handle.db, trackId: handle.trackId))
@@ -8246,6 +8287,7 @@ private struct VariantQueryContext: @unchecked Sendable {
         nameFilter: String = "", types: Set<String> = [],
         infoFilters: [VariantDatabase.InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         shouldCancel: (() -> Bool)? = nil
     ) -> Int {
         var count = 0
@@ -8265,7 +8307,8 @@ private struct VariantQueryContext: @unchecked Sendable {
                     nameFilter: nameFilter,
                     types: requestedVariantTypes,
                     infoFilters: infoFilters,
-                    sampleNames: sampleNames
+                    sampleNames: sampleNames,
+                    smartFilter: smartFilter
                 )
             }
         }
@@ -8277,6 +8320,7 @@ private struct VariantQueryContext: @unchecked Sendable {
         types: Set<String> = [],
         infoFilters: [VariantDatabase.InfoFilter] = [],
         sampleNames: Set<String> = [],
+        smartFilter: VariantSmartFilter? = nil,
         activeTokens: Set<String> = [],
         limit: Int = 5000,
         shouldCancel: (() -> Bool)? = nil
@@ -8296,6 +8340,7 @@ private struct VariantQueryContext: @unchecked Sendable {
                 types: types,
                 infoFilters: infoFilters,
                 sampleNames: sampleNames,
+                smartFilter: smartFilter,
                 activeTokens: activeTokens,
                 limit: limit - results.count,
                 shouldCancel: shouldCancel
@@ -8322,6 +8367,7 @@ private struct VariantQueryContext: @unchecked Sendable {
                     types: types,
                     infoFilters: mergedFilters,
                     sampleNames: sampleNames,
+                    smartFilter: smartFilter,
                     activeTokens: activeTokens,
                     limit: limit - results.count,
                     shouldCancel: shouldCancel
