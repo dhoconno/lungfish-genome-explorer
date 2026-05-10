@@ -441,7 +441,7 @@ manual's full surface is visible before any further chapter writing begins.
   per-chapter `illustrations.yaml` that records brief, palette, and
   target dimension. Briefs are written to the brand-style guide so an
   external image generator can produce them with consistent voice.
-  Illustrations live in `assets/illustrations/`.
+  Illustrations live in `assets/illustrations-imagegen/`.
 - **Tool-choice tables are markdown tables.** Three columns: "If your
   data is" / "Use" / "Why". Linter-safe; renders cleanly in both web
   and PDF.

@@ -2,7 +2,7 @@
 #
 # These are illustration briefs and generated asset pointers. Source SVGs and
 # rendered PNGs live under:
-#   docs/user-manual/assets/illustrations/<chapter-id>/<illustration-id>.{svg,png}
+#   docs/user-manual/assets/illustrations-imagegen/<chapter-id>/<illustration-id>.{svg,png}
 #
 # Brand palette:
 #   - Lungfish Creamsicle: #EE8B4F
@@ -18,22 +18,22 @@ chapters:
     illustrations:
       - id: linear-vs-circular-genomes
         target_dimensions: 1200x600
-        asset: assets/illustrations/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png
-        source: assets/illustrations/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.svg
+        asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png
+        source: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.svg
         brief: >
           Side-by-side schematic contrasting a linear chromosome labelled 5'
           and 3' with a circular genome marked at position 1.
       - id: position-coordinates
         target_dimensions: 1400x300
-        asset: assets/illustrations/01-foundations/01-what-is-a-genome/position-coordinates.png
-        source: assets/illustrations/01-foundations/01-what-is-a-genome/position-coordinates.svg
+        asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.png
+        source: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/position-coordinates.svg
         brief: >
           SARS-CoV-2 MN908947.3 coordinate ruler with 1-based ticks at 1,
           1000, 5000, 10000, and 29903.
       - id: variant-notation
         target_dimensions: 1400x500
-        asset: assets/illustrations/01-foundations/01-what-is-a-genome/variant-notation.png
-        source: assets/illustrations/01-foundations/01-what-is-a-genome/variant-notation.svg
+        asset: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.png
+        source: assets/illustrations-imagegen/01-foundations/01-what-is-a-genome/variant-notation.svg
         brief: >
           Annotated breakdown of MN908947.3:21618 C>T into chromosome name,
           colon separator, 1-based position, reference base, and alternate base.
@@ -42,29 +42,29 @@ chapters:
     illustrations:
       - id: fastq-record-anatomy
         target_dimensions: 1400x600
-        asset: assets/illustrations/01-foundations/02-sequencing-reads/fastq-record-anatomy.png
-        source: assets/illustrations/01-foundations/02-sequencing-reads/fastq-record-anatomy.svg
+        asset: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/fastq-record-anatomy.png
+        source: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/fastq-record-anatomy.svg
         brief: >
           Four-line FASTQ record anatomy with header, sequence, separator,
           and quality rows labelled.
       - id: paired-end-reads
         target_dimensions: 1400x500
-        asset: assets/illustrations/01-foundations/02-sequencing-reads/paired-end-reads.png
-        source: assets/illustrations/01-foundations/02-sequencing-reads/paired-end-reads.svg
+        asset: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/paired-end-reads.png
+        source: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/paired-end-reads.svg
         brief: >
           Paired-end DNA fragment with read 1 and read 2 pointing inward and
           leaving an unsequenced insert gap.
       - id: phred-quality-bar
         target_dimensions: 1400x400
-        asset: assets/illustrations/01-foundations/02-sequencing-reads/phred-quality-bar.png
-        source: assets/illustrations/01-foundations/02-sequencing-reads/phred-quality-bar.svg
+        asset: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/phred-quality-bar.png
+        source: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/phred-quality-bar.svg
         brief: >
           Phred quality scale from Q0 to Q40, per-base quality columns, and
           Q20/Q30 error-rate annotations.
       - id: platform-read-length-comparison
         target_dimensions: 1400x500
-        asset: assets/illustrations/01-foundations/02-sequencing-reads/platform-read-length-comparison.png
-        source: assets/illustrations/01-foundations/02-sequencing-reads/platform-read-length-comparison.svg
+        asset: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/platform-read-length-comparison.png
+        source: assets/illustrations-imagegen/01-foundations/02-sequencing-reads/platform-read-length-comparison.svg
         brief: >
           Log-scale comparison of Illumina, PacBio HiFi, and Oxford Nanopore
           read lengths with a frayed Nanopore maximum.
@@ -73,22 +73,22 @@ chapters:
     illustrations:
       - id: amplicon-vs-shotgun
         target_dimensions: 1400x800
-        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.png
-        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.svg
+        asset: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.png
+        source: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.svg
         brief: >
           Shotgun reads scattered randomly over a backbone compared with
           tiled overlapping amplicons at fixed positions.
       - id: primer-scheme-diagram
         target_dimensions: 1400x500
-        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.png
-        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.svg
+        asset: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.png
+        source: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.svg
         brief: >
           ARTIC-style primer scheme showing forward primers, reverse primers,
           overlapping amplicon bands, and BED-style coordinates.
       - id: primer-trim-soft-clip
         target_dimensions: 1400x500
-        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png
-        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.svg
+        asset: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png
+        source: assets/illustrations-imagegen/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.svg
         brief: >
           Before and after primer trimming, showing primer bases retained but
           softened as soft-clipped evidence ignored by the variant caller.
@@ -97,29 +97,29 @@ chapters:
     illustrations:
       - id: read-mapping-cartoon
         target_dimensions: 1400x600
-        asset: assets/illustrations/01-foundations/04-alignment-files/read-mapping-cartoon.png
-        source: assets/illustrations/01-foundations/04-alignment-files/read-mapping-cartoon.svg
+        asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/read-mapping-cartoon.png
+        source: assets/illustrations-imagegen/01-foundations/04-alignment-files/read-mapping-cartoon.svg
         brief: >
           Pileup-style mapped reads pinned to a reference, with forward,
           reverse, and soft-clipped examples called out.
       - id: coverage-histogram
         target_dimensions: 1400x350
-        asset: assets/illustrations/01-foundations/04-alignment-files/coverage-histogram.png
-        source: assets/illustrations/01-foundations/04-alignment-files/coverage-histogram.svg
+        asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/coverage-histogram.png
+        source: assets/illustrations-imagegen/01-foundations/04-alignment-files/coverage-histogram.svg
         brief: >
           Coverage area histogram across a 2000-base region with one Peach
           low-coverage trough called out.
       - id: pileup-view
         target_dimensions: 1000x700
-        asset: assets/illustrations/01-foundations/04-alignment-files/pileup-view.png
-        source: assets/illustrations/01-foundations/04-alignment-files/pileup-view.svg
+        asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/pileup-view.png
+        source: assets/illustrations-imagegen/01-foundations/04-alignment-files/pileup-view.svg
         brief: >
           Ten-read pileup at a C/T variant position, showing 7 C reads, 3 T
           reads, and allele frequency = 3/10 = 30%.
       - id: cigar-anatomy
         target_dimensions: 1400x600
-        asset: assets/illustrations/01-foundations/04-alignment-files/cigar-anatomy.png
-        source: assets/illustrations/01-foundations/04-alignment-files/cigar-anatomy.svg
+        asset: assets/illustrations-imagegen/01-foundations/04-alignment-files/cigar-anatomy.png
+        source: assets/illustrations-imagegen/01-foundations/04-alignment-files/cigar-anatomy.svg
         brief: >
           Annotated 5S140M5S CIGAR cartoon connecting soft-clipped read ends,
           matched middle, reference bases, and alignment start position.
@@ -128,22 +128,22 @@ chapters:
     illustrations:
       - id: vcf-row-anatomy
         target_dimensions: 1600x500
-        asset: assets/illustrations/01-foundations/05-variants-and-vcf/vcf-row-anatomy.png
-        source: assets/illustrations/01-foundations/05-variants-and-vcf/vcf-row-anatomy.svg
+        asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/vcf-row-anatomy.png
+        source: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/vcf-row-anatomy.svg
         brief: >
           One internally consistent VCF row with CHROM, POS, ID, REF, ALT,
           QUAL, FILTER, INFO, FORMAT, and sample columns labelled.
       - id: allele-frequency-haploid-vs-diploid
         target_dimensions: 1400x600
-        asset: assets/illustrations/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png
-        source: assets/illustrations/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.svg
+        asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png
+        source: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.svg
         brief: >
           Human diploid AF=0.5 as one of two alleles compared with viral
           haploid AF=0.5 as half the read evidence.
       - id: filter-flag-cartoon
         target_dimensions: 1200x500
-        asset: assets/illustrations/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png
-        source: assets/illustrations/01-foundations/05-variants-and-vcf/filter-flag-cartoon.svg
+        asset: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png
+        source: assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/filter-flag-cartoon.svg
         brief: >
           Three VCF rows emphasizing FILTER=PASS, ft, and sb with a Deep Ink
           check mark, Peach warning triangles, and Lungfish-normalized filter
@@ -153,15 +153,15 @@ chapters:
     illustrations:
       - id: reference-bundle-anatomy
         target_dimensions: 1400x600
-        asset: assets/illustrations/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png
-        source: assets/illustrations/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.svg
+        asset: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png
+        source: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.svg
         brief: >
           Reference bundle folder connected to FASTA, FAI, manifest, and
           provenance files with purpose captions.
       - id: viewport-panes
         target_dimensions: 1400x800
-        asset: assets/illustrations/02-sequences/01-importing-and-viewing/viewport-panes.png
-        source: assets/illustrations/02-sequences/01-importing-and-viewing/viewport-panes.svg
+        asset: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.png
+        source: assets/illustrations-imagegen/02-sequences/01-importing-and-viewing/viewport-panes.svg
         brief: >
           Stylized sequence viewport with track viewer, sequence panel, and
           feature inspector panes labelled.
@@ -170,8 +170,8 @@ chapters:
     illustrations:
       - id: ncbi-accession-anatomy
         target_dimensions: 1400x500
-        asset: assets/illustrations/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png
-        source: assets/illustrations/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.svg
+        asset: assets/illustrations-imagegen/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png
+        source: assets/illustrations-imagegen/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.svg
         brief: >
           MN908947.3 accession decomposed into prefix, number, and version,
           with fetch-path and snapshot meanings.
@@ -180,15 +180,15 @@ chapters:
     illustrations:
       - id: msa-column-homology
         target_dimensions: 1400x600
-        asset: assets/illustrations/02-sequences/04-msa-and-trees/msa-column-homology.png
-        source: assets/illustrations/02-sequences/04-msa-and-trees/msa-column-homology.svg
+        asset: assets/illustrations-imagegen/02-sequences/04-msa-and-trees/msa-column-homology.png
+        source: assets/illustrations-imagegen/02-sequences/04-msa-and-trees/msa-column-homology.svg
         brief: >
           Three short sequences before and after MAFFT-style gap insertion so
           homologous bases share columns.
       - id: tree-anatomy
         target_dimensions: 1400x700
-        asset: assets/illustrations/02-sequences/04-msa-and-trees/tree-anatomy.png
-        source: assets/illustrations/02-sequences/04-msa-and-trees/tree-anatomy.svg
+        asset: assets/illustrations-imagegen/02-sequences/04-msa-and-trees/tree-anatomy.png
+        source: assets/illustrations-imagegen/02-sequences/04-msa-and-trees/tree-anatomy.svg
         brief: >
           Rectangular phylogram with tips, internal nodes, branch lengths, and
           bootstrap support values called out.
@@ -197,8 +197,8 @@ chapters:
     illustrations:
       - id: classification-question
         target_dimensions: 1400x500
-        asset: assets/illustrations/06-classification/01-what-is-classification/classification-question.png
-        source: assets/illustrations/06-classification/01-what-is-classification/classification-question.svg
+        asset: assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.png
+        source: assets/illustrations-imagegen/06-classification/01-what-is-classification/classification-question.svg
         brief: >
           Reads file feeding a classifier box and taxonomy sunburst, with
           bacteria, virus, and host outputs labelled.
@@ -207,8 +207,8 @@ chapters:
     illustrations:
       - id: assembly-vs-mapping
         target_dimensions: 1400x600
-        asset: assets/illustrations/07-assembly/01-when-to-assemble/assembly-vs-mapping.png
-        source: assets/illustrations/07-assembly/01-when-to-assemble/assembly-vs-mapping.svg
+        asset: assets/illustrations-imagegen/07-assembly/01-when-to-assemble/assembly-vs-mapping.png
+        source: assets/illustrations-imagegen/07-assembly/01-when-to-assemble/assembly-vs-mapping.svg
         brief: >
           Mapping with a reference contrasted against de novo assembly from
           read overlaps into thicker contigs.
