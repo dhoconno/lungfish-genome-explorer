@@ -258,6 +258,7 @@ public actor ClassificationPipeline {
                 "threads": .integer(effectiveConfig.threads),
                 "pairedEnd": .boolean(effectiveConfig.isPairedEnd),
                 "memoryMapping": .boolean(effectiveConfig.memoryMapping),
+                "extraArgs": .string(AdvancedCommandLineOptions.join(effectiveConfig.extraArguments)),
             ]
         )
 

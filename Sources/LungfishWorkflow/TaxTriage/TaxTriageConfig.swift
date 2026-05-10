@@ -167,6 +167,9 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
     /// or single-bundle runs where the output is stored inside the bundle itself.
     public var sourceBundleURLs: [URL]?
 
+    /// Additional Nextflow/TaxTriage arguments appended verbatim after managed options.
+    public var extraArguments: [String]
+
     // MARK: - Initialization
 
     /// Creates a TaxTriage configuration with the specified parameters.
@@ -204,7 +207,8 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         profile: String = "docker",
         containerRuntime: String? = nil,
         revision: String = TaxTriageConfig.defaultRevision,
-        sourceBundleURLs: [URL]? = nil
+        sourceBundleURLs: [URL]? = nil,
+        extraArguments: [String] = []
     ) {
         self.samples = samples
         self.platform = platform
@@ -222,6 +226,7 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         self.containerRuntime = containerRuntime
         self.revision = revision
         self.sourceBundleURLs = sourceBundleURLs
+        self.extraArguments = extraArguments
     }
 
     // MARK: - Computed Properties
@@ -282,8 +287,56 @@ public struct TaxTriageConfig: Sendable, Codable, Equatable {
         // Resource limits
         args += ["--max_memory", maxMemory]
         args += ["--max_cpus", String(maxCpus)]
+        args += extraArguments
 
         return args
+    }
+}
+
+extension TaxTriageConfig {
+    enum CodingKeys: String, CodingKey {
+        case samples
+        case platform
+        case outputDirectory
+        case kraken2DatabasePath
+        case classifiers
+        case topHitsCount
+        case k2Confidence
+        case rank
+        case skipAssembly
+        case skipKrona
+        case maxMemory
+        case maxCpus
+        case profile
+        case containerRuntime
+        case revision
+        case sourceBundleURLs
+        case extraArguments
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            samples: try container.decode([TaxTriageSample].self, forKey: .samples),
+            platform: try container.decodeIfPresent(Platform.self, forKey: .platform) ?? .illumina,
+            outputDirectory: try container.decode(URL.self, forKey: .outputDirectory),
+            kraken2DatabasePath: try container.decodeIfPresent(URL.self, forKey: .kraken2DatabasePath),
+            classifiers: try container.decodeIfPresent([String].self, forKey: .classifiers) ?? ["kraken2"],
+            topHitsCount: try container.decodeIfPresent(Int.self, forKey: .topHitsCount) ?? 10,
+            k2Confidence: try container.decodeIfPresent(Double.self, forKey: .k2Confidence) ?? 0.2,
+            rank: try container.decodeIfPresent(String.self, forKey: .rank) ?? "S",
+            skipAssembly: try container.decodeIfPresent(Bool.self, forKey: .skipAssembly) ?? true,
+            skipKrona: try container.decodeIfPresent(Bool.self, forKey: .skipKrona) ?? false,
+            maxMemory: try container.decodeIfPresent(String.self, forKey: .maxMemory) ?? "16.GB",
+            maxCpus: try container.decodeIfPresent(Int.self, forKey: .maxCpus)
+                ?? ProcessInfo.processInfo.activeProcessorCount,
+            profile: try container.decodeIfPresent(String.self, forKey: .profile) ?? "docker",
+            containerRuntime: try container.decodeIfPresent(String.self, forKey: .containerRuntime),
+            revision: try container.decodeIfPresent(String.self, forKey: .revision)
+                ?? TaxTriageConfig.defaultRevision,
+            sourceBundleURLs: try container.decodeIfPresent([URL].self, forKey: .sourceBundleURLs),
+            extraArguments: try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
+        )
     }
 }
 

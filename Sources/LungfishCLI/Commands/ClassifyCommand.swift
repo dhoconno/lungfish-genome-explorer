@@ -64,9 +64,6 @@ struct ClassifyCommand: AsyncParsableCommand {
     @Option(name: .customLong("min-hit-groups"), help: "Override minimum hit groups")
     var minHitGroups: Int?
 
-    @Option(name: .customLong("threads"), help: "Number of threads (default: 4)")
-    var threads: Int = 4
-
     @Flag(name: .customLong("memory-mapping"), help: "Use memory-mapped I/O (slower, less RAM)")
     var memoryMapping: Bool = false
 
@@ -81,6 +78,13 @@ struct ClassifyCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("bracken-threshold"), help: "Bracken minimum read threshold (default: 10)")
     var brackenThreshold: Int = 10
+
+    @Option(
+        name: .customLong("extra-args"),
+        parsing: .unconditional,
+        help: "Additional kraken2 arguments passed verbatim"
+    )
+    var extraArgs: String = ""
 
     @OptionGroup var globalOptions: GlobalOptions
 
@@ -161,6 +165,7 @@ struct ClassifyCommand: AsyncParsableCommand {
         }
 
         // Build config from preset, then apply overrides.
+        let effectiveThreads = globalOptions.threads ?? 4
         var config = ClassificationConfig.fromPreset(
             preset.toPreset(),
             inputFiles: executionInputURLs,
@@ -168,10 +173,11 @@ struct ClassifyCommand: AsyncParsableCommand {
             databaseName: databaseName,
             inputFormat: inputFormat,
             databasePath: dbPath,
-            threads: threads,
+            threads: effectiveThreads,
             memoryMapping: memoryMapping,
             quickMode: quickMode,
-            outputDirectory: outputDirectory
+            outputDirectory: outputDirectory,
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
         )
 
         // Apply explicit overrides if provided.
@@ -273,6 +279,27 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
             return resolvedURL.standardizedFileURL
         }
+    }
+
+    func makeConfigForTesting(
+        inputURLs: [URL],
+        databasePath: URL,
+        inputFormat: SequenceFormat,
+        outputDirectory: URL
+    ) throws -> ClassificationConfig {
+        ClassificationConfig.fromPreset(
+            preset.toPreset(),
+            inputFiles: inputURLs,
+            isPairedEnd: pairedEnd,
+            databaseName: databaseName,
+            inputFormat: inputFormat,
+            databasePath: databasePath,
+            threads: globalOptions.threads ?? 4,
+            memoryMapping: memoryMapping,
+            quickMode: quickMode,
+            outputDirectory: outputDirectory,
+            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+        )
     }
 }
 

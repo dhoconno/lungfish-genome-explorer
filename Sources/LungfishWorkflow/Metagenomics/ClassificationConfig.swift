@@ -138,6 +138,9 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
     /// Faster but less accurate. Passed as `--quick`.
     public var quickMode: Bool
 
+    /// Additional kraken2 arguments appended verbatim before input files.
+    public var extraArguments: [String]
+
     // MARK: - Output
 
     /// Directory where output files are written.
@@ -178,7 +181,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         threads: Int = 4,
         memoryMapping: Bool = false,
         quickMode: Bool = false,
-        outputDirectory: URL
+        outputDirectory: URL,
+        extraArguments: [String] = []
     ) {
         self.goal = goal
         self.inputFiles = inputFiles
@@ -193,6 +197,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         self.memoryMapping = memoryMapping
         self.quickMode = quickMode
         self.outputDirectory = outputDirectory
+        self.extraArguments = extraArguments
     }
 
     // MARK: - Presets
@@ -238,7 +243,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
         threads: Int = 4,
         memoryMapping: Bool = false,
         quickMode: Bool = false,
-        outputDirectory: URL
+        outputDirectory: URL,
+        extraArguments: [String] = []
     ) -> ClassificationConfig {
         let (confidence, minHitGroups) = preset.parameters
         return ClassificationConfig(
@@ -254,7 +260,8 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
             threads: threads,
             memoryMapping: memoryMapping,
             quickMode: quickMode,
-            outputDirectory: outputDirectory
+            outputDirectory: outputDirectory,
+            extraArguments: extraArguments
         )
     }
 
@@ -331,6 +338,7 @@ public struct ClassificationConfig: Sendable, Codable, Equatable {
 
         // Use report minimizer data for bracken compatibility
         args.append("--report-minimizer-data")
+        args += extraArguments
 
         // Input files (must be last)
         for file in inputFiles {
@@ -441,6 +449,7 @@ extension ClassificationConfig {
         case memoryMapping
         case quickMode
         case outputDirectory
+        case extraArguments
     }
 
     public init(from decoder: Decoder) throws {
@@ -458,6 +467,7 @@ extension ClassificationConfig {
         let memoryMapping = try container.decode(Bool.self, forKey: .memoryMapping)
         let quickMode = try container.decode(Bool.self, forKey: .quickMode)
         let outputDirectory = try container.decode(URL.self, forKey: .outputDirectory)
+        let extraArguments = try container.decodeIfPresent([String].self, forKey: .extraArguments) ?? []
 
         self.init(
             goal: goal,
@@ -472,7 +482,8 @@ extension ClassificationConfig {
             threads: threads,
             memoryMapping: memoryMapping,
             quickMode: quickMode,
-            outputDirectory: outputDirectory
+            outputDirectory: outputDirectory,
+            extraArguments: extraArguments
         )
 
         sampleDisplayName = try container.decodeIfPresent(String.self, forKey: .sampleDisplayName)

@@ -527,7 +527,8 @@ public actor TaxTriagePipeline {
             maxMemory: config.maxMemory,
             maxCpus: config.maxCpus,
             profile: config.profile,
-            revision: config.revision
+            revision: config.revision,
+            extraArguments: config.extraArguments
         )
 
         try fm.createDirectory(at: effectiveConfig.outputDirectory, withIntermediateDirectories: true)
@@ -823,6 +824,7 @@ public actor TaxTriagePipeline {
         // Resource limits
         args += ["--max_memory", config.maxMemory]
         args += ["--max_cpus", String(config.maxCpus)]
+        args += config.extraArguments
 
         return args
     }

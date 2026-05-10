@@ -196,6 +196,13 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("mode"), help: "Trim mode: cut-right, cut-front, cut-tail, cut-both (default: cut-right)")
     var mode: String = "cut-right"
 
+    @Option(
+        name: .customLong("extra-args"),
+        parsing: .unconditional,
+        help: "Additional fastp arguments passed verbatim"
+    )
+    var extraArgs: String = ""
+
     @OptionGroup var output: OutputOptions
 
     func run() async throws {
@@ -203,6 +210,24 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         try output.validateOutput()
         let runner = NativeToolRunner.shared
 
+        let args = try fastpArguments(inputURL: inputURL)
+
+        let result = try await runner.run(.fastp, arguments: args)
+        guard result.isSuccess else {
+            throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
+        }
+        FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
+    }
+
+    var extraArguments: [String] {
+        (try? AdvancedCommandLineOptions.parse(extraArgs)) ?? []
+    }
+
+    func fastpArgumentsForTesting(inputURL: URL) throws -> [String] {
+        try fastpArguments(inputURL: inputURL)
+    }
+
+    private func fastpArguments(inputURL: URL) throws -> [String] {
         var args = [
             "-i", inputURL.path,
             "-o", output.output,
@@ -225,12 +250,8 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         default:
             throw ValidationError("Invalid trim mode: \(mode). Use: cut-right, cut-front, cut-tail, cut-both")
         }
-
-        let result = try await runner.run(.fastp, arguments: args)
-        guard result.isSuccess else {
-            throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
-        }
-        FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
+        args += try AdvancedCommandLineOptions.parse(extraArgs)
+        return args
     }
 }
 

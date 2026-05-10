@@ -94,6 +94,13 @@ extension BlastCommand {
         @Flag(name: .customLong("include-children"), help: "Include reads classified to descendant taxa")
         var includeChildren: Bool = false
 
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional BLAST API arguments recorded for provenance"
+        )
+        var extraArgs: String = ""
+
         @OptionGroup var globalOptions: GlobalOptions
 
         // MARK: - Validation
@@ -223,7 +230,8 @@ extension BlastCommand {
             let request = BlastVerificationRequest(
                 taxonName: targetNode.name,
                 taxId: taxId,
-                sequences: subsampled
+                sequences: subsampled,
+                extraArgs: extraArgs
             )
 
             let result = try await BlastService.shared.verify(
@@ -306,6 +314,18 @@ extension BlastCommand {
             case .inconclusive:
                 print(formatter.dim("Verification: \(confidenceLabel) (no significant hits)"))
             }
+        }
+
+        func makeVerificationRequestForTesting(
+            taxonName: String,
+            sequences: [(id: String, sequence: String)]
+        ) throws -> BlastVerificationRequest {
+            BlastVerificationRequest(
+                taxonName: taxonName,
+                taxId: taxId,
+                sequences: sequences,
+                extraArgs: extraArgs
+            )
         }
     }
 }

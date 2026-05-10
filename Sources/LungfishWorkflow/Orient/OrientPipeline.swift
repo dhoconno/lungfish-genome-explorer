@@ -31,6 +31,9 @@ public struct OrientConfig: Sendable {
     /// Number of threads (0 = all cores).
     public let threads: Int
 
+    /// Additional vsearch arguments appended verbatim after Lungfish-managed options.
+    public let extraArguments: [String]
+
     public init(
         inputURL: URL,
         referenceURL: URL,
@@ -38,7 +41,8 @@ public struct OrientConfig: Sendable {
         dbMask: String = "dust",
         qMask: String = "dust",
         saveUnoriented: Bool = true,
-        threads: Int = 0
+        threads: Int = 0,
+        extraArguments: [String] = []
     ) {
         self.inputURL = inputURL
         self.referenceURL = referenceURL
@@ -47,6 +51,41 @@ public struct OrientConfig: Sendable {
         self.qMask = qMask
         self.saveUnoriented = saveUnoriented
         self.threads = threads
+        self.extraArguments = extraArguments
+    }
+
+    public func vsearchArguments(
+        orientedOutput: URL,
+        tabbedOutput: URL,
+        unmatchedOutput: URL?
+    ) -> [String] {
+        var args: [String] = [
+            "--orient", inputURL.path,
+            "--db", referenceURL.path,
+            "--fastqout", orientedOutput.path,
+            "--tabbedout", tabbedOutput.path,
+            "--wordlength", String(wordLength),
+            "--dbmask", dbMask,
+            "--qmask", qMask,
+            "--threads", String(threads),
+        ]
+        if let unmatchedOutput {
+            args.append(contentsOf: ["--notmatched", unmatchedOutput.path])
+        }
+        args += extraArguments
+        return args
+    }
+
+    public func vsearchArgumentsForTesting(
+        orientedOutput: URL,
+        tabbedOutput: URL,
+        unmatchedOutput: URL?
+    ) -> [String] {
+        vsearchArguments(
+            orientedOutput: orientedOutput,
+            tabbedOutput: tabbedOutput,
+            unmatchedOutput: unmatchedOutput
+        )
     }
 }
 
@@ -130,23 +169,15 @@ public final class OrientPipeline: @unchecked Sendable {
         let orientedOutput = workDir.appendingPathComponent("oriented.fastq")
         let tabbedOutput = workDir.appendingPathComponent("orient-results.tsv")
 
-        var args: [String] = [
-            "--orient", config.inputURL.path,
-            "--db", config.referenceURL.path,
-            "--fastqout", orientedOutput.path,
-            "--tabbedout", tabbedOutput.path,
-            "--wordlength", String(config.wordLength),
-            "--dbmask", config.dbMask,
-            "--qmask", config.qMask,
-            "--threads", String(config.threads),
-        ]
-
         var unmatchedOutput: URL?
         if config.saveUnoriented {
-            let unmatchedURL = workDir.appendingPathComponent("unoriented.fastq")
-            args.append(contentsOf: ["--notmatched", unmatchedURL.path])
-            unmatchedOutput = unmatchedURL
+            unmatchedOutput = workDir.appendingPathComponent("unoriented.fastq")
         }
+        let args = config.vsearchArguments(
+            orientedOutput: orientedOutput,
+            tabbedOutput: tabbedOutput,
+            unmatchedOutput: unmatchedOutput
+        )
 
         progress(0.10, "Running vsearch orient...")
 

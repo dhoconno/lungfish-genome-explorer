@@ -19,6 +19,7 @@ extension ClassificationConfig {
             "minimumHitGroups": .int(minimumHitGroups),
             "threads": .int(threads),
             "memoryMapping": .bool(memoryMapping),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(extraArguments)),
         ]
     }
 }

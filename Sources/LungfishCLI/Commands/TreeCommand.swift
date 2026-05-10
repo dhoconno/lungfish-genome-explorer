@@ -20,7 +20,8 @@ struct TreeCommand: AsyncParsableCommand {
             abstract: "Infer phylogenetic trees from native alignment bundles",
             subcommands: [
                 InferIQTreeSubcommand.self,
-            ]
+            ],
+            defaultSubcommand: InferIQTreeSubcommand.self
         )
     }
 
@@ -273,6 +274,13 @@ struct TreeCommand: AsyncParsableCommand {
         )
         var extraIQTreeOptions: String = ""
 
+        @Option(
+            name: .customLong("extra-args"),
+            parsing: .unconditional,
+            help: "Additional IQ-TREE arguments passed verbatim"
+        )
+        var extraArgs: String = ""
+
         @Option(name: .customLong("iqtree-path"), help: "Override path to iqtree3 executable")
         var iqtreePath: String?
 
@@ -501,6 +509,9 @@ struct TreeCommand: AsyncParsableCommand {
             if keepIdenticalSequences {
                 argv.append("--keep-identical")
             }
+            if extraArgs.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                argv += ["--extra-args", extraArgs]
+            }
             if extraIQTreeOptions.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 argv += ["--extra-iqtree-options", extraIQTreeOptions]
             }
@@ -592,7 +603,11 @@ struct TreeCommand: AsyncParsableCommand {
         }
 
         private func parsedAdvancedArguments() throws -> [String] {
-            try AdvancedCommandLineOptions.parse(extraIQTreeOptions)
+            let text = [extraIQTreeOptions, extraArgs]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            return try AdvancedCommandLineOptions.parse(text)
         }
     }
 }
@@ -952,7 +967,9 @@ private func rewriteManifestAndProvenance(
         options["seed"] = String(seed)
     }
     if advancedArguments.isEmpty == false {
-        options["advancedArguments"] = AdvancedCommandLineOptions.join(advancedArguments)
+        let joined = AdvancedCommandLineOptions.join(advancedArguments)
+        options["advancedArguments"] = joined
+        options["extraArgs"] = joined
     }
     if let rows {
         options["rows"] = rows
