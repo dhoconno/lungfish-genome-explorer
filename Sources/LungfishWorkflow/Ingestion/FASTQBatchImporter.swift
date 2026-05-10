@@ -18,11 +18,25 @@ public struct SamplePair: Sendable {
     public let r2: URL?
     /// Relative path from the scanned root directory (nil for root-level files).
     public let relativePath: String?
-    public init(sampleName: String, r1: URL, r2: URL?, relativePath: String? = nil) {
+    /// Optional metadata imported from a sample sheet row.
+    public let metadata: [String: String]
+    /// CSV sample sheet that supplied this pair, when applicable.
+    public let sampleSheetURL: URL?
+
+    public init(
+        sampleName: String,
+        r1: URL,
+        r2: URL?,
+        relativePath: String? = nil,
+        metadata: [String: String] = [:],
+        sampleSheetURL: URL? = nil
+    ) {
         self.sampleName = sampleName
         self.r1 = r1
         self.r2 = r2
         self.relativePath = relativePath
+        self.metadata = metadata
+        self.sampleSheetURL = sampleSheetURL
     }
 }
 
@@ -719,6 +733,11 @@ public enum FASTQBatchImporter {
                 try? FileManager.default.removeItem(at: bundleFASTQURL)
                 try FileManager.default.moveItem(at: finalFASTQURL, to: bundleFASTQURL)
             }
+            if !pair.metadata.isEmpty {
+                var metadataPairs = pair.metadata
+                metadataPairs["sample"] = pair.sampleName
+                try FASTQBundleCSVMetadata.save(FASTQBundleCSVMetadata(keyValuePairs: metadataPairs), to: bundleURL)
+            }
 
             // Write ingestion metadata sidecar
             let pairingMeta: IngestionMetadata.PairingMode = pair.r2 != nil ? .interleaved : .singleEnd
@@ -827,7 +846,11 @@ public enum FASTQBatchImporter {
         statsError: String?
     ) async throws {
         let originalInputURLs = [pair.r1] + (pair.r2.map { [$0] } ?? [])
+        let sampleSheetInput = pair.sampleSheetURL.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .input)
+        }
         let metadataURL = FASTQMetadataStore.metadataURL(for: bundleFASTQURL)
+        let csvMetadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
 
         var steps: [StepExecution] = []
@@ -847,11 +870,14 @@ public enum FASTQBatchImporter {
             toolName: "lungfish import fastq",
             toolVersion: WorkflowRun.currentAppVersion,
             command: reproducibleImportCommand(pair: pair, config: config),
-            inputs: originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+            inputs: originalInputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) }
+                + (sampleSheetInput.map { [$0] } ?? []),
             outputs: [
                 ProvenanceRecorder.fileRecord(url: bundleFASTQURL, format: .fastq, role: .output),
                 ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output),
-            ],
+            ] + (FileManager.default.fileExists(atPath: csvMetadataURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: csvMetadataURL, format: .text, role: .output)]
+                : []),
             exitCode: 0,
             wallTime: 0,
             stderr: nil,
@@ -962,6 +988,10 @@ public enum FASTQBatchImporter {
             "sampleName": .string(pair.sampleName),
             "r1": .file(pair.r1),
             "r2": pair.r2.map(ParameterValue.file) ?? .null,
+            "sampleSheet": pair.sampleSheetURL.map(ParameterValue.file) ?? .null,
+            "sampleSheetMetadata": pair.metadata.isEmpty ? .null : .dictionary(
+                pair.metadata.mapValues { .string($0) }
+            ),
             "projectDirectory": .file(config.projectDirectory),
             "outputBundle": .file(bundleURL),
             "platform": .string(config.platform.rawValue),
@@ -975,6 +1005,26 @@ public enum FASTQBatchImporter {
     }
 
     private static func reproducibleImportCommand(pair: SamplePair, config: ImportConfig) -> [String] {
+        if let sampleSheetURL = pair.sampleSheetURL {
+            var command = [
+                "lungfish", "import", "fastq",
+                "--samplesheet", sampleSheetURL.path,
+                "--project", config.projectDirectory.path,
+                "--platform", config.platform.rawValue,
+                "--recipe", config.newRecipe?.id ?? config.recipe?.name ?? "none",
+                "--quality-binning", config.qualityBinning.rawValue,
+                "--compression", config.compressionLevel.rawValue,
+                "--threads", String(config.threads),
+            ]
+            if !config.optimizeStorage {
+                command.append("--no-optimize-storage")
+            }
+            if config.forceReimport {
+                command.append("--force")
+            }
+            return command
+        }
+
         var command = [
             "lungfish", "import", "fastq",
             pair.r1.path,

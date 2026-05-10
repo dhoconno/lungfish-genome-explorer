@@ -195,6 +195,17 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertNotNil(node.outputPort(withId: "stats"))
     }
 
+    func testSampleSheetNodeFansOutFASTQSamples() {
+        let node = WorkflowNode(type: .sampleSheet, position: .zero)
+
+        XCTAssertEqual(node.outputPorts.count, 1)
+        let samples = node.outputPort(withId: "samples")
+        XCTAssertEqual(samples?.dataType, .fastqBundle)
+        XCTAssertTrue(samples?.allowsMultiple ?? false)
+        XCTAssertEqual(node.parameters["sample_sheet_mode"], "paired_illumina_fastq")
+        XCTAssertEqual(node.parameters["fan_out"], "true")
+    }
+
     func testNodeCategories() {
         XCTAssertEqual(WorkflowNodeType.fastqInput.category, .input)
         XCTAssertEqual(WorkflowNodeType.trimming.category, .preprocessing)

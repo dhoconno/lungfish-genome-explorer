@@ -114,6 +114,61 @@ final class FASTQBatchImporterTests: XCTestCase {
         }
     }
 
+    func testSampleSheetParsesPairedIlluminaRowsAndMetadata() throws {
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQBatchImporterTests-samplesheet-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+        let r1 = tmpDir.appendingPathComponent("Alpha_R1.fastq.gz")
+        let r2 = tmpDir.appendingPathComponent("Alpha_R2.fastq.gz")
+        let betaR1 = tmpDir.appendingPathComponent("Beta_R1.fastq.gz")
+        let betaR2 = tmpDir.appendingPathComponent("Beta_R2.fastq.gz")
+        for url in [r1, r2, betaR1, betaR2] {
+            FileManager.default.createFile(atPath: url.path, contents: Data())
+        }
+
+        let sheetURL = tmpDir.appendingPathComponent("samples.csv")
+        try """
+        sample,r1,r2,collection_date,batch_id,operator
+        Alpha,Alpha_R1.fastq.gz,Alpha_R2.fastq.gz,2026-05-10,B42,Ada
+        Beta,\(betaR1.path),\(betaR2.path),2026-05-11,B42,Grace
+        """.write(to: sheetURL, atomically: true, encoding: .utf8)
+
+        let parsed = try FASTQSampleSheet.parse(url: sheetURL)
+
+        XCTAssertEqual(parsed.sourceURL.standardizedFileURL, sheetURL.standardizedFileURL)
+        XCTAssertEqual(parsed.entries.count, 2)
+        XCTAssertEqual(parsed.entries[0].sampleName, "Alpha")
+        XCTAssertEqual(parsed.entries[0].r1.standardizedFileURL, r1.standardizedFileURL)
+        XCTAssertEqual(parsed.entries[0].r2.standardizedFileURL, r2.standardizedFileURL)
+        XCTAssertEqual(parsed.entries[0].metadata["collection_date"], "2026-05-10")
+        XCTAssertEqual(parsed.entries[0].metadata["batch_id"], "B42")
+        XCTAssertEqual(parsed.entries[0].metadata["operator"], "Ada")
+        XCTAssertEqual(parsed.entries[1].sampleName, "Beta")
+        XCTAssertEqual(parsed.entries[1].r1.standardizedFileURL, betaR1.standardizedFileURL)
+    }
+
+    func testSampleSheetPairsCarryMetadataAndSourceForProvenance() throws {
+        let sheetURL = URL(fileURLWithPath: "/data/run/samples.csv")
+        let pairs = try FASTQSampleSheet(
+            sourceURL: sheetURL,
+            entries: [
+                FASTQSampleSheet.Entry(
+                    sampleName: "Alpha",
+                    r1: URL(fileURLWithPath: "/data/run/Alpha_R1.fastq.gz"),
+                    r2: URL(fileURLWithPath: "/data/run/Alpha_R2.fastq.gz"),
+                    metadata: ["collection_date": "2026-05-10", "batch_id": "B42"]
+                )
+            ]
+        ).samplePairs()
+
+        XCTAssertEqual(pairs.count, 1)
+        XCTAssertEqual(pairs[0].sampleName, "Alpha")
+        XCTAssertEqual(pairs[0].metadata["collection_date"], "2026-05-10")
+        XCTAssertEqual(pairs[0].sampleSheetURL?.standardizedFileURL, sheetURL.standardizedFileURL)
+    }
+
     // MARK: - Recipe Resolution
 
     func testRecipeResolutionVSP2() throws {

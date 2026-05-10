@@ -23,6 +23,19 @@ protocol ManagedDatabaseProvisioning: Sendable {
 
 extension DatabaseRegistry: ManagedDatabaseProvisioning {}
 
+struct ImportFastqCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "import-fastq",
+        abstract: "Batch-import FASTQ files into a Lungfish project"
+    )
+
+    @OptionGroup var command: ImportCommand.FastqSubcommand
+
+    func run() async throws {
+        try await command.run()
+    }
+}
+
 // MARK: - FASTQ Import Subcommand
 
 extension ImportCommand {
@@ -51,7 +64,13 @@ extension ImportCommand {
         )
 
         @Argument(help: "Directory containing .fastq.gz files, or one or more FASTQ file paths")
-        var input: [String]
+        var input: [String] = []
+
+        @Option(
+            name: .customLong("samplesheet"),
+            help: "CSV sample sheet with sample,r1,r2 columns and optional metadata columns"
+        )
+        var samplesheet: String?
 
         @Option(
             name: [.customLong("project"), .customShort("p")],
@@ -121,8 +140,12 @@ extension ImportCommand {
         func run() async throws {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
-            guard !input.isEmpty else {
-                print(formatter.error("At least one input path is required."))
+            guard !input.isEmpty || samplesheet != nil else {
+                print(formatter.error("At least one input path or --samplesheet is required."))
+                throw ExitCode.failure
+            }
+            guard !(samplesheet != nil && !input.isEmpty) else {
+                print(formatter.error("Pass either FASTQ input paths or --samplesheet, not both."))
                 throw ExitCode.failure
             }
 
@@ -131,7 +154,19 @@ extension ImportCommand {
             let pairs: [SamplePair]
             let fm = FileManager.default
 
-            if input.count == 1 {
+            if let samplesheet {
+                let sheetURL = URL(fileURLWithPath: samplesheet)
+                guard fm.fileExists(atPath: sheetURL.path) else {
+                    print(formatter.error("Sample sheet not found: \(samplesheet)"))
+                    throw ExitCode.failure
+                }
+                do {
+                    pairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
+                } catch {
+                    print(formatter.error("Could not parse sample sheet: \(error.localizedDescription)"))
+                    throw ExitCode.failure
+                }
+            } else if input.count == 1 {
                 // Single argument: could be a directory or a single file
                 let inputURL = URL(fileURLWithPath: input[0])
                 var isDirectory: ObjCBool = false

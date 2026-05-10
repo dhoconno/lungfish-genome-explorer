@@ -218,6 +218,28 @@ final class ImportFastqCommandTests: XCTestCase {
         XCTAssertFalse(command.recursive)
     }
 
+    func testParseSampleSheetOption() throws {
+        let command = try ImportCommand.FastqSubcommand.parse([
+            "--samplesheet", "/data/run/samples.csv",
+            "--project", "/projects/Test.lungfish",
+            "--platform", "illumina",
+        ])
+
+        XCTAssertEqual(command.samplesheet, "/data/run/samples.csv")
+        XCTAssertTrue(command.input.isEmpty)
+    }
+
+    func testTopLevelImportFastqAliasParsesSampleSheetOption() throws {
+        let command = try ImportFastqCommand.parse([
+            "--samplesheet", "/data/run/samples.csv",
+            "--project", "/projects/Test.lungfish",
+            "--platform", "illumina",
+        ])
+
+        XCTAssertEqual(command.command.samplesheet, "/data/run/samples.csv")
+        XCTAssertTrue(command.command.input.isEmpty)
+    }
+
     func testParseAllFlagsCombined() throws {
         let command = try ImportCommand.FastqSubcommand.parse([
             "/data/fastq_dir",

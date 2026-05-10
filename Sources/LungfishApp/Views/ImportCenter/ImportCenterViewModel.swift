@@ -88,6 +88,7 @@ struct ImportCardInfo: Identifiable, Sendable {
     /// Identifies which import action to dispatch.
     enum ImportAction: Sendable {
         case fastq
+        case fastqSampleSheet
         case ontRun
         case bam
         case vcf
@@ -244,6 +245,23 @@ final class ImportCenterViewModel {
                     allowsMultipleSelection: true
                 ),
                 action: .fastq
+            )
+        ),
+        ImportCardInfo(
+            id: "fastq-sample-sheet",
+            title: "FASTQ Sample Sheet",
+            description: "Import a paired Illumina CSV sample sheet with sample, r1, and r2 columns plus optional metadata.",
+            sfSymbol: "tablecells",
+            fileHint: ".csv with sample,r1,r2 columns",
+            tab: .sequencingReads,
+            importKind: .openPanel(
+                configuration: .init(
+                    allowedTypes: [UTType(filenameExtension: "csv") ?? .commaSeparatedText],
+                    canChooseFiles: true,
+                    canChooseDirectories: false,
+                    allowsMultipleSelection: false
+                ),
+                action: .fastqSampleSheet
             )
         ),
         ImportCardInfo(
@@ -622,6 +640,7 @@ final class ImportCenterViewModel {
     private func panelMessage(for action: ImportCardInfo.ImportAction) -> String {
         switch action {
         case .fastq:    return "Select FASTQ files or folders to import"
+        case .fastqSampleSheet: return "Select a FASTQ sample sheet CSV to import"
         case .ontRun:   return "Select an ONT output directory to import"
         case .bam:      return "Select BAM or CRAM alignment files to import"
         case .vcf:      return "Select VCF variant files to import"
@@ -667,6 +686,10 @@ final class ImportCenterViewModel {
         switch action {
         case .fastq:
             appDelegate.importFASTQFromURLs(urls)
+        case .fastqSampleSheet:
+            if let url = urls.first {
+                appDelegate.importFASTQSampleSheetFromURL(url)
+            }
         case .ontRun:
             for url in urls {
                 appDelegate.importONTRunFromURL(url)
@@ -797,6 +820,7 @@ final class ImportCenterViewModel {
     private func historyLabel(for action: ImportCardInfo.ImportAction) -> String {
         switch action {
         case .fastq:    return "FASTQ"
+        case .fastqSampleSheet: return "FASTQ Sample Sheet"
         case .ontRun:   return "ONT Run"
         case .bam:      return "BAM"
         case .vcf:      return "VCF"
