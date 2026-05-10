@@ -35,12 +35,12 @@ Current open issues on 2026-05-07 were `#6` through `#13`. They are mostly high-
 
 Use a repo-local Codex agent plus a process document:
 
-- `.codex/agents/github-issue-engagement-orchestrator.md`
-- `docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`
-- Update `docs/process/PROJECT-LEAD-AGENT.md` to make GitHub Issue intake an upstream source for Phase 0 scoping.
-- Update `roles/20-docs-community.md` only if the implementation needs to align response-time/community metrics with the new agent.
+- `agents/definitions/codex/github-issue-engagement-orchestrator.md`
+- `agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`
+- Update `agents/process/PROJECT-LEAD-AGENT.md` to make GitHub Issue intake an upstream source for Phase 0 scoping.
+- Update `agents/specialists/20-docs-community.md` only if the implementation needs to align response-time/community metrics with the new agent.
 
-This keeps the agent in the same family as `.codex/agents/release-agent.md`, which already defines a reusable operational Codex role. It avoids `.claude/agents`, which currently houses Claude-specific user-manual subagents with strict manual-writing ownership boundaries.
+This keeps the agent in the same family as `agents/definitions/codex/release-agent.md`, which already defines a reusable operational Codex role. It avoids `agents/definitions/claude`, which currently houses Claude-specific user-manual subagents with strict manual-writing ownership boundaries.
 
 ## 5. Alternatives considered
 
@@ -185,9 +185,9 @@ Missing provenance remains a blocking defect for new scientific features. The or
 
 The implementation should produce:
 
-- A Codex agent definition at `.codex/agents/github-issue-engagement-orchestrator.md`.
-- A process document at `docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`.
-- A short update to `docs/process/PROJECT-LEAD-AGENT.md` describing GitHub Issue intake before Phase 0 scope writing.
+- A Codex agent definition at `agents/definitions/codex/github-issue-engagement-orchestrator.md`.
+- A process document at `agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`.
+- A short update to `agents/process/PROJECT-LEAD-AGENT.md` describing GitHub Issue intake before Phase 0 scope writing.
 - Optional label bootstrap script or documented `gh label create` commands, if the user wants labels created in GitHub.
 - An initial triage report for issues `#6` through `#13`, including proposed comments and dispositions.
 

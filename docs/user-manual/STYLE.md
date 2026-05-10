@@ -6,7 +6,7 @@ Derived from `lungfish_brand_style_guide.md` (memory). The linter in
 ## Prose rules
 
 Two hard rules apply to every chapter and every agent-facing doc under
-`docs/user-manual/` and `.claude/agents/`.
+`docs/user-manual/` and `agents/definitions/claude/`.
 
 First: **no em dashes.** Never write `—` in chapter or doc prose. Use a period
 and start a new sentence. When the em dash introduced a list or a noun-phrase

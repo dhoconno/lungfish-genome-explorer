@@ -26,7 +26,6 @@
 !containers/**
 !docs/**
 !lungfish-cli.entitlements
-!roles/**
 !scripts/**
 !sign-cli.sh
 !test-data/test-annotated.gb

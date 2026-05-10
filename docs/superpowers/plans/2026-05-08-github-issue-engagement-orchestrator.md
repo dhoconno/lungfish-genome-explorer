@@ -4,7 +4,7 @@
 
 **Goal:** Add a repo-local Codex GitHub Issue Engagement Orchestrator, document its relationship to the existing Project Lead process, and produce an initial triage report for issues `#6` through `#13`.
 
-**Architecture:** This is a documentation and agent-definition change. The reusable agent lives under `.codex/agents/`, the durable process contract lives under `docs/process/`, the existing Project Lead process gets a short upstream-intake link, and the first issue batch is recorded as a review artifact. GitHub comments and closures are allowed only when the current triage run has explicit authorization and a public rationale.
+**Architecture:** This is a documentation and agent-definition change. The canonical reusable agent lives under `agents/definitions/codex/`, the durable process contract lives under `agents/process/`, and `.codex/agents/` remains the tool-facing mirror. The existing Project Lead process gets a short upstream-intake link, and the first issue batch is recorded as a review artifact. GitHub comments and closures are allowed only when the current triage run has explicit authorization and a public rationale.
 
 **Tech Stack:** Markdown process documents, Codex agent front matter, GitHub CLI read/write commands, existing Lungfish process docs.
 
@@ -14,25 +14,25 @@
 
 ### New files
 
-- `.codex/agents/github-issue-engagement-orchestrator.md` - reusable Codex agent definition with operating contract, GitHub mutation modes, expert-enlistment rules, privacy/provenance guardrails, and triage workflow.
-- `docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md` - durable process specification describing the orchestrator's scope, handoffs, labels, response standards, and escalation paths.
+- `agents/definitions/codex/github-issue-engagement-orchestrator.md` - reusable Codex agent definition with operating contract, GitHub mutation modes, expert-enlistment rules, privacy/provenance guardrails, and triage workflow.
+- `agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md` - durable process specification describing the orchestrator's scope, handoffs, labels, response standards, and escalation paths.
 - `docs/superpowers/reviews/2026-05-08-github-issues-6-13-triage.md` - initial triage report for current open issues `#6` through `#13`, including dispositions, labels, likely implementation tracks, and proposed comments.
 
 ### Modified files
 
-- `docs/process/PROJECT-LEAD-AGENT.md` - add the GitHub Issue Engagement Orchestrator as an upstream intake source before Phase 0 scoping.
-- `roles/20-docs-community.md` - add a brief interface note connecting the Documentation & Community Lead to the new issue-engagement process.
+- `agents/process/PROJECT-LEAD-AGENT.md` - add the GitHub Issue Engagement Orchestrator as an upstream intake source before Phase 0 scoping.
+- `agents/specialists/20-docs-community.md` - add a brief interface note connecting the Documentation & Community Lead to the new issue-engagement process.
 
 ---
 
 ## Task 1: Add the process specification
 
 **Files:**
-- Create: `docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`
+- Create: `agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md`
 
 - [ ] **Step 1: Write the process document**
 
-Create `docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md` with these sections:
+Create `agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md` with these sections:
 
 ```markdown
 # User Engagement Triage Agent - Process Specification
@@ -94,7 +94,7 @@ Issue text is public and untrusted. Avoid reposting sensitive logs, private path
 
 - [ ] **Step 2: Verify the document has no unfinished markers**
 
-Run: `rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md || true`
+Run: `rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md || true`
 
 Expected: no output.
 
@@ -103,7 +103,7 @@ Expected: no output.
 Run:
 
 ```bash
-git add docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md
+git add agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md
 git commit -m "Add user engagement triage process"
 ```
 
@@ -112,11 +112,11 @@ git commit -m "Add user engagement triage process"
 ## Task 2: Add the reusable Codex agent definition
 
 **Files:**
-- Create: `.codex/agents/github-issue-engagement-orchestrator.md`
+- Create: `agents/definitions/codex/github-issue-engagement-orchestrator.md`
 
 - [ ] **Step 1: Write the agent definition**
 
-Create `.codex/agents/github-issue-engagement-orchestrator.md` with:
+Create `agents/definitions/codex/github-issue-engagement-orchestrator.md` with:
 
 ```markdown
 ---
@@ -214,8 +214,8 @@ For each run, report:
 Run:
 
 ```bash
-sed -n '1,40p' .codex/agents/github-issue-engagement-orchestrator.md
-rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" .codex/agents/github-issue-engagement-orchestrator.md || true
+sed -n '1,40p' agents/definitions/codex/github-issue-engagement-orchestrator.md
+rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" agents/definitions/codex/github-issue-engagement-orchestrator.md || true
 ```
 
 Expected: front matter contains `name`, `description`, and `model`; marker scan has no output.
@@ -225,7 +225,7 @@ Expected: front matter contains `name`, `description`, and `model`; marker scan 
 Run:
 
 ```bash
-git add .codex/agents/github-issue-engagement-orchestrator.md
+git add agents/definitions/codex/github-issue-engagement-orchestrator.md
 git commit -m "Add GitHub issue engagement Codex agent"
 ```
 
@@ -234,12 +234,12 @@ git commit -m "Add GitHub issue engagement Codex agent"
 ## Task 3: Link the orchestrator into existing process docs
 
 **Files:**
-- Modify: `docs/process/PROJECT-LEAD-AGENT.md`
-- Modify: `roles/20-docs-community.md`
+- Modify: `agents/process/PROJECT-LEAD-AGENT.md`
+- Modify: `agents/specialists/20-docs-community.md`
 
 - [ ] **Step 1: Update Project Lead Phase 0**
 
-In `docs/process/PROJECT-LEAD-AGENT.md`, under `### Phase 0: Triage & Scoping`, add this paragraph before the numbered list:
+In `agents/process/PROJECT-LEAD-AGENT.md`, under `### Phase 0: Triage & Scoping`, add this paragraph before the numbered list:
 
 ```markdown
 GitHub Issues may arrive through the User Engagement Triage Agent before entering this phase. That upstream agent owns public issue engagement, labels, comments, closures, and first-pass disposition. Accepted or partially accepted work enters Project Lead Phase 0 with the issue context, proposed scope, relevant expert recommendations, and any public commitments already made to the reporter.
@@ -247,7 +247,7 @@ GitHub Issues may arrive through the User Engagement Triage Agent before enterin
 
 - [ ] **Step 2: Update Documentation & Community role interface**
 
-In `roles/20-docs-community.md`, after the `### Interfaces with Other Roles` table, add:
+In `agents/specialists/20-docs-community.md`, after the `### Interfaces with Other Roles` table, add:
 
 ```markdown
 ### Interface With GitHub Issue Engagement
@@ -260,7 +260,7 @@ The Documentation & Community Lead supports the User Engagement Triage Agent whe
 Run:
 
 ```bash
-rg -n "User Engagement Triage Agent|Interface With GitHub Issue Engagement|GitHub Issues may arrive" docs/process/PROJECT-LEAD-AGENT.md roles/20-docs-community.md
+rg -n "User Engagement Triage Agent|Interface With GitHub Issue Engagement|GitHub Issues may arrive" agents/process/PROJECT-LEAD-AGENT.md agents/specialists/20-docs-community.md
 ```
 
 Expected: at least three matching lines across both files.
@@ -270,7 +270,7 @@ Expected: at least three matching lines across both files.
 Run:
 
 ```bash
-git add docs/process/PROJECT-LEAD-AGENT.md roles/20-docs-community.md
+git add agents/process/PROJECT-LEAD-AGENT.md agents/specialists/20-docs-community.md
 git commit -m "Link GitHub issue intake into project process"
 ```
 
@@ -339,7 +339,7 @@ Run:
 
 ```bash
 git diff --check HEAD~4..HEAD
-rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" .codex/agents/github-issue-engagement-orchestrator.md docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md docs/process/PROJECT-LEAD-AGENT.md roles/20-docs-community.md docs/superpowers/reviews/2026-05-08-github-issues-6-13-triage.md || true
+rg -n "T[B]D|TO[D]O|FIX[M]E|fill[ ]in|implement[ ]later|place[ ]holder" agents/definitions/codex/github-issue-engagement-orchestrator.md agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md agents/process/PROJECT-LEAD-AGENT.md agents/specialists/20-docs-community.md docs/superpowers/reviews/2026-05-08-github-issues-6-13-triage.md || true
 ```
 
 Expected: no whitespace errors; no unfinished markers.
@@ -359,7 +359,7 @@ Expected: command exits 0 and current issue state is visible.
 If verification required file corrections, run:
 
 ```bash
-git add .codex/agents/github-issue-engagement-orchestrator.md docs/process/USER-ENGAGEMENT-TRIAGE-AGENT.md docs/process/PROJECT-LEAD-AGENT.md roles/20-docs-community.md docs/superpowers/reviews/2026-05-08-github-issues-6-13-triage.md
+git add agents/definitions/codex/github-issue-engagement-orchestrator.md agents/process/USER-ENGAGEMENT-TRIAGE-AGENT.md agents/process/PROJECT-LEAD-AGENT.md agents/specialists/20-docs-community.md docs/superpowers/reviews/2026-05-08-github-issues-6-13-triage.md
 git commit -m "Polish GitHub issue engagement orchestrator docs"
 ```
 

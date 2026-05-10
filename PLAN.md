@@ -118,43 +118,50 @@ This app must be a **lovingly crafted native macOS experience**, not a cross-pla
 
 ---
 
-## Team Structure (20 Specialists)
+## Team Structure (27 Specialists)
 
-Role definition files are in the `roles/` directory:
+Role definition files are in `agents/specialists/`:
 
 ### Core Development Team
-1. **Swift Architecture Lead** - `roles/01-swift-architect.md`
-2. **UI/UX Lead - HIG Expert** - `roles/02-ui-ux-lead.md`
-3. **Sequence Viewer Specialist** - `roles/03-sequence-viewer.md`
-4. **Track Rendering Engineer** - `roles/04-track-rendering.md`
+1. **Swift Architecture Lead** - `agents/specialists/01-swift-architect.md`
+2. **UI/UX Lead - HIG Expert** - `agents/specialists/02-ui-ux-lead.md`
+3. **Sequence Viewer Specialist** - `agents/specialists/03-sequence-viewer.md`
+4. **Track Rendering Engineer** - `agents/specialists/04-track-rendering.md`
 
 ### Bioinformatics Core
-5. **Bioinformatics Architect** - `roles/05-bioinformatics-architect.md`
-6. **File Format Expert** - `roles/06-file-formats.md`
-7. **Sequence Assembly Specialist** - `roles/07-assembly-specialist.md`
-8. **Alignment & Mapping Expert** - `roles/08-alignment-expert.md`
+5. **Bioinformatics Architect** - `agents/specialists/05-bioinformatics-architect.md`
+6. **File Format Expert** - `agents/specialists/06-file-formats.md`
+7. **Sequence Assembly Specialist** - `agents/specialists/07-assembly-specialist.md`
+8. **Alignment & Mapping Expert** - `agents/specialists/08-alignment-expert.md`
 
 ### Primer & PCR Team
-9. **Primer Design Lead** - `roles/09-primer-design.md`
-10. **PCR Simulation Specialist** - `roles/10-pcr-simulation.md`
-11. **PrimalScheme Expert** - `roles/11-primalscheme.md`
+9. **Primer Design Lead** - `agents/specialists/09-primer-design.md`
+10. **PCR Simulation Specialist** - `agents/specialists/10-pcr-simulation.md`
+11. **PrimalScheme Expert** - `agents/specialists/11-primalscheme.md`
 
 ### Data & Integration
-12. **NCBI/Database Integration Lead** - `roles/12-ncbi-integration.md`
-13. **ENA Integration Specialist** - `roles/13-ena-integration.md`
-14. **Workflow Integration Lead** - `roles/14-workflow-integration.md`
+12. **NCBI/Database Integration Lead** - `agents/specialists/12-ncbi-integration.md`
+13. **ENA Integration Specialist** - `agents/specialists/13-ena-integration.md`
+14. **Workflow Integration Lead** - `agents/specialists/14-workflow-integration.md`
 
 ### Plugin & Extensibility
-15. **Plugin Architecture Lead** - `roles/15-plugin-architect.md`
-16. **Visual Workflow Builder** - `roles/16-workflow-builder.md`
+15. **Plugin Architecture Lead** - `agents/specialists/15-plugin-architect.md`
+16. **Visual Workflow Builder** - `agents/specialists/16-workflow-builder.md`
 
 ### Data Management
-17. **Version Control Specialist** - `roles/17-version-control.md`
-18. **Storage & Indexing Lead** - `roles/18-storage-indexing.md`
+17. **Version Control Specialist** - `agents/specialists/17-version-control.md`
+18. **Storage & Indexing Lead** - `agents/specialists/18-storage-indexing.md`
 
 ### Quality & Testing
-19. **Testing & QA Lead** - `roles/19-testing-qa.md`
-20. **Documentation & Community Lead** - `roles/20-docs-community.md`
+19. **Testing & QA Lead** - `agents/specialists/19-testing-qa.md`
+20. **Documentation & Community Lead** - `agents/specialists/20-docs-community.md`
+21. **Product Fit Expert** - `agents/specialists/21-product-fit-expert.md`
+22. **Swift Concurrency Expert** - `agents/specialists/22-swift-concurrency-expert.md`
+23. **Swift Networking Expert** - `agents/specialists/23-swift-networking-expert.md`
+24. **Swift AppKit Integration Expert** - `agents/specialists/24-swift-appkit-expert.md`
+25. **Swift Debugging & Diagnostics Expert** - `agents/specialists/25-swift-debugging-expert.md`
+26. **Swift State Management Expert** - `agents/specialists/26-swift-state-management-expert.md`
+27. **Visual Design Artist** - `agents/specialists/27-visual-design-artist.md`
 
 ---
 
@@ -600,4 +607,4 @@ my-project.lgb/
 - This plan was developed through comprehensive analysis of IGV source code, Geneious devkit API, and industry research
 - IGV reference: `igv/src/main/java/org/igv/`
 - Geneious reference: `geneious/geneious-2026.0.2-devkit/`
-- Role specifications: `roles/*.md`
+- Role specifications: `agents/specialists/*.md`

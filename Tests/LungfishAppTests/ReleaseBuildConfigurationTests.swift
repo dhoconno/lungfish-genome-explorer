@@ -683,11 +683,7 @@ struct ReleaseBuildConfigurationTests {
 
     @Test("Release agent is tracked in repo")
     func releaseAgentIsTrackedInRepo() throws {
-        let agent = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".codex/agents/release-agent.md"),
-            encoding: .utf8
-        )
+        let agent = try Self.releaseAgentCanonicalContents()
 
         #expect(agent.contains("name: release-agent"))
         #expect(agent.contains("scripts/release/build-notarized-dmg.sh"))
@@ -696,13 +692,21 @@ struct ReleaseBuildConfigurationTests {
         #expect(agent.contains(".dmg"))
     }
 
-    @Test("Release agent documents versioning release notes and GitHub publication")
-    func releaseAgentDocumentsVersioningReleaseNotesAndGitHubPublication() throws {
-        let agent = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".codex/agents/release-agent.md"),
+    @Test("Release agent mirror matches canonical definition")
+    func releaseAgentMirrorMatchesCanonicalDefinition() throws {
+        let root = Self.repositoryRoot()
+        let canonical = try Self.releaseAgentCanonicalContents()
+        let mirror = try String(
+            contentsOf: root.appendingPathComponent(".codex/agents/release-agent.md"),
             encoding: .utf8
         )
+
+        #expect(mirror == canonical)
+    }
+
+    @Test("Release agent documents versioning release notes and GitHub publication")
+    func releaseAgentDocumentsVersioningReleaseNotesAndGitHubPublication() throws {
+        let agent = try Self.releaseAgentCanonicalContents()
         let requiredPhrases = [
             "Determine the next version",
             "CFBundleShortVersionString",
@@ -721,11 +725,7 @@ struct ReleaseBuildConfigurationTests {
 
     @Test("Release agent documents independent post build verification")
     func releaseAgentDocumentsIndependentPostBuildVerification() throws {
-        let agent = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent(".codex/agents/release-agent.md"),
-            encoding: .utf8
-        )
+        let agent = try Self.releaseAgentCanonicalContents()
         let requiredPhrases = [
             "codesign --verify --deep --strict",
             "xcrun stapler validate",
@@ -857,6 +857,14 @@ struct ReleaseBuildConfigurationTests {
         }
 
         fatalError("Cannot locate repository root from \(#filePath)")
+    }
+
+    private static func releaseAgentCanonicalContents() throws -> String {
+        try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("agents/definitions/codex/release-agent.md"),
+            encoding: .utf8
+        )
     }
 
     private static func buildConfigurationBlock(named marker: String, in project: String) throws -> String {
