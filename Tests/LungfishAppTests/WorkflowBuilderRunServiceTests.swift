@@ -23,7 +23,7 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
             targetPortId: "input"
         )
         let operationCenter = OperationCenter()
-        let service = WorkflowBuilderRunService(operationCenter: operationCenter)
+        let service = WorkflowBuilderRunService(operationCenter: operationCenter) { _, _ in }
         let binding = WorkflowBuilderRunBinding(sampleURL: fixture.sampleURL, projectURL: fixture.projectURL)
 
         let result = try await service.run(graph: graph, workflowBundleURL: fixture.workflowBundleURL, binding: binding)
@@ -104,6 +104,114 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         XCTAssertFalse(operationCenter.items.contains { $0.workflowRunID == runID && $0.title == "Quality Control" })
     }
 
+    func testDefaultRunnerFailsUnsupportedScientificGraphInsteadOfMarkingNodesSucceeded() async throws {
+        let fixture = try makeFixture()
+        var graph = WorkflowGraph(name: "Unsupported Reference Export")
+        let reference = graph.addNode(type: .fastaInput, position: .zero, label: "Reference input")
+        let projectOutput = graph.addNode(type: .export, position: .zero, label: "Project output")
+        _ = try graph.addConnection(
+            sourceNodeId: reference.id,
+            sourcePortId: "sequence",
+            targetNodeId: projectOutput.id,
+            targetPortId: "input"
+        )
+        let operationCenter = OperationCenter()
+        let service = WorkflowBuilderRunService(operationCenter: operationCenter)
+        let binding = WorkflowBuilderRunBinding(sampleURL: fixture.sampleURL, projectURL: fixture.projectURL)
+
+        do {
+            _ = try await service.run(graph: graph, workflowBundleURL: fixture.workflowBundleURL, binding: binding)
+            XCTFail("Expected unsupported production workflow failure")
+        } catch WorkflowBuilderRunService.ExecutionError.nodeFailed(let nodeID, let message) {
+            XCTAssertEqual(nodeID, reference.id)
+            XCTAssertTrue(message.contains("Unsupported Workflow Builder input node"))
+            XCTAssertTrue(message.contains("Reference input"))
+        }
+
+        let runID = try XCTUnwrap(operationCenter.items.first?.workflowRunID)
+        let record = try WorkflowBuilderRunStore.readRun(runID: runID, from: fixture.workflowBundleURL)
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertEqual(record.provenance.exitStatus, 1)
+        XCTAssertEqual(record.provenance.stderr, record.errorMessage)
+        XCTAssertEqual(record.nodeRecords.first { $0.nodeID == reference.id }?.status, .failed)
+        XCTAssertEqual(record.nodeRecords.first { $0.nodeID == projectOutput.id }?.status, .skipped)
+        XCTAssertFalse(record.nodeRecords.allSatisfy { $0.status == .succeeded })
+    }
+
+    func testDefaultRunnerDispatchesSupportedFastqGraphThroughLocalWorkflowCLIAndRecordsProvenance() async throws {
+        let fixture = try makeFixture()
+        var graph = WorkflowGraph(name: "Reads to Trim")
+        let sampleInput = graph.addNode(type: .fastqInput, position: .zero, label: "Sample input")
+        let trimming = try graph.addStableNode(
+            id: UUID(),
+            type: .trimming,
+            label: nil,
+            position: .zero,
+            parameters: ["minimum_length": "25", "qualified_quality_phred": "20"]
+        )
+        let projectOutput = graph.addNode(type: .export, position: .zero, label: "Project output")
+        _ = try graph.addConnection(
+            sourceNodeId: sampleInput.id,
+            sourcePortId: "reads",
+            targetNodeId: trimming.id,
+            targetPortId: "reads"
+        )
+        _ = try graph.addConnection(
+            sourceNodeId: trimming.id,
+            sourcePortId: "trimmed",
+            targetNodeId: projectOutput.id,
+            targetPortId: "input"
+        )
+        let operationCenter = OperationCenter()
+        let runner = ProvenanceWritingWorkflowCLIProcessRunner()
+        let service = WorkflowBuilderRunService(
+            operationCenter: operationCenter,
+            localWorkflowProcessRunner: runner
+        )
+        let binding = WorkflowBuilderRunBinding(sampleURL: fixture.sampleURL, projectURL: fixture.projectURL)
+
+        let result = try await service.run(graph: graph, workflowBundleURL: fixture.workflowBundleURL, binding: binding)
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertTrue(invocation.arguments.starts(with: ["workflow", "run"]))
+        let exportedWorkflowURL = URL(fileURLWithPath: invocation.arguments[2])
+        let exportedScript = try String(contentsOf: exportedWorkflowURL, encoding: .utf8)
+        XCTAssertTrue(exportedScript.contains("fastp -i ${reads} -o trimmed.fastq.gz"))
+        XCTAssertTrue(exportedScript.contains("--length_required 25"))
+        XCTAssertTrue(invocation.arguments.contains("--input"))
+        XCTAssertTrue(invocation.arguments.contains(fixture.sampleURL.standardizedFileURL.path))
+        XCTAssertTrue(invocation.arguments.contains("--param"))
+        XCTAssertTrue(invocation.arguments.contains("sample_input=\(fixture.sampleURL.standardizedFileURL.path)"))
+
+        let record = try WorkflowBuilderRunStore.readRun(runID: result.runID, from: fixture.workflowBundleURL)
+        XCTAssertEqual(record.status, WorkflowBuilderRunStatus.succeeded)
+        XCTAssertEqual(
+            record.nodeRecords.map(\.status),
+            [
+                WorkflowBuilderNodeRunStatus.succeeded,
+                WorkflowBuilderNodeRunStatus.succeeded,
+                WorkflowBuilderNodeRunStatus.succeeded,
+            ]
+        )
+        XCTAssertEqual(record.provenance.exitStatus, 0)
+        XCTAssertTrue(record.provenance.outputs.contains { $0.path == invocation.bundleURL.standardizedFileURL.path })
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let localProvenance = try decoder.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: invocation.bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        let step = try XCTUnwrap(localProvenance.steps.first)
+        XCTAssertEqual(step.toolName, "lungfish-cli workflow run")
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertTrue(step.command.contains("lungfish-cli"))
+        XCTAssertTrue(step.command.contains(exportedWorkflowURL.path))
+        XCTAssertTrue(step.inputs.contains { $0.path == fixture.sampleURL.appendingPathComponent("reads.fastq").standardizedFileURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(step.outputs.contains { $0.path == invocation.bundleURL.standardizedFileURL.path })
+        XCTAssertTrue(operationCenter.items.contains { $0.title == "Local Workflow" && $0.state == .completed })
+    }
+
     func testValidationFailureDoesNotCreateRunRows() async throws {
         let fixture = try makeFixture()
         let graph = WorkflowGraph(name: "Empty")
@@ -162,5 +270,103 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         let workflowBundleURL = projectURL.appendingPathComponent("Workflows/test.lungfishflow", isDirectory: true)
         try FileManager.default.createDirectory(at: workflowBundleURL, withIntermediateDirectories: true)
         return Fixture(root: root, projectURL: projectURL, sampleURL: sampleURL, workflowBundleURL: workflowBundleURL)
+    }
+}
+
+private final class ProvenanceWritingWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {
+    struct Invocation: Equatable {
+        let arguments: [String]
+        let workingDirectory: URL
+        let bundleURL: URL
+    }
+
+    private(set) var invocations: [Invocation] = []
+
+    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+        let bundleURL = URL(fileURLWithPath: try value(after: "--bundle-path", in: arguments)).standardizedFileURL
+        let workflowURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
+        let outputURL = URL(fileURLWithPath: try value(after: "--results-dir", in: arguments)).standardizedFileURL
+        let inputURLs = values(afterEvery: "--input", in: arguments).map { URL(fileURLWithPath: $0).standardizedFileURL }
+        invocations.append(Invocation(arguments: arguments, workingDirectory: workingDirectory.standardizedFileURL, bundleURL: bundleURL))
+
+        let request = LocalWorkflowRunRequest(
+            workflowURL: workflowURL,
+            inputURLs: inputURLs,
+            outputDirectory: outputURL,
+            params: params(from: arguments)
+        )
+        try LocalWorkflowRunBundleStore.write(
+            request.manifest(
+                executionStatus: .completed,
+                statusHistory: [
+                    LocalWorkflowRunStatusEvent(status: .prepared),
+                    LocalWorkflowRunStatusEvent(status: .running),
+                    LocalWorkflowRunStatusEvent(status: .completed),
+                ],
+                startedAt: Date(),
+                completedAt: Date(),
+                exitCode: 0
+            ),
+            to: bundleURL
+        )
+
+        let command = ["lungfish-cli"] + arguments
+        let outputs = [
+            FileRecord(path: bundleURL.path, format: .unknown, role: .output),
+            FileRecord(path: outputURL.path, format: .unknown, role: .output),
+            ProvenanceRecorder.fileRecord(url: bundleURL.appendingPathComponent("manifest.json"), format: .json, role: .output),
+        ]
+        let step = StepExecution(
+            toolName: "lungfish-cli workflow run",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: [ProvenanceRecorder.fileRecord(url: workflowURL, format: .text, role: .input)]
+                + inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .input) },
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: 0.01,
+            stderr: "",
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: "Run Local Nextflow workflow",
+            endTime: Date(),
+            status: .completed,
+            steps: [step],
+            parameters: request.effectiveParams.mapValues { .string($0) }
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+
+        return LocalWorkflowCLIProcessResult(
+            exitCode: 0,
+            standardOutput: "workflow complete\n",
+            standardError: ""
+        )
+    }
+
+    private func value(after flag: String, in arguments: [String]) throws -> String {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(arguments.index(after: index)) else {
+            throw NSError(domain: "WorkflowBuilderRunServiceTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing \(flag)"])
+        }
+        return arguments[arguments.index(after: index)]
+    }
+
+    private func values(afterEvery flag: String, in arguments: [String]) -> [String] {
+        arguments.indices.compactMap { index in
+            arguments[index] == flag && arguments.indices.contains(arguments.index(after: index))
+                ? arguments[arguments.index(after: index)]
+                : nil
+        }
+    }
+
+    private func params(from arguments: [String]) -> [String: String] {
+        values(afterEvery: "--param", in: arguments).reduce(into: [:]) { result, pair in
+            let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { return }
+            result[parts[0]] = parts[1]
+        }
     }
 }

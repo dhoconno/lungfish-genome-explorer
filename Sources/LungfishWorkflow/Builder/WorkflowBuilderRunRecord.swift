@@ -62,7 +62,7 @@ public struct WorkflowBuilderRunProvenance: Codable, Sendable, Equatable {
     public let resolvedDefaults: [String: String]
     public let runtimeIdentity: WorkflowRuntime
     public let inputs: [LocalWorkflowInputBinding]
-    public let outputs: [LocalWorkflowInputBinding]
+    public var outputs: [LocalWorkflowInputBinding]
     public var exitStatus: Int32?
     public var wallTimeSeconds: TimeInterval?
     public var stderr: String?
