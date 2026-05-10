@@ -351,6 +351,7 @@ final class BlastVerificationRequestTests: XCTestCase {
         XCTAssertNil(request.entrezQuery)
         XCTAssertEqual(request.maxTargetSeqs, 5)
         XCTAssertEqual(request.eValueThreshold, 1e-10)
+        XCTAssertEqual(request.maxConcurrentSubmissions, 1)
     }
 
     func testRequestCustomParameters() {
@@ -362,13 +363,15 @@ final class BlastVerificationRequestTests: XCTestCase {
             database: "core_nt",
             entrezQuery: "txid2697049[Organism:exp] AND biomol_genomic[PROP]",
             maxTargetSeqs: 5,
-            eValueThreshold: 1e-5
+            eValueThreshold: 1e-5,
+            maxConcurrentSubmissions: 2
         )
 
         XCTAssertEqual(request.database, "core_nt")
         XCTAssertEqual(request.entrezQuery, "txid2697049[Organism:exp] AND biomol_genomic[PROP]")
         XCTAssertEqual(request.maxTargetSeqs, 5)
         XCTAssertEqual(request.eValueThreshold, 1e-5)
+        XCTAssertEqual(request.maxConcurrentSubmissions, 2)
     }
 
     func testRequestToMultiFASTA() {
@@ -580,6 +583,40 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertTrue(body.contains("MEGABLAST=off"))
         XCTAssertTrue(body.contains("WORD_SIZE=11"))
         XCTAssertTrue(body.contains("FILTER=L"))
+    }
+
+    func testSubmitHonorsMaxConcurrentSubmissions() async throws {
+        let delayedClient = DelayedSubmissionHTTPClient(delayNanoseconds: 100_000_000)
+        let rateLimits = BlastRateLimitConfiguration(
+            minSubmitInterval: 0,
+            maxSequencesPerHour: 100,
+            submissionSlotPollInterval: 0.001
+        )
+        service = BlastService(httpClient: delayedClient, rateLimits: rateLimits)
+        let service = try XCTUnwrap(service)
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<5 {
+                group.addTask {
+                    _ = try await service.submit(
+                        query: ">read\(index)\nATGC",
+                        program: "blastn",
+                        database: "nt",
+                        entrezQuery: nil,
+                        evalue: 1e-10,
+                        maxTargetSeqs: 5,
+                        megablast: true,
+                        maxConcurrentSubmissions: 2
+                    )
+                }
+            }
+            try await group.waitForAll()
+        }
+
+        let maxObserved = await delayedClient.maxObservedConcurrentRequests
+        let requestCount = await delayedClient.requestCount
+        XCTAssertLessThanOrEqual(maxObserved, 2)
+        XCTAssertEqual(requestCount, 5)
     }
 
     func testSubmitHTTPError() async throws {
@@ -1306,6 +1343,44 @@ final class BlastServiceTests: XCTestCase {
           ]
         }
         """
+    }
+}
+
+private actor DelayedSubmissionHTTPClient: HTTPClient {
+    private let delayNanoseconds: UInt64
+    private var activeRequests = 0
+    private var observedMax = 0
+    private var totalRequests = 0
+
+    init(delayNanoseconds: UInt64) {
+        self.delayNanoseconds = delayNanoseconds
+    }
+
+    var maxObservedConcurrentRequests: Int { observedMax }
+    var requestCount: Int { totalRequests }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        activeRequests += 1
+        totalRequests += 1
+        let requestNumber = totalRequests
+        observedMax = max(observedMax, activeRequests)
+        defer { activeRequests -= 1 }
+
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+
+        let body = """
+        <!--QBlastInfoBegin
+            RID = TEST\(requestNumber)
+            RTOE = 30
+        QBlastInfoEnd-->
+        """
+        let response = HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: "HTTP/1.1",
+            headerFields: nil
+        )!
+        return (Data(body.utf8), response)
     }
 }
 

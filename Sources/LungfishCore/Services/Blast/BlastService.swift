@@ -88,6 +88,9 @@ public actor BlastService {
     /// Timestamp of the last BLAST submission (for rate limiting).
     private var lastSubmitTime: Date?
 
+    /// Number of currently active NCBI BLAST submission requests.
+    private var activeSubmissionCount = 0
+
     /// Rolling one-hour sequence submission ledger.
     private var submittedSequenceEvents: [(date: Date, count: Int)] = []
 
@@ -301,7 +304,8 @@ public actor BlastService {
             maxTargetSeqs: request.maxTargetSeqs,
             megablast: request.program == "blastn",
             sequenceCount: request.sequences.count,
-            extraParameters: extraParameters
+            extraParameters: extraParameters,
+            maxConcurrentSubmissions: request.maxConcurrentSubmissions
         )
 
         logger.info("BLAST job submitted: RID=\(submission.rid, privacy: .public), RTOE=\(submission.rtoe, privacy: .public)s")
@@ -500,6 +504,7 @@ public actor BlastService {
     ///   - evalue: E-value threshold
     ///   - maxTargetSeqs: Maximum target sequences per query
     ///   - megablast: Whether to use megablast algorithm
+    ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions for this process.
     /// - Returns: The job submission response with RID and RTOE
     /// - Throws: ``BlastServiceError`` on submission failure
     public func submit(
@@ -511,10 +516,16 @@ public actor BlastService {
         maxTargetSeqs: Int,
         megablast: Bool,
         sequenceCount: Int = 1,
-        extraParameters: [String: String] = [:]
+        extraParameters: [String: String] = [:],
+        maxConcurrentSubmissions: Int = 1
     ) async throws -> BlastJobSubmission {
-        // Enforce rate limit
+        try await acquireSubmissionSlot(maxConcurrentSubmissions: maxConcurrentSubmissions)
+        defer { activeSubmissionCount = max(0, activeSubmissionCount - 1) }
+
         try await enforceSubmitRateLimit(sequenceCount: sequenceCount)
+        let submissionStartedAt = Date()
+        lastSubmitTime = submissionStartedAt
+        recordSubmission(sequenceCount: sequenceCount, at: submissionStartedAt)
 
         // Build form-encoded body
         var params: [(String, String)] = [
@@ -569,9 +580,6 @@ public actor BlastService {
 
             return (data, httpResponse)
         }
-
-        lastSubmitTime = Date()
-        recordSubmission(sequenceCount: sequenceCount, at: lastSubmitTime!)
 
         let responseBody = String(data: data, encoding: .utf8) ?? ""
         return try parseSubmissionResponse(responseBody)
@@ -1507,6 +1515,15 @@ public actor BlastService {
 
     private func recordSubmission(sequenceCount: Int, at date: Date) {
         submittedSequenceEvents.append((date: date, count: max(0, sequenceCount)))
+    }
+
+    private func acquireSubmissionSlot(maxConcurrentSubmissions: Int) async throws {
+        let limit = max(1, maxConcurrentSubmissions)
+        while activeSubmissionCount >= limit {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .seconds(rateLimits.submissionSlotPollInterval))
+        }
+        activeSubmissionCount += 1
     }
 }
 
