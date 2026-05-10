@@ -1,24 +1,15 @@
-# illustrations.yaml — schematic cartoon briefs for the Lungfish user manual.
+# illustrations.yaml - schematic cartoon registry for the Lungfish user manual.
 #
-# These are illustration briefs (not screenshots). Briefs describe schematic
-# cartoons that an external image generator (ChatGPT image generation, an
-# illustrator, an SVG-drawing pipeline) renders into the manual. Keep briefs
-# short, name brand colours by their guide names, and put the rendered images
-# under `docs/user-manual/assets/illustrations/<chapter-id>/<illustration-id>.png`.
+# These are illustration briefs and generated asset pointers. Source SVGs and
+# rendered PNGs live under:
+#   docs/user-manual/assets/illustrations/<chapter-id>/<illustration-id>.{svg,png}
 #
-# Brand palette (from STYLE.md):
-#   - Lungfish Creamsicle: #EE8B4F (primary accent, genome backbones, tool boxes)
-#   - Peach: #F6B088 (secondary warm tint, primer regions, warnings)
-#   - Deep Ink: #1F1A17 (text and reference sequences; never pure black)
-#   - Cream: #FAF4EA (page backgrounds; never pure white)
-#   - Warm Grey: #8A847A (captions, metadata)
-#
-# Typography:
-#   - Captions and labels: Inter SemiBold
-#   - Numeric data and code: IBM Plex Mono
-#
-# All illustrations target a Cream background (light appearance). For dark-mode
-# illustrations, override on a per-illustration basis.
+# Brand palette:
+#   - Lungfish Creamsicle: #EE8B4F
+#   - Peach: #F6B088
+#   - Deep Ink: #1F1A17
+#   - Cream: #FAF4EA
+#   - Warm Grey: #8A847A
 
 version: 0
 chapters:
@@ -27,165 +18,197 @@ chapters:
     illustrations:
       - id: linear-vs-circular-genomes
         target_dimensions: 1200x600
+        asset: assets/illustrations/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.png
+        source: assets/illustrations/01-foundations/01-what-is-a-genome/linear-vs-circular-genomes.svg
         brief: >
-          Side-by-side schematic. Left half: a linear chromosome with two ends
-          labelled 5' and 3'. Right half: a circular genome closed into a loop
-          with position 1 marked at the top. Backbone in Lungfish Creamsicle,
-          labels in Deep Ink, Cream background.
+          Side-by-side schematic contrasting a linear chromosome labelled 5'
+          and 3' with a circular genome marked at position 1.
       - id: position-coordinates
         target_dimensions: 1400x300
+        asset: assets/illustrations/01-foundations/01-what-is-a-genome/position-coordinates.png
+        source: assets/illustrations/01-foundations/01-what-is-a-genome/position-coordinates.svg
         brief: >
-          A horizontal genome backbone in Lungfish Creamsicle with position
-          ticks at 1, 1000, 5000, 10000, 29903 in IBM Plex Mono. Above the
-          backbone, a callout for SARS-CoV-2 MN908947.3 showing total length
-          29,903 bases. Cream background, Deep Ink text.
+          SARS-CoV-2 MN908947.3 coordinate ruler with 1-based ticks at 1,
+          1000, 5000, 10000, and 29903.
+      - id: variant-notation
+        target_dimensions: 1400x500
+        asset: assets/illustrations/01-foundations/01-what-is-a-genome/variant-notation.png
+        source: assets/illustrations/01-foundations/01-what-is-a-genome/variant-notation.svg
+        brief: >
+          Annotated breakdown of MN908947.3:21618 C>T into chromosome name,
+          colon separator, 1-based position, reference base, and alternate base.
 
   01-foundations/02-sequencing-reads:
     illustrations:
       - id: fastq-record-anatomy
         target_dimensions: 1400x600
+        asset: assets/illustrations/01-foundations/02-sequencing-reads/fastq-record-anatomy.png
+        source: assets/illustrations/01-foundations/02-sequencing-reads/fastq-record-anatomy.svg
         brief: >
-          A cartoon of one FASTQ record showing the four lines: @-prefixed
-          header, the read sequence in IBM Plex Mono on a Lungfish Creamsicle
-          banner, the + separator, and the quality string. Each line labelled
-          on the left with what it contains (header, sequence, separator,
-          quality). Deep Ink labels, Cream background.
+          Four-line FASTQ record anatomy with header, sequence, separator,
+          and quality rows labelled.
       - id: paired-end-reads
         target_dimensions: 1400x500
+        asset: assets/illustrations/01-foundations/02-sequencing-reads/paired-end-reads.png
+        source: assets/illustrations/01-foundations/02-sequencing-reads/paired-end-reads.svg
         brief: >
-          Schematic of a DNA fragment shown as a horizontal Deep Ink line.
-          From the left end, a Lungfish Creamsicle arrow points right
-          (Read 1, forward). From the right end, a Lungfish Creamsicle arrow
-          points left (Read 2, reverse complement). The two read arrows do
-          not necessarily overlap in the middle. Cream background.
+          Paired-end DNA fragment with read 1 and read 2 pointing inward and
+          leaving an unsequenced insert gap.
       - id: phred-quality-bar
         target_dimensions: 1400x400
+        asset: assets/illustrations/01-foundations/02-sequencing-reads/phred-quality-bar.png
+        source: assets/illustrations/01-foundations/02-sequencing-reads/phred-quality-bar.svg
         brief: >
-          A horizontal bar showing Phred score 0-40 from light Warm Grey
-          (Q0) to deep Lungfish Creamsicle (Q40). Above, an example read
-          sequence in IBM Plex Mono. Below, a per-base quality bar coloured
-          with the same intensity scale. Annotations in Deep Ink: 'Q20 = 1%
-          error' and 'Q30 = 0.1% error'.
+          Phred quality scale from Q0 to Q40, per-base quality columns, and
+          Q20/Q30 error-rate annotations.
+      - id: platform-read-length-comparison
+        target_dimensions: 1400x500
+        asset: assets/illustrations/01-foundations/02-sequencing-reads/platform-read-length-comparison.png
+        source: assets/illustrations/01-foundations/02-sequencing-reads/platform-read-length-comparison.svg
+        brief: >
+          Log-scale comparison of Illumina, PacBio HiFi, and Oxford Nanopore
+          read lengths with a frayed Nanopore maximum.
 
   01-foundations/03-amplicon-vs-shotgun:
     illustrations:
       - id: amplicon-vs-shotgun
         target_dimensions: 1400x800
+        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.png
+        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.svg
         brief: >
-          Two stacked schematics. Top: shotgun sequencing, with a long
-          genome backbone in Deep Ink and many short reads in Lungfish
-          Creamsicle scattered randomly across it, each starting and
-          ending at arbitrary positions. Bottom: amplicon sequencing, the
-          same backbone with reads starting and ending at fixed primer
-          positions, and 8-10 overlapping amplicons drawn as Peach
-          rectangles tiling the backbone. Cream background, label each
-          row with its method name.
+          Shotgun reads scattered randomly over a backbone compared with
+          tiled overlapping amplicons at fixed positions.
       - id: primer-scheme-diagram
         target_dimensions: 1400x500
+        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.png
+        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.svg
         brief: >
-          A 2000-base region of a genome backbone in Deep Ink. Above the
-          backbone, three primer pairs: forward primers as Lungfish
-          Creamsicle right-pointing arrows on top, reverse primers as
-          left-pointing arrows below the forward ones, creating three
-          overlapping amplicon regions. Below the backbone, a small table
-          in IBM Plex Mono showing the BED-style start/end coordinates of
-          each primer. Cream background.
+          ARTIC-style primer scheme showing forward primers, reverse primers,
+          overlapping amplicon bands, and BED-style coordinates.
       - id: primer-trim-soft-clip
         target_dimensions: 1400x500
+        asset: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png
+        source: assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.svg
         brief: >
-          A single read shown twice. Top: untrimmed read with the
-          leftmost ~20 bases highlighted in Peach (primer-derived) and
-          the body of the read in Lungfish Creamsicle (sample-derived).
-          Bottom: same read after primer trim, with the primer-derived
-          bases lightened/struck-through to indicate soft-clipping; the
-          body unchanged. A Deep Ink annotation reads 'Primer bases
-          ignored by the variant caller'.
+          Before and after primer trimming, showing primer bases retained but
+          softened as soft-clipped evidence ignored by the variant caller.
 
   01-foundations/04-alignment-files:
     illustrations:
       - id: read-mapping-cartoon
         target_dimensions: 1400x600
+        asset: assets/illustrations/01-foundations/04-alignment-files/read-mapping-cartoon.png
+        source: assets/illustrations/01-foundations/04-alignment-files/read-mapping-cartoon.svg
         brief: >
-          A reference genome backbone in Deep Ink across the top. Below
-          the backbone, twenty short reads in Lungfish Creamsicle placed
-          at the positions where they map. Some reads are forward strand
-          (right-pointing arrow), some reverse strand (left-pointing
-          arrow). A few reads have soft-clipped ends shown in lighter
-          Peach. Position ruler underneath in IBM Plex Mono. Cream
-          background.
+          Pileup-style mapped reads pinned to a reference, with forward,
+          reverse, and soft-clipped examples called out.
       - id: coverage-histogram
         target_dimensions: 1400x350
+        asset: assets/illustrations/01-foundations/04-alignment-files/coverage-histogram.png
+        source: assets/illustrations/01-foundations/04-alignment-files/coverage-histogram.svg
         brief: >
-          A coverage histogram across a 2000-base region of the
-          SARS-CoV-2 reference, showing per-position read depth ranging
-          from 50 to 2000. Lungfish Creamsicle area fill on a Cream
-          background. Annotate one low-coverage region with a Peach
-          highlight and the label 'low coverage'.
+          Coverage area histogram across a 2000-base region with one Peach
+          low-coverage trough called out.
       - id: pileup-view
         target_dimensions: 1000x700
+        asset: assets/illustrations/01-foundations/04-alignment-files/pileup-view.png
+        source: assets/illustrations/01-foundations/04-alignment-files/pileup-view.svg
         brief: >
-          Zoomed-in pileup at a single variant position. The reference
-          base 'C' at the top in Deep Ink, IBM Plex Mono. Below, ten
-          reads stacked vertically; seven show 'C' at this position and
-          three show 'T'. Each read base coloured by Phred quality
-          (lighter = lower quality). Annotation in Deep Ink: 'Allele
-          frequency = 3/10 = 30%'. Cream background.
+          Ten-read pileup at a C/T variant position, showing 7 C reads, 3 T
+          reads, and allele frequency = 3/10 = 30%.
+      - id: cigar-anatomy
+        target_dimensions: 1400x600
+        asset: assets/illustrations/01-foundations/04-alignment-files/cigar-anatomy.png
+        source: assets/illustrations/01-foundations/04-alignment-files/cigar-anatomy.svg
+        brief: >
+          Annotated 5S140M5S CIGAR cartoon connecting soft-clipped read ends,
+          matched middle, reference bases, and alignment start position.
 
   01-foundations/05-variants-and-vcf:
     illustrations:
       - id: vcf-row-anatomy
         target_dimensions: 1600x500
+        asset: assets/illustrations/01-foundations/05-variants-and-vcf/vcf-row-anatomy.png
+        source: assets/illustrations/01-foundations/05-variants-and-vcf/vcf-row-anatomy.svg
         brief: >
-          One example VCF row laid out as a table with columns CHROM,
-          POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, sample. Column
-          headers in Inter SemiBold on a Lungfish Creamsicle banner.
-          The data row in IBM Plex Mono. Below each column, a one-line
-          caption in Inter explaining what the column means. Cream
-          background.
+          One internally consistent VCF row with CHROM, POS, ID, REF, ALT,
+          QUAL, FILTER, INFO, FORMAT, and sample columns labelled.
       - id: allele-frequency-haploid-vs-diploid
         target_dimensions: 1400x600
+        asset: assets/illustrations/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png
+        source: assets/illustrations/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.svg
         brief: >
-          Side-by-side schematic. Left: human diploid sample, two copies
-          of a chromosome shown stacked, AF=0.5 means one of two alleles
-          carries the variant. Right: viral haploid sample, one genome
-          copy per virion drawn small but many virion copies in a sample
-          tube; AF=0.5 means half the read evidence supports the variant.
-          Chromosomes in Deep Ink, variant alleles highlighted in
-          Lungfish Creamsicle. Cream background.
+          Human diploid AF=0.5 as one of two alleles compared with viral
+          haploid AF=0.5 as half the read evidence.
       - id: filter-flag-cartoon
         target_dimensions: 1200x500
+        asset: assets/illustrations/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png
+        source: assets/illustrations/01-foundations/05-variants-and-vcf/filter-flag-cartoon.svg
         brief: >
-          A vertical stack of three VCF rows shown as a table with the
-          FILTER column highlighted. Row 1: FILTER=PASS with a small
-          green check icon. Row 2: FILTER=ft with a Peach warning icon
-          and the label 'failed allele-frequency threshold'. Row 3:
-          FILTER=sb with a Peach warning icon and the label 'failed
-          strand bias filter'. IBM Plex Mono for data, Inter SemiBold
-          for labels. Cream background.
+          Three VCF rows emphasizing FILTER=PASS, ft, and sb with a Deep Ink
+          check mark, Peach warning triangles, and Lungfish-normalized filter
+          names.
+
+  02-sequences/01-importing-and-viewing:
+    illustrations:
+      - id: reference-bundle-anatomy
+        target_dimensions: 1400x600
+        asset: assets/illustrations/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.png
+        source: assets/illustrations/02-sequences/01-importing-and-viewing/reference-bundle-anatomy.svg
+        brief: >
+          Reference bundle folder connected to FASTA, FAI, manifest, and
+          provenance files with purpose captions.
+      - id: viewport-panes
+        target_dimensions: 1400x800
+        asset: assets/illustrations/02-sequences/01-importing-and-viewing/viewport-panes.png
+        source: assets/illustrations/02-sequences/01-importing-and-viewing/viewport-panes.svg
+        brief: >
+          Stylized sequence viewport with track viewer, sequence panel, and
+          feature inspector panes labelled.
+
+  02-sequences/02-downloading-from-ncbi:
+    illustrations:
+      - id: ncbi-accession-anatomy
+        target_dimensions: 1400x500
+        asset: assets/illustrations/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png
+        source: assets/illustrations/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.svg
+        brief: >
+          MN908947.3 accession decomposed into prefix, number, and version,
+          with fetch-path and snapshot meanings.
+
+  02-sequences/04-msa-and-trees:
+    illustrations:
+      - id: msa-column-homology
+        target_dimensions: 1400x600
+        asset: assets/illustrations/02-sequences/04-msa-and-trees/msa-column-homology.png
+        source: assets/illustrations/02-sequences/04-msa-and-trees/msa-column-homology.svg
+        brief: >
+          Three short sequences before and after MAFFT-style gap insertion so
+          homologous bases share columns.
+      - id: tree-anatomy
+        target_dimensions: 1400x700
+        asset: assets/illustrations/02-sequences/04-msa-and-trees/tree-anatomy.png
+        source: assets/illustrations/02-sequences/04-msa-and-trees/tree-anatomy.svg
+        brief: >
+          Rectangular phylogram with tips, internal nodes, branch lengths, and
+          bootstrap support values called out.
 
   06-classification/01-what-is-classification:
     illustrations:
       - id: classification-question
         target_dimensions: 1400x500
+        asset: assets/illustrations/06-classification/01-what-is-classification/classification-question.png
+        source: assets/illustrations/06-classification/01-what-is-classification/classification-question.svg
         brief: >
-          Schematic with three regions left to right. Left: a FASTQ
-          bundle drawn as a small file icon labelled 'reads.fastq.gz'.
-          Middle: a classifier drawn as a Lungfish Creamsicle box
-          labelled 'Kraken2 / EsViritu / TaxTriage'. Right: a sunburst
-          diagram (or pie-chart-like radial division) with reads
-          assigned to taxonomic groups (bacteria, virus, host). Cream
-          background, Deep Ink labels.
+          Reads file feeding a classifier box and taxonomy sunburst, with
+          bacteria, virus, and host outputs labelled.
 
   07-assembly/01-when-to-assemble:
     illustrations:
       - id: assembly-vs-mapping
         target_dimensions: 1400x600
+        asset: assets/illustrations/07-assembly/01-when-to-assemble/assembly-vs-mapping.png
+        source: assets/illustrations/07-assembly/01-when-to-assemble/assembly-vs-mapping.svg
         brief: >
-          Side-by-side schematic. Left half (mapping): reads in Lungfish
-          Creamsicle being mapped to a known reference shown as a Deep
-          Ink line, with arrows from each read pointing to the mapped
-          position. Right half (assembly): reads being assembled into
-          contigs without a reference, drawn as overlap-then-extend
-          stacks producing a few long Lungfish Creamsicle contigs at
-          the bottom. Annotate each side with its method name. Cream
-          background.
+          Mapping with a reference contrasted against de novo assembly from
+          read overlaps into thicker contigs.

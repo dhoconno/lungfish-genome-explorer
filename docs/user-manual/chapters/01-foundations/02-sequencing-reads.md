@@ -15,7 +15,7 @@ illustrations:
   - id: paired-end-reads
     brief: "Schematic showing a DNA fragment with sequencer reads coming from both ends inward, labelled 'Read 1 (forward)' and 'Read 2 (reverse complement)'. The two reads do not necessarily overlap in the middle. Use Lungfish Creamsicle for read arrows."
   - id: phred-quality-bar
-    brief: "A horizontal bar showing Phred score 0-40, with an example read sequence above and a per-base quality bar below using Deep Ink intensity (lighter = lower quality). Annotate that Q20 = 1% error, Q30 = 0.1% error."
+    brief: "A horizontal bar showing Phred score 0-40, with an example read sequence above and a per-base quality bar below using a single-hue Creamsicle quality ramp (lighter = lower quality). Annotate that Q20 = 1% error, Q30 = 0.1% error."
   - id: platform-read-length-comparison
     brief: "A horizontal scale comparing typical read lengths across platforms: Illumina (~150 bp short bar), PacBio HiFi (~15 kb medium bar), Oxford Nanopore (1-100 kb long variable bar). Use Lungfish Creamsicle for the bars, Deep Ink labels, IBM Plex Mono for length numbers."
 glossary_refs: [FASTQ, read, paired-end, single-end, Phred-score, read-length]

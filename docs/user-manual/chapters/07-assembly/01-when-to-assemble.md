@@ -35,6 +35,8 @@ together represent the sample's genome. Where reference mapping asks "where
 on this known genome does each read fit?", assembly asks "what sequence
 must the sample have for these reads to make sense?".
 
+<!-- ILLUSTRATION: assembly-vs-mapping -->
+
 Three situations call for assembly. The first is a sample with no good
 reference: a novel virus, a known virus that has drifted far enough from
 its closest GenBank entry that mapping wastes most of the reads, or a

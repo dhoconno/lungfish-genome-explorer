@@ -43,6 +43,8 @@ By the end of this chapter you will be able to recognize a BAM file by its `.bam
 
 A mapper takes a read and asks: where on the reference does this sequence fit best, allowing for some mismatches and small insertions or deletions? The answer is a position (the leftmost reference coordinate the read covers), a strand (forward if the read sequence aligns as written, reverse if it aligns to the reverse complement), and a CIGAR string that describes, base by base, how the read aligns. A read that fits well anchors confidently at one place. A read that fits two places equally well gets a low mapping quality (`MAPQ`), and most callers ignore it. A read that does not fit anywhere is recorded as unmapped and carries no position.
 
+<!-- ILLUSTRATION: read-mapping-cartoon -->
+
 Lungfish ships four mappers and chooses sensible defaults by read type. `minimap2` is the default for long reads (Oxford Nanopore, PacBio) and for many short-read jobs. `BWA-MEM2` is offered for short paired-end Illumina data. `Bowtie2` is offered for users who want a familiar short-read aligner. `BBMap` is offered for messier reads where local alignment helps. The mapper choice matters, but the BAM format does not change with the mapper. Every BAM has the same columns regardless of which tool produced it.
 
 ## What is in a BAM file
@@ -60,11 +62,13 @@ RNAME     : MN908947.3
 POS       : 1000
 MAPQ      : 60
 CIGAR     : 5S140M5S
-SEQ       : NNNNNACGTGTCTCTGCCG...ACGTACGTNNNNN  (150 bases)
+SEQ       : ACGTAACGTGTCTCTGCCG...ACGTACGTTTGCA  (150 bases)
 QUAL      : !!!!!FFFFFFFFFFF...FFFFFF!!!!!         (Phred string)
 ```
 
-The CIGAR `5S140M5S` says: the first five bases are soft-clipped, the next 140 bases are aligned to the reference (matches or mismatches, the CIGAR does not distinguish), and the last five bases are soft-clipped. The read still occupies 150 bases of memory, but only the middle 140 contribute to anything downstream. The five low-quality `N`-bases at each end are kept in the file for traceability.
+<!-- ILLUSTRATION: cigar-anatomy -->
+
+The CIGAR `5S140M5S` says: the first five bases are soft-clipped, the next 140 bases are aligned to the reference (matches or mismatches, the CIGAR does not distinguish), and the last five bases are soft-clipped. The read still occupies 150 bases of memory, but only the middle 140 contribute to anything downstream. The soft-clipped bases keep their original base calls and qualities for traceability. They are not replaced with `N`.
 
 ## The BAI index, and why it must travel with the BAM
 
@@ -84,7 +88,7 @@ A pileup is the column of bases observed at one reference position across every 
 
 <!-- ILLUSTRATION: pileup-view -->
 
-A worked example. At reference position 1000 the reference base is `C`. Ten reads cover the position. Eight of them show `C`. Two of them show `T`. The allele frequency of the alternate base `T` is 2 divided by 10, or 20 percent. A variant caller looking at this column will weigh the evidence (how many reads, what their qualities are, whether both strands agree) and decide whether to emit a `C>T` call at position 1000 with allele frequency 0.20. If the same column showed nine `C` and one `T`, the alternate would sit at 10 percent and most callers would treat it as too rare to call confidently. If the column showed zero `C` and ten `T`, the alternate would sit at 100 percent and the call would be a confident fixed substitution. The pileup is the evidence; the variant caller is the judge.
+A worked example. At reference position 1000 the reference base is `C`. Ten reads cover the position. Seven of them show `C`. Three of them show `T`. The allele frequency of the alternate base `T` is 3 divided by 10, or 30 percent. A variant caller looking at this column will weigh the evidence (how many reads, what their qualities are, whether both strands agree) and decide whether to emit a `C>T` call at position 1000 with allele frequency 0.30. If the same column showed nine `C` and one `T`, the alternate would sit at 10 percent and most callers would treat it as too rare to call confidently. If the column showed zero `C` and ten `T`, the alternate would sit at 100 percent and the call would be a confident fixed substitution. The pileup is the evidence; the variant caller is the judge.
 
 ## Soft-clipping and primer trimming
 

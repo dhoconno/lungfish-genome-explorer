@@ -129,6 +129,7 @@ Tests/Fixtures/naomgs/MU-CASPER-*.tsv.gz
 docs/user-manual/build/indesign/stories/
 docs/user-manual/build/scripts/lint/node_modules/
 docs/user-manual/build/scripts/shot/node_modules/
+docs/user-manual/build/scripts/illustrations/node_modules/
 docs/user-manual/fixtures/**/cache/
 
 # Superpowers brainstorm session artifacts (local scratch)
