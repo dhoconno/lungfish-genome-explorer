@@ -166,7 +166,7 @@ dialog.SRASearchDialog:
 
 dialog.PathoplexusSearchDialog:
   chapter: 02-sequences/02-downloading-from-ncbi
-  anchor: pathoplexus-and-sra-when-not-to-use-this-dialog
+  anchor: pathoplexus-and-sra-when-not-to-use-ncbi-fetch
   scope: dialog
   description: Search Pathoplexus (sister database to NCBI) for viral genomes.
 

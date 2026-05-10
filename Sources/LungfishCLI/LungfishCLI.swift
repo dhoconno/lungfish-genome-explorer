@@ -30,6 +30,7 @@ struct LungfishCLI: AsyncParsableCommand {
             """,
         version: "0.4.0-alpha.11",
         subcommands: [
+            VersionCommand.self,
             ConvertCommand.self,
             AnalyzeCommand.self,
             TranslateCommand.self,
@@ -52,6 +53,7 @@ struct LungfishCLI: AsyncParsableCommand {
             OrientCommand.self,
             MapCommand.self,
             ImportCommand.self,
+            ProvenanceCommand.self,
             BAMCommand.self,
             VariantsCommand.self,
             GATKCLICommand.self,

@@ -46,7 +46,7 @@ you ever want to compare.
 
 This chapter covers the BAM-level primer trim. There is also a
 FASTQ-level primer trim (covered in [Read QC and
-Trimming](../02-read-qc/04-trimming-and-adapter-removal.md)) that runs
+Trimming](../03-reads/04-trimming-and-filtering.md)) that runs
 before mapping. The two are not interchangeable. BAM-level primer trim
 is the default for the variant-calling pipeline because iVar was
 designed around it: iVar trims and iVar calls share the same coordinate
@@ -86,35 +86,37 @@ the variant caller no longer sees primer bases when it builds pileups.
 A clean primer trim against the right scheme is the difference between
 a credible amplicon variant call and one that needs a footnote.
 
-## The bundled primer schemes
+## Primer schemes
 
-Lungfish ships four primer schemes that cover most SARS-CoV-2 amplicon
-work in 2026. The Primer Trim dialog lists every scheme it can find,
-bundled or custom, in the picker.
+The Primer Trim dialog lists every scheme it can find, bundled or
+project-local, in the picker. The current release ships the
+`QIASeqDIRECT-SARS2` built-in scheme. ARTIC, midnight, and other lab or
+vendor schemes should be imported into the project's `Primer Schemes/`
+folder as `.lungfishprimers` bundles.
 
 | Scheme | Target | Amplicons | Typical insert | When to choose |
 |---|---|---|---|---|
 | QIASeqDIRECT-SARS2 | SARS-CoV-2 | 422 | ~250 bp | QIAGEN QIAseqDIRECT SARS-CoV-2 Kit; default for the Lungfish Wastewater Kit |
-| ARTIC v3 | SARS-CoV-2 | 218 | ~400 bp | Older ARTIC runs (2020 to early 2022) |
-| ARTIC v4.1 | SARS-CoV-2 | 99 | ~400 bp | Most ARTIC runs from mid-2022 onward |
-| ARTIC v5.3.2 | SARS-CoV-2 | 250 | ~400 bp | Recent ARTIC runs designed for Omicron-era variants |
 
 The reference each scheme is built against is recorded inside the
 `.lungfishprimers` bundle and shown in the dialog when you select it.
 Confirm that the reference matches the one you mapped against before
-you trim. A scheme built against MN908947.3 applied to a BAM mapped
-against MN908947.3 will silently miss primers, because the BED
+you trim. A scheme built against one coordinate system applied to a BAM
+mapped against another can silently miss primers, because the BED
 coordinates will not line up.
 
 ### Bringing your own scheme
 
-Custom primer schemes drop into the project's `Primer Schemes/` folder
-as `.lungfishprimers` bundles. Lungfish picks them up the next time the
-Primer Trim dialog opens; no import step. A `.lungfishprimers` bundle
-holds a BED file of primer coordinates, a FASTA of primer sequences,
-and a manifest naming the reference. See [Primer
-Schemes](../06-bundles/03-primer-scheme-bundles.md) for the layout and
-for the steps to build one from a published BED.
+Use `File > Import Center > Primer Scheme` to build a project-local
+scheme from a BED file, optional primer FASTA, and optional
+attachments. Lungfish writes `manifest.json`, `primers.bed`, optional
+`primers.fasta`, and `PROVENANCE.md` under
+`Primer Schemes/<name>.lungfishprimers`. There is not currently a
+`lungfish primers import --bed ...` command; CLI workflows consume an
+existing `.lungfishprimers` bundle with `--scheme`.
+
+See [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes)
+for the layout and import procedure.
 
 ## Procedure
 

@@ -25,6 +25,18 @@ The CLI is the right surface when you want to script a workflow, run a pipeline 
 
 This appendix groups commands by domain. Examples use realistic paths and accessions so they can be copied and adapted. All commands accept the global flags listed at the bottom; per-command flags are only those specific to the command.
 
+For release-level tool versions, see [Tool Versions](tool-versions.md#appendix-tool-versions). For upstream citations, see [Tool Bibliography](bibliography.md#appendix-bibliography).
+
+## Version and tool reference
+
+`lungfish version [--tools]`
+
+Prints the Lungfish CLI version. `--tools` adds the current bundled and managed tool table from the same manifests used by the app and provisioning code.
+
+```bash
+lungfish version --tools
+```
+
 ## Acquire (NCBI and SRA)
 
 Fetch sequences and reads from public archives.
@@ -243,9 +255,18 @@ Forces a virtual FASTQ subset bundle to materialize its full reads on disk.
 
 Run, list, and validate Lungfish workflows.
 
-`lungfish workflow run <workflow.yaml> --inputs <input.json>`
+`lungfish workflow run <workflow> --input <path> [--executor <docker|conda|local>] [--bundle-root <dir>] [--bundle-path <path>]`
 
-Runs a saved workflow against the supplied inputs.
+Runs a supported workflow or workflow file. `nf-core/viralrecon` and `viralrecon` are accepted for the Viral Recon adapter; that path requires exactly one `--input` samplesheet.
+
+```bash
+lungfish workflow run nf-core/viralrecon \
+    --input samplesheet.csv \
+    --executor conda \
+    --bundle-root Analyses
+```
+
+Useful viralrecon flags include `--results-dir`, `--version`, `--workdir`, `--param key=value`, `--cpus`, `--memory`, `--resume`, `--dry-run`, and `--prepare-only`. See [Viral Recon Wizard](../04-alignments/05-viral-recon-wizard.md).
 
 `lungfish workflow list`
 
@@ -279,13 +300,15 @@ Searches the bioconda index for available packs.
 
 Inspect and export provenance.
 
-`lungfish bundle export <bundle> --output <dir> --format <shell|nextflow|snakemake|methods>`
+`lungfish provenance bibliography <bundle>`
 
-Exports a workflow's provenance as a runnable artifact in the chosen format.
+Reads Lungfish provenance from a bundle or output directory, preferring the root `.lungfish-provenance.json` sidecar and falling back to bundle roll-ups under `provenance/`. It prints matched upstream tool citations plus unmatched tool names that need manual review.
 
-`lungfish provenance show <file>`
+```bash
+lungfish provenance bibliography MN908947.3.lungfishref
+```
 
-Prints the provenance sidecar for a file.
+Runnable workflow exports are generated from the app's workflow export surface. There is not currently a `lungfish provenance show` command; inspect the sidecar or bundle provenance roll-up directly, or use the bibliography subcommand above when you need citations.
 
 ## Utilities
 

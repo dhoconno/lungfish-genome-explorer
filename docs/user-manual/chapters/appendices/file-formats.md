@@ -190,10 +190,9 @@ Pairs primer coordinates (BED) with primer sequences (FASTA) and a manifest desc
 ```text
 QIASeqDIRECT-SARS2.lungfishprimers/
   manifest.json
-  primer.bed
-  primer.fasta
-  reference.fasta
-  reference.fasta.fai
+  primers.bed
+  primers.fasta  # optional
+  PROVENANCE.md
 ```
 
 The BED file lists each primer with chromosome, start, end, name, pool, and strand columns:
@@ -203,7 +202,7 @@ MN908947.3	30	54	SARS-CoV-2_1_LEFT	1	+
 MN908947.3	385	410	SARS-CoV-2_1_RIGHT	1	-
 ```
 
-Lungfish ships several primer schemes (ARTIC v3, v4.1, v5.3.2; QIASeqDIRECT-SARS2). Drop a custom `.lungfishprimers` bundle into the project's `Primer Schemes/` folder to make it available to the Primer Trim dialog.
+The current release ships the `QIASeqDIRECT-SARS2` built-in scheme. Import ARTIC, midnight, vendor, or lab schemes through `File > Import Center > Primer Scheme`; the resulting `.lungfishprimers` bundle lands in the project's `Primer Schemes/` folder and becomes available to the Primer Trim dialog. See [Primer Scheme Bundles](primer-schemes.md#appendix-primer-schemes).
 
 ### `.lungfishtax`: taxonomy classification bundle
 

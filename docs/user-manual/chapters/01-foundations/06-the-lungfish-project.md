@@ -79,7 +79,7 @@ The sidebar follows a fixed folder convention. Every Lungfish project has exactl
 2. **Downloads/** holds anything Lungfish fetched from the internet. Reference genomes from NCBI, raw reads from SRA, sequences from Pathoplexus. Every download arrives with a provenance sidecar that records the URL, the accession, the timestamp, and the checksum.
 3. **Reference Sequences/** holds reference bundles, each with the extension `.lungfishref`. A reference bundle is a folder, not a single file. It contains a FASTA, an index, optional annotations such as GFF3 or GTF, and any tracks you have attached to that reference (alignments, variants, classifications).
 4. **Assemblies/** holds de novo assembly bundles, also `.lungfishref`. The format is the same as a reference bundle. The folder name is what distinguishes "this came from SPAdes or MEGAHIT" from "this is a published reference".
-5. **Primer Schemes/** holds amplicon primer-scheme bundles with the extension `.lungfishprimers`. Each bundle carries the BED coordinates, the primer sequences as FASTA, and provenance.
+5. **Primer Schemes/** holds amplicon primer-scheme bundles with the extension `.lungfishprimers`. Each bundle carries the BED coordinates, optional primer sequences as FASTA, and provenance.
 
 The distinction between `Imports/` and `Downloads/` matters because their provenance is different. An imported file has provenance only as far back as your local copy. A download carries a full network trail: where it came from, when, and what checksum it matched at fetch time. Later workflows export that provenance verbatim into the run record. If you need to reproduce a published analysis, prefer downloads.
 
