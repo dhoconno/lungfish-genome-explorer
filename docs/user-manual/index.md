@@ -28,6 +28,7 @@ Each part is one workflow domain. Chapters within a part declare prereqs in thei
 - [Reads (FASTQ)](chapters/03-reads/) for read import, QC, trimming, decontamination, and ONT runs
 - [Alignments](chapters/04-alignments/) for read mapping and primer trimming
 - [Variants](chapters/05-variants/) for variant calling and VCF interpretation (the pilot chapter is here)
+- [Human Germline Variants](chapters/06-human-germline-variants/) for first-class GATK command dry runs
 - [Classification](chapters/06-classification/) for taxonomic classification of reads
 
 The [Assembly](chapters/07-assembly/) part covers de novo assembly. The [Workflows](chapters/08-workflows/) part covers the visual Workflow Builder and Nextflow / Snakemake export.

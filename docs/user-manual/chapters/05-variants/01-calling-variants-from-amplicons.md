@@ -43,6 +43,13 @@ A SARS-CoV-2 variant call set answers concrete biological questions. Which mutat
 
 The same procedure works for influenza, RSV, HIV, monkeypox, and any other virus with a public reference genome. The biology of each pathogen is different, but the file types, tools, and Lungfish workflow are the same. The chapter teaches the workflow on SARS-CoV-2 because the reference and reads are public, the protocol is well documented, and the resulting variants connect to widely-known lineage names.
 
+This part of the manual is deliberately viral. Human germline workflows use
+GATK, diploid genotype assumptions, known-sites resources, and cohort-scale
+joint genotyping; they are introduced separately in
+[Human Germline Variants](../06-human-germline-variants/01-haplotype-caller.md).
+The current GATK chapters cover dry-run command construction only, not
+GATK execution or bundle attachment.
+
 ## Vocabulary you will need
 
 This chapter introduces or uses the following terms. Each term is defined briefly here and at greater length in the [glossary](../../GLOSSARY.md). Reference these as you read.

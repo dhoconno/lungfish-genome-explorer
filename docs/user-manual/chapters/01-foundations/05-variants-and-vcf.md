@@ -33,6 +33,11 @@ This chapter walks through the eight standard VCF columns, the per-sample payloa
 
 So what should you do with this? Read it once before the variants part of the manual. Every later chapter assumes you can name the columns and interpret allele frequency in a haploid context.
 
+The main worked examples in Lungfish still target viral genomes. The
+first GATK foundation is narrower: `lungfish gatk` can construct human
+germline command lines for review, but it does not yet execute GATK or
+attach human germline outputs to a Lungfish bundle.
+
 ## What you will learn
 
 By the end of this chapter you will be able to read a VCF row and name what every column means; interpret allele frequency in a viral context (a fraction of reads, not of alleles); identify a high-confidence variant by combining `PASS` filter, allele frequency near 1.0, and depth above a few hundred; recognize the `INFO` and `FORMAT` payloads that carry per-row and per-sample detail; and find the same row in Lungfish's variant browser by clicking through to the table view.

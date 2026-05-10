@@ -259,10 +259,34 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lofreq.smokeTest?.requiredOutputSubstring, "version:")
     }
 
+    func testGATKCorePackDefinesPinnedBiocondaToolMetadata() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "gatk-core" }))
+
+        XCTAssertEqual(pack.name, "GATK Core")
+        XCTAssertEqual(pack.description, "GATK4 command construction and dry-run support for human germline workflows")
+        XCTAssertEqual(pack.category, "Variant Calling")
+        XCTAssertEqual(pack.packages, ["gatk4"])
+        XCTAssertEqual(pack.estimatedSizeMB, 600)
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["gatk-core"])
+
+        let gatk = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "gatk4" }))
+        XCTAssertEqual(gatk.displayName, "GATK4")
+        XCTAssertEqual(gatk.environment, "gatk-core")
+        XCTAssertEqual(gatk.installPackages, ["bioconda::gatk4=4.6.2.0"])
+        XCTAssertEqual(gatk.executables, ["gatk"])
+        XCTAssertEqual(gatk.smokeTest?.executable, "gatk")
+        XCTAssertEqual(gatk.smokeTest?.arguments, ["--version"])
+        XCTAssertEqual(gatk.smokeTest?.requiredOutputSubstring, "The Genome Analysis Toolkit")
+        XCTAssertEqual(gatk.version, "4.6.2.0")
+        XCTAssertEqual(gatk.license, "BSD-3-Clause")
+        XCTAssertEqual(gatk.sourceURL, "https://github.com/broadinstitute/gatk")
+    }
+
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
+            "gatk-core",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
@@ -284,6 +308,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "lungfish-tools",
             "read-mapping",
             "variant-calling",
+            "gatk-core",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",

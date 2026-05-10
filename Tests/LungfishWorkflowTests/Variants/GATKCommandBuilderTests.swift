@@ -109,6 +109,107 @@ final class GATKCommandBuilderTests: XCTestCase {
         XCTAssertArgumentPair(table.arguments, "-F", "CHROM")
         XCTAssertArgumentPair(table.arguments, "-F", "DP")
     }
+
+    func testBuildsBQSRCommandsWithKnownSitesAndPassthroughArguments() {
+        let commands = GATKCommandBuilder.baseQualityScoreRecalibrationCommands(
+            GATKBaseQualityScoreRecalibrationConfiguration(
+                referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+                inputBAMURL: root.appendingPathComponent("sample.sorted.bam"),
+                outputBAMURL: root.appendingPathComponent("sample.recalibrated.bam"),
+                knownSitesVCFURLs: [
+                    root.appendingPathComponent("dbsnp.vcf.gz"),
+                    root.appendingPathComponent("mills.vcf.gz"),
+                ],
+                recalibrationTableURL: root.appendingPathComponent("sample.recal.table"),
+                intervalsURL: root.appendingPathComponent("targets.interval_list"),
+                extraArguments: ["--disable-sequence-dictionary-validation"]
+            )
+        )
+
+        XCTAssertEqual(commands.map(\.arguments.first), ["BaseRecalibrator", "ApplyBQSR"])
+        XCTAssertArgumentPair(commands[0].arguments, "-R", root.appendingPathComponent("reference.fa").path)
+        XCTAssertArgumentPair(commands[0].arguments, "-I", root.appendingPathComponent("sample.sorted.bam").path)
+        XCTAssertArgumentPair(commands[0].arguments, "-O", root.appendingPathComponent("sample.recal.table").path)
+        XCTAssertArgumentPair(commands[0].arguments, "--known-sites", root.appendingPathComponent("dbsnp.vcf.gz").path)
+        XCTAssertArgumentPair(commands[0].arguments, "--known-sites", root.appendingPathComponent("mills.vcf.gz").path)
+        XCTAssertArgumentPair(commands[0].arguments, "-L", root.appendingPathComponent("targets.interval_list").path)
+        XCTAssertTrue(commands[0].arguments.contains("--disable-sequence-dictionary-validation"))
+
+        XCTAssertArgumentPair(commands[1].arguments, "--bqsr-recal-file", root.appendingPathComponent("sample.recal.table").path)
+        XCTAssertArgumentPair(commands[1].arguments, "-O", root.appendingPathComponent("sample.recalibrated.bam").path)
+        XCTAssertArgumentPair(commands[1].arguments, "--create-output-bam-index", "true")
+        XCTAssertTrue(commands[1].arguments.contains("--disable-sequence-dictionary-validation"))
+    }
+
+    func testBuildsWrappedTierPicardAndVariantUtilityCommands() {
+        let markdup = GATKCommandBuilder.markDuplicatesCommand(
+            GATKMarkDuplicatesConfiguration(
+                inputBAMURLs: [
+                    root.appendingPathComponent("lane1.bam"),
+                    root.appendingPathComponent("lane2.bam"),
+                ],
+                outputBAMURL: root.appendingPathComponent("sample.markdup.bam"),
+                metricsURL: root.appendingPathComponent("sample.markdup.metrics.txt"),
+                removeDuplicates: true,
+                validationStringency: "LENIENT",
+                extraArguments: ["--ASSUME_SORT_ORDER", "coordinate"]
+            )
+        )
+        XCTAssertEqual(markdup.arguments.first, "MarkDuplicates")
+        XCTAssertArgumentPair(markdup.arguments, "-I", root.appendingPathComponent("lane1.bam").path)
+        XCTAssertArgumentPair(markdup.arguments, "-I", root.appendingPathComponent("lane2.bam").path)
+        XCTAssertArgumentPair(markdup.arguments, "-M", root.appendingPathComponent("sample.markdup.metrics.txt").path)
+        XCTAssertArgumentPair(markdup.arguments, "--CREATE_INDEX", "true")
+        XCTAssertArgumentPair(markdup.arguments, "--REMOVE_DUPLICATES", "true")
+        XCTAssertArgumentPair(markdup.arguments, "--VALIDATION_STRINGENCY", "LENIENT")
+        XCTAssertArgumentPair(markdup.arguments, "--ASSUME_SORT_ORDER", "coordinate")
+
+        let validate = GATKCommandBuilder.validateSamFileCommand(
+            GATKValidateSamFileConfiguration(
+                inputBAMURL: root.appendingPathComponent("sample.markdup.bam"),
+                outputReportURL: root.appendingPathComponent("sample.validate.txt"),
+                referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+                mode: .summary,
+                ignoreWarnings: true
+            )
+        )
+        XCTAssertEqual(validate.arguments.first, "ValidateSamFile")
+        XCTAssertArgumentPair(validate.arguments, "-I", root.appendingPathComponent("sample.markdup.bam").path)
+        XCTAssertArgumentPair(validate.arguments, "-O", root.appendingPathComponent("sample.validate.txt").path)
+        XCTAssertArgumentPair(validate.arguments, "--MODE", "SUMMARY")
+        XCTAssertArgumentPair(validate.arguments, "--IGNORE_WARNINGS", "true")
+
+        let leftalign = GATKCommandBuilder.leftAlignAndTrimVariantsCommand(
+            GATKLeftAlignAndTrimVariantsConfiguration(
+                referenceFASTAURL: root.appendingPathComponent("reference.fa"),
+                inputVCFURL: root.appendingPathComponent("raw.vcf.gz"),
+                outputVCFURL: root.appendingPathComponent("leftaligned.vcf.gz"),
+                splitMultiAllelics: true,
+                extraArguments: ["--dont-trim-alleles"]
+            )
+        )
+        XCTAssertEqual(leftalign.arguments.first, "LeftAlignAndTrimVariants")
+        XCTAssertArgumentPair(leftalign.arguments, "-V", root.appendingPathComponent("raw.vcf.gz").path)
+        XCTAssertArgumentPair(leftalign.arguments, "-O", root.appendingPathComponent("leftaligned.vcf.gz").path)
+        XCTAssertArgumentPair(leftalign.arguments, "--split-multi-allelics", "true")
+        XCTAssertTrue(leftalign.arguments.contains("--dont-trim-alleles"))
+
+        let metrics = GATKCommandBuilder.collectVariantCallingMetricsCommand(
+            GATKCollectVariantCallingMetricsConfiguration(
+                inputVCFURL: root.appendingPathComponent("cohort.vcf.gz"),
+                outputMetricsPrefixURL: root.appendingPathComponent("metrics/cohort"),
+                dbSNPVCFURL: root.appendingPathComponent("dbsnp.vcf.gz"),
+                sequenceDictionaryURL: root.appendingPathComponent("reference.dict"),
+                extraArguments: ["--THREAD_COUNT", "4"]
+            )
+        )
+        XCTAssertEqual(metrics.arguments.first, "CollectVariantCallingMetrics")
+        XCTAssertArgumentPair(metrics.arguments, "-I", root.appendingPathComponent("cohort.vcf.gz").path)
+        XCTAssertArgumentPair(metrics.arguments, "-O", root.appendingPathComponent("metrics/cohort").path)
+        XCTAssertArgumentPair(metrics.arguments, "--DBSNP", root.appendingPathComponent("dbsnp.vcf.gz").path)
+        XCTAssertArgumentPair(metrics.arguments, "--SEQUENCE_DICTIONARY", root.appendingPathComponent("reference.dict").path)
+        XCTAssertArgumentPair(metrics.arguments, "--THREAD_COUNT", "4")
+    }
 }
 
 private func XCTAssertArgumentPair(
