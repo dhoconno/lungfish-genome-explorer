@@ -41,6 +41,7 @@ final class GUIRegressionTests: XCTestCase {
             "Mapping…",
             "Assembly…",
             "Classification…",
+            "Lineage Demixing",
             "",
             "Reverse Complement Selection",
             "Translate Selection…",
@@ -60,6 +61,7 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertEqual(visibleTitles, [
             "FASTQ/FASTA Operations",
             "Call Variants…",
+            "Workflow Builder…",
             "Search Online Databases...",
             "Plugin Manager…",
         ])

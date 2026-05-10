@@ -1032,7 +1032,7 @@ final class BundleCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 5)
+        XCTAssertEqual(subs.count, 6)
     }
 }
 

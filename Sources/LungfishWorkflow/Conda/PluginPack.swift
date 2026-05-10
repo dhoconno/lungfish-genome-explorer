@@ -679,6 +679,26 @@ public extension PluginPack {
                     license: "BSD-2-Clause",
                     sourceURL: "https://github.com/andersen-lab/Freyja"
                 ),
+                PackToolRequirement.package(
+                    "ivar",
+                    displayName: "iVar",
+                    smokeTest: .command(arguments: ["version"])
+                ),
+                PackToolRequirement.package(
+                    "pangolin",
+                    displayName: "Pangolin",
+                    smokeTest: .command(arguments: ["--version"])
+                ),
+                PackToolRequirement.package(
+                    "nextclade",
+                    displayName: "Nextclade",
+                    smokeTest: .command(arguments: ["--version"])
+                ),
+                PackToolRequirement.package(
+                    "minimap2",
+                    displayName: "minimap2",
+                    smokeTest: .command(arguments: ["--version"])
+                ),
             ],
             postInstallHooks: [
                 PostInstallHook(

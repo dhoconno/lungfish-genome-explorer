@@ -1246,10 +1246,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 23 subcommands registered.
+    /// Verifies that FastqCommand has all 24 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 23, "FastqCommand should have 23 subcommands")
+        XCTAssertEqual(subcommands.count, 24, "FastqCommand should have 24 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.

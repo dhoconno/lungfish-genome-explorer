@@ -312,9 +312,11 @@ final class PluginPackRegistryTests: XCTestCase {
 
         XCTAssertEqual(pack.name, "Wastewater Surveillance")
         XCTAssertTrue(pack.packages.contains("freyja"))
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["freyja", "ivar", "pangolin", "nextclade", "minimap2"])
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.environment, "freyja")
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.installPackages, ["bioconda::freyja=2.0.0"])
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.executables, ["freyja"])
+        XCTAssertNotNil(pack.toolRequirements.first(where: { $0.id == "pangolin" }))
     }
 
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
