@@ -7,6 +7,56 @@ import UniformTypeIdentifiers
 import LungfishIO
 import LungfishWorkflow
 
+struct MappingReadGroupFields: Equatable, Sendable {
+    var id: String
+    var sampleName: String
+    var library: String
+    var platform: String
+    var platformUnit: String
+
+    init(
+        id: String,
+        sampleName: String,
+        library: String,
+        platform: String,
+        platformUnit: String
+    ) {
+        self.id = id
+        self.sampleName = sampleName
+        self.library = library
+        self.platform = platform
+        self.platformUnit = platformUnit
+    }
+
+    static func defaults(sampleName: String, modeID: String) -> MappingReadGroupFields {
+        let readGroup = MappingReadGroup.resolved(
+            sampleName: sampleName,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+        )
+        return MappingReadGroupFields(readGroup: readGroup)
+    }
+
+    func resolvedReadGroup(sampleName: String, modeID: String) -> MappingReadGroup {
+        MappingReadGroup.resolved(
+            sampleName: sampleName,
+            id: id,
+            readGroupSampleName: self.sampleName,
+            library: library,
+            platform: platform,
+            platformUnit: platformUnit,
+            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+        )
+    }
+
+    private init(readGroup: MappingReadGroup) {
+        self.id = readGroup.id
+        self.sampleName = readGroup.sampleName
+        self.library = readGroup.library
+        self.platform = readGroup.platform
+        self.platformUnit = readGroup.platformUnit
+    }
+}
+
 struct MappingWizardSheet: View {
     let inputFiles: [URL]
     let projectURL: URL?
@@ -134,10 +184,8 @@ struct MappingWizardSheet: View {
     }
 
     static func defaultReadGroup(sampleName: String, modeID: String) -> MappingReadGroup {
-        MappingReadGroup.resolved(
-            sampleName: sampleName,
-            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
-        )
+        MappingReadGroupFields.defaults(sampleName: sampleName, modeID: modeID)
+            .resolvedReadGroup(sampleName: sampleName, modeID: modeID)
     }
 
     static func makeReadGroup(
@@ -149,15 +197,14 @@ struct MappingWizardSheet: View {
         platformText: String,
         platformUnitText: String
     ) -> MappingReadGroup {
-        MappingReadGroup.resolved(
-            sampleName: sampleName,
+        MappingReadGroupFields(
             id: idText,
-            readGroupSampleName: sampleText,
+            sampleName: sampleText,
             library: libraryText,
             platform: platformText,
-            platformUnit: platformUnitText,
-            defaultPlatform: MappingReadGroup.defaultPlatform(forModeID: modeID)
+            platformUnit: platformUnitText
         )
+        .resolvedReadGroup(sampleName: sampleName, modeID: modeID)
     }
 
     private var selectedModeBinding: Binding<String> {
