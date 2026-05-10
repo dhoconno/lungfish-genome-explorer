@@ -270,6 +270,67 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
     }
 
+    func testMigrateSynthesizesLegacyBrowserSummaryWithBackupAndProvenance() async throws {
+        let projectURL = try makeProject()
+        let bundleURL = try makeLegacyReferenceBundleWithoutBrowserSummary(named: "LegacySummary", under: projectURL)
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try #"{"run":"creation-provenance","outputs":["payload"]}"#
+            .write(to: provenanceURL, atomically: true, encoding: .utf8)
+        let originalManifest = try Data(contentsOf: manifestURL)
+        let originalProvenance = try Data(contentsOf: provenanceURL)
+
+        let command = try ProjectCommand.MigrateSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+        try await command.run()
+
+        let migratedManifest = try BundleManifest.load(from: bundleURL)
+        XCTAssertEqual(migratedManifest.formatVersion, "1.0")
+        XCTAssertEqual(migratedManifest.browserSummary?.schemaVersion, 1)
+        XCTAssertEqual(migratedManifest.browserSummary?.sequences.map(\.name), ["chr1"])
+        XCTAssertEqual(migratedManifest.browserSummary?.aggregate.annotationTrackCount, 0)
+        XCTAssertNotEqual(try Data(contentsOf: manifestURL), originalManifest)
+        XCTAssertEqual(try Data(contentsOf: provenanceURL), originalProvenance)
+
+        let migrationDirectory = bundleURL.appendingPathComponent(".lungfish", isDirectory: true)
+            .appendingPathComponent("migrations", isDirectory: true)
+        let migrationFiles = try FileManager.default.contentsOfDirectory(
+            at: migrationDirectory,
+            includingPropertiesForKeys: nil
+        )
+        let backupURL = try XCTUnwrap(migrationFiles.first { $0.lastPathComponent.hasSuffix(".manifest.json.backup") })
+        let migrationProvenanceURL = try XCTUnwrap(migrationFiles.first { $0.lastPathComponent.hasSuffix(".project-migrate-provenance.json") })
+        XCTAssertEqual(try Data(contentsOf: backupURL), originalManifest)
+
+        let provenance = try jsonObject(at: migrationProvenanceURL)
+        XCTAssertEqual(provenance["name"] as? String, "lungfish project migrate browser-summary")
+        XCTAssertEqual(provenance["status"] as? String, "completed")
+        let parameters = try XCTUnwrap(provenance["parameters"] as? [String: Any])
+        XCTAssertEqual((parameters["dryRun"] as? [String: Any])?["value"] as? Bool, false)
+        XCTAssertEqual((parameters["sourceManifest"] as? [String: Any])?["value"] as? String, manifestURL.path)
+        XCTAssertEqual((parameters["targetManifest"] as? [String: Any])?["value"] as? String, manifestURL.path)
+
+        let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
+        let step = try XCTUnwrap(steps.first)
+        XCTAssertEqual(step["toolName"] as? String, "lungfish project migrate")
+        XCTAssertEqual(step["exitCode"] as? Int, 0)
+        XCTAssertGreaterThan(step["wallTime"] as? Double ?? -1, 0)
+        XCTAssertEqual(step["command"] as? [String], ["lungfish", "project", "migrate", projectURL.path])
+
+        let inputs = try XCTUnwrap(step["inputs"] as? [[String: Any]])
+        XCTAssertTrue(inputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })
+        let outputs = try XCTUnwrap(step["outputs"] as? [[String: Any]])
+        XCTAssertTrue(outputs.contains { $0["path"] as? String == manifestURL.path && $0["sha256"] != nil && $0["sizeBytes"] != nil })
+        XCTAssertTrue(outputs.contains {
+            guard let path = $0["path"] as? String else { return false }
+            return URL(fileURLWithPath: path).standardizedFileURL == backupURL.standardizedFileURL
+                && $0["sha256"] != nil
+                && $0["sizeBytes"] != nil
+        })
+    }
+
     private func makeProject() throws -> URL {
         let projectURL = tempDir.appendingPathComponent("Shared.lungfish", isDirectory: true)
         try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
@@ -315,6 +376,49 @@ final class ProjectCommandTests: XCTestCase {
         return bundleURL
     }
 
+    private func makeLegacyReferenceBundleWithoutBrowserSummary(
+        named name: String,
+        under projectURL: URL
+    ) throws -> URL {
+        let bundleURL = projectURL.appendingPathComponent("\(name).lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: bundleURL.appendingPathComponent("genome", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try ">chr1\nACGT\n".write(
+            to: bundleURL.appendingPathComponent("genome/sequence.fa"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "chr1\t4\t6\t4\t5\n".write(
+            to: bundleURL.appendingPathComponent("genome/sequence.fa.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: name,
+            identifier: "org.lungfish.test.\(name.lowercased())",
+            source: SourceInfo(organism: "Test organism", assembly: "Test assembly"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 4, offset: 6, lineBases: 4, lineWidth: 5)
+                ]
+            )
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(manifest).write(to: bundleURL.appendingPathComponent(BundleManifest.filename), options: .atomic)
+        let rawJSON = try String(contentsOf: bundleURL.appendingPathComponent(BundleManifest.filename), encoding: .utf8)
+        XCTAssertFalse(rawJSON.contains("browser_summary"))
+        return bundleURL
+    }
+
     private func lockURL(for projectURL: URL) -> URL {
         projectURL
             .appendingPathComponent(".lungfish", isDirectory: true)
@@ -334,6 +438,11 @@ final class ProjectCommandTests: XCTestCase {
         )
         let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: lockURL, options: .atomic)
+    }
+
+    private func jsonObject(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
     private func currentUserName() -> String {
