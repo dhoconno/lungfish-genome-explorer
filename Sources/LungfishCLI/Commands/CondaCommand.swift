@@ -54,7 +54,7 @@ extension CondaCommand {
         if let storageRootOverride {
             return storageRootOverride.path
         }
-        return ManagedStorageConfigStore().currentLocation().condaRootURL.path
+        return ManagedStorageConfigStore().currentCondaRootURL().path
     }
 }
 

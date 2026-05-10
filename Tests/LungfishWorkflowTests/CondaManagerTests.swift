@@ -522,6 +522,21 @@ final class CondaManagerTests: XCTestCase {
         )
     }
 
+    func testCondaManagerDefaultRootPrefixHonorsEnvironmentOverride() {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "conda-manager-env-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let override = home.appendingPathComponent("shared-conda-root", isDirectory: true)
+
+        let rootPrefix = CondaManager.defaultRootPrefix(
+            homeDirectory: home,
+            environment: ["LUNGFISH_CONDA_ROOT": override.path]
+        )
+
+        XCTAssertEqual(rootPrefix.standardizedFileURL.path, override.standardizedFileURL.path)
+    }
+
     func testNextflowCondaConfig() async {
         let manager = CondaManager.shared
         let config = await manager.nextflowCondaConfig()

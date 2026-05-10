@@ -69,6 +69,12 @@ struct NCBISubcommand: AsyncParsableCommand {
     )
     var apiKey: String?
 
+    @Flag(
+        name: .customLong("no-retry"),
+        help: "Do not retry HTTP 429 rate-limit responses"
+    )
+    var noRetry: Bool = false
+
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
@@ -80,7 +86,14 @@ struct NCBISubcommand: AsyncParsableCommand {
         }
 
         // Create NCBI service
-        let service = NCBIService(apiKey: apiKey)
+        let resolvedAPIKey = Self.resolvedAPIKey(
+            explicitAPIKey: apiKey,
+            environment: ProcessInfo.processInfo.environment
+        )
+        let service = NCBIService(
+            apiKey: resolvedAPIKey,
+            retryPolicy: noRetry ? .disabled : .rateLimitDefaults
+        )
 
         // Map string database to NCBIDatabase enum
         guard let dbEnum = NCBIDatabase(rawValue: database) else {
@@ -118,6 +131,7 @@ struct NCBISubcommand: AsyncParsableCommand {
             }
         }
         let allContent = Self.combinedContent(for: fetchedRecords, format: ncbiFormat)
+        let retryEvents = await service.retryEventsSnapshot()
 
         // Write output
         if let outputPath = saveTo {
@@ -126,7 +140,8 @@ struct NCBISubcommand: AsyncParsableCommand {
                     content: allContent,
                     outputURL: URL(fileURLWithPath: outputPath),
                     startedAt: startedAt,
-                    completedAt: Date()
+                    completedAt: Date(),
+                    retryEvents: retryEvents
                 )
                 if !globalOptions.quiet {
                     print(formatter.success("Saved to \(outputPath)"))
@@ -159,7 +174,9 @@ struct NCBISubcommand: AsyncParsableCommand {
         content: String,
         outputURL: URL,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        retryEvents: [NCBIRetryEvent] = []
     ) throws {
         let fm = FileManager.default
         let outputDirectoryURL = outputURL.deletingLastPathComponent()
@@ -195,7 +212,9 @@ struct NCBISubcommand: AsyncParsableCommand {
                 outputURL: outputURL,
                 outputRecord: finalOutputRecord,
                 startedAt: startedAt,
-                completedAt: completedAt
+                completedAt: completedAt,
+                environment: environment,
+                retryEvents: retryEvents
             ).write(to: tempProvenanceURL, options: .atomic)
 
             if fm.fileExists(atPath: outputURL.path) {
@@ -232,7 +251,9 @@ struct NCBISubcommand: AsyncParsableCommand {
     func writeNCBIFetchProvenance(
         outputURL: URL,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        retryEvents: [NCBIRetryEvent] = []
     ) throws {
         let outputRecord = ProvenanceRecorder.fileRecord(
             url: outputURL,
@@ -243,7 +264,9 @@ struct NCBISubcommand: AsyncParsableCommand {
             outputURL: outputURL,
             outputRecord: outputRecord,
             startedAt: startedAt,
-            completedAt: completedAt
+            completedAt: completedAt,
+            environment: environment,
+            retryEvents: retryEvents
         ).write(
             to: Self.provenanceSidecarURL(for: outputURL),
             options: .atomic
@@ -254,7 +277,9 @@ struct NCBISubcommand: AsyncParsableCommand {
         outputURL: URL,
         outputRecord: FileRecord,
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        environment: [String: String],
+        retryEvents: [NCBIRetryEvent]
     ) throws -> Data {
         let step = StepExecution(
             toolName: "ncbi-efetch",
@@ -282,7 +307,10 @@ struct NCBISubcommand: AsyncParsableCommand {
                 "fetchFormat": .string(fetchFormat),
                 "resolvedFetchFormat": .string(Self.resolvedFetchFormatName(for: fetchFormat)),
                 "saveTo": .string(outputURL.standardizedFileURL.path),
-                "apiKeyProvided": .boolean(apiKey != nil),
+                "apiKeyProvided": .boolean(Self.apiKeyProvided(explicitAPIKey: apiKey, environment: environment)),
+                "retryEnabled": .boolean(!noRetry),
+                "retryCount": .integer(retryEvents.count),
+                "retryEvents": .array(Self.retryEventParameterValues(retryEvents)),
                 "outputFormat": .string(globalOptions.outputFormat.rawValue),
                 "quiet": .boolean(globalOptions.quiet),
                 "endpoint": .string("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"),
@@ -306,10 +334,39 @@ struct NCBISubcommand: AsyncParsableCommand {
         if apiKey != nil {
             command += ["--api-key", "<redacted>"]
         }
+        if noRetry {
+            command.append("--no-retry")
+        }
         if globalOptions.quiet {
             command.append("--quiet")
         }
         return command
+    }
+
+    static func resolvedAPIKey(explicitAPIKey: String?, environment: [String: String]) -> String? {
+        if let explicitAPIKey, !explicitAPIKey.isEmpty {
+            return explicitAPIKey
+        }
+        guard let environmentAPIKey = environment["NCBI_API_KEY"],
+              !environmentAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return environmentAPIKey
+    }
+
+    static func apiKeyProvided(explicitAPIKey: String?, environment: [String: String]) -> Bool {
+        resolvedAPIKey(explicitAPIKey: explicitAPIKey, environment: environment) != nil
+    }
+
+    static func retryEventParameterValues(_ events: [NCBIRetryEvent]) -> [ParameterValue] {
+        events.map { event in
+            .dictionary([
+                "attempt": .integer(event.attempt),
+                "maxRetries": .integer(event.maxRetries),
+                "statusCode": .integer(event.statusCode),
+                "delaySeconds": .number(event.delaySeconds)
+            ])
+        }
     }
 
     private func ncbiInputRecords() -> [FileRecord] {

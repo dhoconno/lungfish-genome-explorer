@@ -652,8 +652,7 @@ public actor SRAService {
         homeDirectory: URL
     ) -> URL {
         ManagedStorageConfigStore(homeDirectory: homeDirectory)
-            .currentLocation()
-            .condaRootURL
+            .currentCondaRootURL()
             .appendingPathComponent("envs", isDirectory: true)
             .appendingPathComponent("sra-tools", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)

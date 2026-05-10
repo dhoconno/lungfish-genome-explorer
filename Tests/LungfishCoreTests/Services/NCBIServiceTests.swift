@@ -60,6 +60,20 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertTrue(url.contains("api_key=test-api-key"))
     }
 
+    func testESearchWithEnvironmentAPIKeyFallback() async throws {
+        let serviceWithEnvironmentKey = NCBIService(
+            httpClient: mockClient,
+            environment: ["NCBI_API_KEY": "environment-api-key"]
+        )
+        await mockClient.registerNCBISearch(ids: ["123"])
+
+        _ = try await serviceWithEnvironmentKey.esearch(database: .nucleotide, term: "test", retmax: 10)
+
+        let requests = await mockClient.requests
+        let url = requests[0].url!.absoluteString
+        XCTAssertTrue(url.contains("api_key=environment-api-key"))
+    }
+
     // MARK: - EFetch Tests
 
     func testEFetchFASTA() async throws {
@@ -202,6 +216,75 @@ final class NCBIServiceTests: XCTestCase {
     }
 
     // MARK: - Rate Limiting Tests
+
+    func testEFetchRetriesHTTP429WithExponentialBackoff() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let retryPolicy = NCBIRetryPolicy.rateLimitDefaults
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: retryPolicy,
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "efetch.fcgi",
+            responses: [
+                .error(statusCode: 429, message: "Too Many Requests"),
+                .error(statusCode: 429, message: "Too Many Requests"),
+                .text(">NC_002549.1\nACGT\n")
+            ]
+        )
+
+        let data = try await service.efetch(database: .nucleotide, ids: ["NC_002549.1"], format: .fasta)
+
+        XCTAssertEqual(String(data: data, encoding: .utf8), ">NC_002549.1\nACGT\n")
+        let recordedDelays = await retryDelays.values
+        XCTAssertEqual(recordedDelays, [5, 10])
+        let requests = await mockClient.requests
+        XCTAssertEqual(requests.count, 3)
+
+        let retryEvents = await service.retryEventsSnapshot()
+        XCTAssertEqual(retryEvents.count, 2)
+        XCTAssertEqual(retryEvents.map(\.attempt), [1, 2])
+        XCTAssertEqual(retryEvents.map(\.maxRetries), [5, 5])
+        XCTAssertEqual(retryEvents.map(\.statusCode), [429, 429])
+        XCTAssertEqual(retryEvents.map(\.delaySeconds), [5, 10])
+    }
+
+    func testEFetchDoesNotRetryHTTP429WhenRetryPolicyDisabled() async throws {
+        let retryDelays = RetryDelayRecorder()
+        let service = NCBIService(
+            httpClient: mockClient,
+            retryPolicy: .disabled,
+            retrySleeper: { delay in
+                await retryDelays.record(delay)
+            }
+        )
+        await mockClient.registerSequence(
+            pattern: "efetch.fcgi",
+            responses: [
+                .error(statusCode: 429, message: "Too Many Requests"),
+                .text(">NC_002549.1\nACGT\n")
+            ]
+        )
+
+        do {
+            _ = try await service.efetch(database: .nucleotide, ids: ["NC_002549.1"], format: .fasta)
+            XCTFail("Expected HTTP 429 to fail without retry")
+        } catch DatabaseServiceError.rateLimitExceeded {
+            // Expected.
+        } catch {
+            XCTFail("Expected rateLimitExceeded, got \(error)")
+        }
+
+        let recordedDelays = await retryDelays.values
+        let requests = await mockClient.requests
+        let retryEvents = await service.retryEventsSnapshot()
+        XCTAssertEqual(recordedDelays, [])
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(retryEvents, [])
+    }
 
     func testRateLimitingDelaysRequests() async throws {
         await mockClient.registerNCBISearch(ids: ["1"])
@@ -1395,5 +1478,17 @@ final class NCBIServiceTests: XCTestCase {
         XCTAssertEqual(result.totalCount, 1000)
         XCTAssertEqual(result.retmax, 50)
         XCTAssertEqual(result.retstart, 100)
+    }
+}
+
+private actor RetryDelayRecorder {
+    private var recordedValues: [TimeInterval] = []
+
+    var values: [TimeInterval] {
+        recordedValues
+    }
+
+    func record(_ delay: TimeInterval) {
+        recordedValues.append(delay)
     }
 }

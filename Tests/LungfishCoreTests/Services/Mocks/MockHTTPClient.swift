@@ -14,6 +14,9 @@ public actor MockHTTPClient: HTTPClient {
     /// Responses to return for specific URL patterns
     private var responses: [(pattern: String, response: MockResponse)] = []
 
+    /// Ordered responses to return for specific URL patterns.
+    private var sequencedResponses: [(pattern: String, responses: [MockResponse])] = []
+
     /// Default response when no pattern matches
     private var defaultResponse: MockResponse?
 
@@ -49,6 +52,11 @@ public actor MockHTTPClient: HTTPClient {
         responses.append((pattern, response))
     }
 
+    /// Registers ordered responses for a URL pattern.
+    public func registerSequence(pattern: String, responses: [MockResponse]) {
+        sequencedResponses.append((pattern, responses))
+    }
+
     /// Sets the default response.
     public func setDefault(response: MockResponse) {
         defaultResponse = response
@@ -62,6 +70,7 @@ public actor MockHTTPClient: HTTPClient {
     /// Clears all registered responses.
     public func clearResponses() {
         responses.removeAll()
+        sequencedResponses.removeAll()
         defaultResponse = nil
     }
 
@@ -69,6 +78,14 @@ public actor MockHTTPClient: HTTPClient {
         requests.append(request)
 
         let urlString = request.url?.absoluteString ?? ""
+
+        for index in sequencedResponses.indices {
+            if urlString.contains(sequencedResponses[index].pattern),
+               !sequencedResponses[index].responses.isEmpty {
+                let response = sequencedResponses[index].responses.removeFirst()
+                return makeResponse(response, for: request)
+            }
+        }
 
         // Find matching response
         for (pattern, response) in responses {

@@ -10,6 +10,58 @@ import os.log
 /// Logger for NCBI service operations
 private let logger = Logger(subsystem: LogSubsystem.core, category: "NCBIService")
 
+public struct NCBIRetryPolicy: Sendable, Equatable {
+    public let enabled: Bool
+    public let maxRetries: Int
+    public let initialBackoffSeconds: TimeInterval
+    public let maxBackoffSeconds: TimeInterval
+
+    public init(
+        enabled: Bool,
+        maxRetries: Int,
+        initialBackoffSeconds: TimeInterval,
+        maxBackoffSeconds: TimeInterval
+    ) {
+        self.enabled = enabled
+        self.maxRetries = maxRetries
+        self.initialBackoffSeconds = initialBackoffSeconds
+        self.maxBackoffSeconds = maxBackoffSeconds
+    }
+
+    public static let rateLimitDefaults = NCBIRetryPolicy(
+        enabled: true,
+        maxRetries: 5,
+        initialBackoffSeconds: 5,
+        maxBackoffSeconds: 300
+    )
+
+    public static let disabled = NCBIRetryPolicy(
+        enabled: false,
+        maxRetries: 0,
+        initialBackoffSeconds: 0,
+        maxBackoffSeconds: 0
+    )
+}
+
+public struct NCBIRetryEvent: Sendable, Codable, Equatable {
+    public let attempt: Int
+    public let maxRetries: Int
+    public let statusCode: Int
+    public let delaySeconds: TimeInterval
+
+    public init(
+        attempt: Int,
+        maxRetries: Int,
+        statusCode: Int,
+        delaySeconds: TimeInterval
+    ) {
+        self.attempt = attempt
+        self.maxRetries = maxRetries
+        self.statusCode = statusCode
+        self.delaySeconds = delaySeconds
+    }
+}
+
 // MARK: - NCBI Service
 
 /// Service for accessing NCBI databases via Entrez E-utilities.
@@ -48,6 +100,9 @@ public actor NCBIService: DatabaseService {
 
     private let httpClient: HTTPClient
     private let apiKey: String?
+    private let retryPolicy: NCBIRetryPolicy
+    private let retrySleeper: @Sendable (TimeInterval) async throws -> Void
+    private var retryEvents: [NCBIRetryEvent] = []
     private var lastRequestTime: Date?
     private let minRequestInterval: TimeInterval
 
@@ -58,11 +113,45 @@ public actor NCBIService: DatabaseService {
     /// - Parameters:
     ///   - apiKey: Optional NCBI API key for higher rate limits
     ///   - httpClient: HTTP client for making requests (defaults to URLSession)
-    public init(apiKey: String? = nil, httpClient: HTTPClient = URLSessionHTTPClient()) {
-        self.apiKey = apiKey
+    public init(
+        apiKey: String? = nil,
+        httpClient: HTTPClient = URLSessionHTTPClient(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        retryPolicy: NCBIRetryPolicy = .rateLimitDefaults,
+        retrySleeper: @escaping @Sendable (TimeInterval) async throws -> Void = { delay in
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+    ) {
+        let resolvedAPIKey = Self.resolvedAPIKey(apiKey: apiKey, environment: environment)
+        self.apiKey = resolvedAPIKey
         self.httpClient = httpClient
+        self.retryPolicy = retryPolicy
+        self.retrySleeper = retrySleeper
         // 3 requests/second without key, 10/second with key
-        self.minRequestInterval = apiKey != nil ? 0.1 : 0.34
+        self.minRequestInterval = resolvedAPIKey != nil ? 0.1 : 0.34
+    }
+
+    public func retryEventsSnapshot() -> [NCBIRetryEvent] {
+        retryEvents
+    }
+
+    public func resetRetryEvents() {
+        retryEvents.removeAll()
+    }
+
+    private nonisolated static func resolvedAPIKey(
+        apiKey: String?,
+        environment: [String: String]
+    ) -> String? {
+        if let apiKey, !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return apiKey
+        }
+        guard let environmentAPIKey = environment["NCBI_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !environmentAPIKey.isEmpty else {
+            return nil
+        }
+        return environmentAPIKey
     }
 
     // MARK: - DatabaseService Protocol
@@ -1134,7 +1223,45 @@ public actor NCBIService: DatabaseService {
     // MARK: - Private Methods
 
     private func makeRequest(url: URL) async throws -> Data {
-        // Rate limiting
+        var retryAttempt = 0
+
+        while true {
+            let (data, statusCode) = try await performRequest(url: url)
+
+            switch statusCode {
+            case 200...299:
+                return data
+            case 400:
+                throw DatabaseServiceError.invalidQuery(reason: "Bad request")
+            case 404:
+                throw DatabaseServiceError.notFound(accession: url.absoluteString)
+            case 429:
+                if retryPolicy.enabled, retryAttempt < retryPolicy.maxRetries {
+                    retryAttempt += 1
+                    let delay = retryDelaySeconds(forAttempt: retryAttempt)
+                    let event = NCBIRetryEvent(
+                        attempt: retryAttempt,
+                        maxRetries: retryPolicy.maxRetries,
+                        statusCode: statusCode,
+                        delaySeconds: delay
+                    )
+                    retryEvents.append(event)
+                    logger.warning(
+                        "NCBI rate limit response HTTP 429; retrying attempt \(retryAttempt, privacy: .public)/\(self.retryPolicy.maxRetries, privacy: .public) after \(delay, privacy: .public)s"
+                    )
+                    try await retrySleeper(delay)
+                    continue
+                }
+                throw DatabaseServiceError.rateLimitExceeded
+            case 500...599:
+                throw DatabaseServiceError.serverError(message: "HTTP \(statusCode)")
+            default:
+                throw DatabaseServiceError.invalidResponse(statusCode: statusCode)
+            }
+        }
+    }
+
+    private func performRequest(url: URL) async throws -> (data: Data, statusCode: Int) {
         if let lastTime = lastRequestTime {
             let elapsed = Date().timeIntervalSince(lastTime)
             if elapsed < minRequestInterval {
@@ -1153,20 +1280,12 @@ public actor NCBIService: DatabaseService {
             throw DatabaseServiceError.networkError(underlying: "Invalid response type")
         }
 
-        switch httpResponse.statusCode {
-        case 200...299:
-            return data
-        case 400:
-            throw DatabaseServiceError.invalidQuery(reason: "Bad request")
-        case 404:
-            throw DatabaseServiceError.notFound(accession: url.absoluteString)
-        case 429:
-            throw DatabaseServiceError.rateLimitExceeded
-        case 500...599:
-            throw DatabaseServiceError.serverError(message: "HTTP \(httpResponse.statusCode)")
-        default:
-            throw DatabaseServiceError.invalidResponse(statusCode: httpResponse.statusCode)
-        }
+        return (data, httpResponse.statusCode)
+    }
+
+    private func retryDelaySeconds(forAttempt attempt: Int) -> TimeInterval {
+        let multiplier = pow(2.0, Double(max(0, attempt - 1)))
+        return min(retryPolicy.initialBackoffSeconds * multiplier, retryPolicy.maxBackoffSeconds)
     }
 
     /// Converts an FTP path to an HTTP(S) path.
