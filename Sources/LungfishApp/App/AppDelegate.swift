@@ -5417,6 +5417,36 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         window.beginSheet(wizardPanel)
     }
 
+    @objc func launchCzIdImport(_ sender: Any?) {
+        guard let window = mainWindowController?.window else {
+            debugLog("launchCzIdImport: No main window available")
+            return
+        }
+        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
+              let projectURL = sidebarController.currentProjectURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing CZ-ID results.")
+            return
+        }
+
+        let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        wizardPanel.title = "CZ-ID Import"
+        wizardPanel.isReleasedWhenClosed = false
+
+        var sheet = CzIdImportSheet(projectURL: projectURL, datasetURL: nil)
+        sheet.onImport = { [weak self] sourceURL in
+            window.endSheet(wizardPanel)
+            self?.importCzIdResultFromURL(sourceURL)
+        }
+        sheet.onCancel = {
+            window.endSheet(wizardPanel)
+        }
+
+        let hostingController = NSHostingController(rootView: sheet)
+        wizardPanel.contentViewController = hostingController
+        wizardPanel.setContentSize(NSSize(width: 520, height: 460))
+        window.beginSheet(wizardPanel)
+    }
+
     func importNvdResultFromURL(_ url: URL) {
         guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
               let projectURL = sidebarController.currentProjectURL else {
@@ -5961,6 +5991,91 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }}
             }
         }
+    }
+
+    func importCzIdResultFromURL(_ url: URL) {
+        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
+              let projectURL = sidebarController.currentProjectURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing CZ-ID results.")
+            return
+        }
+
+        let outputDir: URL
+        do {
+            outputDir = try AnalysesFolder.createAnalysisDirectory(tool: "cz-id", in: projectURL)
+        } catch {
+            showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)")
+            return
+        }
+
+        let cliCmd = OperationCenter.buildCLICommand(
+            subcommand: "cz-id",
+            args: ["import", url.path, "--output-dir", outputDir.path]
+        )
+        let opID = OperationCenter.shared.start(
+            title: "CZ-ID Import",
+            detail: "Scanning \(url.lastPathComponent)...",
+            cliCommand: cliCmd
+        )
+
+        let task = Task.detached { [weak self] in
+            do {
+                try Task.checkCancellation()
+                let command = ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDir.path]
+                let conversion = try await CzIdImportPreview.withResolvedReport(from: url) { resolved in
+                    let reportName = resolved.reportURL.lastPathComponent
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            OperationCenter.shared.update(
+                                id: opID,
+                                progress: 0.35,
+                                detail: "Converting \(reportName)..."
+                            )
+                        }
+                    }
+                    return try CzIdDataConverter.convertTaxonReport(
+                        at: resolved.reportURL,
+                        outputDirectory: outputDir,
+                        command: command,
+                        sourceInputURL: url
+                    )
+                }
+
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "Imported \(conversion.manifest?.sampleName ?? url.lastPathComponent)",
+                            bundleURLs: [outputDir]
+                        )
+                        OperationCenter.shared.log(
+                            id: opID,
+                            level: .info,
+                            message: "Imported CZ-ID result at \(outputDir.lastPathComponent)"
+                        )
+                        self?.refreshSidebarAndSelectImportedURL(outputDir)
+                    }
+                }
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: outputDir)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(id: opID, detail: "Cancelled")
+                    }
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: outputDir)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        let detail = error.localizedDescription
+                        OperationCenter.shared.fail(id: opID, detail: detail)
+                        self?.showAlert(title: "CZ-ID Import Failed", message: detail)
+                    }
+                }
+            }
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     private func runManagedMapping(request: MappingRunRequest) {

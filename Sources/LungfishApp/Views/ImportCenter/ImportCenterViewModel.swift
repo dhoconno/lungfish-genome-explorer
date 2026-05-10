@@ -112,6 +112,7 @@ struct ImportCardInfo: Identifiable, Sendable {
         case esViritu
         case taxTriage
         case nvd
+        case czId
         case primerScheme
     }
 
@@ -452,6 +453,16 @@ final class ImportCenterViewModel {
             tab: .classificationResults,
             importKind: .wizardSheet(action: .nvd)
         ),
+        ImportCardInfo(
+            id: "cz-id",
+            title: "CZ-ID Results",
+            description: "Import hosted CZ-ID taxon report exports as an imported taxonomy result. Accepts a report TSV, ZIP archive, or extracted folder.",
+            sfSymbol: "c.circle",
+            customImage: TextBadgeIcon.image(text: "CZ", size: NSSize(width: 28, height: 28)),
+            fileHint: "taxon report TSV, .zip, or extracted folder",
+            tab: .classificationResults,
+            importKind: .wizardSheet(action: .czId)
+        ),
 
         // References
         ImportCardInfo(
@@ -636,6 +647,7 @@ final class ImportCenterViewModel {
         case .taxTriage: return "Select TaxTriage result files or directory"
         case .naoMgs:   return "Select NAO-MGS results"
         case .nvd:      return "Select NVD results directory"
+        case .czId:     return "Select CZ-ID report, ZIP archive, or extracted folder"
         case .primerScheme: return "Primer scheme import runs via the wizard sheet"
         }
     }
@@ -720,6 +732,8 @@ final class ImportCenterViewModel {
             break // Handled by wizard sheet path
         case .nvd:
             break // Handled by wizard sheet path
+        case .czId:
+            break // Handled by wizard sheet path
         case .primerScheme:
             break // Handled by wizard sheet path
         }
@@ -746,6 +760,8 @@ final class ImportCenterViewModel {
             appDelegate.importProjectSampleMetadata(nil)
         case .nvd:
             appDelegate.launchNvdImport(nil)
+        case .czId:
+            appDelegate.launchCzIdImport(nil)
         case .primerScheme:
             appDelegate.launchPrimerSchemeImport(nil)
         case .kraken2:
@@ -805,6 +821,7 @@ final class ImportCenterViewModel {
         case .esViritu: return "EsViritu"
         case .taxTriage: return "TaxTriage"
         case .nvd:      return "NVD"
+        case .czId:     return "CZ-ID"
         case .primerScheme: return "Primer Scheme"
         }
     }

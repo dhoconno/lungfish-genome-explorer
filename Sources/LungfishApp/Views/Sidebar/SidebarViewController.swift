@@ -1405,6 +1405,12 @@ public class SidebarViewController: NSViewController {
             if fm.fileExists(atPath: sidecar.path) { return true }
         }
 
+        // CZ-ID imported result bundles
+        if name.hasPrefix("cz-id-") {
+            let sidecar = url.appendingPathComponent("cz-id-manifest.json")
+            if fm.fileExists(atPath: sidecar.path) { return true }
+        }
+
         // Authoritative metadata sidecar: analysis-metadata.json is written at
         // directory creation time and survives renames.
         if fm.fileExists(atPath: url.appendingPathComponent(AnalysesFolder.metadataFilename).path) {
@@ -1581,6 +1587,8 @@ public class SidebarViewController: NSViewController {
             item.subtitle = esvirituResultTitle(for: info.url)
         } else if info.tool == "kraken2" {
             item.subtitle = classificationResultTitle(for: info.url)
+        } else if info.tool == "cz-id" {
+            item.subtitle = czIdResultTitle(for: info.url)
         }
         return item
     }
@@ -1639,6 +1647,7 @@ public class SidebarViewController: NSViewController {
         case "taxtriage": return "TT"
         case "naomgs": return "NM"
         case "nvd": return "NVD"
+        case "cz-id": return "CZ"
         default: return nil
         }
     }
@@ -1692,6 +1701,14 @@ public class SidebarViewController: NSViewController {
                 if let manifest = try? decoder.decode(NvdManifest.self, from: data) {
                     return "\(manifest.sampleCount) samples · \(timestamp)"
                 }
+            }
+            return timestamp
+
+        case "cz-id":
+            let manifestURL = info.url.appendingPathComponent("cz-id-manifest.json")
+            if let data = try? Data(contentsOf: manifestURL),
+               let manifest = try? JSONDecoder().decode(CzIdImportManifest.self, from: data) {
+                return "\(manifest.rowCount) taxa · \(timestamp)"
             }
             return timestamp
 
@@ -1767,6 +1784,7 @@ public class SidebarViewController: NSViewController {
         case "spades", "megahit", "skesa", "flye", "hifiasm": return "s.circle"
         case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle"
         case "naomgs": return "n.circle"
+        case "cz-id": return "c.circle"
         default: return "circle"
         }
     }
@@ -1789,6 +1807,7 @@ public class SidebarViewController: NSViewController {
         case "mafft": return .multipleSequenceAlignmentBundle
         case "naomgs": return .naoMgsResult
         case "nvd": return .nvdResult
+        case "cz-id": return .czIdResult
         default: return .analysisResult
         }
     }
@@ -1821,6 +1840,16 @@ public class SidebarViewController: NSViewController {
             return "Viral Detection (\(virusCount) viruses)"
         }
         return "Viral Detection"
+    }
+
+    /// Derives a human-readable title for a CZ-ID imported result directory.
+    private func czIdResultTitle(for directory: URL) -> String {
+        let manifestURL = directory.appendingPathComponent("cz-id-manifest.json")
+        if let data = try? Data(contentsOf: manifestURL),
+           let manifest = try? JSONDecoder().decode(CzIdImportManifest.self, from: data) {
+            return "CZ-ID · \(manifest.sampleName)"
+        }
+        return "CZ-ID"
     }
 
     /// Collects NAO-MGS result bundles from inside a directory.
@@ -3301,6 +3330,7 @@ public enum SidebarItemType {
     case taxTriageResult       // TaxTriage comprehensive triage result folder
     case naoMgsResult          // NAO-MGS surveillance result bundle
     case nvdResult             // NVD (Novel Virus Diagnostics) result bundle
+    case czIdResult            // CZ-ID imported taxonomy result bundle
     case analysisResult        // Analysis result in Analyses/ folder
 
     var tintColor: NSColor {
@@ -3326,6 +3356,7 @@ public enum SidebarItemType {
         case .taxTriageResult: return .lungfishOrange
         case .naoMgsResult: return .lungfishOrange
         case .nvdResult: return .lungfishOrange
+        case .czIdResult: return .lungfishOrange
         case .analysisResult: return .lungfishOrange
         }
     }

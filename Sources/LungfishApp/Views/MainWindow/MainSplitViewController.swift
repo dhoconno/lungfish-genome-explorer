@@ -2678,6 +2678,12 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        // CZ-ID imported taxonomy result bundles
+        if item.type == .czIdResult, let url = item.url {
+            displayCzIdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         // Generic analysis results in Analyses/ folder — try to detect tool type
         // from directory name and dispatch to the appropriate viewer.
         // Classifier results route through the ClassifierDatabaseRouter; non-classifier
@@ -2696,6 +2702,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             } else if toolId.hasPrefix("nvd") {
                 displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            } else if toolId.hasPrefix("cz-id") {
+                displayCzIdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             } else if toolId.hasPrefix("spades")
                 || toolId.hasPrefix("megahit")
                 || toolId.hasPrefix("skesa")
@@ -3788,6 +3796,54 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         logger.error("displayNvdResult: Failed - \(error.localizedDescription, privacy: .public)")
                         let alert = NSAlert()
                         alert.messageText = "Failed to Load NVD Result"
+                        alert.informativeText = error.localizedDescription
+                        alert.alertStyle = .warning
+                        alert.addButton(withTitle: "OK")
+                        if let window = self.view.window ?? NSApp.keyWindow {
+                            alert.beginSheetModal(for: window)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func displayCzIdResultFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        logger.info("displayCzIdResult: Opening '\(url.lastPathComponent, privacy: .public)'")
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "czIdResult")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+
+        let bundleURL = url
+        Task {
+            do {
+                let manifestURL = bundleURL.appendingPathComponent("cz-id-manifest.json")
+                let manifestData = try Data(contentsOf: manifestURL)
+                let manifest = try JSONDecoder().decode(CzIdImportManifest.self, from: manifestData)
+                let result = try ClassificationResult.load(from: bundleURL)
+
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        let controller = CzIdResultViewController()
+                        controller.configure(result: result, manifest: manifest, bundleURL: bundleURL)
+                        self.viewerController.displayCzIdResult(controller)
+                        self.inspectorController?.clearBatchOperationDetails()
+                        logger.info("displayCzIdResult: Configured with \(manifest.rowCount, privacy: .public) taxa")
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async { [weak self] in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        guard self.canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+                        logger.error("displayCzIdResult: Failed - \(error.localizedDescription, privacy: .public)")
+                        let alert = NSAlert()
+                        alert.messageText = "Failed to Load CZ-ID Result"
                         alert.informativeText = error.localizedDescription
                         alert.alertStyle = .warning
                         alert.addButton(withTitle: "OK")

@@ -80,7 +80,8 @@ public enum CzIdDataConverter {
     public static func convertTaxonReport(
         at url: URL,
         outputDirectory: URL,
-        command: [String]? = nil
+        command: [String]? = nil,
+        sourceInputURL: URL? = nil
     ) throws -> CzIdConversion {
         let startedAt = Date()
         let parsed = try parseTaxonReport(at: url)
@@ -92,6 +93,7 @@ public enum CzIdDataConverter {
 
         let outputURL = outputDirectory.appendingPathComponent("classification.czid.tsv")
         try FileManager.default.copyItemReplacingExistingItem(at: url, to: outputURL)
+        let recordedSourceFiles = sourceInputURL == nil ? [url] : [outputURL]
 
         let manifest = CzIdImportManifest(
             schemaVersion: schemaVersion,
@@ -100,7 +102,7 @@ public enum CzIdDataConverter {
             pipelineVersion: parsed.metadata.pipelineVersion,
             ntDatabaseVersion: parsed.metadata.ntDatabaseVersion,
             nrDatabaseVersion: parsed.metadata.nrDatabaseVersion,
-            sourceFiles: [url],
+            sourceFiles: recordedSourceFiles,
             rowCount: parsed.rows.count
         )
         let manifestURL = outputDirectory.appendingPathComponent("cz-id-manifest.json")
@@ -111,12 +113,12 @@ public enum CzIdDataConverter {
         let tree = try KreportParser.parse(url: reportURL)
         let result = ClassificationResult(
             config: ClassificationConfig(
-                inputFiles: [url],
+                inputFiles: sourceInputURL == nil ? [url] : [outputURL],
                 isPairedEnd: false,
                 databaseName: "CZ-ID",
                 inputFormat: .fastq,
                 databaseVersion: parsed.metadata.databaseVersionString,
-                databasePath: url.deletingLastPathComponent(),
+                databasePath: sourceInputURL == nil ? url.deletingLastPathComponent() : outputDirectory,
                 outputDirectory: outputDirectory
             ),
             tree: tree,
@@ -131,6 +133,7 @@ public enum CzIdDataConverter {
 
         try writeProvenance(
             input: url,
+            sourceInput: sourceInputURL,
             outputs: [reportURL, outputURL, manifestURL, outputDirectory.appendingPathComponent("classification-result.json")],
             outputDirectory: outputDirectory,
             command: command ?? ["lungfish", "cz-id", "import", url.path, "--output-dir", outputDirectory.path],
@@ -226,19 +229,22 @@ public enum CzIdDataConverter {
 
     private static func writeProvenance(
         input: URL,
+        sourceInput: URL?,
         outputs: [URL],
         outputDirectory: URL,
         command: [String],
         toolVersion: String,
         startedAt: Date
     ) throws {
-        let inputRecord = FileRecord(
-            path: input.path,
-            sha256: ProvenanceRecorder.sha256(of: input),
-            sizeBytes: fileSize(input),
-            format: .text,
-            role: .input
-        )
+        var inputRecords: [FileRecord] = []
+        if let sourceInput {
+            inputRecords.append(fileRecord(for: sourceInput, role: .input))
+            if sourceInput.standardizedFileURL != input.standardizedFileURL {
+                inputRecords.append(fileRecord(for: input, role: .input))
+            }
+        } else {
+            inputRecords.append(fileRecord(for: input, role: .input))
+        }
         let outputRecords = outputs.map {
             FileRecord(
                 path: $0.path,
@@ -253,7 +259,7 @@ public enum CzIdDataConverter {
             toolName: "lungfish cz-id import",
             toolVersion: toolVersion,
             command: command,
-            inputs: [inputRecord],
+            inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,
             wallTime: endedAt.timeIntervalSince(startedAt),
@@ -279,6 +285,26 @@ public enum CzIdDataConverter {
 
     private static func fileSize(_ url: URL) -> UInt64? {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size]) as? UInt64
+    }
+
+    private static func fileRecord(for url: URL, role: FileRole) -> FileRecord {
+        let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        return FileRecord(
+            path: url.path,
+            sha256: isDirectory ? nil : ProvenanceRecorder.sha256(of: url),
+            sizeBytes: isDirectory ? nil : fileSize(url),
+            format: fileFormat(for: url),
+            role: role
+        )
+    }
+
+    private static func fileFormat(for url: URL) -> FileFormat {
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "json": return .json
+        case "tsv", "txt", "csv", "kreport": return .text
+        default: return .unknown
+        }
     }
 }
 
