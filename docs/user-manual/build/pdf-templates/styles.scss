@@ -1,0 +1,163 @@
+// Lungfish User Manual -- PDF stylesheet
+// Applied by mkdocs-with-pdf via custom_template_path
+
+// Brand tokens
+$lf-creamsicle: #EE8B4F;
+$lf-peach: #F6B088;
+$lf-deep-ink: #1F1A17;
+$lf-cream: #FAF4EA;
+$lf-warm-grey: #8A847A;
+
+// Page setup
+@page {
+  size: letter portrait;
+  margin: 20mm 18mm 22mm 18mm;
+
+  @top-right {
+    font-family: "Inter", sans-serif;
+    font-size: 7pt;
+    color: $lf-warm-grey;
+    content: string(chapter);
+  }
+
+  @bottom-center {
+    font-family: "Inter", sans-serif;
+    font-size: 8pt;
+    color: $lf-warm-grey;
+    content: "- " counter(page) " / " counter(pages) " -";
+  }
+
+  @bottom-right {
+    font-family: "Inter", sans-serif;
+    font-size: 6pt;
+    color: $lf-warm-grey;
+    content: string(copyright);
+  }
+}
+
+@page :first {
+  @top-right { content: ""; }
+  @bottom-center { content: ""; }
+  @bottom-right { content: ""; }
+}
+
+// Typography
+html, body {
+  font-family: "Inter", sans-serif;
+  color: $lf-deep-ink;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Space Grotesk", sans-serif;
+  color: $lf-deep-ink;
+}
+
+article h1 {
+  font-weight: 700;
+  border-bottom: 3px solid $lf-creamsicle !important;
+  padding-bottom: 0.3em;
+}
+
+article h2 {
+  font-weight: 500;
+  border-bottom: 1.5px solid $lf-peach !important;
+  padding-bottom: 0.2em;
+}
+
+article h3 {
+  font-weight: 500;
+  border-bottom: 0.5px solid lighten($lf-warm-grey, 30%) !important;
+}
+
+code, pre, pre code {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+pre {
+  background-color: #F2EADA;
+  border-left: 3px solid $lf-creamsicle;
+  padding: 0.8em;
+}
+
+code {
+  background-color: #F2EADA;
+  color: $lf-deep-ink;
+  padding: 0.1em 0.3em;
+}
+
+// Links
+a {
+  color: $lf-creamsicle;
+  text-decoration: none;
+}
+
+// Tables
+table th {
+  background-color: $lf-deep-ink !important;
+  color: $lf-cream !important;
+}
+
+table tr:nth-child(even) {
+  background-color: rgba(212, 123, 58, 0.06);
+}
+
+// Admonitions
+.admonition {
+  border-left: 4px solid $lf-creamsicle;
+  background-color: lighten($lf-peach, 15%);
+  color: $lf-deep-ink;
+  padding: 0.8em;
+  margin: 1em 0;
+}
+
+.admonition-title {
+  font-weight: 600;
+  color: $lf-deep-ink;
+}
+
+// Images -- constrain to prevent WeasyPrint rendering failures
+img {
+  max-width: 100% !important;
+  height: auto !important;
+  max-height: 650px;
+  object-fit: contain;
+}
+
+figure, p > img {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+// TOC styling
+#doc-toc {
+  a {
+    color: $lf-deep-ink;
+    text-decoration: none;
+  }
+
+  li {
+    border-bottom-color: $lf-peach;
+  }
+}
+
+// Cover page
+#doc-cover {
+  background-color: $lf-deep-ink;
+  color: $lf-cream;
+
+  h1 {
+    color: $lf-cream;
+    font-size: 36pt;
+    border-bottom: 4px solid $lf-creamsicle !important;
+  }
+
+  h2 {
+    color: $lf-peach;
+    font-size: 16pt;
+    border-bottom: none !important;
+  }
+
+  .properties address p {
+    color: $lf-warm-grey;
+  }
+}

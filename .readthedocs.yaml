@@ -9,6 +9,13 @@ build:
     - libgdk-pixbuf2.0-dev
     - libffi-dev
     - shared-mime-info
+    - imagemagick
+    - fonts-inter
   commands:
     - pip install -r docs/requirements.txt
+    - mkdir -p ~/.local/share/fonts
+    - curl -sL "https://fonts.google.com/download?family=Space+Grotesk" -o /tmp/sg.zip && unzip -qo /tmp/sg.zip -d ~/.local/share/fonts/
+    - curl -sL "https://fonts.google.com/download?family=IBM+Plex+Mono" -o /tmp/ipm.zip && unzip -qo /tmp/ipm.zip -d ~/.local/share/fonts/
+    - fc-cache -f ~/.local/share/fonts/
+    - find docs/user-manual/assets -name '*.png' -exec identify -format '%w %h %i\n' {} \; | awk '$1 > 1200' | while read w h f; do convert "$f" -resize 1200x "$f"; done || true
     - ENABLE_PDF_EXPORT=1 mkdocs build -f docs/user-manual/build/mkdocs.yml -d $READTHEDOCS_OUTPUT/html
