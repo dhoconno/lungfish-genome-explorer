@@ -39,7 +39,7 @@ The first fix to try for any missing-tool error is to re-run the install command
 lungfish conda install --pack read-mapping variant-calling
 ```
 
-If the install still fails, check three things in order. Confirm `~/.lungfish/conda/` exists and is writable (`ls -ld ~/.lungfish/conda`). Confirm there is at least 5 GB of free space on the drive holding the home directory (`df -h ~`). Confirm bioconda is reachable from the network (`curl -I https://conda.anaconda.org`). A firewall or proxy that blocks bioconda will hang the solver indefinitely; on a corporate or institutional network, ask the network team about an HTTPS proxy and set `HTTPS_PROXY` in the shell that runs Lungfish.
+If the install still fails, check three things in order. Confirm `~/.lungfish/conda/` exists and is writable (`ls -ld ~/.lungfish/conda`). If your lab uses shared tool storage, set `LUNGFISH_CONDA_ROOT=/path/to/shared/conda` in the shell that runs Lungfish and confirm that directory is readable and writable for installs. Confirm there is at least 5 GB of free space on the drive holding the conda root (`df -h ~/.lungfish/conda`, or `df -h "$LUNGFISH_CONDA_ROOT"` when overridden). Confirm bioconda is reachable from the network (`curl -I https://conda.anaconda.org`). A firewall or proxy that blocks bioconda will hang the solver indefinitely; on a corporate or institutional network, ask the network team about an HTTPS proxy and set `HTTPS_PROXY` in the shell that runs Lungfish.
 
 If a classifier asks for a database that the Plugin Manager does not list, the database pack is separate from the tool pack. EsViritu, TaxTriage, and Kraken2 each have their own database pack, installed the same way: `lungfish conda install --pack <database-name>`.
 
@@ -55,7 +55,7 @@ Downloads from NCBI and SRA depend on shared infrastructure that has rate limits
 | Download is slow (under 1 MB/s) | SRA Toolkit fallback path is used; ENA is faster when available |
 | Network errors in the middle of a long download | Transient connectivity issue; retry usually works |
 
-For NCBI rate limits, wait a few minutes and retry. NCBI imposes per-IP request rate limits that ease automatically. To run many fetches in succession, register for an NCBI API key (free, takes 30 seconds) and configure it in `Settings > General > NCBI API key`; rate limits are higher for authenticated requests.
+For NCBI rate limits, Lungfish retries HTTP 429 responses automatically up to five times, starting with a 5-second wait and doubling to a 5-minute cap. To run many fetches in succession, register for an NCBI API key (free, takes 30 seconds) and set `NCBI_API_KEY` in the shell that runs Lungfish; rate limits are higher for authenticated requests. Use `lungfish fetch ncbi --no-retry ...` only for scripts that intentionally fail fast. Provenance sidecars record retry count and backoff timing, and only record whether an API key was provided.
 
 For SRA downloads, the Operations Panel records which path served each download. If ENA refused and the SRA Toolkit ran, the operation row's provenance disclosure shows `Falling back to SRA Toolkit (prefetch + fasterq-dump)`. The toolkit fallback is slower (it streams `.sra` and converts on the fly) but produces equivalent FASTQs. If both paths fail, retry after a few hours; both archives have transient outages.
 

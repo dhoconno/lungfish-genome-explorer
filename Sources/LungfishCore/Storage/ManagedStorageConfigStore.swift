@@ -79,6 +79,17 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         }
     }
 
+    public func currentCondaRootURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        if let override = environment["LUNGFISH_CONDA_ROOT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+        }
+        return currentLocation().condaRootURL
+    }
+
     public func resetToDefaultLocation() throws {
         try removeBootstrapConfigIfPresent()
         UserDefaults.standard.removeObject(forKey: Self.legacyDatabaseStorageLocationKey)

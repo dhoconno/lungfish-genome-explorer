@@ -111,7 +111,23 @@ lungfish fetch ncbi MN908947.3 \
   --save-to ./Downloads/MN908947.3.gff3
 ```
 
-Each invocation writes its own provenance sidecar next to the output file, recording the resolved endpoint, the accession, the output checksum, the file size, and the exact command line.
+Each invocation writes its own provenance sidecar next to the output file, recording the resolved endpoint, the accession, the output checksum, the file size, retry count and backoff timings, whether an API key was provided, and the exact command line. The sidecar records only `apiKeyProvided: true` or `false`; it never writes the key itself.
+
+If you batch many NCBI fetches, set `NCBI_API_KEY` in the shell that runs Lungfish to use NCBI's higher authenticated rate limit:
+
+```sh
+export NCBI_API_KEY=your_ncbi_key
+lungfish fetch ncbi MN908947.3 --fetch-format fasta --save-to ./Downloads/MN908947.3.fasta
+```
+
+HTTP 429 rate-limit responses are retried automatically up to five times with exponential backoff, starting at 5 seconds and capping at 5 minutes. Scripts that prefer fail-fast behavior can opt out:
+
+```sh
+lungfish fetch ncbi MN908947.3 \
+  --fetch-format fasta \
+  --save-to ./Downloads/MN908947.3.fasta \
+  --no-retry
+```
 
 ## Interpretation: what the provenance sidecar tells you
 
@@ -132,7 +148,7 @@ For raw sequencing reads (FASTQs from the SRA), use the SRA chapter ([R02, Impor
 A few failure modes account for almost every problem with NCBI fetches.
 
 - **Accession not found.** NCBI returned an empty record for the accession you typed. Double-check the version suffix (the `.3` in `MN908947.3`) and confirm the record exists by pasting the accession into a browser at `https://www.ncbi.nlm.nih.gov/nuccore/`. If the record is an assembly accession (starts with `GCF_` or `GCA_`), use `lungfish fetch genome` instead.
-- **Rate limit (HTTP 429).** NCBI's eutils endpoint throttles unauthenticated traffic to roughly three requests per second. If you scripted a batch of fetches and several rows in the Operations Panel turn yellow with a 429, wait a minute and re-run; Lungfish does not currently auto-retry rate-limited fetches.
+- **Rate limit (HTTP 429).** NCBI's eutils endpoint throttles unauthenticated traffic to roughly three requests per second. Lungfish retries 429 responses automatically up to five times with exponential backoff. If a scripted workflow should fail immediately instead, add `--no-retry`. For sustained batches, set `NCBI_API_KEY` in the shell before running Lungfish.
 - **Network failure.** A red row with a connection-reset or DNS error usually means a transient outage. Retry the same fetch; if the second attempt also fails, check whether your machine can reach `https://eutils.ncbi.nlm.nih.gov/` at all before assuming a Lungfish bug.
 - **Wrong format returned.** If you asked for GFF3 and got an XML error document, the upstream record probably does not have annotations in GFF3 form. Fall back to GenBank, which is annotated for almost every record but cannot be auto-attached to a bundle.
 

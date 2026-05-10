@@ -606,8 +606,7 @@ extension ProcessManager {
         }
 
         let condaEnvsDir = ManagedStorageConfigStore()
-            .currentLocation()
-            .condaRootURL
+            .currentCondaRootURL()
             .appendingPathComponent("envs", isDirectory: true)
         if let envDirs = try? fm.contentsOfDirectory(
             at: condaEnvsDir,

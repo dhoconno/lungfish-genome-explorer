@@ -42,7 +42,7 @@ public enum CoreToolLocator {
     }
 
     public static func condaRoot(homeDirectory: URL) -> URL {
-        ManagedStorageConfigStore(homeDirectory: homeDirectory).currentLocation().condaRootURL
+        ManagedStorageConfigStore(homeDirectory: homeDirectory).currentCondaRootURL()
     }
 
     public static func environmentURL(

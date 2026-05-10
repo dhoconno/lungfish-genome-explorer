@@ -197,12 +197,26 @@ manual.
 
 ### Disk usage and where it goes
 
-Plugin packs accumulate at `~/.lungfish/conda`. A full set of the packs
-listed in the table above lands in the 1 to 3 GB range, with classification
-packs (which carry reference databases) responsible for most of it. The
-directory is safe to delete when you want to start over; the next install
-will recreate it. Project folders never contain pack binaries, so a
-project archive stays small and portable.
+Plugin packs accumulate at `~/.lungfish/conda` by default. A full set of
+the packs listed in the table above lands in the 1 to 3 GB range, with
+classification packs (which carry reference databases) responsible for most
+of it. The directory is safe to delete when you want to start over; the
+next install will recreate it. Project folders never contain pack binaries,
+so a project archive stays small and portable.
+
+On shared workstations, an administrator can place the conda root on a
+larger shared volume and launch Lungfish with `LUNGFISH_CONDA_ROOT` set to
+that directory:
+
+```bash
+export LUNGFISH_CONDA_ROOT=/shared/lungfish/conda
+lungfish conda install --pack read-mapping
+```
+
+All managed tool lookup paths use the override while it is set. The user
+performing installs still needs write permission to that directory; users
+who only run workflows need read and execute permission for the installed
+environments.
 
 ## Next
 

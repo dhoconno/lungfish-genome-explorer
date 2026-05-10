@@ -168,7 +168,7 @@ public actor CondaManager {
     private init() {
         let storageConfigStore = ManagedStorageConfigStore()
         self.rootPrefixProvider = {
-            storageConfigStore.currentLocation().condaRootURL
+            storageConfigStore.currentCondaRootURL()
         }
         self.bundledMicromambaProvider = Self.defaultBundledMicromambaURL
         self.bundledMicromambaVersionProvider = Self.defaultBundledMicromambaVersion
@@ -191,10 +191,18 @@ public actor CondaManager {
         bundledMicromambaVersionProvider: @escaping BundledMicromambaVersionProvider
     ) {
         self.rootPrefixProvider = {
-            storageConfigStore.currentLocation().condaRootURL
+            storageConfigStore.currentCondaRootURL()
         }
         self.bundledMicromambaProvider = bundledMicromambaProvider
         self.bundledMicromambaVersionProvider = bundledMicromambaVersionProvider
+    }
+
+    static func defaultRootPrefix(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        ManagedStorageConfigStore(homeDirectory: homeDirectory)
+            .currentCondaRootURL(environment: environment)
     }
 
     /// Migrates ~/.lungfish/conda from a symlink to a real directory.
