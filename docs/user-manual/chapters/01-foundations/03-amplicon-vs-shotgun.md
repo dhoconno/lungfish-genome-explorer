@@ -29,7 +29,7 @@ Sample DNA reaches the sequencer in one of two ways. Either it is chopped at ran
 
 This chapter explains what amplicon protocols are, why they dominate viral surveillance (SARS-CoV-2 ARTIC and QIAseq Direct, dengue PrimalSeq, monkeypox amplicon panels), and what a primer scheme is as a file. It also explains why the first analysis step on amplicon data is always primer trimming, and why skipping that step produces phantom variants that look real but are not.
 
-<!-- ILLUSTRATION: amplicon-vs-shotgun -->
+![Shotgun reads scattered randomly compared with tiled overlapping amplicons at fixed positions](../../assets/illustrations/01-foundations/03-amplicon-vs-shotgun/amplicon-vs-shotgun.png)
 
 So what should you do with this? Before you start any variant analysis in Lungfish, find out which library prep your sample used. If the protocol name contains "ARTIC", "QIAseq", "PrimalSeq", or any panel name with a version number tied to a virus, the data is amplicon and you will need a primer scheme. If the protocol name is "Nextera XT", "TruSeq DNA", "NEBNext Ultra", or similar, the data is shotgun and primer trimming does not apply.
 
@@ -62,7 +62,7 @@ Now, here is the part that matters for variant calling. The first 22 bases of re
 
 If a variant caller looks at position 1015 and sees the primer base at 100% of reads when the reference says something different, the caller has no way to know that this is a protocol artifact. It will report a high-confidence, high-frequency variant. That variant is not real. It is the primer.
 
-<!-- ILLUSTRATION: primer-trim-soft-clip -->
+![Before and after primer trimming, showing soft-clipped primer bases](../../assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-trim-soft-clip.png)
 
 ## Primer trimming and soft-clipping
 
@@ -84,7 +84,7 @@ MN908947.3	999	1021	nCoV-2019_1_LEFT	1	+
 
 Lungfish packages primer schemes as `.lungfishprimers` bundles. A bundle is a folder containing the BED file, optional primer sequences as FASTA, and a provenance note naming the source and reference accession the coordinates apply to. Bundles live in the project's `Primer Schemes/` folder and appear in the primer picker whenever a workflow needs one. The bundle layout is documented in [Primer Scheme Bundles](../appendices/primer-schemes.md#appendix-primer-schemes).
 
-<!-- ILLUSTRATION: primer-scheme-diagram -->
+![ARTIC-style primer scheme showing forward primers, reverse primers, and overlapping amplicon bands](../../assets/illustrations/01-foundations/03-amplicon-vs-shotgun/primer-scheme-diagram.png)
 
 ## Amplicon versus shotgun, side by side
 

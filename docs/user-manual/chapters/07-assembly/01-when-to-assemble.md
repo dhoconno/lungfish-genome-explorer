@@ -35,7 +35,7 @@ together represent the sample's genome. Where reference mapping asks "where
 on this known genome does each read fit?", assembly asks "what sequence
 must the sample have for these reads to make sense?".
 
-<!-- ILLUSTRATION: assembly-vs-mapping -->
+![Mapping with a reference contrasted against de novo assembly from read overlaps into contigs](../../assets/illustrations/07-assembly/01-when-to-assemble/assembly-vs-mapping.png)
 
 Three situations call for assembly. The first is a sample with no good
 reference: a novel virus, a known virus that has drifted far enough from

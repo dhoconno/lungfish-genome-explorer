@@ -71,7 +71,7 @@ The first nine columns are the same in every VCF on earth. The tenth and any fur
 
 Each row of a VCF carries the same fields in the same order. The first eight describe the variant and its row-level metadata. The ninth column (`FORMAT`) declares what the per-sample payload looks like, and one or more sample columns follow with the actual values.
 
-<!-- ILLUSTRATION: vcf-row-anatomy -->
+![One VCF row with CHROM, POS, ID, REF, ALT, QUAL, FILTER, INFO, FORMAT, and sample columns labelled](../../assets/illustrations/01-foundations/05-variants-and-vcf/vcf-row-anatomy.png)
 
 | Column   | What it carries                                                              | Example                |
 |----------|------------------------------------------------------------------------------|------------------------|
@@ -129,7 +129,7 @@ VCF was originally designed to describe human genetic variation, and humans are 
 
 A virus is not a diploid organism. Each virion carries one genome. A clinical SARS-CoV-2 sample contains many virions, often millions, and the sequencing reads are sampled from the population of virions. A position with `AF=1.0` does not mean "homozygous." It means every read at that position carried the alternate base, which in turn means every virion in the sample (within the sensitivity of the experiment) carries the variant. A position with `AF=0.5` does not mean "heterozygous." It means half of the reads at that position carry the variant. The reasons that fraction might be 0.5 instead of 0 or 1 are biological and technical at once.
 
-<!-- ILLUSTRATION: allele-frequency-haploid-vs-diploid -->
+![Human diploid AF=0.5 compared with viral haploid AF=0.5 as half the read evidence](../../assets/illustrations/01-foundations/05-variants-and-vcf/allele-frequency-haploid-vs-diploid.png)
 
 A genuinely intermediate viral allele frequency has at least three plausible explanations. The sample might contain a mixed infection: two distinct viral lineages co-circulating in one host, each contributing some fraction of reads. The sample might be a transmission bottleneck signature: a small number of founding virions diverging into a population during the host's infection window, with one new mutation rising toward fixation. The sample might be a sequencing or amplification artifact: PCR errors, sequencer base-call errors, or strand-specific primer artifacts. Distinguishing these requires looking at the depth, the strand distribution of supporting reads, the position's coverage profile, and often a second sample from the same patient over time.
 
@@ -141,7 +141,7 @@ Wastewater and other mixed-population samples are a different regime entirely: e
 
 The `FILTER` column is the variant caller's most direct signal about whether to trust the row. `PASS` means the row cleared every filter the caller applied. Anything else is a flag that names the filter the row failed. Multiple flags can appear on one row, separated by semicolons.
 
-<!-- ILLUSTRATION: filter-flag-cartoon -->
+![Three VCF rows showing FILTER=PASS, ft, and sb with check mark and warning indicators](../../assets/illustrations/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png)
 
 The flags Lungfish's three variant callers (iVar, LoFreq, Medaka) emit are conventions inherited from each tool, with light Lungfish normalization. The most common ones across all three are listed below.
 

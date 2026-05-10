@@ -42,7 +42,7 @@ By the end of this chapter you will be able to download a sequence by accession,
 
 NCBI uses different accession schemes for different kinds of records, and they go through different Lungfish commands. The two you will see most often are nucleotide accessions (one molecule, one record) and assembly accessions (a whole genome with chromosomes, scaffolds, and annotation packaged together).
 
-<!-- ILLUSTRATION: ncbi-accession-anatomy -->
+![MN908947.3 accession decomposed into prefix, number, and version](../../assets/illustrations/02-sequences/02-downloading-from-ncbi/ncbi-accession-anatomy.png)
 
 A nucleotide accession looks like `MN908947.3`: a two-letter prefix, a number, a dot, and a version. These are the records that come back from `Tools > Search Online Databases > Search NCBI` and from `lungfish fetch ncbi`. Almost every viral reference in common use is a nucleotide accession, because viral genomes are usually one molecule.
 

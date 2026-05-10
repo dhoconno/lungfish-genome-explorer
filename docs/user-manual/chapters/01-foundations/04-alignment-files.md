@@ -43,7 +43,7 @@ By the end of this chapter you will be able to recognize a BAM file by its `.bam
 
 A mapper takes a read and asks: where on the reference does this sequence fit best, allowing for some mismatches and small insertions or deletions? The answer is a position (the leftmost reference coordinate the read covers), a strand (forward if the read sequence aligns as written, reverse if it aligns to the reverse complement), and a CIGAR string that describes, base by base, how the read aligns. A read that fits well anchors confidently at one place. A read that fits two places equally well gets a low mapping quality (`MAPQ`), and most callers ignore it. A read that does not fit anywhere is recorded as unmapped and carries no position.
 
-<!-- ILLUSTRATION: read-mapping-cartoon -->
+![Pileup-style mapped reads pinned to a reference with forward, reverse, and soft-clipped examples](../../assets/illustrations/01-foundations/04-alignment-files/read-mapping-cartoon.png)
 
 Lungfish ships four mappers and chooses sensible defaults by read type. `minimap2` is the default for long reads (Oxford Nanopore, PacBio) and for many short-read jobs. `BWA-MEM2` is offered for short paired-end Illumina data. `Bowtie2` is offered for users who want a familiar short-read aligner. `BBMap` is offered for messier reads where local alignment helps. The mapper choice matters, but the BAM format does not change with the mapper. Every BAM has the same columns regardless of which tool produced it.
 
@@ -66,7 +66,7 @@ SEQ       : ACGTAACGTGTCTCTGCCG...ACGTACGTTTGCA  (150 bases)
 QUAL      : !!!!!FFFFFFFFFFF...FFFFFF!!!!!         (Phred string)
 ```
 
-<!-- ILLUSTRATION: cigar-anatomy -->
+![Annotated CIGAR string cartoon connecting soft-clipped ends, matched middle, and alignment start position](../../assets/illustrations/01-foundations/04-alignment-files/cigar-anatomy.png)
 
 The CIGAR `5S140M5S` says: the first five bases are soft-clipped, the next 140 bases are aligned to the reference (matches or mismatches, the CIGAR does not distinguish), and the last five bases are soft-clipped. The read still occupies 150 bases of memory, but only the middle 140 contribute to anything downstream. The soft-clipped bases keep their original base calls and qualities for traceability. They are not replaced with `N`.
 
@@ -78,7 +78,7 @@ A BAM file by itself can only be read sequentially. The BAI index lets a viewer 
 
 At each reference position, the number of reads that cover that position is the coverage at that position. Some sources call this depth; in this manual the two words are interchangeable. The coverage track at the top of the BAM viewport shows coverage as a histogram across the reference, one bar per position (or one bar per pixel-bin when zoomed out). A SARS-CoV-2 amplicon run typically shows coverage in the hundreds to low thousands across most of the genome, with sharp dips at amplicon boundaries and at primer dropouts.
 
-<!-- ILLUSTRATION: coverage-histogram -->
+![Coverage area histogram across a genomic region with a low-coverage trough called out](../../assets/illustrations/01-foundations/04-alignment-files/coverage-histogram.png)
 
 Low-coverage regions are the first thing to investigate in a new BAM. A position with five reads of coverage cannot support a confident variant call. A position with zero coverage cannot be called at all and will appear as `N` in the consensus. Coverage tells you which parts of the genome the run actually saw.
 
@@ -86,7 +86,7 @@ Low-coverage regions are the first thing to investigate in a new BAM. A position
 
 A pileup is the column of bases observed at one reference position across every read that covers it. Imagine the reference printed as a horizontal line, the reads stacked underneath wherever they map, and a vertical slice taken at position 1000. The slice contains one base per read at that position, plus the per-base quality of each, plus which strand each read came from. That slice is the pileup.
 
-<!-- ILLUSTRATION: pileup-view -->
+![Ten-read pileup at a variant position showing reference and alternate read counts](../../assets/illustrations/01-foundations/04-alignment-files/pileup-view.png)
 
 A worked example. At reference position 1000 the reference base is `C`. Ten reads cover the position. Seven of them show `C`. Three of them show `T`. The allele frequency of the alternate base `T` is 3 divided by 10, or 30 percent. A variant caller looking at this column will weigh the evidence (how many reads, what their qualities are, whether both strands agree) and decide whether to emit a `C>T` call at position 1000 with allele frequency 0.30. If the same column showed nine `C` and one `T`, the alternate would sit at 10 percent and most callers would treat it as too rare to call confidently. If the column showed zero `C` and ten `T`, the alternate would sit at 100 percent and the call would be a confident fixed substitution. The pileup is the evidence; the variant caller is the judge.
 
