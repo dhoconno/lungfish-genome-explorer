@@ -73,6 +73,25 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
     }
 
     @MainActor
+    func testDialogStateAllowsBcftoolsWithoutCallerSpecificPrerequisites() throws {
+        let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
+
+        state.selectCaller(.bcftools)
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.selectedToolID, "bcftools")
+        XCTAssertTrue(state.readinessText.contains("bcftools"))
+    }
+
+    func testCatalogIncludesBcftoolsFromRequiredSetupPack() {
+        let item = BAMVariantCallingCatalog.availableSidebarItems().first { $0.id == "bcftools" }
+
+        XCTAssertEqual(item?.title, "bcftools")
+        XCTAssertEqual(item?.subtitle, "Orthogonal mpileup/call cross-check for BAM alignments.")
+        XCTAssertEqual(item?.availability, .available)
+    }
+
+    @MainActor
     func testDialogStateParsesAdvancedOptionsIntoPendingRequest() throws {
         let state = BAMVariantCallingDialogState(bundle: try makeBundleFixture())
 
@@ -258,6 +277,7 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
         let catalog = BAMVariantCallingCatalog(
             statusProvider: StubVariantCallingPackStatusProvider(states: [
                 "variant-calling": .needsInstall,
+                "lungfish-tools": .needsInstall,
                 "gatk-core": .ready,
             ])
         )
@@ -266,12 +286,16 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
         let gatk = try XCTUnwrap(items.first(where: { $0.id == "gatk-haplotype-caller" }))
         XCTAssertEqual(gatk.availability, .available)
-        for viral in ViralVariantCaller.allCases {
+        for viral in ViralVariantCaller.allCases where viral != .bcftools {
             XCTAssertEqual(
                 items.first(where: { $0.id == viral.rawValue })?.availability,
                 .disabled(reason: "Requires Variant Calling Pack")
             )
         }
+        XCTAssertEqual(
+            items.first(where: { $0.id == ViralVariantCaller.bcftools.rawValue })?.availability,
+            .disabled(reason: "Requires Third-Party Tools Pack")
+        )
     }
 
     @MainActor

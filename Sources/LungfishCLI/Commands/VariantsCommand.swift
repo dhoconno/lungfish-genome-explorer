@@ -103,6 +103,8 @@ struct VariantsCommand: AsyncParsableCommand {
             return .ivar
         case .medaka:
             return .medaka
+        case .bcftools:
+            return .bcftools
         }
     }
 }
@@ -120,7 +122,7 @@ extension VariantsCommand {
         @Option(name: .customLong("alignment-track"), help: "Bundle alignment track identifier")
         var alignmentTrackID: String
 
-        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka")
+        @Option(name: .customLong("caller"), help: "Variant caller: lofreq, ivar, medaka, bcftools")
         var caller: String
 
         @Option(name: [.customLong("name"), .customLong("output-track-name")], help: "Display name for the created variant track")
@@ -151,9 +153,9 @@ extension VariantsCommand {
         var ivarApplyStrandBias: Bool = false
 
         @Option(
-            name: .customLong("advanced-options"),
+            name: [.customLong("extra-args"), .customLong("advanced-options")],
             parsing: .unconditional,
-            help: "Additional caller options, written exactly as they should be passed to the underlying tool"
+            help: "Additional caller arguments, written exactly as they should be passed to the underlying tool"
         )
         var advancedOptions: String = ""
 

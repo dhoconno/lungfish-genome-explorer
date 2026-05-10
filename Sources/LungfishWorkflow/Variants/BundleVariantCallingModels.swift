@@ -6,6 +6,7 @@ public enum ViralVariantCaller: String, CaseIterable, Sendable, Codable {
     case lofreq
     case ivar
     case medaka
+    case bcftools
 
     public var displayName: String {
         switch self {
@@ -15,6 +16,8 @@ public enum ViralVariantCaller: String, CaseIterable, Sendable, Codable {
             return "iVar"
         case .medaka:
             return "Medaka"
+        case .bcftools:
+            return "bcftools"
         }
     }
 

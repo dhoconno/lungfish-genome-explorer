@@ -172,6 +172,8 @@ final class BAMVariantCallingDialogState {
         switch selectedCaller {
         case .lofreq:
             return "Ready to run LoFreq on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
+        case .bcftools:
+            return "Ready to run bcftools mpileup/call on \(selectedAlignmentTrack?.name ?? "the selected alignment")."
         case .ivar:
             if let auto = autoConfirmedPrimerTrim {
                 return "Ready to run iVar. Primer-trimmed by Lungfish on \(autoConfirmedDateString(auto.timestamp)) using \(auto.primerScheme.bundleName)."
@@ -200,7 +202,7 @@ final class BAMVariantCallingDialogState {
         }
 
         switch selectedCaller {
-        case .lofreq:
+        case .lofreq, .bcftools:
             return true
         case .ivar:
             return ivarPrimerTrimConfirmed

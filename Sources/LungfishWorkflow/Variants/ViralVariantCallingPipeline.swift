@@ -672,6 +672,64 @@ public struct ViralVariantCallingPipeline: Sendable {
                 "\(shellCommand(mpileupCommand)) | \(shellCommand(variantCommand))",
                 [samtoolsStep, ivarStep, converterStep]
             )
+        case .bcftools:
+            let mpileupArguments = bcftoolsMpileupArguments(plan: plan)
+            let callArguments = bcftoolsCallArguments(plan: plan)
+            let mpileupCommand = await nativeCommand(for: .bcftools, arguments: mpileupArguments)
+            let callCommand = await nativeCommand(for: .bcftools, arguments: callArguments)
+            let pipeRecord = FileRecord(
+                path: "pipe:stdout:bcftools-mpileup",
+                format: .bcf,
+                role: .output
+            )
+            let startedAt = Date()
+            let result = try await toolRunner.runPipeline(
+                [
+                    NativePipelineStage(.bcftools, arguments: mpileupArguments),
+                    NativePipelineStage(.bcftools, arguments: callArguments),
+                ],
+                workingDirectory: plan.workingDirectory,
+                timeout: 3600
+            )
+            let completedAt = Date()
+            let mpileupStep = VariantCallingProvenanceStep(
+                toolName: "bcftools",
+                toolVersion: await nativeToolVersion(for: .bcftools),
+                command: mpileupCommand,
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentURL, format: .bam, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.alignmentIndexURL, role: .index),
+                ],
+                outputs: [pipeRecord],
+                exitCode: result.exitCodes.indices.contains(0) ? result.exitCodes[0] : nil,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderrByStage.indices.contains(0) ? result.stderrByStage[0] : nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            let callStep = VariantCallingProvenanceStep(
+                toolName: "bcftools",
+                toolVersion: await nativeToolVersion(for: .bcftools),
+                command: callCommand,
+                inputs: [
+                    FileRecord(path: pipeRecord.path, format: pipeRecord.format, role: .input),
+                    ProvenanceRecorder.fileRecord(url: plan.referenceURL, format: .fasta, role: .reference),
+                ],
+                outputs: [ProvenanceRecorder.fileRecord(url: plan.rawVCFURL, format: .vcf, role: .output)],
+                exitCode: result.exitCodes.indices.contains(1) ? result.exitCodes[1] : nil,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: result.stderrByStage.indices.contains(1) ? result.stderrByStage[1] : nil,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+            guard result.isSuccess else {
+                throw ViralVariantCallingPipelineError.callerExecutionFailed(result.combinedStderr)
+            }
+            return (
+                "\(shellCommand(mpileupCommand)) | \(shellCommand(callCommand))",
+                [mpileupStep, callStep]
+            )
         case .medaka:
             let arguments = medakaArguments(plan: plan)
             let startedAt = Date()
@@ -851,6 +909,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             return "ivar.raw.vcf"
         case .medaka:
             return "medaka.raw.vcf"
+        case .bcftools:
+            return "bcftools.raw.vcf"
         }
     }
 
@@ -882,6 +942,10 @@ public struct ViralVariantCallingPipeline: Sendable {
             return ([nativeTool(for: caller).executableName] + medakaArguments(
                 plan: plan
             )).map(shellEscape).joined(separator: " ")
+        case .bcftools:
+            return """
+            bcftools \(bcftoolsMpileupArguments(plan: plan).map(shellEscape).joined(separator: " ")) | bcftools \(bcftoolsCallArguments(plan: plan).map(shellEscape).joined(separator: " "))
+            """
         }
     }
 
@@ -1019,6 +1083,25 @@ public struct ViralVariantCallingPipeline: Sendable {
         ]
     }
 
+    private func bcftoolsMpileupArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
+        [
+            "mpileup",
+            "-Ou",
+            "-f", plan.referenceURL.path,
+            plan.alignmentURL.path,
+        ]
+    }
+
+    private func bcftoolsCallArguments(plan: ViralVariantCallingExecutionPlan) -> [String] {
+        ["call"]
+            + request.advancedArguments
+            + [
+                "-mv",
+                "-Ov",
+                "-o", plan.rawVCFURL.path,
+            ]
+    }
+
     private func callerParametersJSON() -> String {
         let isIvar = request.caller == .ivar
         let payload = CallerParametersPayload(
@@ -1052,6 +1135,8 @@ public struct ViralVariantCallingPipeline: Sendable {
             return .ivar
         case .medaka:
             return .medaka
+        case .bcftools:
+            return .bcftools
         }
     }
 

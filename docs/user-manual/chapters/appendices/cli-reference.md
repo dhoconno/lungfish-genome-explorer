@@ -152,15 +152,17 @@ Marks duplicates with samtools markdup.
 
 Run variant callers against an alignment track.
 
-`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka> [--ivar-primer-trimmed] [--min-af <float>] [--name <name>]`
+`lungfish variants call --bundle <bundle> --alignment-track <id> --caller <ivar|lofreq|medaka|bcftools> [--ivar-primer-trimmed] [--min-af <float>] [--extra-args <args>] [--name <name>]`
 
 | Flag | Meaning |
 |---|---|
 | `--caller ivar` | Run iVar (default for amplicon). Requires primer-trimmed BAM. |
 | `--caller lofreq` | Run LoFreq (designed for shotgun). Run on un-trimmed BAM. |
 | `--caller medaka` | Run Medaka (designed for ONT). Requires `--medaka-model`. |
+| `--caller bcftools` | Run `bcftools mpileup -Ou | bcftools call -mv -Ov` as an orthogonal short-read cross-check. |
 | `--ivar-primer-trimmed` | Acknowledge that the BAM is primer-trimmed (auto-set when sidecar present). |
 | `--min-af <float>` | Minimum allele frequency threshold (iVar default: 0.05). |
+| `--extra-args <args>` | Additional caller options forwarded to the selected caller. For bcftools, these are passed to `bcftools call`. |
 | `--name <name>` | Output track name. |
 
 ```bash
@@ -171,6 +173,15 @@ lungfish variants call \
     --ivar-primer-trimmed \
     --min-af 0.05 \
     --name "iVar variants"
+```
+
+```bash
+lungfish variants call \
+    --bundle MN908947.3.lungfishref \
+    --alignment-track <id> \
+    --caller bcftools \
+    --extra-args "--ploidy 1" \
+    --name "bcftools variants"
 ```
 
 ## Classification

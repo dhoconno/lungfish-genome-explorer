@@ -4,9 +4,9 @@ chapter_id: 05-variants/03-cross-caller-comparison
 audience: analyst
 prereqs: [05-variants/01-calling-variants-from-amplicons, 05-variants/02-reading-the-variant-browser]
 estimated_reading_min: 12
-task: Run iVar and LoFreq on the same sample and read the disagreements between them.
-tags: [variants, ivar, lofreq, comparison, statistics]
-tools: [ivar, lofreq]
+task: Run iVar, LoFreq, and bcftools on the same sample and read the disagreements between them.
+tags: [variants, ivar, lofreq, bcftools, comparison, statistics]
+tools: [ivar, lofreq, bcftools]
 entry_points:
   - "Inspector > Analysis > Variant Calling > Call Variants (run twice with different callers)"
 shots: []
@@ -29,11 +29,11 @@ lead_approved: false
 
 ## What it is
 
-Different variant callers describe the same data through different statistical lenses. iVar is an allele-frequency threshold caller designed for primer-trimmed amplicon data. LoFreq is a per-base error model with multiple-testing correction designed for shotgun viral data. Running both on the same sample and reading their disagreements is a calibration exercise, not a "which one is right" question. Both are right. They answer slightly different questions about the same pileup.
+Different variant callers describe the same data through different statistical lenses. iVar is an allele-frequency threshold caller designed for primer-trimmed amplicon data. LoFreq is a per-base error model with multiple-testing correction designed for shotgun viral data. bcftools combines `mpileup` and `call` into a general short-read caller that is useful as an orthogonal cross-check. Running more than one caller on the same sample and reading their disagreements is a calibration exercise, not a "which one is right" question. Each caller answers a slightly different question about the same pileup.
 
 This chapter takes the iVar VCF you produced in [Calling Variants from Amplicon Reads](01-calling-variants-from-amplicons.md), runs LoFreq against the un-trimmed alignment from the same workflow, opens both tracks in the variant browser, and walks through three categories of disagreement at four specific positions in `SRR36291587`. The positions were chosen because they each demonstrate one category cleanly. Real call sets show all three categories mixed together; the goal is to recognise the pattern, not memorise the positions.
 
-The chapter ends with a detailed treatment of the codon-merge case at positions 28881-28882. iVar collapses adjacent within-codon SNPs into one VCF row when given a GFF annotation. LoFreq does not. Knowing why both are correct, and knowing which representation to take downstream, is the most useful thing this chapter teaches. So what should you do with this? Run both callers when the call set will go into a methods section or a paper figure. Pick one before any downstream tool that consumes a VCF, and record the choice in your provenance.
+The chapter ends with a detailed treatment of the codon-merge case at positions 28881-28882. iVar collapses adjacent within-codon SNPs into one VCF row when given a GFF annotation. LoFreq and bcftools do not. Knowing why both representations are valid, and knowing which representation to take downstream, is the most useful thing this chapter teaches. So what should you do with this? Run iVar plus at least one orthogonal caller when the call set will go into a methods section or a paper figure. Pick one before any downstream tool that consumes a VCF, and record the choice in your provenance.
 
 ## What you will learn
 
@@ -43,16 +43,16 @@ By the end of this chapter you will be able to call LoFreq on an un-trimmed alig
 
 The two callers were designed against different sequencing regimes. iVar was written for the ARTIC SARS-CoV-2 amplicon protocol and assumes its input is already primer-trimmed. LoFreq was written for shotgun viral resequencing and assumes reads start at random positions across the genome. The defaults each caller ships with reflect those assumptions.
 
-| Question | iVar | LoFreq |
-|---|---|---|
-| Statistical model | Per-position allele-frequency threshold | Per-base error model with Benjamini-Hochberg multiple-testing correction |
-| Assumed input | Primer-trimmed amplicon BAM | Shotgun BAM, primer-trimmed amplicon BAM accepted with caveats |
-| What it reports | Every position whose ALT allele frequency clears the threshold | Every position whose Phred-scaled p-value clears the depth-dependent significance threshold |
-| Default minimum AF | 0.05 (5%) | None. Threshold is depth-dependent, typically rejecting AF below roughly 1 / depth at low coverage and roughly 0.005 at coverage above 5000 |
-| Codon awareness | Yes, when given a GFF; merges adjacent within-codon SNPs into one row | No. Always one row per base |
-| Strand-bias filter | Optional, off by default for amplicon data | On by default. Phred-scaled Fisher exact test, fails calls below the threshold |
+| Question | iVar | LoFreq | bcftools |
+|---|---|---|---|
+| Statistical model | Per-position allele-frequency threshold | Per-base error model with Benjamini-Hochberg multiple-testing correction | Genotype-likelihood model from `mpileup` evidence |
+| Assumed input | Primer-trimmed amplicon BAM | Shotgun BAM, primer-trimmed amplicon BAM accepted with caveats | General short-read BAM, with caller options supplied directly |
+| What it reports | Every position whose ALT allele frequency clears the threshold | Every position whose Phred-scaled p-value clears the depth-dependent significance threshold | Sites selected by `bcftools call -mv` from the pileup stream |
+| Default minimum AF | 0.05 (5%) | None. Threshold is depth-dependent, typically rejecting AF below roughly 1 / depth at low coverage and roughly 0.005 at coverage above 5000 | None by default; tune with `--extra-args` such as `--ploidy 1` |
+| Codon awareness | Yes, when given a GFF; merges adjacent within-codon SNPs into one row | No. Always one row per base | No. Always one row per called site |
+| Strand-bias filter | Optional, off by default for amplicon data | On by default. Phred-scaled Fisher exact test, fails calls below the threshold | Not an amplicon-aware primer artifact model |
 
-The two callers also disagree about what a row means. An iVar row is a claim that the alternate allele frequency is at least the threshold. A LoFreq row is a claim that the alternate allele is significantly more frequent than the local sequencing error rate. Those are different claims. A position can satisfy one and not the other.
+The callers also disagree about what a row means. An iVar row is a claim that the alternate allele frequency is at least the threshold. A LoFreq row is a claim that the alternate allele is significantly more frequent than the local sequencing error rate. A bcftools row is a genotype-likelihood call from the pileup stream. Those are different claims. A position can satisfy one and not the others.
 
 The practical consequence is the disagreement structure. iVar tends to report rows that LoFreq filters out because their AF is below LoFreq's depth-dependent threshold even though it clears 5%. LoFreq tends to report rows that iVar filters out because their AF is between roughly 1% and 5% at high coverage, where LoFreq's per-base model accepts them and iVar's threshold does not. And both report rows that the other reports too, often with different filter values at the same position.
 
@@ -80,7 +80,7 @@ The `Inputs` section shows the un-trimmed alignment. Note that the `This BAM has
 
 Behind the dialog, Lungfish runs `lofreq call` against the un-trimmed BAM with the bundle's reference FASTA. LoFreq emits a VCF directly; the pipeline finishes with `bcftools sort`, `bgzip`, and `tabix`. A new variant track named `LoFreq variants` appears under `MN908947.3 > Variants` next to the iVar track. The Operations Panel row carries the LoFreq version, the input BAM checksum, and the resolved command line.
 
-The CLI equivalent is `lungfish variants call --bundle MN908947.3.lungfishref --alignment-track <untrimmed-id> --caller lofreq --name "LoFreq variants"`.
+The CLI equivalent is `lungfish variants call --bundle MN908947.3.lungfishref --alignment-track <untrimmed-id> --caller lofreq --name "LoFreq variants"`. To add the bcftools cross-check, run the same command with `--caller bcftools --extra-args "--ploidy 1"` and name the output track `bcftools variants`.
 
 ### Step 3. Open both tracks in the variant browser
 

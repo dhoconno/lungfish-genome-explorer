@@ -78,6 +78,40 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         XCTAssertTrue(plan.commandLine.contains("--chunk_len 1000"))
     }
 
+    func testBcftoolsCommandLineUsesMpileupCallAndAdvancedArguments() throws {
+        let pipeline = try makePipeline(caller: .bcftools, advancedArguments: ["--ploidy", "1"])
+
+        let plan = try pipeline.buildExecutionPlan()
+
+        XCTAssertTrue(plan.commandLine.contains("bcftools mpileup"))
+        XCTAssertTrue(plan.commandLine.contains(" | bcftools call"))
+        XCTAssertTrue(plan.commandLine.contains("--ploidy 1"))
+    }
+
+    func testBcftoolsPipelineProvenanceCapturesMpileupPipeInputsAndChecksums() async throws {
+        let toolRunner = try makeFakeVariantToolRunner()
+        let pipeline = try makePipeline(caller: .bcftools, toolRunner: toolRunner)
+
+        let result = try await pipeline.run()
+
+        let mpileupStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("mpileup")
+        })
+        let callStep = try XCTUnwrap(result.provenanceSteps.first { step in
+            step.toolName == "bcftools" && step.command.contains("call")
+        })
+        let pipeRecord = try XCTUnwrap(mpileupStep.outputs.first { $0.path == "pipe:stdout:bcftools-mpileup" })
+
+        XCTAssertEqual(pipeRecord.format, .bcf)
+        XCTAssertEqual(pipeRecord.role, .output)
+        XCTAssertTrue(callStep.inputs.contains { $0.path == pipeRecord.path && $0.role == .input })
+        XCTAssertTrue(mpileupStep.inputs.contains { $0.path == mpileupStep.inputs[0].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(mpileupStep.inputs.contains { $0.path == mpileupStep.inputs[1].path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(callStep.outputs.contains { $0.path == result.normalizedVCFURL.deletingLastPathComponent().appendingPathComponent("bcftools.raw.vcf").path })
+        XCTAssertTrue(result.commandLine.contains(" | "))
+        XCTAssertTrue(result.commandLine.contains("/envs/bcftools/bin/bcftools"))
+    }
+
     func testCallerParametersJSONIncludesAdvancedOptions() async throws {
         let pipeline = try makePipeline(
             caller: .lofreq,
@@ -428,6 +462,22 @@ final class ViralVariantCallingPipelineTests: XCTestCase {
         try writeFakeTool(home: home, environment: "bcftools", executable: "bcftools", script: """
         #!/bin/sh
         if [ "$1" = "--version" ]; then echo "bcftools 1.20"; exit 0; fi
+        if [ "$1" = "mpileup" ]; then echo "BCF"; exit 0; fi
+        if [ "$1" = "call" ]; then
+          output=""
+          while [ "$#" -gt 0 ]; do
+            if [ "$1" = "-o" ]; then shift; output="$1"; fi
+            shift
+          done
+          cat > /dev/null
+          cat > "$output" <<'EOF'
+        ##fileformat=VCFv4.3
+        ##contig=<ID=chr1,length=20>
+        #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+        chr1	5	bcftools-1	A	G	80	PASS	.
+        EOF
+          exit 0
+        fi
         output=""
         input=""
         while [ "$#" -gt 0 ]; do
