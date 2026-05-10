@@ -10,6 +10,7 @@ final class MapCommandTests: XCTestCase {
             "--paired",
             "--sample-name", "sample-1",
             "--rg-id", "rg-1",
+            "--rg-sm", "sample-rg",
             "--rg-lb", "lib-1",
             "--rg-pl", "ILLUMINA",
             "--rg-pu", "unit-1",
@@ -17,6 +18,7 @@ final class MapCommandTests: XCTestCase {
 
         XCTAssertEqual(command.sampleName, "sample-1")
         XCTAssertEqual(command.readGroupID, "rg-1")
+        XCTAssertEqual(command.readGroupSampleName, "sample-rg")
         XCTAssertEqual(command.readGroupLibrary, "lib-1")
         XCTAssertEqual(command.readGroupPlatform, "ILLUMINA")
         XCTAssertEqual(command.readGroupPlatformUnit, "unit-1")

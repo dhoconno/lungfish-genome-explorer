@@ -152,7 +152,7 @@ struct MappingWizardSheet: View {
         MappingReadGroup.resolved(
             sampleName: sampleName,
             id: idText,
-            sample: sampleText,
+            readGroupSampleName: sampleText,
             library: libraryText,
             platform: platformText,
             platformUnit: platformUnitText,

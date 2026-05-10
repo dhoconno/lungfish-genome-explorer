@@ -267,6 +267,22 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(summary["readGroup.pl"], .string("ONT"))
         XCTAssertEqual(summary["readGroup.pu"], .string("sample"))
         XCTAssertNil(summary["readGroupID"])
+        XCTAssertEqual(loaded.parameters.readGroup.id, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.sm, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.lb, "sample")
+        XCTAssertEqual(loaded.parameters.readGroup.pl, "ONT")
+        XCTAssertEqual(loaded.parameters.readGroup.pu, "sample")
+
+        let sidecarURL = tempDir.appendingPathComponent(MappingProvenance.filename)
+        let sidecarData = try Data(contentsOf: sidecarURL)
+        let sidecar = try XCTUnwrap(JSONSerialization.jsonObject(with: sidecarData) as? [String: Any])
+        let parameters = try XCTUnwrap(sidecar["parameters"] as? [String: Any])
+        let readGroup = try XCTUnwrap(parameters["readGroup"] as? [String: Any])
+        XCTAssertEqual(readGroup["id"] as? String, "sample")
+        XCTAssertEqual(readGroup["sm"] as? String, "sample")
+        XCTAssertEqual(readGroup["lb"] as? String, "sample")
+        XCTAssertEqual(readGroup["pl"] as? String, "ONT")
+        XCTAssertEqual(readGroup["pu"] as? String, "sample")
     }
 
     func testMapperInvocationUsesProvidedReferenceLocator() throws {

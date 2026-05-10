@@ -166,7 +166,7 @@ struct MapCommand: AsyncParsableCommand {
         let resolvedReadGroup = MappingReadGroup.resolved(
             sampleName: effectiveSampleName,
             id: readGroupID,
-            sample: readGroupSampleName,
+            readGroupSampleName: readGroupSampleName,
             library: readGroupLibrary,
             platform: readGroupPlatform,
             platformUnit: readGroupPlatformUnit,
