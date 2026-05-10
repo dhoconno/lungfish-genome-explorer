@@ -286,6 +286,57 @@ public enum PortDataType: String, Sendable, Codable, CaseIterable {
         }
         return self == other
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let value = PortDataType(rawValue: rawValue) {
+            self = value
+            return
+        }
+        if let value = PortDataType.legacyValue(for: rawValue) {
+            self = value
+            return
+        }
+        throw DecodingError.dataCorruptedError(
+            in: container,
+            debugDescription: "Cannot initialize PortDataType from invalid String value \(rawValue)"
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+
+    fileprivate static func legacyValue(
+        for rawValue: String,
+        portID: String? = nil,
+        portName: String? = nil,
+        direction: PortDirection? = nil
+    ) -> PortDataType? {
+        switch rawValue {
+        case "fastq":
+            return .fastqBundle
+        case "fasta":
+            let context = [portID, portName]
+                .compactMap { $0?.lowercased() }
+                .joined(separator: " ")
+            return context.contains("contig") ? .assemblyBundle : .referenceBundle
+        case "bam":
+            return .bamTrack
+        case "vcf":
+            return .variantTrack
+        case "csv":
+            return .sampleSheet
+        case "tsv":
+            return .tsvFile
+        case "html":
+            return .reportFile
+        default:
+            return nil
+        }
+    }
 }
 
 // MARK: - PortDirection
@@ -341,6 +392,53 @@ public struct NodePort: Sendable, Codable, Identifiable, Hashable {
         self.direction = direction
         self.isRequired = isRequired ?? (direction == .input)
         self.allowsMultiple = allowsMultiple
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case dataType
+        case direction
+        case isRequired
+        case allowsMultiple
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        direction = try container.decode(PortDirection.self, forKey: .direction)
+
+        let rawDataType = try container.decode(String.self, forKey: .dataType)
+        if let value = PortDataType(rawValue: rawDataType) {
+            dataType = value
+        } else if let legacyValue = PortDataType.legacyValue(
+            for: rawDataType,
+            portID: id,
+            portName: name,
+            direction: direction
+        ) {
+            dataType = legacyValue
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .dataType,
+                in: container,
+                debugDescription: "Cannot initialize PortDataType from invalid String value \(rawDataType)"
+            )
+        }
+
+        isRequired = try container.decodeIfPresent(Bool.self, forKey: .isRequired) ?? (direction == .input)
+        allowsMultiple = try container.decodeIfPresent(Bool.self, forKey: .allowsMultiple) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(dataType.rawValue, forKey: .dataType)
+        try container.encode(direction, forKey: .direction)
+        try container.encode(isRequired, forKey: .isRequired)
+        try container.encode(allowsMultiple, forKey: .allowsMultiple)
     }
 }
 

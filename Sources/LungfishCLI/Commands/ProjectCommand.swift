@@ -101,7 +101,7 @@ struct ProjectCommand: AsyncParsableCommand {
                 return
             }
 
-            if !force && !manager.isOwnedByCurrentProcess(record) {
+            if !force && !manager.canRemoveWithoutForce(record) {
                 throw ProjectCommandError.foreignLock(lockURL: lockURL, record: record)
             }
 
@@ -276,6 +276,17 @@ private struct ProjectLockManager {
         record.user == ProjectCommandMetadata.currentUser
             && ProjectCommandMetadata.isLocalHost(record.host)
             && record.pid == Int(ProcessInfo.processInfo.processIdentifier)
+    }
+
+    func canRemoveWithoutForce(_ record: ProjectLockRecord) -> Bool {
+        if isOwnedByCurrentProcess(record) {
+            return true
+        }
+        guard record.user == ProjectCommandMetadata.currentUser,
+              ProjectCommandMetadata.isLocalHost(record.host) else {
+            return false
+        }
+        return status(of: record) == .stale
     }
 }
 

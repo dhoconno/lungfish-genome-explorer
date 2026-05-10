@@ -38,7 +38,7 @@ public struct CzIdImportPreview: Sendable, Equatable {
         }
     }
 
-    static func withResolvedReport<T>(
+    public static func withResolvedReport<T>(
         from url: URL,
         _ body: (CzIdResolvedImportSource) throws -> T
     ) async throws -> T {
@@ -202,11 +202,11 @@ public struct CzIdImportPreview: Sendable, Equatable {
     }
 }
 
-struct CzIdResolvedImportSource {
-    let selectedSourceURL: URL
-    let sourceKind: CzIdImportPreview.SourceKind
-    let sourceArchiveURL: URL?
-    let reportURL: URL
+public struct CzIdResolvedImportSource {
+    public let selectedSourceURL: URL
+    public let sourceKind: CzIdImportPreview.SourceKind
+    public let sourceArchiveURL: URL?
+    public let reportURL: URL
     private let cleanupHandler: (() -> Void)?
 
     init(
@@ -223,7 +223,7 @@ struct CzIdResolvedImportSource {
         self.cleanupHandler = cleanupHandler
     }
 
-    func cleanup() {
+    public func cleanup() {
         cleanupHandler?()
     }
 }

@@ -120,6 +120,18 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertTrue(command.arguments.contains("local=t"))
     }
 
+    func testBuildsBBMapCommandWithResolvedReadGroupDefaults() throws {
+        let request = makeRequest(tool: .bbmap)
+
+        let command = try ManagedMappingPipeline.buildCommand(for: request)
+
+        XCTAssertTrue(command.arguments.contains("rgid=sample"))
+        XCTAssertTrue(command.arguments.contains("rgsm=sample"))
+        XCTAssertTrue(command.arguments.contains("rglb=sample"))
+        XCTAssertTrue(command.arguments.contains("rgpl=ILLUMINA"))
+        XCTAssertTrue(command.arguments.contains("rgpu=sample"))
+    }
+
     func testAdvancedBwaOptionsPrecedePositionalInputs() throws {
         let request = makeRequest(tool: .bwaMem2, advancedArguments: ["-k", "19"])
 

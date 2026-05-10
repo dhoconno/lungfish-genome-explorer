@@ -158,6 +158,34 @@ final class ProjectCommandTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL(for: projectURL).path))
     }
 
+    func testUnlockRemovesStaleLocalLockCreatedByEarlierCLIProcess() async throws {
+        let projectURL = try makeProject()
+        try writeLockRecord(
+            [
+                "schemaVersion": 1,
+                "toolName": "lungfish project lock",
+                "appVersion": "lungfish-cli 0.0.0-test",
+                "projectPath": projectURL.standardizedFileURL.path,
+                "mode": "exclusive",
+                "user": currentUserName(),
+                "host": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+                "pid": 999_999_937,
+                "processStartTime": "2000-01-01T00:00:00Z",
+                "cwd": "/tmp/old-cli-process",
+                "createdAt": "2000-01-01T00:00:00Z",
+            ],
+            to: projectURL
+        )
+
+        let unlock = try ProjectCommand.UnlockSubcommand.parse([
+            projectURL.path,
+            "--quiet",
+        ])
+        try await unlock.run()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL(for: projectURL).path))
+    }
+
     func testUnlockRefusesForeignLockUnlessForced() async throws {
         let projectURL = try makeProject()
         try writeLockRecord(

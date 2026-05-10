@@ -345,6 +345,59 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertEqual(decodedGraph.nodeCount, graph.nodeCount)
         XCTAssertEqual(decodedGraph.connectionCount, graph.connectionCount)
     }
+
+    func testGraphDecodingMigratesLegacyPortDataTypeIdentifiers() throws {
+        var graph = WorkflowGraph(name: "Legacy Pipeline")
+        let reads = graph.addNode(type: .fastqInput, position: CGPoint(x: 100, y: 100))
+        let reference = graph.addNode(type: .fastaInput, position: CGPoint(x: 100, y: 220))
+        let align = graph.addNode(type: .alignment, position: CGPoint(x: 320, y: 120))
+        let variants = graph.addNode(type: .variantCalling, position: CGPoint(x: 540, y: 120))
+        let report = graph.addNode(type: .report, position: CGPoint(x: 760, y: 120))
+        _ = try graph.addConnection(
+            sourceNodeId: reads.id,
+            sourcePortId: "reads",
+            targetNodeId: align.id,
+            targetPortId: "reads"
+        )
+        _ = try graph.addConnection(
+            sourceNodeId: reference.id,
+            sourcePortId: "sequence",
+            targetNodeId: align.id,
+            targetPortId: "reference"
+        )
+        _ = try graph.addConnection(
+            sourceNodeId: align.id,
+            sourcePortId: "alignments",
+            targetNodeId: variants.id,
+            targetPortId: "alignments"
+        )
+        _ = try graph.addConnection(
+            sourceNodeId: variants.id,
+            sourcePortId: "variants",
+            targetNodeId: report.id,
+            targetPortId: "input"
+        )
+
+        let encoded = try JSONEncoder().encode(graph)
+        var json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
+        [
+            #""fastq_bundle""#: #""fastq""#,
+            #""reference_bundle""#: #""fasta""#,
+            #""bam_track""#: #""bam""#,
+            #""variant_track""#: #""vcf""#,
+            #""tsv_file""#: #""tsv""#,
+            #""report_file""#: #""html""#,
+        ].forEach { json = json.replacingOccurrences(of: $0.key, with: $0.value) }
+
+        let decoded = try JSONDecoder().decode(WorkflowGraph.self, from: Data(json.utf8))
+        let decodedAlignment = try XCTUnwrap(decoded.allNodes.first { $0.type == .alignment })
+        XCTAssertEqual(decodedAlignment.inputPorts.first { $0.id == "reads" }?.dataType, .fastqBundle)
+        XCTAssertEqual(decodedAlignment.inputPorts.first { $0.id == "reference" }?.dataType, .referenceBundle)
+        XCTAssertEqual(decodedAlignment.outputPorts.first { $0.id == "alignments" }?.dataType, .bamTrack)
+
+        let decodedVariantCaller = try XCTUnwrap(decoded.allNodes.first { $0.type == .variantCalling })
+        XCTAssertEqual(decodedVariantCaller.outputPorts.first { $0.id == "variants" }?.dataType, .variantTrack)
+    }
 }
 
 // MARK: - Exporter Tests

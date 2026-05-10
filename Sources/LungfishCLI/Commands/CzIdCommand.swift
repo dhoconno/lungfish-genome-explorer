@@ -28,7 +28,7 @@ struct CzIdCommand: AsyncParsableCommand {
 
         @OptionGroup var globalOptions: GlobalOptions
 
-        @Argument(help: "Path to a CZ-ID taxon report TSV")
+        @Argument(help: "Path to a CZ-ID taxon report TSV, ZIP archive, or extracted export folder")
         var inputPath: String
 
         @Option(
@@ -45,34 +45,41 @@ struct CzIdCommand: AsyncParsableCommand {
                 throw ExitCode.failure
             }
 
-            let parsed = try CzIdDataConverter.parseTaxonReport(at: inputURL)
-            let sample = parsed.metadata.sampleName ?? inputURL.deletingPathExtension().lastPathComponent
-            let destination = outputDir.map(URL.init(fileURLWithPath:))
-                ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                    .appendingPathComponent("cz-id-\(sample)", isDirectory: true)
+            let importResult = try await CzIdImportPreview.withResolvedReport(from: inputURL) { resolved in
+                let parsed = try CzIdDataConverter.parseTaxonReport(at: resolved.reportURL)
+                let sample = parsed.metadata.sampleName ?? resolved.reportURL.deletingPathExtension().lastPathComponent
+                let destination = outputDir.map(URL.init(fileURLWithPath:))
+                    ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                        .appendingPathComponent("cz-id-\(sample)", isDirectory: true)
 
-            let command = ["lungfish", "cz-id", "import", inputURL.path, "--output-dir", destination.path]
-            let converted = try CzIdDataConverter.convertTaxonReport(
-                at: inputURL,
-                outputDirectory: destination,
-                command: command
-            )
+                let command = ["lungfish", "cz-id", "import", inputURL.path, "--output-dir", destination.path]
+                let sourceInput = resolved.selectedSourceURL.standardizedFileURL == resolved.reportURL.standardizedFileURL
+                    ? nil
+                    : resolved.selectedSourceURL
+                let converted = try CzIdDataConverter.convertTaxonReport(
+                    at: resolved.reportURL,
+                    outputDirectory: destination,
+                    command: command,
+                    sourceInputURL: sourceInput
+                )
+                return (converted: converted, destination: destination, sample: sample)
+            }
 
             if !globalOptions.quiet {
                 print(formatter.header("CZ-ID Import"))
                 print("")
                 print(formatter.keyValueTable([
-                    ("Sample", converted.manifest?.sampleName ?? sample),
-                    ("Rows", String(converted.parsed.rows.count)),
-                    ("Pipeline", converted.parsed.metadata.pipelineVersion ?? "unknown"),
-                    ("NT database", converted.parsed.metadata.ntDatabaseVersion ?? "unknown"),
-                    ("NR database", converted.parsed.metadata.nrDatabaseVersion ?? "unknown"),
-                    ("Output", destination.path),
+                    ("Sample", importResult.converted.manifest?.sampleName ?? importResult.sample),
+                    ("Rows", String(importResult.converted.parsed.rows.count)),
+                    ("Pipeline", importResult.converted.parsed.metadata.pipelineVersion ?? "unknown"),
+                    ("NT database", importResult.converted.parsed.metadata.ntDatabaseVersion ?? "unknown"),
+                    ("NR database", importResult.converted.parsed.metadata.nrDatabaseVersion ?? "unknown"),
+                    ("Output", importResult.destination.path),
                 ]))
                 print("")
             }
 
-            print(formatter.success("Imported CZ-ID taxon report into \(destination.path)"))
+            print(formatter.success("Imported CZ-ID taxon report into \(importResult.destination.path)"))
         }
     }
 

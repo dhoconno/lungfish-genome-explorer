@@ -721,7 +721,10 @@ extension ImportCommand {
         ) async throws -> BuildInputs {
             let inputURL: URL
             if Self.compressionExtensions.contains(sourceURL.pathExtension.lowercased()) {
-                let decompressed = tempDirectory.appendingPathComponent("decompressed-input")
+                let decompressedName = extensionHint.isEmpty
+                    ? "decompressed-input"
+                    : "decompressed-input.\(extensionHint)"
+                let decompressed = tempDirectory.appendingPathComponent(decompressedName)
                 try decompressInput(sourceURL: sourceURL, outputURL: decompressed)
                 inputURL = decompressed
             } else {

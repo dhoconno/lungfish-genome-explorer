@@ -166,6 +166,7 @@ public enum MappingCommandBuilder {
         let mode = try mode(for: request)
         let nativeTool: NativeTool = mode == .bbmapPacBio ? .mapPacBio : .bbmap
         let executable = nativeTool.executableName
+        let readGroup = request.resolvedReadGroup(defaultPlatform: platformName(for: mode))
 
         var arguments = request.advancedArguments + [
             "ref=\(referenceURL.path)",
@@ -174,6 +175,11 @@ public enum MappingCommandBuilder {
             "nodisk=t",
             "overwrite=t",
             "secondary=\(request.includeSecondary ? "t" : "f")",
+            "rgid=\(readGroup.id)",
+            "rgsm=\(readGroup.sampleName)",
+            "rglb=\(readGroup.library)",
+            "rgpl=\(readGroup.platform)",
+            "rgpu=\(readGroup.platformUnit)",
         ]
         if request.pairedEnd && request.inputFASTQURLs.count == 2 {
             arguments += [

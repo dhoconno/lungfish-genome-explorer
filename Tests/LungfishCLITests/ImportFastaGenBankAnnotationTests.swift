@@ -91,6 +91,56 @@ final class ImportFastaGenBankAnnotationTests: XCTestCase {
         })
     }
 
+    func testCompressedGenBankReferenceImportMaterializesAnnotationTrackGFF3() async throws {
+        let uncompressedURL = tempDir.appendingPathComponent("MN908947.3.gb")
+        try Self.smallAnnotatedGenBank.write(to: uncompressedURL, atomically: true, encoding: .utf8)
+        let inputURL = tempDir.appendingPathComponent("MN908947.3.gb.gz")
+        try gzip(sourceURL: uncompressedURL, destinationURL: inputURL)
+
+        let projectURL = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let command = try ImportCommand.FASTASubcommand.parse([
+            inputURL.path,
+            "--output-dir", projectURL.path,
+            "--name", "MN908947.3-compressed",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let bundleURL = projectURL
+            .appendingPathComponent(ReferenceSequenceFolder.folderName, isDirectory: true)
+            .appendingPathComponent("MN908947.3-compressed.lungfishref", isDirectory: true)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let annotation = try XCTUnwrap(manifest.annotations.first)
+        XCTAssertEqual(annotation.path, "annotations/imported_annotations.gff3")
+        XCTAssertEqual(annotation.databasePath, "annotations/imported_annotations.db")
+        XCTAssertEqual(annotation.featureCount, 3)
+
+        let gff = try String(
+            contentsOf: bundleURL.appendingPathComponent(annotation.path),
+            encoding: .utf8
+        )
+        XCTAssertTrue(gff.contains("\tgene\t"))
+        XCTAssertTrue(gff.contains("\tCDS\t"))
+        XCTAssertTrue(gff.contains("\tmat_peptide\t"))
+    }
+
+    private func gzip(sourceURL: URL, destinationURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", sourceURL.path]
+
+        let output = Pipe()
+        process.standardOutput = output
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        XCTAssertEqual(process.terminationStatus, 0)
+        try data.write(to: destinationURL, options: .atomic)
+    }
+
     private static let smallAnnotatedGenBank = """
     LOCUS       MN908947                 120 bp    RNA     linear   VRL 01-JAN-2024
     DEFINITION  Minimal SARS-CoV-2 annotation fixture.
