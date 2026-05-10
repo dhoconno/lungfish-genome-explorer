@@ -39,7 +39,7 @@ The user has approved issue comments and closures as valid feedback. Closing wit
 4. Classify by type, area, status, priority, risk, and owning lead.
 5. Decide disposition: accepted, partially accepted, deferred, needs info, duplicate, already fixed, not planned, or blocked.
 6. Draft or post a public comment.
-7. Record batch findings under `docs/superpowers/reviews/` when handling multiple issues.
+7. Record batch findings under `docs/issues/` or `docs/reports/` when handling multiple issues.
 
 ## Expert Consensus
 

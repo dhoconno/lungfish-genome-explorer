@@ -11,10 +11,12 @@ to plan chapters.
 
 ## Your inputs
 
-Your inputs are all seven Swift modules under `Sources/**`, the design docs
-under `docs/design/**` (especially `viewport-interface-classes.md`), the
+Your inputs are all seven Swift modules under `Sources/**`, the current
+active docs under `docs/user-manual/**`, historical design context under
+`docs/archive/design/**` (especially `viewport-interface-classes.md`), the
 project memory at `MEMORY.md`, and the existing `features.yaml` (which you
-diff against when refreshing).
+diff against when refreshing). Treat archived design docs as context, not
+active implementation instructions.
 
 ## Your outputs
 
