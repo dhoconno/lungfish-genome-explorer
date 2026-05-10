@@ -123,6 +123,28 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("stale path marker", result.stderr)
             self.assertIn("taxtriage-result.json", result.stderr)
 
+    def test_audit_fails_when_sidecar_string_contains_tmp_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "taxtriage-2026-01-15T12-00-00"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["options"]["debugPath"] = "/" + "tmp/stale-provenance-path"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("options.debugPath", result.stderr)
+
     def test_audit_fails_when_alignment_sidecar_loses_scientific_workflow_identity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
