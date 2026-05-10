@@ -27,6 +27,8 @@
 !docs/**
 !lungfish-cli.entitlements
 !scripts/**
+scripts/**/__pycache__/
+scripts/**/*.py[cod]
 !sign-cli.sh
 !test-data/test-annotated.gb
 !test-data/test-sequence.fa
