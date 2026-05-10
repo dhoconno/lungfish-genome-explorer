@@ -62,6 +62,9 @@ public struct BlastVerificationRequest: Sendable {
     /// Verbatim user-supplied pass-through option string for provenance surfaces.
     public let extraArgs: String
 
+    /// Maximum concurrent BLAST submissions permitted for this process.
+    public let maxConcurrentSubmissions: Int
+
     /// Creates a new BLAST verification request.
     ///
     /// - Parameters:
@@ -73,6 +76,8 @@ public struct BlastVerificationRequest: Sendable {
     ///   - entrezQuery: Optional Entrez query filter (default: nil, no filter applied)
     ///   - maxTargetSeqs: Max target sequences per query (default: 5)
     ///   - eValueThreshold: E-value threshold (default: 1e-10)
+    ///   - extraArgs: Additional BLAST URL API parameters for provenance and pass-through.
+    ///   - maxConcurrentSubmissions: Maximum in-flight BLAST submissions (default: 1).
     public init(
         taxonName: String,
         taxId: Int,
@@ -82,7 +87,8 @@ public struct BlastVerificationRequest: Sendable {
         entrezQuery: String? = nil,
         maxTargetSeqs: Int = 5,
         eValueThreshold: Double = 1e-10,
-        extraArgs: String = ""
+        extraArgs: String = "",
+        maxConcurrentSubmissions: Int = 1
     ) {
         self.taxonName = taxonName
         self.taxId = taxId
@@ -93,6 +99,7 @@ public struct BlastVerificationRequest: Sendable {
         self.maxTargetSeqs = maxTargetSeqs
         self.eValueThreshold = eValueThreshold
         self.extraArgs = extraArgs
+        self.maxConcurrentSubmissions = max(1, maxConcurrentSubmissions)
     }
 
     /// Formats the sequences as a multi-FASTA string for BLAST submission.

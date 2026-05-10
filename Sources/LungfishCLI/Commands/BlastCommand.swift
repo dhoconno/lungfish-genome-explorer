@@ -240,7 +240,8 @@ extension BlastCommand {
                 taxonName: targetNode.name,
                 taxId: taxId,
                 sequences: subsampled,
-                extraArgs: extraArgs
+                extraArgs: extraArgs,
+                maxConcurrentSubmissions: maxConcurrent
             )
             _ = try request.blastURLAPIExtraParameters
 
@@ -334,7 +335,8 @@ extension BlastCommand {
                 taxonName: taxonName,
                 taxId: taxId,
                 sequences: sequences,
-                extraArgs: extraArgs
+                extraArgs: extraArgs,
+                maxConcurrentSubmissions: maxConcurrent
             )
         }
 

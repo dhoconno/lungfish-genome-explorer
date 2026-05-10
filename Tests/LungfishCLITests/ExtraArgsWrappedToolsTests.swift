@@ -29,6 +29,7 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
             "--source", "reads.fastq",
             "--kraken-output", "classification.kraken",
             "--taxid", "562",
+            "--max-concurrent", "2",
             "--extra-args", "MEGABLAST=off WORD_SIZE=11",
         ])
 
@@ -38,6 +39,7 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         )
 
         XCTAssertEqual(request.extraArgs, "MEGABLAST=off WORD_SIZE=11")
+        XCTAssertEqual(request.maxConcurrentSubmissions, 2)
     }
 
     func testBlastExtraArgsParseIntoURLAPIParameters() throws {
