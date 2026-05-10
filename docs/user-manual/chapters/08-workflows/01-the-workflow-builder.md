@@ -117,6 +117,12 @@ annotation for codon-aware variant calls, a sample-sheet CSV for
 multi-sample fan-out). Secondary inputs collapse into a single **More
 inputs** drawer on the node header; click the drawer chevron to reveal them.
 
+For multi-sample read workflows, start with a **Sample Sheet** input node
+when your run is described by a CSV with `sample`, `r1`, and `r2` columns.
+The node fans out one FASTQ bundle stream per row, preserving row metadata
+so downstream QC, trimming, mapping, and classification steps run once per
+sample while keeping the batch definition reproducible.
+
 ### Configure per-node parameters
 
 Click a node to select it. The right-hand inspector swaps to show the node's

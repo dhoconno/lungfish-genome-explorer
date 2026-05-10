@@ -40,9 +40,32 @@ public struct FASTQFilePair: Sendable {
     public let r1: URL
     /// The R2 (reverse) file, if paired-end.
     public let r2: URL?
+    /// Sample name supplied by an external sample sheet, when available.
+    public let sampleNameOverride: String?
+    /// Optional sample-sheet metadata for this row.
+    public let metadata: [String: String]
+    /// CSV sample sheet that supplied this pair, when applicable.
+    public let sampleSheetURL: URL?
+
+    public init(
+        r1: URL,
+        r2: URL?,
+        sampleNameOverride: String? = nil,
+        metadata: [String: String] = [:],
+        sampleSheetURL: URL? = nil
+    ) {
+        self.r1 = r1
+        self.r2 = r2
+        self.sampleNameOverride = sampleNameOverride
+        self.metadata = metadata
+        self.sampleSheetURL = sampleSheetURL
+    }
 
     /// Human-readable sample name derived from the filename.
     public var sampleName: String {
+        if let sampleNameOverride, !sampleNameOverride.isEmpty {
+            return sampleNameOverride
+        }
         var name = r1.deletingPathExtension().lastPathComponent
         // Strip .fastq from .fastq.gz
         if name.hasSuffix(".fastq") || name.hasSuffix(".fq") {

@@ -1604,6 +1604,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
     }
 
+    /// Import paired FASTQ batches from a CSV sample sheet.
+    func importFASTQSampleSheetFromURL(_ url: URL) {
+        guard let mainSplit = mainWindowController?.mainSplitViewController else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
+            return
+        }
+
+        guard let projectURL = mainSplit.sidebarController.currentProjectURL else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
+            return
+        }
+
+        do {
+            let sheet = try FASTQSampleSheet.parse(url: url)
+            let pairs = sheet.entries.map { entry in
+                FASTQFilePair(
+                    r1: entry.r1,
+                    r2: entry.r2,
+                    sampleNameOverride: entry.sampleName,
+                    metadata: entry.metadata,
+                    sampleSheetURL: sheet.sourceURL
+                )
+            }
+            mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
+        } catch {
+            showAlert(title: "Invalid FASTQ Sample Sheet", message: error.localizedDescription)
+        }
+    }
+
     func importFASTAFromURL(_ url: URL) {
         guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
               let projectURL = sidebarController.currentProjectURL else {

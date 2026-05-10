@@ -74,15 +74,26 @@ Bring local files into a project.
 
 Imports a FASTA, GenBank, or GFF3+FASTA pair as a reference bundle.
 
-`lungfish import-fastq --project <path> --files <fastq...>`
+`lungfish import fastq <fastq-or-folder...> --project <path>`
 
 Imports FASTQ files into the project's `Imports/` folder. Auto-pairs files with `_1`/`_2` or `_R1`/`_R2` suffixes.
 
 ```bash
-lungfish import-fastq \
+lungfish import fastq \
+    SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz \
     --project ~/Documents/MyProject \
-    --files SRR36291587_1.fastq.gz SRR36291587_2.fastq.gz
+    --platform illumina
 ```
+
+`lungfish import fastq --samplesheet <csv> --project <path>`
+
+Imports a paired Illumina CSV sample sheet with `sample`, `r1`, and `r2`
+columns. Extra columns become per-bundle metadata, and each bundle's
+provenance records the sample-sheet checksum plus the resolved per-sample
+FASTQ paths.
+
+`lungfish import-fastq --samplesheet <csv> --project <path>` is an alias for
+the same command.
 
 `lungfish import vcf <path> [--reference <bundle>]`
 

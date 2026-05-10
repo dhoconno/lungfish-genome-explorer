@@ -123,6 +123,7 @@ final class ImportCenterMenuTests: XCTestCase {
         let ids = Set(viewModel.allCards.map(\.id))
 
         XCTAssertTrue(ids.contains("fastq"))
+        XCTAssertTrue(ids.contains("fastq-sample-sheet"))
         XCTAssertTrue(ids.contains("ont-run"))
         XCTAssertTrue(ids.contains("bam-cram"))
         XCTAssertTrue(ids.contains("vcf"))
@@ -140,6 +141,25 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertFalse(ids.contains("project-files"))
         XCTAssertFalse(ids.contains("bundle-sample-metadata"))
         XCTAssertFalse(ids.contains("project-sample-metadata"))
+    }
+
+    func testImportCenterSampleSheetCardRoutesToBatchFASTQImport() throws {
+        let viewModel = ImportCenterViewModel()
+        let card = try XCTUnwrap(viewModel.allCards.first { $0.id == "fastq-sample-sheet" })
+
+        XCTAssertEqual(card.title, "FASTQ Sample Sheet")
+        XCTAssertEqual(card.importAction, .fastqSampleSheet)
+        XCTAssertEqual(card.tab, .sequencingReads)
+        XCTAssertEqual(card.fileHint, ".csv with sample,r1,r2 columns")
+
+        guard case .openPanel(let config, let action) = card.importKind else {
+            return XCTFail("FASTQ sample sheet should use an open panel")
+        }
+        XCTAssertEqual(action, .fastqSampleSheet)
+        XCTAssertTrue(config.canChooseFiles)
+        XCTAssertFalse(config.canChooseDirectories)
+        XCTAssertFalse(config.allowsMultipleSelection)
+        XCTAssertTrue(config.allowedTypes?.contains { $0.preferredFilenameExtension == "csv" } ?? false)
     }
 
     func testImportCenterHasApplicationExportsTab() {

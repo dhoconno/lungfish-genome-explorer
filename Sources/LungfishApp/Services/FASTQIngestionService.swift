@@ -457,6 +457,16 @@ public enum FASTQIngestionService {
             if let recipeName {
                 parameters["recipe"] = .string(recipeName)
             }
+            if let sampleSheetURL = pair.sampleSheetURL {
+                parameters["sampleSheet"] = .file(sampleSheetURL)
+            }
+            if !pair.metadata.isEmpty {
+                parameters["sampleSheetMetadata"] = .dictionary(pair.metadata.mapValues { .string($0) })
+                try? FASTQBundleCSVMetadata.save(
+                    FASTQBundleCSVMetadata(keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }),
+                    to: bundleURL
+                )
+            }
             let runID = await ProvenanceRecorder.shared.beginRun(
                 name: "FASTQ Import: \(bundleName)",
                 parameters: parameters
