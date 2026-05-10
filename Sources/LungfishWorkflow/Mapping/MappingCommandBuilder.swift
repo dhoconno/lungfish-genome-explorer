@@ -79,11 +79,12 @@ public enum MappingCommandBuilder {
         referenceURL: URL
     ) throws -> ManagedMappingCommand {
         let mode = try mode(for: request)
+        let readGroup = request.resolvedReadGroup(defaultPlatform: platformName(for: mode))
         var arguments = [
             "-a",
             "-x", mode.commandPresetValue ?? "sr",
             "-t", String(request.threads),
-            "-R", readGroupHeader(sampleName: request.sampleName, platform: platformName(for: mode)),
+            "-R", readGroupHeader(readGroup),
         ]
         if !request.includeSecondary {
             arguments.append("--secondary=no")
@@ -105,10 +106,11 @@ public enum MappingCommandBuilder {
         for request: MappingRunRequest,
         indexPrefixURL: URL
     ) throws -> ManagedMappingCommand {
+        let readGroup = request.resolvedReadGroup(defaultPlatform: "ILLUMINA")
         var arguments = [
             "mem",
             "-t", String(request.threads),
-            "-R", readGroupHeader(sampleName: request.sampleName, platform: "ILLUMINA"),
+            "-R", readGroupHeader(readGroup),
         ]
         arguments += request.advancedArguments
         arguments.append(indexPrefixURL.path)
@@ -127,12 +129,15 @@ public enum MappingCommandBuilder {
         rawAlignmentURL: URL,
         indexPrefixURL: URL
     ) -> ManagedMappingCommand {
+        let readGroup = request.resolvedReadGroup(defaultPlatform: "ILLUMINA")
         var arguments = [
             "-x", indexPrefixURL.path,
             "-p", String(request.threads),
-            "--rg-id", request.sampleName,
-            "--rg", "SM:\(request.sampleName)",
-            "--rg", "PL:ILLUMINA",
+            "--rg-id", readGroup.id,
+            "--rg", "SM:\(readGroup.sampleName)",
+            "--rg", "LB:\(readGroup.library)",
+            "--rg", "PL:\(readGroup.platform)",
+            "--rg", "PU:\(readGroup.platformUnit)",
         ]
         if request.includeSecondary {
             arguments += ["-k", "10"]
@@ -214,8 +219,8 @@ public enum MappingCommandBuilder {
         }
     }
 
-    private static func readGroupHeader(sampleName: String, platform: String) -> String {
-        "@RG\\tID:\(sampleName)\\tSM:\(sampleName)\\tPL:\(platform)"
+    private static func readGroupHeader(_ readGroup: MappingReadGroup) -> String {
+        "@RG\\tID:\(readGroup.id)\\tSM:\(readGroup.sampleName)\\tLB:\(readGroup.library)\\tPL:\(readGroup.platform)\\tPU:\(readGroup.platformUnit)"
     }
 }
 
