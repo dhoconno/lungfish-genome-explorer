@@ -283,6 +283,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
     case deduplicate
 
     // Trim operations (produce trim position records)
+    case fastpTrim
     case qualityTrim
     case adapterTrim
     case fixedTrim
@@ -321,7 +322,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
             return true
         case .deduplicate:
             return false  // clumpify writes a full output file
-        case .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
+        case .fastpTrim, .qualityTrim, .adapterTrim, .fixedTrim, .primerRemoval:
             return false
         case .ribosomalRNAFilter:
             return false
@@ -361,7 +362,7 @@ public enum FASTQDerivativeOperationKind: String, Codable, Sendable, CaseIterabl
              .ribosomalRNAFilter,
              .humanReadScrub:
             return true
-        case .qualityTrim, .pairedEndMerge,
+        case .fastpTrim, .qualityTrim, .pairedEndMerge,
              .pairedEndRepair, .errorCorrection,
              .interleaveReformat:
             return false
@@ -685,6 +686,12 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             return "search-motif"
         case .deduplicate:
             return "dedup"
+        case .fastpTrim:
+            let q = qualityThreshold ?? 20
+            let w = windowSize ?? 4
+            let mode = qualityTrimMode ?? .cutRight
+            let adapter = adapterMode ?? .autoDetect
+            return "fastp adapter + quality trim Q\(q) w\(w) (\(mode.rawValue), \(adapter.rawValue))"
         case .qualityTrim:
             let q = qualityThreshold ?? 20
             return "qtrim-Q\(q)"
@@ -775,6 +782,12 @@ public struct FASTQDerivativeOperation: Codable, Sendable, Equatable {
             let w = windowSize ?? 4
             let mode = qualityTrimMode ?? .cutRight
             return "Quality trim Q\(q) w\(w) (\(mode.rawValue))"
+        case .fastpTrim:
+            let q = qualityThreshold ?? 20
+            let w = windowSize ?? 4
+            let mode = qualityTrimMode ?? .cutRight
+            let adapter = adapterMode ?? .autoDetect
+            return "fastp adapter + quality trim Q\(q) w\(w) (\(mode.rawValue), \(adapter.rawValue))"
         case .adapterTrim:
             let mode = adapterMode ?? .autoDetect
             switch mode {
@@ -1533,6 +1546,13 @@ extension FASTQDerivativeOperation {
             let w = windowSize ?? 4
             let mode = qualityTrimMode ?? .cutRight
             return "Quality trimming was performed\(tool) (Q\(q), window size \(w), \(mode.rawValue) mode)."
+
+        case .fastpTrim:
+            let q = qualityThreshold ?? 20
+            let w = windowSize ?? 4
+            let mode = qualityTrimMode ?? .cutRight
+            let adapter = adapterMode ?? .autoDetect
+            return "Adapter detection/removal and quality trimming were performed together\(tool) in one fastp pass (Q\(q), window size \(w), \(mode.rawValue) mode, adapter \(adapter.rawValue))."
 
         case .adapterTrim:
             let mode = adapterMode ?? .autoDetect

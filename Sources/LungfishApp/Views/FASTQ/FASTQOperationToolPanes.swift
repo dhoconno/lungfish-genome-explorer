@@ -214,6 +214,24 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 Text("No additional primary settings are required for this QC summary refresh.")
                     .foregroundStyle(.secondary)
 
+            case .fastpTrim:
+                labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold))
+                labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize))
+                Picker("Mode", selection: $state.qualityTrimMode) {
+                    ForEach(FASTQQualityTrimMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Picker("Adapter Mode", selection: $state.adapterRemovalMode) {
+                    Text("Auto-Detect").tag(FASTQAdapterMode.autoDetect)
+                    Text("Manual Sequence").tag(FASTQAdapterMode.specified)
+                }
+                .pickerStyle(.segmented)
+                if state.adapterRemovalMode == .specified {
+                    labeledTextField("Adapter Sequence", text: $state.adapterRemovalSequence)
+                }
+
             case .qualityTrim:
                 labeledTextField("Threshold", text: Self.intBinding(state, \.qualityTrimThreshold))
                 labeledTextField("Window Size", text: Self.intBinding(state, \.qualityTrimWindowSize))
@@ -510,6 +528,9 @@ private struct FASTQOperationAdvancedSettingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             switch state.selectedToolID {
+            case .fastpTrim:
+                Text("fastp will run adapter detection/removal and quality trimming together in one pass.")
+                    .foregroundStyle(.secondary)
             case .qualityTrim:
                 Text("Quality trimming uses the selected threshold, window size, and mode.")
                     .foregroundStyle(.secondary)

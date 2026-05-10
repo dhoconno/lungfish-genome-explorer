@@ -9,6 +9,7 @@ tags: [reference, primer-scheme, amplicon, bed, provenance]
 tools: []
 entry_points:
   - "File > Import Center > Primer Scheme"
+  - "CLI: lungfish primers import"
 shots: []
 illustrations: []
 glossary_refs: [primer-scheme, provenance]
@@ -24,7 +25,7 @@ lead_approved: false
 
 Lungfish stores amplicon primer schemes as `.lungfishprimers` bundles in a project's `Primer Schemes/` folder. Primer trim dialogs and the Viral Recon wizard read those bundles instead of loose BED files so the coordinates, reference accession, display name, and provenance travel together.
 
-The current release ships one built-in scheme, `QIASeqDIRECT-SARS2`, under the app resources. Custom schemes are project-local and can be imported through the Import Center. There is not currently a `lungfish primers import --bed ...` CLI command. Product follow-on: add a CLI importer that mirrors the GUI importer, computes checksums and file sizes for every source file, and writes the same full reproducibility provenance expected from other scientific-data commands.
+The current release ships one built-in scheme, `QIASeqDIRECT-SARS2`, under the app resources. Custom schemes are project-local and can be imported through the Import Center or the `lungfish primers import` CLI. Both paths copy the source files into a bundle, write a manifest, compute checksums and file sizes, and record reproducibility provenance.
 
 ## Bundle Layout
 
@@ -37,6 +38,7 @@ MyScheme.lungfishprimers/
   primers.fasta        # optional
   attachments/         # optional
   PROVENANCE.md
+  .lungfish-provenance.json
 ```
 
 `primers.bed` is required. `primers.fasta` is optional because some schemes can derive primer sequences from the reference accession and BED coordinates. Attachments are for vendor PDFs, source spreadsheets, or lab notes that need to travel with the scheme.
@@ -65,6 +67,23 @@ MN908947.3	385	410	SARS-CoV-2_1_RIGHT	1	-
 
 The chromosome column must match the accession or sequence name in the alignment reference, or be resolvable through an equivalent accession in `manifest.json`. A scheme built against one reference and applied to a BAM mapped against a different coordinate system can trim zero primers without producing an obvious visual error.
 
+## CLI Import Procedure
+
+Use this path when the scheme source files already live in a scripted analysis directory.
+
+```bash
+lungfish primers import \
+  --bed primers.bed \
+  --fasta reference.fasta \
+  --output MyScheme.lungfishprimers \
+  --reference-accession MN908947.3 \
+  --display-name "My Scheme"
+```
+
+If `--output` is relative and `--project` is supplied, Lungfish writes the bundle under `<project>/Primer Schemes/`. Without `--project`, the relative output path is resolved from the current directory. The `.lungfishprimers` suffix is added automatically when omitted.
+
+The command writes `manifest.json`, `PROVENANCE.md`, and `.lungfish-provenance.json`. Provenance records the workflow name and version, exact argv, resolved options, input and output paths, checksums, file sizes, exit status, and wall time. Optional repeatable arguments include `--equivalent-accession <accession>` for alternate reference names and `--attachment <path>` for vendor PDFs, spreadsheets, or lab notes.
+
 ## GUI Import Procedure
 
 Use this path when you have a BED file and want Lungfish to author the bundle for the active project.
@@ -79,12 +98,12 @@ Prepare the import:
 Finish the import:
 
 1. Enter a file-safe scheme name, a display name, the canonical reference accession, and any equivalent accessions.
-2. Run the import. Lungfish writes `Primer Schemes/<name>.lungfishprimers`, copies the files, writes `manifest.json`, and adds `PROVENANCE.md`.
+2. Run the import. Lungfish writes `Primer Schemes/<name>.lungfishprimers`, copies the files, writes `manifest.json`, and adds both human-readable and machine-readable provenance.
 3. Reopen the Primer Trim dialog or Viral Recon wizard. The scheme appears alongside built-in schemes.
 
-## CLI Status
+## Consuming a Custom Scheme
 
-There is no dedicated primer-scheme import command in the current CLI. The commands that consume primer schemes expect an existing bundle:
+Commands that consume primer schemes take the bundle path:
 
 ```bash
 lungfish bam primer-trim \
@@ -93,4 +112,4 @@ lungfish bam primer-trim \
   --scheme "Primer Schemes/MyScheme.lungfishprimers"
 ```
 
-Until the CLI importer exists, scripted projects should either check in a prebuilt `.lungfishprimers` bundle or run the GUI import once and keep the resulting project-local bundle under the same project provenance policy as other inputs.
+Scripted projects can check in the generated `.lungfishprimers` bundle or regenerate it from the original BED/FASTA sources with `lungfish primers import` as part of the project setup.

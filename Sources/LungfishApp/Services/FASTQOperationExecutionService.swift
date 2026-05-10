@@ -570,6 +570,35 @@ struct FASTQOperationExecutionService {
             _ = preset
             return arguments
 
+        case .fastpTrim(let threshold, let windowSize, let mode, let adapterMode, let adapterSequence):
+            var arguments = [
+                "trim",
+                inputURL.path,
+                "--threshold",
+                "\(threshold)",
+                "--window",
+                "\(windowSize)",
+                "--mode",
+                qualityTrimModeArgument(for: mode),
+            ]
+            switch adapterMode {
+            case .autoDetect:
+                arguments.append("--adapter-trimming")
+            case .specified:
+                guard let adapterSequence else {
+                    throw FASTQOperationExecutionError.unsupportedAdapterTrim(
+                        "manual adapter mode requires a literal adapter sequence"
+                    )
+                }
+                arguments += ["--adapter-trimming", "--adapter", adapterSequence]
+            case .fastaFile:
+                throw FASTQOperationExecutionError.unsupportedAdapterTrim(
+                    "fastaFile mode is not encodable"
+                )
+            }
+            arguments += ["-o", outputTarget]
+            return arguments
+
         case .qualityTrim(let threshold, let windowSize, let mode, let extraArguments):
             var arguments = [
                 "quality-trim",
