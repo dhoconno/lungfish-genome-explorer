@@ -21,8 +21,67 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertEqual(graph.description, "A test workflow")
         XCTAssertEqual(graph.version, "1.0.0")
         XCTAssertEqual(graph.author, "Test Author")
-        XCTAssertTrue(graph.allNodes.isEmpty)
+        XCTAssertEqual(graph.allNodes.filter(\.isPinned).count, 2)
         XCTAssertTrue(graph.allConnections.isEmpty)
+    }
+
+    func testWorkflowGraphCreatesPinnedInputAndOutputAnchorsAutomatically() {
+        let graph = WorkflowGraph(name: "Anchored Pipeline")
+
+        XCTAssertEqual(graph.sampleInput.type, .sampleInput)
+        XCTAssertEqual(graph.sampleInput.label, "Sample input")
+        XCTAssertEqual(graph.sampleInput.outputPort(withId: "sample")?.dataType, .any)
+        XCTAssertTrue(graph.sampleInput.isPinned)
+        XCTAssertFalse(graph.sampleInput.isDraggable)
+        XCTAssertFalse(graph.sampleInput.isRemovable)
+
+        XCTAssertEqual(graph.projectOutput.type, .projectOutput)
+        XCTAssertEqual(graph.projectOutput.label, "Project output")
+        XCTAssertEqual(graph.projectOutput.inputPort(withId: "input")?.dataType, .any)
+        XCTAssertTrue(graph.projectOutput.isPinned)
+        XCTAssertFalse(graph.projectOutput.isDraggable)
+        XCTAssertFalse(graph.projectOutput.isRemovable)
+
+        XCTAssertEqual(graph.nodeCount, 2)
+    }
+
+    func testWorkflowGraphDoesNotRemovePinnedAnchors() {
+        var graph = WorkflowGraph(name: "Anchored Pipeline")
+        let sampleInputID = graph.sampleInput.id
+        let projectOutputID = graph.projectOutput.id
+
+        XCTAssertNil(graph.removeNode(id: sampleInputID))
+        XCTAssertNil(graph.removeNode(id: projectOutputID))
+
+        XCTAssertNotNil(graph.getNode(sampleInputID))
+        XCTAssertNotNil(graph.getNode(projectOutputID))
+        XCTAssertEqual(graph.nodeCount, 2)
+    }
+
+    func testWorkflowGraphRoundTripsPinnedAnchors() throws {
+        var graph = WorkflowGraph(name: "Anchored Pipeline")
+        let trimming = graph.addNode(type: .trimming, position: CGPoint(x: 360, y: 120))
+        _ = try graph.addConnection(
+            sourceNodeId: graph.sampleInput.id,
+            sourcePortId: "sample",
+            targetNodeId: trimming.id,
+            targetPortId: "reads"
+        )
+        _ = try graph.addConnection(
+            sourceNodeId: trimming.id,
+            sourcePortId: "trimmed",
+            targetNodeId: graph.projectOutput.id,
+            targetPortId: "input"
+        )
+
+        let data = try JSONEncoder().encode(graph)
+        let decoded = try JSONDecoder().decode(WorkflowGraph.self, from: data)
+
+        XCTAssertEqual(decoded.sampleInput.id, graph.sampleInput.id)
+        XCTAssertEqual(decoded.projectOutput.id, graph.projectOutput.id)
+        XCTAssertEqual(decoded.sampleInput.outputPort(withId: "sample")?.dataType, .any)
+        XCTAssertEqual(decoded.projectOutput.inputPort(withId: "input")?.dataType, .any)
+        XCTAssertEqual(decoded.connectionCount, 2)
     }
 
     func testAddNode() {
@@ -33,7 +92,7 @@ final class WorkflowBuilderTests: XCTestCase {
             position: CGPoint(x: 100, y: 100)
         )
 
-        XCTAssertEqual(graph.nodeCount, 1)
+        XCTAssertEqual(graph.nodeCount, 3)
         XCTAssertEqual(node.type, .fastqInput)
         XCTAssertEqual(node.position, CGPoint(x: 100, y: 100))
         XCTAssertNotNil(graph.getNode(node.id))
@@ -47,7 +106,7 @@ final class WorkflowBuilderTests: XCTestCase {
 
         XCTAssertNotNil(removed)
         XCTAssertEqual(removed?.id, node.id)
-        XCTAssertEqual(graph.nodeCount, 0)
+        XCTAssertEqual(graph.nodeCount, 2)
         XCTAssertNil(graph.getNode(node.id))
     }
 
@@ -141,10 +200,11 @@ final class WorkflowBuilderTests: XCTestCase {
 
         let sorted = try graph.topologicalSort()
 
-        XCTAssertEqual(sorted.count, 3)
-        XCTAssertEqual(sorted[0].id, inputNode.id)
-        XCTAssertEqual(sorted[1].id, trimmingNode.id)
-        XCTAssertEqual(sorted[2].id, qcNode.id)
+        let executableNodes = sorted.filter { !$0.isPinned }
+        XCTAssertEqual(executableNodes.count, 3)
+        XCTAssertEqual(executableNodes[0].id, inputNode.id)
+        XCTAssertEqual(executableNodes[1].id, trimmingNode.id)
+        XCTAssertEqual(executableNodes[2].id, qcNode.id)
     }
 
     func testValidation() {

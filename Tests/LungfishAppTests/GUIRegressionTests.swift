@@ -61,6 +61,7 @@ final class GUIRegressionTests: XCTestCase {
             "FASTQ/FASTA Operations",
             "Call Variants…",
             "Search Online Databases...",
+            "Workflow Builder…",
             "Plugin Manager…",
         ])
     }

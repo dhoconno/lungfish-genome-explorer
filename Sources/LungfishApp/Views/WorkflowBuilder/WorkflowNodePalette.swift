@@ -76,7 +76,7 @@ public class WorkflowNodePalette: NSView {
         // Group node types by category
         var categoryMap: [NodeCategory: [WorkflowNodeType]] = [:]
 
-        for nodeType in WorkflowNodeType.allCases {
+        for nodeType in WorkflowNodeType.allCases where nodeType != .sampleInput && nodeType != .projectOutput {
             categoryMap[nodeType.category, default: []].append(nodeType)
         }
 

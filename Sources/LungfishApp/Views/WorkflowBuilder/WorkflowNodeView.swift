@@ -150,7 +150,13 @@ public class WorkflowNodeView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("\(node.type.displayName) node: \(node.label)")
-        setAccessibilityIdentifier("workflow-node-\(node.id)")
+        if node.type == .sampleInput {
+            setAccessibilityIdentifier("workflow-anchor-sample-input")
+        } else if node.type == .projectOutput {
+            setAccessibilityIdentifier("workflow-anchor-project-output")
+        } else {
+            setAccessibilityIdentifier("workflow-node-\(node.id)")
+        }
     }
 
     public override func accessibilityChildren() -> [Any]? {
@@ -281,13 +287,13 @@ public class WorkflowNodeView: NSView {
 
         // Background fill
         context.addPath(path)
-        context.setFillColor(NSColor.controlBackgroundColor.cgColor)
+        context.setFillColor(backgroundColor.cgColor)
         context.fillPath()
 
         // Border
         context.addPath(path)
-        context.setStrokeColor(NSColor.separatorColor.cgColor)
-        context.setLineWidth(1)
+        context.setStrokeColor(borderColor.cgColor)
+        context.setLineWidth(node.isPinned ? 2 : 1)
         context.strokePath()
     }
 
@@ -300,7 +306,7 @@ public class WorkflowNodeView: NSView {
         )
 
         // Title bar background with category color
-        let categoryColor = colorForCategory(node.type.category)
+        let categoryColor = node.isPinned ? NSColor.systemTeal : colorForCategory(node.type.category)
         let path = CGMutablePath()
         path.move(to: CGPoint(x: titleRect.minX + Self.cornerRadius, y: titleRect.minY))
         path.addLine(to: CGPoint(x: titleRect.maxX - Self.cornerRadius, y: titleRect.minY))
@@ -438,6 +444,18 @@ public class WorkflowNodeView: NSView {
         }
     }
 
+    private var backgroundColor: NSColor {
+        node.isPinned
+            ? NSColor.controlAccentColor.withAlphaComponent(0.08)
+            : NSColor.controlBackgroundColor
+    }
+
+    private var borderColor: NSColor {
+        node.isPinned
+            ? NSColor.controlAccentColor.withAlphaComponent(0.75)
+            : NSColor.separatorColor
+    }
+
     // MARK: - Mouse Events
 
     public override func mouseDown(with event: NSEvent) {
@@ -450,10 +468,11 @@ public class WorkflowNodeView: NSView {
             return
         }
 
-        // Start dragging
-        isDragging = true
-        dragStartPoint = event.locationInWindow
-        dragStartPosition = frame.origin
+        if node.isDraggable {
+            isDragging = true
+            dragStartPoint = event.locationInWindow
+            dragStartPosition = frame.origin
+        }
 
         delegate?.nodeViewDidSelect(self)
     }

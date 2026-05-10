@@ -27,14 +27,12 @@ lead_approved: false
 
 ## What it is
 
-The Workflow Builder is a visual node-graph composer for chaining Lungfish
-operations into reusable pipelines. Each operation that you would normally
-launch from a menu (download a reference, map reads, trim primers, call
-variants) appears as a draggable node on a canvas. You wire the output of one
-node into the input of the next, configure parameters per node, and run the
-whole graph against a sample. The result is a workflow asset that lives in
-your project, carries provenance for every step, and can be run again next
-month against a different sample without re-clicking through dialogs.
+The Workflow Builder is a visual node-graph composer for drafting reusable
+Lungfish pipelines. Operations appear as draggable nodes on a canvas. You wire
+the output of one node into the input of the next, configure supported node
+parameters, and save the graph as a `.lungfishflow` bundle. The bundle carries
+workflow-level provenance and can be reopened or exported while the full
+Operation Center execution path continues to mature.
 
 Workflows are the bridge between a one-off analysis and a documented
 procedure. You learned in [Provenance and reproducibility](../01-foundations/08-provenance-and-reproducibility.md)
@@ -64,17 +62,14 @@ and build the workflow once.
 
 By the end of this chapter you will know how to open the Workflow Builder,
 drag operation nodes from the palette, connect them with edges, configure
-per-node parameters, save the resulting workflow as a project asset, and run
-it against a sample. The worked example composes a SARS-CoV-2 reads-to-variants
-workflow and runs it against a fixture sample.
+supported per-node parameters, and save the resulting workflow bundle.
 
 ## Procedure
 
 ### Open the Workflow Builder
 
-Choose **Tools > Workflow Builder** from the menu bar. A new window opens
-showing three panes: an operation palette on the left, a canvas in the
-middle, and an inspector on the right. The canvas starts empty except for a
+Choose **Tools > Workflow Builder** from the menu bar. A reusable window opens
+showing an operation palette on the left and a canvas on the right. The canvas starts empty except for a
 faint grid and two pinned nodes labelled **Sample input** and **Project
 output**. These two nodes are not draggable. They represent the entry and
 exit of any workflow you build, and you connect your first and last
@@ -82,12 +77,8 @@ operation to them.
 
 <!-- planned: workflow-builder-palette -->
 
-The palette groups operations by category. Categories follow the same
-structure as the **Tools** menu: Acquire, Align and map, Trim, Call, Profile,
-Assemble, Tree. Click a category header to expand or collapse its contents.
-Hovering a node in the palette shows a one-line description and the plugin
-that provides it, which matters when two plugins offer similar operations
-(for example, both iVar and LoFreq can call variants).
+The palette groups operations by category: Input, Preprocessing, Analysis,
+and Output. Click a category header to expand or collapse its contents.
 
 ### Drag a node onto the canvas
 
@@ -119,11 +110,9 @@ inputs** drawer on the node header; click the drawer chevron to reveal them.
 
 ### Configure per-node parameters
 
-Click a node to select it. The right-hand inspector swaps to show the node's
-parameter form, which mirrors the dialog you would see if you ran the
-operation interactively. iVar's **Minimum allele frequency**, minimap2's
-preset, SPAdes's `--meta` flag: every parameter that appears in the run
-dialog appears here too.
+Click a node to select it. Nodes with typed parameters store those values in
+the graph and validate them before export. The initial builder surface focuses
+on graph composition; richer per-tool forms are being added tool by tool.
 
 <!-- planned: workflow-builder-node-inspector -->
 
@@ -170,12 +159,10 @@ tree and you handle rooting interactively in the Phylogeny viewer.
 
 ### Save the workflow
 
-Choose **File > Save Workflow** or press `Cmd-S`. The first save prompts
-for a name and writes the workflow to the active project at
-`Workflows/<name>.lungfishflow`. Subsequent saves overwrite that file. The
-saved bundle includes the node graph, every parameter value, the plugin
-versions in use at save time, and a provenance entry recording who saved
-the workflow and when.
+The native save action writes a bundle directory named
+`<name>.lungfishflow`. The bundle contains `graph.json` and
+`provenance.json`, including the Workflow Builder version, the reproducible
+save command, output path, file size, checksum, and exit status.
 
 What the saved workflow does not include is the sample. The **Sample input**
 node is bound when you press **Run**, not when you press **Save**, which is
@@ -183,15 +170,12 @@ what makes the workflow reusable across samples.
 
 ### Run the workflow
 
-Click the **Run** button in the toolbar. A small sheet appears asking you to
-bind the **Sample input** node to a real sample in the current project.
-Choose a FASTQ bundle (or a paired-end pair) from the dropdown and click
-**Run**. The Workflow Builder closes its sheet and the project's Operation
-Center takes over: each node becomes a row in the operation log, executes in
-dependency order, and writes its outputs into the project as if you had
-launched it from the Tools menu. You can watch progress in the Operation
-Center panel, and you can keep working in the rest of the app while the
-workflow runs.
+Click the **Run** button in the toolbar. If the graph is incomplete, the
+builder shows the validation errors. If the graph is structurally ready but
+the active project/sample binding is unavailable, the builder opens an
+explanatory setup sheet instead of silently doing nothing. Operation Center
+dispatch, run IDs, failure stop/resume, and per-node resume actions are still
+tracked as docs-040b follow-up work.
 
 ## Worked example: SARS-CoV-2 reads to variants
 
@@ -223,31 +207,16 @@ Press `Cmd-S` and save the workflow as `sarscov2-reads-to-variants`. The
 file lands at `Workflows/sarscov2-reads-to-variants.lungfishflow` inside the
 project.
 
-Click **Run**, bind the sample input to your paired FASTQ bundle, and click
-**Run** in the sheet. The Operation Center fills with five rows, one per
-node, and runs them in order. When the last row completes, the project
-sidebar shows a new annotated VCF under **Variants**.
-
-To prove the workflow is reusable, import a second paired-end FASTQ bundle
-into the same project, double-click the saved workflow in the sidebar to
-reopen it, click **Run**, and bind the sample input to the new bundle. Same
-graph, same parameters, different sample, no re-clicking.
+Click **Run** to validate the graph. In builds where project/sample binding
+is not yet connected, use the saved `.lungfishflow` bundle or export to
+Nextflow/Snakemake as the reproducible handoff.
 
 ## Interpretation
 
-A successful workflow run leaves three things in your project: the output
-artefacts (in this example, a BAM, a trimmed BAM, an unannotated VCF, and an
-annotated VCF), one Operation Center row per node with its full provenance,
-and a `runs/` folder inside the workflow bundle that records which sample
-the workflow was bound to on each run. If you ran the workflow three times
-against three samples, you have three entries under `runs/` and three sets
-of output artefacts; the workflow file itself is unchanged.
-
-If a node fails (a download times out, iVar errors on an empty BAM), the
-Operation Center marks that row red and stops the downstream nodes. Fix the
-failing step, click **Resume** on the workflow, and only the failed node and
-its descendants re-run. Upstream nodes that already succeeded are not
-recomputed.
+A saved workflow bundle is a reproducible graph asset. Full run history under
+`runs/`, Operation Center row provenance, downstream stop-on-failure, and
+resume semantics are planned for the execution plumbing that follows the
+current builder wiring.
 
 A common surprise the first time you save a workflow: the node graph
 captures parameters but not paths. If your workflow needs a primer scheme

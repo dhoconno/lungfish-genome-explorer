@@ -77,8 +77,27 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
+    }
+
+    func testToolsMenuPlacesWorkflowBuilderBeforePluginManager() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+
+        let workflowIndex = try XCTUnwrap(
+            toolsMenu.items.firstIndex(where: { $0.title == "Workflow Builder…" })
+        )
+        let pluginIndex = try XCTUnwrap(
+            toolsMenu.items.firstIndex(where: { $0.title == "Plugin Manager…" })
+        )
+        let workflowItem = toolsMenu.items[workflowIndex]
+
+        XCTAssertLessThan(workflowIndex, pluginIndex)
+        XCTAssertEqual(workflowItem.action, #selector(AppDelegate.showWorkflowBuilder(_:)))
+        XCTAssertEqual(workflowItem.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
     }
 
     func testToolsMenuExposesCallVariantsItemWithStableIdentifier() throws {

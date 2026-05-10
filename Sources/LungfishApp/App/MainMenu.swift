@@ -752,6 +752,13 @@ public final class MainMenu {
 
         toolsMenu.addItem(.separator())
 
+        let workflowBuilderItem = toolsMenu.addItem(
+            withTitle: "Workflow Builder\u{2026}",
+            action: #selector(ToolsMenuActions.showWorkflowBuilder(_:)),
+            keyEquivalent: ""
+        )
+        workflowBuilderItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowBuilder)
+
         // Plugin Manager (Cmd-Shift-B for "Bioconda")
         let pluginItem = toolsMenu.addItem(
             withTitle: "Plugin Manager\u{2026}",
@@ -1021,6 +1028,8 @@ public final class MainMenu {
     func searchNCBI(_ sender: Any?)
     func searchSRA(_ sender: Any?)
     func searchPathoplexus(_ sender: Any?)
+    /// Opens the visual Workflow Builder window.
+    func showWorkflowBuilder(_ sender: Any?)
     /// Opens the Plugin Manager window for browsing and installing bioconda tools.
     func showPluginManager(_ sender: Any?)
 }

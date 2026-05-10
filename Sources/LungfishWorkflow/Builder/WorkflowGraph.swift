@@ -32,6 +32,9 @@ import Foundation
 /// let order = try graph.topologicalSort()
 /// ```
 public struct WorkflowGraph: Sendable, Codable, Identifiable {
+    public static let sampleInputAnchorID = UUID(uuidString: "00000000-0000-4000-8000-000000000401")!
+    public static let projectOutputAnchorID = UUID(uuidString: "00000000-0000-4000-8000-000000000402")!
+
     /// Unique identifier for this graph
     public let id: UUID
 
@@ -83,6 +86,81 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         self.connections = [:]
         self.createdAt = Date()
         self.modifiedAt = Date()
+        ensureAnchors()
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case version
+        case author
+        case nodes
+        case connections
+        case createdAt
+        case modifiedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        version = try container.decode(String.self, forKey: .version)
+        author = try container.decodeIfPresent(String.self, forKey: .author)
+        nodes = try container.decode([UUID: WorkflowNode].self, forKey: .nodes)
+        connections = try container.decode([UUID: WorkflowConnection].self, forKey: .connections)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        modifiedAt = try container.decode(Date.self, forKey: .modifiedAt)
+        ensureAnchors()
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encodeIfPresent(description, forKey: .description)
+        try container.encode(version, forKey: .version)
+        try container.encodeIfPresent(author, forKey: .author)
+        try container.encode(nodes, forKey: .nodes)
+        try container.encode(connections, forKey: .connections)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(modifiedAt, forKey: .modifiedAt)
+    }
+
+    public var sampleInput: WorkflowNode {
+        nodes[Self.sampleInputAnchorID] ?? Self.makeSampleInputAnchor()
+    }
+
+    public var projectOutput: WorkflowNode {
+        nodes[Self.projectOutputAnchorID] ?? Self.makeProjectOutputAnchor()
+    }
+
+    private mutating func ensureAnchors() {
+        if nodes[Self.sampleInputAnchorID] == nil {
+            nodes[Self.sampleInputAnchorID] = Self.makeSampleInputAnchor()
+        }
+        if nodes[Self.projectOutputAnchorID] == nil {
+            nodes[Self.projectOutputAnchorID] = Self.makeProjectOutputAnchor()
+        }
+    }
+
+    private static func makeSampleInputAnchor() -> WorkflowNode {
+        WorkflowNode(
+            id: sampleInputAnchorID,
+            type: .sampleInput,
+            label: "Sample input",
+            position: CGPoint(x: 80, y: 160)
+        )
+    }
+
+    private static func makeProjectOutputAnchor() -> WorkflowNode {
+        WorkflowNode(
+            id: projectOutputAnchorID,
+            type: .projectOutput,
+            label: "Project output",
+            position: CGPoint(x: 720, y: 160)
+        )
     }
 
     // MARK: - Node Management
@@ -124,6 +202,9 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
     /// - Returns: The removed node, or `nil` if not found
     @discardableResult
     public mutating func removeNode(_ nodeId: UUID) -> WorkflowNode? {
+        guard nodes[nodeId]?.isRemovable != false else {
+            return nil
+        }
         guard let node = nodes.removeValue(forKey: nodeId) else {
             return nil
         }
@@ -138,6 +219,11 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
 
         modifiedAt = Date()
         return node
+    }
+
+    @discardableResult
+    public mutating func removeNode(id nodeId: UUID) -> WorkflowNode? {
+        removeNode(nodeId)
     }
 
     /// Gets a node by its ID.
@@ -404,7 +490,8 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         var issues = [WorkflowValidationIssue]()
 
         // Check for empty graph
-        if nodes.isEmpty {
+        let workflowNodes = nodes.values.filter { !$0.isPinned }
+        if workflowNodes.isEmpty {
             issues.append(.emptyWorkflow)
         }
 
@@ -414,7 +501,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
 
         // Check for disconnected input nodes
-        let inputNodes = nodes.values.filter { $0.type.category == .input }
+        let inputNodes = nodes.values.filter { $0.type.category == .input && !$0.isPinned }
         for node in inputNodes {
             if outgoingConnections(from: node.id).isEmpty {
                 issues.append(.disconnectedInput(nodeId: node.id, nodeName: node.label))
@@ -438,7 +525,7 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         }
 
         // Check for output nodes without input
-        let outputNodes = nodes.values.filter { $0.type.category == .output }
+        let outputNodes = nodes.values.filter { $0.type.category == .output && !$0.isPinned }
         for node in outputNodes {
             if incomingConnections(to: node.id).isEmpty {
                 issues.append(.disconnectedOutput(nodeId: node.id, nodeName: node.label))

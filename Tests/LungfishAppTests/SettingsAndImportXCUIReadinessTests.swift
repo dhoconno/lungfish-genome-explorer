@@ -30,6 +30,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(MainMenuAccessibilityID.newProject, "file-menu-new-project")
         XCTAssertEqual(MainMenuAccessibilityID.importCenter, "file-menu-import-center")
         XCTAssertEqual(MainMenuAccessibilityID.callVariants, "tools-menu-call-variants")
+        XCTAssertEqual(MainMenuAccessibilityID.workflowBuilder, "tools-menu-workflow-builder")
         XCTAssertEqual(MainMenuAccessibilityID.pluginManager, "tools-menu-plugin-manager")
         XCTAssertEqual(MainMenuAccessibilityID.showOperationsPanel, "operations-menu-show-panel")
         XCTAssertEqual(MainMenuAccessibilityID.reportIssue, "help-menu-report-issue")

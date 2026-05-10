@@ -566,7 +566,7 @@ public class WorkflowCanvasView: NSView {
 
         // Remove nodes (this also removes their connections)
         for nodeId in selectedNodeIds {
-            _ = graph.removeNode(nodeId)
+            _ = graph.removeNode(id: nodeId)
         }
 
         rebuildNodeViews()
@@ -836,7 +836,7 @@ public class WorkflowCanvasView: NSView {
 
     private func moveSelection(dx: CGFloat, dy: CGFloat) {
         for nodeId in selectedNodeIds {
-            if var node = graph.getNode(nodeId) {
+            if var node = graph.getNode(nodeId), node.isDraggable {
                 node.position = CGPoint(
                     x: node.position.x + dx,
                     y: node.position.y + dy
@@ -893,7 +893,8 @@ extension WorkflowCanvasView: WorkflowNodeViewDelegate {
 
     public func nodeViewDidMove(_ nodeView: WorkflowNodeView, to position: CGPoint) {
         guard let nodeId = nodeViews.first(where: { $0.value === nodeView })?.key,
-              var node = graph.getNode(nodeId) else { return }
+              var node = graph.getNode(nodeId),
+              node.isDraggable else { return }
 
         let canvasPosition = snapPointToGrid(convertToCanvasCoordinates(position))
         node.position = canvasPosition
