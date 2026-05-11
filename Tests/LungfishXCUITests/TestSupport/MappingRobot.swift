@@ -146,15 +146,17 @@ struct MappingRobot {
         line: UInt = #line
     ) {
         let identifier = "mapping-source-data-\(accessibilitySlug(for: label))"
-        let button = app.buttons[identifier].firstMatch
-        if button.waitForExistence(timeout: 10) {
-            button.click()
+        let identifiedElement = app.descendants(matching: .any)[identifier].firstMatch
+        if identifiedElement.waitForExistence(timeout: 10) {
+            identifiedElement.click()
             return
         }
 
-        let link = app.links[label].firstMatch
-        XCTAssertTrue(link.waitForExistence(timeout: 10), file: file, line: line)
-        link.click()
+        let labeledElement = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", label))
+            .firstMatch
+        XCTAssertTrue(labeledElement.waitForExistence(timeout: 10), file: file, line: line)
+        labeledElement.click()
     }
 
     func waitForSelectedSidebarItem(
@@ -209,15 +211,15 @@ struct MappingRobot {
     }
 
     var resultView: XCUIElement {
-        app.descendants(matching: .any)["mapping-result-view"]
+        app.descendants(matching: .any)["reference-bundle-view"]
     }
 
     var resultTable: XCUIElement {
         app.tables["mapping-result-contig-table"]
     }
 
-    var bundleBrowserView: XCUIElement {
-        app.otherElements["bundle-browser-view"]
+    var referenceBundleSequenceTable: XCUIElement {
+        app.tables["reference-bundle-sequence-table"]
     }
 
     func waitForResultViewport(

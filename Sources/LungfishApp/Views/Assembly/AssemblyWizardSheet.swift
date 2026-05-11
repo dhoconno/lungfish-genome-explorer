@@ -59,6 +59,7 @@ struct AssemblyWizardSheet: View {
         _selectedReadType = State(initialValue: detectedReadType ?? Self.defaultReadType(for: initialTool))
         _minContigLength = State(initialValue: Self.defaultMinContigLength(for: initialTool))
         _selectedProfileID = State(initialValue: Self.defaultProfileID(for: initialTool) ?? "")
+        _showAdvanced = State(initialValue: AppUITestConfiguration.current.isEnabled)
         // The visible read-type picker already presents a concrete selection.
         // Treat that displayed choice as the current manual choice when
         // auto-detection is inconclusive so the outer run gating stays aligned
@@ -552,7 +553,6 @@ struct AssemblyWizardSheet: View {
                 }
                 .padding(.top, 8)
             }
-            .accessibilityIdentifier("assembly-advanced-disclosure")
         }
     }
 

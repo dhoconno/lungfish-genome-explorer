@@ -87,7 +87,7 @@ final class AssemblyXCUITests: XCTestCase {
         robot.openAssemblyDialog()
         robot.chooseAssembler("Hifiasm")
         robot.expandAdvancedOptionsIfNeeded()
-        XCTAssertFalse(robot.profilePicker.exists)
+        XCTAssertTrue(robot.profilePicker.waitForExistence(timeout: 5))
         XCTAssertFalse(robot.memorySlider.exists)
         XCTAssertFalse(robot.minContigStepper.exists)
         robot.reveal(robot.hifiasmPrimaryOnlyToggle)
@@ -109,6 +109,7 @@ final class AssemblyXCUITests: XCTestCase {
         robot.clickPrimaryAction()
 
         robot.waitForAnalysisRow(prefix: "megahit-", timeout: 120)
+        robot.waitForEventLogLine(prefix: "assembly.display.succeeded tool=megahit", timeout: 120)
         XCTAssertTrue(robot.resultView.waitForExistence(timeout: 30))
         XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 30))
     }
@@ -150,6 +151,7 @@ final class AssemblyXCUITests: XCTestCase {
         robot.clickPrimaryAction()
 
         robot.waitForAnalysisRow(prefix: "skesa-", timeout: 120)
+        robot.waitForEventLogLine(prefix: "assembly.display.succeeded tool=skesa", timeout: 120)
         XCTAssertTrue(robot.resultView.waitForExistence(timeout: 30))
         XCTAssertTrue(robot.resultTable.waitForExistence(timeout: 30))
     }

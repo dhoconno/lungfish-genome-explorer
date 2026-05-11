@@ -72,7 +72,7 @@ final class PrimerTrimXCUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForPrimerTrimmedAlignment(in: projectURL, timeout: 120),
-            "The GUI run must append a primer-trimmed alignment track with real BAM/BAI artifacts."
+            "The GUI run must append a primer-trimmed alignment track with bundle-owned BAM/BAI artifacts and provenance."
         )
     }
 
@@ -133,11 +133,32 @@ final class PrimerTrimXCUITests: XCTestCase {
 
             if FileManager.default.fileExists(atPath: bamURL.path),
                FileManager.default.fileExists(atPath: indexURL.path),
-               FileManager.default.fileExists(atPath: provenanceURL.path) {
+               primerTrimSidecarIsComplete(provenanceURL: provenanceURL, bamURL: bamURL, indexURL: indexURL) {
                 return true
             }
         }
 
         return false
+    }
+
+    private func primerTrimSidecarIsComplete(provenanceURL: URL, bamURL: URL, indexURL: URL) -> Bool {
+        guard let data = try? Data(contentsOf: provenanceURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              json["operation"] as? String == "primer-trim",
+              (json["schema_version"] as? Int ?? 0) >= 2,
+              json["workflow_name"] as? String == "lungfish bam primer-trim",
+              json["exit_status"] as? Int == 0,
+              let command = json["command"] as? [String],
+              command.contains("primer-trim"),
+              let inputFiles = json["input_files"] as? [[String: Any]],
+              !inputFiles.isEmpty,
+              let outputFiles = json["output_files"] as? [[String: Any]],
+              let runtimeIdentity = json["runtime_identity"] as? [String: Any],
+              !runtimeIdentity.isEmpty else {
+            return false
+        }
+
+        let outputPaths = Set(outputFiles.compactMap { $0["path"] as? String })
+        return outputPaths.contains(bamURL.path) && outputPaths.contains(indexURL.path)
     }
 }

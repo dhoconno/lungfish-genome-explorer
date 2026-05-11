@@ -85,6 +85,18 @@ public struct BAMPrimerTrimProvenance: Codable, Sendable, Equatable {
             case bundleVersion = "bundle_version"
             case canonicalAccession = "canonical_accession"
         }
+
+        public init(
+            bundleName: String,
+            bundleSource: String,
+            bundleVersion: String?,
+            canonicalAccession: String
+        ) {
+            self.bundleName = bundleName
+            self.bundleSource = bundleSource
+            self.bundleVersion = bundleVersion
+            self.canonicalAccession = canonicalAccession
+        }
     }
 
     enum CodingKeys: String, CodingKey {

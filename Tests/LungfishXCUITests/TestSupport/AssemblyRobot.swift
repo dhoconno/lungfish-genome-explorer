@@ -14,7 +14,8 @@ struct AssemblyRobot {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let eventLogURL = URL(fileURLWithPath: "/tmp/lungfish-assembly-ui-events.log")
+        let eventLogURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-assembly-ui-events-\(UUID().uuidString).log")
         try? FileManager.default.removeItem(at: eventLogURL)
 
         var options = LungfishUITestLaunchOptions(
@@ -31,6 +32,27 @@ struct AssemblyRobot {
         app.launchEnvironment["LUNGFISH_DEBUG_BYPASS_REQUIRED_SETUP"] = "1"
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10), file: file, line: line)
+    }
+
+    @discardableResult
+    func waitForEventLogLine(
+        prefix: String,
+        timeout: TimeInterval = 30,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> String {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let content = try? String(contentsOf: currentEventLogURL, encoding: .utf8),
+               let event = content
+                .components(separatedBy: .newlines)
+                .first(where: { $0.hasPrefix(prefix) }) {
+                return event
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        XCTFail("Timed out waiting for event log prefix: \(prefix)", file: file, line: line)
+        return ""
     }
 
     func selectSidebarItem(
@@ -127,7 +149,7 @@ struct AssemblyRobot {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let disclosure = app.descendants(matching: .any)["assembly-advanced-disclosure"]
+        let disclosure = app.disclosureTriangles["Curated extra arguments"].firstMatch
         XCTAssertTrue(disclosure.waitForExistence(timeout: 5), file: file, line: line)
 
         let carefulToggle = spadesCarefulToggle
@@ -136,8 +158,18 @@ struct AssemblyRobot {
         if carefulToggle.exists || flyeToggle.exists || hifiasmToggle.exists {
             return
         }
+        if disclosureIsExpanded(disclosure) {
+            return
+        }
 
-        disclosure.click()
+        scrollUntilHittable(disclosure)
+        disclosure.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).click()
+
+        let deadline = Date().addingTimeInterval(2)
+        while !disclosureIsExpanded(disclosure) && Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(disclosureIsExpanded(disclosure), file: file, line: line)
     }
 
     func reveal(
@@ -155,6 +187,30 @@ struct AssemblyRobot {
             }
         }
         XCTAssertTrue(element.exists, file: file, line: line)
+    }
+
+    private func scrollUntilHittable(_ element: XCUIElement, maxSwipes: Int = 5) {
+        let scrollView = app.scrollViews["assembly-configuration-scrollview"].firstMatch
+        for _ in 0..<maxSwipes where element.exists && !element.isHittable {
+            if scrollView.exists {
+                scrollView.swipeUp()
+            } else {
+                assemblyDialog.swipeUp()
+            }
+        }
+    }
+
+    private func disclosureIsExpanded(_ element: XCUIElement) -> Bool {
+        switch element.value {
+        case let value as Int:
+            return value == 1
+        case let value as NSNumber:
+            return value.intValue == 1
+        case let value as String:
+            return value == "1" || value.lowercased() == "true"
+        default:
+            return false
+        }
     }
 
     func waitForAnalysisRow(
@@ -191,6 +247,14 @@ struct AssemblyRobot {
 
     var assemblyDialog: XCUIElement {
         app.descendants(matching: .any)["fastq-operations-assembly-dialog"]
+    }
+
+    private var currentEventLogURL: URL {
+        if let path = app.launchEnvironment["LUNGFISH_UI_TEST_EVENT_LOG_PATH"] {
+            return URL(fileURLWithPath: path)
+        }
+        return FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-assembly-ui-events-missing.log")
     }
 
     var primaryActionButton: XCUIElement {

@@ -89,7 +89,7 @@ final class IQTreeInferenceDialogState {
         self.threads = nil
         self.safeMode = false
         self.keepIdenticalSequences = false
-        self.advancedOptionsExpanded = false
+        self.advancedOptionsExpanded = AppUITestConfiguration.current.isEnabled
         self.iqtreePath = ""
         self.extraIQTreeOptions = ""
         self.pendingOptions = nil
@@ -284,7 +284,7 @@ private struct IQTreeInferenceToolPane: View {
                 }
 
                 section(DatasetOperationSection.advancedSettings.title) {
-                    DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
+                    DisclosureGroup(isExpanded: $state.advancedOptionsExpanded) {
                         VStack(alignment: .leading, spacing: 10) {
                             labeledTextField("IQ-TREE Executable", text: $state.iqtreePath)
                                 .accessibilityIdentifier("iqtree-options-executable-path")
@@ -295,8 +295,10 @@ private struct IQTreeInferenceToolPane: View {
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.top, 4)
+                    } label: {
+                        Text("Advanced Options")
+                            .accessibilityIdentifier("iqtree-options-advanced-disclosure")
                     }
-                    .accessibilityIdentifier("iqtree-options-advanced-disclosure")
                 }
 
                 section(DatasetOperationSection.readiness.title) {

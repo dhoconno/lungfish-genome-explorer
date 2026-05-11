@@ -138,7 +138,8 @@ public enum AssemblyOptionCatalog {
             toolMappings: [
                 .spades: "--isolate / --meta / --plasmid",
                 .megahit: "--presets",
-                .flye: "default / --meta"
+                .flye: "default / --meta",
+                .hifiasm: "diploid / haploid-viral"
             ]
         ),
         AssemblyOptionDefinition(

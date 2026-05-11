@@ -53,6 +53,7 @@ final class IQTreeInferenceOptionsDialogTests: XCTestCase {
         XCTAssertTrue(source.contains("Build Tree with IQ-TREE"))
         XCTAssertTrue(source.contains("accessibilityNamespace: \"iqtree-options\""))
         XCTAssertTrue(source.contains("iqtree-options-advanced-disclosure"))
+        XCTAssertTrue(source.contains("advancedOptionsExpanded = AppUITestConfiguration.current.isEnabled"))
         XCTAssertFalse(source.contains("NSAlert"))
         XCTAssertFalse(source.contains("accessoryView"))
     }

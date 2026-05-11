@@ -32,7 +32,9 @@ if [ "${#ONLY_TESTING_ARGS[@]}" -gt 0 ]; then
 fi
 "${BUILD_FOR_TESTING_CMD[@]}"
 
-XCTESTRUN_FILE="$(find "$DERIVED_DATA_PATH/Build/Products" -maxdepth 1 -name '*.xctestrun' -print -quit)"
+find "$DERIVED_DATA_PATH/Build/Products" -maxdepth 1 -name '*.patched*.xctestrun' -delete
+
+XCTESTRUN_FILE="$(find "$DERIVED_DATA_PATH/Build/Products" -maxdepth 1 -name '*.xctestrun' ! -name '*.patched*.xctestrun' -print -quit)"
 if [ -z "$XCTESTRUN_FILE" ]; then
   echo "No .xctestrun file was generated in $DERIVED_DATA_PATH/Build/Products" >&2
   exit 1

@@ -2269,7 +2269,14 @@ public class InspectorViewController: NSViewController {
             } else {
                 projectLocal = []
             }
-            let availability = await BAMPrimerTrimCatalog().availability()
+            let uiTestConfiguration = AppUITestConfiguration.current
+            let availability: DatasetOperationAvailability
+            if uiTestConfiguration.isEnabled,
+               uiTestConfiguration.backendMode == .deterministic {
+                availability = .available
+            } else {
+                availability = await BAMPrimerTrimCatalog().availability()
+            }
 
             guard let window = self.view.window ?? NSApp.keyWindow else { return }
 
@@ -2308,7 +2315,7 @@ public class InspectorViewController: NSViewController {
 
         // Validate through the dialog's readiness gate, then extract the
         // wire-level inputs the CLI runner needs.
-        guard state.prepareForRun() != nil else {
+        guard let primerTrimRequest = state.prepareForRun() else {
             presentSimpleAlert(
                 title: "Primer Trim Not Ready",
                 message: state.readinessText
@@ -2325,7 +2332,11 @@ public class InspectorViewController: NSViewController {
             bundleURL: bundleURL,
             alignmentTrackID: alignmentTrackID,
             schemeURL: scheme.url,
-            outputTrackName: outputTrackName
+            outputTrackName: outputTrackName,
+            ivarMinQuality: primerTrimRequest.minQuality,
+            ivarMinLength: primerTrimRequest.minReadLength,
+            ivarSlidingWindow: primerTrimRequest.slidingWindow,
+            ivarPrimerOffset: primerTrimRequest.primerOffset
         )
         let cliCommand = OperationCenter.buildCLICommand(
             subcommand: "bam primer-trim",
@@ -2349,19 +2360,60 @@ public class InspectorViewController: NSViewController {
 
         let task = Task(priority: .userInitiated) { [weak self] in
             do {
-                try await runner.run(arguments: cliArguments) { event in
-                    switch event {
-                    case .runComplete(_, let trackName, _, _, _):
-                        tracker.completedTrackName = trackName
-                    case .runFailed(let message):
-                        tracker.failureMessage = message
-                    default:
-                        break
+                if AppUITestConfiguration.current.isEnabled,
+                   AppUITestConfiguration.current.backendMode == .deterministic {
+                    let result = try AppUITestPrimerTrimBackend.writeResult(
+                        bundleURL: bundleURL,
+                        alignmentTrackID: alignmentTrackID,
+                        scheme: scheme,
+                        outputTrackName: outputTrackName,
+                        cliArguments: cliArguments,
+                        minReadLength: primerTrimRequest.minReadLength,
+                        minQuality: primerTrimRequest.minQuality,
+                        slidingWindow: primerTrimRequest.slidingWindow,
+                        primerOffset: primerTrimRequest.primerOffset
+                    )
+                    tracker.completedTrackName = result.trackName
+                    let events: [CLIPrimerTrimEvent] = [
+                        .runStart(message: "Starting deterministic UI test primer trim"),
+                        .attachStart(message: "Adopting deterministic primer-trimmed BAM into bundle"),
+                        .attachComplete(
+                            trackID: result.trackID,
+                            trackName: result.trackName,
+                            bamPath: result.bamURL.path,
+                            baiPath: result.indexURL.path,
+                            provenanceSidecarPath: result.provenanceSidecarURL.path
+                        ),
+                        .runComplete(
+                            trackID: result.trackID,
+                            trackName: result.trackName,
+                            bamPath: result.bamURL.path,
+                            baiPath: result.indexURL.path,
+                            provenanceSidecarPath: result.provenanceSidecarURL.path
+                        )
+                    ]
+                    for event in events {
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                Self.applyPrimerTrimEvent(event, operationID: opID)
+                            }
+                        }
                     }
+                } else {
+                    try await runner.run(arguments: cliArguments) { event in
+                        switch event {
+                        case .runComplete(_, let trackName, _, _, _):
+                            tracker.completedTrackName = trackName
+                        case .runFailed(let message):
+                            tracker.failureMessage = message
+                        default:
+                            break
+                        }
 
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            Self.applyPrimerTrimEvent(event, operationID: opID)
+                        DispatchQueue.main.async {
+                            MainActor.assumeIsolated {
+                                Self.applyPrimerTrimEvent(event, operationID: opID)
+                            }
                         }
                     }
                 }

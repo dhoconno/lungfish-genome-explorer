@@ -134,7 +134,7 @@ final class MappingXCUITests: XCTestCase {
 
         robot.waitForAnalysisRow(prefix: "minimap2-", timeout: 30)
         robot.waitForResultViewport()
-        XCTAssertFalse(robot.bundleBrowserView.waitForExistence(timeout: 1))
+        XCTAssertFalse(robot.referenceBundleSequenceTable.waitForExistence(timeout: 1))
     }
 
     @MainActor
@@ -157,8 +157,8 @@ final class MappingXCUITests: XCTestCase {
         robot.waitForAnalysisRow(prefix: "minimap2-", timeout: 30)
         robot.waitForResultViewport()
 
-        robot.clickInspectorSourceLink("test_1.fastq.gz")
-        robot.waitForSelectedSidebarItem(containing: "test_1.fastq.gz")
+        robot.clickInspectorSourceLink("test_1.lungfishfastq")
+        robot.waitForSelectedSidebarItem(containing: "test_1")
 
         robot.selectSidebarItem(prefix: "minimap2-")
         robot.clickInspectorSourceLink("Source Reference Bundle")

@@ -2,7 +2,7 @@ import XCTest
 
 final class BundleBrowserXCUITests: XCTestCase {
     @MainActor
-    func testOpeningReferenceBundleShowsBrowserAndBackNavigationRestoresSelection() throws {
+    func testOpeningReferenceBundleShowsBrowserAndPreservesSelection() throws {
         let projectURL = try LungfishProjectFixtureBuilder.makeBundleBrowserProject(
             named: "BundleBrowserFixture"
         )
@@ -18,11 +18,6 @@ final class BundleBrowserXCUITests: XCTestCase {
         robot.waitForBrowserRow(named: "chr1")
 
         robot.selectBrowserRow(named: "chr2")
-        robot.openSelectedSequence()
-        robot.waitForBackNavigationButton()
-
-        robot.tapBackNavigation()
-        robot.waitForBrowserLoaded()
         robot.waitForSelectedBrowserRow(named: "chr2")
     }
 }

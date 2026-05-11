@@ -116,10 +116,9 @@ struct BundleBrowserRobot {
         line: UInt = #line
     ) {
         waitForBrowserLoaded(timeout: timeout, file: file, line: line)
-        let selectedRow = browserTable
-            .descendants(matching: .any)
+        let selectedRow = browserTable.cells
+            .containing(.staticText, identifier: name)
             .matching(NSPredicate(format: "selected == true"))
-            .containing(NSPredicate(format: "label == %@", name))
             .firstMatch
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "exists == true"),
@@ -150,19 +149,20 @@ struct BundleBrowserRobot {
     }
 
     var browserView: XCUIElement {
-        app.otherElements["bundle-browser-view"]
+        app.descendants(matching: .any)["reference-bundle-view"]
     }
 
     var browserTable: XCUIElement {
-        app.tables["bundle-browser-table"]
+        app.tables["reference-bundle-sequence-table"]
     }
 
     var openButton: XCUIElement {
-        app.buttons["bundle-browser-open-button"]
+        app.descendants(matching: .any)["reference-viewport-focus-button"].firstMatch
     }
 
     var backButton: XCUIElement {
-        app.buttons["viewer-back-navigation-button"]
+        let identified = app.descendants(matching: .any)["reference-viewport-back-button"].firstMatch
+        return identified.exists ? identified : app.buttons["Back"].firstMatch
     }
 
     var msaRowTable: XCUIElement {
@@ -188,11 +188,11 @@ struct BundleBrowserRobot {
     }
 
     var iqTreeOptionsDialog: XCUIElement {
-        app.staticTexts["Build Tree with IQ-TREE"].firstMatch
+        app.descendants(matching: .any)["iqtree-options-dialog"].firstMatch
     }
 
     var iqTreeAdvancedOptionsButton: XCUIElement {
-        app.buttons["iqtree-options-advanced-disclosure"].firstMatch
+        app.disclosureTriangles["Advanced Options"].firstMatch
     }
 
     var iqTreeAdvancedParametersField: XCUIElement {
@@ -224,6 +224,6 @@ struct BundleBrowserRobot {
     }
 
     var treeLayoutModeControl: XCUIElement {
-        app.segmentedControls["phylogenetic-tree-layout-mode"].firstMatch
+        app.descendants(matching: .any)["phylogenetic-tree-layout-mode"].firstMatch
     }
 }

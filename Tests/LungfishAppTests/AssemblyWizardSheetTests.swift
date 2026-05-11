@@ -39,6 +39,7 @@ final class AssemblyWizardSheetTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains(#"DisclosureGroup("Curated extra arguments""#))
+        XCTAssertTrue(source.contains("_showAdvanced = State(initialValue: AppUITestConfiguration.current.isEnabled)"))
         XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
         XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
         XCTAssertFalse(source.contains(#"DisclosureGroup("Curated advanced options""#))
