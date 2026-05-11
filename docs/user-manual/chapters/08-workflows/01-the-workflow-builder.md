@@ -65,8 +65,9 @@ and build the workflow once.
 By the end of this chapter you will know how to open the Workflow Builder,
 drag operation nodes from the palette, connect them with edges, configure
 per-node parameters, save the resulting workflow as a project asset, and run
-it against a sample. The worked example composes a SARS-CoV-2 reads-to-variants
-workflow and runs it against a fixture sample.
+it against project data. The worked example uses an explicit `.lungfishfastq`
+input bundle and the VSP2 FASTQ processing chain, which is the first
+Workflow Builder graph backed by the native Swift runner.
 
 ## Procedure
 
@@ -141,13 +142,12 @@ every parameter you set on every node travels with it. Loading the same
 workflow next month restores the same parameter values, so a colleague who
 opens the file gets the same analysis you ran.
 
-The second is that file paths do not flow with the workflow. The **Sample
-input** node and any path-typed parameter (a custom reference FASTA, an
-external primer scheme outside the project) are bound at run time, not at
-save time. A saved workflow that says "trim primers using ARTIC v3" is
-portable; a saved workflow that says "trim primers using
-`/Users/alice/schemes/artic-v3.bed`" would not be, so the builder rejects
-absolute paths outside the project at save time.
+The second is that scientific inputs must stay project-scoped. Legacy
+workflows can still bind the pinned **Sample input** node at run time.
+Native FASTQ workflows use explicit **FASTQ Bundle Input** nodes instead:
+choose an existing `.lungfishfastq` bundle in the active project and the node
+stores a project-relative path such as `@/Imports/Sample.lungfishfastq`. The
+builder rejects bundle paths that point outside the project root.
 
 ### Common node types
 
@@ -157,6 +157,12 @@ types and the plugin that provides them.
 
 | Node | Category | Input | Output | Plugin |
 |---|---|---|---|---|
+| FASTQ bundle input | Input | project `.lungfishfastq` | FASTQ reads | core |
+| FASTP deduplicate | FASTQ processing | FASTQ reads | deduplicated FASTQ reads | core |
+| FASTP trim | FASTQ processing | FASTQ reads | trimmed FASTQ reads | core |
+| Deacon human scrub | FASTQ processing | FASTQ reads | scrubbed FASTQ reads | core |
+| FASTP merge | FASTQ processing | paired FASTQ reads | merged FASTQ reads | core |
+| SeqKit length filter | FASTQ processing | FASTQ reads | filtered FASTQ reads | core |
 | Download reference | Acquire | accession (text) | reference bundle | core |
 | Import FASTQ | Acquire | filesystem path | FASTQ bundle | core |
 | Map reads | Align and map | FASTQ + reference | BAM | minimap2 |
@@ -213,13 +219,12 @@ known sample.
 
 ### Run the workflow
 
-Click the **Run** button in the toolbar. A small sheet appears asking you to
-bind the **Sample input** node to a real sample in the current project. If
-the graph is incomplete, the builder shows validation errors before anything
-is dispatched. If the graph is structurally ready, the sheet binds the pinned
-**Sample input** anchor to the selected sample bundle and binds **Project
-output** to the active project. Press **Run** in the sheet to create a durable
-workflow run.
+Click the **Run** button in the toolbar. If the graph uses explicit
+**FASTQ Bundle Input** nodes, the saved bundle paths on those nodes are the
+workflow inputs and the run starts immediately after validation. If the graph
+uses the legacy pinned **Sample input** anchor, a small sheet appears asking
+you to bind that input to a real sample in the current project. In both
+cases, **Project output** binds to the active project.
 
 Each run is written under `runs/<run-id>/` inside the `.lungfishflow` bundle.
 The run record includes timestamps, graph checksum, sample/project bindings,
@@ -228,6 +233,53 @@ Operation Center receives a parent workflow row and one child row per node,
 all carrying the same durable run id, so you can watch progress while working
 elsewhere in the app. The first failing node marks the run failed and leaves
 downstream nodes skipped in the run record for inspection.
+
+Native FASTQ bundle graphs are backed by the same CLI surface used by the app:
+
+```bash
+lungfish-cli workflow builder-run \
+  --workflow Workflows/vsp2-fastq.lungfishflow \
+  --project Project.lungfish \
+  --run-directory Workflows/vsp2-fastq.lungfishflow/runs/<run-id>
+```
+
+The runner writes `builder-plan.json`, native tool provenance, the final
+derived `.lungfishfastq` bundle, and `.lungfish-provenance.json` inside that
+output bundle. The output bundle is only published after provenance has been
+written, so an interrupted run cannot leave a final-looking FASTQ bundle
+without reproducibility metadata.
+
+## Worked example: VSP2 FASTQ bundle workflow
+
+Open a project that already contains a paired-end `.lungfishfastq` bundle.
+Choose **Tools > Workflow Builder** and create a new workflow in the project
+library.
+
+Add a **FASTQ Bundle Input** node and choose the imported bundle in the
+inspector. The stored value should look like
+`@/Imports/<sample>.lungfishfastq`.
+
+Drag the following operation nodes onto the canvas, left to right:
+
+1. **FASTP deduplicate**
+2. **FASTP trim**
+3. **Deacon human scrub**
+4. **FASTP merge**
+5. **SeqKit length filter**
+
+Connect the chain from **FASTQ Bundle Input** through those five operation
+nodes into **Project output**. The default parameters mirror the VSP2 FASTQ
+recipe: adapter detection enabled, quality threshold `15`, trim window `5`,
+Deacon database `deacon-panhuman`, merge minimum overlap `15`, and minimum
+length `50`.
+
+Save the workflow as `vsp2-fastq`. Click **Run**. Because the workflow has an
+explicit FASTQ bundle input, Lungfish does not ask for separate FASTQ files
+or an import-time recipe. It compiles the connected graph into a native
+FASTQ plan, runs the operations, and writes a derived `.lungfishfastq` bundle
+under the workflow run's `outputs/` folder. The derived bundle records the
+input bundle as its parent and carries lineage entries for deduplication,
+trimming, human-read removal, merging, and length filtering.
 
 ## Worked example: SARS-CoV-2 reads to variants
 

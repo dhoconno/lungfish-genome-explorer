@@ -238,6 +238,60 @@ final class WorkflowBuilderNativeRunnerTests: XCTestCase {
         XCTAssertFalse(outputContents.contains { $0.lastPathComponent.contains(".staging-") })
     }
 
+    func testRunnerExecutesVSP2TemplateWithRealRecipeEngineWhenToolsAvailable() async throws {
+        guard await toolAvailable(.fastp),
+              await toolAvailable(.seqkit),
+              await toolAvailable(.deacon) else {
+            throw XCTSkip("Required native tools not available")
+        }
+        guard let _ = await DatabaseRegistry.shared.effectiveDatabasePath(for: "deacon-panhuman") else {
+            throw XCTSkip("Deacon human-read removal index not installed")
+        }
+        guard let fixtures = fixturesDir else {
+            throw XCTSkip("Test fixtures not found")
+        }
+
+        let fixture = try makeProjectFixture(bundleName: "Fixture")
+        let inputR1 = fixture.inputBundleURL.appendingPathComponent("Fixture_R1.fastq.gz")
+        let inputR2 = fixture.inputBundleURL.appendingPathComponent("Fixture_R2.fastq.gz")
+        try FileManager.default.copyItem(at: fixtures.appendingPathComponent("test_1.fastq.gz"), to: inputR1)
+        try FileManager.default.copyItem(at: fixtures.appendingPathComponent("test_2.fastq.gz"), to: inputR2)
+
+        let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/Fixture.lungfishfastq")
+        let runDirectory = fixture.workflowBundleURL
+            .appendingPathComponent("runs/00000000-0000-4000-8000-000000000607", isDirectory: true)
+
+        let result = try await WorkflowBuilderNativeRunner().run(
+            graph: graph,
+            projectURL: fixture.projectURL,
+            runDirectoryURL: runDirectory,
+            workflowBundleURL: fixture.workflowBundleURL,
+            argv: ["lungfish-cli", "workflow", "builder-run", "--workflow", fixture.workflowBundleURL.path],
+            threads: 2
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.outputFASTQURL.path))
+        let stats = try await NativeToolRunner.shared.run(.seqkit, arguments: ["stats", "--tabular", result.outputFASTQURL.path])
+        XCTAssertEqual(stats.exitCode, 0)
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: result.outputBundleURL))
+        XCTAssertEqual(manifest.lineage.map(\.kind), [
+            .deduplicate,
+            .fastpTrim,
+            .humanReadScrub,
+            .pairedEndMerge,
+            .lengthFilter,
+        ])
+        XCTAssertTrue(manifest.lineage.allSatisfy { $0.toolCommand?.isEmpty == false })
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: result.provenanceURL))
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertTrue(provenance.steps.contains { $0.toolName == "lungfish-cli workflow builder-run" })
+        XCTAssertTrue(provenance.allOutputFiles.contains { $0.path == result.outputFASTQURL.path && $0.sha256 != nil })
+    }
+
     private struct ProjectFixture {
         let rootURL: URL
         let projectURL: URL
@@ -301,6 +355,24 @@ final class WorkflowBuilderNativeRunnerTests: XCTestCase {
     private func sameFilePath(_ recordedPath: String, _ expectedURL: URL) -> Bool {
         URL(fileURLWithPath: recordedPath).resolvingSymlinksInPath().standardizedFileURL.path ==
             expectedURL.resolvingSymlinksInPath().standardizedFileURL.path
+    }
+
+    private func toolAvailable(_ tool: NativeTool) async -> Bool {
+        do {
+            _ = try await NativeToolRunner.shared.toolPath(for: tool)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private var fixturesDir: URL? {
+        let thisFile = URL(fileURLWithPath: #filePath)
+        let testsDir = thisFile
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let dir = testsDir.appendingPathComponent("Fixtures/sarscov2")
+        return FileManager.default.fileExists(atPath: dir.path) ? dir : nil
     }
 }
 
