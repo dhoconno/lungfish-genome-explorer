@@ -25,8 +25,6 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-## What it is
-
 A sequencing [read](../../GLOSSARY.md#fastq) is one fragment of DNA or RNA that came off the sequencer, recorded as a sequence of letters and a parallel sequence of quality scores. A [FASTQ](../../GLOSSARY.md#fastq) file (the standard text format for raw sequencing output) holds many of these reads, typically thousands to millions, in a four-line-per-read text format. FASTQ is the input format for every workflow in this manual that starts from raw sequencing data.
 
 This chapter introduces three ideas. First, the four-line FASTQ record and what each line means. Second, why most sequencing runs produce [paired-end](../../GLOSSARY.md#paired-end) files (`SRR36291587_1.fastq.gz` and `SRR36291587_2.fastq.gz`) and what "paired-end" means in practice. Third, how to read a [Phred quality score](../../GLOSSARY.md#phred-score), the per-base confidence value that downstream tools use to decide whether to trust each base call.

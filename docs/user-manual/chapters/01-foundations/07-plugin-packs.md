@@ -4,7 +4,7 @@ chapter_id: 01-foundations/07-plugin-packs
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project]
 estimated_reading_min: 8
-task: Install and verify Lungfish plugin packs from the command line.
+task: Install and verify Lungfish Genome Explorer plugin packs from the command line.
 tags: [foundations, plugin-pack, conda, micromamba, installation]
 tools: []
 entry_points:
@@ -24,22 +24,20 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-## What it is
-
-Lungfish does not bundle every bioinformatics tool. The viral genomics
+Lungfish Genome Explorer (LGE) does not bundle every bioinformatics tool. The viral genomics
 ecosystem moves quickly, individual tools update on their own schedules,
 and a single user almost never needs all of them at once. Bundling
 everything would mean a multi-gigabyte download, a slower release cadence,
 and a guarantee that something would be out of date the day you installed
-it. So Lungfish ships small and pulls in tools on demand.
+it. So LGE ships small and pulls in tools on demand.
 
-A **plugin pack** is a themed group of related command-line tools, installed
+A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related command-line tools, installed
 together because chapters tend to use them together. The `read-mapping` pack
 gives you the mappers and `samtools`. The `variant-calling` pack gives you
 the callers, `bcftools`, and the indexing utilities. Each pack lives in its
-own per-tool conda environment under `~/.lungfish/conda` in your home
+own per-tool [conda](../../GLOSSARY.md#conda) environment under `~/.lungfish/conda` in your home
 directory. Note the leading dot, and note that this is the home directory,
-not the project folder. Tools are shared across every Lungfish project on
+not the project folder. Tools are shared across every LGE project on
 the machine; you install a pack once and every project sees it.
 
 A short note on why conda and not pip. Bioinformatics tools accumulated
@@ -47,9 +45,9 @@ years of C, C++, Java, and R dependencies long before Python packaging
 existed in its current form. `samtools` links against `htslib`, `htslib`
 links against `libdeflate` and `libcurl`, and so on down a long chain of
 compiled libraries. `pip` cannot manage non-Python compiled dependencies in
-a portable way; conda can, and the bioconda channel hosts almost every
-tool a viral genomicist would ever reach for. Lungfish uses
-**micromamba**, a small standalone bootstrap that speaks the conda protocol
+a portable way; conda can, and the [bioconda](https://bioconda.github.io/) channel hosts almost every
+tool a viral genomicist would ever reach for. LGE uses
+[micromamba](../../GLOSSARY.md#micromamba), a small standalone bootstrap that speaks the conda protocol
 without needing a full Anaconda installation. The first pack you install
 also installs the micromamba bootstrap into `~/.lungfish/conda`, which
 takes an extra few seconds.
@@ -111,13 +109,17 @@ bootstrap and resolves the channel index for the first time. Subsequent
 installs reuse the cached index.
 
 `gatk-core` is larger than the viral caller packs because GATK4 is a Java
-toolkit with its runtime dependencies. Lungfish pins it as
+toolkit with its runtime dependencies. LGE pins it as
 `bioconda::gatk4=4.6.2.0`, runs `gatk --version` as the smoke test, and
-budgets roughly 600 MB of installed space for the environment. The current
-`lungfish gatk` commands construct dry-run command lines only: they do not
-execute GATK, create scientific outputs, or attach bundles. When execution
-is added, the output bundle must record full Lungfish provenance for the
-final stored payload, not just the staging command.
+budgets roughly 600 MB of installed space for the environment.
+
+The `lungfish gatk` CLI builds reproducible GATK command lines by default and can
+execute them through the managed `gatk-core` environment when a subcommand is
+invoked with `--execute`. The first-class human germline workflow (output
+bundles that record full LGE provenance for the final stored payload, GUI
+integration, and end-to-end scenario coverage) is still in development; the
+[Human Germline Variants](../06-human-germline-variants/01-haplotype-caller.md) chapter
+covers what is available today.
 
 ## Procedure
 
@@ -132,7 +134,7 @@ lungfish conda install --pack read-mapping
 
 The command prints progress as micromamba resolves the environment,
 downloads packages, and links them into place. When the command exits with
-status `0`, the pack is ready. You do not need to restart Lungfish; the
+status `0`, the pack is ready. You do not need to restart LGE; the
 next workflow operation that asks for `minimap2` or `samtools` will find
 them.
 
@@ -216,7 +218,7 @@ or no newer version can be determined.
 When a re-run reports a pack as already installed, two things have been
 checked. First, the per-tool environments under `~/.lungfish/conda` exist
 and contain the expected binaries. Second, the recorded hash for the pack
-matches the hash Lungfish expects for this app version. A mismatch would
+matches the hash LGE expects for this app version. A mismatch would
 trigger a re-install rather than a silent skip, so an "already installed"
 message means the pack is genuinely current.
 
@@ -249,7 +251,7 @@ next install will recreate it. Project folders never contain pack binaries,
 so a project archive stays small and portable.
 
 On shared workstations, an administrator can place the conda root on a
-larger shared volume and launch Lungfish with `LUNGFISH_CONDA_ROOT` set to
+larger shared volume and launch LGE with `LUNGFISH_CONDA_ROOT` set to
 that directory:
 
 ```bash
@@ -267,11 +269,11 @@ shared lab machine, the recommended pattern is:
 
 Conda mutations take an exclusive `.install.lock` in the conda root. A
 second install waits rather than corrupting the shared environment. If a
-routine user tries to install into a read-only admin root, Lungfish stops
+routine user tries to install into a read-only admin root, LGE stops
 with `conda root is read-only; reinstall as the admin user`.
 
 ## Next
 
 Continue to [Provenance and Reproducibility](08-provenance-and-reproducibility.md)
-to learn how Lungfish records every operation, including which pack
+to learn how LGE records every operation, including which pack
 versions ran, and how to export a workflow for sharing or publication.

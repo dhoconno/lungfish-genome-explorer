@@ -23,8 +23,6 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-## What it is
-
 Sample DNA reaches the sequencer in one of three main ways. It can be chopped at random into small fragments before being read ([shotgun](../../GLOSSARY.md#shotgun) sequencing), amplified at fixed positions across the genome by PCR with carefully chosen primers ([amplicon](../../GLOSSARY.md#amplicon) sequencing), or enriched by hybridisation to oligonucleotide probes that selectively pull target sequences out of a complex background (target-enrichment sequencing, also called capture-based sequencing). All three approaches produce FASTQ files that look identical at the file level: same four-line records, same Phred scores, same paired-end conventions. The differences live in how the reads sit on the genome, and those differences change how you must analyse them.
 
 This chapter explains what amplicon protocols are, why they dominate viral surveillance ([SARS-CoV-2 ARTIC](https://artic.network/ncov-2019) and [QIAseq Direct](https://www.qiagen.com/), [dengue PrimalSeq](https://github.com/grubaughlab), monkeypox amplicon panels), and what a primer scheme is as a file. It also explains why amplicon data needs primer trimming before variant calling, and why skipping that step produces phantom variants that look real but are not. A short subsection at the end introduces target-enrichment sequencing as a third approach often used for harder samples.

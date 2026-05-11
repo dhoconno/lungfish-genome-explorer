@@ -4,7 +4,7 @@ chapter_id: 01-foundations/01-what-is-a-genome
 audience: bench-scientist
 prereqs: []
 estimated_reading_min: 8
-task: Understand what a reference genome is and how Lungfish coordinates work.
+task: Understand what a reference genome is and how Lungfish Genome Explorer coordinates work.
 tags: [foundations, genome, reference, coordinates, sars-cov-2]
 tools: []
 entry_points: []
@@ -22,8 +22,6 @@ fixtures_refs: []
 brand_reviewed: false
 lead_approved: false
 ---
-
-## What it is
 
 A [genome](../../GLOSSARY.md#reference-genome) is the complete genetic sequence carried by an organism, virus, or other biological entity, written as a string of letters: A, C, G, T for DNA, with U replacing T in RNA. Almost every cell of every organism, and almost every virus particle, contains the same genetic blueprint, with a few familiar exceptions (mature red blood cells have no nucleus; some cells are polyploid; defective viral particles can carry incomplete genomes). When you sequence a sample on an Illumina machine or a Nanopore flow cell, what comes back is millions of short [reads](../../GLOSSARY.md#fastq) of that string, in fragments, with errors. The job of a genomics tool is to turn those fragments back into a coherent picture of the original sequence and to describe how it differs from a known version.
 

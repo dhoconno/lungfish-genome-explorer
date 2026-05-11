@@ -21,11 +21,9 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-## What it is
+A shared Lungfish Genome Explorer (LGE) project is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
 
-A shared Lungfish project is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
-
-Lungfish now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. GUI project-open warnings and read-only mode are follow-on work, but the metadata is already there for the GUI and for other automation to inspect.
+LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. GUI project-open warnings and read-only mode are follow-on work, but the metadata is already there for the GUI and for other automation to inspect.
 
 Bundle migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves current-version bundles byte-for-byte untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
 
@@ -37,7 +35,7 @@ Use `lungfish project lock` before an advanced workflow that expects exclusive w
 lungfish project lock ~/Projects/SARS-CoV-2.lungfish --mode exclusive
 ```
 
-The command creates `.lungfish/project.lock` using an atomic write. The record contains the tool name, Lungfish CLI version, project path, user, host, process id, process start time when available, current working directory, creation time, and lock mode. A typical record looks like this:
+The command creates `.lungfish/project.lock` using an atomic write. The record contains the tool name, LGE CLI version, project path, user, host, process id, process start time when available, current working directory, creation time, and lock mode. A typical record looks like this:
 
 ```json
 {
@@ -77,7 +75,7 @@ Use `--force` only after checking that the owner is no longer working in the pro
 
 ## Migration reports
 
-Run `migrate` when you inherit an older project or before sharing a project with a newer Lungfish installation:
+Run `migrate` when you inherit an older project or before sharing a project with a newer LGE installation:
 
 ```sh
 lungfish project migrate ~/Projects/SARS-CoV-2.lungfish
@@ -89,9 +87,9 @@ For automation, request JSON:
 lungfish project migrate ~/Projects/SARS-CoV-2.lungfish --format json
 ```
 
-The report lists every Lungfish bundle directory found under the project. Current `.lungfishref` bundles with manifest format `1.0` are reported as `current` with action `none`. Their `manifest.json` and any `.lungfish-provenance.json` sidecar are not rewritten.
+The report lists every LGE bundle directory found under the project. Current `.lungfishref` bundles with manifest format `1.0` are reported as `current` with action `none`. Their `manifest.json` and any `.lungfish-provenance.json` sidecar are not rewritten.
 
-Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`. They are not renamed or changed. This is deliberate. A migration that rewrites scientific bundle data must know the old schema, copy or rewrite the payload, preserve provenance sidecars, and keep the original bundle data by moving the original to a `.v<old>` suffix before the new bundle replaces it. Until a schema-specific transformer exists, Lungfish reports the gap instead of pretending to migrate.
+Unsupported legacy bundles are reported as `unsupported` with action `report-only` or `dry-run-report`. They are not renamed or changed. This is deliberate. A migration that rewrites scientific bundle data must know the old schema, copy or rewrite the payload, preserve provenance sidecars, and keep the original bundle data by moving the original to a `.v<old>` suffix before the new bundle replaces it. Until a schema-specific transformer exists, LGE reports the gap instead of pretending to migrate.
 
 Use `--dry-run` when you only want the scan result:
 

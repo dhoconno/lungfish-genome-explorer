@@ -25,8 +25,6 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-## What it is
-
 After a FASTQ read comes off a sequencer, one common next step is to figure out where on the reference genome it came from. A read [mapper](../../GLOSSARY.md#mapper) takes a FASTQ file and a reference genome and produces a [BAM](../../GLOSSARY.md#bam) file that records, for every read, the position on the reference where the read best matches. A [BAI](../../GLOSSARY.md#bai) file is the companion index that lets viewers and downstream tools jump to a specific position quickly without reading the whole BAM. This matters because real BAM files can hold hundreds of millions or billions of reads against genomes that are billions of nucleotides long. LGE supports several mappers behind the scenes, and the user-facing surface for everything in this chapter is the BAM viewport, where reads stack on top of the reference and the coverage track sits along the top.
 
 [Mapping](../../GLOSSARY.md#mapping) is the bridge between raw reads and many biological questions. Variant calling, primer trimming, coverage QC, and consensus generation all read a BAM. If the BAM is wrong (wrong reference, wrong mapper for the read type, missing index), every step downstream is wrong. Reading a BAM well is one of the most useful skills the chapters that follow assume.
