@@ -66,6 +66,8 @@ PROVENANCE_STALE_PATH_MARKERS = [
     "alignment" + "-tree-viewers",
     "/" + "tmp/",
     "/" + "private/tmp",
+    "/" + "var/folders/",
+    "/" + ".tmp/",
 ]
 PAYLOAD_STALE_PATH_MARKERS = PROVENANCE_STALE_PATH_MARKERS
 FORBIDDEN_TOP_LEVEL_FIELDS = [

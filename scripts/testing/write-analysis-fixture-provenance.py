@@ -98,6 +98,15 @@ def shell_command(argv):
     return " ".join(shlex.quote(part) for part in argv)
 
 
+def reproducible_backfill_argv(args):
+    argv = ["scripts/testing/write-analysis-fixture-provenance.py", "--root", "."]
+    if args.created_at is not None:
+        argv.extend(["--created-at", args.created_at])
+    if args.overwrite:
+        argv.append("--overwrite")
+    return argv
+
+
 def build_record(root, relative_fixture, metadata, created_at, executed_argv, overwrite_existing):
     if relative_fixture == "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish":
         return build_alignment_root_record(root, relative_fixture)
@@ -380,7 +389,7 @@ def main():
     args = parse_args()
     root = args.root.resolve()
     created_at = args.created_at or datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    executed_argv = sys.argv[:]
+    executed_argv = reproducible_backfill_argv(args)
     wrote = []
     repaired = []
     overwritten = []

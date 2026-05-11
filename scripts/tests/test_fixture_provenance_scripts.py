@@ -233,6 +233,59 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("stale path marker", result.stderr)
             self.assertIn("options.debugPath", result.stderr)
 
+    def test_audit_fails_when_sidecar_string_contains_additional_stale_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "taxtriage-2026-01-15T12-00-00"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["options"]["macTempPath"] = "/" + "var/folders/abc/stale"
+            provenance["options"]["repoTempPath"] = "/" + "repo/" + ".tmp/stale"
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("options.macTempPath", result.stderr)
+            self.assertIn("options.repoTempPath", result.stderr)
+
+    def test_audit_fails_when_json_payload_metadata_contains_additional_escaped_stale_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "analyses" / "taxtriage-2026-01-15T12-00-00"
+            payload = fixture / "taxtriage-result.json"
+            payload.write_text(
+                '{"macTempPath": "\\/' + 'var\\/folders\\/abc\\/stale", "repoTempPath": "\\/' + 'repo\\/.tmp\\/stale"}\n',
+                encoding="utf-8",
+            )
+            (fixture / ".lungfish-provenance.json").write_text(
+                json.dumps(self._valid_sidecar(root, fixture, "Tests/Fixtures/analyses/taxtriage-2026-01-15T12-00-00"), indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("stale path marker", result.stderr)
+            self.assertIn("taxtriage-result.json", result.stderr)
+            self.assertIn("macTempPath", result.stderr)
+            self.assertIn("repoTempPath", result.stderr)
+
     def test_audit_fails_when_alignment_sidecar_loses_scientific_workflow_identity(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
