@@ -21,11 +21,11 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-A shared Lungfish Genome Explorer (LGE) project is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
+A shared Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
 
 LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. GUI project-open warnings and read-only mode are follow-on work, but the metadata is already there for the GUI and for other automation to inspect.
 
-Bundle migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves current-version bundles byte-for-byte untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
+[Bundle](../../GLOSSARY.md#bundle) migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves current-version bundles byte-for-byte untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
 
 ## Locking a project
 
@@ -99,7 +99,7 @@ lungfish project migrate ~/Projects/SARS-CoV-2.lungfish --dry-run --format json
 
 ## Provenance expectations
 
-Project locks are coordination metadata, not scientific outputs. Migration is different: when a migration actually rewrites or wraps scientific data, it must preserve existing provenance sidecars and write new migration provenance describing the command, options, inputs, outputs, checksums, file sizes, runtime identity, exit status, stderr when useful, and wall time.
+Project locks are coordination metadata, not scientific outputs. Migration is different: when a migration actually rewrites or wraps scientific data, it must preserve existing [provenance sidecars](../../GLOSSARY.md#provenance-sidecar) and write new migration provenance describing the workflow or tool name and version, options, inputs, outputs, checksums, file sizes, runtime identity, exit status, stderr when useful, and wall time.
 
 The current no-op/report-only migration does not create new scientific outputs. It does preserve existing sidecars by leaving bundles untouched and by reporting whether a sidecar was present for each inspected bundle.
 

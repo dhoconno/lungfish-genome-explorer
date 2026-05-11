@@ -73,15 +73,15 @@ Each row of a VCF carries the same fields in the same order. The first eight des
 | `CHROM`  | The reference contig or chromosome name. Must match the reference FASTA.     | `MN908947.3`           |
 | `POS`    | The 1-based position on `CHROM` where the variant starts.                    | `23403`                |
 | `ID`     | A database identifier (dbSNP, ClinVar) or `.` if none assigned.              | `.`                    |
-| `REF`    | The reference base or bases at this position.                                | `A`                    |
-| `ALT`    | The alternate base or bases observed in the reads.                           | `G`                    |
+| `REF`    | The [reference base](../../GLOSSARY.md#ref-alt) or bases at this position.   | `A`                    |
+| `ALT`    | The [alternate base](../../GLOSSARY.md#ref-alt) or bases observed in the reads. | `G`                 |
 | `QUAL`   | Phred-scaled confidence that the variant is real. Higher is better.          | `228`                  |
-| `FILTER` | `PASS` or a semicolon-separated list of named filters the row failed.        | `PASS`                 |
-| `INFO`   | Semicolon-separated `KEY=VALUE` pairs of per-row metadata.                   | `DP=1842;AF=0.998`     |
+| `FILTER` | `PASS` or a semicolon-separated list of named [filter](../../GLOSSARY.md#filter) flags the row failed. | `PASS` |
+| `INFO`   | Semicolon-separated `KEY=VALUE` pairs of per-row metadata (see [INFO](../../GLOSSARY.md#info)). | `DP=1842;AF=0.998` |
 
 A few details matter. `POS` is 1-based: the first base of the reference is position 1, not 0, the same convention you met in [What Is a Genome](01-what-is-a-genome.md). For an indel, `POS` names the base immediately before the insertion or deletion, and the `REF` and `ALT` strings include that base as an anchor; this is the convention `ivar`, `lofreq`, and `bcftools` all follow. `QUAL` is Phred-scaled, so a value of 20 means a 1% probability that the variant is a false positive and 30 means 0.1%. A `QUAL` of `.` means the caller did not score the row, which is common in LGE-normalised iVar output: iVar natively emits a TSV with a `PASS` boolean, and LGE's conversion to VCF sets `QUAL` to `.` where iVar did not score the row directly.
 
-The ninth column, `FORMAT`, is a colon-separated list of keys that describe the per-sample payload. LGE's variant callers emit a small set of keys: `GT` (genotype), `DP` (depth at this position), `AF` (allele frequency), and sometimes `AD` (per-allele depths, a comma-separated list of read counts for each of REF and the ALT alleles). One sample column follows for each sample, with values in the same order as the FORMAT keys.
+The ninth column, [`FORMAT`](../../GLOSSARY.md#format), is a colon-separated list of keys that describe the per-sample payload. LGE's variant callers emit a small set of keys: [`GT`](../../GLOSSARY.md#genotype) (genotype), `DP` (depth at this position), `AF` ([allele frequency](../../GLOSSARY.md#allele-frequency)), and sometimes `AD` (per-allele depths, a comma-separated list of read counts for each of REF and the ALT alleles). One sample column follows for each sample, with values in the same order as the FORMAT keys.
 
 | FORMAT key | What it carries                                                                   |
 |------------|-----------------------------------------------------------------------------------|
