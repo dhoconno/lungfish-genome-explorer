@@ -433,6 +433,78 @@ final class WorkflowBuilderTests: XCTestCase {
         })
     }
 
+    func testVSP2TemplateCreatesExpandedConnectedGraph() throws {
+        let graph = try VSP2WorkflowTemplate.makeGraph(
+            inputBundleRelativePath: "@/Imports/sample.lungfishfastq"
+        )
+
+        let executableNodes = try graph.topologicalSort()
+        XCTAssertEqual(executableNodes.map(\.type), [
+            .fastqBundleInput,
+            .fastpDedup,
+            .fastpTrim,
+            .deaconHumanScrub,
+            .fastpMerge,
+            .seqkitLengthFilter,
+        ])
+        XCTAssertEqual(graph.connectionCount, 6)
+        XCTAssertEqual(
+            graph.allNodes.first { $0.type == .fastqBundleInput }?.parameters["bundle_path"],
+            "@/Imports/sample.lungfishfastq"
+        )
+    }
+
+    func testVSP2TemplateUsesRecipeDefaults() throws {
+        let graph = try VSP2WorkflowTemplate.makeGraph(
+            inputBundleRelativePath: "@/Imports/sample.lungfishfastq"
+        )
+
+        let trim = try XCTUnwrap(graph.allNodes.first { $0.type == .fastpTrim })
+        XCTAssertEqual(trim.parameters["detectAdapter"], "true")
+        XCTAssertEqual(trim.parameters["quality"], "15")
+        XCTAssertEqual(trim.parameters["window"], "5")
+        XCTAssertEqual(trim.parameters["cutMode"], "right")
+
+        let scrub = try XCTUnwrap(graph.allNodes.first { $0.type == .deaconHumanScrub })
+        XCTAssertEqual(scrub.parameters["database"], "deacon-panhuman")
+
+        let merge = try XCTUnwrap(graph.allNodes.first { $0.type == .fastpMerge })
+        XCTAssertEqual(merge.parameters["minOverlap"], "15")
+
+        let length = try XCTUnwrap(graph.allNodes.first { $0.type == .seqkitLengthFilter })
+        XCTAssertEqual(length.parameters["minLength"], "50")
+    }
+
+    func testVSP2TemplateLoadsBundledRecipeDirectly() throws {
+        let recipe = try VSP2WorkflowTemplate.bundledRecipe()
+
+        XCTAssertEqual(recipe.id, VSP2WorkflowTemplate.recipeID)
+        XCTAssertEqual(recipe.steps.map(\.type), [
+            "fastp-dedup",
+            "fastp-trim",
+            "deacon-scrub",
+            "fastp-merge",
+            "seqkit-length-filter",
+        ])
+    }
+
+    func testVSP2TemplateUsesStableNodeIdentifiers() throws {
+        let first = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/sample.lungfishfastq")
+        let second = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/other.lungfishfastq")
+
+        let firstIDsByType = Dictionary(uniqueKeysWithValues: first.allNodes.map { ($0.type, $0.id) })
+        let secondIDsByType = Dictionary(uniqueKeysWithValues: second.allNodes.map { ($0.type, $0.id) })
+
+        XCTAssertEqual(firstIDsByType[.fastqBundleInput], UUID(uuidString: "00000000-0000-4000-8000-000000000501"))
+        XCTAssertEqual(firstIDsByType[.fastpDedup], UUID(uuidString: "00000000-0000-4000-8000-000000000502"))
+        XCTAssertEqual(firstIDsByType[.fastpTrim], UUID(uuidString: "00000000-0000-4000-8000-000000000503"))
+        XCTAssertEqual(firstIDsByType[.deaconHumanScrub], UUID(uuidString: "00000000-0000-4000-8000-000000000504"))
+        XCTAssertEqual(firstIDsByType[.fastpMerge], UUID(uuidString: "00000000-0000-4000-8000-000000000505"))
+        XCTAssertEqual(firstIDsByType[.seqkitLengthFilter], UUID(uuidString: "00000000-0000-4000-8000-000000000506"))
+        XCTAssertEqual(firstIDsByType[.projectOutput], WorkflowGraph.projectOutputAnchorID)
+        XCTAssertEqual(firstIDsByType, secondIDsByType)
+    }
+
     // MARK: - WorkflowConnection Tests
 
     func testConnectionValidation() {
