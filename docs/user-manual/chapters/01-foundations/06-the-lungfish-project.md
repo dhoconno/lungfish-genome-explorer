@@ -33,11 +33,13 @@ brand_reviewed: false
 lead_approved: false
 ---
 
-A Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is a folder on disk that holds the data, results, and provenance for one analysis. Sequencing reads you imported, references you downloaded, alignments you produced, variant tracks, classification results, and the provenance records that tie every output back to a reproducible command all live inside that one folder. Nothing important is hidden in a database elsewhere. Project data and provenance travel with the folder; re-running workflows on another Mac also requires a compatible LGE version, the installed plugin packs, and any external databases the project references.
+A Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is a folder on disk that holds the data, results, and provenance for one analysis. Sequencing reads you imported, references you downloaded, alignments you produced, variant tracks, classification results, and the provenance records that tie every output back to a reproducible command all live inside that one folder. There is no separate LGE database on your Mac that holds project content; opening the folder in Finder shows you everything LGE knows about the project.
 
-Open a project and you get a window with three persistent panes. The [sidebar](../../GLOSSARY.md#sidebar) runs down the left and shows the project's contents as a folder tree. The main viewport fills the centre and shows whatever you have selected: a sequence track, an alignment, a variant table, a classification sunburst. The [Inspector](../../GLOSSARY.md#inspector) runs down the right and shows context-sensitive metadata and analysis actions for the current selection. A fourth surface, the [Operations Panel](../../GLOSSARY.md#operations-panel), slides up from the bottom on demand and reports every long-running job in the project.
+A few analyses (Kraken2 classification, EsViritu, and similar metagenomics workflows) depend on large reference databases that LGE installs separately and shares across every project on the machine. Those databases stay outside the project folder by design, because copying tens of gigabytes into every project would be wasteful. The project's provenance records the database name and version it used, so the analysis is still reproducible: re-running on another Mac requires a compatible LGE version, the installed plugin packs, and the same external databases the project references.
 
-LGE also ships a command-line tool, `lungfish`, that mirrors most GUI actions. This chapter is GUI-focused. The CLI commands appear inline in later chapters wherever the GUI introduces a new operation.
+Open a project and you get a window with three persistent panes. The [sidebar](../../GLOSSARY.md#sidebar) runs down the left and shows the project's contents as a folder tree. The main viewport fills the centre and shows whatever you have selected: a sequence track, an alignment, a variant table, a classification sunburst. The [Inspector](../../GLOSSARY.md#inspector) runs down the right and shows context-sensitive metadata and analysis actions for the current selection. A fourth surface, the [Operations Panel](../../GLOSSARY.md#operations-panel), opens in its own window from the **Operations** menu and reports every long-running job in the project.
+
+LGE also ships a command-line interface (CLI) tool, `lungfish`, that mirrors most GUI actions. This chapter is GUI-focused. The CLI commands appear inline in later chapters wherever the GUI introduces a new operation. Most users do not need to work with the CLI directly; power users may appreciate the convenience of driving LGE data and tools without the GUI.
 
 So what should you do with this? Read this chapter once before any other UI chapter, because every later chapter assumes you can locate the sidebar, the Inspector, and the Operations Panel by name.
 
@@ -48,6 +50,8 @@ By the end of this chapter you will be able to create a new LGE project from the
 ## The Welcome window
 
 When you launch LGE without a project open, the Welcome window appears. It has two primary actions and a recent-projects list.
+
+<!-- planned: welcome-window -->
 
 1. **New Project** creates a new empty project folder at a location you choose. Keyboard shortcut: `Cmd-N`.
 2. **Open** opens an existing project folder you select with the file dialog. Keyboard shortcut: `Cmd-O`.
@@ -65,11 +69,15 @@ This walkthrough creates an empty project named `SARS-CoV-2 SRR36291587` under y
 4. The Welcome window closes. A new project window opens, titled `SARS-CoV-2 SRR36291587`.
 5. The window has three panes. The sidebar on the left shows the project name at the top and the project's top-level folders below. The centre is empty, with placeholder text inviting you to import or download data. The Inspector on the right is empty, because nothing is selected.
 
-If the Inspector is not visible, choose `View > Show Inspector` or press `Cmd-Opt-I`. If the sidebar is not visible, choose `View > Show Sidebar` or press `Cmd-Shift-S`. The Operations Panel is hidden by default; bring it up with `Cmd-Shift-P` or by clicking the small status chip in the lower-right corner of the window footer.
+<!-- planned: empty-project-window -->
+
+If the Inspector is not visible, choose `View > Show Inspector` or press `Cmd-Opt-I`. If the sidebar is not visible, choose `View > Show Sidebar` or press `Cmd-Shift-S`. The Operations Panel is hidden by default; bring it up with `Operations > Show Operations Panel` or `Cmd-Shift-P`.
 
 The project folder on disk now exists at `~/Documents/SARS-CoV-2 SRR36291587/`. If you open it in Finder, you will see the project's top-level folders mirroring the sidebar. LGE stores no hidden state outside that folder for this project's data; the folder is the project.
 
 ## A tour of the sidebar
+
+<!-- planned: sidebar-folder-conventions -->
 
 A LGE project is a folder-backed workspace. The most common top-level areas are listed below. Some are created when the project is created, and others appear the first time a workflow needs them; either way, you should treat the sidebar as the canonical view of the project.
 
@@ -94,7 +102,9 @@ Bundles travel as a unit. When you copy a `.lungfishref` to another project, you
 
 The [Inspector](../../GLOSSARY.md#inspector) is the right-hand pane. It is context-sensitive: its contents change every time you change what is selected in the sidebar or the main viewport.
 
-Select a paired-end FASTQ bundle in `Imports/`, and the Inspector shows the read count, the average length, the per-base quality summary, and a button to run a classification or a mapping. Select an alignment track inside a `.lungfishref`, and the Inspector switches to alignment statistics: mapped read count, mean coverage, coverage uniformity, and a button to call variants. Select a single variant row in a VCF track, and the Inspector switches again, this time to that variant's `INFO` and `FORMAT` fields, the supporting read counts on each strand, and a button to copy the position to the clipboard.
+<!-- planned: inspector-fastq-selected -->
+
+Select a paired-end FASTQ bundle in `Imports/`, and the Inspector shows the read count, the average length, the per-base quality summary, and a button to run a classification or a mapping. Select an alignment track inside a `.lungfishref`, and the Inspector switches to alignment statistics: mapped read count, mean coverage, coverage uniformity, and a button to call variants. Open a variant track and click a row in the variant table at the bottom of the viewport, and the Inspector switches again, this time to that variant's `INFO` and `FORMAT` fields, the supporting read counts on each strand, and a button to copy the position to the clipboard. (Variant rows are selected in the table drawer rather than the sidebar, because there are far more variants per track than the sidebar can usefully list. Whichever surface you select from, the Inspector is where the per-item detail appears.)
 
 The pattern is the same throughout the app. Whatever you have selected, the Inspector shows what is known about it and what you can do next. If the Inspector is ever empty, nothing is selected. Click an item in the sidebar or the viewport to populate it.
 
@@ -102,7 +112,9 @@ Toggle the Inspector with `Cmd-Opt-I`. Hide it when you want a wider viewport fo
 
 ## The Operations Panel
 
-The [Operations Panel](../../GLOSSARY.md#operations-panel) shows live long-running work in LGE: downloads, mapping runs, variant calls, classification runs, exports. Bring it up with `Cmd-Shift-P` or by clicking the status chip in the footer.
+The [Operations Panel](../../GLOSSARY.md#operations-panel) shows live long-running work in LGE: downloads, mapping runs, variant calls, classification runs, exports. Open it from the menu bar at `Operations > Show Operations Panel`, or with `Cmd-Shift-P`.
+
+<!-- planned: operations-panel-row -->
 
 Each operation produces a row with five columns: a status icon (running, succeeded, failed, cancelled), the operation name, the timestamp it started, a link to the log, and a disclosure triangle that opens the provenance record. The provenance record lists the exact tool version, the full command line, the input file checksums, and the output file checksums. Failed operations stay in the panel until you dismiss them, so you can read the log and decide whether to retry.
 
@@ -110,21 +122,22 @@ The panel is also where you cancel a running job. Click the row to select it, th
 
 The Operations Panel shows the operations for the current session. The durable audit trail lives in the [provenance](../../GLOSSARY.md#provenance) sidecars and logs that completed workflows write into the project folder; those records persist after the panel row scrolls away or the app is relaunched. The [Provenance and Reproducibility](08-provenance-and-reproducibility.md) chapter walks through reading and exporting that record.
 
-## Keyboard shortcuts that orient
+### When things go wrong
 
-These five shortcuts are the ones to learn first. They appear in the menu bar next to the corresponding command, so you do not need to memorise them; the menu is the canonical reference.
+Right-click any row in the Operations Panel to act on it without leaving the panel. The context menu shows what is available for that row, and the available items depend on the row's state.
 
-| Shortcut | Action |
-|---|---|
-| `Cmd-N` | New project |
-| `Cmd-O` | Open project |
-| `Cmd-Opt-I` | Toggle Inspector |
-| `Cmd-Shift-P` | Toggle Operations Panel |
-| `Cmd-Shift-S` | Toggle sidebar |
+1. **Copy CLI Command** copies the exact command line LGE ran for that operation, so you can paste it into a terminal to reproduce the run by hand. This is also the fastest way to capture the command for a bug report.
+2. **Copy Log** copies the operation's log text to the clipboard. **View Log** opens the log inline. **Reveal Log in Finder** opens the project folder at the log file so you can attach it to a bug report or read it in another tool.
+3. **Copy Failure Report** (failed operations only) gathers the operation title, the CLI command, the error message, the error detail, and the log into a single text block ready to paste into a GitHub issue.
+4. **Open GitHub Issue** (failed operations only) opens a pre-filled GitHub issue in your browser with the failure report attached. You review and submit the issue from the browser; nothing is filed without your explicit action.
+
+When something fails and the error message is not enough to diagnose, the recommended sequence is to open the panel, expand the failed row to read the inline log, right-click and choose **Open GitHub Issue**, and then add anything else (screenshots, project context) in the browser before submitting. The [Troubleshooting](../appendices/troubleshooting.md) appendix lists the most common failure modes and their fixes.
 
 ## Finding this manual inside the app
 
-The user manual ships inside the application. From any project window choose `Help > Lungfish Genome Explorer Help` to open this manual in your default browser. `Help > Report an Issue...` opens a pre-filled GitHub issue template that includes the version string. When a workflow has a dedicated manual chapter, the chapter title in this guide is the stable reference.
+The user manual ships inside the application. From any project window choose `Help > Lungfish Genome Explorer Help` to open this manual in your default browser. `Help > Report an Issue...` opens a pre-filled GitHub issue template that includes the version string and is the right surface when the failure is not tied to a specific operation; for a failure you can see in the Operations Panel, the right-click **Open GitHub Issue** path is faster because it captures the command, the log, and the error automatically.
+
+For the full list of keyboard shortcuts referenced by this chapter and the rest of the manual, see the [Keyboard Shortcuts](../appendices/keyboard-shortcuts.md) appendix.
 
 ## Next
 

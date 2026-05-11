@@ -4,12 +4,11 @@ chapter_id: 01-foundations/07-plugin-packs
 audience: bench-scientist
 prereqs: [01-foundations/06-the-lungfish-project]
 estimated_reading_min: 8
-task: Install and verify Lungfish Genome Explorer plugin packs from the command line.
-tags: [foundations, plugin-pack, conda, micromamba, installation]
+task: Install and verify Lungfish Genome Explorer plugin packs from the Plugin Manager.
+tags: [foundations, plugin-pack, installation]
 tools: []
 entry_points:
   - "Tools > Plugin Manager (Cmd-Shift-B)"
-  - "CLI: lungfish conda install"
 shots: []
 planned_shots:
   - id: plugin-manager-window
@@ -17,7 +16,7 @@ planned_shots:
   - id: plugin-manager-installed
     caption: "Plugin Manager after read-mapping and variant-calling install, showing both packs marked installed."
 illustrations: []
-glossary_refs: [plugin-pack, conda, micromamba]
+glossary_refs: [plugin-pack]
 features_refs: []
 fixtures_refs: []
 brand_reviewed: false
@@ -31,41 +30,34 @@ everything would mean a multi-gigabyte download, a slower release cadence,
 and a guarantee that something would be out of date the day you installed
 it. So LGE ships small and pulls in tools on demand.
 
-A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related command-line tools, installed
-together because chapters tend to use them together. The `read-mapping` pack
-gives you the mappers and `samtools`. The `variant-calling` pack gives you
-the callers, `bcftools`, and the indexing utilities. Each pack lives in its
-own per-tool [conda](../../GLOSSARY.md#conda) environment under `~/.lungfish/conda` in your home
-directory. Note the leading dot, and note that this is the home directory,
-not the project folder. Tools are shared across every LGE project on
-the machine; you install a pack once and every project sees it.
+A [plugin pack](../../GLOSSARY.md#plugin-pack) is a themed group of related command-line tools,
+installed together because chapters tend to use them together. The
+`read-mapping` pack gives you the read mappers (`minimap2`, `BWA-MEM2`,
+`Bowtie2`, `BBMap`) and `samtools`, the workhorse utility for sorting,
+indexing, and querying BAM alignment files. The `variant-calling` pack
+gives you the variant callers (iVar, LoFreq, Medaka, Clair3), `bcftools`
+for working with VCF files, and the indexing utilities that go with them.
 
-A short note on why conda and not pip. Bioinformatics tools accumulated
-years of C, C++, Java, and R dependencies long before Python packaging
-existed in its current form. `samtools` links against `htslib`, `htslib`
-links against `libdeflate` and `libcurl`, and so on down a long chain of
-compiled libraries. `pip` cannot manage non-Python compiled dependencies in
-a portable way; conda can, and the [bioconda](https://bioconda.github.io/) channel hosts almost every
-tool a viral genomicist would ever reach for. LGE uses
-[micromamba](../../GLOSSARY.md#micromamba), a small standalone bootstrap that speaks the conda protocol
-without needing a full Anaconda installation. The first pack you install
-also installs the micromamba bootstrap into `~/.lungfish/conda`, which
-takes an extra few seconds.
+You can install and update packs from the GUI (`Tools > Plugin Manager`,
+described below) without needing to know anything about how packs are
+laid out on disk. The packs themselves live in a hidden directory in your
+home folder and are shared across every LGE project on the machine, so you
+install a pack once and every project sees it.
 
 So what should you do with this? When a workflow chapter says "install the
-`read-mapping` pack first," run the install command and move on. The packs
-are quick to install and quick to verify, and you only do it once per
-machine.
+`read-mapping` pack first," open the Plugin Manager, click **Install** next
+to that pack, and move on. The packs are quick to install and quick to
+verify, and you only do it once per machine.
 
 ## What you will learn
 
 By the end of this chapter you will be able to install one or more plugin
-packs from the command line, list installed packs from the Plugin Manager
-window, recognise a "missing tool" error from a workflow operation as a
-missing-pack error, and re-run the install command to confirm a pack is
-current. You will not need to type a single `conda` command. The
-`lungfish conda` subcommand wraps the bootstrap, the channel configuration,
-and the per-tool environment layout for you.
+packs from the Plugin Manager window, list which packs are installed,
+recognise a "missing tool" error from a workflow operation as a
+missing-pack error, and re-run the install to confirm a pack is current.
+You will not need to type any commands; the Plugin Manager handles the
+download, the channel configuration, and the per-tool environment layout
+for you.
 
 ## System requirements
 
@@ -80,6 +72,14 @@ The About window repeats the hardware floor used by the app: macOS 26
 Tahoe or later, Apple Silicon, 16 GB RAM minimum, 32 GB RAM recommended
 for metagenomics and assembly, and 100 GB free disk recommended for a
 working set of tool packs, databases, and projects.
+
+If your internal SSD is full or you want to keep large databases off the
+boot drive, you can stage LGE projects and the database storage location to
+an external SSD. Use an external SSD (Thunderbolt, USB-C, or USB 3); a
+spinning external hard drive is too slow for the working set of reads,
+alignments, and database indices that LGE produces and will make
+operations that the docs describe as fast feel slow or unresponsive. The
+storage-location settings live in the Plugin Manager's Databases tab.
 
 ## The packs you will meet in this manual
 
@@ -104,173 +104,129 @@ everything upfront. Install a pack the first time a chapter asks for it.
 
 A typical pack install moves between 100 MB and 300 MB across the wire and
 takes 30 seconds to 3 minutes depending on your network. The first install
-on a fresh machine is slower because it also writes the micromamba
-bootstrap and resolves the channel index for the first time. Subsequent
-installs reuse the cached index.
+on a fresh machine is slower because LGE has to download and set up its
+managed tool runner the first time. Subsequent installs are faster.
 
-`gatk-core` is larger than the viral caller packs because GATK4 is a Java
-toolkit with its runtime dependencies. LGE pins it as
-`bioconda::gatk4=4.6.2.0`, runs `gatk --version` as the smoke test, and
-budgets roughly 600 MB of installed space for the environment.
-
-The `lungfish gatk` CLI builds reproducible GATK command lines by default and can
-execute them through the managed `gatk-core` environment when a subcommand is
-invoked with `--execute`. The first-class human germline workflow (output
-bundles that record full LGE provenance for the final stored payload, GUI
-integration, and end-to-end scenario coverage) is still in development; the
-[Human Germline Variants](../06-human-germline-variants/01-haplotype-caller.md) chapter
-covers what is available today.
+`gatk-core` is larger than the viral caller packs because GATK4 ships as a
+Java toolkit with its own runtime; budget roughly 600 MB of installed
+space for it. The [Human Germline Variants](../06-human-germline-variants/01-haplotype-caller.md)
+chapter walks through how LGE invokes GATK and what is and is not yet
+wired into the GUI for that workflow.
 
 ## Procedure
 
-### Install a pack from the command line
-
-The CLI is the fastest path and the one we recommend for the worked
-examples below. From any terminal:
-
-```bash
-lungfish conda install --pack read-mapping
-```
-
-The command prints progress as micromamba resolves the environment,
-downloads packages, and links them into place. When the command exits with
-status `0`, the pack is ready. You do not need to restart LGE; the
-next workflow operation that asks for `minimap2` or `samtools` will find
-them.
-
-To install several packs, run the command once per pack. The packs are
-independent of each other, and parallel installs are safe.
-
 ### Install a pack from the Plugin Manager
 
-The GUI equivalent lives in the menu bar at **Tools > Plugin Manager**, or
-Cmd-Shift-B. The Plugin Manager window lists every available pack with a
-status badge: not installed, installed, or update available. Click the
-**Install** button next to a pack to start the same operation the CLI
-runs. Progress streams into the window. When the badge flips to
-**installed**, you are done.
+The Plugin Manager is the recommended way to install and update packs.
+Open it from the menu bar at **Tools > Plugin Manager**, or with
+`Cmd-Shift-B`. The window lists every available pack with a status badge:
+**not installed**, **installed**, or **update available**.
 
 <!-- planned: plugin-manager-window -->
 
-The two paths are equivalent. Both write to `~/.lungfish/conda`. Both run
-the same hash check on re-install. The Plugin Manager is convenient when
-you are already in the app; the CLI is convenient when you are setting up
-a machine.
+Click **Install** next to a pack to start. Progress streams into the
+window as LGE downloads the tools and sets them up. When the badge flips
+to **installed**, you are done. You do not need to restart LGE; the next
+workflow operation that asks for one of the pack's tools will find it.
+
+To install several packs, click **Install** for each one. The packs are
+independent, so they can install in parallel without interfering with
+each other.
 
 ### Worked example: install read-mapping and variant-calling
 
-Most variant-calling workflows in this manual need two packs together.
-Run the installs back to back:
+Most variant-calling workflows in this manual need two packs together. In
+the Plugin Manager, click **Install** next to `read-mapping`, then
+**Install** next to `variant-calling`. The first install on a fresh
+machine takes 1 to 3 minutes depending on your network because LGE also
+sets up its managed tool runner the first time. The second install is
+faster because the runner is already in place.
 
-```bash
-lungfish conda install --pack read-mapping
-lungfish conda install --pack variant-calling
-```
-
-The first run will probably take 1 to 3 minutes depending on your
-connection, because it downloads the micromamba bootstrap on top of the
-read-mapping tools. The second run is faster because the bootstrap is
-already there and the channel index is cached.
-
-To verify, re-run either command:
-
-```bash
-lungfish conda install --pack read-mapping
-```
-
-You should see output that mentions the pack is already installed and that
-the hash matches; the command exits without re-downloading. This
-**idempotent** behaviour is the recommended verification path. If you
-prefer a list view, run:
-
-```bash
-lungfish conda list
-```
-
-which prints every installed pack and its on-disk version, or open
-**Tools > Plugin Manager** and confirm both packs show the **installed**
-badge.
+To verify, look at the Plugin Manager and confirm both packs show the
+**installed** badge. Re-clicking **Install** on a pack that is already
+installed performs an integrity check: LGE re-verifies the installed pack
+and reports it is current. This is the recommended way to confirm an
+install is intact after an interruption (closing the lid mid-install, a
+network drop, an unexpected reboot).
 
 <!-- planned: plugin-manager-installed -->
 
 ### Check database versions and update state
 
-Reference databases are tracked separately from conda environments. The
-Databases tab in Plugin Manager shows each installed database's install
-date, current version, and whether the built-in catalog knows about a
-newer version. The same information is available from the CLI:
-
-```bash
-lungfish conda db list
-lungfish conda db info Standard-8
-```
-
-`db info` prints the database tool, local version, install date, last
-updated date, available update, disk path, disk size, and RAM requirement.
-An "available update" value means the catalog version is newer than the
-installed version; "none" means the local copy matches the current catalog
-or no newer version can be determined.
+Reference databases are tracked separately from the tool packs. The
+**Databases** tab in the Plugin Manager lists each installed database's
+install date, current version, and whether LGE knows of a newer version.
+An **Update Available** badge means the catalog version is newer than the
+installed version. **Up to Date** means your local copy matches the
+current catalog. From the same tab you can install a database, update it,
+or remove it; LGE handles the storage location, the download, and the
+integrity check.
 
 ## Interpretation
 
 ### What "already installed" means
 
-When a re-run reports a pack as already installed, two things have been
-checked. First, the per-tool environments under `~/.lungfish/conda` exist
-and contain the expected binaries. Second, the recorded hash for the pack
-matches the hash LGE expects for this app version. A mismatch would
-trigger a re-install rather than a silent skip, so an "already installed"
-message means the pack is genuinely current.
+When you re-click **Install** on a pack and LGE reports it as already
+installed, the tools are present on disk and their integrity matches what
+this version of LGE expects. A mismatch would trigger a re-install rather
+than a silent skip, so an "already installed" message means the pack is
+genuinely current.
 
 ### What a "missing tool" error looks like
 
 When a workflow operation needs a tool from a pack you have not installed,
-the operation fails fast with a message that names the missing tool and the
-pack that provides it. For example, running Map Reads without the
-`read-mapping` pack will surface an error such as "missing tool: minimap2.
+the operation fails fast with a message that names the missing tool and
+the pack that provides it. For example, running Map Reads without the
+`read-mapping` pack will surface an error like "missing tool: minimap2.
 Install the `read-mapping` plugin pack." The fix is to install the named
 pack and re-run the operation. The original input files and project state
 are untouched; nothing was partially written.
 
-If you see this error on a machine where you believe the pack is installed,
-check three things. The directory `~/.lungfish/conda` should exist. It
-should be writable by your user. And `lungfish conda list` should name the
-pack. If any of those is wrong, re-running the install will repair the
-state in place. For deeper failures (network blocks, locked package
-caches, channel resolution errors), see the **Troubleshooting** appendix
-chapter on plugin pack install failures, planned at the back of the
-manual.
+If you see this error on a machine where you believe the pack is
+installed, open the Plugin Manager and confirm the pack shows the
+**installed** badge. If it does not, click **Install** and let LGE repair
+the state in place. For deeper failures (network blocks, locked package
+caches, an interrupted earlier install), see the
+[Plugin packs and conda environments](../appendices/troubleshooting.md#plugin-packs-and-conda-environments)
+section of the **Troubleshooting** appendix.
 
-### Disk usage and where it goes
+### Disk usage
 
-Plugin packs accumulate at `~/.lungfish/conda` by default. A full set of
-the packs listed in the table above lands in the 1 to 3 GB range, with
-classification packs (which carry reference databases) responsible for most
-of it. The directory is safe to delete when you want to start over; the
-next install will recreate it. Project folders never contain pack binaries,
-so a project archive stays small and portable.
+A full set of the packs listed in the table above lands in the 1 to 3 GB
+range, with classification tool packs the largest of the bunch.
+Classification *databases* are the heavier items and are tracked
+separately from the tool packs in the Plugin Manager's Databases tab;
+those can run to tens of gigabytes for Standard or PlusPF. Project folders
+never contain pack binaries, so a project archive stays small and
+portable.
 
-On shared workstations, an administrator can place the conda root on a
-larger shared volume and launch LGE with `LUNGFISH_CONDA_ROOT` set to
-that directory:
+## Notes for shared workstations and lab administrators
 
-```bash
-export LUNGFISH_CONDA_ROOT=/shared/lungfish/conda
-lungfish conda install --pack read-mapping
-```
+This section is for IT staff and lab administrators setting up LGE on a
+shared workstation. Routine LGE users do not need to read it.
 
-All managed tool lookup paths use the override while it is set. For a
-shared lab machine, the recommended pattern is:
+On a shared workstation, an administrator can place LGE's tool packs and
+reference databases on a larger shared volume so that all lab users share
+one installation. LGE supports this by reading the `LUNGFISH_CONDA_ROOT`
+environment variable; when it is set, every LGE process (GUI and CLI) uses
+that location as the install root for packs and databases.
 
-1. The admin user sets `LUNGFISH_CONDA_ROOT` and installs or updates packs.
-2. The admin leaves the installed root readable and executable by lab users.
-3. Routine users run workflows with the same `LUNGFISH_CONDA_ROOT`, but do
-   not mutate the root.
+The recommended setup pattern:
 
-Conda mutations take an exclusive `.install.lock` in the conda root. A
-second install waits rather than corrupting the shared environment. If a
-routine user tries to install into a read-only admin root, LGE stops
-with `conda root is read-only; reinstall as the admin user`.
+1. The admin sets `LUNGFISH_CONDA_ROOT` in a shell startup file that lab
+   users inherit, then opens LGE and installs the packs and databases
+   from the Plugin Manager.
+2. The admin leaves the install root readable and executable for lab
+   users, but writable only by the admin account.
+3. Routine users open LGE, see the packs and databases as
+   **installed**, and run workflows; the Plugin Manager will not let them
+   mutate a read-only root.
+
+LGE's pack and database operations take an exclusive lock on the install
+root, so a second install waits rather than corrupting the shared
+environment. If a routine user tries to install into a read-only admin
+root, LGE stops with `install root is read-only; reinstall as the admin
+user`.
 
 ## Next
 
