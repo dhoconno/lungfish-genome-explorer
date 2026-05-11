@@ -6,6 +6,7 @@
 // Reference: Apple Human Interface Guidelines
 
 import AppKit
+import LungfishCore
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.
@@ -24,7 +25,9 @@ public final class MainMenu {
     private static let windowMenuDelegate = WindowMenuDelegate()
 
     /// Creates and returns the main menu bar.
-    public static func createMainMenu() -> NSMenu {
+    public static func createMainMenu(
+        experimentalFeaturesEnabled: Bool = AppSettings.shared.experimentalFeaturesEnabled
+    ) -> NSMenu {
         let mainMenu = NSMenu()
 
         // Application menu
@@ -43,7 +46,7 @@ public final class MainMenu {
         mainMenu.addItem(createSequenceMenu())
 
         // Tools menu
-        mainMenu.addItem(createToolsMenu())
+        mainMenu.addItem(createToolsMenu(experimentalFeaturesEnabled: experimentalFeaturesEnabled))
 
         // Operations menu
         mainMenu.addItem(createOperationsMenu())
@@ -643,7 +646,7 @@ public final class MainMenu {
 
     // MARK: - Tools Menu
 
-    private static func createToolsMenu() -> NSMenuItem {
+    private static func createToolsMenu(experimentalFeaturesEnabled: Bool) -> NSMenuItem {
         let toolsMenuItem = NSMenuItem(title: "Tools", action: nil, keyEquivalent: "")
         toolsMenuItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.toolsMenu)
         let toolsMenu = NSMenu(title: "Tools")
@@ -735,14 +738,16 @@ public final class MainMenu {
 
         toolsMenu.addItem(.separator())
 
-        let workflowBuilderItem = toolsMenu.addItem(
-            withTitle: "Workflow Builder\u{2026}",
-            action: #selector(ToolsMenuActions.showWorkflowBuilder(_:)),
-            keyEquivalent: ""
-        )
-        workflowBuilderItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowBuilder)
+        if experimentalFeaturesEnabled {
+            let workflowBuilderItem = toolsMenu.addItem(
+                withTitle: "Workflow Builder (Experimental)\u{2026}",
+                action: #selector(ToolsMenuActions.showWorkflowBuilder(_:)),
+                keyEquivalent: ""
+            )
+            workflowBuilderItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowBuilder)
 
-        toolsMenu.addItem(.separator())
+            toolsMenu.addItem(.separator())
+        }
 
         // Online databases
         let searchDatabasesItem = NSMenuItem(title: "Search Online Databases...", action: nil, keyEquivalent: "")

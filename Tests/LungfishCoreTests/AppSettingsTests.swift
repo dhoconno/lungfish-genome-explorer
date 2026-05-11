@@ -60,6 +60,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.horizontalScrollDirection, .traditional)
         XCTAssertEqual(settings.provenanceSigningProvider, "off")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "")
+        XCTAssertEqual(settings.experimentalFeaturesEnabled, AppSettings.defaultExperimentalFeaturesEnabled)
     }
 
     @MainActor
@@ -94,6 +95,7 @@ final class AppSettingsTests: XCTestCase {
         settings.openAIModel = "gpt-4-turbo"
         settings.provenanceSigningProvider = "local"
         settings.provenanceSigningPublicKeyPath = "/tmp/lungfish-provenance.pub"
+        settings.experimentalFeaturesEnabled = false
         settings.save()
 
         // Reset in-memory state
@@ -111,6 +113,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.openAIModel, "gpt-4-turbo")
         XCTAssertEqual(settings.provenanceSigningProvider, "local")
         XCTAssertEqual(settings.provenanceSigningPublicKeyPath, "/tmp/lungfish-provenance.pub")
+        XCTAssertFalse(settings.experimentalFeaturesEnabled)
     }
 
     @MainActor
@@ -167,12 +170,14 @@ final class AppSettingsTests: XCTestCase {
         settings.defaultZoomWindow = 50_000      // general
         settings.maxAnnotationRows = 200         // rendering
         settings.annotationTypeColorHexes["gene"] = "#FF0000"  // appearance
+        settings.experimentalFeaturesEnabled = !AppSettings.defaultExperimentalFeaturesEnabled // advanced
 
         // Reset only the general section
         settings.resetSection(.general)
         XCTAssertEqual(settings.defaultZoomWindow, 10_000, "General section should be reset")
         XCTAssertEqual(settings.maxAnnotationRows, 200, "Rendering section should be unchanged")
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#FF0000", "Appearance section should be unchanged")
+        XCTAssertEqual(settings.experimentalFeaturesEnabled, !AppSettings.defaultExperimentalFeaturesEnabled, "Advanced section should be unchanged")
 
         // Reset rendering section
         settings.resetSection(.rendering)
@@ -181,6 +186,10 @@ final class AppSettingsTests: XCTestCase {
         // Reset appearance section
         settings.resetSection(.appearance)
         XCTAssertEqual(settings.annotationTypeColorHexes["gene"], "#339933", "Appearance section should be reset")
+
+        // Reset advanced section
+        settings.resetSection(.advanced)
+        XCTAssertEqual(settings.experimentalFeaturesEnabled, AppSettings.defaultExperimentalFeaturesEnabled, "Advanced section should be reset")
     }
 
     @MainActor

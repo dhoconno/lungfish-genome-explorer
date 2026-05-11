@@ -12,7 +12,7 @@ final class FASTQOperationDialogState {
     var selectedCategory: FASTQOperationCategoryID {
         didSet {
             if selectedToolID.categoryID != selectedCategory {
-                selectedToolID = selectedCategory.defaultToolID
+                selectedToolID = preferredToolID(for: selectedCategory)
                 return
             }
 
@@ -129,15 +129,22 @@ final class FASTQOperationDialogState {
     var mafftExtraOptionsText: String
     var mafftAllowFASTQAssemblyInputs: Bool
 
+    private let availableToolIDsOverride: [FASTQOperationToolID]?
     private var embeddedToolReady: Bool
 
     init(
         initialCategory: FASTQOperationCategoryID,
         selectedInputURLs: [URL],
-        projectURL: URL? = nil
+        projectURL: URL? = nil,
+        availableToolIDs: [FASTQOperationToolID]? = nil
     ) {
-        let defaultToolID = initialCategory.defaultToolID
-        self.selectedCategory = initialCategory
+        let availableToolIDsOverride = availableToolIDs.map(Self.uniquedToolIDs(_:))
+        let defaultToolID =
+            availableToolIDsOverride?.first(where: { $0.categoryID == initialCategory })
+            ?? availableToolIDsOverride?.first
+            ?? initialCategory.defaultToolID
+        self.availableToolIDsOverride = availableToolIDsOverride
+        self.selectedCategory = defaultToolID.categoryID
         self.selectedToolID = defaultToolID
         self.selectedInputURLs = selectedInputURLs
         self.auxiliaryInputs = [:]
@@ -220,7 +227,7 @@ final class FASTQOperationDialogState {
         self.mafftAllowFASTQAssemblyInputs = false
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
 
-        if initialCategory == .assembly {
+        if self.selectedCategory == .assembly {
             self.selectedToolID = Self.defaultAssemblyTool(for: self.detectedAssemblyReadType)
         }
 
@@ -229,11 +236,7 @@ final class FASTQOperationDialogState {
 
     func selectCategory(_ category: FASTQOperationCategoryID) {
         selectedCategory = category
-        if category == .assembly {
-            selectedToolID = Self.defaultAssemblyTool(for: detectedAssemblyReadType)
-        } else {
-            selectedToolID = category.defaultToolID
-        }
+        selectedToolID = preferredToolID(for: category)
         normalizeSelectionState()
     }
 
@@ -975,6 +978,11 @@ final class FASTQOperationDialogState {
         }
     }
 
+    private static func uniquedToolIDs(_ toolIDs: [FASTQOperationToolID]) -> [FASTQOperationToolID] {
+        var seen = Set<FASTQOperationToolID>()
+        return toolIDs.filter { seen.insert($0).inserted }
+    }
+
     private var missingRequiredAuxiliaryInputKinds: [FASTQOperationInputKind] {
         guard !selectedToolID.usesEmbeddedConfiguration else {
             return []
@@ -1128,9 +1136,10 @@ final class FASTQOperationDialogState {
     }
 
     private func normalizeSelectionState() {
-        if isFASTAInputMode, !selectedToolID.supportsFASTA,
-           let firstSupportedTool = Self.toolIDs(for: selectedCategory).first(where: \.supportsFASTA) {
-            selectedToolID = firstSupportedTool
+        let visibleToolIDs = visibleToolIDs(for: selectedCategory)
+        if !visibleToolIDs.contains(selectedToolID),
+           let firstVisibleTool = visibleToolIDs.first {
+            selectedToolID = firstVisibleTool
             return
         }
 
@@ -1198,8 +1207,7 @@ final class FASTQOperationDialogState {
     }
 
     private func availability(for toolID: FASTQOperationToolID) -> DatasetOperationAvailability {
-        guard selectedCategory == .assembly,
-              let assemblyTool = toolID.assemblyTool,
+        guard let assemblyTool = toolID.assemblyTool,
               let readType = detectedAssemblyReadType else {
             return .available
         }
@@ -1212,6 +1220,13 @@ final class FASTQOperationDialogState {
     }
 
     private func visibleToolIDs(for category: FASTQOperationCategoryID) -> [FASTQOperationToolID] {
+        if let availableToolIDsOverride {
+            let toolIDs = isFASTAInputMode
+                ? availableToolIDsOverride.filter(\.supportsFASTA)
+                : availableToolIDsOverride
+            return toolIDs
+        }
+
         if isFASTAInputMode {
             return Self.toolIDs(for: category).filter(\.supportsFASTA)
         }
@@ -1227,6 +1242,15 @@ final class FASTQOperationDialogState {
             AssemblyCompatibility.supportedTools(for: readType).map(Self.toolID(for:))
         )
         return allToolIDs.filter { supportedAssemblyToolIDs.contains($0) }
+    }
+
+    private func preferredToolID(for category: FASTQOperationCategoryID) -> FASTQOperationToolID {
+        if category == .assembly, availableToolIDsOverride == nil {
+            return Self.defaultAssemblyTool(for: detectedAssemblyReadType)
+        }
+        return visibleToolIDs(for: category).first { $0.categoryID == category }
+            ?? visibleToolIDs(for: category).first
+            ?? category.defaultToolID
     }
 
     private static func defaultAssemblyTool(for readType: AssemblyReadType?) -> FASTQOperationToolID {

@@ -54,14 +54,14 @@ final class GUIRegressionTests: XCTestCase {
 
     func testToolsMenuContainsVariantCallingCommand() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu()
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
 
         XCTAssertEqual(visibleTitles, [
             "FASTQ/FASTA Operations",
             "Call Variants…",
-            "Workflow Builder…",
+            "Workflow Builder (Experimental)…",
             "Search Online Databases...",
             "Plugin Manager…",
         ])

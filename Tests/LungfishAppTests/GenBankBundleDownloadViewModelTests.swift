@@ -47,6 +47,26 @@ final class GenBankBundleDownloadViewModelTests: XCTestCase {
         XCTAssertTrue(source.contains("fallback to GenBank FEATURES"))
     }
 
+    func testSingleSequenceAccessionAliasesIncludeResolvedVersion() {
+        let chromosomes = [
+            ChromosomeInfo(
+                name: "MN908947",
+                length: 29_903,
+                offset: 0,
+                lineBases: 80,
+                lineWidth: 81
+            ),
+        ]
+
+        let enriched = BundleBuildHelpers.addSingleSequenceAccessionAliases(
+            to: chromosomes,
+            accessions: ["MN908947.3"]
+        )
+
+        XCTAssertEqual(enriched.first?.name, "MN908947")
+        XCTAssertEqual(enriched.first?.aliases, ["MN908947.3"])
+    }
+
     // MARK: - Tool Pre-flight Validation
 
     func testValidateToolsDoesNotThrowWhenToolsAvailable() async throws {

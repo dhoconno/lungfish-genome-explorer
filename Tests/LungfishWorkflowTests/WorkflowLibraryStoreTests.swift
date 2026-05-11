@@ -49,6 +49,23 @@ final class WorkflowLibraryStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
     }
 
+    func testRenameWorkflowUpdatesGraphNameBundlePathAndProvenance() throws {
+        let projectURL = try makeTemporaryProject()
+        let sourceURL = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "Untitled Workflow"), in: projectURL)
+
+        let renamedURL = try WorkflowLibraryStore.renameWorkflow(at: sourceURL, to: "VSP2 Builder Exemplar", in: projectURL)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sourceURL.path))
+        XCTAssertEqual(renamedURL.lastPathComponent, "VSP2-Builder-Exemplar.lungfishflow")
+        XCTAssertEqual(try WorkflowLibraryStore.loadWorkflow(from: renamedURL).name, "VSP2 Builder Exemplar")
+        XCTAssertEqual(try WorkflowLibraryStore.listWorkflows(in: projectURL).map(\.name), ["VSP2 Builder Exemplar"])
+
+        let provenanceURL = renamedURL.appendingPathComponent(WorkflowLibraryStore.provenanceFilename)
+        let provenance = try JSONDecoder().decode(WorkflowLibraryProvenance.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenance.workflowName, "VSP2 Builder Exemplar")
+        XCTAssertEqual(provenance.outputPath, renamedURL.path)
+    }
+
     func testRepeatedSavesAppendVersionHistory() throws {
         let projectURL = try makeTemporaryProject()
         var graph = WorkflowGraph(name: "Versioned Workflow", version: "1.0.0")

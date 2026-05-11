@@ -828,6 +828,25 @@ final class BundleDataProviderTests: XCTestCase {
         XCTAssertEqual(info?.name, "chr1")
     }
 
+    func testChromosomeInfoByVersionedAccession() {
+        let provider = makeProvider(
+            manifest: makeManifest(chromosomes: [
+                ChromosomeInfo(
+                    name: "MN908947",
+                    length: 29_903,
+                    offset: 0,
+                    lineBases: 80,
+                    lineWidth: 81
+                ),
+            ])
+        )
+
+        let info = provider.chromosomeInfo(named: "MN908947.3")
+
+        XCTAssertNotNil(info, "Should find unversioned accession from versioned GFF3 seqid")
+        XCTAssertEqual(info?.name, "MN908947")
+    }
+
     func testChromosomeInfoBySecondAlias() {
         let provider = makeProvider()
         let info = provider.chromosomeInfo(named: "23")

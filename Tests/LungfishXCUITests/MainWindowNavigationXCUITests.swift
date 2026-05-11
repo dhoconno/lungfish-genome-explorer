@@ -21,7 +21,7 @@ final class MainWindowNavigationXCUITests: XCTestCase {
         XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5))
         toolsMenu.click()
 
-        let workflowBuilderItem = app.menuItems["Workflow Builder…"]
+        let workflowBuilderItem = app.menuItems["Workflow Builder (Experimental)…"]
         XCTAssertTrue(workflowBuilderItem.waitForExistence(timeout: 5))
         workflowBuilderItem.click()
 

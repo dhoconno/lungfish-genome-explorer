@@ -2581,17 +2581,9 @@ public class SequenceViewerView: NSView {
                 }
 
                 do {
-                    let db = try AnnotationDatabase(url: dbURL)
-                    let records = db.queryByRegion(
-                        chromosome: expandedRegion.chromosome,
-                        start: expandedRegion.start,
-                        end: expandedRegion.end,
-                        limit: 50_000
-                    )
-                    let annotations = records.map { record -> SequenceAnnotation in
-                        var annotation = record.toAnnotation()
-                        annotation.qualifiers["annotation_db_track_id"] = AnnotationQualifier(trackId)
-                        return annotation
+                    var annotations = try bundle.getAnnotationsSync(trackId: trackId, region: expandedRegion)
+                    for index in annotations.indices {
+                        annotations[index].qualifiers["annotation_db_track_id"] = AnnotationQualifier(trackId)
                     }
                     allAnnotations.append(contentsOf: annotations)
                     logger.info("fetchAnnotationsAsync: SQLite query returned \(annotations.count) annotations for track \(trackId)")

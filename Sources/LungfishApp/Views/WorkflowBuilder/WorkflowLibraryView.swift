@@ -11,10 +11,11 @@ public final class WorkflowLibraryView: NSView {
     public var onCreateWorkflow: (() -> Void)?
     public var onDuplicateWorkflow: (() -> Void)?
     public var onDeleteWorkflow: (() -> Void)?
+    public var onRenameWorkflow: ((WorkflowLibraryEntry, String) -> Void)?
 
     private var entries: [WorkflowLibraryEntry] = []
     private var isApplyingSelection = false
-    private let tableView = NSTableView()
+    private let tableView = WorkflowLibraryTableView()
     private let scrollView = NSScrollView()
     private let createButton = NSButton()
     private let duplicateButton = NSButton()
@@ -22,6 +23,20 @@ public final class WorkflowLibraryView: NSView {
 
     public var workflowNamesForTesting: [String] {
         entries.map(\.name)
+    }
+
+    public var contextMenuTitlesForTesting: [String] {
+        tableView.menu?.items.map(\.title) ?? []
+    }
+
+    public var isNameColumnEditableForTesting: Bool {
+        tableView.tableColumns.first?.isEditable == true
+    }
+
+    public var contextMenuActionsTargetLibraryForTesting: Bool {
+        tableView.menu?.items
+            .filter { $0.action != nil }
+            .allSatisfy { $0.target as? WorkflowLibraryView === self } ?? false
     }
 
     public var selectedEntryForTesting: WorkflowLibraryEntry? {
@@ -65,6 +80,11 @@ public final class WorkflowLibraryView: NSView {
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
 
+    public func testingSelectContextMenuRow(at row: Int) {
+        let rowRect = tableView.rect(ofRow: row)
+        tableView.selectContextMenuRow(at: NSPoint(x: rowRect.midX, y: rowRect.midY))
+    }
+
     private func commonInit() {
         translatesAutoresizingMaskIntoConstraints = false
 
@@ -97,11 +117,14 @@ public final class WorkflowLibraryView: NSView {
         tableView.allowsMultipleSelection = false
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.target = self
+        tableView.doubleAction = #selector(beginInlineRename(_:))
         tableView.setAccessibilityIdentifier("workflow-library-table")
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("WorkflowColumn"))
-        column.isEditable = false
+        column.isEditable = true
         column.resizingMask = .autoresizingMask
         tableView.addTableColumn(column)
+        tableView.menu = makeContextMenu()
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -160,15 +183,70 @@ public final class WorkflowLibraryView: NSView {
     @objc private func deleteWorkflow(_ sender: Any?) {
         onDeleteWorkflow?()
     }
+
+    private func makeContextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        addContextMenuItem(to: menu, title: "Rename", action: #selector(beginInlineRename(_:)))
+        addContextMenuItem(to: menu, title: "Duplicate", action: #selector(duplicateWorkflow(_:)))
+        menu.addItem(NSMenuItem.separator())
+        addContextMenuItem(to: menu, title: "Delete", action: #selector(deleteWorkflow(_:)))
+        return menu
+    }
+
+    private func addContextMenuItem(to menu: NSMenu, title: String, action: Selector) {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        menu.addItem(item)
+    }
+
+    @objc private func beginInlineRename(_ sender: Any?) {
+        guard selectedEntry != nil else { return }
+        tableView.editColumn(0, row: tableView.selectedRow, with: nil, select: true)
+    }
+}
+
+private final class WorkflowLibraryTableView: NSTableView {
+    override func rightMouseDown(with event: NSEvent) {
+        selectContextMenuRow(at: convert(event.locationInWindow, from: nil))
+        super.rightMouseDown(with: event)
+    }
+
+    func selectContextMenuRow(at point: NSPoint) {
+        let clickedRow = row(at: point)
+        guard clickedRow >= 0 else { return }
+        selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
+    }
 }
 
 extension WorkflowLibraryView: NSTableViewDataSource {
     public func numberOfRows(in tableView: NSTableView) -> Int {
         entries.count
     }
+
+    public func tableView(
+        _ tableView: NSTableView,
+        setObjectValue object: Any?,
+        for tableColumn: NSTableColumn?,
+        row: Int
+    ) {
+        guard entries.indices.contains(row),
+              let proposedName = object as? String else { return }
+        let name = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name != entries[row].name else { return }
+        onRenameWorkflow?(entries[row], name)
+    }
 }
 
 extension WorkflowLibraryView: NSTableViewDelegate {
+    public func tableView(
+        _ tableView: NSTableView,
+        shouldEdit tableColumn: NSTableColumn?,
+        row: Int
+    ) -> Bool {
+        entries.indices.contains(row)
+    }
+
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard entries.indices.contains(row) else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("WorkflowLibraryCell")
@@ -200,6 +278,10 @@ extension WorkflowLibraryView: NSTableViewDelegate {
         let textField = NSTextField(labelWithString: "")
         textField.translatesAutoresizingMaskIntoConstraints = false
         textField.lineBreakMode = .byTruncatingTail
+        textField.isEditable = true
+        textField.isSelectable = true
+        textField.isBordered = false
+        textField.drawsBackground = false
         cell.addSubview(textField)
         cell.textField = textField
 
@@ -215,5 +297,13 @@ extension WorkflowLibraryView: NSTableViewDelegate {
         ])
 
         return cell
+    }
+}
+
+extension WorkflowLibraryView: NSMenuDelegate {
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items where item.action != nil {
+            item.isEnabled = selectedEntry != nil
+        }
     }
 }

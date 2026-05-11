@@ -6,6 +6,12 @@ import AppKit
 import LungfishIO
 import LungfishWorkflow
 
+public struct WorkflowProjectFASTQBundleOption: Sendable, Equatable {
+    public let displayName: String
+    public let projectRelativePath: String
+    public let url: URL
+}
+
 public enum WorkflowNodeInspectorError: Error, LocalizedError, Sendable, Equatable {
     case missingProject
     case bundleOutsideProject
@@ -26,6 +32,7 @@ public enum WorkflowNodeInspectorError: Error, LocalizedError, Sendable, Equatab
 @MainActor
 public final class WorkflowNodeInspectorView: NSView {
     public var onNodeChanged: ((WorkflowNode) -> Void)?
+    public var onConfigureOperation: ((WorkflowNode) -> Void)?
 
     private var node: WorkflowNode?
     private var activeProjectURL: URL?
@@ -64,6 +71,14 @@ public final class WorkflowNodeInspectorView: NSView {
 
     public func testingChooseBundle(_ url: URL) throws {
         try setInputBundle(url)
+    }
+
+    public var projectFASTQBundleOptionsForTesting: [WorkflowProjectFASTQBundleOption] {
+        projectFASTQBundleOptions()
+    }
+
+    public func firstButtonForTesting(titled title: String) -> NSButton? {
+        firstSubview(of: NSButton.self) { $0.title == title }
     }
 
     private func commonInit() {
@@ -111,7 +126,10 @@ public final class WorkflowNodeInspectorView: NSView {
             addBundleSelector(for: node)
         }
 
-        addParameterEditors(for: node)
+        let usesSharedOperationDialog = addOperationDialogLauncher(for: node)
+        if !usesSharedOperationDialog {
+            addParameterEditors(for: node)
+        }
         addPortSummary(for: node)
         addValidationSummary(for: node)
     }
@@ -153,23 +171,83 @@ public final class WorkflowNodeInspectorView: NSView {
         label.font = .preferredFont(forTextStyle: .caption1)
         stackView.addArrangedSubview(label)
 
-        let row = NSStackView()
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.translatesAutoresizingMaskIntoConstraints = false
+        let options = projectFASTQBundleOptions()
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.identifier = NSUserInterfaceItemIdentifier("project_bundle_popup")
+        popup.target = self
+        popup.action = #selector(projectBundlePopupChanged(_:))
+
+        if activeProjectURL == nil {
+            popup.addItem(withTitle: "Open a project to choose a bundle")
+            popup.isEnabled = false
+        } else if options.isEmpty {
+            popup.addItem(withTitle: "No FASTQ bundles in this project")
+            popup.isEnabled = false
+        } else {
+            popup.addItem(withTitle: "Select FASTQ bundle")
+            popup.lastItem?.representedObject = nil
+            for option in options {
+                popup.addItem(withTitle: option.displayName)
+                popup.lastItem?.representedObject = option.projectRelativePath
+                popup.lastItem?.toolTip = option.projectRelativePath
+            }
+            if let selected = node.parameters["bundle_path"],
+               let index = options.firstIndex(where: { $0.projectRelativePath == selected }) {
+                popup.selectItem(at: index + 1)
+            }
+        }
 
         let pathControl = NSPathControl()
         pathControl.identifier = NSUserInterfaceItemIdentifier("bundle_path")
         pathControl.url = absoluteURL(forProjectRelativePath: node.parameters["bundle_path"])
         pathControl.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        row.addArrangedSubview(pathControl)
 
-        let button = NSButton(title: "Choose...", target: self, action: #selector(chooseBundle(_:)))
-        row.addArrangedSubview(button)
+        stackView.addArrangedSubview(popup)
+        popup.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+        stackView.addArrangedSubview(pathControl)
+        pathControl.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+    }
 
-        stackView.addArrangedSubview(row)
-        row.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+    @discardableResult
+    private func addOperationDialogLauncher(for node: WorkflowNode) -> Bool {
+        let tools = WorkflowBuilderOperationDialogBridge.availableToolIDs(for: node.type)
+        guard !tools.isEmpty else { return false }
+
+        let header = NSTextField(labelWithString: "Operation")
+        header.font = .preferredFont(forTextStyle: .subheadline)
+        stackView.addArrangedSubview(header)
+
+        let selectedTool = WorkflowBuilderOperationDialogBridge.selectedToolID(for: node) ?? tools[0]
+        if tools.count > 1 {
+            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+            popup.identifier = NSUserInterfaceItemIdentifier("operation_tool_popup")
+            for tool in tools {
+                popup.addItem(withTitle: tool.title)
+                popup.lastItem?.representedObject = tool.rawValue
+            }
+            popup.selectItem(withTitle: selectedTool.title)
+            popup.target = self
+            popup.action = #selector(operationToolPopupChanged(_:))
+            stackView.addArrangedSubview(popup)
+            popup.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+        } else {
+            let toolLabel = NSTextField(labelWithString: selectedTool.title)
+            toolLabel.font = .preferredFont(forTextStyle: .body)
+            stackView.addArrangedSubview(toolLabel)
+        }
+
+        let button = NSButton(title: "Configure...", target: self, action: #selector(configureOperation(_:)))
+        button.bezelStyle = .rounded
+        stackView.addArrangedSubview(button)
+
+        let summary = NSTextField(labelWithString: "Uses the same FASTQ/FASTA Operations dialog as the Tools menu.")
+        summary.font = .preferredFont(forTextStyle: .caption1)
+        summary.textColor = .secondaryLabelColor
+        summary.maximumNumberOfLines = 0
+        stackView.addArrangedSubview(summary)
+        summary.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+
+        return true
     }
 
     private func addParameterEditors(for node: WorkflowNode) {
@@ -251,6 +329,44 @@ public final class WorkflowNodeInspectorView: NSView {
         label.maximumNumberOfLines = 0
         stackView.addArrangedSubview(label)
         label.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true
+    }
+
+    private func projectFASTQBundleOptions() -> [WorkflowProjectFASTQBundleOption] {
+        guard let activeProjectURL else { return [] }
+        let fileManager = FileManager.default
+        let projectURL = activeProjectURL.standardizedFileURL
+        let enumerator = fileManager.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var options: [WorkflowProjectFASTQBundleOption] = []
+        while let url = enumerator?.nextObject() as? URL {
+            if url.pathExtension.lowercased() == WorkflowLibraryStore.workflowBundleExtension {
+                enumerator?.skipDescendants()
+                continue
+            }
+
+            guard url.pathExtension.lowercased() == "lungfishfastq" else { continue }
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else { continue }
+
+            if let relativePath = try? projectRelativePath(for: url) {
+                let displayPath = String(relativePath.dropFirst(2))
+                options.append(WorkflowProjectFASTQBundleOption(
+                    displayName: displayPath,
+                    projectRelativePath: relativePath,
+                    url: url.standardizedFileURL
+                ))
+            }
+            enumerator?.skipDescendants()
+        }
+
+        return options.sorted {
+            $0.projectRelativePath.localizedStandardCompare($1.projectRelativePath) == .orderedAscending
+        }
     }
 
     private func setInputBundle(_ url: URL) throws {
@@ -337,27 +453,51 @@ public final class WorkflowNodeInspectorView: NSView {
         testingSetParameter(name, value: sender.state == .on ? "true" : "false")
     }
 
-    @objc private func chooseBundle(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose a .lungfishfastq bundle in the active project"
+    @objc private func projectBundlePopupChanged(_ sender: NSPopUpButton) {
+        guard let relativePath = sender.selectedItem?.representedObject as? String,
+              let url = absoluteURL(forProjectRelativePath: relativePath) else { return }
+        do {
+            try setInputBundle(url)
+        } catch {
+            NSSound.beep()
+        }
+    }
 
-        let handle: (NSApplication.ModalResponse) -> Void = { [weak self] response in
-            guard response == .OK, let url = panel.url else { return }
-            do {
-                try self?.setInputBundle(url)
-            } catch {
-                NSSound.beep()
+    @objc private func operationToolPopupChanged(_ sender: NSPopUpButton) {
+        guard var node,
+              let rawValue = sender.selectedItem?.representedObject as? String,
+              let toolID = FASTQOperationToolID(rawValue: rawValue),
+              WorkflowBuilderOperationDialogBridge.availableToolIDs(for: node.type).contains(toolID) else {
+            return
+        }
+
+        node.parameters[WorkflowBuilderOperationDialogBridge.toolIDParameter] = toolID.rawValue
+        node.parameters[WorkflowBuilderOperationDialogBridge.operationSummaryParameter] = toolID.subtitle
+        node.label = toolID.title
+        self.node = node
+        onNodeChanged?(node)
+        rebuild()
+    }
+
+    @objc private func configureOperation(_ sender: Any?) {
+        guard let node else { return }
+        onConfigureOperation?(node)
+    }
+
+    private func firstSubview<T: NSView>(of type: T.Type, matching predicate: (T) -> Bool) -> T? {
+        firstSubview(in: self, of: type, matching: predicate)
+    }
+
+    private func firstSubview<T: NSView>(in root: NSView, of type: T.Type, matching predicate: (T) -> Bool) -> T? {
+        if let view = root as? T, predicate(view) {
+            return view
+        }
+        for subview in root.subviews {
+            if let match = firstSubview(in: subview, of: type, matching: predicate) {
+                return match
             }
         }
-
-        if let window {
-            panel.beginSheetModal(for: window, completionHandler: handle)
-        } else {
-            handle(panel.runModal())
-        }
+        return nil
     }
 }
 

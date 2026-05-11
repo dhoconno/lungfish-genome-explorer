@@ -295,7 +295,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             qualifiedQuality.minimum = 0
             qualifiedQuality.maximum = 93
 
-            return [minimumLength, qualifiedQuality]
+            return [minimumLength, qualifiedQuality] + Self.workflowBuilderOperationMetadataDefinitions
         case .qualityControl:
             return [
                 ParameterDefinition(
@@ -305,7 +305,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
                     type: .boolean,
                     defaultValue: .boolean(false)
                 )
-            ]
+            ] + Self.workflowBuilderOperationMetadataDefinitions
         case .fastpDedup:
             return []
         case .fastpTrim:
@@ -377,9 +377,30 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             maxLength.minimum = 1
 
             return [minLength, maxLength]
+        case .alignment, .variantCalling, .quantification, .assembly:
+            return Self.workflowBuilderOperationMetadataDefinitions
         default:
             return []
         }
+    }
+
+    private static var workflowBuilderOperationMetadataDefinitions: [ParameterDefinition] {
+        [
+            ParameterDefinition(
+                name: "workflow_builder_tool_id",
+                title: "Workflow Builder tool",
+                description: "Tool selected from the shared FASTQ/FASTA Operations dialog.",
+                type: .string,
+                isHidden: true
+            ),
+            ParameterDefinition(
+                name: "workflow_builder_operation_summary",
+                title: "Workflow Builder operation summary",
+                description: "Human-readable summary captured from the shared FASTQ/FASTA Operations dialog.",
+                type: .string,
+                isHidden: true
+            ),
+        ]
     }
 }
 

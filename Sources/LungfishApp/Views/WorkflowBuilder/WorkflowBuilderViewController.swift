@@ -114,6 +114,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         sidebarViewController.libraryView.onDeleteWorkflow = { [weak self] in
             self?.deleteSelectedWorkflowInLibrary()
         }
+        sidebarViewController.libraryView.onRenameWorkflow = { [weak self] entry, name in
+            self?.renameWorkflowInLibrary(entry: entry, to: name)
+        }
 
         // Create canvas view controller
         canvasViewController = WorkflowCanvasViewController()
@@ -126,6 +129,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             try? self.canvasViewController.canvasView.updateSelectedNode { node in
                 node = updated
             }
+        }
+        inspectorViewController.inspector.onConfigureOperation = { [weak self] node in
+            self?.presentOperationDialog(for: node)
         }
 
         // Create split view items
@@ -401,6 +407,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         try duplicateSelectedWorkflowInLibraryOrThrow()
     }
 
+    public func renameSelectedWorkflowInLibraryForTesting(to name: String) throws -> URL {
+        try renameSelectedWorkflowInLibrary(to: name)
+    }
+
     public func deleteSelectedWorkflowInLibraryForTesting() throws {
         try deleteSelectedWorkflowInLibrary(confirm: false)
     }
@@ -435,10 +445,17 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func createWorkflowInLibrary() {
-        do {
-            _ = try createWorkflowInLibrary(named: "New Workflow")
-        } catch {
-            presentLibraryError(error, title: "Failed to Create Workflow")
+        promptForWorkflowName(
+            title: "New Workflow",
+            message: "Name this workflow before adding it to the project library.",
+            defaultName: "New Workflow",
+            confirmTitle: "Create"
+        ) { [weak self] name in
+            do {
+                _ = try self?.createWorkflowInLibrary(named: name)
+            } catch {
+                self?.presentLibraryError(error, title: "Failed to Create Workflow")
+            }
         }
     }
 
@@ -456,6 +473,39 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         reloadWorkflowLibrary()
         updateWindowTitle()
         return bundleURL
+    }
+
+    private func renameWorkflowInLibrary(entry: WorkflowLibraryEntry, to name: String) {
+        do {
+            _ = try renameWorkflowInLibrary(sourceURL: entry.bundleURL, to: name)
+        } catch {
+            presentLibraryError(error, title: "Failed to Rename Workflow")
+        }
+    }
+
+    @discardableResult
+    private func renameSelectedWorkflowInLibrary(to name: String) throws -> URL {
+        guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to rename."])
+        }
+        return try renameWorkflowInLibrary(sourceURL: selectedURL, to: name)
+    }
+
+    @discardableResult
+    private func renameWorkflowInLibrary(sourceURL: URL, to name: String) throws -> URL {
+        guard let activeProjectURL else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Open a Lungfish project before renaming a workflow."])
+        }
+        try persistDirtyWorkflowBeforeLibraryMutation()
+        let currentPath = workflowURL?.standardizedFileURL.path
+        let sourcePath = sourceURL.standardizedFileURL.path
+        let renamedURL = try WorkflowLibraryStore.renameWorkflow(at: sourceURL, to: name, in: activeProjectURL)
+        if currentPath == nil || currentPath == sourcePath {
+            try loadWorkflowOrThrow(from: renamedURL)
+        } else {
+            reloadWorkflowLibrary()
+        }
+        return renamedURL
     }
 
     private func duplicateSelectedWorkflowInLibrary() {
@@ -524,6 +574,40 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             updateWindowTitle()
         }
         reloadWorkflowLibrary()
+    }
+
+    private func promptForWorkflowName(
+        title: String,
+        message: String,
+        defaultName: String,
+        confirmTitle: String,
+        completion: @escaping (String) -> Void
+    ) {
+        let field = NSTextField(string: defaultName)
+        field.frame = NSRect(x: 0, y: 0, width: 320, height: 24)
+
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.accessoryView = field
+        alert.addButton(withTitle: confirmTitle)
+        alert.addButton(withTitle: "Cancel")
+
+        let handle: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .alertFirstButtonReturn else { return }
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                NSSound.beep()
+                return
+            }
+            completion(name)
+        }
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            handle(alert.runModal())
+        }
     }
 
     private func presentLibraryError(_ error: Error, title: String) {
@@ -599,8 +683,42 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         }
     }
 
+    private func presentOperationDialog(for node: WorkflowNode) {
+        guard let window = view.window ?? NSApp.keyWindow,
+              let toolID = WorkflowBuilderOperationDialogBridge.selectedToolID(for: node) else {
+            NSSound.beep()
+            return
+        }
+
+        let inputURLs = activeProjectURL.map { explicitFASTQBundleInputURLs(projectURL: $0) } ?? []
+        FASTQOperationsDialogPresenter.present(
+            from: window,
+            selectedInputURLs: inputURLs,
+            initialCategory: toolID.categoryID,
+            initialToolID: toolID,
+            projectURL: activeProjectURL,
+            availableToolIDs: WorkflowBuilderOperationDialogBridge.configureDialogToolIDs(for: node),
+            primaryActionTitle: "Apply"
+        ) { [weak self] state in
+            guard let self else { return }
+            try? self.canvasViewController.canvasView.updateSelectedNode { selected in
+                WorkflowBuilderOperationDialogBridge.apply(state: state, to: &selected)
+            }
+        }
+    }
+
     private func explicitFASTQBundleInputURL(projectURL: URL) -> URL? {
-        guard let inputNode = graph.allNodes.first(where: { $0.type == .fastqBundleInput }),
+        explicitFASTQBundleInputURLs(projectURL: projectURL).first
+    }
+
+    private func explicitFASTQBundleInputURLs(projectURL: URL) -> [URL] {
+        graph.allNodes
+            .filter { $0.type == .fastqBundleInput }
+            .compactMap { explicitFASTQBundleInputURL(for: $0, projectURL: projectURL) }
+    }
+
+    private func explicitFASTQBundleInputURL(for inputNode: WorkflowNode, projectURL: URL) -> URL? {
+        guard inputNode.type == .fastqBundleInput,
               let rawPath = inputNode.parameters["bundle_path"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawPath.isEmpty else {
             return nil
@@ -1012,22 +1130,86 @@ class WorkflowCanvasViewController: NSViewController {
     let canvasView = WorkflowCanvasView()
 
     override func loadView() {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .width
+        container.spacing = 0
+
+        let banner = makeExperimentalBanner()
+
         let scrollView = NSScrollView()
         scrollView.documentView = canvasView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
         scrollView.autohidesScrollers = true
         scrollView.borderType = .noBorder
+        scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
 
         // Set large canvas size
         canvasView.frame = NSRect(x: 0, y: 0, width: 4000, height: 4000)
 
-        view = scrollView
+        container.addArrangedSubview(banner)
+        container.addArrangedSubview(scrollView)
+        banner.heightAnchor.constraint(greaterThanOrEqualToConstant: 52).isActive = true
+
+        view = container
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
         canvasView.centerContent()
+    }
+
+    private func makeExperimentalBanner() -> NSView {
+        let banner = NSVisualEffectView()
+        banner.material = .contentBackground
+        banner.blendingMode = .withinWindow
+        banner.state = .active
+        banner.wantsLayer = true
+        banner.layer?.borderWidth = 1
+        banner.layer?.borderColor = NSColor.separatorColor.cgColor
+        banner.setAccessibilityIdentifier(WorkflowBuilderAccessibilityID.experimentalBanner)
+
+        let icon = NSImageView(
+            image: NSImage(
+                systemSymbolName: "exclamationmark.triangle.fill",
+                accessibilityDescription: "Experimental"
+            ) ?? NSImage()
+        )
+        icon.symbolConfiguration = NSImage.SymbolConfiguration(paletteColors: [.systemOrange])
+        icon.setContentHuggingPriority(.required, for: .horizontal)
+
+        let title = NSTextField(labelWithString: "Workflow Builder is experimental and in progress.")
+        title.font = .preferredFont(forTextStyle: .headline)
+        title.lineBreakMode = .byTruncatingTail
+
+        let detail = NSTextField(
+            labelWithString: "Validate workflow outputs against known recipes before using them for production scientific work."
+        )
+        detail.font = .preferredFont(forTextStyle: .caption1)
+        detail.textColor = .secondaryLabelColor
+        detail.lineBreakMode = .byTruncatingTail
+
+        let textStack = NSStackView(views: [title, detail])
+        textStack.orientation = .vertical
+        textStack.alignment = .leading
+        textStack.spacing = 2
+
+        let content = NSStackView(views: [icon, textStack])
+        content.orientation = .horizontal
+        content.alignment = .centerY
+        content.spacing = 10
+        content.translatesAutoresizingMaskIntoConstraints = false
+
+        banner.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: banner.leadingAnchor, constant: 14),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: banner.trailingAnchor, constant: -14),
+            content.topAnchor.constraint(equalTo: banner.topAnchor, constant: 8),
+            content.bottomAnchor.constraint(equalTo: banner.bottomAnchor, constant: -8)
+        ])
+
+        return banner
     }
 }
 

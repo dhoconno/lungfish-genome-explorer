@@ -114,6 +114,31 @@ public class WorkflowCanvasView: NSView {
         return graph.getNode(nodeId)
     }
 
+    public func nodeFrameForTesting(_ nodeId: UUID) -> NSRect? {
+        nodeViews[nodeId]?.frame
+    }
+
+    public func portPointForTesting(nodeID: UUID, portID: String, direction: PortDirection) -> CGPoint? {
+        guard let nodeView = nodeViews[nodeID] else { return nil }
+        return nodeView.portPosition(for: portID, direction: direction)
+    }
+
+    public func testingMouseDown(
+        at point: CGPoint,
+        modifierFlags: NSEvent.ModifierFlags = [],
+        clickCount: Int = 1
+    ) {
+        beginCanvasInteraction(at: point, modifierFlags: modifierFlags, clickCount: clickCount)
+    }
+
+    public func testingMouseDragged(to point: CGPoint) {
+        continueCanvasInteraction(to: point)
+    }
+
+    public func testingMouseUp(at point: CGPoint) {
+        endCanvasInteraction(at: point)
+    }
+
     public var hasDeletableSelection: Bool {
         selectedConnectionIds.contains { graph.getConnection($0) != nil }
             || selectedNodeIds.contains { graph.getNode($0)?.isRemovable == true }
@@ -124,6 +149,9 @@ public class WorkflowCanvasView: NSView {
 
     /// Drag state for panning.
     private var panStartPoint: CGPoint?
+
+    /// Drag state for moving nodes through the canvas event path.
+    private var nodeDrag: NodeDrag?
 
     /// Drag state for selection rectangle.
     private var selectionRect: NSRect?
@@ -140,6 +168,18 @@ public class WorkflowCanvasView: NSView {
     private struct PendingConnection {
         let sourceEndpoint: ConnectionEndpoint
         var currentPoint: CGPoint
+    }
+
+    private struct NodeDrag {
+        let startPoint: CGPoint
+        let startPositions: [UUID: CGPoint]
+    }
+
+    private struct NodeHit {
+        let nodeId: UUID
+        let nodeView: WorkflowNodeView
+        let localPoint: CGPoint
+        let portHit: WorkflowNodePortHit?
     }
 
     // MARK: - Initialization
@@ -317,7 +357,10 @@ public class WorkflowCanvasView: NSView {
     private func drawPendingConnection(_ pending: PendingConnection, context: CGContext) {
         // Get source node view for port position
         guard let sourceNodeView = nodeViews[pending.sourceEndpoint.nodeId] else { return }
-        let sourcePoint = sourceNodeView.portPosition(for: pending.sourceEndpoint.portId, direction: .output)
+        let sourcePoint = sourceNodeView.portPosition(
+            for: pending.sourceEndpoint.portId,
+            direction: pending.sourceEndpoint.direction
+        )
 
         // Convert current point to canvas coordinates
         let targetPoint = convertToCanvasCoordinates(pending.currentPoint)
@@ -354,8 +397,9 @@ public class WorkflowCanvasView: NSView {
         }
         nodeViews.removeAll()
 
-        // Create new views
-        for node in graph.allNodes {
+        // Create pinned anchors first so movable operation cards are always
+        // above them for hit-testing and drag interactions.
+        for node in graph.allNodes.sorted(by: nodeDisplayOrderPrecedes) {
             let nodeView = WorkflowNodeView(node: node)
             nodeView.delegate = self
             nodeView.isSelected = selectedNodeIds.contains(node.id)
@@ -398,6 +442,17 @@ public class WorkflowCanvasView: NSView {
             width: size.width * zoomLevel,
             height: size.height * zoomLevel
         )
+        view.bounds = NSRect(origin: .zero, size: size)
+    }
+
+    private func nodeDisplayOrderPrecedes(_ lhs: WorkflowNode, _ rhs: WorkflowNode) -> Bool {
+        if lhs.isPinned != rhs.isPinned {
+            return lhs.isPinned
+        }
+        if lhs.type != rhs.type {
+            return lhs.type.rawValue < rhs.type.rawValue
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     // MARK: - Coordinate Conversion
@@ -439,6 +494,55 @@ public class WorkflowCanvasView: NSView {
     }
 
     // MARK: - Pan and Zoom
+
+    public static func panDeltaForTesting(
+        scrollingDeltaX: CGFloat,
+        scrollingDeltaY: CGFloat,
+        horizontalPreference: ScrollDirectionPreference,
+        verticalPreference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> CGPoint {
+        canvasPanDelta(
+            scrollingDeltaX: scrollingDeltaX,
+            scrollingDeltaY: scrollingDeltaY,
+            horizontalPreference: horizontalPreference,
+            verticalPreference: verticalPreference,
+            isDirectionInvertedFromDevice: isDirectionInvertedFromDevice
+        )
+    }
+
+    private static func canvasPanDelta(
+        scrollingDeltaX: CGFloat,
+        scrollingDeltaY: CGFloat,
+        horizontalPreference: ScrollDirectionPreference,
+        verticalPreference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> CGPoint {
+        CGPoint(
+            x: scrollDirectionSign(
+                for: horizontalPreference,
+                isDirectionInvertedFromDevice: isDirectionInvertedFromDevice
+            ) * scrollingDeltaX,
+            y: scrollDirectionSign(
+                for: verticalPreference,
+                isDirectionInvertedFromDevice: isDirectionInvertedFromDevice
+            ) * scrollingDeltaY
+        )
+    }
+
+    private static func scrollDirectionSign(
+        for preference: ScrollDirectionPreference,
+        isDirectionInvertedFromDevice: Bool
+    ) -> CGFloat {
+        switch preference {
+        case .system:
+            return isDirectionInvertedFromDevice ? -1 : 1
+        case .natural:
+            return -1
+        case .traditional:
+            return 1
+        }
+    }
 
     /// Sets the zoom level, centered on the given point.
     public func setZoom(_ newZoom: CGFloat, centeredOn point: CGPoint) {
@@ -537,6 +641,11 @@ public class WorkflowCanvasView: NSView {
 
         selectedNodeIds.insert(nodeId)
         nodeViews[nodeId]?.isSelected = true
+        if graph.getNode(nodeId)?.isPinned == false,
+           let nodeView = nodeViews[nodeId] {
+            nodeView.removeFromSuperview()
+            addSubview(nodeView)
+        }
         delegate?.canvasView(self, didSelectNode: graph.getNode(nodeId))
 
         logger.debug("Selected node: \(nodeId)")
@@ -661,42 +770,55 @@ public class WorkflowCanvasView: NSView {
 
     public override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        beginCanvasInteraction(
+            at: point,
+            modifierFlags: event.modifierFlags,
+            clickCount: event.clickCount
+        )
+    }
+
+    public override func mouseDragged(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        continueCanvasInteraction(to: point)
+    }
+
+    public override func mouseUp(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        endCanvasInteraction(at: point)
+    }
+
+    private func beginCanvasInteraction(
+        at point: CGPoint,
+        modifierFlags: NSEvent.ModifierFlags,
+        clickCount: Int
+    ) {
         let canvasPoint = convertToCanvasCoordinates(point)
 
-        // Check if clicking on a node
-        for (nodeId, nodeView) in nodeViews {
-            let nodeRect = convertToCanvasCoordinates(nodeView.frame)
-            if nodeRect.contains(canvasPoint) {
-                // Check if clicking on a port
-                if let portId = nodeView.portAtPoint(convert(point, to: nodeView)),
-                   let node = graph.getNode(nodeId),
-                   let endpoint = ConnectionEndpoint(node: node, portId: portId) {
-                    // Start connection drawing
-                    pendingConnection = PendingConnection(
-                        sourceEndpoint: endpoint,
-                        currentPoint: point
-                    )
-                    return
-                }
-
-                // Select the node
-                let extendSelection = event.modifierFlags.contains(.shift)
-                selectNode(nodeId, extendSelection: extendSelection)
+        if let hit = nodeHit(at: point) {
+            if let portHit = hit.portHit,
+               let endpoint = endpoint(for: portHit, nodeId: hit.nodeId) {
+                pendingConnection = PendingConnection(
+                    sourceEndpoint: endpoint,
+                    currentPoint: point
+                )
                 return
             }
+
+            let extendSelection = modifierFlags.contains(.shift)
+            selectNode(hit.nodeId, extendSelection: extendSelection)
+            beginNodeDrag(at: point)
+            return
         }
 
-        // Check if clicking on a connection
         for (connectionId, connectionView) in connectionViews {
             if connectionView.hitTest(point) != nil {
-                let extendSelection = event.modifierFlags.contains(.shift)
+                let extendSelection = modifierFlags.contains(.shift)
                 selectConnection(connectionId, extendSelection: extendSelection)
                 return
             }
         }
 
-        // Start selection rectangle or pan
-        if event.modifierFlags.contains(.option) || event.clickCount == 1 {
+        if modifierFlags.contains(.option) || clickCount == 1 {
             selectionStartPoint = canvasPoint
             selectionRect = NSRect(origin: canvasPoint, size: .zero)
         }
@@ -704,13 +826,16 @@ public class WorkflowCanvasView: NSView {
         deselectAll()
     }
 
-    public override func mouseDragged(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
+    private func continueCanvasInteraction(to point: CGPoint) {
         // Handle pending connection
         if pendingConnection != nil {
             pendingConnection?.currentPoint = point
             setNeedsDisplay(bounds)
+            return
+        }
+
+        if nodeDrag != nil {
+            updateNodeDrag(to: point)
             return
         }
 
@@ -727,14 +852,17 @@ public class WorkflowCanvasView: NSView {
         }
     }
 
-    public override func mouseUp(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-
+    private func endCanvasInteraction(at point: CGPoint) {
         // Complete pending connection
         if let pending = pendingConnection {
             completePendingConnection(pending, at: point)
             pendingConnection = nil
             setNeedsDisplay(bounds)
+            return
+        }
+
+        if nodeDrag != nil {
+            nodeDrag = nil
             return
         }
 
@@ -745,6 +873,72 @@ public class WorkflowCanvasView: NSView {
             selectionStartPoint = nil
             setNeedsDisplay(bounds)
         }
+    }
+
+    private func nodeHit(at point: CGPoint) -> NodeHit? {
+        for subview in subviews.reversed() {
+            guard let nodeView = subview as? WorkflowNodeView,
+                  let nodeId = nodeViews.first(where: { $0.value === nodeView })?.key,
+                  nodeView.frame.contains(point) else {
+                continue
+            }
+
+            let localPoint = convert(point, to: nodeView)
+            guard nodeView.bounds.contains(localPoint) else { continue }
+            return NodeHit(
+                nodeId: nodeId,
+                nodeView: nodeView,
+                localPoint: localPoint,
+                portHit: nodeView.portHit(at: localPoint)
+            )
+        }
+
+        return nil
+    }
+
+    private func endpoint(for portHit: WorkflowNodePortHit, nodeId: UUID) -> ConnectionEndpoint? {
+        guard graph.getNode(nodeId) != nil else { return nil }
+        return ConnectionEndpoint(
+            nodeId: nodeId,
+            portId: portHit.portId,
+            direction: portHit.direction,
+            dataType: portHit.dataType
+        )
+    }
+
+    private func beginNodeDrag(at point: CGPoint) {
+        let startPositions = selectedNodeIds.reduce(into: [UUID: CGPoint]()) { positions, nodeId in
+            guard let node = graph.getNode(nodeId), node.isDraggable else { return }
+            positions[nodeId] = node.position
+        }
+        guard !startPositions.isEmpty else { return }
+        nodeDrag = NodeDrag(startPoint: point, startPositions: startPositions)
+    }
+
+    private func updateNodeDrag(to point: CGPoint) {
+        guard let nodeDrag else { return }
+        let delta = CGPoint(
+            x: (point.x - nodeDrag.startPoint.x) / zoomLevel,
+            y: (point.y - nodeDrag.startPoint.y) / zoomLevel
+        )
+
+        for (nodeId, startPosition) in nodeDrag.startPositions {
+            guard var node = graph.getNode(nodeId), node.isDraggable else { continue }
+            node.position = snapPointToGrid(CGPoint(
+                x: startPosition.x + delta.x,
+                y: startPosition.y + delta.y
+            ))
+            try? graph.updateNode(node)
+            if let nodeView = nodeViews[nodeId] {
+                updateNodeViewFrame(nodeView, for: node)
+            }
+        }
+
+        for (_, connectionView) in connectionViews {
+            connectionView.updatePath()
+        }
+
+        delegate?.canvasViewDidModifyGraph(self)
     }
 
     public override func rightMouseDown(with event: NSEvent) {
@@ -778,9 +972,17 @@ public class WorkflowCanvasView: NSView {
             setZoom(zoomLevel + zoomDelta, centeredOn: point)
         } else {
             // Pan
+            let settings = AppSettings.shared
+            let delta = Self.canvasPanDelta(
+                scrollingDeltaX: event.scrollingDeltaX,
+                scrollingDeltaY: event.scrollingDeltaY,
+                horizontalPreference: settings.horizontalScrollDirection,
+                verticalPreference: settings.verticalScrollDirection,
+                isDirectionInvertedFromDevice: event.isDirectionInvertedFromDevice
+            )
             panOffset = CGPoint(
-                x: panOffset.x + event.scrollingDeltaX,
-                y: panOffset.y + event.scrollingDeltaY
+                x: panOffset.x + delta.x,
+                y: panOffset.y + delta.y
             )
             updateAllNodeViewFrames()
             setNeedsDisplay(bounds)
@@ -795,24 +997,16 @@ public class WorkflowCanvasView: NSView {
     // MARK: - Connection Completion
 
     private func completePendingConnection(_ pending: PendingConnection, at point: CGPoint) {
-        let canvasPoint = convertToCanvasCoordinates(point)
+        guard let hit = nodeHit(at: point),
+              let portHit = hit.portHit,
+              let targetEndpoint = endpoint(for: portHit, nodeId: hit.nodeId) else {
+            return
+        }
 
-        // Find target port
-        for (nodeId, nodeView) in nodeViews {
-            let nodeRect = convertToCanvasCoordinates(nodeView.frame)
-            if nodeRect.contains(canvasPoint) {
-                if let portId = nodeView.portAtPoint(convert(point, to: nodeView)),
-                   let node = graph.getNode(nodeId),
-                   let targetEndpoint = ConnectionEndpoint(node: node, portId: portId) {
-                    // Validate connection direction
-                    if pending.sourceEndpoint.direction == .output && targetEndpoint.direction == .input {
-                        createConnection(from: pending.sourceEndpoint, to: targetEndpoint)
-                    } else if pending.sourceEndpoint.direction == .input && targetEndpoint.direction == .output {
-                        createConnection(from: targetEndpoint, to: pending.sourceEndpoint)
-                    }
-                    return
-                }
-            }
+        if pending.sourceEndpoint.direction == .output && targetEndpoint.direction == .input {
+            createConnection(from: pending.sourceEndpoint, to: targetEndpoint)
+        } else if pending.sourceEndpoint.direction == .input && targetEndpoint.direction == .output {
+            createConnection(from: targetEndpoint, to: pending.sourceEndpoint)
         }
     }
 

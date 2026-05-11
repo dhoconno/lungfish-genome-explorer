@@ -343,6 +343,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Last applied temp retention setting in hours.
     private var lastAppliedTempRetentionHours: Int = 24
 
+    /// Last applied experimental feature visibility.
+    private var lastAppliedExperimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
+
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
 
@@ -363,6 +366,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Application Lifecycle
 
     public func applicationWillFinishLaunching(_ notification: Notification) {
+        AppSettings.load()
+
         // Install the main menu before app finishes launching
         NSApp.mainMenu = MainMenu.createMainMenu()
     }
@@ -371,6 +376,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Load persisted settings
         AppSettings.load()
         lastAppliedTempRetentionHours = AppSettings.shared.tempFileRetentionHours
+        lastAppliedExperimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
 
         // Register for system notifications
         registerNotifications()
@@ -784,6 +790,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Applies runtime settings that require service reconfiguration.
     @objc private func handleAppSettingsChanged(_ notification: Notification) {
+        let experimentalFeaturesEnabled = AppSettings.shared.experimentalFeaturesEnabled
+        if experimentalFeaturesEnabled != lastAppliedExperimentalFeaturesEnabled {
+            lastAppliedExperimentalFeaturesEnabled = experimentalFeaturesEnabled
+            NSApp.mainMenu = MainMenu.createMainMenu(
+                experimentalFeaturesEnabled: experimentalFeaturesEnabled
+            )
+        }
+
         let retentionHours = AppSettings.shared.tempFileRetentionHours
         guard retentionHours != lastAppliedTempRetentionHours else { return }
         lastAppliedTempRetentionHours = retentionHours
@@ -6459,6 +6473,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func showWorkflowBuilder(_ sender: Any?) {
+        guard AppSettings.shared.experimentalFeaturesEnabled else {
+            NSSound.beep()
+            SettingsNavigationState.shared.open(.advanced)
+            return
+        }
+
         if workflowBuilderWindowController == nil {
             let viewController = WorkflowBuilderViewController()
             let window = NSWindow(

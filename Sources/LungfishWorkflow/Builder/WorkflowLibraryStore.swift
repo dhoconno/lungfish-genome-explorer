@@ -145,6 +145,34 @@ public enum WorkflowLibraryStore {
         return try saveWorkflow(duplicate, to: uniqueBundleURL(named: duplicate.name, in: projectURL))
     }
 
+    @discardableResult
+    public static func renameWorkflow(at sourceURL: URL, to name: String, in projectURL: URL) throws -> URL {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw CocoaError(.fileWriteInvalidFileName, userInfo: [NSLocalizedDescriptionKey: "Workflow names cannot be empty."])
+        }
+
+        let sourceBundleURL = normalizedWorkflowBundleURL(for: sourceURL)
+        var graph = try loadWorkflow(from: sourceBundleURL)
+        graph.name = trimmedName
+
+        let destinationURL = uniqueBundleURL(
+            named: trimmedName,
+            in: projectURL,
+            excluding: sourceBundleURL
+        )
+
+        if destinationURL.standardizedFileURL.path != sourceBundleURL.standardizedFileURL.path {
+            try FileManager.default.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.moveItem(at: sourceBundleURL, to: destinationURL)
+        }
+
+        return try saveWorkflow(graph, to: destinationURL)
+    }
+
     public static func deleteWorkflow(at url: URL) throws {
         let bundleURL = normalizedWorkflowBundleURL(for: url)
         guard bundleURL.pathExtension.lowercased() == workflowBundleExtension else {
@@ -177,12 +205,14 @@ public enum WorkflowLibraryStore {
         throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: normalizedURL.appendingPathComponent(graphFilename).path])
     }
 
-    private static func uniqueBundleURL(named name: String, in projectURL: URL) -> URL {
+    private static func uniqueBundleURL(named name: String, in projectURL: URL, excluding excludedURL: URL? = nil) -> URL {
         let directory = libraryDirectory(in: projectURL)
         let base = sanitizedWorkflowFilename(name)
         var candidate = directory.appendingPathComponent("\(base).\(workflowBundleExtension)", isDirectory: true)
         var suffix = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
+        let excludedPath = excludedURL?.standardizedFileURL.path
+        while FileManager.default.fileExists(atPath: candidate.path)
+            && candidate.standardizedFileURL.path != excludedPath {
             candidate = directory.appendingPathComponent("\(base)-\(suffix).\(workflowBundleExtension)", isDirectory: true)
             suffix += 1
         }

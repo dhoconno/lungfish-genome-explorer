@@ -1,6 +1,7 @@
 import AppKit
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
 @testable import LungfishWorkflow
 
 @MainActor
@@ -8,9 +9,11 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
 
     func testWorkflowBuilderMenuActionOpensReusableWindow() throws {
         let _ = NSApplication.shared
+        AppSettings.shared.experimentalFeaturesEnabled = true
         closeWorkflowBuilderWindows()
         addTeardownBlock { @MainActor in
             self.closeWorkflowBuilderWindows()
+            AppSettings.shared.experimentalFeaturesEnabled = AppSettings.defaultExperimentalFeaturesEnabled
         }
 
         let delegate = AppDelegate()
@@ -29,6 +32,17 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertTrue(reopenedWindow.isVisible)
 
         reopenedWindow.close()
+    }
+
+    func testWorkflowBuilderShowsExperimentalBanner() throws {
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+
+        let banner = try XCTUnwrap(
+            controller.view.firstSubview(withAccessibilityIdentifier: WorkflowBuilderAccessibilityID.experimentalBanner)
+        )
+
+        XCTAssertFalse(banner.isHidden)
     }
 
     func testWorkflowBuilderToolbarIncludesRunButton() throws {
@@ -86,6 +100,50 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertNil(controller.workflowURL)
         XCTAssertEqual(controller.graph.name, "New Workflow")
         XCTAssertEqual(try WorkflowLibraryStore.listWorkflows(in: projectURL).map(\.name), ["QC Workflow"])
+    }
+
+    func testBuilderWorkflowLibraryRenamesSelectedWorkflow() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+        _ = try controller.createWorkflowInLibraryForTesting(named: "Untitled Workflow")
+
+        let renamedURL = try controller.renameSelectedWorkflowInLibraryForTesting(to: "VSP2 Builder Exemplar")
+
+        XCTAssertEqual(controller.workflowURL, renamedURL)
+        XCTAssertEqual(controller.graph.name, "VSP2 Builder Exemplar")
+        XCTAssertEqual(try WorkflowLibraryStore.listWorkflows(in: projectURL).map(\.name), ["VSP2 Builder Exemplar"])
+    }
+
+    func testWorkflowLibraryViewExposesRenameThroughContextMenuAndInlineEditing() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        _ = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "QC Workflow"), in: projectURL)
+
+        let library = WorkflowLibraryView()
+        library.setEntries(try WorkflowLibraryStore.listWorkflows(in: projectURL), selectedBundleURL: nil)
+        library.testingSelectWorkflow(named: "QC Workflow")
+
+        XCTAssertTrue(library.contextMenuTitlesForTesting.contains("Rename"))
+        XCTAssertTrue(library.isNameColumnEditableForTesting)
+        XCTAssertTrue(library.contextMenuActionsTargetLibraryForTesting)
+    }
+
+    func testWorkflowLibraryViewSelectsRightClickedRowBeforeContextMenuActions() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        _ = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "Alpha Workflow"), in: projectURL)
+        _ = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "Beta Workflow"), in: projectURL)
+
+        let library = WorkflowLibraryView()
+        library.setEntries(try WorkflowLibraryStore.listWorkflows(in: projectURL), selectedBundleURL: nil)
+
+        library.testingSelectContextMenuRow(at: 1)
+
+        XCTAssertEqual(library.selectedEntryForTesting?.name, "Beta Workflow")
     }
 
     func testBuilderCreatingLibraryWorkflowPreservesDirtyCurrentGraph() throws {
@@ -222,6 +280,94 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertEqual(delegate.modifiedCount, 1)
     }
 
+    func testCanvasDragsNodeFromCardBodyThroughCanvasInteraction() throws {
+        let canvas = WorkflowCanvasView()
+        var graph = WorkflowGraph(name: "Drag Test")
+        let node = graph.addNode(type: .fastpDedup, position: CGPoint(x: 120, y: 160))
+        canvas.graph = graph
+        canvas.snapToGrid = false
+
+        let frame = try XCTUnwrap(canvas.nodeFrameForTesting(node.id))
+        canvas.testingMouseDown(at: CGPoint(x: frame.midX, y: frame.midY))
+        canvas.testingMouseDragged(to: CGPoint(x: frame.midX + 48, y: frame.midY + 32))
+        canvas.testingMouseUp(at: CGPoint(x: frame.midX + 48, y: frame.midY + 32))
+
+        let moved = try XCTUnwrap(canvas.graph.getNode(node.id))
+        XCTAssertEqual(moved.position.x, 168, accuracy: 0.001)
+        XCTAssertEqual(moved.position.y, 192, accuracy: 0.001)
+    }
+
+    func testCanvasConnectsOperationOutputToOperationInputByDraggingPorts() throws {
+        let canvas = WorkflowCanvasView()
+        var graph = WorkflowGraph(name: "Connection Test")
+        let dedup = graph.addNode(type: .fastpDedup, position: CGPoint(x: 120, y: 120))
+        let align = graph.addNode(type: .alignment, position: CGPoint(x: 380, y: 120))
+        canvas.graph = graph
+
+        let sourcePoint = try XCTUnwrap(canvas.portPointForTesting(nodeID: dedup.id, portID: "deduplicated", direction: .output))
+        let targetPoint = try XCTUnwrap(canvas.portPointForTesting(nodeID: align.id, portID: "reads", direction: .input))
+
+        canvas.testingMouseDown(at: sourcePoint)
+        canvas.testingMouseDragged(to: targetPoint)
+        canvas.testingMouseUp(at: targetPoint)
+
+        let connection = try XCTUnwrap(canvas.graph.allConnections.first)
+        XCTAssertEqual(connection.sourceNodeId, dedup.id)
+        XCTAssertEqual(connection.sourcePortId, "deduplicated")
+        XCTAssertEqual(connection.targetNodeId, align.id)
+        XCTAssertEqual(connection.targetPortId, "reads")
+    }
+
+    func testCanvasConnectsWhenDraggingFromInputPortToOutputPort() throws {
+        let canvas = WorkflowCanvasView()
+        var graph = WorkflowGraph(name: "Reverse Connection Test")
+        let dedup = graph.addNode(type: .fastpDedup, position: CGPoint(x: 120, y: 120))
+        let align = graph.addNode(type: .alignment, position: CGPoint(x: 380, y: 120))
+        canvas.graph = graph
+
+        let inputPoint = try XCTUnwrap(canvas.portPointForTesting(nodeID: align.id, portID: "reads", direction: .input))
+        let outputPoint = try XCTUnwrap(canvas.portPointForTesting(nodeID: dedup.id, portID: "deduplicated", direction: .output))
+
+        canvas.testingMouseDown(at: inputPoint)
+        canvas.testingMouseDragged(to: outputPoint)
+        canvas.testingMouseUp(at: outputPoint)
+
+        let connection = try XCTUnwrap(canvas.graph.allConnections.first)
+        XCTAssertEqual(connection.sourceNodeId, dedup.id)
+        XCTAssertEqual(connection.targetNodeId, align.id)
+    }
+
+    func testCanvasPanDeltaRespectsScrollDirectionPreferences() throws {
+        let natural = WorkflowCanvasView.panDeltaForTesting(
+            scrollingDeltaX: 12,
+            scrollingDeltaY: 8,
+            horizontalPreference: .natural,
+            verticalPreference: .natural,
+            isDirectionInvertedFromDevice: false
+        )
+        let traditional = WorkflowCanvasView.panDeltaForTesting(
+            scrollingDeltaX: 12,
+            scrollingDeltaY: 8,
+            horizontalPreference: .traditional,
+            verticalPreference: .traditional,
+            isDirectionInvertedFromDevice: true
+        )
+        let systemNatural = WorkflowCanvasView.panDeltaForTesting(
+            scrollingDeltaX: 12,
+            scrollingDeltaY: 8,
+            horizontalPreference: .system,
+            verticalPreference: .system,
+            isDirectionInvertedFromDevice: true
+        )
+
+        XCTAssertEqual(natural.x, -12, accuracy: 0.001)
+        XCTAssertEqual(natural.y, -8, accuracy: 0.001)
+        XCTAssertEqual(traditional.x, 12, accuracy: 0.001)
+        XCTAssertEqual(traditional.y, 8, accuracy: 0.001)
+        XCTAssertEqual(systemNatural.x, -12, accuracy: 0.001)
+        XCTAssertEqual(systemNatural.y, -8, accuracy: 0.001)
+    }
+
     func testInspectorEditsSelectedNodeLabelAndParameters() throws {
         let inspector = WorkflowNodeInspectorView()
         var node = WorkflowNode(
@@ -274,6 +420,23 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertEqual(captured?.parameters["bundle_path"], "@/Imports/sample.lungfishfastq")
         let pathControl = try XCTUnwrap(inspector.firstSubview(of: NSPathControl.self))
         XCTAssertEqual(pathControl.url?.standardizedFileURL, bundle.standardizedFileURL)
+    }
+
+    func testInspectorOffersProjectFASTQBundlesWithoutFinderChooser() throws {
+        let project = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        let bundle = project
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        let inspector = WorkflowNodeInspectorView()
+        inspector.inspect(
+            node: WorkflowNode(type: .fastqBundleInput, position: .zero),
+            activeProjectURL: project
+        )
+
+        XCTAssertEqual(inspector.projectFASTQBundleOptionsForTesting.map(\.projectRelativePath), ["@/Imports/sample.lungfishfastq"])
+        XCTAssertNil(inspector.firstButtonForTesting(titled: "Choose..."))
     }
 
     func testInspectorRejectsRegularFileWithFastqBundleExtension() throws {
@@ -358,6 +521,73 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertEqual(controller.graph.getNode(node.id)?.parameters["quality"], "30")
     }
 
+    func testNodeViewLetsCanvasReceivePortClicksForConnectionsButHandlesCardClicks() throws {
+        let nodeView = WorkflowNodeView(node: WorkflowNode(type: .fastqBundleInput, position: .zero))
+        nodeView.frame = NSRect(origin: .zero, size: nodeView.intrinsicContentSize)
+
+        let portPoint = NSPoint(x: nodeView.bounds.maxX - 6, y: 46)
+        XCTAssertEqual(nodeView.portAtPoint(portPoint), "reads")
+        XCTAssertNil(nodeView.hitTest(portPoint))
+
+        let titlePoint = NSPoint(x: 24, y: 14)
+        XCTAssertNil(nodeView.hitTest(titlePoint))
+    }
+
+    func testWorkflowOperationDialogBridgeAppliesFullDialogStateToNativeNodeParameters() throws {
+        var node = WorkflowNode(type: .fastpTrim, position: .zero)
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+        state.selectTool(.fastpTrim)
+        state.qualityTrimThreshold = 27
+        state.qualityTrimWindowSize = 7
+        state.adapterRemovalMode = .autoDetect
+
+        WorkflowBuilderOperationDialogBridge.apply(state: state, to: &node)
+
+        XCTAssertEqual(node.parameters["quality"], "27")
+        XCTAssertEqual(node.parameters["window"], "7")
+        XCTAssertEqual(node.parameters["detectAdapter"], "true")
+    }
+
+    func testWorkflowAnalysisNodesCanChooseAnyFASTQOperationsDialogTool() throws {
+        let available = WorkflowBuilderOperationDialogBridge.availableToolIDs(for: .alignment)
+
+        XCTAssertTrue(available.contains(.minimap2))
+        XCTAssertTrue(available.contains(.spades))
+        XCTAssertTrue(available.contains(.kraken2))
+        XCTAssertTrue(available.contains(.fastpTrim))
+    }
+
+    func testWorkflowAnalysisOperationDialogStateListsAllAllowedTools() throws {
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            availableToolIDs: WorkflowBuilderOperationDialogBridge.availableToolIDs(for: .alignment)
+        )
+
+        let sidebarIDs = state.sidebarItems.map(\.id)
+        XCTAssertTrue(sidebarIDs.contains(FASTQOperationToolID.minimap2.rawValue))
+        XCTAssertTrue(sidebarIDs.contains(FASTQOperationToolID.spades.rawValue))
+        XCTAssertTrue(sidebarIDs.contains(FASTQOperationToolID.kraken2.rawValue))
+        XCTAssertTrue(sidebarIDs.contains(FASTQOperationToolID.fastpTrim.rawValue))
+
+        state.selectTool(.kraken2)
+
+        XCTAssertEqual(state.selectedCategory, .classification)
+        XCTAssertEqual(state.selectedToolID, .kraken2)
+    }
+
+    func testWorkflowBuilderConfigureDialogOnlyExposesSelectedTool() throws {
+        var node = WorkflowNode(type: .alignment, position: .zero)
+        node.parameters[WorkflowBuilderOperationDialogBridge.toolIDParameter] = FASTQOperationToolID.bwaMem2.rawValue
+
+        let available = WorkflowBuilderOperationDialogBridge.configureDialogToolIDs(for: node)
+
+        XCTAssertEqual(available, [.bwaMem2])
+    }
+
     private func workflowBuilderWindow() -> NSWindow? {
         NSApp.windows.first { $0.accessibilityIdentifier() == "WorkflowBuilderWindow" }
     }
@@ -399,6 +629,18 @@ private extension NSView {
         }
         for subview in subviews {
             if let match = subview.firstSubview(of: type) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
+        if accessibilityIdentifier() == identifier {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
                 return match
             }
         }

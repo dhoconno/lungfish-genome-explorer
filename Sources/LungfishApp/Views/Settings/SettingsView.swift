@@ -49,6 +49,13 @@ struct SettingsView: View {
                     Label("AI Services", systemImage: "brain")
                         .accessibilityIdentifier(SettingsAccessibilityID.tab(.aiServices))
                 }
+            AdvancedSettingsTab()
+                .tag(SettingsNavigationTab.advanced)
+                .accessibilityIdentifier(SettingsAccessibilityID.panel(.advanced))
+                .tabItem {
+                    Label("Advanced", systemImage: "wrench.and.screwdriver")
+                        .accessibilityIdentifier(SettingsAccessibilityID.tab(.advanced))
+                }
         }
         .frame(minWidth: 640, idealWidth: 720, minHeight: 460, idealHeight: 560)
         .accessibilityIdentifier(SettingsAccessibilityID.root)

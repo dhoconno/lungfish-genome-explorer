@@ -22,6 +22,12 @@ public protocol WorkflowNodeViewDelegate: AnyObject {
     func nodeViewDidSelect(_ nodeView: WorkflowNodeView)
 }
 
+public struct WorkflowNodePortHit: Equatable {
+    public let portId: String
+    public let direction: PortDirection
+    public let dataType: PortDataType
+}
+
 // MARK: - WorkflowNodeView
 
 /// Visual representation of a workflow node in the canvas.
@@ -231,6 +237,11 @@ public class WorkflowNodeView: NSView {
         }
     }
 
+    public override func layout() {
+        super.layout()
+        calculatePortGeometries()
+    }
+
     /// Returns the position of a port in canvas coordinates.
     public func portPosition(for portId: String, direction: PortDirection) -> CGPoint {
         if let geometry = portGeometries.first(where: { $0.portId == portId && $0.direction == direction }) {
@@ -243,18 +254,56 @@ public class WorkflowNodeView: NSView {
 
     /// Returns the port ID at the given point, or nil if no port is at that point.
     public func portAtPoint(_ point: CGPoint) -> String? {
-        for geometry in portGeometries {
-            let distance = hypot(point.x - geometry.center.x, point.y - geometry.center.y)
-            if distance <= Self.portRadius + 4 { // Slightly larger hit area
-                return geometry.portId
-            }
+        portHit(at: point)?.portId
+    }
+
+    public func portHit(at point: CGPoint) -> WorkflowNodePortHit? {
+        let candidates = portGeometries.filter { geometry in
+            expandedPortHitRect(for: geometry).contains(point)
+                || hypot(point.x - geometry.center.x, point.y - geometry.center.y) <= Self.portRadius + 12
         }
-        return nil
+
+        guard let geometry = candidates.min(by: {
+            hypot(point.x - $0.center.x, point.y - $0.center.y)
+                < hypot(point.x - $1.center.x, point.y - $1.center.y)
+        }) else {
+            return nil
+        }
+
+        return WorkflowNodePortHit(
+            portId: geometry.portId,
+            direction: geometry.direction,
+            dataType: geometry.dataType
+        )
+    }
+
+    private func expandedPortHitRect(for geometry: PortGeometry) -> NSRect {
+        switch geometry.direction {
+        case .input:
+            return NSRect(
+                x: geometry.center.x - 18,
+                y: geometry.center.y - 12,
+                width: 88,
+                height: 24
+            )
+        case .output:
+            return NSRect(
+                x: geometry.center.x - 70,
+                y: geometry.center.y - 12,
+                width: 88,
+                height: 24
+            )
+        }
     }
 
     // MARK: - Drawing
 
     public override var isFlipped: Bool { true }
+
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        guard super.hitTest(point) != nil else { return nil }
+        return nil
+    }
 
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
