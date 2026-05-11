@@ -133,7 +133,7 @@ public struct RiboDetectorStep: RecipeStepExecutor {
             r2: outR2,
             format: .pairedR1R2,
             tool: .ribodetector,
-            arguments: args
+            arguments: result.arguments
         )
     }
 

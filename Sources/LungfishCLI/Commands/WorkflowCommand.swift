@@ -22,12 +22,112 @@ struct WorkflowCommand: AsyncParsableCommand {
             """,
         subcommands: [
             RunSubcommand.self,
+            WorkflowBuilderRunSubcommand.self,
             ListSubcommand.self,
             WorkflowValidateSubcommand.self,
             WorkflowDiffSubcommand.self,
         ],
         defaultSubcommand: RunSubcommand.self
     )
+}
+
+struct WorkflowBuilderRunSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "builder-run",
+        abstract: "Run a native Workflow Builder graph"
+    )
+
+    @Option(name: .customLong("workflow"), help: "Workflow Builder .lungfishflow bundle or graph JSON")
+    var workflow: String
+
+    @Option(name: .customLong("project"), help: "Active .lungfish project directory")
+    var project: String
+
+    @Option(name: .customLong("run-directory"), help: "Directory for workflow run state and intermediate files")
+    var runDirectory: String?
+
+    @Option(name: .customLong("threads"), help: "CPU threads available to native FASTQ tools")
+    var threads: Int = 4
+
+    @Flag(name: .customLong("dry-run"), help: "Compile the executable plan and print JSON without running tools")
+    var dryRun: Bool = false
+
+    func run() async throws {
+        let workflowURL = URL(fileURLWithPath: workflow).standardizedFileURL
+        let projectURL = URL(fileURLWithPath: project).standardizedFileURL
+        let runDirectoryURL = runDirectory.map { URL(fileURLWithPath: $0).standardizedFileURL }
+            ?? Self.defaultRunDirectory(workflowURL: workflowURL, projectURL: projectURL)
+        let graph = try WorkflowLibraryStore.loadWorkflow(from: workflowURL)
+
+        if dryRun {
+            let plan = try WorkflowBuilderPlanCompiler().compile(
+                graph: graph,
+                projectURL: projectURL,
+                runDirectoryURL: runDirectoryURL
+            )
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(plan)
+            print(String(data: data, encoding: .utf8) ?? "{}")
+            return
+        }
+
+        let argv = Self.reproducibleArgv(
+            workflowURL: workflowURL,
+            projectURL: projectURL,
+            runDirectoryURL: runDirectoryURL,
+            threads: threads,
+            dryRun: false
+        )
+        let result = try await WorkflowBuilderNativeRunner().run(
+            graph: graph,
+            projectURL: projectURL,
+            runDirectoryURL: runDirectoryURL,
+            workflowBundleURL: workflowURL,
+            argv: argv,
+            threads: threads
+        )
+        print("Workflow Builder run completed")
+        print("Output bundle: \(result.outputBundleURL.path)")
+        print("Provenance: \(result.provenanceURL.path)")
+    }
+
+    private static func defaultRunDirectory(workflowURL: URL, projectURL: URL) -> URL {
+        let runID = UUID()
+        if workflowURL.pathExtension.lowercased() == WorkflowLibraryStore.workflowBundleExtension {
+            return WorkflowBuilderRunStore.runDirectory(runID: runID, in: workflowURL)
+        }
+        return projectURL
+            .appendingPathComponent("Workflow Runs", isDirectory: true)
+            .appendingPathComponent(runID.uuidString, isDirectory: true)
+    }
+
+    private static func reproducibleArgv(
+        workflowURL: URL,
+        projectURL: URL,
+        runDirectoryURL: URL,
+        threads: Int,
+        dryRun: Bool
+    ) -> [String] {
+        var argv = [
+            "lungfish-cli",
+            "workflow",
+            "builder-run",
+            "--workflow",
+            workflowURL.path,
+            "--project",
+            projectURL.path,
+            "--run-directory",
+            runDirectoryURL.path,
+            "--threads",
+            String(threads),
+        ]
+        if dryRun {
+            argv.append("--dry-run")
+        }
+        return argv
+    }
 }
 
 struct WorkflowDiffSubcommand: AsyncParsableCommand {

@@ -212,6 +212,69 @@ final class WorkflowBuilderRunServiceTests: XCTestCase {
         XCTAssertTrue(operationCenter.items.contains { $0.title == "Local Workflow" && $0.state == .completed })
     }
 
+    func testDefaultRunnerDispatchesFastqBundleGraphThroughBuilderRunCLIAndRequiresOutputProvenance() async throws {
+        let fixture = try makeFixture()
+        let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/A.lungfishfastq")
+        let operationCenter = OperationCenter()
+        let runner = ProvenanceWritingBuilderRunCLIProcessRunner()
+        let service = WorkflowBuilderRunService(
+            operationCenter: operationCenter,
+            localWorkflowProcessRunner: runner
+        )
+        let binding = WorkflowBuilderRunBinding(sampleURL: fixture.sampleURL, projectURL: fixture.projectURL)
+
+        let result = try await service.run(graph: graph, workflowBundleURL: fixture.workflowBundleURL, binding: binding)
+
+        let invocation = try XCTUnwrap(runner.invocations.first)
+        XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["workflow", "builder-run"])
+        XCTAssertTrue(invocation.arguments.contains("--workflow"))
+        XCTAssertTrue(invocation.arguments.contains(fixture.workflowBundleURL.standardizedFileURL.path))
+        XCTAssertTrue(invocation.arguments.contains("--project"))
+        XCTAssertTrue(invocation.arguments.contains(fixture.projectURL.standardizedFileURL.path))
+        XCTAssertTrue(invocation.arguments.contains("--run-directory"))
+        XCTAssertEqual(invocation.workingDirectory.lastPathComponent, result.runID.uuidString)
+
+        let record = try WorkflowBuilderRunStore.readRun(runID: result.runID, from: fixture.workflowBundleURL)
+        XCTAssertEqual(record.status, .succeeded)
+        XCTAssertTrue(record.provenance.outputs.contains { $0.path == invocation.outputBundleURL.path })
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let outputProvenance = try decoder.decode(
+            WorkflowRun.self,
+            from: Data(contentsOf: invocation.outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+        XCTAssertEqual(outputProvenance.status, .completed)
+        XCTAssertTrue(outputProvenance.steps.contains { $0.toolName == "lungfish-cli workflow builder-run" })
+        XCTAssertTrue(operationCenter.items.contains { $0.title == "Workflow Builder Runner" && $0.state == .completed })
+    }
+
+    func testDefaultRunnerRejectsFastqBundleGraphWhenBuilderRunOutputProvenanceIsMissing() async throws {
+        let fixture = try makeFixture()
+        let graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/A.lungfishfastq")
+        let operationCenter = OperationCenter()
+        let runner = ProvenanceWritingBuilderRunCLIProcessRunner(omitOutputProvenance: true)
+        let service = WorkflowBuilderRunService(
+            operationCenter: operationCenter,
+            localWorkflowProcessRunner: runner
+        )
+        let binding = WorkflowBuilderRunBinding(sampleURL: fixture.sampleURL, projectURL: fixture.projectURL)
+
+        do {
+            _ = try await service.run(graph: graph, workflowBundleURL: fixture.workflowBundleURL, binding: binding)
+            XCTFail("Expected missing provenance failure")
+        } catch WorkflowBuilderRunService.ExecutionError.nodeFailed(let nodeID, let message) {
+            XCTAssertEqual(nodeID, graph.allNodes.first { $0.type == .fastqBundleInput }?.id)
+            XCTAssertTrue(message.contains("missing .lungfish-provenance.json"))
+        }
+
+        let runID = try XCTUnwrap(operationCenter.items.first { $0.title.hasPrefix("Workflow Run:") }?.workflowRunID)
+        let record = try WorkflowBuilderRunStore.readRun(runID: runID, from: fixture.workflowBundleURL)
+        XCTAssertEqual(record.status, .failed)
+        XCTAssertEqual(record.provenance.exitStatus, 1)
+        XCTAssertTrue(operationCenter.items.contains { $0.title == "Workflow Builder Runner" && $0.state == .failed })
+    }
+
     func testValidationFailureDoesNotCreateRunRows() async throws {
         let fixture = try makeFixture()
         let graph = WorkflowGraph(name: "Empty")
@@ -368,5 +431,101 @@ private final class ProvenanceWritingWorkflowCLIProcessRunner: LocalWorkflowCLIP
             guard parts.count == 2 else { return }
             result[parts[0]] = parts[1]
         }
+    }
+}
+
+private final class ProvenanceWritingBuilderRunCLIProcessRunner: LocalWorkflowCLIProcessRunning {
+    struct Invocation: Equatable {
+        let arguments: [String]
+        let workingDirectory: URL
+        let outputBundleURL: URL
+    }
+
+    private(set) var invocations: [Invocation] = []
+    private let omitOutputProvenance: Bool
+
+    init(omitOutputProvenance: Bool = false) {
+        self.omitOutputProvenance = omitOutputProvenance
+    }
+
+    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+        let runDirectoryURL = URL(fileURLWithPath: try value(after: "--run-directory", in: arguments)).standardizedFileURL
+        let workflowURL = URL(fileURLWithPath: try value(after: "--workflow", in: arguments)).standardizedFileURL
+        let outputBundleURL = runDirectoryURL
+            .appendingPathComponent("outputs", isDirectory: true)
+            .appendingPathComponent("A-VSP2.lungfishfastq", isDirectory: true)
+            .standardizedFileURL
+        invocations.append(Invocation(
+            arguments: arguments,
+            workingDirectory: workingDirectory.standardizedFileURL,
+            outputBundleURL: outputBundleURL
+        ))
+
+        try FileManager.default.createDirectory(at: outputBundleURL, withIntermediateDirectories: true)
+        let fastqURL = outputBundleURL.appendingPathComponent("A.fastq")
+        try "@processed\nACGT\n+\n!!!!\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        if !omitOutputProvenance {
+            try writeProvenance(workflowURL: workflowURL, outputBundleURL: outputBundleURL, fastqURL: fastqURL, arguments: arguments)
+        }
+
+        return LocalWorkflowCLIProcessResult(
+            exitCode: 0,
+            standardOutput: """
+            Output bundle: \(outputBundleURL.path)
+            Provenance: \(outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path)
+
+            """,
+            standardError: ""
+        )
+    }
+
+    private func writeProvenance(
+        workflowURL: URL,
+        outputBundleURL: URL,
+        fastqURL: URL,
+        arguments: [String]
+    ) throws {
+        let step = StepExecution(
+            toolName: "lungfish-cli workflow builder-run",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish-cli"] + arguments,
+            inputs: [
+                ProvenanceRecorder.fileRecord(
+                    url: workflowURL.appendingPathComponent("graph.json"),
+                    format: .json,
+                    role: .input
+                ),
+            ],
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: fastqURL, format: .fastq, role: .output),
+                FileRecord(path: outputBundleURL.path, format: .unknown, role: .output),
+            ],
+            exitCode: 0,
+            wallTime: 0.01,
+            stderr: "",
+            endTime: Date()
+        )
+        let run = WorkflowRun(
+            name: "VSP2 FASTQ Workflow",
+            endTime: Date(),
+            status: .completed,
+            steps: [step],
+            parameters: [:]
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(run).write(
+            to: outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
+    }
+
+    private func value(after flag: String, in arguments: [String]) throws -> String {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(arguments.index(after: index)) else {
+            throw NSError(domain: "WorkflowBuilderRunServiceTests", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing \(flag)"])
+        }
+        return arguments[arguments.index(after: index)]
     }
 }

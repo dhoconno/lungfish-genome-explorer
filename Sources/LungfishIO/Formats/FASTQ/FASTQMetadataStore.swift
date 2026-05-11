@@ -461,6 +461,8 @@ public struct RecipeStepResult: Codable, Sendable {
     public let toolVersion: String?
     /// Command line used to execute the step (for reproducibility/auditing).
     public let commandLine: String?
+    /// Exact argv used to execute the step when available, including the executable as argv[0].
+    public let commandArguments: [String]?
     /// Number of reads (or read pairs for interleaved) entering this step.
     public let inputReadCount: Int?
     /// Number of reads (or read pairs) after this step.
@@ -473,6 +475,7 @@ public struct RecipeStepResult: Codable, Sendable {
         tool: String,
         toolVersion: String? = nil,
         commandLine: String? = nil,
+        commandArguments: [String]? = nil,
         inputReadCount: Int? = nil,
         outputReadCount: Int? = nil,
         durationSeconds: Double
@@ -481,6 +484,7 @@ public struct RecipeStepResult: Codable, Sendable {
         self.tool = tool
         self.toolVersion = toolVersion
         self.commandLine = commandLine
+        self.commandArguments = commandArguments
         self.inputReadCount = inputReadCount
         self.outputReadCount = outputReadCount
         self.durationSeconds = durationSeconds

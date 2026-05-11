@@ -341,10 +341,24 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let projectURL = activeProjectURL else {
             let alert = NSAlert()
             alert.messageText = "No Active Project"
-            alert.informativeText = "Open a Lungfish project before running a workflow so the Sample input and Project output anchors can be bound."
+            alert.informativeText = "Open a Lungfish project before running a workflow so project-relative inputs and outputs can be resolved."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             presentAlert(alert)
+            return
+        }
+
+        if graph.allNodes.contains(where: { $0.type == .fastqBundleInput }) {
+            guard let inputBundleURL = explicitFASTQBundleInputURL(projectURL: projectURL) else {
+                let alert = NSAlert()
+                alert.messageText = "Input Bundle Not Ready"
+                alert.informativeText = "Select a .lungfishfastq bundle on the FASTQ Bundle Input node before running this workflow."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                presentAlert(alert)
+                return
+            }
+            startWorkflowRun(sampleURL: inputBundleURL, projectURL: projectURL)
             return
         }
 
@@ -363,6 +377,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         }
 
         showRunBindingSheet(samples: samples, projectURL: projectURL)
+    }
+
+    public func explicitFASTQBundleInputURLForTesting(projectURL: URL) -> URL? {
+        explicitFASTQBundleInputURL(projectURL: projectURL)
     }
 
     public func configureRunContext(projectURL: URL?, preferredSampleURL: URL?) {
@@ -579,6 +597,35 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 self.presentAlert(alert)
             }
         }
+    }
+
+    private func explicitFASTQBundleInputURL(projectURL: URL) -> URL? {
+        guard let inputNode = graph.allNodes.first(where: { $0.type == .fastqBundleInput }),
+              let rawPath = inputNode.parameters["bundle_path"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawPath.isEmpty else {
+            return nil
+        }
+
+        let project = projectURL.standardizedFileURL
+        let candidate: URL
+        if rawPath.hasPrefix("@/") {
+            candidate = project.appendingPathComponent(String(rawPath.dropFirst(2))).standardizedFileURL
+        } else {
+            candidate = URL(fileURLWithPath: rawPath).standardizedFileURL
+        }
+
+        let projectPath = project.resolvingSymlinksInPath().standardizedFileURL.path
+        let targetPath = candidate.resolvingSymlinksInPath().standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard targetPath.hasPrefix(normalizedProjectPath) else { return nil }
+
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: candidate.path, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              candidate.pathExtension.lowercased() == "lungfishfastq" else {
+            return nil
+        }
+        return candidate
     }
 
     private func ensureWorkflowBundleForRun(projectURL: URL) throws -> URL {

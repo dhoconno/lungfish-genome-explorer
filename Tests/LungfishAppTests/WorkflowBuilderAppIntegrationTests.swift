@@ -140,6 +140,24 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: savedURL.appendingPathComponent("provenance.json").path))
     }
 
+    func testExplicitFastqBundleWorkflowResolvesInputNodeAsRunSample() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        let inputBundleURL = projectURL
+            .appendingPathComponent("Imports", isDirectory: true)
+            .appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputBundleURL, withIntermediateDirectories: true)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+        controller.graph = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/sample.lungfishfastq")
+
+        XCTAssertEqual(
+            controller.explicitFASTQBundleInputURLForTesting(projectURL: projectURL),
+            inputBundleURL.standardizedFileURL
+        )
+    }
+
     func testCanvasReportsDeletableSelectionState() throws {
         let canvas = WorkflowCanvasView()
         var graph = canvas.graph

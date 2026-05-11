@@ -67,6 +67,6 @@ public struct FastpMergeStep: RecipeStepExecutor {
         }
 
         // r1 = merged reads, r2 = unmerged R1, r3 = unmerged R2
-        return StepOutput(r1: merged, r2: unmergedR1, r3: unmergedR2, format: .merged, tool: .fastp, arguments: args)
+        return StepOutput(r1: merged, r2: unmergedR1, r3: unmergedR2, format: .merged, tool: .fastp, arguments: result.arguments)
     }
 }

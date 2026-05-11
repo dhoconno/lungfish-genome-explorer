@@ -213,8 +213,9 @@ final class RecipeIntegrationTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.r1.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.r2!.path))
         XCTAssertEqual(output.tool, .ribodetector)
-        let argumentPrefix = output.arguments.map { Array($0.prefix(6)) } ?? []
-        XCTAssertEqual(argumentPrefix, ["-t", "2", "-l", "151", "-i", r1.path])
+        let argumentPrefix = output.arguments.map { Array($0.prefix(7)) } ?? []
+        XCTAssertEqual(Array(argumentPrefix.dropFirst()), ["-t", "2", "-l", "151", "-i", r1.path])
+        XCTAssertTrue(argumentPrefix.first?.hasSuffix("ribodetector_cpu") == true)
     }
 
     func testExecuteSeqkitLengthFilterOnFixtures() async throws {

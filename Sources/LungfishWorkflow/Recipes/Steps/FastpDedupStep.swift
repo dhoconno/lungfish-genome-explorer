@@ -62,6 +62,6 @@ public struct FastpDedupStep: FastpFusible {
                 tool: "fastp", step: Self.typeID, stderr: result.stderr ?? "")
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .fastp, arguments: args)
+        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .fastp, arguments: result.arguments)
     }
 }
