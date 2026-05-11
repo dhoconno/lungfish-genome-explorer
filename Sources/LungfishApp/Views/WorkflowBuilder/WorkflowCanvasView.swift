@@ -48,8 +48,8 @@ public class WorkflowCanvasView: NSView {
     /// The workflow graph being displayed.
     public var graph: WorkflowGraph {
         didSet {
-            selectedNodeIds.removeAll()
-            selectedConnectionIds.removeAll()
+            selectedNodeIds = selectedNodeIds.filter { graph.getNode($0) != nil }
+            selectedConnectionIds = selectedConnectionIds.filter { graph.getConnection($0) != nil }
             rebuildNodeViews()
             rebuildConnectionViews()
             setNeedsDisplay(bounds)
@@ -104,6 +104,14 @@ public class WorkflowCanvasView: NSView {
 
     public var selectedConnectionIDsForTesting: Set<UUID> {
         selectedConnectionIds
+    }
+
+    public var selectedNodeForInspection: WorkflowNode? {
+        guard selectedNodeIds.count == 1,
+              let nodeId = selectedNodeIds.first else {
+            return nil
+        }
+        return graph.getNode(nodeId)
     }
 
     public var hasDeletableSelection: Bool {
@@ -350,6 +358,7 @@ public class WorkflowCanvasView: NSView {
         for node in graph.allNodes {
             let nodeView = WorkflowNodeView(node: node)
             nodeView.delegate = self
+            nodeView.isSelected = selectedNodeIds.contains(node.id)
             addSubview(nodeView)
             nodeViews[node.id] = nodeView
             updateNodeViewFrame(nodeView, for: node)
@@ -373,6 +382,7 @@ public class WorkflowCanvasView: NSView {
                     targetNodeView: targetNodeView
                 )
                 connectionView.delegate = self
+                connectionView.isSelected = selectedConnectionIds.contains(connection.id)
                 addSubview(connectionView, positioned: .below, relativeTo: nodeViews.values.first)
                 connectionViews[connection.id] = connectionView
             }

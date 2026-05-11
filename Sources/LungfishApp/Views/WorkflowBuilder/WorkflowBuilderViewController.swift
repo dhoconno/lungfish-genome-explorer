@@ -52,10 +52,14 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// The main canvas.
     private var canvasViewController: WorkflowCanvasViewController!
 
+    /// Inspector for the selected workflow node.
+    private var inspectorViewController: WorkflowNodeInspectorViewController!
+
     // MARK: - Split View Items
 
     private var paletteItem: NSSplitViewItem!
     private var canvasItem: NSSplitViewItem!
+    private var inspectorItem: NSSplitViewItem!
 
     // MARK: - State
 
@@ -120,6 +124,15 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         canvasViewController = WorkflowCanvasViewController()
         canvasViewController.canvasView.delegate = self
 
+        // Create inspector view controller
+        inspectorViewController = WorkflowNodeInspectorViewController()
+        inspectorViewController.inspector.onNodeChanged = { [weak self] updated in
+            guard let self else { return }
+            try? self.canvasViewController.canvasView.updateSelectedNode { node in
+                node = updated
+            }
+        }
+
         // Create split view items
         paletteItem = NSSplitViewItem(sidebarWithViewController: paletteViewController)
         paletteItem.canCollapse = true
@@ -131,8 +144,15 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         canvasItem.canCollapse = false
         canvasItem.minimumThickness = 400
 
+        inspectorItem = NSSplitViewItem(viewController: inspectorViewController)
+        inspectorItem.canCollapse = true
+        inspectorItem.minimumThickness = 260
+        inspectorItem.maximumThickness = 360
+        inspectorItem.preferredThicknessFraction = 0.25
+
         addSplitViewItem(paletteItem)
         addSplitViewItem(canvasItem)
+        addSplitViewItem(inspectorItem)
     }
 
     private func configureToolbar() {
@@ -429,6 +449,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     public func configureRunContext(projectURL: URL?, preferredSampleURL: URL?) {
         activeProjectURL = projectURL?.standardizedFileURL
         self.preferredSampleURL = preferredSampleURL?.standardizedFileURL
+        inspectorViewController?.inspector.inspect(
+            node: canvasViewController?.canvasView.selectedNodeForInspection,
+            activeProjectURL: activeProjectURL
+        )
     }
 
     private func showRunBindingSheet(samples: [WorkflowBuilderRunSample], projectURL: URL) {
@@ -666,7 +690,7 @@ private struct WorkflowVersionHistoryEntry: Codable {
 extension WorkflowBuilderViewController: WorkflowCanvasViewDelegate {
 
     public func canvasView(_ canvasView: WorkflowCanvasView, didSelectNode node: WorkflowNode?) {
-        // Could update an inspector panel here
+        inspectorViewController.inspector.inspect(node: node, activeProjectURL: activeProjectURL)
         logger.debug("Selected node: \(node?.label ?? "none")")
     }
 
@@ -908,6 +932,17 @@ class WorkflowCanvasViewController: NSViewController {
     override func viewDidAppear() {
         super.viewDidAppear()
         canvasView.centerContent()
+    }
+}
+
+/// View controller wrapper for the selected node inspector.
+@MainActor
+private class WorkflowNodeInspectorViewController: NSViewController {
+
+    let inspector = WorkflowNodeInspectorView()
+
+    override func loadView() {
+        view = inspector
     }
 }
 
