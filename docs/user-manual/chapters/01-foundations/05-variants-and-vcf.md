@@ -25,18 +25,15 @@ lead_approved: false
 
 ## What it is
 
-A variant is a position on a reference genome where the reads from your sample disagree with the reference base. The disagreement might be a single-base substitution (a SNP, such as `C` in the reference being read as `T` in your sample), an insertion of one or more bases that the reference does not have, a deletion of one or more bases the reference does have, or a larger structural rearrangement. Whatever the shape, the unit of analysis is the same: a coordinate on the reference, the base or bases the reference has there, and the base or bases the reads support instead.
+A variant is a position on a reference genome where the reads from your sample disagree with the reference base. The disagreement might be a single-base substitution (a SNP, such as `C` in the reference being read as `T` in your sample), an insertion of one or more bases that the reference does not have, a deletion of one or more bases the reference does have, or a larger structural rearrangement. Whatever the shape, the unit of analysis is the same: a coordinate on the reference, the base or bases the reference has there, and the base or bases the reads support instead. (Larger structural rearrangements need specialised tools beyond the scope of this chapter; the callers covered here handle SNPs and small insertions or deletions.)
 
-A VCF (Variant Call Format) file is the standard tab-separated table that lists those disagreements. A variant caller reads a BAM file (you met BAMs in [Alignment Files](04-alignment-files.md)), walks down the reference position by position, examines the pileup at each position, applies thresholds for evidence (minimum depth, minimum allele frequency, minimum base quality, strand-bias checks), and emits one VCF row for every position that clears the thresholds. The VCF is the analyzable output of every variant-calling workflow in this manual. When this chapter says "variant" it means one row of a VCF.
+A [VCF](../../GLOSSARY.md#vcf) (Variant Call Format) file is the standard tab-separated table that lists those disagreements. A [variant caller](../../GLOSSARY.md#variant-caller) reads a BAM file (you met BAMs in [Alignment Files](04-alignment-files.md)), walks down the reference position by position, examines the [pileup](../../GLOSSARY.md#pileup) at each position, applies thresholds for evidence (minimum depth, minimum allele frequency, minimum base quality, strand-bias checks), and emits one VCF row for every position that clears the thresholds. The VCF is the analysable output of every variant-calling workflow in this manual. When this chapter says "variant" it means one row of a VCF.
 
-This chapter walks through the eight standard VCF columns, the per-sample payload that follows them, the FILTER flags Lungfish's variant callers attach, and one specific interpretation point that has tripped every audience reviewer so far: in a single-organism viral sample, allele frequency means the fraction of reads supporting the alternate base, not the fraction of alleles in a diploid genome carrying the variant. By the end you should be able to look at a VCF row and read it the way the variant caller intended.
+This chapter walks through the eight standard VCF columns, the per-sample payload that follows them, the [FILTER](../../GLOSSARY.md#filter) flags LGE's variant callers attach, and one specific interpretation point that has tripped every audience reviewer so far: in a single-organism viral sample, allele frequency means the fraction of reads supporting the alternate base, not the fraction of alleles in a diploid genome carrying the variant. By the end you should be able to look at a VCF row and read it the way the variant caller intended.
 
 So what should you do with this? Read it once before the variants part of the manual. Every later chapter assumes you can name the columns and interpret allele frequency in a haploid context.
 
-The main worked examples in Lungfish still target viral genomes. The
-first GATK foundation is narrower: `lungfish gatk` can construct human
-germline command lines for review, but it does not yet execute GATK or
-attach human germline outputs to a Lungfish bundle.
+One caveat about VCF field semantics that the chapter returns to in detail. The meaning of `AF`, `GT`, `QUAL`, and `FILTER` is set by the VCF header for each file, not by the format itself. The conventions in this chapter describe LGE's viral haploid output. When you open a human germline VCF from GATK, a joint-called cohort VCF, or a pooled-sample wastewater VCF, the same field names can carry different semantics and the file's own header is the authoritative source.
 
 ## What you will learn
 
@@ -61,7 +58,7 @@ A small VCF excerpt looks like this:
 ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Depth">
 ##FORMAT=<ID=AF,Number=1,Type=Float,Description="Allele frequency">
 #CHROM  POS    ID  REF  ALT  QUAL  FILTER  INFO              FORMAT      SRR36291587
-MN908947.3  21618  .   C    T    228   PASS    DP=1842;AF=0.998  GT:DP:AF    1/1:1842:0.998
+MN908947.3  23403  .   A    G    228   PASS    DP=1842;AF=0.998  GT:DP:AF    1/1:1842:0.998
 MN908947.3  1989   .   A    G    9     ft      DP=1750;AF=0.005  GT:DP:AF    0/0:1750:0.005
 ```
 
@@ -76,15 +73,15 @@ Each row of a VCF carries the same fields in the same order. The first eight des
 | Column   | What it carries                                                              | Example                |
 |----------|------------------------------------------------------------------------------|------------------------|
 | `CHROM`  | The reference contig or chromosome name. Must match the reference FASTA.     | `MN908947.3`           |
-| `POS`    | The 1-based position on `CHROM` where the variant starts.                    | `21618`                |
+| `POS`    | The 1-based position on `CHROM` where the variant starts.                    | `23403`                |
 | `ID`     | A database identifier (dbSNP, ClinVar) or `.` if none assigned.              | `.`                    |
-| `REF`    | The reference base or bases at this position.                                | `C`                    |
-| `ALT`    | The alternate base or bases observed in the reads.                           | `T`                    |
+| `REF`    | The reference base or bases at this position.                                | `A`                    |
+| `ALT`    | The alternate base or bases observed in the reads.                           | `G`                    |
 | `QUAL`   | Phred-scaled confidence that the variant is real. Higher is better.          | `228`                  |
 | `FILTER` | `PASS` or a semicolon-separated list of named filters the row failed.        | `PASS`                 |
 | `INFO`   | Semicolon-separated `KEY=VALUE` pairs of per-row metadata.                   | `DP=1842;AF=0.998`     |
 
-A few details matter. `POS` is 1-based: the first base of the reference is position 1, not 0, the same convention you met in [What Is a Genome](01-what-is-a-genome.md). For an indel, `POS` names the base immediately before the insertion or deletion, and the `REF` and `ALT` strings include that base as an anchor; this is the convention `ivar`, `lofreq`, and `bcftools` all follow. `QUAL` is Phred-scaled, so `Q20` means a 1% probability that the variant is a false positive and `Q30` means 0.1%. A `QUAL` of `.` means the caller did not score the row, which is common for iVar (iVar reports filters explicitly and leaves `QUAL` empty).
+A few details matter. `POS` is 1-based: the first base of the reference is position 1, not 0, the same convention you met in [What Is a Genome](01-what-is-a-genome.md). For an indel, `POS` names the base immediately before the insertion or deletion, and the `REF` and `ALT` strings include that base as an anchor; this is the convention `ivar`, `lofreq`, and `bcftools` all follow. `QUAL` is Phred-scaled, so a value of 20 means a 1% probability that the variant is a false positive and 30 means 0.1%. A `QUAL` of `.` means the caller did not score the row, which is common in LGE-normalised iVar output: iVar natively emits a TSV with a `PASS` boolean, and LGE's conversion to VCF sets `QUAL` to `.` where iVar did not score the row directly.
 
 The ninth column, `FORMAT`, is a colon-separated list of keys that describe the per-sample payload. Lungfish's variant callers emit a small set of keys: `GT` (genotype), `DP` (depth at this position), `AF` (allele frequency), and sometimes `AD` (per-allele depths, a comma-separated list of read counts for each of REF and the ALT alleles). One sample column follows for each sample, with values in the same order as the FORMAT keys.
 
@@ -102,14 +99,14 @@ Genotype notation is a quirk inherited from VCF's diploid origins. `0` means "th
 The high-confidence row from the excerpt above is worth reading column by column.
 
 ```
-MN908947.3  21618  .  C  T  228  PASS  DP=1842;AF=0.998  GT:DP:AF  1/1:1842:0.998
+MN908947.3  23403  .  A  G  228  PASS  DP=1842;AF=0.998  GT:DP:AF  1/1:1842:0.998
 ```
 
-`CHROM` is `MN908947.3`, the SARS-CoV-2 reference. `POS` is `21618`, a base near the start of the spike gene. `ID` is `.`, meaning no public-database identifier has been attached. `REF` is `C`, the base at position 21618 on the reference. `ALT` is `T`, the base the reads support instead. `QUAL` is `228`, a high Phred score corresponding to a vanishingly small probability that the variant is a false positive. `FILTER` is `PASS`, meaning the row cleared every filter the caller applied.
+`CHROM` is `MN908947.3`, the SARS-CoV-2 reference. `POS` is `23403`, the spike-gene position introduced in [What Is a Genome](01-what-is-a-genome.md). `ID` is `.`, meaning no public-database identifier has been attached. `REF` is `A`, the base at position 23403 on the reference. `ALT` is `G`, the base the reads support instead. `QUAL` is `228`, a high Phred score corresponding to a vanishingly small probability that the variant is a false positive. `FILTER` is `PASS`, meaning the row cleared every filter the caller applied.
 
-`INFO` carries two row-level facts: `DP=1842` (1842 reads cover this position) and `AF=0.998` (99.8% of those reads carry the `T`). `FORMAT` declares that the sample column will list `GT`, then `DP`, then `AF`, separated by colons. The single sample column shows `1/1:1842:0.998`. Genotype `1/1` means "the alternate allele is the only allele observed." Depth `1842` repeats the row-level number (per-sample and per-row depth happen to be the same when there is only one sample). Allele frequency `0.998` likewise repeats the row-level value.
+`INFO` carries two row-level facts: `DP=1842` (1842 reads cover this position) and `AF=0.998` (99.8% of those reads carry the `G`). `FORMAT` declares that the sample column will list `GT`, then `DP`, then `AF`, separated by colons. The single sample column shows `1/1:1842:0.998`. The [genotype](../../GLOSSARY.md#genotype) `1/1` means "the alternate allele is the only allele observed"; in some haploid VCFs the same idea is written as a single `1`, and LGE's iVar lane uses `1/1` for compatibility with downstream diploid-shaped tooling. Depth `1842` repeats the row-level number (per-sample and per-row depth happen to be the same when there is only one sample). Allele frequency `0.998` likewise repeats the row-level value.
 
-Read in plain English: at position 21618 of the SARS-CoV-2 reference, the reads disagreed with the reference `C` and supported `T` instead. There were 1842 reads at that position. 1840 of them carried `T`, two carried something else. The caller applied every filter, every filter passed, and the result is a high-confidence variant.
+Read in plain English: at position 23403 of the SARS-CoV-2 reference, the reads disagreed with the reference `A` and supported `G` instead, the nucleotide change underlying the D614G spike substitution. There were 1842 reads at that position. 1840 of them carried `G`, two carried something else. The caller applied every filter, every filter passed, and the result is a high-confidence variant.
 
 The other row in the excerpt is the opposite case.
 
@@ -133,7 +130,7 @@ A virus is not a diploid organism. Each virion carries one genome. A clinical SA
 
 A genuinely intermediate viral allele frequency has at least three plausible explanations. The sample might contain a mixed infection: two distinct viral lineages co-circulating in one host, each contributing some fraction of reads. The sample might be a transmission bottleneck signature: a small number of founding virions diverging into a population during the host's infection window, with one new mutation rising toward fixation. The sample might be a sequencing or amplification artifact: PCR errors, sequencer base-call errors, or strand-specific primer artifacts. Distinguishing these requires looking at the depth, the strand distribution of supporting reads, the position's coverage profile, and often a second sample from the same patient over time.
 
-The practical consequence: in a Lungfish viral VCF, a confidently-called variant looks like `AF` near 1.0 with `DP` in the hundreds or thousands and `FILTER=PASS`. A genuinely intermediate `AF` (say 0.2 to 0.8) is interesting and worth investigating, not automatically wrong. An `AF` near 0 is noise. There is no notion of "homozygous variant" in a single-organism viral isolate, and the genotype column's `1/1` is mostly cosmetic.
+The practical consequence: in an LGE viral VCF, a confidently-called variant looks like `AF` near 1.0 with `DP` in the hundreds or thousands and `FILTER=PASS`. A genuinely intermediate `AF` (say 0.2 to 0.8) is interesting and worth investigating, not automatically wrong. An `AF` near 0 is noise. There is no notion of "homozygous variant" in a single-organism viral isolate; the genotype column's `1/1` is mostly cosmetic for the LGE viral case, but if you open a human germline VCF or a wastewater mixture file the GT field carries real diploid or pooled meaning and should be read accordingly.
 
 Wastewater and other mixed-population samples are a different regime entirely: every position carries some allele frequency between 0 and 1, the spectrum is continuous, and the analysis question shifts from "what variant does this isolate carry" to "what mixture of lineages is in this sample." The VCF columns are the same; the interpretation is different. Wastewater is out of scope for this chapter and is covered later in the manual.
 
@@ -143,19 +140,19 @@ The `FILTER` column is the variant caller's most direct signal about whether to 
 
 ![Three VCF rows showing FILTER=PASS, ft, and sb with check mark and warning indicators](../../assets/illustrations-imagegen/01-foundations/05-variants-and-vcf/filter-flag-cartoon.png)
 
-The flags Lungfish's three variant callers (iVar, LoFreq, Medaka) emit are conventions inherited from each tool, with light Lungfish normalization. The most common ones across all three are listed below.
+LGE supports four variant callers across its short-read and long-read lanes: [iVar](../../GLOSSARY.md#variant-caller), [LoFreq](../../GLOSSARY.md#variant-caller), [Medaka](../../GLOSSARY.md#variant-caller), and [Clair3](../../GLOSSARY.md#variant-caller). Each caller emits its own native FILTER vocabulary, and iVar's native output is actually a TSV that LGE converts to VCF with a normalisation pass. The table below lists FILTER flags as they appear in LGE-normalised viral VCFs; for any specific file, the `##FILTER` header lines are authoritative.
 
-| Flag    | What it means                                                                       | What to do                                                                  |
+| Flag    | What it means (LGE-normalised)                                                      | What to do                                                                  |
 |---------|-------------------------------------------------------------------------------------|-----------------------------------------------------------------------------|
 | `PASS`  | The row cleared every filter the caller applied.                                    | Treat as a candidate variant subject to your other quality criteria.        |
 | `ft`    | The row failed the allele-frequency threshold (typically `AF` below 0.05 or 0.10).  | Usually noise. Investigate only if you specifically expect minor variants.  |
-| `sb`    | The row failed a strand-bias filter: ALT support is lopsided across the strands.    | Common in amplicon data near primer ends. Often safe to ignore for ARTIC.   |
+| `sb`    | The row failed a strand-bias filter: ALT support is lopsided across the strands.    | Common in amplicon data near primer ends; inspect the pileup in context.    |
 | `bq`    | The row failed a base-quality filter: the supporting bases were low Phred quality.  | Investigate the pileup; the variant may be real but poorly sequenced.       |
 | `q10`   | `QUAL` was below 10 (a 10% false-positive probability).                             | Treat as low confidence; rarely worth promoting without orthogonal support. |
 
-Lungfish's variant browser starts unfiltered: every row in the VCF is shown. The fastest way to focus on confident calls is the `Presets > PASS` chip in the filter bar, which hides every row whose `FILTER` is anything other than `PASS`. The non-PASS rows remain in the underlying file. Filtering is a view, not a rewrite.
+LGE's variant browser starts unfiltered: every row in the VCF is shown. The fastest way to focus on confident calls is the `Presets > PASS` chip in the filter bar, which hides every row whose `FILTER` is anything other than `PASS`. The non-PASS rows remain in the underlying file. Filtering is a view, not a rewrite.
 
-A non-PASS row is not necessarily wrong. For amplicon data the `sb` filter is famously noisy, because amplicon protocols by design create strand-imbalanced read piles near every primer pair. iVar disables strand-bias filtering by default for that reason, and the Lungfish iVar dialog ships with `Ignore strand bias` already on. If you see `sb`-flagged rows in a LoFreq VCF, the right move is usually to inspect the position in the alignment view rather than to dismiss the row outright.
+A non-PASS row is not necessarily wrong. For amplicon data the `sb` filter is famously noisy, because amplicon protocols by design create strand-imbalanced read piles near every primer pair. iVar disables strand-bias filtering by default for that reason, and the LGE iVar dialog ships with `Ignore strand bias` already on. If you see `sb`-flagged rows in a LoFreq VCF, the right move is usually to inspect the position in the alignment view rather than to dismiss the row outright.
 
 ## Where the VCF comes from
 
