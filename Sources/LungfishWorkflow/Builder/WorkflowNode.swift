@@ -15,6 +15,8 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     case sampleInput = "sample_input"
     /// FASTQ file input node
     case fastqInput = "fastq_input"
+    /// Existing project-managed FASTQ bundle input node
+    case fastqBundleInput = "fastq_bundle_input"
     /// FASTA file input node
     case fastaInput = "fasta_input"
     /// BAM/CRAM alignment file input node
@@ -25,6 +27,16 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     case qualityControl = "quality_control"
     /// Read trimming and filtering (Trimmomatic, fastp)
     case trimming = "trimming"
+    /// fastp PCR duplicate removal
+    case fastpDedup = "fastp_dedup"
+    /// fastp adapter and quality trimming
+    case fastpTrim = "fastp_trim"
+    /// deacon human read scrubbing
+    case deaconHumanScrub = "deacon_human_scrub"
+    /// fastp overlapping pair merge
+    case fastpMerge = "fastp_merge"
+    /// seqkit read length filter
+    case seqkitLengthFilter = "seqkit_length_filter"
     /// Sequence alignment (BWA, Bowtie2, STAR)
     case alignment = "alignment"
     /// Variant calling (GATK, bcftools, freebayes)
@@ -47,11 +59,17 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         switch self {
         case .sampleInput: return "Sample input"
         case .fastqInput: return "FASTQ Input"
+        case .fastqBundleInput: return "FASTQ Bundle Input"
         case .fastaInput: return "FASTA Input"
         case .bamInput: return "BAM Input"
         case .sampleSheet: return "Sample Sheet"
         case .qualityControl: return "Quality Control"
         case .trimming: return "Trimming"
+        case .fastpDedup: return "Remove PCR duplicates"
+        case .fastpTrim: return "Adapter + quality trim"
+        case .deaconHumanScrub: return "Remove human reads"
+        case .fastpMerge: return "Merge overlapping pairs"
+        case .seqkitLengthFilter: return "Remove short reads"
         case .alignment: return "Alignment"
         case .variantCalling: return "Variant Calling"
         case .quantification: return "Quantification"
@@ -67,11 +85,17 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         switch self {
         case .sampleInput: return "tray.and.arrow.down.fill"
         case .fastqInput: return "doc.text.fill"
+        case .fastqBundleInput: return "shippingbox.fill"
         case .fastaInput: return "doc.fill"
         case .bamInput: return "chart.bar.doc.horizontal.fill"
         case .sampleSheet: return "tablecells.fill"
         case .qualityControl: return "checkmark.seal.fill"
         case .trimming: return "scissors"
+        case .fastpDedup: return "square.stack.3d.down.right"
+        case .fastpTrim: return "scissors"
+        case .deaconHumanScrub: return "person.crop.circle.badge.xmark"
+        case .fastpMerge: return "arrow.triangle.merge"
+        case .seqkitLengthFilter: return "line.3.horizontal.decrease.circle"
         case .alignment: return "arrow.left.arrow.right"
         case .variantCalling: return "waveform.path.ecg"
         case .quantification: return "chart.bar.fill"
@@ -85,10 +109,16 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     /// Category for grouping in the palette
     public var category: NodeCategory {
         switch self {
-        case .sampleInput, .fastqInput, .fastaInput, .bamInput, .sampleSheet:
+        case .sampleInput, .fastqInput, .fastqBundleInput, .fastaInput, .bamInput, .sampleSheet:
             return .input
         case .qualityControl, .trimming:
             return .preprocessing
+        case .fastpDedup, .fastpTrim, .seqkitLengthFilter:
+            return .trimmingFiltering
+        case .deaconHumanScrub:
+            return .decontamination
+        case .fastpMerge:
+            return .readProcessing
         case .alignment, .variantCalling, .quantification, .assembly:
             return .analysis
         case .report, .export, .projectOutput:
@@ -96,12 +126,23 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
         }
     }
 
+    /// Whether this node is executed by the native Workflow Builder FASTQ runner
+    /// instead of legacy workflow-language exporters.
+    public var isBuilderNativeFASTQNode: Bool {
+        switch self {
+        case .fastqBundleInput, .fastpDedup, .fastpTrim, .deaconHumanScrub, .fastpMerge, .seqkitLengthFilter:
+            return true
+        case .sampleInput, .fastqInput, .fastaInput, .bamInput, .sampleSheet, .qualityControl, .trimming, .alignment, .variantCalling, .quantification, .assembly, .report, .export, .projectOutput:
+            return false
+        }
+    }
+
     /// Default input ports for this node type
     public var inputPorts: [NodePort] {
         switch self {
-        case .sampleInput, .fastqInput, .fastaInput, .bamInput, .sampleSheet:
+        case .sampleInput, .fastqInput, .fastqBundleInput, .fastaInput, .bamInput, .sampleSheet:
             return []
-        case .qualityControl:
+        case .qualityControl, .fastpDedup, .fastpTrim, .deaconHumanScrub, .fastpMerge, .seqkitLengthFilter:
             return [
                 NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .input)
             ]
@@ -150,7 +191,7 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return [
                 NodePort(id: "sample", name: "Sample", dataType: .any, direction: .output, allowsMultiple: true)
             ]
-        case .fastqInput:
+        case .fastqInput, .fastqBundleInput:
             return [
                 NodePort(id: "reads", name: "Reads", dataType: .fastqBundle, direction: .output)
             ]
@@ -174,6 +215,26 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
             return [
                 NodePort(id: "trimmed", name: "Trimmed", dataType: .fastqBundle, direction: .output),
                 NodePort(id: "report", name: "Report", dataType: .reportFile, direction: .output)
+            ]
+        case .fastpDedup:
+            return [
+                NodePort(id: "deduplicated", name: "Deduplicated", dataType: .fastqBundle, direction: .output)
+            ]
+        case .fastpTrim:
+            return [
+                NodePort(id: "trimmed", name: "Trimmed", dataType: .fastqBundle, direction: .output)
+            ]
+        case .deaconHumanScrub:
+            return [
+                NodePort(id: "scrubbed", name: "Scrubbed", dataType: .fastqBundle, direction: .output)
+            ]
+        case .fastpMerge:
+            return [
+                NodePort(id: "merged", name: "Merged", dataType: .fastqBundle, direction: .output)
+            ]
+        case .seqkitLengthFilter:
+            return [
+                NodePort(id: "filtered", name: "Filtered", dataType: .fastqBundle, direction: .output)
             ]
         case .alignment:
             return [
@@ -204,6 +265,16 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
     /// Typed parameter definitions supported by this node type.
     public var parameterDefinitions: [ParameterDefinition] {
         switch self {
+        case .fastqBundleInput:
+            var bundlePath = ParameterDefinition(
+                name: "bundle_path",
+                title: "FASTQ bundle",
+                description: "Project-relative path to an existing .lungfishfastq bundle.",
+                type: .string,
+                isRequired: true
+            )
+            bundlePath.pattern = #"^@/.+\.lungfishfastq$"#
+            return [bundlePath]
         case .trimming:
             var minimumLength = ParameterDefinition(
                 name: "minimum_length",
@@ -235,6 +306,77 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
                     defaultValue: .boolean(false)
                 )
             ]
+        case .fastpDedup:
+            return []
+        case .fastpTrim:
+            let detectAdapter = ParameterDefinition(
+                name: "detectAdapter",
+                title: "Detect adapters",
+                type: .boolean,
+                defaultValue: .boolean(true)
+            )
+
+            var quality = ParameterDefinition(
+                name: "quality",
+                title: "Quality threshold",
+                type: .integer,
+                defaultValue: .integer(15)
+            )
+            quality.minimum = 0
+            quality.maximum = 93
+
+            var window = ParameterDefinition(
+                name: "window",
+                title: "Window size",
+                type: .integer,
+                defaultValue: .integer(5)
+            )
+            window.minimum = 1
+
+            var cutMode = ParameterDefinition(
+                name: "cutMode",
+                title: "Cut mode",
+                type: .string,
+                defaultValue: .string("right")
+            )
+            cutMode.allowedValues = [.string("right"), .string("front"), .string("tail"), .string("both")]
+
+            return [detectAdapter, quality, window, cutMode]
+        case .deaconHumanScrub:
+            var database = ParameterDefinition(
+                name: "database",
+                title: "Database",
+                type: .string,
+                defaultValue: .string("deacon-panhuman")
+            )
+            database.allowedValues = [.string("deacon-panhuman")]
+            return [database]
+        case .fastpMerge:
+            var minOverlap = ParameterDefinition(
+                name: "minOverlap",
+                title: "Minimum overlap",
+                type: .integer,
+                defaultValue: .integer(15)
+            )
+            minOverlap.minimum = 1
+            return [minOverlap]
+        case .seqkitLengthFilter:
+            var minLength = ParameterDefinition(
+                name: "minLength",
+                title: "Minimum length",
+                type: .integer,
+                defaultValue: .integer(50)
+            )
+            minLength.minimum = 0
+
+            var maxLength = ParameterDefinition(
+                name: "maxLength",
+                title: "Maximum length",
+                type: .integer
+            )
+            maxLength.minimum = 1
+
+            return [minLength, maxLength]
         default:
             return []
         }
@@ -247,6 +389,9 @@ public enum WorkflowNodeType: String, Sendable, Codable, CaseIterable {
 public enum NodeCategory: String, Sendable, Codable, CaseIterable {
     case input = "Input"
     case preprocessing = "Preprocessing"
+    case trimmingFiltering = "Trimming & Filtering"
+    case decontamination = "Decontamination"
+    case readProcessing = "Read Processing"
     case analysis = "Analysis"
     case output = "Output"
 
@@ -260,6 +405,9 @@ public enum NodeCategory: String, Sendable, Codable, CaseIterable {
         switch self {
         case .input: return "arrow.down.doc"
         case .preprocessing: return "wand.and.stars"
+        case .trimmingFiltering: return "line.3.horizontal.decrease.circle"
+        case .decontamination: return "person.crop.circle.badge.xmark"
+        case .readProcessing: return "arrow.triangle.merge"
         case .analysis: return "cpu"
         case .output: return "arrow.up.doc"
         }

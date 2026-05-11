@@ -346,6 +346,12 @@ extension WorkflowNodePalette: NSOutlineViewDelegate {
             return .systemBlue
         case .preprocessing:
             return .systemOrange
+        case .trimmingFiltering:
+            return .systemOrange
+        case .decontamination:
+            return .systemRed
+        case .readProcessing:
+            return .systemIndigo
         case .analysis:
             return .systemPurple
         case .output:

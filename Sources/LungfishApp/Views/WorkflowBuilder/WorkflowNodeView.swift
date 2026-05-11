@@ -437,6 +437,12 @@ public class WorkflowNodeView: NSView {
             return NSColor.systemBlue
         case .preprocessing:
             return NSColor.systemOrange
+        case .trimmingFiltering:
+            return NSColor.systemOrange
+        case .decontamination:
+            return NSColor.systemRed
+        case .readProcessing:
+            return NSColor.systemIndigo
         case .analysis:
             return NSColor.systemPurple
         case .output:
