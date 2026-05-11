@@ -290,7 +290,7 @@ Provenance sidecars share a common shape:
 ```json
 {
   "workflow": "variants.call.ivar",
-  "version": "0.4.0-alpha.11",
+  "version": "0.4.0-alpha.12",
   "command": "ivar variants -p variants -q 20 -t 0.05 -m 10 -r ref.fasta -g annotations.gff3",
   "inputs": [
     {"path": "alignments/trimmed.bam", "sha256": "...", "bytes": 16742391, "role": "alignment"}
