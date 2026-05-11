@@ -48,6 +48,8 @@ public class WorkflowCanvasView: NSView {
     /// The workflow graph being displayed.
     public var graph: WorkflowGraph {
         didSet {
+            selectedNodeIds.removeAll()
+            selectedConnectionIds.removeAll()
             rebuildNodeViews()
             rebuildConnectionViews()
             setNeedsDisplay(bounds)
@@ -95,6 +97,19 @@ public class WorkflowCanvasView: NSView {
 
     /// Currently selected connection IDs.
     private var selectedConnectionIds: Set<UUID> = []
+
+    public var selectedNodeIDsForTesting: Set<UUID> {
+        selectedNodeIds
+    }
+
+    public var selectedConnectionIDsForTesting: Set<UUID> {
+        selectedConnectionIds
+    }
+
+    public var hasDeletableSelection: Bool {
+        selectedConnectionIds.contains { graph.getConnection($0) != nil }
+            || selectedNodeIds.contains { graph.getNode($0)?.isRemovable == true }
+    }
 
     /// Connection being drawn (in progress).
     private var pendingConnection: PendingConnection?
@@ -546,11 +561,32 @@ public class WorkflowCanvasView: NSView {
         delegate?.canvasView(self, didSelectConnection: nil)
     }
 
+    public func updateSelectedNode(_ mutate: (inout WorkflowNode) throws -> Void) throws {
+        guard selectedNodeIds.count == 1,
+              let nodeId = selectedNodeIds.first,
+              var node = graph.getNode(nodeId) else {
+            return
+        }
+
+        try mutate(&node)
+        try graph.updateNode(node)
+
+        if let nodeView = nodeViews[nodeId] {
+            nodeView.update(with: node)
+            updateNodeViewFrame(nodeView, for: node)
+        }
+        rebuildConnectionViews()
+        delegate?.canvasViewDidModifyGraph(self)
+        delegate?.canvasView(self, didSelectNode: node)
+    }
+
     /// Deletes selected nodes and connections.
     public func deleteSelection() {
+        guard hasDeletableSelection else { return }
+
         // Capture counts before clearing selection
-        let deletedNodeCount = self.selectedNodeIds.count
-        let deletedConnectionCount = self.selectedConnectionIds.count
+        let deletedNodeCount = self.selectedNodeIds.filter { graph.getNode($0)?.isRemovable == true }.count
+        let deletedConnectionCount = self.selectedConnectionIds.filter { graph.getConnection($0) != nil }.count
 
         // Register undo
         let oldGraph = graph

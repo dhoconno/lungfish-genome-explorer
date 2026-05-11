@@ -923,7 +923,7 @@ extension WorkflowBuilderViewController {
         case #selector(performRedo(_:)):
             return canvasViewController.canvasView.undoManager?.canRedo ?? false
         case #selector(performDelete(_:)):
-            return true // Could check if anything is selected
+            return canvasViewController.canvasView.hasDeletableSelection
         default:
             return true
         }
