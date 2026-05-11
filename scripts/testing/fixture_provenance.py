@@ -66,7 +66,7 @@ STALE_SUBSTRING_MARKERS = [
     "alignment" + "-tree-viewers",
 ]
 STALE_PATH_ROOTS = [
-    "/" + "private/tmp",
+    "/" + "private" + "/" + "tmp",
     "/" + "var/folders",
     "/" + "tmp",
     "/" + ".tmp",
