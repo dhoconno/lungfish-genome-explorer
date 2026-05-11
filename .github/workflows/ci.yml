@@ -44,6 +44,11 @@ jobs:
       - name: Run smoke package tests
         run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishPluginTests\.PluginRegistryTests|LungfishUITests\.(DisplayModeRegressionTests|ReferenceFrameTests|SidebarItemTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
 
+      - name: Run release and fixture script tests
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: python3 -B -m unittest discover -s scripts/tests
+
   full:
     name: Full suite
     runs-on: macos-26
