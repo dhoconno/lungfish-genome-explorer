@@ -61,15 +61,16 @@ REQUIRED_TOP_LEVEL_FIELDS = [
     "wallTimeSeconds",
     "stderr",
 ]
-PROVENANCE_STALE_PATH_MARKERS = [
+STALE_SUBSTRING_MARKERS = [
     "." + "worktrees",
     "alignment" + "-tree-viewers",
-    "/" + "tmp/",
-    "/" + "private/tmp",
-    "/" + "var/folders/",
-    "/" + ".tmp/",
 ]
-PAYLOAD_STALE_PATH_MARKERS = PROVENANCE_STALE_PATH_MARKERS
+STALE_PATH_ROOTS = [
+    "/" + "private/tmp",
+    "/" + "var/folders",
+    "/" + "tmp",
+    "/" + ".tmp",
+]
 FORBIDDEN_TOP_LEVEL_FIELDS = [
     "historicalPayloadCheckout" + "Command",
     "reproducibleGitCheckout" + "Command",
@@ -214,8 +215,9 @@ def validate_fixture_sidecar(root, relative_fixture):
     for path, entry in files.items():
         if Path(path).is_absolute():
             errors.append(f"file path must be relative {path}: {sidecar_path}")
-        if any(marker in path for marker in PROVENANCE_STALE_PATH_MARKERS):
-            errors.append(f"stale path marker in file path {path}: {sidecar_path}")
+        marker = stale_path_marker(path)
+        if marker is not None:
+            errors.append(f"stale path marker {marker!r} in file path {path}: {sidecar_path}")
         if "fileSize" not in entry:
             errors.append(f"missing required field files[].fileSize for {path}: {sidecar_path}")
             recorded_size = entry.get("size")
@@ -322,10 +324,9 @@ def stale_string_errors(value, sidecar_path, trail=""):
         for index, child in enumerate(value):
             errors.extend(stale_string_errors(child, sidecar_path, f"{trail}[{index}]"))
     elif isinstance(value, str):
-        for marker in PROVENANCE_STALE_PATH_MARKERS:
-            if marker in value:
-                errors.append(f"stale path marker {marker!r} in {trail}: {sidecar_path}")
-                break
+        marker = stale_path_marker(value)
+        if marker is not None:
+            errors.append(f"stale path marker {marker!r} in {trail}: {sidecar_path}")
     return errors
 
 
@@ -478,8 +479,9 @@ def validate_referenced_file_entry(root, fixture_path, entry, sidecar_path, fiel
     if Path(path).is_absolute():
         errors.append(f"{context} {field_name}.path must be relative: {sidecar_path}")
         return errors
-    if any(marker in path for marker in PROVENANCE_STALE_PATH_MARKERS):
-        errors.append(f"stale path marker in {context} {field_name}.path {path}: {sidecar_path}")
+    marker = stale_path_marker(path)
+    if marker is not None:
+        errors.append(f"stale path marker {marker!r} in {context} {field_name}.path {path}: {sidecar_path}")
 
     candidate_paths = [fixture_path / path, root / path]
     actual_path = next((candidate for candidate in candidate_paths if candidate.is_file()), None)
@@ -525,11 +527,9 @@ def validate_retained_payload_text(root):
             if decoded is not None:
                 errors.extend(stale_payload_json_errors(decoded, path))
             for line_number, line in enumerate(text.splitlines(), start=1):
-                normalized_line = line.replace("\\/", "/")
-                for marker in PAYLOAD_STALE_PATH_MARKERS:
-                    if marker in line or marker in normalized_line:
-                        errors.append(f"stale path marker {marker!r} in payload {path}:{line_number}")
-                        break
+                marker = stale_path_marker(line)
+                if marker is not None:
+                    errors.append(f"stale path marker {marker!r} in payload {path}:{line_number}")
     return errors
 
 
@@ -543,12 +543,52 @@ def stale_payload_json_errors(value, path, trail=""):
         for index, child in enumerate(value):
             errors.extend(stale_payload_json_errors(child, path, f"{trail}[{index}]"))
     elif isinstance(value, str):
-        normalized_value = value.replace("\\/", "/")
-        for marker in PAYLOAD_STALE_PATH_MARKERS:
-            if marker in value or marker in normalized_value:
-                errors.append(f"stale path marker {marker!r} in payload {path} field {trail}")
-                break
+        marker = stale_path_marker(value)
+        if marker is not None:
+            errors.append(f"stale path marker {marker!r} in payload {path} field {trail}")
     return errors
+
+
+def stale_path_marker(value):
+    if not isinstance(value, str):
+        return None
+    normalized = value.replace("\\/", "/")
+    for marker in STALE_SUBSTRING_MARKERS:
+        if marker in normalized:
+            return marker
+    for root in STALE_PATH_ROOTS:
+        if contains_path_root_or_descendant(normalized, root):
+            return root
+    dot_tmp_root = "/" + ".tmp"
+    if dot_tmp_root in normalized and contains_dot_tmp_path_segment(normalized):
+        return dot_tmp_root
+    return None
+
+
+def contains_path_root_or_descendant(value, root):
+    start = value.find(root)
+    while start != -1:
+        end = start + len(root)
+        before = value[start - 1] if start > 0 else ""
+        after = value[end] if end < len(value) else ""
+        before_ok = start == 0 or before in {'"', "'", " ", "=", ":", "[", "(", ","}
+        after_ok = end == len(value) or after in {"/", '"', "'", " ", "\n", "\r", "\t", ")", "]", ",", "}"}
+        if before_ok and after_ok:
+            return True
+        start = value.find(root, start + 1)
+    return False
+
+
+def contains_dot_tmp_path_segment(value):
+    marker = "/" + ".tmp"
+    start = value.find(marker)
+    while start != -1:
+        end = start + len(marker)
+        after = value[end] if end < len(value) else ""
+        if end == len(value) or after in {"/", '"', "'", " ", "\n", "\r", "\t", ")", "]", ",", "}"}:
+            return True
+        start = value.find(marker, start + 1)
+    return False
 
 
 def is_binary_file(path):
