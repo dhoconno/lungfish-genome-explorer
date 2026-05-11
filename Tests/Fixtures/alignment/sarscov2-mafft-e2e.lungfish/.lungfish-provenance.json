@@ -1,7 +1,8 @@
 {
   "argv": [
-    "python3",
-    "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+    "sh",
+    "-c",
+    "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py && lungfish align mafft Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta --project Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish --output 'Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json"
   ],
   "createdAt": "2026-05-03T20:52:54Z",
   "exitStatus": 0,
@@ -104,10 +105,12 @@
   },
   "options": {
     "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
+    "mafftAlignmentOutput": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
     "outputDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "recordCount": 5,
     "sourceAccession": "MT192765.1",
-    "sourceFasta": "Tests/Fixtures/sarscov2/genome.fasta"
+    "sourceFasta": "Tests/Fixtures/sarscov2/genome.fasta",
+    "workflowKind": "composite-e2e-fixture"
   },
   "output": {
     "checksumSHA256": "51ddc3e3d28ed6316f4d32374ba2c1ffef27c99bf7916d4ee7ffb192b8e76287",
@@ -115,7 +118,7 @@
     "path": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
     "size": 5135656
   },
-  "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+  "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py && lungfish align mafft Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta --project Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish --output 'Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json",
   "runtimeIdentity": {
     "condaEnvironment": "base",
     "containerImage": null,
@@ -125,11 +128,72 @@
   },
   "schemaVersion": 1,
   "stderr": null,
-  "toolName": "create_sarscov2_alignment_fixture.py",
-  "toolVersion": "0.1.0",
+  "toolName": "create_sarscov2_alignment_fixture.py + lungfish align mafft",
+  "toolVersion": "0.1.0+0.1.0",
   "wallTimeSeconds": 0.059105750027811155,
   "warnings": [
     "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
   ],
-  "workflowName": "sars-cov-2-alignment-fixture-generation"
+  "workflowName": "sars-cov-2-alignment-e2e-fixture-generation",
+  "workflowSteps": [
+    {
+      "argv": [
+        "python3",
+        "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+      ],
+      "options": {
+        "outputDirectory": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+        "recordCount": 5,
+        "sourceFasta": "Tests/Fixtures/sarscov2/genome.fasta"
+      },
+      "output": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+      "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+      "stepName": "generate-sars-cov-2-input-fixture",
+      "toolName": "create_sarscov2_alignment_fixture.py",
+      "workflowName": "sars-cov-2-alignment-fixture-generation"
+    },
+    {
+      "argv": [
+        "lungfish",
+        "align",
+        "mafft",
+        "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+        "--project",
+        "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish",
+        "--output",
+        "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
+        "--name",
+        "sars-cov-2-genomes-mafft",
+        "--strategy",
+        "auto",
+        "--output-order",
+        "input",
+        "--sequence-type",
+        "auto",
+        "--adjust-direction",
+        "off",
+        "--symbols",
+        "strict",
+        "--threads",
+        "2",
+        "--format",
+        "json"
+      ],
+      "options": {
+        "adjustDirection": "off",
+        "format": "json",
+        "name": "sars-cov-2-genomes-mafft",
+        "outputOrder": "input",
+        "sequenceType": "auto",
+        "strategy": "auto",
+        "symbols": "strict",
+        "threads": 2
+      },
+      "output": "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa",
+      "reproducibleCommand": "lungfish align mafft Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta --project Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish --output 'Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' --name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json",
+      "stepName": "align-sars-cov-2-input-with-mafft",
+      "toolName": "lungfish align mafft",
+      "workflowName": "multiple-sequence-alignment-mafft"
+    }
+  ]
 }

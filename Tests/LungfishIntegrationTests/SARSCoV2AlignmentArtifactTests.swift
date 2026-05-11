@@ -21,14 +21,27 @@ final class SARSCoV2AlignmentArtifactTests: XCTestCase {
         XCTAssertTrue(metadataText.contains("deterministic synthetic derivative"))
 
         let fixtureProvenanceURL = projectURL.appendingPathComponent(".lungfish-provenance.json")
-        let fixtureProvenance = try String(contentsOf: fixtureProvenanceURL, encoding: .utf8)
+        let fixtureProvenanceData = try Data(contentsOf: fixtureProvenanceURL)
+        let fixtureProvenance = String(data: fixtureProvenanceData, encoding: .utf8)?
             .replacingOccurrences(of: "\\/", with: "/")
-        XCTAssertTrue(fixtureProvenance.contains(#""workflowName": "sars-cov-2-alignment-fixture-generation""#))
-        XCTAssertTrue(fixtureProvenance.contains(#""toolName": "create_sarscov2_alignment_fixture.py""#))
-        XCTAssertTrue(fixtureProvenance.contains("Inputs/sars-cov-2-genomes.fasta"))
-        XCTAssertFalse(fixtureProvenance.contains(#""/tmp/"#))
-        XCTAssertFalse(fixtureProvenance.contains("/private/tmp/"))
-        XCTAssertFalse(fixtureProvenance.contains("/var/folders/"))
+        let fixtureProvenanceJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixtureProvenanceData) as? [String: Any]
+        )
+        XCTAssertEqual(fixtureProvenanceJSON["workflowName"] as? String, "sars-cov-2-alignment-e2e-fixture-generation")
+        let fixtureToolName = try XCTUnwrap(fixtureProvenanceJSON["toolName"] as? String)
+        XCTAssertTrue(fixtureToolName.contains("create_sarscov2_alignment_fixture.py"))
+        XCTAssertTrue(fixtureToolName.contains("lungfish align mafft"))
+        let fixtureCommand = try XCTUnwrap(fixtureProvenanceJSON["reproducibleCommand"] as? String)
+        XCTAssertTrue(fixtureCommand.contains("create_sarscov2_alignment_fixture.py"))
+        XCTAssertTrue(fixtureCommand.contains("lungfish align mafft"))
+        let workflowSteps = try XCTUnwrap(fixtureProvenanceJSON["workflowSteps"] as? [[String: Any]])
+        let workflowStepTools = workflowSteps.compactMap { $0["toolName"] as? String }
+        XCTAssertTrue(workflowStepTools.contains("create_sarscov2_alignment_fixture.py"))
+        XCTAssertTrue(workflowStepTools.contains("lungfish align mafft"))
+        XCTAssertTrue(try XCTUnwrap(fixtureProvenance).contains("Inputs/sars-cov-2-genomes.fasta"))
+        XCTAssertFalse(try XCTUnwrap(fixtureProvenance).contains(#""/tmp/"#))
+        XCTAssertFalse(try XCTUnwrap(fixtureProvenance).contains("/private/tmp/"))
+        XCTAssertFalse(try XCTUnwrap(fixtureProvenance).contains("/var/folders/"))
 
         let bundle = try MultipleSequenceAlignmentBundle.load(from: mafftBundleURL)
         XCTAssertEqual(bundle.manifest.bundleKind, "multiple-sequence-alignment")
@@ -44,18 +57,23 @@ final class SARSCoV2AlignmentArtifactTests: XCTestCase {
         )
 
         let provenanceURL = mafftBundleURL.appendingPathComponent(".lungfish-provenance.json")
-        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        let provenanceData = try Data(contentsOf: provenanceURL)
+        let provenance = String(data: provenanceData, encoding: .utf8)?
             .replacingOccurrences(of: "\\/", with: "/")
-        XCTAssertTrue(provenance.contains(#""workflowName" : "multiple-sequence-alignment-mafft""#))
-        XCTAssertTrue(provenance.contains(#""toolName" : "lungfish align mafft""#))
-        XCTAssertTrue(provenance.contains(#""name" : "mafft""#))
-        XCTAssertTrue(provenance.contains("Inputs/sars-cov-2-genomes.fasta"))
-        XCTAssertTrue(provenance.contains("alignment/input.unaligned.fasta"))
-        XCTAssertTrue(provenance.contains("alignment/primary.aligned.fasta"))
-        XCTAssertTrue(provenance.contains("Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa"))
-        XCTAssertFalse(provenance.contains(#""/tmp/"#))
-        XCTAssertFalse(provenance.contains("/.tmp/"))
-        XCTAssertFalse(provenance.contains("/private/tmp/"))
-        XCTAssertFalse(provenance.contains("/var/folders/"))
+        let provenanceJSON = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: provenanceData) as? [String: Any]
+        )
+        XCTAssertEqual(provenanceJSON["workflowName"] as? String, "multiple-sequence-alignment-mafft")
+        XCTAssertEqual(provenanceJSON["toolName"] as? String, "lungfish align mafft")
+        let externalInvocations = try XCTUnwrap(provenanceJSON["externalToolInvocations"] as? [[String: Any]])
+        XCTAssertEqual(externalInvocations.first?["name"] as? String, "mafft")
+        XCTAssertTrue(try XCTUnwrap(provenance).contains("Inputs/sars-cov-2-genomes.fasta"))
+        XCTAssertTrue(try XCTUnwrap(provenance).contains("alignment/input.unaligned.fasta"))
+        XCTAssertTrue(try XCTUnwrap(provenance).contains("alignment/primary.aligned.fasta"))
+        XCTAssertTrue(try XCTUnwrap(provenance).contains("Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa"))
+        XCTAssertFalse(try XCTUnwrap(provenance).contains(#""/tmp/"#))
+        XCTAssertFalse(try XCTUnwrap(provenance).contains("/.tmp/"))
+        XCTAssertFalse(try XCTUnwrap(provenance).contains("/private/tmp/"))
+        XCTAssertFalse(try XCTUnwrap(provenance).contains("/var/folders/"))
     }
 }

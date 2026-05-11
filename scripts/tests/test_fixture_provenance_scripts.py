@@ -257,6 +257,34 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             self.assertIn("expected workflowName", result.stderr)
             self.assertIn("must preserve scientific workflow provenance", result.stderr)
 
+    def test_audit_fails_when_root_alignment_sidecar_omits_mafft_workflow_step(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            self._make_retained_fixtures(root)
+            fixture = root / "Tests" / "Fixtures" / "alignment" / "sarscov2-mafft-e2e.lungfish"
+            sidecar = fixture / ".lungfish-provenance.json"
+            provenance = json.loads(sidecar.read_text(encoding="utf-8"))
+            provenance["workflowName"] = "sars-cov-2-alignment-fixture-generation"
+            provenance["toolName"] = "create_sarscov2_alignment_fixture.py"
+            provenance["toolVersion"] = "0.1.0"
+            provenance["argv"] = ["python3", "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"]
+            provenance["reproducibleCommand"] = "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+            provenance.pop("workflowSteps", None)
+            sidecar.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expected workflowName", result.stderr)
+            self.assertIn("root alignment provenance must include both fixture generation and lungfish align mafft commands", result.stderr)
+            self.assertIn("missing root alignment composite workflowSteps", result.stderr)
+
     def test_audit_fails_when_nested_mafft_external_invocation_is_incomplete(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -482,6 +510,25 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             repaired = json.loads((invalid_fixture / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(repaired["output"]["path"], "Tests/Fixtures/analyses/esviritu-2026-01-15T10-00-00")
 
+            root_alignment = json.loads(
+                (
+                    root
+                    / "Tests"
+                    / "Fixtures"
+                    / "alignment"
+                    / "sarscov2-mafft-e2e.lungfish"
+                    / ".lungfish-provenance.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(root_alignment["workflowName"], "sars-cov-2-alignment-e2e-fixture-generation")
+            self.assertIn("create_sarscov2_alignment_fixture.py", root_alignment["toolName"])
+            self.assertIn("lungfish align mafft", root_alignment["toolName"])
+            self.assertIn("create_sarscov2_alignment_fixture.py", root_alignment["reproducibleCommand"])
+            self.assertIn("lungfish align mafft", root_alignment["reproducibleCommand"])
+            step_tools = [step["toolName"] for step in root_alignment["workflowSteps"]]
+            self.assertIn("create_sarscov2_alignment_fixture.py", step_tools)
+            self.assertIn("lungfish align mafft", step_tools)
+
             audit = subprocess.run(
                 ["/bin/bash", str(AUDIT_SCRIPT), str(root)],
                 text=True,
@@ -634,9 +681,18 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
             "stderr": None,
         }
         if relative_fixture == "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish":
-            record["workflowName"] = "sars-cov-2-alignment-fixture-generation"
-            record["toolName"] = "create_sarscov2_alignment_fixture.py"
-            record["toolVersion"] = "0.1.0"
+            generator_command = "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"
+            mafft_command = (
+                "lungfish align mafft Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta "
+                "--project Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish "
+                "--output 'Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa' "
+                "--name sars-cov-2-genomes-mafft --strategy auto --output-order input --sequence-type auto --adjust-direction off --symbols strict --threads 2 --format json"
+            )
+            record["workflowName"] = "sars-cov-2-alignment-e2e-fixture-generation"
+            record["toolName"] = "create_sarscov2_alignment_fixture.py + lungfish align mafft"
+            record["toolVersion"] = "0.1.0+0.1.0"
+            record["argv"] = ["sh", "-c", f"{generator_command} && {mafft_command}"]
+            record["reproducibleShellCommand"] = f"{generator_command} && {mafft_command}"
             record["warnings"] = [
                 "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
             ]
@@ -647,6 +703,25 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
                 "fileSize": len(input_data),
                 "checksumSHA256": hashlib.sha256(input_data).hexdigest(),
             }
+            record["workflowSteps"] = [
+                {
+                    "argv": ["python3", "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py"],
+                    "reproducibleCommand": generator_command,
+                    "toolName": "create_sarscov2_alignment_fixture.py",
+                    "workflowName": "sars-cov-2-alignment-fixture-generation",
+                },
+                {
+                    "argv": [
+                        "lungfish",
+                        "align",
+                        "mafft",
+                        "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Inputs/sars-cov-2-genomes.fasta",
+                    ],
+                    "reproducibleCommand": mafft_command,
+                    "toolName": "lungfish align mafft",
+                    "workflowName": "multiple-sequence-alignment-mafft",
+                },
+            ]
         elif relative_fixture.endswith(".lungfishmsa"):
             record["workflowName"] = "multiple-sequence-alignment-mafft"
             record["toolName"] = "lungfish align mafft"

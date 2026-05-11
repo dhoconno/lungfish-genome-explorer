@@ -18,6 +18,39 @@ from fixture_provenance import (
 )
 
 TOOL_VERSION = "0.4.0-alpha.12"
+ALIGNMENT_PROJECT_PATH = "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
+ALIGNMENT_INPUT_FASTA = f"{ALIGNMENT_PROJECT_PATH}/Inputs/sars-cov-2-genomes.fasta"
+ALIGNMENT_MSA_OUTPUT = f"{ALIGNMENT_PROJECT_PATH}/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa"
+FIXTURE_GENERATOR_ARGV = [
+    "python3",
+    "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+]
+MAFFT_ALIGNMENT_ARGV = [
+    "lungfish",
+    "align",
+    "mafft",
+    ALIGNMENT_INPUT_FASTA,
+    "--project",
+    ALIGNMENT_PROJECT_PATH,
+    "--output",
+    ALIGNMENT_MSA_OUTPUT,
+    "--name",
+    "sars-cov-2-genomes-mafft",
+    "--strategy",
+    "auto",
+    "--output-order",
+    "input",
+    "--sequence-type",
+    "auto",
+    "--adjust-direction",
+    "off",
+    "--symbols",
+    "strict",
+    "--threads",
+    "2",
+    "--format",
+    "json",
+]
 WARNING = (
     "This is a historical fixture backfill for repository provenance hygiene; "
     "it records the retained fixture payload and does not claim the original "
@@ -125,24 +158,26 @@ def build_alignment_root_record(root, relative_fixture):
     entries = file_entries(fixture_path)
     source_fasta = "Tests/Fixtures/sarscov2/genome.fasta"
     source_path = root / source_fasta
+    generator_command = shell_command(FIXTURE_GENERATOR_ARGV)
+    mafft_command = shell_command(MAFFT_ALIGNMENT_ARGV)
+    composite_command = f"{generator_command} && {mafft_command}"
     return {
-        "argv": [
-            "python3",
-            "Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
-        ],
+        "argv": ["sh", "-c", composite_command],
         "createdAt": "2026-05-03T20:52:54Z",
         "exitStatus": 0,
         "files": entries,
         "input": file_reference(source_path, source_fasta),
         "options": {
             "derivedRecordPolicy": "deterministic synthetic derivatives from the local source fixture",
+            "mafftAlignmentOutput": ALIGNMENT_MSA_OUTPUT,
             "outputDirectory": relative_fixture,
             "recordCount": 5,
             "sourceAccession": "MT192765.1",
             "sourceFasta": source_fasta,
+            "workflowKind": "composite-e2e-fixture",
         },
         "output": output_reference(relative_fixture, entries),
-        "reproducibleCommand": "python3 Tests/Fixtures/alignment/create_sarscov2_alignment_fixture.py",
+        "reproducibleCommand": composite_command,
         "runtimeIdentity": {
             "condaEnvironment": "base",
             "containerImage": None,
@@ -152,13 +187,46 @@ def build_alignment_root_record(root, relative_fixture):
         },
         "schemaVersion": 1,
         "stderr": None,
-        "toolName": "create_sarscov2_alignment_fixture.py",
-        "toolVersion": "0.1.0",
+        "toolName": "create_sarscov2_alignment_fixture.py + lungfish align mafft",
+        "toolVersion": "0.1.0+0.1.0",
         "wallTimeSeconds": 0.059105750027811155,
         "warnings": [
             "Records B-E are deterministic synthetic derivatives for end-to-end testing and are not biological observations."
         ],
-        "workflowName": "sars-cov-2-alignment-fixture-generation",
+        "workflowName": "sars-cov-2-alignment-e2e-fixture-generation",
+        "workflowSteps": [
+            {
+                "argv": FIXTURE_GENERATOR_ARGV,
+                "options": {
+                    "outputDirectory": relative_fixture,
+                    "recordCount": 5,
+                    "sourceFasta": source_fasta,
+                },
+                "output": f"{relative_fixture}/Inputs/sars-cov-2-genomes.fasta",
+                "reproducibleCommand": generator_command,
+                "stepName": "generate-sars-cov-2-input-fixture",
+                "toolName": "create_sarscov2_alignment_fixture.py",
+                "workflowName": "sars-cov-2-alignment-fixture-generation",
+            },
+            {
+                "argv": MAFFT_ALIGNMENT_ARGV,
+                "options": {
+                    "adjustDirection": "off",
+                    "format": "json",
+                    "name": "sars-cov-2-genomes-mafft",
+                    "outputOrder": "input",
+                    "sequenceType": "auto",
+                    "strategy": "auto",
+                    "symbols": "strict",
+                    "threads": 2,
+                },
+                "output": ALIGNMENT_MSA_OUTPUT,
+                "reproducibleCommand": mafft_command,
+                "stepName": "align-sars-cov-2-input-with-mafft",
+                "toolName": "lungfish align mafft",
+                "workflowName": "multiple-sequence-alignment-mafft",
+            },
+        ],
     }
 
 
@@ -166,37 +234,10 @@ def build_msa_record(root, relative_fixture):
     fixture_path = root / relative_fixture
     require_msa_payload_files(fixture_path)
     entries = file_entries(fixture_path)
-    project_path = "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish"
-    input_fasta = f"{project_path}/Inputs/sars-cov-2-genomes.fasta"
     output_path = relative_fixture
     source_original = "alignment/source.original"
     return {
-        "argv": [
-            "lungfish",
-            "align",
-            "mafft",
-            input_fasta,
-            "--project",
-            project_path,
-            "--output",
-            output_path,
-            "--name",
-            "sars-cov-2-genomes-mafft",
-            "--strategy",
-            "auto",
-            "--output-order",
-            "input",
-            "--sequence-type",
-            "auto",
-            "--adjust-direction",
-            "off",
-            "--symbols",
-            "strict",
-            "--threads",
-            "2",
-            "--format",
-            "json",
-        ],
+        "argv": MAFFT_ALIGNMENT_ARGV,
         "createdAt": "2026-05-03T20:53:06Z",
         "exitStatus": 0,
         "externalToolInvocations": [
@@ -223,7 +264,7 @@ def build_msa_record(root, relative_fixture):
         ],
         "files": entries,
         "input": file_reference(fixture_path / source_original, source_original),
-        "inputFiles": [file_reference(root / input_fasta, input_fasta)],
+        "inputFiles": [file_reference(root / ALIGNMENT_INPUT_FASTA, ALIGNMENT_INPUT_FASTA)],
         "options": {
             "gapAlphabet": ["-", "."],
             "name": "sars-cov-2-genomes-mafft",
@@ -233,32 +274,7 @@ def build_msa_record(root, relative_fixture):
             "writeViewState": True,
         },
         "output": output_reference(relative_fixture, entries),
-        "reproducibleCommand": shell_command([
-            "lungfish",
-            "align",
-            "mafft",
-            input_fasta,
-            "--project",
-            project_path,
-            "--output",
-            output_path,
-            "--name",
-            "sars-cov-2-genomes-mafft",
-            "--strategy",
-            "auto",
-            "--output-order",
-            "input",
-            "--sequence-type",
-            "auto",
-            "--adjust-direction",
-            "off",
-            "--symbols",
-            "strict",
-            "--threads",
-            "2",
-            "--format",
-            "json",
-        ]),
+        "reproducibleCommand": shell_command(MAFFT_ALIGNMENT_ARGV),
         "runtimeIdentity": {
             "condaEnvironment": "base",
             "executablePath": "lungfish-cli",

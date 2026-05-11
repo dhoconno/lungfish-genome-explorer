@@ -74,8 +74,8 @@ FORBIDDEN_TOP_LEVEL_FIELDS = [
 ]
 SCIENTIFIC_PROVENANCE_EXPECTATIONS = {
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish": {
-        "workflowName": "sars-cov-2-alignment-fixture-generation",
-        "toolName": "create_sarscov2_alignment_fixture.py",
+        "workflowName": "sars-cov-2-alignment-e2e-fixture-generation",
+        "toolName": "create_sarscov2_alignment_fixture.py + lungfish align mafft",
     },
     "Tests/Fixtures/alignment/sarscov2-mafft-e2e.lungfish/Multiple Sequence Alignments/sars-cov-2-genomes-mafft.lungfishmsa": {
         "workflowName": "multiple-sequence-alignment-mafft",
@@ -361,6 +361,7 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
         if not isinstance(record.get("options"), dict) or record["options"].get("name") != "sars-cov-2-genomes-mafft":
             errors.append(f"missing MAFFT options for nested alignment provenance: {sidecar_path}")
     else:
+        errors.extend(validate_root_alignment_composite_workflow(record, sidecar_path))
         input_record = record.get("input")
         if not isinstance(input_record, dict):
             errors.append(f"missing input object for root alignment provenance: {sidecar_path}")
@@ -380,6 +381,57 @@ def validate_fixture_specific_provenance(root, fixture_path, relative_fixture, r
         expected_warning = "deterministic synthetic derivatives"
         if not isinstance(warnings, list) or not any(expected_warning in str(warning) for warning in warnings):
             errors.append(f"missing deterministic derivative warning in root alignment provenance: {sidecar_path}")
+    return errors
+
+
+def validate_root_alignment_composite_workflow(record, sidecar_path):
+    errors = []
+    command = record.get("reproducibleCommand", record.get("reproducibleShellCommand"))
+    if not is_non_empty_string(command) or "create_sarscov2_alignment_fixture.py" not in command or "lungfish align mafft" not in command:
+        errors.append(f"root alignment provenance must include both fixture generation and lungfish align mafft commands: {sidecar_path}")
+    argv = record.get("argv")
+    if not isinstance(argv, list) or not any("create_sarscov2_alignment_fixture.py" in str(part) for part in argv) or not any("lungfish align mafft" in str(part) for part in argv):
+        errors.append(f"root alignment argv must include composite fixture generation and MAFFT commands: {sidecar_path}")
+
+    steps = record.get("workflowSteps")
+    if not isinstance(steps, list) or len(steps) < 2:
+        return [*errors, f"missing root alignment composite workflowSteps: {sidecar_path}"]
+
+    generator_step = find_workflow_step(steps, "create_sarscov2_alignment_fixture.py")
+    mafft_step = find_workflow_step(steps, "lungfish align mafft")
+    if generator_step is None:
+        errors.append(f"missing root alignment fixture generation workflow step: {sidecar_path}")
+    else:
+        errors.extend(validate_workflow_step(generator_step, "fixture generation", sidecar_path))
+    if mafft_step is None:
+        errors.append(f"missing root alignment composite MAFFT workflow step: {sidecar_path}")
+    else:
+        errors.extend(validate_workflow_step(mafft_step, "MAFFT alignment", sidecar_path))
+        step_command = mafft_step.get("reproducibleCommand", mafft_step.get("reproducibleShellCommand"))
+        if not is_non_empty_string(step_command) or "lungfish align mafft" not in step_command:
+            errors.append(f"root alignment MAFFT workflow step must include lungfish align mafft command: {sidecar_path}")
+    return errors
+
+
+def find_workflow_step(steps, tool_name):
+    for step in steps:
+        if isinstance(step, dict) and step.get("toolName") == tool_name:
+            return step
+    return None
+
+
+def validate_workflow_step(step, label, sidecar_path):
+    errors = []
+    if not is_non_empty_string(step.get("workflowName")):
+        errors.append(f"invalid root alignment {label} workflowName: {sidecar_path}")
+    if not is_non_empty_string(step.get("toolName")):
+        errors.append(f"invalid root alignment {label} toolName: {sidecar_path}")
+    argv = step.get("argv")
+    if not isinstance(argv, list) or not argv or not all(isinstance(argument, str) for argument in argv):
+        errors.append(f"invalid root alignment {label} argv: {sidecar_path}")
+    command = step.get("reproducibleCommand", step.get("reproducibleShellCommand"))
+    if not is_non_empty_string(command):
+        errors.append(f"invalid root alignment {label} reproducibleCommand: {sidecar_path}")
     return errors
 
 
