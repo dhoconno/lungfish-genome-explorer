@@ -46,6 +46,81 @@ final class WorkflowBuilderAppIntegrationTests: XCTestCase {
         XCTAssertNotNil(item.image)
     }
 
+    func testBuilderWorkflowLibraryLoadsProjectWorkflowsAndSelection() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let alphaURL = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "Alpha Workflow"), in: projectURL)
+        _ = try WorkflowLibraryStore.createWorkflow(WorkflowGraph(name: "Beta Workflow"), in: projectURL)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+        let library = try XCTUnwrap(controller.view.firstSubview(of: WorkflowLibraryView.self))
+
+        XCTAssertEqual(library.workflowNamesForTesting, ["Alpha Workflow", "Beta Workflow"])
+
+        library.testingSelectWorkflow(named: "Alpha Workflow")
+
+        XCTAssertEqual(controller.graph.name, "Alpha Workflow")
+        XCTAssertEqual(controller.workflowURL, alphaURL)
+    }
+
+    func testBuilderWorkflowLibraryCreatesDuplicatesAndDeletesWorkflows() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+
+        let createdURL = try controller.createWorkflowInLibraryForTesting(named: "QC Workflow")
+        XCTAssertEqual(controller.workflowURL, createdURL)
+        XCTAssertEqual(controller.graph.name, "QC Workflow")
+
+        let duplicatedURL = try controller.duplicateSelectedWorkflowInLibraryForTesting()
+        XCTAssertEqual(controller.workflowURL, duplicatedURL)
+        XCTAssertEqual(controller.graph.name, "QC Workflow Copy")
+
+        try controller.deleteSelectedWorkflowInLibraryForTesting()
+
+        XCTAssertNil(controller.workflowURL)
+        XCTAssertEqual(controller.graph.name, "New Workflow")
+        XCTAssertEqual(try WorkflowLibraryStore.listWorkflows(in: projectURL).map(\.name), ["QC Workflow"])
+    }
+
+    func testBuilderCreatingLibraryWorkflowPreservesDirtyCurrentGraph() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+        controller.graph = WorkflowGraph(name: "Dirty Workflow")
+        controller.canvasViewDidModifyGraph(WorkflowCanvasView())
+
+        _ = try controller.createWorkflowInLibraryForTesting(named: "Next Workflow")
+
+        XCTAssertEqual(try WorkflowLibraryStore.listWorkflows(in: projectURL).map(\.name), ["Dirty Workflow", "Next Workflow"])
+    }
+
+    func testBuilderDuplicateIncludesDirtyCurrentWorkflowEdits() throws {
+        let projectURL = try makeTemporaryDirectory().appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+
+        let controller = WorkflowBuilderViewController()
+        controller.loadViewIfNeeded()
+        controller.configureRunContext(projectURL: projectURL, preferredSampleURL: nil)
+        _ = try controller.createWorkflowInLibraryForTesting(named: "QC Workflow")
+        var edited = controller.graph
+        edited.name = "QC Workflow Edited"
+        controller.graph = edited
+        controller.canvasViewDidModifyGraph(WorkflowCanvasView())
+
+        let duplicateURL = try controller.duplicateSelectedWorkflowInLibraryForTesting()
+
+        XCTAssertEqual(try WorkflowLibraryStore.loadWorkflow(from: duplicateURL).name, "QC Workflow Edited Copy")
+    }
+
     func testWorkflowBundleSaveWritesGraphAndProvenanceDirectory() throws {
         let controller = WorkflowBuilderViewController()
         controller.loadViewIfNeeded()
