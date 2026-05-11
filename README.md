@@ -120,6 +120,10 @@ The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`
 
 The simplest way to install Lungfish Genome Explorer is to download the latest signed and notarized `.dmg` from the [Releases](../../releases) page, drag the app to Applications, and launch it. On first launch the welcome screen will offer to install the on-demand toolchain (Nextflow, Snakemake, BBTools, mappers, assemblers, classifiers) into `~/.lungfish`. Signed release builds can check for graphical app updates through **Lungfish Genome Explorer > Check for Updates...**.
 
+## User Manual
+
+Primitive documentation is now available on Read the Docs at [lungfish.readthedocs.io](https://lungfish.readthedocs.io/). The manual is early and incomplete, but it is now the canonical place for user-facing workflow documentation as it matures.
+
 ### Building from source
 
 ```bash
