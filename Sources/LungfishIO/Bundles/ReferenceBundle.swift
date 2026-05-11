@@ -154,9 +154,14 @@ public final class ReferenceBundle: Sendable {
     /// - Parameter name: Chromosome name (e.g., "chr1")
     /// - Returns: Chromosome information, or nil if not found
     public func chromosome(named name: String) -> ChromosomeInfo? {
-        manifest.genome?.chromosomes.first { chrom in
-            chrom.name == name || chrom.aliases.contains(name)
+        guard let chromosomes = manifest.genome?.chromosomes else { return nil }
+        if let exact = chromosomes.first(where: { $0.name == name || $0.aliases.contains(name) }) {
+            return exact
         }
+        guard let mappedName = mapVCFChromosomes([name], toBundleChromosomes: chromosomes)[name] else {
+            return nil
+        }
+        return chromosomes.first { $0.name == mappedName }
     }
 
     /// Returns the length of a chromosome.
@@ -191,6 +196,7 @@ public final class ReferenceBundle: Sendable {
         guard region.start >= 0 && region.end <= chromInfo.length else {
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
+        let fetchRegion = canonicalRegion(region, for: chromInfo)
 
         let genomeURL = url.appendingPathComponent(genome.path)
         let faiURL = url.appendingPathComponent(genome.indexPath)
@@ -201,16 +207,16 @@ public final class ReferenceBundle: Sendable {
 
             // Use bgzip-aware reader for random access to compressed files
             let reader = try await BgzipIndexedFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
-            let sequence = try await reader.fetch(region: region)
+            let sequence = try await reader.fetch(region: fetchRegion)
 
-            logger.debug("Fetched sequence (bgzip): \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            logger.debug("Fetched sequence (bgzip): \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) (\(sequence.count) bp)")
             return sequence
         } else {
             // Fall back to uncompressed indexed FASTA reader
             let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
-            let sequence = try await reader.fetch(region: region)
+            let sequence = try await reader.fetch(region: fetchRegion)
 
-            logger.debug("Fetched sequence: \(region.chromosome):\(region.start)-\(region.end) (\(sequence.count) bp)")
+            logger.debug("Fetched sequence: \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) (\(sequence.count) bp)")
             return sequence
         }
     }
@@ -242,6 +248,7 @@ public final class ReferenceBundle: Sendable {
             logger.error("fetchSequenceSync: Region out of bounds: end=\(region.end) > length=\(chromInfo.length)")
             throw ReferenceBundleError.regionOutOfBounds(region, chromInfo.length)
         }
+        let fetchRegion = canonicalRegion(region, for: chromInfo)
 
         let genomeURL = url.appendingPathComponent(genome.path)
         let faiURL = url.appendingPathComponent(genome.indexPath)
@@ -254,18 +261,23 @@ public final class ReferenceBundle: Sendable {
             // Use synchronous bgzip reader
             let reader = try SyncBgzipFASTAReader(url: genomeURL, faiURL: faiURL, gziURL: gziURL)
             logger.info("fetchSequenceSync: Reader created, calling fetchSync")
-            let sequence = try reader.fetchSync(region: region)
+            let sequence = try reader.fetchSync(region: fetchRegion)
 
-            logger.info("fetchSequenceSync: DONE (bgzip) \(region.chromosome):\(region.start)-\(region.end) -> \(sequence.count) bp")
+            logger.info("fetchSequenceSync: DONE (bgzip) \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) -> \(sequence.count) bp")
             return sequence
         } else {
             // Use the synchronous indexed FASTA reader for uncompressed files
             let reader = try IndexedFASTAReader(url: genomeURL, indexURL: faiURL)
-            let sequence = try reader.fetchSync(region: region)
+            let sequence = try reader.fetchSync(region: fetchRegion)
 
-            logger.info("fetchSequenceSync: DONE (uncompressed) \(region.chromosome):\(region.start)-\(region.end) -> \(sequence.count) bp")
+            logger.info("fetchSequenceSync: DONE (uncompressed) \(fetchRegion.chromosome):\(fetchRegion.start)-\(fetchRegion.end) -> \(sequence.count) bp")
             return sequence
         }
+    }
+
+    private func canonicalRegion(_ region: GenomicRegion, for chromosome: ChromosomeInfo) -> GenomicRegion {
+        guard region.chromosome != chromosome.name else { return region }
+        return GenomicRegion(chromosome: chromosome.name, start: region.start, end: region.end)
     }
 
     // MARK: - Annotation Access
@@ -426,14 +438,52 @@ public final class ReferenceBundle: Sendable {
         }
         let dbURL = url.appendingPathComponent(dbPath)
         let db = try AnnotationDatabase(url: dbURL)
-        let records = db.queryByRegion(
-            chromosome: region.chromosome,
-            start: region.start,
-            end: region.end,
-            limit: limit
-        )
-        logger.debug("getAnnotationsFromDatabase: \(trackId) returned \(records.count) annotations for \(region.description)")
+        let queryChromosomes = annotationQueryChromosomes(for: region.chromosome, database: db)
+        var records: [AnnotationDatabaseRecord] = []
+        var seenRowIDs = Set<Int64>()
+
+        for queryChromosome in queryChromosomes {
+            let remaining = limit - records.count
+            guard remaining > 0 else { break }
+
+            for record in db.queryByRegion(
+                chromosome: queryChromosome,
+                start: region.start,
+                end: region.end,
+                limit: remaining
+            ) where record.rowID.map({ seenRowIDs.insert($0).inserted }) ?? true {
+                records.append(record)
+            }
+        }
+
+        let queryChromosomeList = queryChromosomes.joined(separator: ",")
+        logger.debug("getAnnotationsFromDatabase: \(trackId) returned \(records.count) annotations for \(region.description) using \(queryChromosomeList, privacy: .public)")
         return records.map { $0.toAnnotation() }
+    }
+
+    private func annotationQueryChromosomes(
+        for requestedChromosome: String,
+        database: AnnotationDatabase
+    ) -> [String] {
+        var candidates: [String] = [requestedChromosome]
+
+        if let chromosome = chromosome(named: requestedChromosome) {
+            candidates.append(chromosome.name)
+            candidates.append(contentsOf: chromosome.aliases)
+
+            if let bundleChromosomes = manifest.genome?.chromosomes {
+                let databaseChromosomes = database.allChromosomes()
+                let mapping = mapVCFChromosomes(databaseChromosomes, toBundleChromosomes: bundleChromosomes)
+                candidates.append(contentsOf: mapping.compactMap { dbChromosome, bundleChromosome in
+                    bundleChromosome == chromosome.name ? dbChromosome : nil
+                })
+            }
+        }
+
+        let uniqueCandidates = Array(NSOrderedSet(array: candidates)) as? [String] ?? candidates
+        let availableChromosomes = Set(database.allChromosomes())
+        let availableCandidates = uniqueCandidates.filter { availableChromosomes.contains($0) }
+        return availableCandidates.isEmpty ? uniqueCandidates : availableCandidates
     }
 
     // MARK: - Signal Track Access

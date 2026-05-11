@@ -74,6 +74,6 @@ public struct DeaconScrubStep: RecipeStepExecutor {
                 tool: "deacon", step: Self.typeID, stderr: result.stderr)
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .deacon, arguments: args)
+        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .deacon, arguments: result.arguments)
     }
 }

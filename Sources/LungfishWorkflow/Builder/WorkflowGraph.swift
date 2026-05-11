@@ -89,6 +89,25 @@ public struct WorkflowGraph: Sendable, Codable, Identifiable {
         ensureAnchors()
     }
 
+    /// Returns a copy of this graph with a new graph identity.
+    ///
+    /// Node and connection identifiers are preserved so graph-level duplicate
+    /// workflows can still be diffed against their source definitions.
+    public func copying(id: UUID = UUID(), name: String? = nil) -> WorkflowGraph {
+        var copy = WorkflowGraph(
+            id: id,
+            name: name ?? self.name,
+            description: description,
+            version: version,
+            author: author
+        )
+        copy.nodes = nodes
+        copy.connections = connections
+        copy.modifiedAt = Date()
+        copy.ensureAnchors()
+        return copy
+    }
+
     public var sampleInput: WorkflowNode {
         nodes[Self.sampleInputAnchorID] ?? Self.makeSampleInputAnchor()
     }

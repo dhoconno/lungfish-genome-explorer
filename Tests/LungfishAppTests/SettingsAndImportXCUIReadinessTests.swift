@@ -9,10 +9,13 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(SettingsAccessibilityID.root, "settings-root")
         XCTAssertEqual(SettingsAccessibilityID.tab(.general), "settings-tab-general")
         XCTAssertEqual(SettingsAccessibilityID.tab(.storage), "settings-tab-storage")
+        XCTAssertEqual(SettingsAccessibilityID.tab(.advanced), "settings-tab-advanced")
         XCTAssertEqual(SettingsAccessibilityID.panel(.aiServices), "settings-panel-ai-services")
+        XCTAssertEqual(SettingsAccessibilityID.panel(.advanced), "settings-panel-advanced")
         XCTAssertEqual(SettingsAccessibilityID.storageChangeLocationButton, "settings-storage-change-location-button")
         XCTAssertEqual(SettingsAccessibilityID.aiOpenAIKeyField, "settings-ai-openai-key-field")
         XCTAssertEqual(SettingsAccessibilityID.aiClearKeysButton, "settings-ai-clear-keys-button")
+        XCTAssertEqual(SettingsAccessibilityID.experimentalFeaturesToggle, "settings-advanced-experimental-features-toggle")
     }
 
     func testImportCenterAccessibilityIdentifierCatalogIsStable() {
@@ -88,6 +91,24 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertTrue(source.contains("SettingsAccessibilityID.aiGeminiKeyField"))
         XCTAssertTrue(source.contains("cancelPendingSaves()"))
         XCTAssertTrue(source.contains("shouldApplyValidationResult(expectedKey: value, provider: provider)"))
+    }
+
+    func testAdvancedSettingsSourceAppliesStableXCUIIdentifiersAndExperimentalToggle() throws {
+        let settingsSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Settings/SettingsView.swift"),
+            encoding: .utf8
+        )
+        let advancedSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Settings/AdvancedSettingsTab.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(settingsSource.contains("AdvancedSettingsTab()"))
+        XCTAssertTrue(settingsSource.contains("SettingsAccessibilityID.panel(.advanced)"))
+        XCTAssertTrue(advancedSource.contains("SettingsAccessibilityID.experimentalFeaturesToggle"))
+        XCTAssertTrue(advancedSource.contains("settings.experimentalFeaturesEnabled"))
     }
 
     func testImportCenterSourceAppliesStableXCUIIdentifiers() throws {

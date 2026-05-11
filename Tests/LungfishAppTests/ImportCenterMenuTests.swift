@@ -64,7 +64,7 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testMainMenuKeyItemsExposeStableIdentifiers() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu()
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let appMenu = try XCTUnwrap(mainMenu.items.first?.submenu)
         let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
@@ -77,18 +77,18 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
-        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
     }
 
     func testToolsMenuPlacesWorkflowBuilderBeforePluginManager() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu()
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
 
         let workflowIndex = try XCTUnwrap(
-            toolsMenu.items.firstIndex(where: { $0.title == "Workflow Builder…" })
+            toolsMenu.items.firstIndex(where: { $0.title == "Workflow Builder (Experimental)…" })
         )
         let pluginIndex = try XCTUnwrap(
             toolsMenu.items.firstIndex(where: { $0.title == "Plugin Manager…" })
@@ -111,18 +111,27 @@ final class ImportCenterMenuTests: XCTestCase {
 
     func testToolsMenuExposesWorkflowBuilderItemWithStableIdentifier() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu()
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" }))
+        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" }))
 
         XCTAssertEqual(workflowBuilderItem.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
     }
 
+    func testToolsMenuHidesWorkflowBuilderWhenExperimentalFeaturesAreDisabled() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+
+        XCTAssertNil(toolsMenu.items.first(where: { $0.identifier?.rawValue == MainMenuAccessibilityID.workflowBuilder }))
+        XCTAssertNotNil(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" }))
+    }
+
     func testWorkflowBuilderMenuItemRoutesThroughToolsMenuActionProtocol() throws {
         let _ = NSApplication.shared
-        let mainMenu = MainMenu.createMainMenu()
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
-        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder…" }))
+        let workflowBuilderItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" }))
         let selector = NSSelectorFromString("showWorkflowBuilder:")
         let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
         let recorder = WorkflowBuilderMenuActionRecorder()

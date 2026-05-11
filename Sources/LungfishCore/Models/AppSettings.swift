@@ -17,6 +17,7 @@ public enum SettingsSection: String, Sendable {
     case rendering
     case aiServices
     case storage
+    case advanced
 }
 
 /// Scroll direction behavior for custom viewport interaction handling.
@@ -149,6 +150,11 @@ public final class AppSettings: Sendable {
     /// Which AI provider to use for the AI assistant.
     public var preferredAIProvider: String = "anthropic"
 
+    // MARK: - Advanced
+
+    /// Whether work-in-progress and experimental GUI features are shown.
+    public var experimentalFeaturesEnabled: Bool = AppSettings.defaultExperimentalFeaturesEnabled
+
     // MARK: - Storage
 
     /// Legacy UserDefaults key for the custom database storage path.
@@ -237,6 +243,14 @@ public final class AppSettings: Sendable {
 
     // MARK: - Defaults
 
+    public nonisolated static var defaultExperimentalFeaturesEnabled: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
     /// Default annotation type colors matching the hardcoded values in the viewer.
     public static let defaultAnnotationTypeColorHexes: [String: String] = [
         "gene": "#339933",
@@ -300,6 +314,8 @@ public final class AppSettings: Sendable {
         var anthropicModel: String
         var geminiModel: String
         var preferredAIProvider: String
+        // Advanced
+        var experimentalFeaturesEnabled: Bool
 
         init(
             defaultZoomWindow: Int,
@@ -326,7 +342,8 @@ public final class AppSettings: Sendable {
             openAIModel: String,
             anthropicModel: String,
             geminiModel: String,
-            preferredAIProvider: String
+            preferredAIProvider: String,
+            experimentalFeaturesEnabled: Bool
         ) {
             self.defaultZoomWindow = defaultZoomWindow
             self.maxUndoLevels = maxUndoLevels
@@ -353,6 +370,7 @@ public final class AppSettings: Sendable {
             self.anthropicModel = anthropicModel
             self.geminiModel = geminiModel
             self.preferredAIProvider = preferredAIProvider
+            self.experimentalFeaturesEnabled = experimentalFeaturesEnabled
         }
 
         init(from decoder: Decoder) throws {
@@ -396,6 +414,11 @@ public final class AppSettings: Sendable {
             anthropicModel = try container.decodeIfPresent(String.self, forKey: .anthropicModel) ?? "claude-sonnet-4-5-20250929"
             geminiModel = try container.decodeIfPresent(String.self, forKey: .geminiModel) ?? "gemini-2.5-flash"
             preferredAIProvider = try container.decodeIfPresent(String.self, forKey: .preferredAIProvider) ?? "anthropic"
+            // Advanced
+            experimentalFeaturesEnabled = try container.decodeIfPresent(
+                Bool.self,
+                forKey: .experimentalFeaturesEnabled
+            ) ?? AppSettings.defaultExperimentalFeaturesEnabled
         }
     }
 
@@ -460,7 +483,8 @@ public final class AppSettings: Sendable {
             openAIModel: openAIModel,
             anthropicModel: anthropicModel,
             geminiModel: geminiModel,
-            preferredAIProvider: preferredAIProvider
+            preferredAIProvider: preferredAIProvider,
+            experimentalFeaturesEnabled: experimentalFeaturesEnabled
         )
     }
 
@@ -490,6 +514,7 @@ public final class AppSettings: Sendable {
         anthropicModel = snapshot.anthropicModel
         geminiModel = snapshot.geminiModel
         preferredAIProvider = snapshot.preferredAIProvider
+        experimentalFeaturesEnabled = snapshot.experimentalFeaturesEnabled
     }
 
     /// Persists current settings to UserDefaults and posts change notifications.
@@ -575,6 +600,8 @@ public final class AppSettings: Sendable {
             preferredAIProvider = fresh.preferredAIProvider
         case .storage:
             resetManagedStorageState()
+        case .advanced:
+            experimentalFeaturesEnabled = fresh.experimentalFeaturesEnabled
         }
         settingsLogger.info("Section '\(section.rawValue)' reset to defaults")
     }

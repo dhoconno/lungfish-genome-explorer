@@ -66,6 +66,6 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
                 tool: "seqkit", step: Self.typeID, stderr: result.stderr ?? "")
         }
 
-        return StepOutput(r1: output, format: .single, tool: .seqkit, arguments: args)
+        return StepOutput(r1: output, format: .single, tool: .seqkit, arguments: result.arguments)
     }
 }

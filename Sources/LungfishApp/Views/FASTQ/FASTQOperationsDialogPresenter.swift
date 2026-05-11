@@ -9,13 +9,16 @@ struct FASTQOperationsDialogPresenter {
         initialCategory: FASTQOperationCategoryID,
         initialToolID: FASTQOperationToolID? = nil,
         projectURL: URL? = nil,
+        availableToolIDs: [FASTQOperationToolID]? = nil,
+        primaryActionTitle: String = "Run",
         onRun: ((FASTQOperationDialogState) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
         let state = FASTQOperationDialogState(
             initialCategory: initialCategory,
             selectedInputURLs: selectedInputURLs,
-            projectURL: projectURL
+            projectURL: projectURL,
+            availableToolIDs: availableToolIDs
         )
         if let initialToolID {
             state.selectTool(initialToolID)
@@ -32,6 +35,7 @@ struct FASTQOperationsDialogPresenter {
 
         let dialog = FASTQOperationDialog(
             state: state,
+            primaryActionTitle: primaryActionTitle,
             onCancel: {
                 window.endSheet(panel)
                 onCancel?()

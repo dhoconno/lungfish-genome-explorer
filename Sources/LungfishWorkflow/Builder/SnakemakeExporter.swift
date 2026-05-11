@@ -86,6 +86,10 @@ public struct SnakemakeExporter: Sendable {
             throw SnakemakeExportError.cycleDetected
         }
 
+        if let unsupported = orderedNodes.first(where: { $0.type.isBuilderNativeFASTQNode }) {
+            throw SnakemakeExportError.unsupportedNodeType(unsupported.type)
+        }
+
         var snakefile = ""
 
         // Add header

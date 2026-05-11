@@ -258,7 +258,19 @@ public final class WorkflowBuilderRunService {
             operationCenter: operationCenter,
             processRunner: processRunner
         )
-        return { graph, _, binding, runID, runDirectoryURL in
+        return { graph, workflowBundleURL, binding, runID, runDirectoryURL in
+            if graph.allNodes.contains(where: { $0.type == .fastqBundleInput }) {
+                return try await runNativeWorkflowBuilderGraph(
+                    graph: graph,
+                    workflowBundleURL: workflowBundleURL,
+                    binding: binding,
+                    runID: runID,
+                    runDirectoryURL: runDirectoryURL,
+                    operationCenter: operationCenter,
+                    processRunner: processRunner
+                )
+            }
+
             try validateDefaultGraphCanRun(graph)
 
             let generatedDirectory = runDirectoryURL.appendingPathComponent("generated", isDirectory: true)
@@ -280,6 +292,220 @@ public final class WorkflowBuilderRunService {
             )
             return GraphExecutionResult(bundleURL: result.bundleURL)
         }
+    }
+
+    private static func runNativeWorkflowBuilderGraph(
+        graph: WorkflowGraph,
+        workflowBundleURL: URL,
+        binding: WorkflowBuilderRunBinding,
+        runID: UUID,
+        runDirectoryURL: URL,
+        operationCenter: OperationCenter,
+        processRunner: LocalWorkflowCLIProcessRunning
+    ) async throws -> GraphExecutionResult {
+        let arguments = [
+            "workflow",
+            "builder-run",
+            "--workflow",
+            workflowBundleURL.standardizedFileURL.path,
+            "--project",
+            binding.project.path,
+            "--run-directory",
+            runDirectoryURL.standardizedFileURL.path,
+        ]
+        let command = (["lungfish-cli"] + arguments).map(shellEscapeForWorkflowBuilder).joined(separator: " ")
+        let operationID = operationCenter.start(
+            title: "Workflow Builder Runner",
+            detail: "Running native Workflow Builder graph",
+            operationType: .workflow,
+            targetBundleURL: workflowBundleURL,
+            cliCommand: command,
+            workflowRunID: runID
+        )
+        operationCenter.log(id: operationID, level: .info, message: command)
+
+        do {
+            let result = try await processRunner.runLungfishCLI(
+                arguments: arguments,
+                workingDirectory: runDirectoryURL
+            )
+            logNativeBuilderProcessOutput(result, operationID: operationID, operationCenter: operationCenter)
+            guard result.exitCode == 0 else {
+                let message = nativeBuilderFailureMessage(result)
+                operationCenter.fail(
+                    id: operationID,
+                    detail: message,
+                    errorMessage: "Workflow Builder runner failed",
+                    errorDetail: result.standardError
+                )
+                throw ExecutionError.nodeFailed(
+                    nodeID: nativeBuilderFailureNodeID(in: graph),
+                    message: message
+                )
+            }
+
+            let outputBundleURL = try nativeBuilderOutputBundleURL(
+                from: result,
+                runDirectoryURL: runDirectoryURL,
+                graph: graph
+            )
+            try verifyNativeBuilderOutputBundle(outputBundleURL, graph: graph)
+            operationCenter.complete(
+                id: operationID,
+                detail: "Workflow Builder runner completed. Output bundle: \(outputBundleURL.path)",
+                bundleURLs: [outputBundleURL]
+            )
+            return GraphExecutionResult(bundleURL: outputBundleURL)
+        } catch {
+            if operationCenter.items.first(where: { $0.id == operationID })?.state == .running {
+                operationCenter.fail(
+                    id: operationID,
+                    detail: errorMessage(forNativeBuilderError: error),
+                    errorMessage: "Workflow Builder runner failed",
+                    errorDetail: String(describing: error)
+                )
+            }
+            throw error
+        }
+    }
+
+    private static func nativeBuilderOutputBundleURL(
+        from result: LocalWorkflowCLIProcessResult,
+        runDirectoryURL: URL,
+        graph: WorkflowGraph
+    ) throws -> URL {
+        let prefix = "Output bundle:"
+        for line in result.standardOutput.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix(prefix) else { continue }
+            let path = trimmed
+                .dropFirst(prefix.count)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !path.isEmpty else { break }
+            let outputBundleURL = URL(fileURLWithPath: path).standardizedFileURL
+            try validateNativeBuilderOutputBundleLocation(
+                outputBundleURL,
+                runDirectoryURL: runDirectoryURL,
+                graph: graph
+            )
+            return outputBundleURL
+        }
+
+        let outputDirectory = runDirectoryURL.appendingPathComponent("outputs", isDirectory: true)
+        let candidates = ((try? FileManager.default.contentsOfDirectory(
+            at: outputDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )) ?? [])
+            .filter { url in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+                    && url.pathExtension.lowercased() == "lungfishfastq"
+            }
+            .sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+
+        guard candidates.count == 1 else {
+            throw ExecutionError.nodeFailed(
+                nodeID: nativeBuilderFailureNodeID(in: graph),
+                message: "Workflow Builder runner did not report a single output .lungfishfastq bundle."
+            )
+        }
+        return candidates[0].standardizedFileURL
+    }
+
+    private static func validateNativeBuilderOutputBundleLocation(
+        _ outputBundleURL: URL,
+        runDirectoryURL: URL,
+        graph: WorkflowGraph
+    ) throws {
+        let outputRootPath = runDirectoryURL
+            .appendingPathComponent("outputs", isDirectory: true)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let normalizedRootPath = outputRootPath.hasSuffix("/") ? outputRootPath : outputRootPath + "/"
+        let outputPath = outputBundleURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+
+        guard outputPath.hasPrefix(normalizedRootPath),
+              outputBundleURL.pathExtension.lowercased() == "lungfishfastq" else {
+            throw ExecutionError.nodeFailed(
+                nodeID: nativeBuilderFailureNodeID(in: graph),
+                message: "Workflow Builder runner reported an output outside the run outputs directory."
+            )
+        }
+    }
+
+    private static func verifyNativeBuilderOutputBundle(_ outputBundleURL: URL, graph: WorkflowGraph) throws {
+        let provenanceURL = outputBundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
+            throw ExecutionError.nodeFailed(
+                nodeID: nativeBuilderFailureNodeID(in: graph),
+                message: "Workflow Builder output bundle is missing \(ProvenanceRecorder.provenanceFilename)."
+            )
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        do {
+            let run = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+            guard run.status == .completed,
+                  run.steps.contains(where: { $0.toolName == "lungfish-cli workflow builder-run" }),
+                  run.allOutputFiles.contains(where: { samePath($0.path, outputBundleURL) || $0.path.hasPrefix(outputBundleURL.path + "/") }) else {
+                throw ExecutionError.nodeFailed(
+                    nodeID: nativeBuilderFailureNodeID(in: graph),
+                    message: "Workflow Builder output provenance is incomplete."
+                )
+            }
+        } catch let executionError as ExecutionError {
+            throw executionError
+        } catch {
+            throw ExecutionError.nodeFailed(
+                nodeID: nativeBuilderFailureNodeID(in: graph),
+                message: "Workflow Builder output provenance could not be decoded: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private static func samePath(_ recordedPath: String, _ expectedURL: URL) -> Bool {
+        URL(fileURLWithPath: recordedPath).standardizedFileURL.path == expectedURL.standardizedFileURL.path
+    }
+
+    private static func logNativeBuilderProcessOutput(
+        _ result: LocalWorkflowCLIProcessResult,
+        operationID: UUID,
+        operationCenter: OperationCenter
+    ) {
+        for line in result.standardOutput.components(separatedBy: .newlines) where !line.isEmpty {
+            operationCenter.log(id: operationID, level: .info, message: line)
+        }
+        for line in result.standardError.components(separatedBy: .newlines) where !line.isEmpty {
+            operationCenter.log(id: operationID, level: .error, message: line)
+        }
+    }
+
+    private static func nativeBuilderFailureMessage(_ result: LocalWorkflowCLIProcessResult) -> String {
+        let detail = result.standardError.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !detail.isEmpty {
+            return "Workflow Builder runner failed with exit code \(result.exitCode): \(detail)"
+        }
+        return "Workflow Builder runner failed with exit code \(result.exitCode)."
+    }
+
+    private static func errorMessage(forNativeBuilderError error: Error) -> String {
+        if case ExecutionError.nodeFailed(_, let message) = error {
+            return message
+        }
+        return error.localizedDescription
+    }
+
+    private static func nativeBuilderFailureNodeID(in graph: WorkflowGraph) -> UUID {
+        graph.allNodes.first { $0.type == .fastqBundleInput }?.id
+            ?? graph.allNodes.first?.id
+            ?? UUID()
     }
 
     private static func validateDefaultGraphCanRun(_ graph: WorkflowGraph) throws {

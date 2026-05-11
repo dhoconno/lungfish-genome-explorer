@@ -98,6 +98,10 @@ public struct NextflowExporter: Sendable {
             throw NextflowExportError.cycleDetected
         }
 
+        if let unsupported = orderedNodes.first(where: { $0.type.isBuilderNativeFASTQNode }) {
+            throw NextflowExportError.unsupportedNodeType(unsupported.type)
+        }
+
         var script = ""
 
         // Add header

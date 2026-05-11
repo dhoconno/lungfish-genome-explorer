@@ -367,6 +367,144 @@ final class WorkflowBuilderTests: XCTestCase {
         XCTAssertEqual(WorkflowNodeType.export.category, .output)
     }
 
+    func testFastqBundleInputNodeStoresProjectRelativeBundlePath() throws {
+        let node = WorkflowNode(
+            type: .fastqBundleInput,
+            label: "Input sample",
+            position: .zero,
+            parameters: ["bundle_path": "@/Imports/sample.lungfishfastq"]
+        )
+
+        XCTAssertEqual(node.type.displayName, "FASTQ Bundle Input")
+        XCTAssertEqual(node.outputPort(withId: "reads")?.dataType, .fastqBundle)
+        XCTAssertTrue(node.inputPorts.isEmpty)
+
+        let resolved = try node.resolvedParameters()
+        XCTAssertEqual(resolved["bundle_path"], .string("@/Imports/sample.lungfishfastq"))
+    }
+
+    func testVSP2NodeTypesExposeExpectedPortsAndDefaults() throws {
+        let expected: [(WorkflowNodeType, String, String, [String: ParameterValue])] = [
+            (.fastpDedup, "Remove PCR duplicates", "deduplicated", [:]),
+            (.fastpTrim, "Adapter + quality trim", "trimmed", [
+                "detectAdapter": .boolean(true),
+                "quality": .integer(15),
+                "window": .integer(5),
+                "cutMode": .string("right"),
+            ]),
+            (.deaconHumanScrub, "Remove human reads", "scrubbed", [
+                "database": .string("deacon-panhuman"),
+            ]),
+            (.fastpMerge, "Merge overlapping pairs", "merged", [
+                "minOverlap": .integer(15),
+            ]),
+            (.seqkitLengthFilter, "Remove short reads", "filtered", [
+                "minLength": .integer(50),
+            ]),
+        ]
+
+        for (type, label, outputPort, defaults) in expected {
+            let node = WorkflowNode(type: type, position: .zero)
+            XCTAssertEqual(node.label, label)
+            XCTAssertEqual(node.inputPort(withId: "reads")?.dataType, .fastqBundle)
+            XCTAssertEqual(node.outputPort(withId: outputPort)?.dataType, .fastqBundle)
+            XCTAssertEqual(try node.resolvedParameters(), defaults)
+        }
+
+        let lengthFilter = WorkflowNode(
+            type: .seqkitLengthFilter,
+            position: .zero,
+            parameters: ["maxLength": "250"]
+        )
+        XCTAssertEqual(try lengthFilter.resolvedParameters()["maxLength"], .integer(250))
+    }
+
+    func testExplicitInputValidationRejectsMissingBundlePath() {
+        var graph = WorkflowGraph(name: "Missing input")
+        _ = graph.addNode(type: .fastqBundleInput, position: .zero)
+
+        let issues = graph.validate()
+
+        XCTAssertTrue(issues.contains {
+            if case .missingNodeParameter(_, _, let parameter) = $0 {
+                return parameter == "bundle_path"
+            }
+            return false
+        })
+    }
+
+    func testVSP2TemplateCreatesExpandedConnectedGraph() throws {
+        let graph = try VSP2WorkflowTemplate.makeGraph(
+            inputBundleRelativePath: "@/Imports/sample.lungfishfastq"
+        )
+
+        let executableNodes = try graph.topologicalSort()
+        XCTAssertEqual(executableNodes.map(\.type), [
+            .fastqBundleInput,
+            .fastpDedup,
+            .fastpTrim,
+            .deaconHumanScrub,
+            .fastpMerge,
+            .seqkitLengthFilter,
+        ])
+        XCTAssertEqual(graph.connectionCount, 6)
+        XCTAssertEqual(
+            graph.allNodes.first { $0.type == .fastqBundleInput }?.parameters["bundle_path"],
+            "@/Imports/sample.lungfishfastq"
+        )
+    }
+
+    func testVSP2TemplateUsesRecipeDefaults() throws {
+        let graph = try VSP2WorkflowTemplate.makeGraph(
+            inputBundleRelativePath: "@/Imports/sample.lungfishfastq"
+        )
+
+        let trim = try XCTUnwrap(graph.allNodes.first { $0.type == .fastpTrim })
+        XCTAssertEqual(trim.parameters["detectAdapter"], "true")
+        XCTAssertEqual(trim.parameters["quality"], "15")
+        XCTAssertEqual(trim.parameters["window"], "5")
+        XCTAssertEqual(trim.parameters["cutMode"], "right")
+
+        let scrub = try XCTUnwrap(graph.allNodes.first { $0.type == .deaconHumanScrub })
+        XCTAssertEqual(scrub.parameters["database"], "deacon-panhuman")
+
+        let merge = try XCTUnwrap(graph.allNodes.first { $0.type == .fastpMerge })
+        XCTAssertEqual(merge.parameters["minOverlap"], "15")
+
+        let length = try XCTUnwrap(graph.allNodes.first { $0.type == .seqkitLengthFilter })
+        XCTAssertEqual(length.parameters["minLength"], "50")
+    }
+
+    func testVSP2TemplateLoadsBundledRecipeDirectly() throws {
+        let recipe = try VSP2WorkflowTemplate.bundledRecipe()
+
+        XCTAssertEqual(recipe.id, VSP2WorkflowTemplate.recipeID)
+        XCTAssertEqual(recipe.steps.map(\.type), [
+            "fastp-dedup",
+            "fastp-trim",
+            "deacon-scrub",
+            "fastp-merge",
+            "seqkit-length-filter",
+        ])
+    }
+
+    func testVSP2TemplateUsesStableNodeIdentifiers() throws {
+        let first = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/sample.lungfishfastq")
+        let second = try VSP2WorkflowTemplate.makeGraph(inputBundleRelativePath: "@/Imports/other.lungfishfastq")
+
+        let firstIDsByType = Dictionary(uniqueKeysWithValues: first.allNodes.map { ($0.type, $0.id) })
+        let secondIDsByType = Dictionary(uniqueKeysWithValues: second.allNodes.map { ($0.type, $0.id) })
+
+        XCTAssertEqual(firstIDsByType[.fastqBundleInput], UUID(uuidString: "00000000-0000-4000-8000-000000000501"))
+        XCTAssertEqual(firstIDsByType[.fastpDedup], UUID(uuidString: "00000000-0000-4000-8000-000000000502"))
+        XCTAssertEqual(firstIDsByType[.fastpTrim], UUID(uuidString: "00000000-0000-4000-8000-000000000503"))
+        XCTAssertEqual(firstIDsByType[.deaconHumanScrub], UUID(uuidString: "00000000-0000-4000-8000-000000000504"))
+        XCTAssertEqual(firstIDsByType[.fastpMerge], UUID(uuidString: "00000000-0000-4000-8000-000000000505"))
+        XCTAssertEqual(firstIDsByType[.seqkitLengthFilter], UUID(uuidString: "00000000-0000-4000-8000-000000000506"))
+        XCTAssertEqual(firstIDsByType[.projectOutput], WorkflowGraph.projectOutputAnchorID)
+        XCTAssertEqual(firstIDsByType, secondIDsByType)
+    }
+
     // MARK: - WorkflowConnection Tests
 
     func testConnectionValidation() {
@@ -760,6 +898,28 @@ final class WorkflowExporterTests: XCTestCase {
         XCTAssertTrue(snakefile.contains("CONDA_LOCKFILE = config.get(\"conda_lockfile\", \"locks/read-mapping-lock.yml\")"))
     }
 
+    func testNextflowExporterRejectsBuilderNativeFASTQNodes() throws {
+        for nodeType in Self.builderNativeFASTQNodeTypes {
+            let graph = try makeGraphContainingBuilderNativeNode(nodeType)
+            XCTAssertThrowsError(try NextflowExporter().export(graph: graph), "Expected Nextflow to reject \(nodeType)") { error in
+                guard case NextflowExportError.unsupportedNodeType(nodeType) = error else {
+                    return XCTFail("Expected unsupported \(nodeType) error, got \(error)")
+                }
+            }
+        }
+    }
+
+    func testSnakemakeExporterRejectsBuilderNativeFASTQNodes() throws {
+        for nodeType in Self.builderNativeFASTQNodeTypes {
+            let graph = try makeGraphContainingBuilderNativeNode(nodeType)
+            XCTAssertThrowsError(try SnakemakeExporter().export(graph: graph), "Expected Snakemake to reject \(nodeType)") { error in
+                guard case SnakemakeExportError.unsupportedNodeType(nodeType) = error else {
+                    return XCTFail("Expected unsupported \(nodeType) error, got \(error)")
+                }
+            }
+        }
+    }
+
     func testExportWithCycleError() {
         // Can't easily create a cycle since addConnection validates,
         // but we can test that the exporter handles validation errors
@@ -773,5 +933,39 @@ final class WorkflowExporterTests: XCTestCase {
                 XCTFail("Expected invalidGraph error")
             }
         }
+    }
+
+    private static let builderNativeFASTQNodeTypes: [WorkflowNodeType] = [
+        .fastqBundleInput,
+        .fastpDedup,
+        .fastpTrim,
+        .deaconHumanScrub,
+        .fastpMerge,
+        .seqkitLengthFilter,
+    ]
+
+    private func makeGraphContainingBuilderNativeNode(_ nodeType: WorkflowNodeType) throws -> WorkflowGraph {
+        if nodeType == .fastqBundleInput {
+            return try makeGraphForExporterRejection(inputType: .fastqBundleInput, stepType: .qualityControl)
+        }
+        return try makeGraphForExporterRejection(inputType: .fastqInput, stepType: nodeType)
+    }
+
+    private func makeGraphForExporterRejection(inputType: WorkflowNodeType, stepType: WorkflowNodeType) throws -> WorkflowGraph {
+        var graph = WorkflowGraph(name: "Builder-native graph")
+        let inputParameters = inputType == .fastqBundleInput
+            ? ["bundle_path": "@/Imports/sample.lungfishfastq"]
+            : [:]
+        let inputNode = WorkflowNode(type: inputType, position: .zero, parameters: inputParameters)
+        let stepNode = WorkflowNode(type: stepType, position: CGPoint(x: 200, y: 0))
+        try graph.addNode(inputNode)
+        try graph.addNode(stepNode)
+        try graph.addConnection(
+            sourceNodeId: inputNode.id,
+            sourcePortId: "reads",
+            targetNodeId: stepNode.id,
+            targetPortId: "reads"
+        )
+        return graph
     }
 }

@@ -126,6 +126,16 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(chr1?.name, "chr1")
     }
 
+    func testChromosomeLookupByVersionedAccessionFallsBackToUnversionedName() async throws {
+        let bundleURL = try createSingleSequenceBundle(sequenceName: "MN908947")
+        let bundle = try await ReferenceBundle(url: bundleURL)
+
+        let chromosome = bundle.chromosome(named: "MN908947.3")
+
+        XCTAssertNotNil(chromosome)
+        XCTAssertEqual(chromosome?.name, "MN908947")
+    }
+
     func testChromosomeLookupNotFound() async throws {
         let bundleURL = try createValidTestBundle()
         let bundle = try await ReferenceBundle(url: bundleURL)
@@ -290,7 +300,120 @@ final class ReferenceBundleTests: XCTestCase {
         XCTAssertEqual(region.description, "chr1:1000-2000")
     }
 
+    func testFetchSequenceSyncUsesCanonicalFASTANameForVersionedAccession() async throws {
+        let bundleURL = try createSingleSequenceBundle(sequenceName: "MN908947")
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "MN908947.3", start: 2, end: 6)
+
+        let sequence = try bundle.fetchSequenceSync(region: region)
+
+        XCTAssertEqual(sequence, "GTAC")
+    }
+
+    func testGetAnnotationsSyncUsesVersionedDatabaseChromosomeForUnversionedReference() async throws {
+        let bundleURL = try createSingleSequenceBundle(
+            sequenceName: "MN908947",
+            annotationChromosome: "MN908947.3"
+        )
+        let bundle = try await ReferenceBundle(url: bundleURL)
+        let region = GenomicRegion(chromosome: "MN908947", start: 0, end: 8)
+
+        let annotations = try bundle.getAnnotationsSync(trackId: "genes", region: region)
+
+        XCTAssertEqual(annotations.map(\.name), ["geneA"])
+        XCTAssertEqual(annotations.first?.chromosome, "MN908947.3")
+    }
+
     // MARK: - Helper Methods
+
+    private func createSingleSequenceBundle(
+        sequenceName: String,
+        annotationChromosome: String? = nil
+    ) throws -> URL {
+        let bundleURL = tempDirectory.appendingPathComponent("\(sequenceName).lungfishref")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let genomeDir = bundleURL.appendingPathComponent("genome")
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+        let annotationsDir = bundleURL.appendingPathComponent("annotations")
+        try FileManager.default.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
+
+        let fastaContent = """
+        >\(sequenceName)
+        ACGTACGT
+        """
+        let fastaURL = genomeDir.appendingPathComponent("sequence.fa")
+        try fastaContent.write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let headerByteCount = sequenceName.utf8.count + 2
+        let indexContent = "\(sequenceName)\t8\t\(headerByteCount)\t8\t9\n"
+        let indexURL = genomeDir.appendingPathComponent("sequence.fa.fai")
+        try indexContent.write(to: indexURL, atomically: true, encoding: .utf8)
+
+        var annotationTracks: [AnnotationTrackInfo] = []
+        if let annotationChromosome {
+            let bedURL = tempDirectory.appendingPathComponent("\(sequenceName)-annotations.bed")
+            let bedLine = [
+                annotationChromosome,
+                "2",
+                "6",
+                "geneA",
+                "0",
+                "+",
+                "2",
+                "6",
+                "0,0,0",
+                "1",
+                "4,",
+                "0,",
+                "gene",
+                "gene=geneA",
+            ].joined(separator: "\t")
+            try bedLine.write(to: bedURL, atomically: true, encoding: .utf8)
+
+            let dbURL = annotationsDir.appendingPathComponent("genes.db")
+            _ = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+            annotationTracks = [
+                AnnotationTrackInfo(
+                    id: "genes",
+                    name: "Genes",
+                    path: "annotations/genes.bb",
+                    databasePath: "annotations/genes.db",
+                    featureCount: 1
+                ),
+            ]
+        }
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Single Sequence",
+            identifier: "test.single",
+            source: SourceInfo(
+                organism: "Test organism",
+                assembly: sequenceName,
+                database: "Test"
+            ),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 8,
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: sequenceName,
+                        length: 8,
+                        offset: Int64(headerByteCount),
+                        lineBases: 8,
+                        lineWidth: 9
+                    )
+                ]
+            ),
+            annotations: annotationTracks
+        )
+
+        try manifest.save(to: bundleURL)
+
+        return bundleURL
+    }
 
     private func createValidTestBundle() throws -> URL {
         let bundleURL = tempDirectory.appendingPathComponent("test.lungfishref")

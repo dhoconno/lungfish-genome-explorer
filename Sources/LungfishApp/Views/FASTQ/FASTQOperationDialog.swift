@@ -2,8 +2,21 @@ import SwiftUI
 
 struct FASTQOperationDialog: View {
     @Bindable var state: FASTQOperationDialogState
+    let primaryActionTitle: String
     let onCancel: () -> Void
     let onRun: () -> Void
+
+    init(
+        state: FASTQOperationDialogState,
+        primaryActionTitle: String = "Run",
+        onCancel: @escaping () -> Void,
+        onRun: @escaping () -> Void
+    ) {
+        self.state = state
+        self.primaryActionTitle = primaryActionTitle
+        self.onCancel = onCancel
+        self.onRun = onRun
+    }
 
     var body: some View {
         DatasetOperationsDialog(
@@ -14,6 +27,7 @@ struct FASTQOperationDialog: View {
             selectedToolID: state.selectedToolID.rawValue,
             statusText: statusText,
             isRunEnabled: state.isRunEnabled,
+            primaryActionTitle: primaryActionTitle,
             accessibilityNamespace: accessibilityNamespace(),
             onSelectTool: selectTool(named:),
             onCancel: onCancel,

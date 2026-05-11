@@ -15,6 +15,7 @@ enum SettingsNavigationTab: Hashable {
     case rendering
     case storage
     case aiServices
+    case advanced
 }
 
 @MainActor

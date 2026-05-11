@@ -67,6 +67,55 @@ enum BundleBuildHelpers {
         return chromosomes
     }
 
+    static func addSingleSequenceAccessionAliases(
+        to chromosomes: [ChromosomeInfo],
+        accessions: [String]
+    ) -> [ChromosomeInfo] {
+        guard chromosomes.count == 1, let chromosome = chromosomes.first else {
+            return chromosomes
+        }
+
+        let candidates = Set(accessions.flatMap(accessionAliasCandidates))
+        let aliases = Array(Set(chromosome.aliases)
+            .union(candidates)
+            .filter { !$0.isEmpty && $0 != chromosome.name })
+            .sorted()
+
+        return [
+            ChromosomeInfo(
+                name: chromosome.name,
+                length: chromosome.length,
+                offset: chromosome.offset,
+                lineBases: chromosome.lineBases,
+                lineWidth: chromosome.lineWidth,
+                aliases: aliases,
+                isPrimary: chromosome.isPrimary,
+                isMitochondrial: chromosome.isMitochondrial,
+                fastaDescription: chromosome.fastaDescription
+            ),
+        ]
+    }
+
+    private static func accessionAliasCandidates(_ accession: String) -> [String] {
+        let trimmed = accession.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        var candidates = Set([trimmed])
+        let unversioned = stripTrailingNumericVersion(from: trimmed)
+        if unversioned != trimmed {
+            candidates.insert(unversioned)
+        }
+
+        return Array(candidates)
+    }
+
+    private static func stripTrailingNumericVersion(from accession: String) -> String {
+        guard let dotIndex = accession.lastIndex(of: ".") else { return accession }
+        let suffix = accession[accession.index(after: dotIndex)...]
+        guard !suffix.isEmpty, suffix.allSatisfy(\.isWholeNumber) else { return accession }
+        return String(accession[..<dotIndex])
+    }
+
     static func writeChromSizes(_ chromosomes: [ChromosomeInfo], to url: URL) throws {
         let lines = chromosomes.map { "\($0.name)\t\($0.length)" }
         try lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)

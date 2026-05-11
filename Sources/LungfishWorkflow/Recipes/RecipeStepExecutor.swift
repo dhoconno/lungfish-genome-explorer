@@ -59,7 +59,7 @@ public struct StepOutput: Sendable {
     public let readCount: Int?
     /// The native tool that was invoked to produce this output (nil for internal operations).
     public let tool: NativeTool?
-    /// The full argument array passed to the tool.
+    /// The reproducible argv used for the tool, including the executable path when available.
     public let arguments: [String]?
 
     public init(r1: URL, r2: URL? = nil, r3: URL? = nil,

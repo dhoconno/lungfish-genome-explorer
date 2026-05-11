@@ -98,7 +98,17 @@ public final class GenBankBundleDownloadViewModel: @unchecked Sendable {
         let faiURL = compressedFASTA.appendingPathExtension("fai")
         let gziURL = compressedFASTA.appendingPathExtension("gzi")
 
-        let chromosomes = try BundleBuildHelpers.parseFai(at: faiURL)
+        let chromosomes = BundleBuildHelpers.addSingleSequenceAccessionAliases(
+            to: try BundleBuildHelpers.parseFai(at: faiURL),
+            accessions: [
+                accession,
+                resolvedAccession,
+                record.accession,
+                record.version,
+                record.locus.name,
+                record.sequence.name,
+            ].compactMap { $0 }
+        )
         let totalLength = chromosomes.reduce(Int64(0)) { $0 + $1.length }
 
         // Build chromosome sizes for annotation coordinate clipping

@@ -20,6 +20,16 @@ public struct NativeToolResult: Sendable {
     
     /// Standard error from the process.
     public let stderr: String
+
+    /// Exact argv used to launch the process, including the executable path as argv[0].
+    public let arguments: [String]
+
+    public init(exitCode: Int32, stdout: String, stderr: String, arguments: [String] = []) {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+        self.arguments = arguments
+    }
     
     /// Whether the command succeeded (exit code 0).
     public var isSuccess: Bool { exitCode == 0 }
@@ -814,7 +824,8 @@ public actor NativeToolRunner {
                 let result = NativeToolResult(
                     exitCode: process.terminationStatus,
                     stdout: stdout,
-                    stderr: stderr
+                    stderr: stderr,
+                    arguments: [executableURL.path] + arguments
                 )
 
                 if result.isSuccess {
@@ -964,7 +975,8 @@ public actor NativeToolRunner {
                 let result = NativeToolResult(
                     exitCode: process.terminationStatus,
                     stdout: "",
-                    stderr: stderr
+                    stderr: stderr,
+                    arguments: [toolPath.path] + arguments
                 )
 
                 if result.isSuccess {

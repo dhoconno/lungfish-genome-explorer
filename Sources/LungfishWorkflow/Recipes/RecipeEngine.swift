@@ -275,18 +275,15 @@ public final class RecipeEngine: Sendable {
                 } else {
                     toolVersion = nil
                 }
-                let commandLine: String?
-                if let args = currentOutput.arguments, let execName = currentOutput.tool?.executableName {
-                    commandLine = execName + " " + args.joined(separator: " ")
-                } else {
-                    commandLine = nil
-                }
+                let commandArguments = currentOutput.arguments
+                let commandLine = commandArguments?.map(shellEscapeForRecipeCommand).joined(separator: " ")
 
                 stepRecords.append(RecipeStepResult(
                     stepName: stepLabel,
                     tool: toolName,
                     toolVersion: toolVersion,
                     commandLine: commandLine,
+                    commandArguments: commandArguments,
                     inputReadCount: previousReadCount,
                     outputReadCount: currentOutput.readCount,
                     durationSeconds: stepDuration
@@ -378,7 +375,7 @@ public final class RecipeEngine: Sendable {
                 tool: "fastp", step: "fused-fastp(\(label))", stderr: result.stderr)
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .fastp, arguments: args)
+        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .fastp, arguments: result.arguments)
     }
 
     /// Performs a format conversion between two compatible ``RecipeFileFormat`` values.
@@ -439,7 +436,7 @@ public final class RecipeEngine: Sendable {
                 stderr: result.stderr)
         }
 
-        return StepOutput(r1: output, format: .interleaved, tool: .reformat, arguments: args)
+        return StepOutput(r1: output, format: .interleaved, tool: .reformat, arguments: result.arguments)
     }
 
     /// reformat.sh: interleaved → paired R1/R2
@@ -473,7 +470,7 @@ public final class RecipeEngine: Sendable {
                 stderr: result.stderr)
         }
 
-        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .reformat, arguments: args)
+        return StepOutput(r1: outR1, r2: outR2, format: .pairedR1R2, tool: .reformat, arguments: result.arguments)
     }
 
     /// Concatenates merged.fq.gz + unmerged_R1.fq.gz + unmerged_R2.fq.gz → single.fq.gz.
@@ -518,6 +515,15 @@ public final class RecipeEngine: Sendable {
             homeDirectory: FileManager.default.homeDirectoryForCurrentUser,
             existingPath: existingPath
         )
+    }
+
+    private func shellEscapeForRecipeCommand(_ value: String) -> String {
+        if value.isEmpty { return "''" }
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-")
+        if value.unicodeScalars.allSatisfy({ safe.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     // MARK: - Input requirement check

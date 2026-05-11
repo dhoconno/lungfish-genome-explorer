@@ -31,6 +31,7 @@ enum SettingsAccessibilityID {
     static let aiClearKeysButton = "settings-ai-clear-keys-button"
     static let aiRestoreDefaultsButton = "settings-ai-restore-defaults-button"
     static let aiErrorMessage = "settings-ai-error-message"
+    static let experimentalFeaturesToggle = "settings-advanced-experimental-features-toggle"
 
     static func tab(_ tab: SettingsNavigationTab) -> String {
         switch tab {
@@ -44,6 +45,8 @@ enum SettingsAccessibilityID {
             "settings-tab-storage"
         case .aiServices:
             "settings-tab-ai-services"
+        case .advanced:
+            "settings-tab-advanced"
         }
     }
 
@@ -59,8 +62,14 @@ enum SettingsAccessibilityID {
             "settings-panel-storage"
         case .aiServices:
             "settings-panel-ai-services"
+        case .advanced:
+            "settings-panel-advanced"
         }
     }
+}
+
+enum WorkflowBuilderAccessibilityID {
+    static let experimentalBanner = "workflow-builder-experimental-banner"
 }
 
 enum ImportCenterAccessibilityID {

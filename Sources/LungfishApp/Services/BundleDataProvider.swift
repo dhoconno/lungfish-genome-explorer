@@ -94,7 +94,14 @@ public final class BundleDataProvider {
     /// - Parameter name: Chromosome name (e.g., "chr1")
     /// - Returns: The chromosome info, or `nil` if not found
     public func chromosomeInfo(named name: String) -> ChromosomeInfo? {
-        manifest.genome?.chromosomes.first { $0.name == name || $0.aliases.contains(name) }
+        guard let chromosomes = manifest.genome?.chromosomes else { return nil }
+        if let exact = chromosomes.first(where: { $0.name == name || $0.aliases.contains(name) }) {
+            return exact
+        }
+        guard let mappedName = mapVCFChromosomes([name], toBundleChromosomes: chromosomes)[name] else {
+            return nil
+        }
+        return chromosomes.first { $0.name == mappedName }
     }
 
     /// Fetches sequence bases for a genomic region.

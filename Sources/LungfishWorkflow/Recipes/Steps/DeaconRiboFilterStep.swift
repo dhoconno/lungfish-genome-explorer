@@ -110,7 +110,7 @@ public struct DeaconRiboFilterStep: RecipeStepExecutor {
             r2: outR2,
             format: .pairedR1R2,
             tool: .deacon,
-            arguments: args
+            arguments: result.arguments
         )
     }
 }
