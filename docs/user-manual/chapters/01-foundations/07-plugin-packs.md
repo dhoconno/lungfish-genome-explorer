@@ -9,12 +9,13 @@ tags: [foundations, plugin-pack, installation]
 tools: []
 entry_points:
   - "Tools > Plugin Manager (Cmd-Shift-B)"
-shots: []
-planned_shots:
+shots:
   - id: plugin-manager-window
-    caption: "The Plugin Manager window listing available and installed packs."
-  - id: plugin-manager-installed
-    caption: "Plugin Manager after read-mapping and variant-calling install, showing both packs marked installed."
+    file: ../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-window.png
+    caption: "The Plugin Manager window on the Packs tab, showing the Required Setup section with every Third-Party Tools entry ready, the Read Mapping pack with all three mappers ready, and the Variant Calling pack with three of four callers ready (Clair3 needs install)."
+  - id: plugin-manager-databases-tab
+    file: ../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-databases-tab.png
+    caption: "The Plugin Manager window on the Databases tab, showing Kraken2 databases (some installed, others available to download), the EsViritu Viral DB, and the NCBI Taxonomy. Each row reports size, RAM requirement, install date, version, and whether an update is available."
 illustrations: []
 glossary_refs: [plugin-pack]
 features_refs: []
@@ -119,14 +120,26 @@ wired into the GUI for that workflow.
 
 The Plugin Manager is the recommended way to install and update packs.
 Open it from the menu bar at **Tools > Plugin Manager**, or with
-`Cmd-Shift-B`. The window lists every available pack with a status badge:
-**not installed**, **installed**, or **update available**.
+`Cmd-Shift-B`. The window has three tabs across the top: **Installed**
+(every tool LGE currently knows about), **Packs** (the themed groups of
+tools available to install), and **Databases** (the reference databases
+that classification and other workflows depend on).
 
-<!-- planned: plugin-manager-window -->
+<!-- SHOT: plugin-manager-window -->
+![The Plugin Manager on the Packs tab. The Required Setup section at the top shows every Third-Party Tool with a green Ready badge. Below it, optional packs (Read Mapping, Variant Calling) list each tool inside the pack and its individual status. Most tools here are Ready; Clair3 inside Variant Calling shows Needs install.](../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-window.png)
 
-Click **Install** next to a pack to start. Progress streams into the
-window as LGE downloads the tools and sets them up. When the badge flips
-to **installed**, you are done. You do not need to restart LGE; the next
+Each pack expands to show the tools inside it, and each tool carries one
+of these status labels: **Ready** (installed and working), **Needs
+install** (not installed yet), **Needs reinstall** (installed but the
+integrity check failed and re-running install will repair it), or
+**Storage unavailable** (the external SSD or shared root the install
+lives on is not currently mounted). When every tool in a pack is Ready,
+the pack as a whole is ready to use.
+
+Click **Install** next to a pack (or **Install All** when the pack has
+several missing tools) to start. Progress streams into the window as LGE
+downloads the tools and sets them up. When every tool in the pack flips
+to **Ready**, you are done. You do not need to restart LGE; the next
 workflow operation that asks for one of the pack's tools will find it.
 
 To install several packs, click **Install** for each one. The packs are
@@ -136,31 +149,38 @@ each other.
 ### Worked example: install read-mapping and variant-calling
 
 Most variant-calling workflows in this manual need two packs together. In
-the Plugin Manager, click **Install** next to `read-mapping`, then
-**Install** next to `variant-calling`. The first install on a fresh
-machine takes 1 to 3 minutes depending on your network because LGE also
-sets up its managed tool runner the first time. The second install is
-faster because the runner is already in place.
+the Plugin Manager, on the **Packs** tab, click **Install** next to
+`Read Mapping`, then **Install All** next to `Variant Calling`. The first
+install on a fresh machine takes 1 to 3 minutes depending on your network
+because LGE also sets up its managed tool runner the first time. The
+second install is faster because the runner is already in place.
 
-To verify, look at the Plugin Manager and confirm both packs show the
-**installed** badge. Re-clicking **Install** on a pack that is already
-installed performs an integrity check: LGE re-verifies the installed pack
-and reports it is current. This is the recommended way to confirm an
-install is intact after an interruption (closing the lid mid-install, a
-network drop, an unexpected reboot).
-
-<!-- planned: plugin-manager-installed -->
+To verify, look at the Plugin Manager and confirm every tool in both
+packs shows the green **Ready** badge. Re-clicking **Install** on a pack
+that is already installed performs an integrity check: LGE re-verifies
+the installed tools and reports they are current. This is the recommended
+way to confirm an install is intact after an interruption (closing the
+lid mid-install, a network drop, an unexpected reboot).
 
 ### Check database versions and update state
 
 Reference databases are tracked separately from the tool packs. The
-**Databases** tab in the Plugin Manager lists each installed database's
-install date, current version, and whether LGE knows of a newer version.
-An **Update Available** badge means the catalog version is newer than the
-installed version. **Up to Date** means your local copy matches the
-current catalog. From the same tab you can install a database, update it,
-or remove it; LGE handles the storage location, the download, and the
-integrity check.
+**Databases** tab in the Plugin Manager lists every available database,
+grouped by the tool that consumes it (Kraken2, EsViritu, and so on),
+with each row showing the database's size, RAM requirement, install
+state (or **Download** action if not installed), install date, version,
+and whether the local copy is **Up to date**.
+
+<!-- SHOT: plugin-manager-databases-tab -->
+![The Plugin Manager on the Databases tab. Kraken2 databases are listed first; the EuPathDB46, MinusB, PlusPF, PlusPF-16, PlusPF-8, Standard, and Standard-8 databases show a Download button (not installed), while Standard-16 and Viral show the green Installed badge with a Remove action. A "Recommended for your system" banner at the top suggests the Standard database for a 48 GB Mac. The EsViritu Viral DB and NCBI Taxonomy are installed at the bottom.](../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-databases-tab.png)
+
+A "Recommended for your system" banner at the top of the Databases tab
+suggests the database that best fits the RAM available on your Mac.
+Databases whose RAM requirement exceeds your system show "(exceeds
+system RAM)" inline so you can avoid trying to load them. From the same
+tab you can download a new database, update an existing one, or remove
+one to reclaim disk; LGE handles the storage location, the download, and
+the integrity check.
 
 ## Interpretation
 
@@ -183,8 +203,9 @@ pack and re-run the operation. The original input files and project state
 are untouched; nothing was partially written.
 
 If you see this error on a machine where you believe the pack is
-installed, open the Plugin Manager and confirm the pack shows the
-**installed** badge. If it does not, click **Install** and let LGE repair
+installed, open the Plugin Manager and confirm every tool in the pack
+shows **Ready**. If any tool shows **Needs install** or **Needs
+reinstall**, click **Install** (or **Install All**) and let LGE repair
 the state in place. For deeper failures (network blocks, locked package
 caches, an interrupted earlier install), see the
 [Plugin packs and conda environments](../appendices/troubleshooting.md#plugin-packs-and-conda-environments)
