@@ -197,16 +197,17 @@ public actor ProvenanceRecorder {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let url = directory.appendingPathComponent(Self.provenanceFilename)
-        try data.write(to: url, options: .atomic)
-        if let signingProvider {
-            _ = try signingProvider.sign(provenanceURL: url)
-        }
-        logger.info("Provenance: saved run \(runID) to \(url.path)")
+        let envelope = run.canonicalEnvelope()
+        let url = try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: directory)
+        logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
+    }
+
+    /// Loads a canonical provenance envelope from a directory's sidecar file.
+    ///
+    /// - Parameter directory: Directory containing `.lungfish-provenance.json`
+    /// - Returns: The decoded canonical envelope, or nil if no readable sidecar exists
+    public static func loadEnvelope(from directory: URL) -> ProvenanceEnvelope? {
+        try? ProvenanceEnvelopeReader.load(from: directory)
     }
 
     /// Loads a provenance record from a directory's sidecar file.
@@ -214,11 +215,7 @@ public actor ProvenanceRecorder {
     /// - Parameter directory: Directory containing `.lungfish-provenance.json`
     /// - Returns: The decoded workflow run, or nil if no sidecar exists
     public static func load(from directory: URL) -> WorkflowRun? {
-        let url = directory.appendingPathComponent(provenanceFilename)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(WorkflowRun.self, from: data)
+        loadEnvelope(from: directory)?.legacyWorkflowRun()
     }
 
     /// Searches for a provenance record by walking up from a file path.

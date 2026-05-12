@@ -216,6 +216,133 @@ struct ProvenancePersistenceTests {
         #expect(loaded?.steps[0].inputs[0].sha256 == "abc123")
     }
 
+    @Test("Recorder save writes canonical envelope while legacy load still works")
+    func testRecorderSaveWritesCanonicalEnvelopeAndLegacyLoadStillWorks() async throws {
+        let recorder = ProvenanceRecorder()
+        let runID = await recorder.beginRun(name: "Canonical Recorder")
+        await recorder.recordStep(
+            runID: runID,
+            toolName: "seqkit",
+            toolVersion: "2.10.0",
+            command: ["seqkit", "seq", "reads.fastq"],
+            inputs: [FileRecord(path: "reads.fastq", sha256: String(repeating: "a", count: 64), sizeBytes: 20, format: .fastq)],
+            outputs: [FileRecord(path: "out.fastq", sha256: String(repeating: "b", count: 64), sizeBytes: 12, format: .fastq, role: .output)],
+            exitCode: 0,
+            wallTime: 0.25
+        )
+        await recorder.completeRun(runID, status: .completed)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("recorder-canonical-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try await recorder.save(runID: runID, to: directory)
+
+        let provenanceFile = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let data = try Data(contentsOf: provenanceFile)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["schemaVersion"] as? Int == 1)
+        #expect(json["workflowName"] as? String == "Canonical Recorder")
+        #expect(json["runtimeIdentity"] is [String: Any])
+        #expect(json["runtime"] == nil)
+
+        let envelope = try #require(try ProvenanceEnvelopeReader.load(from: directory))
+        #expect(envelope.schemaVersion == 1)
+        #expect(envelope.workflowName == "Canonical Recorder")
+        #expect(envelope.toolName == "seqkit")
+        #expect(envelope.output?.checksumSHA256 == String(repeating: "b", count: 64))
+
+        let legacy = ProvenanceRecorder.load(from: directory)
+        #expect(legacy?.name == "Canonical Recorder")
+        #expect(legacy?.steps.first?.toolName == "seqkit")
+    }
+
+    @Test("Recorder loadEnvelope reads canonical sidecar")
+    func testRecorderLoadEnvelopeReadsCanonicalSidecar() async throws {
+        let recorder = ProvenanceRecorder()
+        let runID = await recorder.beginRun(name: "Load Envelope")
+        await recorder.completeRun(runID, status: .completed)
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("provenance-load-envelope-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try await recorder.save(runID: runID, to: tempDir)
+
+        let envelope = try #require(ProvenanceRecorder.loadEnvelope(from: tempDir))
+        #expect(envelope.id == runID)
+        #expect(envelope.workflowName == "Load Envelope")
+    }
+
+    @Test("Recorder load returns legacy workflow run from canonical sidecar")
+    func testRecorderLoadReturnsLegacyWorkflowRunFromCanonicalSidecar() throws {
+        let legacy = WorkflowRun(
+            name: "Canonical Load Compatibility",
+            startTime: Date(timeIntervalSince1970: 100),
+            endTime: Date(timeIntervalSince1970: 104),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: "samtools",
+                    toolVersion: "1.21",
+                    command: ["samtools", "sort", "input.bam", "-o", "sorted.bam"],
+                    inputs: [FileRecord(path: "input.bam", sha256: "abc123", sizeBytes: 1000, format: .bam)],
+                    outputs: [FileRecord(path: "sorted.bam", sha256: "def456", sizeBytes: 900, format: .bam, role: .output)],
+                    exitCode: 0,
+                    wallTime: 4.0
+                )
+            ],
+            parameters: ["threads": .integer(4)]
+        )
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("provenance-load-canonical-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try ProvenanceWriter(signingProvider: nil).write(legacy.canonicalEnvelope(), to: tempDir)
+
+        let loaded = try #require(ProvenanceRecorder.load(from: tempDir))
+        #expect(loaded.id == legacy.id)
+        #expect(loaded.name == "Canonical Load Compatibility")
+        #expect(loaded.status == .completed)
+        #expect(loaded.runtime.user == WorkflowRun.currentUser)
+        #expect(loaded.steps.count == 1)
+        #expect(loaded.steps[0].toolName == "samtools")
+        #expect(loaded.steps[0].outputs[0].path == "sorted.bam")
+        #expect(loaded.parameters["threads"] == .integer(4))
+    }
+
+    @Test("Recorder load still returns workflow run from legacy sidecar")
+    func testRecorderLoadStillReturnsWorkflowRunFromLegacySidecar() throws {
+        let legacy = WorkflowRun(
+            name: "Legacy Load Compatibility",
+            startTime: Date(timeIntervalSince1970: 200),
+            endTime: Date(timeIntervalSince1970: 201),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: "legacy-tool",
+                    toolVersion: "1.0",
+                    command: ["legacy-tool"],
+                    inputs: [],
+                    outputs: [FileRecord(path: "legacy.out", role: .output)],
+                    exitCode: 0,
+                    wallTime: 1.0
+                )
+            ]
+        )
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("provenance-load-legacy-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let provenanceFile = tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(legacy).write(to: provenanceFile, options: .atomic)
+
+        let loaded = try #require(ProvenanceRecorder.load(from: tempDir))
+        #expect(loaded.id == legacy.id)
+        #expect(loaded.name == "Legacy Load Compatibility")
+        #expect(loaded.steps.first?.toolName == "legacy-tool")
+    }
+
     @Test("Saved provenance JSON includes runtime user")
     func testSavedJSONIncludesRuntimeUser() async throws {
         let recorder = ProvenanceRecorder()
@@ -232,9 +359,10 @@ struct ProvenancePersistenceTests {
         let provenanceFile = tempDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         let data = try Data(contentsOf: provenanceFile)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        let runtime = json?["runtime"] as? [String: Any]
+        let runtimeIdentity = json?["runtimeIdentity"] as? [String: Any]
 
-        #expect(runtime?["user"] as? String == WorkflowRun.currentUser)
+        #expect(runtimeIdentity?["user"] as? String == WorkflowRun.currentUser)
+        #expect(json?["runtime"] == nil)
     }
 
     @Test("Existing provenance JSON without runtime user still decodes")
