@@ -193,6 +193,103 @@ final class MappingProvenanceTests: XCTestCase {
         XCTAssertEqual(readGroup["pu"] as? String, "sample")
     }
 
+    func testRecorderFindsLegacyMappingProvenanceForSelectedAnalysisBundle() throws {
+        let inputFASTQ = try writeFASTQ(
+            name: "reads.fastq",
+            header: "@read",
+            sequenceLength: 50
+        )
+        let referenceFASTA = try writeText(
+            name: "reference.fa",
+            contents: ">chr1\nACGTACGT\n"
+        )
+        let viewerBundle = tempDir.appendingPathComponent("viewer.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: viewerBundle, withIntermediateDirectories: true)
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [inputFASTQ],
+            referenceFASTAURL: referenceFASTA,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 4
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            viewerBundleURL: viewerBundle,
+            bamURL: tempDir.appendingPathComponent("sample.sorted.bam"),
+            baiURL: tempDir.appendingPathComponent("sample.sorted.bam.bai"),
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 1.0,
+            contigs: []
+        )
+        try Data("bam".utf8).write(to: result.bamURL)
+        try Data("bai".utf8).write(to: result.baiURL)
+
+        let mapperCommand = try MappingProvenance.mapperInvocation(for: request)
+        let normalizationInvocations = MappingProvenance.normalizationInvocations(
+            rawAlignmentURL: tempDir.appendingPathComponent("sample.raw.sam"),
+            outputDirectory: tempDir,
+            sampleName: request.sampleName,
+            threads: request.threads,
+            minimumMappingQuality: request.minimumMappingQuality,
+            includeSecondary: request.includeSecondary,
+            includeSupplementary: request.includeSupplementary
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: mapperCommand,
+            normalizationInvocations: normalizationInvocations,
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            outputFiles: [
+                ProvenanceRecorder.fileRecord(url: result.bamURL, format: .bam, role: .output),
+                ProvenanceRecorder.fileRecord(url: result.baiURL, role: .index),
+                ProvenanceRecorder.fileRecord(url: viewerBundle, role: .output)
+            ],
+            exitStatus: 0
+        )
+        try provenance.save(to: tempDir)
+
+        let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: tempDir)
+
+        XCTAssertEqual(resolved?.sidecarURL.lastPathComponent, MappingProvenance.filename)
+        XCTAssertEqual(resolved?.envelope.workflowName, "lungfish map")
+        XCTAssertEqual(resolved?.envelope.toolName, "minimap2")
+        XCTAssertTrue(resolved?.envelope.outputs.contains { $0.path == result.bamURL.path } == true)
+
+        let resolvedViewerBundle = ProvenanceRecorder.findProvenanceEnvelope(for: viewerBundle)
+
+        XCTAssertEqual(resolvedViewerBundle?.sidecarURL.lastPathComponent, MappingProvenance.filename)
+        XCTAssertTrue(resolvedViewerBundle?.envelope.outputs.contains { $0.path == viewerBundle.path } == true)
+
+        let exporter = ProvenanceExporter(signingProvider: nil)
+        for format in ProvenanceExportFormat.allCases {
+            let exportDirectory = tempDir.appendingPathComponent("export-\(format.cliToken)", isDirectory: true)
+            let bundle = try exporter.exportBundle(
+                try XCTUnwrap(resolved?.envelope),
+                format: format,
+                to: exportDirectory,
+                sourceSidecarURL: resolved?.sidecarURL,
+                sourceRootURL: tempDir,
+                exportArgv: [
+                    "lungfish", "provenance", "export",
+                    tempDir.path,
+                    "--export-format", format.cliToken,
+                    "--output", exportDirectory.path,
+                ]
+            )
+            XCTAssertTrue(FileManager.default.fileExists(atPath: bundle.primaryArtifactURL.path), format.cliToken)
+            XCTAssertTrue(bundle.copiedSidecarURLs.contains { $0.lastPathComponent == MappingProvenance.filename }, format.cliToken)
+        }
+    }
+
     func testLoadReturnsNilWhenSidecarMissing() {
         XCTAssertNil(MappingProvenance.load(from: tempDir))
     }

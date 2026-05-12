@@ -183,12 +183,22 @@ struct ConvertCommand: AsyncParsableCommand {
                 "includeAnnotations": .boolean(includeAnnotations),
                 "force": .boolean(force),
                 "sequenceCount": .integer(sequences.count),
-                "annotationCount": .integer(includeAnnotations ? annotations.count : 0),
-                "resolvedDefaults": .dictionary([
-                    "toFormat": .string("fasta"),
-                    "includeAnnotations": .boolean(false),
-                    "force": .boolean(false)
-                ])
+                "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
+            ],
+            defaults: [
+                "toFormat": .string("fasta"),
+                "includeAnnotations": .boolean(false),
+                "force": .boolean(false)
+            ],
+            resolved: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "inputFormat": .string(ext),
+                "toFormat": .string(toFormat),
+                "includeAnnotations": .boolean(includeAnnotations),
+                "force": .boolean(force),
+                "sequenceCount": .integer(sequences.count),
+                "annotationCount": .integer(includeAnnotations ? annotations.count : 0)
             ],
             toolName: "lungfish convert",
             toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",

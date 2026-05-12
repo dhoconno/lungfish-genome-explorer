@@ -53,11 +53,14 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         outputMode: OutputMode
     ) throws -> ProvenanceEnvelope {
-        let sourceProvenanceURL = sourceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        guard FileManager.default.isReadableFile(atPath: sourceProvenanceURL.path),
-              let sourceEnvelope = try ProvenanceEnvelopeReader.load(from: sourceDirectory) else {
+        guard let loadedSource = try loadSourceProvenance(
+            sourceDirectory: sourceDirectory,
+            pathMap: pathMap
+        ) else {
             throw ProvenanceRehydrationError.missingSourceProvenance(sourceDirectory.path)
         }
+        let sourceProvenanceURL = loadedSource.url
+        let sourceEnvelope = loadedSource.envelope
         let selectedProjection = outputMode == .selectedOnly
             ? selectedProjection(for: sourceEnvelope.steps, pathMap: pathMap)
             : nil
@@ -117,6 +120,96 @@ public enum ProvenanceRehydrator {
     private enum OutputMode {
         case strict
         case selectedOnly
+    }
+
+    private static func loadSourceProvenance(
+        sourceDirectory: URL,
+        pathMap: [String: String]
+    ) throws -> (url: URL, envelope: ProvenanceEnvelope)? {
+        var candidateURLs: [URL] = []
+        for sourcePath in pathMap.keys {
+            let sourceURL = URL(fileURLWithPath: sourcePath)
+            candidateURLs.append(ProvenanceRecorder.fileSidecarURL(for: sourceURL))
+            if let bundleSidecarURL = ProvenanceWriter.bundleOutputSidecarURL(
+                for: sourceURL,
+                inBundle: sourceDirectory
+            ) {
+                candidateURLs.append(bundleSidecarURL)
+            }
+        }
+        candidateURLs.append(sourceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        candidateURLs.append(
+            sourceDirectory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+        )
+
+        var decodedCandidates: [(url: URL, envelope: ProvenanceEnvelope)] = []
+        var seen = Set<String>()
+        for candidateURL in candidateURLs where seen.insert(candidateURL.standardizedFileURL.path).inserted {
+            guard FileManager.default.isReadableFile(atPath: candidateURL.path),
+                  let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidateURL) else {
+                continue
+            }
+            decodedCandidates.append((candidateURL, envelope))
+        }
+
+        try appendDecodedSidecars(
+            under: sourceDirectory,
+            seen: &seen,
+            decodedCandidates: &decodedCandidates
+        )
+        try appendDecodedSidecars(
+            under: sourceDirectory.appendingPathComponent(
+                ProvenanceWriter.bundleProvenanceDirectoryName,
+                isDirectory: true
+            ),
+            seen: &seen,
+            decodedCandidates: &decodedCandidates
+        )
+
+        let mappedSourcePaths = Set(pathMap.keys)
+        if mappedSourcePaths.isEmpty {
+            return decodedCandidates.first
+        }
+        for candidate in decodedCandidates where provenanceOutputPaths(candidate.envelope).isDisjoint(with: mappedSourcePaths) == false {
+            return candidate
+        }
+
+        return nil
+    }
+
+    private static func appendDecodedSidecars(
+        under directory: URL,
+        seen: inout Set<String>,
+        decodedCandidates: inout [(url: URL, envelope: ProvenanceEnvelope)]
+    ) throws {
+        guard FileManager.default.fileExists(atPath: directory.path),
+              let enumerator = FileManager.default.enumerator(
+                at: directory,
+                includingPropertiesForKeys: [.isRegularFileKey]
+              ) else {
+            return
+        }
+
+        for case let candidateURL as URL in enumerator
+            where candidateURL.lastPathComponent.hasSuffix(".lungfish-provenance.json") {
+            let values = try candidateURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values.isRegularFile == true,
+                  seen.insert(candidateURL.standardizedFileURL.path).inserted,
+                  let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidateURL) else {
+                continue
+            }
+            decodedCandidates.append((candidateURL, envelope))
+        }
+    }
+
+    private static func provenanceOutputPaths(_ envelope: ProvenanceEnvelope) -> Set<String> {
+        Set(
+            (envelope.output.map { [$0.path] } ?? [])
+                + envelope.outputs.map(\.path)
+                + envelope.steps.flatMap { $0.outputs.map(\.path) }
+        )
     }
 
     private struct SelectedProjection {

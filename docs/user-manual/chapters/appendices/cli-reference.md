@@ -366,15 +366,32 @@ Reads Lungfish provenance from a bundle or output directory, preferring the root
 lungfish provenance bibliography MN908947.3.lungfishref
 ```
 
-`lungfish provenance verify <file-or-bundle> [--signature <path>] [--public-key <path>]`
+`lungfish provenance export <input> --format shell|nextflow|snakemake|methods|json --output <dir>`
 
-Verifies a signed provenance sidecar. By default Lungfish expects
-`<sidecar>.signature.json` and `<sidecar>.pub` beside the sidecar. Verification
-fails if the sidecar, signature, or public key is missing, if the provenance
-digest changed after signing, or if the public key does not match the
-signature artifact.
+Exports a reproducibility bundle from a provenance sidecar, Lungfish bundle, or
+output directory. Shell, Nextflow, and Snakemake exports include runnable command
+material when the recorded provenance has enough argv detail. Methods and JSON
+exports produce audit-ready reports. Export bundles copy the source provenance
+artifacts, write provenance for the export operation itself, and sign report
+artifacts when signing is configured.
 
-Runnable workflow exports are generated from the app's workflow export surface. There is not currently a `lungfish provenance show` command; inspect the sidecar or bundle provenance roll-up directly, or use the bibliography subcommand above when you need citations.
+```bash
+lungfish provenance export MN908947.3.lungfishref \
+  --format methods \
+  --output provenance-methods
+```
+
+`lungfish provenance verify <file-or-bundle-or-report> [--signature <path>] [--public-key <path>]`
+
+Verifies a signed provenance sidecar or signed export report such as
+`methods.md`. By default Lungfish expects `<artifact>.signature.json` and
+`<artifact>.pub` beside the artifact. Verification fails if the artifact,
+signature, or public key is missing, if the artifact digest changed after
+signing, or if the public key does not match the signature artifact.
+
+There is not currently a `lungfish provenance show` command; inspect the sidecar
+or bundle provenance roll-up directly, or use the bibliography subcommand above
+when you need citations.
 
 ## Utilities
 

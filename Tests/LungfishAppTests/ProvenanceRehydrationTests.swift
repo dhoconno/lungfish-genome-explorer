@@ -77,6 +77,292 @@ final class ProvenanceRehydrationTests: XCTestCase {
         XCTAssertEqual(legacy.steps.first?.outputs.first?.path, finalOutputURL.path)
     }
 
+    func testRehydrateDiscoversFileSpecificSourceSidecar() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let stagedOutputURL = sourceDirectory.appendingPathComponent("staged.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq.gz")
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@out\nACG\n+\n!!!\n".utf8).write(to: stagedOutputURL, options: .atomic)
+        try Data("@out\nACG\n+\n!!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: stagedOutputURL, format: .fastq, role: .output)
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "file sidecar FASTQ trim",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(stagedOutputURL, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "fastp",
+                toolVersion: "0.24.1",
+                argv: ["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path],
+                inputs: [inputDescriptor],
+                outputs: [outputDescriptor],
+                exitStatus: 0,
+                wallTimeSeconds: 1
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        let sourceSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedOutputURL)
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sourceSidecarURL)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [stagedOutputURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.workflowName, "file sidecar FASTQ trim")
+        XCTAssertEqual(rehydrated.output?.path, finalOutputURL.path)
+        XCTAssertEqual(rehydrated.output?.originPath, stagedOutputURL.path)
+        XCTAssertEqual(rehydrated.output?.sourceProvenancePath, sourceSidecarURL.path)
+        XCTAssertEqual(ProvenanceRecorder.loadEnvelope(from: finalDirectory)?.output?.sourceProvenancePath, sourceSidecarURL.path)
+    }
+
+    func testRehydrateDiscoversBundleProvenanceFolderFileSidecar() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("source.lungfishfastq", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("final.lungfishfastq", isDirectory: true)
+        let provenanceDirectory = sourceDirectory.appendingPathComponent("provenance/reads", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let stagedOutputURL = sourceDirectory.appendingPathComponent("reads/staged.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq.gz")
+        try FileManager.default.createDirectory(
+            at: stagedOutputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@out\nACG\n+\n!!!\n".utf8).write(to: stagedOutputURL, options: .atomic)
+        try Data("@out\nACG\n+\n!!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "bundle folder FASTQ provenance",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(stagedOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        let sourceSidecarURL = provenanceDirectory
+            .appendingPathComponent("staged.fastq.lungfish-provenance.json")
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sourceSidecarURL)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [stagedOutputURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.workflowName, "bundle folder FASTQ provenance")
+        XCTAssertEqual(rehydrated.output?.path, finalOutputURL.path)
+        XCTAssertEqual(rehydrated.output?.originPath, stagedOutputURL.path)
+        XCTAssertEqual(rehydrated.output?.sourceProvenancePath, sourceSidecarURL.path)
+    }
+
+    func testRehydratePrefersMatchingFileSidecarOverStaleDirectorySidecar() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let staleOutputURL = sourceDirectory.appendingPathComponent("stale.fastq")
+        let stagedOutputURL = sourceDirectory.appendingPathComponent("selected.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq")
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@stale\nAC\n+\n!!\n".utf8).write(to: staleOutputURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: stagedOutputURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let staleEnvelope = try ProvenanceRunBuilder(
+            workflowName: "stale directory FASTQ trim",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", staleOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(staleOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(staleEnvelope, to: sourceDirectory)
+
+        let selectedEnvelope = try ProvenanceRunBuilder(
+            workflowName: "selected file FASTQ trim",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(stagedOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 21)
+        )
+        let sourceSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedOutputURL)
+        try ProvenanceWriter(signingProvider: nil).write(selectedEnvelope, toSidecar: sourceSidecarURL)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [stagedOutputURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.workflowName, "selected file FASTQ trim")
+        XCTAssertEqual(rehydrated.output?.sourceProvenancePath, sourceSidecarURL.path)
+        XCTAssertEqual(rehydrated.output?.path, finalOutputURL.path)
+    }
+
+    func testRehydratePrefersExactFileSidecarOverMatchingDirectorySidecar() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let stagedOutputURL = sourceDirectory.appendingPathComponent("selected.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq")
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: stagedOutputURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let broadEnvelope = try ProvenanceRunBuilder(
+            workflowName: "broad directory FASTQ trim",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(stagedOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(broadEnvelope, to: sourceDirectory)
+
+        let exactEnvelope = try ProvenanceRunBuilder(
+            workflowName: "exact file FASTQ trim",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", stagedOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(stagedOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 21)
+        )
+        let sourceSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedOutputURL)
+        try ProvenanceWriter(signingProvider: nil).write(exactEnvelope, toSidecar: sourceSidecarURL)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [stagedOutputURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.workflowName, "exact file FASTQ trim")
+        XCTAssertEqual(rehydrated.output?.sourceProvenancePath, sourceSidecarURL.path)
+    }
+
+    func testRehydrateRejectsReadableSidecarWithUnmatchedOutputs() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let staleOutputURL = sourceDirectory.appendingPathComponent("stale.fastq")
+        let selectedURL = sourceDirectory.appendingPathComponent("selected.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq")
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@stale\nAC\n+\n!!\n".utf8).write(to: staleOutputURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: selectedURL, options: .atomic)
+        try Data("@selected\nACG\n+\n!!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let staleEnvelope = try ProvenanceRunBuilder(
+            workflowName: "unrelated directory sidecar",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-i", inputURL.path, "-o", staleOutputURL.path])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(staleOutputURL, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(staleEnvelope, to: sourceDirectory)
+
+        XCTAssertThrowsError(
+            try ProvenanceRehydrator.rehydrateSelectedOutputs(
+                sourceDirectory: sourceDirectory,
+                finalDirectory: finalDirectory,
+                pathMap: [selectedURL.path: finalOutputURL.path]
+            )
+        ) { error in
+            guard let rehydrationError = error as? ProvenanceRehydrationError,
+                  case .missingSourceProvenance = rehydrationError else {
+                return XCTFail("Expected missing source provenance, got \(error)")
+            }
+        }
+    }
+
     func testRehydrateThrowsWhenOutputDescriptorHasNoPathMap() throws {
         let tempDir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }

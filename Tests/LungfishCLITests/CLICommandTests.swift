@@ -1246,10 +1246,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 24 subcommands registered.
+    /// Verifies that FastqCommand has all 26 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 24, "FastqCommand should have 24 subcommands")
+        XCTAssertEqual(subcommands.count, 26, "FastqCommand should have 26 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1258,10 +1258,12 @@ final class FastqCommandTests: XCTestCase {
             ($0 as? any ParsableCommand.Type)?.configuration.commandName
         }
         let expected = [
-            "subsample", "length-filter", "quality-trim", "adapter-trim", "fixed-trim",
+            "subsample", "length-filter", "trim", "quality-trim", "adapter-trim", "fixed-trim",
             "contaminant-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
-            "demultiplex", "import-ont", "deacon-ribo",
+            "demultiplex", "import-ont", "materialize", "qc-summary",
+            "search-text", "search-motif", "orient", "scrub-human", "sequence-filter",
+            "deacon-ribo", "reverse-complement", "translate",
         ]
         for name in expected {
             XCTAssertTrue(names.contains(name), "Missing subcommand: \(name)")

@@ -73,6 +73,7 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let startedAt = Date()
         let source = try await loadSource()
         let selectedContigs = try requestedContigs()
         _ = try await source.catalog.selectionSummary(for: selectedContigs)
@@ -91,6 +92,13 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
                     Data("\(formatter.success("Created bundle \(bundleURL.lastPathComponent)"))\n".utf8)
                 )
             }
+            try await recordProvenance(
+                source: source,
+                selectedContigs: selectedContigs,
+                outputURL: nil,
+                bundleURL: bundleURL,
+                startedAt: startedAt
+            )
             return
         }
 
@@ -98,9 +106,86 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
         if let output {
             let outputURL = URL(fileURLWithPath: output)
             try fasta.write(to: outputURL, atomically: true, encoding: .utf8)
+            try await recordProvenance(
+                source: source,
+                selectedContigs: selectedContigs,
+                outputURL: outputURL,
+                bundleURL: nil,
+                startedAt: startedAt
+            )
         } else {
             FileHandle.standardOutput.write(Data(fasta.utf8))
         }
+    }
+
+    private func recordProvenance(
+        source: SourceAssembly,
+        selectedContigs: [String],
+        outputURL: URL?,
+        bundleURL: URL?,
+        startedAt: Date
+    ) async throws {
+        let outputRecords = outputFileRecords(outputURL: outputURL, bundleURL: bundleURL)
+        guard !outputRecords.isEmpty else { return }
+
+        var parameters: [String: ParameterValue] = [
+            "source": .file(source.sourceURL),
+            "selectedContigs": .array(selectedContigs.map(ParameterValue.string)),
+            "lineWidth": .integer(lineWidth),
+            "bundle": .boolean(bundle),
+            "bundleName": bundleName.map(ParameterValue.string) ?? .null
+        ]
+        if let outputURL {
+            parameters["output"] = .file(outputURL)
+        }
+        if let bundleURL {
+            parameters["outputBundle"] = .file(bundleURL)
+        }
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish extract contigs",
+            parameters: parameters,
+            defaults: [
+                "lineWidth": .integer(60),
+                "bundle": .boolean(false),
+                "bundleName": .null
+            ],
+            resolved: parameters,
+            toolName: "lungfish extract contigs",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: provenanceCommand(outputURL: outputURL),
+            inputs: provenanceInputRecords(for: source),
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: bundleURL ?? outputURL?.deletingLastPathComponent() ?? URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        )
+    }
+
+    private func outputFileRecords(outputURL: URL?, bundleURL: URL?) -> [FileRecord] {
+        if let bundleURL {
+            return referenceBundlePayloadURLs(in: bundleURL)
+                .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+        }
+
+        return [outputURL]
+            .compactMap { $0 }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+    }
+
+    private func referenceBundlePayloadURLs(in bundleURL: URL) -> [URL] {
+        let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let candidates = [
+            genomeURL.appendingPathComponent("sequence.fa.gz"),
+            genomeURL.appendingPathComponent("sequence.fa.gz.fai"),
+            genomeURL.appendingPathComponent("sequence.fa.gz.gzi"),
+            genomeURL.appendingPathComponent("sequence.fa"),
+            genomeURL.appendingPathComponent("sequence.fa.fai")
+        ]
+        return candidates.filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private func requestedContigs() throws -> [String] {
@@ -286,6 +371,52 @@ struct ExtractContigsSubcommand: AsyncParsableCommand {
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
         return directory.appendingPathComponent("\(safeName).lungfishref", isDirectory: true)
+    }
+
+    private func provenanceInputRecords(for source: SourceAssembly) -> [FileRecord] {
+        let sourceRecords = provenanceRecords(for: source.sourceURL, role: .input)
+        let selectionFileRecords = resolvedSelectionInputs().flatMap { input -> [FileRecord] in
+            guard case .contigFile(let path) = input else { return [] }
+            return provenanceRecords(for: URL(fileURLWithPath: path), format: .text, role: .input)
+        }
+        return sourceRecords + selectionFileRecords
+    }
+
+    private func provenanceCommand(outputURL: URL?) -> [String] {
+        var command = ["lungfish", "extract", "contigs"]
+        if let assemblyPath {
+            command += ["--assembly", assemblyPath]
+        }
+        if let contigsPath {
+            command += ["--contigs", contigsPath]
+        }
+        let selectionInputs = resolvedSelectionInputs().isEmpty
+            ? contigs.map(SelectionInput.contig) + contigFiles.map(SelectionInput.contigFile)
+            : resolvedSelectionInputs()
+        for input in selectionInputs {
+            switch input {
+            case .contig(let contig):
+                command += ["--contig", contig]
+            case .contigFile(let path):
+                command += ["--contig-file", path]
+            }
+        }
+        if let outputURL {
+            command += ["--output", outputURL.path]
+        }
+        if bundle {
+            command.append("--bundle")
+        }
+        if let bundleName {
+            command += ["--bundle-name", bundleName]
+        }
+        if let projectRoot {
+            command += ["--project-root", projectRoot]
+        }
+        if lineWidth != 60 {
+            command += ["--line-width", "\(lineWidth)"]
+        }
+        return command
     }
 
     private func assemblerDisplayName(for result: AssemblyResult) -> String {

@@ -37,6 +37,25 @@ private func appTSVField(_ value: String) -> String {
     return value
 }
 
+enum AppProvenanceExportCommandBuilder {
+    static func argv(
+        format: ProvenanceExportFormat,
+        sourceURL: URL,
+        outputDirectory: URL
+    ) -> [String] {
+        [
+            "lungfish",
+            "provenance",
+            "export",
+            sourceURL.path,
+            "--export-format",
+            format.cliToken,
+            "--output",
+            outputDirectory.path,
+        ]
+    }
+}
+
 /// Schedules a MainActor-isolated block to execute on the main run loop.
 ///
 /// This function is critical for Swift concurrency integration with AppKit modal sessions.
@@ -8126,80 +8145,195 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         exportProvenance(format: .json)
     }
 
-    private func exportProvenance(format: ProvenanceExportFormat) {
-        // Find provenance for the currently selected/displayed file
-        let run: WorkflowRun?
-
-        // Try the selected sidebar item first
-        if let selectedURL = mainWindowController?.mainSplitViewController?.sidebarController?.selectedFileURL {
-            run = ProvenanceRecorder.findProvenance(forFile: selectedURL)
-        } else {
-            // Fall back to most recent completed run
-            Task {
-                let runs = await ProvenanceRecorder.shared.allRuns()
-                let completedRun = runs.first { $0.status == .completed }
-                if let completedRun {
-                    self.presentProvenanceExportSheet(run: completedRun, format: format)
-                } else {
-                    self.showNoProvenanceAlert()
-                }
-            }
-            return
-        }
-
-        guard let run else {
-            showNoProvenanceAlert()
-            return
-        }
-
-        presentProvenanceExportSheet(run: run, format: format)
+    private struct AppProvenanceExportSource {
+        let selectedURL: URL
+        let sourceSidecarURL: URL
+        let envelope: ProvenanceEnvelope
     }
 
-    private func presentProvenanceExportSheet(run: WorkflowRun, format: ProvenanceExportFormat) {
-        let exporter = ProvenanceExporter()
-        let content: String
-        do {
-            content = try exporter.export(run, format: format)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Export Failed"
-            alert.informativeText = error.localizedDescription
-            alert.alertStyle = .warning
-            if let window = mainWindowController?.window ?? NSApp.keyWindow {
-                alert.beginSheetModal(for: window)
-            }
+    private enum AppProvenanceExportResolution {
+        case resolved(AppProvenanceExportSource)
+        case unresolvedSelection(URL)
+        case noCurrentSource
+    }
+
+    private func exportProvenance(format: ProvenanceExportFormat) {
+        switch currentProvenanceExportResolution() {
+        case .resolved(let source):
+            presentProvenanceExportSheet(source: source, format: format)
             return
+        case .unresolvedSelection:
+            showNoProvenanceAlert()
+            return
+        case .noCurrentSource:
+            break
         }
 
+        Task {
+            let runs = await ProvenanceRecorder.shared.allRuns()
+            guard let completedRun = runs.first(where: { $0.status == .completed }) else {
+                self.showNoProvenanceAlert()
+                return
+            }
+            let envelope = completedRun.canonicalEnvelope()
+            let sidecarURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("lungfish-provenance-export-\(completedRun.id.uuidString)")
+                .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            do {
+                try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+                self.presentProvenanceExportSheet(
+                    source: AppProvenanceExportSource(
+                        selectedURL: sidecarURL,
+                        sourceSidecarURL: sidecarURL,
+                        envelope: envelope
+                    ),
+                    format: format
+                )
+            } catch {
+                self.showExportError(message: "Could not prepare provenance for export: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func currentProvenanceExportResolution() -> AppProvenanceExportResolution {
+        let splitViewController = mainWindowController?.mainSplitViewController
+        let sidebarController = splitViewController?.sidebarController
+        let viewerController = splitViewController?.viewerController
+        let visibleCandidates = [
+            viewerController?.currentFASTQDatasetURL,
+            viewerController?.multipleSequenceAlignmentViewController?.bundleURL,
+            viewerController?.phylogeneticTreeViewController?.bundleURL,
+            viewerController?.referenceBundleViewportController?.currentInput?.mappingResultDirectoryURL,
+            viewerController?.mappingResultController?.currentInput?.mappingResultDirectoryURL,
+            viewerController?.currentBundleURL,
+            viewerController?.referenceBundleViewportController?.currentInput?.renderedBundleURL,
+            viewerController?.mappingResultController?.currentInput?.renderedBundleURL,
+            viewerController?.currentDocument?.url,
+        ]
+
+        var seen = Set<String>()
+        var firstVisibleCandidate: URL?
+        for candidate in visibleCandidates.compactMap(\.self) {
+            let standardized = candidate.standardizedFileURL
+            guard seen.insert(standardized.path).inserted else {
+                continue
+            }
+            if firstVisibleCandidate == nil {
+                firstVisibleCandidate = standardized
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardized) {
+                return .resolved(
+                    AppProvenanceExportSource(
+                        selectedURL: standardized,
+                        sourceSidecarURL: resolved.sidecarURL,
+                        envelope: resolved.envelope
+                    )
+                )
+            }
+            return .unresolvedSelection(standardized)
+        }
+        if let firstVisibleCandidate {
+            return .unresolvedSelection(firstVisibleCandidate)
+        }
+
+        if let sidebarSelection = sidebarController?.selectedFileURL?.standardizedFileURL,
+           seen.insert(sidebarSelection.path).inserted {
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: sidebarSelection) {
+                return .resolved(
+                    AppProvenanceExportSource(
+                        selectedURL: sidebarSelection,
+                        sourceSidecarURL: resolved.sidecarURL,
+                        envelope: resolved.envelope
+                    )
+                )
+            }
+            return .unresolvedSelection(sidebarSelection)
+        }
+        return .noCurrentSource
+    }
+
+    private func presentProvenanceExportSheet(source: AppProvenanceExportSource, format: ProvenanceExportFormat) {
         let savePanel = NSSavePanel()
-        savePanel.nameFieldStringValue = format.defaultFilename
-        savePanel.allowedContentTypes = [.plainText]
+        savePanel.title = "Export Provenance"
+        savePanel.message = "Choose a folder name for the exported reproducibility package."
+        savePanel.nameFieldStringValue = defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL)
         savePanel.canCreateDirectories = true
+        savePanel.canSelectHiddenExtension = true
 
         guard let window = mainWindowController?.window ?? NSApp.keyWindow else {
             return
         }
 
         savePanel.beginSheetModal(for: window) { response in
-            guard response == .OK, let url = savePanel.url else { return }
+            guard response == .OK, let outputDirectory = savePanel.url else { return }
             do {
-                try content.write(to: url, atomically: true, encoding: .utf8)
-                debugLog("Provenance exported to \(url.path)")
-
-                // Make shell/python scripts executable
-                if format == .shell || format == .python {
-                    try FileManager.default.setAttributes(
-                        [.posixPermissions: 0o755],
-                        ofItemAtPath: url.path
+                let existingIsDirectory = self.existingDirectoryState(outputDirectory)
+                if existingIsDirectory == false {
+                    throw ProvenanceError.exportFailed(
+                        "The selected path exists and is not a folder: \(outputDirectory.path)"
                     )
                 }
+                let bundle = try ProvenanceExporter().exportBundle(
+                    source.envelope,
+                    format: format,
+                    to: outputDirectory,
+                    sourceSidecarURL: source.sourceSidecarURL,
+                    sourceRootURL: source.selectedURL,
+                    exportArgv: self.guiExportArgv(format: format, sourceURL: source.selectedURL, outputDirectory: outputDirectory)
+                )
+                debugLog("Provenance exported to \(bundle.primaryArtifactURL.path)")
+                self.showProvenanceExportCompleteAlert(bundle: bundle, format: format, window: window)
             } catch {
                 debugLog("Provenance export write failed: \(error)")
                 let alert = NSAlert()
                 alert.messageText = "Export Failed"
-                alert.informativeText = "Could not write file: \(error.localizedDescription)"
+                alert.informativeText = error.localizedDescription
                 alert.alertStyle = .warning
                 alert.beginSheetModal(for: window)
+            }
+        }
+    }
+
+    private func defaultProvenanceExportDirectoryName(for format: ProvenanceExportFormat, sourceURL: URL) -> String {
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent
+        let safeBaseName = baseName.isEmpty ? "provenance" : baseName
+        return "\(safeBaseName)-provenance-\(format.cliToken)"
+    }
+
+    private func existingDirectoryState(_ url: URL) -> Bool? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        return isDirectory.boolValue
+    }
+
+    private func guiExportArgv(
+        format: ProvenanceExportFormat,
+        sourceURL: URL,
+        outputDirectory: URL
+    ) -> [String] {
+        AppProvenanceExportCommandBuilder.argv(
+            format: format,
+            sourceURL: sourceURL,
+            outputDirectory: outputDirectory
+        )
+    }
+
+    private func showProvenanceExportCompleteAlert(
+        bundle: ProvenanceExportBundle,
+        format: ProvenanceExportFormat,
+        window: NSWindow
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Provenance Export Complete"
+        alert.informativeText = "\(format.rawValue) exported to \(bundle.primaryArtifactURL.lastPathComponent)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Show in Finder")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertSecondButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([bundle.primaryArtifactURL])
             }
         }
     }
@@ -8207,7 +8341,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func showNoProvenanceAlert() {
         let alert = NSAlert()
         alert.messageText = "No Provenance Available"
-        alert.informativeText = "No provenance record was found for the selected file. Provenance is recorded when files are created through tool operations (assembly, import, conversion, etc.)."
+        alert.informativeText = "No provenance record was found for the selected file or bundle. Provenance is recorded when files are created through tool operations (assembly, import, conversion, etc.)."
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
         if let window = mainWindowController?.window ?? NSApp.keyWindow {

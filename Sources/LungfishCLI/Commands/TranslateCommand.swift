@@ -179,14 +179,25 @@ struct TranslateCommand: AsyncParsableCommand {
                     "noStopAsterisk": .boolean(noStopAsterisk),
                     "longestORF": .boolean(longestORF),
                     "sequenceCount": .integer(sequences.count),
-                    "translationCount": .integer(translationCount),
-                    "resolvedDefaults": .dictionary([
-                        "frame": .string("all"),
-                        "table": .integer(1),
-                        "trimToStop": .boolean(false),
-                        "noStopAsterisk": .boolean(false),
-                        "longestORF": .boolean(false)
-                    ])
+                    "translationCount": .integer(translationCount)
+                ],
+                defaults: [
+                    "frame": .string("all"),
+                    "table": .integer(1),
+                    "trimToStop": .boolean(false),
+                    "noStopAsterisk": .boolean(false),
+                    "longestORF": .boolean(false)
+                ],
+                resolved: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "frame": frame.map(ParameterValue.integer) ?? .string("all"),
+                    "table": .integer(table),
+                    "trimToStop": .boolean(trimToStop),
+                    "noStopAsterisk": .boolean(noStopAsterisk),
+                    "longestORF": .boolean(longestORF),
+                    "sequenceCount": .integer(sequences.count),
+                    "translationCount": .integer(translationCount)
                 ],
                 toolName: "lungfish translate",
                 toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",

@@ -55,6 +55,8 @@ public enum ProvenanceExportFormat: String, CaseIterable, Sendable {
         switch normalized {
         case "shell", "sh", "bash", ProvenanceExportFormat.shell.rawValue.lowercased():
             return .shell
+        case "python", "py", ProvenanceExportFormat.python.rawValue.lowercased():
+            return .python
         case "nextflow", "nf", ProvenanceExportFormat.nextflow.rawValue.lowercased():
             return .nextflow
         case "snakemake", "snakefile", ProvenanceExportFormat.snakemake.rawValue.lowercased():
@@ -65,7 +67,7 @@ public enum ProvenanceExportFormat: String, CaseIterable, Sendable {
             return .json
         default:
             throw ProvenanceError.exportFailed(
-                "Unsupported provenance export format '\(value)'. Supported formats: shell, nextflow, snakemake, methods, json."
+                "Unsupported provenance export format '\(value)'. Supported formats: shell, python, nextflow, snakemake, methods, json."
             )
         }
     }
@@ -123,6 +125,11 @@ public struct ProvenanceExporter: Sendable {
         case .shell:
             primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
             try exportShell(envelope, fallbackRun: run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try makeExecutable(primaryArtifactURL)
+        case .python:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("reproduce.py")
+            try exportPython(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try makeExecutable(primaryArtifactURL)
         case .nextflow:
             primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
             try exportNextflow(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
@@ -158,10 +165,6 @@ public struct ProvenanceExporter: Sendable {
             primaryArtifactURL = outputDirectory.appendingPathComponent("provenance.json")
             let data = try ProvenanceJSON.encoder.encode(envelope)
             try data.write(to: primaryArtifactURL, options: .atomic)
-        case .python:
-            throw ProvenanceError.exportFailed(
-                "Unsupported provenance export format '\(format.rawValue)' for canonical bundles. Supported formats: shell, nextflow, snakemake, methods, json."
-            )
         }
         generatedArtifactURLs.insert(primaryArtifactURL, at: 0)
         let signedReportArtifactURLs = try signReportArtifacts(generatedArtifactURLs)
@@ -193,6 +196,10 @@ public struct ProvenanceExporter: Sendable {
                 .filter(isProvenanceOrSignatureArtifact),
             signedReportArtifactURLs: signedReportArtifactURLs
         )
+    }
+
+    private func makeExecutable(_ url: URL) throws {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
     }
 
     /// Exports a workflow run in the specified format.
@@ -476,7 +483,14 @@ public struct ProvenanceExporter: Sendable {
     private func isProvenanceSidecar(_ url: URL) -> Bool {
         let filename = url.lastPathComponent
         return filename == ProvenanceRecorder.provenanceFilename
-            || filename.hasSuffix("lungfish-provenance.json")
+            || filename == MappingProvenance.filename
+            || filename == "annotation-edit-provenance.json"
+            || filename == "manual-annotation-provenance.json"
+            || filename == "extraction-metadata.json"
+            || (filename == "provenance.json"
+                && url.deletingLastPathComponent().lastPathComponent == "assembly")
+            || filename.hasSuffix(".lungfish-provenance.json")
+            || filename.hasSuffix("-provenance.json")
     }
 
     private func isSourceManifest(_ url: URL) -> Bool {
@@ -559,7 +573,7 @@ public struct ProvenanceExporter: Sendable {
         s += "set -euo pipefail\n\n"
 
         // Input files as variables
-        let inputs = run.primaryInputFiles
+        let inputs = uniqueFileRecords(run.primaryInputFiles)
         if !inputs.isEmpty {
             s += "# Input files\n"
             for (i, input) in inputs.enumerated() {
@@ -713,14 +727,12 @@ public struct ProvenanceExporter: Sendable {
 
         // Parameters from input files
         s += "// Pipeline parameters\n"
-        s += "params {\n"
         let inputs = run.primaryInputFiles
         for input in inputs {
             let paramName = sanitize(input.filename.replacingOccurrences(of: ".", with: "_"))
-            s += "    \(paramName) = '\(input.filename)'\n"
+            s += "params.\(paramName) = \(groovySingleQuoted(input.filename))\n"
         }
-        s += "    outdir = './results'\n"
-        s += "}\n\n"
+        s += "params.outdir = './results'\n\n"
 
         // Process definitions
         for (i, step) in run.steps.enumerated() {
@@ -744,7 +756,7 @@ public struct ProvenanceExporter: Sendable {
             if !step.inputs.isEmpty {
                 s += "    input:\n"
                 for input in step.inputs {
-                    s += "    path '\(input.filename)'\n"
+                    s += "    path \(groovySingleQuoted(input.filename))\n"
                 }
                 s += "\n"
             }
@@ -753,7 +765,7 @@ public struct ProvenanceExporter: Sendable {
             if !step.outputs.isEmpty {
                 s += "    output:\n"
                 for output in step.outputs {
-                    s += "    path '\(output.filename)'\n"
+                    s += "    path \(groovySingleQuoted(output.filename))\n"
                 }
                 s += "\n"
             }
@@ -818,7 +830,7 @@ public struct ProvenanceExporter: Sendable {
         s += "rule all:\n"
         s += "    input:\n"
         for output in finalOutputs {
-            s += "        \"results/\(output.filename)\",\n"
+            s += "        \(pythonDoubleQuoted(output.path)),\n"
         }
         s += "\n\n"
 
@@ -836,17 +848,13 @@ public struct ProvenanceExporter: Sendable {
             // Input
             s += "    input:\n"
             for input in step.inputs {
-                if step.dependsOn.isEmpty {
-                    s += "        \"\(input.filename)\",\n"
-                } else {
-                    s += "        \"results/\(input.filename)\",\n"
-                }
+                s += "        \(pythonDoubleQuoted(input.path)),\n"
             }
 
             // Output
             s += "    output:\n"
             for output in step.outputs {
-                s += "        \"results/\(output.filename)\",\n"
+                s += "        \(pythonDoubleQuoted(output.path)),\n"
             }
 
             // Log
@@ -862,7 +870,8 @@ public struct ProvenanceExporter: Sendable {
             // Shell
             s += "    shell:\n"
             s += "        \"\"\"\n"
-            s += "        \(portableCommand(step)) 2> {log}\n"
+            s += "        mkdir -p \"$(dirname {log:q})\"\n"
+            s += "        \(portableCommand(step)) 2> {log:q}\n"
             s += "        \"\"\"\n\n"
         }
 
@@ -926,7 +935,7 @@ public struct ProvenanceExporter: Sendable {
         // Input files
         s += "Input Files\n"
         s += "-----------\n\n"
-        for input in run.primaryInputFiles {
+        for input in uniqueFileRecords(run.primaryInputFiles) {
             s += "- \(input.filename)"
             if let sha = input.sha256 {
                 s += " (SHA-256: \(sha))"
@@ -965,6 +974,13 @@ public struct ProvenanceExporter: Sendable {
         ISO8601DateFormatter().string(from: date)
     }
 
+    private func uniqueFileRecords(_ records: [FileRecord]) -> [FileRecord] {
+        var seen = Set<String>()
+        return records.filter { record in
+            seen.insert("\(record.role.rawValue)\u{0}\(record.path)\u{0}\(record.sha256 ?? "")").inserted
+        }
+    }
+
     private func formatDuration(_ seconds: TimeInterval) -> String {
         if seconds < 60 {
             return String(format: "%.1fs", seconds)
@@ -989,6 +1005,19 @@ public struct ProvenanceExporter: Sendable {
         return s.lowercased()
     }
 
+    private func groovySingleQuoted(_ value: String) -> String {
+        "'" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            + "'"
+    }
+
+    private func pythonDoubleQuoted(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            + "\""
+    }
 
     /// Builds a portable command string (tool name instead of absolute path).
     private func portableCommand(_ step: StepExecution) -> String {

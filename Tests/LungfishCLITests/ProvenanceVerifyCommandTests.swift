@@ -33,6 +33,90 @@ final class ProvenanceVerifyCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("lungfish-local-deterministic-v1"), output)
     }
 
+    func testProvenanceVerifyReportsSignedMethodsExportArtifact() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceSidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let exportDirectory = directory.appendingPathComponent("methods-export", isDirectory: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "signed.methods.source",
+            toolName: "fastp",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"]
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: sourceSidecarURL, options: .atomic)
+        let bundle = try ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "methods-report-key")
+        ).exportBundle(
+            envelope,
+            format: .methods,
+            to: exportDirectory,
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: directory,
+            exportArgv: [
+                "lungfish", "provenance", "export",
+                directory.path,
+                "--format", "methods",
+                "--output", exportDirectory.path,
+            ]
+        )
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([bundle.primaryArtifactURL.path])
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("Signature valid"), output)
+        XCTAssertTrue(output.contains("methods.md.signature.json"), output)
+    }
+
+    func testProvenanceVerifyUsesExplicitArtifactsForSignedMethodsExportArtifact() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceSidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let exportDirectory = directory.appendingPathComponent("methods-export", isDirectory: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "signed.methods.source",
+            toolName: "fastp",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"]
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: sourceSidecarURL, options: .atomic)
+        let bundle = try ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "methods-report-key")
+        ).exportBundle(
+            envelope,
+            format: .methods,
+            to: exportDirectory,
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: directory,
+            exportArgv: [
+                "lungfish", "provenance", "export",
+                directory.path,
+                "--format", "methods",
+                "--output", exportDirectory.path,
+            ]
+        )
+        let defaultSignatureURL = ProvenanceSigningConfiguration.signatureURL(for: bundle.primaryArtifactURL)
+        let defaultPublicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: bundle.primaryArtifactURL)
+        let customSignatureURL = directory.appendingPathComponent("custom-methods.signature.json")
+        let customPublicKeyURL = directory.appendingPathComponent("custom-methods.pub")
+        try FileManager.default.moveItem(at: defaultSignatureURL, to: customSignatureURL)
+        try FileManager.default.moveItem(at: defaultPublicKeyURL, to: customPublicKeyURL)
+
+        let command = try ProvenanceCommand.VerifySubcommand.parse([
+            bundle.primaryArtifactURL.path,
+            "--signature", customSignatureURL.path,
+            "--public-key", customPublicKeyURL.path,
+        ])
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("Signature valid"), output)
+        XCTAssertTrue(output.contains(customSignatureURL.path), output)
+    }
+
     func testProvenanceVerifyThrowsForTamperedSignature() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

@@ -245,7 +245,7 @@ struct ProvenancePersistenceTests {
         #expect(json["schemaVersion"] as? Int == 1)
         #expect(json["workflowName"] as? String == "Canonical Recorder")
         #expect(json["runtimeIdentity"] is [String: Any])
-        #expect(json["runtime"] == nil)
+        #expect((json["runtime"] as? [String: Any])?["user"] as? String == WorkflowRun.currentUser)
 
         let envelope = try #require(try ProvenanceEnvelopeReader.load(from: directory))
         #expect(envelope.schemaVersion == 1)
@@ -360,9 +360,10 @@ struct ProvenancePersistenceTests {
         let data = try Data(contentsOf: provenanceFile)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         let runtimeIdentity = json?["runtimeIdentity"] as? [String: Any]
+        let runtime = json?["runtime"] as? [String: Any]
 
         #expect(runtimeIdentity?["user"] as? String == WorkflowRun.currentUser)
-        #expect(json?["runtime"] == nil)
+        #expect(runtime?["user"] as? String == WorkflowRun.currentUser)
     }
 
     @Test("Existing provenance JSON without runtime user still decodes")

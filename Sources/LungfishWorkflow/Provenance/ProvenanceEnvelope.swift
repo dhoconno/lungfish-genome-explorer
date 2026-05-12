@@ -76,6 +76,14 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case schemaVersion
         case id
         case createdAt
+        case legacyName = "name"
+        case legacyStatus = "status"
+        case startTime
+        case endTime
+        case appVersion
+        case hostOS
+        case runtime
+        case parameters
         case workflowName
         case workflowVersion
         case toolName
@@ -152,7 +160,10 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         createdAt = try container.decode(Date.self, forKey: .createdAt)
-        workflowName = ProvenanceName.required(try container.decodeIfPresent(String.self, forKey: .workflowName))
+        workflowName = ProvenanceName.required(
+            try container.decodeIfPresent(String.self, forKey: .workflowName),
+            fallback: try container.decodeIfPresent(String.self, forKey: .legacyName) ?? "unknown"
+        )
         workflowVersion = ProvenanceVersion.required(
             try container.decodeIfPresent(String.self, forKey: .workflowVersion),
             fallback: WorkflowRun.currentAppVersion
@@ -191,17 +202,22 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             forKey: .inputFiles,
             role: .input
         ) ?? []
-        let decodedFiles = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .files) ?? []
-        files = Self.deduplicated((decodedInput.map { [$0] } ?? []) + decodedInputFiles + decodedFiles)
         let decodedOutput = try Self.decodeFileDescriptorIfPresent(
             from: container,
             forKey: .output,
             role: .output
         )
         let normalizedOutput = decodedOutput?.withRole(.output)
+        let decodedFiles = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .files) ?? []
+        let normalizedFiles = Self.normalizePrimitiveFileRoles(
+            decodedFiles,
+            output: normalizedOutput,
+            options: options
+        )
+        files = Self.deduplicated((decodedInput.map { [$0] } ?? []) + decodedInputFiles + normalizedFiles)
         output = normalizedOutput
         outputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .outputs)
-            ?? normalizedOutput.map { [$0] } ?? []
+            ?? Self.derivedOutputs(from: normalizedFiles, output: normalizedOutput)
         steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps)
             ?? Self.decodePrimitiveSteps(
                 from: container,
@@ -220,6 +236,15 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encode(schemaVersion, forKey: .schemaVersion)
         try container.encode(id, forKey: .id)
         try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(workflowName, forKey: .legacyName)
+        try container.encode(legacyCompatibilityStatus.rawValue, forKey: .legacyStatus)
+        let compatibilityRun = legacyWorkflowRun()
+        try container.encode(compatibilityRun.startTime, forKey: .startTime)
+        try container.encodeIfPresent(compatibilityRun.endTime, forKey: .endTime)
+        try container.encode(compatibilityRun.appVersion, forKey: .appVersion)
+        try container.encode(compatibilityRun.hostOS, forKey: .hostOS)
+        try container.encode(compatibilityRun.runtime, forKey: .runtime)
+        try container.encode(compatibilityRun.parameters, forKey: .parameters)
         try container.encode(workflowName, forKey: .workflowName)
         try container.encode(workflowVersion, forKey: .workflowVersion)
         try container.encode(toolName, forKey: .toolName)
@@ -305,6 +330,41 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         return result
     }
 
+    private static func normalizePrimitiveFileRoles(
+        _ files: [ProvenanceFileDescriptor],
+        output: ProvenanceFileDescriptor?,
+        options: ProvenanceOptions
+    ) -> [ProvenanceFileDescriptor] {
+        guard let output else { return files }
+        let outputPath = URL(fileURLWithPath: output.path).standardizedFileURL.path
+        let outputDirectoryPath = options.explicit["outputDirectory"]?.stringValue
+        return files.map { file in
+            guard file.role == .input else { return file }
+            guard !file.roleWasExplicit else { return file }
+            if outputDirectoryPath == output.path,
+               URL(fileURLWithPath: file.path).isFileURL,
+               file.path.hasPrefix("/") == false {
+                return file.withRole(.output)
+            }
+            let filePath = URL(fileURLWithPath: file.path).standardizedFileURL.path
+            if filePath == outputPath || filePath.hasPrefix(outputPath + "/") {
+                return file.withRole(.output)
+            }
+            return file
+        }
+    }
+
+    private static func derivedOutputs(
+        from files: [ProvenanceFileDescriptor],
+        output: ProvenanceFileDescriptor?
+    ) -> [ProvenanceFileDescriptor] {
+        let fileOutputs = files.filter { $0.role == .output }
+        if !fileOutputs.isEmpty {
+            return fileOutputs
+        }
+        return output.map { [$0] } ?? []
+    }
+
     private struct PrimitiveWorkflowStep: Decodable {
         let stepName: String?
         let workflowName: String?
@@ -363,6 +423,16 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
                 completedAt: wallTimeSeconds.map { createdAt.addingTimeInterval($0) }
             )
         }
+    }
+
+    private var legacyCompatibilityStatus: RunStatus {
+        if let legacyRun {
+            return legacyRun.status
+        }
+        guard let exitStatus else {
+            return .running
+        }
+        return exitStatus == 0 ? .completed : .failed
     }
 }
 
@@ -627,6 +697,7 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
     public let role: FileRole
     public let originPath: String?
     public let sourceProvenancePath: String?
+    fileprivate let roleWasExplicit: Bool
 
     public init(
         path: String,
@@ -635,7 +706,8 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         format: FileFormat? = nil,
         role: FileRole = .input,
         originPath: String? = nil,
-        sourceProvenancePath: String? = nil
+        sourceProvenancePath: String? = nil,
+        roleWasExplicit: Bool = true
     ) {
         self.path = path
         self.checksumSHA256 = checksumSHA256
@@ -644,6 +716,7 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         self.role = role
         self.originPath = originPath
         self.sourceProvenancePath = sourceProvenancePath
+        self.roleWasExplicit = roleWasExplicit
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -666,9 +739,20 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         fileSize = try container.decodeIfPresent(UInt64.self, forKey: .fileSize)
             ?? container.decodeIfPresent(UInt64.self, forKey: .sizeBytes)
         format = try container.decodeIfPresent(FileFormat.self, forKey: .format)
+        roleWasExplicit = container.contains(.role)
         role = try container.decodeIfPresent(FileRole.self, forKey: .role) ?? .input
         originPath = try container.decodeIfPresent(String.self, forKey: .originPath)
         sourceProvenancePath = try container.decodeIfPresent(String.self, forKey: .sourceProvenancePath)
+    }
+
+    public static func == (lhs: ProvenanceFileDescriptor, rhs: ProvenanceFileDescriptor) -> Bool {
+        lhs.path == rhs.path
+            && lhs.checksumSHA256 == rhs.checksumSHA256
+            && lhs.fileSize == rhs.fileSize
+            && lhs.format == rhs.format
+            && lhs.role == rhs.role
+            && lhs.originPath == rhs.originPath
+            && lhs.sourceProvenancePath == rhs.sourceProvenancePath
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -749,15 +833,20 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case toolName
         case toolVersion
         case argv
+        case command
         case reproducibleCommand
         case inputs
         case outputs
         case exitStatus
+        case exitCode
         case wallTimeSeconds
+        case wallTime
         case stderr
         case dependsOn
         case startedAt
         case completedAt
+        case startTime
+        case endTime
     }
 
     public init(
@@ -792,19 +881,48 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         toolName = ProvenanceName.required(try container.decodeIfPresent(String.self, forKey: .toolName))
         toolVersion = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .toolVersion))
-        argv = try container.decode([String].self, forKey: .argv)
-        reproducibleCommand = try container.decode(String.self, forKey: .reproducibleCommand)
-        inputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .inputs)
-        outputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .outputs)
+        argv = try container.decodeIfPresent([String].self, forKey: .argv)
+            ?? container.decodeIfPresent([String].self, forKey: .command)
+            ?? []
+        reproducibleCommand = try container.decodeIfPresent(String.self, forKey: .reproducibleCommand)
+            ?? argv.map(shellEscape).joined(separator: " ")
+        inputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .inputs) ?? []
+        outputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .outputs) ?? []
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
+            ?? container.decodeIfPresent(Int.self, forKey: .exitCode)
         wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
+            ?? container.decodeIfPresent(TimeInterval.self, forKey: .wallTime)
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
         dependsOn = try container.decodeIfPresent([UUID].self, forKey: .dependsOn) ?? []
         startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+            ?? container.decodeIfPresent(Date.self, forKey: .startTime)
         completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+            ?? container.decodeIfPresent(Date.self, forKey: .endTime)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(toolName, forKey: .toolName)
+        try container.encode(toolVersion, forKey: .toolVersion)
+        try container.encode(argv, forKey: .argv)
+        try container.encode(argv, forKey: .command)
+        try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
+        try container.encode(inputs, forKey: .inputs)
+        try container.encode(outputs, forKey: .outputs)
+        try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
+        try container.encodeIfPresent(exitStatus, forKey: .exitCode)
+        try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTimeSeconds)
+        try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTime)
+        try container.encodeIfPresent(stderr, forKey: .stderr)
+        try container.encode(dependsOn, forKey: .dependsOn)
+        try container.encodeIfPresent(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(completedAt, forKey: .completedAt)
+        try container.encodeIfPresent(startedAt, forKey: .startTime)
+        try container.encodeIfPresent(completedAt, forKey: .endTime)
     }
 }
 
@@ -855,13 +973,18 @@ extension ProvenanceEnvelope {
             inputs: [input],
             outputs: [output],
             exitStatus: 0,
-            wallTimeSeconds: 1.25
+            wallTimeSeconds: 1.25,
+            startedAt: Date(timeIntervalSince1970: 0),
+            completedAt: Date(timeIntervalSince1970: 1.25)
         )
         let legacyRun = WorkflowRun(
             name: workflowName,
             startTime: Date(timeIntervalSince1970: 0),
             endTime: Date(timeIntervalSince1970: 1.25),
             status: .completed,
+            appVersion: "Lungfish fixture",
+            hostOS: "macOS fixture",
+            runtime: WorkflowRuntime(appVersion: "Lungfish fixture", hostOS: "macOS fixture", user: "fixture-user"),
             steps: [
                 StepExecution(
                     toolName: toolName,

@@ -416,7 +416,21 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 outputMode: .groupedResult
             )
         )
-        let runner = SpyCommandRunner()
+        let runner = SpyCommandRunner { _, outputDirectory in
+            let bamURL = outputDirectory.appendingPathComponent("mapped.bam")
+            try Data("bam\n".utf8).write(to: bamURL, options: .atomic)
+            try writeSyntheticProvenance(
+                to: outputDirectory,
+                name: "minimap2 mapping",
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                command: ["minimap2", referenceURL.path, resolvedR1.path, resolvedR2.path, "-o", bamURL.path],
+                inputURL: resolvedR1,
+                outputURL: bamURL,
+                format: .bam
+            )
+            return FASTQCLIExecutionResult(outputURLs: [bamURL])
+        }
         let importer = SpyDirectImporter()
         let service = FASTQOperationExecutionService(
             inputResolver: resolver,
@@ -451,30 +465,42 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let groupedOutputDir = tempDir.appendingPathComponent("grouped-output", isDirectory: true)
         try FileManager.default.createDirectory(at: groupedOutputDir, withIntermediateDirectories: true)
 
-        let inputA = tempDir.appendingPathComponent("input-a.\(FASTQBundle.directoryExtension)", isDirectory: true)
-        let inputB = tempDir.appendingPathComponent("input-b.\(FASTQBundle.directoryExtension)", isDirectory: true)
-        try FileManager.default.createDirectory(at: inputA, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: inputB, withIntermediateDirectories: true)
+        let inputABundle = try FASTQOperationTestHelper.makeBundle(named: "input-a", in: tempDir)
+        let inputBBundle = try FASTQOperationTestHelper.makeBundle(named: "input-b", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputABundle.fastqURL, readCount: 2, readLength: 20)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputBBundle.fastqURL, readCount: 2, readLength: 20)
 
         let resolver = SpyInputResolver(
             resolvedRequest: .derivative(
                 request: .lengthFilter(min: 100, max: 500),
-                inputURLs: [inputA, inputB],
+                inputURLs: [inputABundle.bundleURL, inputBBundle.bundleURL],
                 outputMode: .groupedResult
             )
         )
         let runner = SpyCommandRunner { _, outputDirectory in
-            let bundleA = outputDirectory.appendingPathComponent(
-                "filtered-a.\(FASTQBundle.directoryExtension)",
-                isDirectory: true
+            let outputABundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-a", in: outputDirectory)
+            let outputBBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered-b", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputABundle.fastqURL, readCount: 1, readLength: 20)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBBundle.fastqURL, readCount: 1, readLength: 20)
+            try writeSyntheticProvenance(
+                to: outputABundle.bundleURL,
+                name: "lungfish fastq length-filter",
+                toolName: "seqkit",
+                toolVersion: "2.9.0",
+                command: ["seqkit", "seq", inputABundle.fastqURL.path, "-o", outputABundle.fastqURL.path],
+                inputURL: inputABundle.fastqURL,
+                outputURL: outputABundle.fastqURL
             )
-            let bundleB = outputDirectory.appendingPathComponent(
-                "filtered-b.\(FASTQBundle.directoryExtension)",
-                isDirectory: true
+            try writeSyntheticProvenance(
+                to: outputBBundle.bundleURL,
+                name: "lungfish fastq length-filter",
+                toolName: "seqkit",
+                toolVersion: "2.9.0",
+                command: ["seqkit", "seq", inputBBundle.fastqURL.path, "-o", outputBBundle.fastqURL.path],
+                inputURL: inputBBundle.fastqURL,
+                outputURL: outputBBundle.fastqURL
             )
-            try FileManager.default.createDirectory(at: bundleA, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(at: bundleB, withIntermediateDirectories: true)
-            return FASTQCLIExecutionResult(outputURLs: [bundleA, bundleB])
+            return FASTQCLIExecutionResult(outputURLs: [outputABundle.bundleURL, outputBBundle.bundleURL])
         }
         let importer = SpyDirectImporter()
         let service = FASTQOperationExecutionService(
@@ -486,7 +512,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         let result = try await service.execute(
             request: .derivative(
                 request: .lengthFilter(min: 100, max: 500),
-                inputURLs: [inputA, inputB],
+                inputURLs: [inputABundle.bundleURL, inputBBundle.bundleURL],
                 outputMode: .groupedResult
             ),
             workingDirectory: groupedOutputDir
@@ -496,6 +522,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(result.importedURLs, [groupedURL])
         XCTAssertTrue(FileManager.default.fileExists(atPath: groupedURL.appendingPathComponent(FASTQBatchManifest.filename).path))
         XCTAssertTrue(importer.calls.isEmpty, "Grouped results should bypass direct import")
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(from: groupedURL))
 
         let manifest = try XCTUnwrap(FASTQBatchManifest.load(from: groupedURL))
         XCTAssertEqual(manifest.operations.count, 1)
@@ -508,6 +535,161 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             "../input-a.\(FASTQBundle.directoryExtension)",
             "../input-b.\(FASTQBundle.directoryExtension)",
         ])
+    }
+
+    func testExecuteGroupedResultRejectsRootSidecarWhenChildOutputsLackProvenance() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let groupedOutputDir = tempDir.appendingPathComponent("grouped-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: groupedOutputDir, withIntermediateDirectories: true)
+
+        let inputBundle = try FASTQOperationTestHelper.makeBundle(named: "input", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputBundle.fastqURL, readCount: 2, readLength: 20)
+
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "stale grouped root",
+                toolName: "lungfish gui",
+                argv: ["lungfish", "gui"],
+                output: ProvenanceFileDescriptor(path: groupedOutputDir.path, role: .output),
+                outputs: [ProvenanceFileDescriptor(path: groupedOutputDir.path, role: .output)],
+                exitStatus: 0
+            ),
+            to: groupedOutputDir
+        )
+
+        let resolver = SpyInputResolver(
+            resolvedRequest: .derivative(
+                request: .lengthFilter(min: 100, max: 500),
+                inputURLs: [inputBundle.bundleURL],
+                outputMode: .groupedResult
+            )
+        )
+        let runner = SpyCommandRunner { _, outputDirectory in
+            let outputBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBundle.fastqURL, readCount: 1, readLength: 20)
+            return FASTQCLIExecutionResult(outputURLs: [outputBundle.bundleURL])
+        }
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        do {
+            _ = try await service.execute(
+                request: .derivative(
+                    request: .lengthFilter(min: 100, max: 500),
+                    inputURLs: [inputBundle.bundleURL],
+                    outputMode: .groupedResult
+                ),
+                workingDirectory: groupedOutputDir
+            )
+            XCTFail("Expected grouped result execution to reject child outputs without provenance")
+        } catch let error as ProvenanceRehydrationError {
+            guard case .missingSourceProvenance = error else {
+                return XCTFail("Expected missing source provenance, got \(error)")
+            }
+        }
+    }
+
+    func testExecuteGroupedResultRefreshesStaleRootSidecarWhenChildrenHaveProvenance() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let groupedOutputDir = tempDir.appendingPathComponent("grouped-output", isDirectory: true)
+        try FileManager.default.createDirectory(at: groupedOutputDir, withIntermediateDirectories: true)
+
+        let inputBundle = try FASTQOperationTestHelper.makeBundle(named: "input", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputBundle.fastqURL, readCount: 2, readLength: 20)
+
+        let staleOutput = groupedOutputDir.appendingPathComponent("old.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: staleOutput, readCount: 1, readLength: 20)
+        try ProvenanceWriter(signingProvider: nil).write(
+            ProvenanceEnvelope(
+                workflowName: "stale grouped root",
+                toolName: "lungfish gui",
+                argv: ["lungfish", "gui"],
+                output: try ProvenanceFileDescriptor.file(url: staleOutput, role: .output),
+                outputs: [try ProvenanceFileDescriptor.file(url: staleOutput, role: .output)],
+                exitStatus: 0
+            ),
+            to: groupedOutputDir
+        )
+
+        let resolver = SpyInputResolver(
+            resolvedRequest: .derivative(
+                request: .lengthFilter(min: 100, max: 500),
+                inputURLs: [inputBundle.bundleURL],
+                outputMode: .groupedResult
+            )
+        )
+        let runner = SpyCommandRunner { _, outputDirectory in
+            let outputBundle = try FASTQOperationTestHelper.makeBundle(named: "filtered", in: outputDirectory)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputBundle.fastqURL, readCount: 1, readLength: 20)
+            try writeSyntheticProvenance(
+                to: outputBundle.bundleURL,
+                name: "lungfish fastq length-filter",
+                toolName: "seqkit",
+                toolVersion: "2.9.0",
+                command: ["seqkit", "seq", inputBundle.fastqURL.path, "-o", outputBundle.fastqURL.path],
+                inputURL: inputBundle.fastqURL,
+                outputURL: outputBundle.fastqURL
+            )
+            return FASTQCLIExecutionResult(outputURLs: [outputBundle.bundleURL])
+        }
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        _ = try await service.execute(
+            request: .derivative(
+                request: .lengthFilter(min: 100, max: 500),
+                inputURLs: [inputBundle.bundleURL],
+                outputMode: .groupedResult
+            ),
+            workingDirectory: groupedOutputDir
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: groupedOutputDir))
+        XCTAssertEqual(envelope.toolName, "lungfish gui grouped FASTQ operation")
+        XCTAssertTrue(envelope.outputs.contains { $0.path.hasSuffix("filtered.\(FASTQBundle.directoryExtension)/reads.fastq") })
+    }
+
+    func testExecuteTranslateDerivativeUsesFASTAOutputTarget() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputURL, readCount: 1, readLength: 12)
+
+        let runner = SpyCommandRunner { invocation, _ in
+            guard
+                let outputIndex = invocation.arguments.firstIndex(of: "-o"),
+                invocation.arguments.indices.contains(outputIndex + 1)
+            else {
+                XCTFail("Expected -o output path in translate invocation")
+                throw NSError(domain: "FASTQOperationExecutionServiceTests", code: 1)
+            }
+            let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+            XCTAssertEqual(outputURL.pathExtension.lowercased(), "fasta")
+            try ">read1\nMA\n".write(to: outputURL, atomically: true, encoding: .utf8)
+            return FASTQCLIExecutionResult(outputURLs: [outputURL])
+        }
+        let importer = SpyDirectImporter()
+        let service = FASTQOperationExecutionService(commandRunner: runner, directImporter: importer)
+
+        _ = try await service.execute(
+            request: .derivative(
+                request: .translate(frameOffset: 0),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            ),
+            workingDirectory: tempDir
+        )
+
+        XCTAssertEqual(importer.calls.first?.first?.pathExtension.lowercased(), "fasta")
     }
 
     func testBundleImporterWrapsRawFASTQOutputsIntoBundles() async throws {
@@ -629,6 +811,16 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             to: stagedFASTQ,
             readCount: 2,
             readLength: 14
+        )
+        try writeSyntheticProvenance(
+            to: tempDir,
+            name: "Deacon rRNA FASTQ filter",
+            toolName: "deacon",
+            toolVersion: "0.15.0",
+            command: ["deacon", "filter", sourceBundle.fastqURL.path, "-o", stagedFASTQ.path],
+            inputURL: sourceBundle.fastqURL,
+            outputURL: stagedFASTQ,
+            parameters: ["retain": .string("norrna")]
         )
 
         let destinationBundle = tempDir.appendingPathComponent(
@@ -846,8 +1038,8 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
-    func testAppFASTQOutputBundleWriterCreatesFallbackProvenanceForDerivativeBundles() async throws {
-        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportFallbackProvenance")
+    func testAppFASTQOutputBundleWriterRejectsDerivativeBundlesWithoutSourceProvenance() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportMissingProvenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
@@ -874,30 +1066,19 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             outputMode: .perInput
         )
 
-        let bundleURL = try await writer.importFASTQOutput(
-            sourceURL: stagedFASTQ,
-            bundleURL: destinationBundle,
-            originalRequest: request,
-            sourceInputURL: sourceBundle.bundleURL
-        )
-
-        let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
-        let bundledFASTQPath = bundledFASTQ.standardizedFileURL.path
-        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
-        let descriptor = try XCTUnwrap(envelope.output)
-        XCTAssertEqual(envelope.schemaVersion, 1)
-        XCTAssertEqual(envelope.workflowName, "lengthFilter FASTQ operation")
-        XCTAssertEqual(envelope.toolName, "lungfish-cli")
-        XCTAssertEqual(descriptor.path, bundledFASTQPath)
-        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: bundledFASTQ))
-        XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: bundledFASTQ))
-
-        let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
-        let step = try XCTUnwrap(provenance.steps.first)
-        XCTAssertEqual(step.toolName, "lungfish-cli")
-        XCTAssertTrue(step.command.joined(separator: " ").contains("length-filter"))
-        XCTAssertEqual(step.outputs.map(\.filename), [bundledFASTQ.lastPathComponent])
-        XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: bundledFASTQ))
+        do {
+            _ = try await writer.importFASTQOutput(
+                sourceURL: stagedFASTQ,
+                bundleURL: destinationBundle,
+                originalRequest: request,
+                sourceInputURL: sourceBundle.bundleURL
+            )
+            XCTFail("Derivative FASTQ import should fail when the staged CLI output has no provenance sidecar.")
+        } catch ProvenanceRehydrationError.missingSourceProvenance {
+            // Expected: GUI imports must preserve CLI provenance instead of synthesizing it.
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testBundleImporterWrapsRawFASTAOutputsIntoReferenceBundles() async throws {
@@ -943,6 +1124,96 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(referenceWrapper.calls.map(\.sourceURL), [stagedFASTA])
         XCTAssertEqual(referenceWrapper.calls.map(\.outputDirectory), [destinationDir])
         XCTAssertEqual(referenceWrapper.calls.map(\.preferredBundleName), ["source-deacon-ribo-rrna"])
+    }
+
+    func testBundleImporterRehydratesFileSpecificFASTAProvenanceIntoReferenceBundle() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportFASTAProvenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try makeReferenceBundle(
+            named: "source",
+            in: tempDir,
+            records: [
+                (id: "seq1", sequence: "AACCGGTTAACC"),
+            ]
+        )
+        let sourcePayloadURL = try XCTUnwrap(SequenceInputResolver.resolvePrimarySequenceURL(for: sourceBundle))
+        let stagingDir = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let destinationDir = tempDir.appendingPathComponent("results", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true)
+
+        let stagedFASTA = stagingDir.appendingPathComponent("filtered.rrna.fasta")
+        try ">seq1\nAACCGGTTAACC\n".write(to: stagedFASTA, atomically: true, encoding: .utf8)
+        let stagedSidecarURL = ProvenanceRecorder.fileSidecarURL(for: stagedFASTA)
+        try writeSyntheticProvenance(
+            to: stagingDir,
+            name: "Deacon rRNA FASTA filter",
+            toolName: "deacon",
+            toolVersion: "0.15.0",
+            command: ["deacon", "filter", sourcePayloadURL.path, "-o", stagedFASTA.path],
+            inputURL: sourcePayloadURL,
+            outputURL: stagedFASTA,
+            parameters: ["retain": .string("rrna")],
+            format: .fasta,
+            sidecarURL: stagedSidecarURL
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: stagingDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path)
+        )
+
+        let referenceWrapper = SpyReferenceBundleWrapper()
+        let importedReferenceBundle = try makeReferenceBundle(
+            named: "source-deacon-ribo-rrna",
+            in: destinationDir,
+            records: [
+                (id: "seq1", sequence: "AACCGGTTAACC"),
+            ]
+        )
+        let finalPayloadBeforeImport = try XCTUnwrap(
+            SequenceInputResolver.resolvePrimarySequenceURL(for: importedReferenceBundle)
+        )
+        try writeSyntheticProvenance(
+            to: importedReferenceBundle,
+            name: "Native reference bundle wrapping",
+            toolName: "native-bundle-builder",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "import", "reference", stagedFASTA.path],
+            inputURL: stagedFASTA,
+            outputURL: finalPayloadBeforeImport,
+            format: .fasta
+        )
+        referenceWrapper.resultURLs = [importedReferenceBundle]
+        let importer = BundleFASTQOperationImporter(
+            destinationDirectory: destinationDir,
+            referenceBundleWrapper: referenceWrapper
+        )
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .rRNA, ensure: .rrna),
+            inputURLs: [sourceBundle],
+            outputMode: .perInput
+        )
+
+        let imported = try await importer.importOutputs(
+            at: [stagedFASTA],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: stagingDir
+        )
+
+        let bundleURL = try XCTUnwrap(imported.first)
+        let finalPayloadURL = try XCTUnwrap(SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL))
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+        let descriptor = try XCTUnwrap(envelope.output)
+        XCTAssertEqual(envelope.workflowName, "Deacon rRNA FASTA filter")
+        XCTAssertEqual(envelope.toolName, "deacon")
+        XCTAssertEqual(envelope.toolVersion, "0.15.0")
+        XCTAssertEqual(descriptor.path, finalPayloadURL.path)
+        XCTAssertEqual(descriptor.originPath, stagedFASTA.path)
+        XCTAssertEqual(descriptor.sourceProvenancePath, stagedSidecarURL.path)
+        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: finalPayloadURL))
+        XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [finalPayloadURL.path])
+        XCTAssertEqual(envelope.steps.map(\.toolName), ["deacon", "native-bundle-builder"])
     }
 
     func testBundleImporterRefreshesDerivedManifestStatisticsFromQCSummary() async throws {
@@ -1981,12 +2252,14 @@ private func writeSyntheticProvenance(
     command: [String],
     inputURL: URL,
     outputURL: URL,
-    parameters: [String: ParameterValue] = [:]
+    parameters: [String: ParameterValue] = [:],
+    format: FileFormat = .fastq,
+    sidecarURL: URL? = nil
 ) throws {
     let startedAt = Date(timeIntervalSince1970: 1_800)
     let endedAt = Date(timeIntervalSince1970: 1_801.25)
-    let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
-    let output = try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output)
+    let input = try ProvenanceFileDescriptor.file(url: inputURL, format: format, role: .input)
+    let output = try ProvenanceFileDescriptor.file(url: outputURL, format: format, role: .output)
     let envelope = try ProvenanceRunBuilder(
         workflowName: name,
         workflowVersion: WorkflowRun.currentAppVersion,
@@ -1995,8 +2268,8 @@ private func writeSyntheticProvenance(
     )
     .argv(command)
     .options(explicit: parameters, defaults: [:], resolved: parameters)
-    .input(inputURL, format: .fastq, role: .input)
-    .output(outputURL, format: .fastq, role: .output)
+    .input(inputURL, format: format, role: .input)
+    .output(outputURL, format: format, role: .output)
     .step(
         ProvenanceStep(
             toolName: toolName,
@@ -2016,7 +2289,11 @@ private func writeSyntheticProvenance(
         startedAt: startedAt,
         endedAt: endedAt
     )
-    try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
+    if let sidecarURL {
+        try ProvenanceWriter(signingProvider: nil).write(envelope, toSidecar: sidecarURL)
+    } else {
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
+    }
 }
 
 private func writeSyntheticMultiOutputProvenance(

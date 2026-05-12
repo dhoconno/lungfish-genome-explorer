@@ -65,6 +65,7 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
         }
 
         let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
+        let startedAt = Date()
         let materializedURL = try await materializer.materialize(
             bundleURL: inputURL,
             tempDirectory: tempDirectory,
@@ -80,6 +81,49 @@ struct FastqMaterializeSubcommand: AsyncParsableCommand {
             }
             try FileManager.default.copyItem(at: materializedURL, to: outputURL)
         }
+        var cliArguments = ["materialize", inputURL.path, "--output", output.output]
+        if let tempDir {
+            cliArguments += ["--temp-dir", tempDir]
+        }
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let inputRecords = FASTQBundle.resolvePrimarySequenceURL(for: inputURL).map {
+            [ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input)]
+        } ?? []
+        var parameters: [String: ParameterValue] = [
+            "inputBundle": .file(inputURL),
+            "output": .file(outputURL),
+            "tempDir": tempDir.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+            "force": .boolean(output.force),
+            "compress": .boolean(output.compress)
+        ]
+        if let inputPayload = FASTQBundle.resolvePrimarySequenceURL(for: inputURL) {
+            parameters["inputPayload"] = .file(inputPayload)
+        }
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq materialize",
+            parameters: parameters,
+            defaults: [
+                "tempDir": .null,
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            toolName: "lungfish fastq materialize",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            inputs: inputRecords,
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputURL.deletingLastPathComponent()
+        )
         FileHandle.standardError.write(Data("Materialized to \(output.output)\n".utf8))
     }
 }

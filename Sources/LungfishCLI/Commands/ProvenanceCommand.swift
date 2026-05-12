@@ -14,26 +14,61 @@ struct ProvenanceCommand: AsyncParsableCommand {
     )
 
     static func resolveProvenanceURL(_ url: URL) throws -> URL {
+        try resolveProvenanceSource(url).sidecarURL
+    }
+
+    static func resolveProvenanceSource(_ url: URL) throws -> (sidecarURL: URL, envelope: ProvenanceEnvelope) {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
             throw CLIError.inputFileNotFound(path: url.path)
         }
-        guard isDirectory.boolValue else { return url }
-
-        let candidates = [
-            url.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            url.appendingPathComponent("bundle.lungfish-provenance.json"),
-            url
-                .appendingPathComponent("provenance", isDirectory: true)
-                .appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            url
-                .appendingPathComponent("provenance", isDirectory: true)
-                .appendingPathComponent("bundle.lungfish-provenance.json"),
-        ]
-        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
-            return candidate
+        guard isDirectory.boolValue else {
+            if let envelope = ProvenanceRecorder.loadEnvelope(fromSidecar: url) {
+                return (url, envelope)
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+                return resolved
+            }
+            throw CLIError.inputFileNotFound(path: ProvenanceRecorder.fileSidecarURL(for: url).path)
         }
-        throw CLIError.inputFileNotFound(path: candidates[0].path)
+
+        if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+            return resolved
+        }
+        throw CLIError.inputFileNotFound(
+            path: url.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+        )
+    }
+
+    static func resolveVerifiableURL(
+        _ url: URL,
+        signatureURL: URL? = nil,
+        publicKeyURL: URL? = nil
+    ) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: url.path)
+        }
+        guard !isDirectory.boolValue else {
+            return try resolveProvenanceURL(url)
+        }
+        if isProvenanceSidecarURL(url)
+            || signatureURL != nil
+            || publicKeyURL != nil
+            || hasDefaultSigningArtifacts(for: url) {
+            return url
+        }
+        return try resolveProvenanceURL(url)
+    }
+
+    private static func isProvenanceSidecarURL(_ url: URL) -> Bool {
+        url.lastPathComponent == ProvenanceRecorder.provenanceFilename
+            || url.lastPathComponent.hasSuffix(".lungfish-provenance.json")
+    }
+
+    private static func hasDefaultSigningArtifacts(for url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: url).path)
+            && FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: url).path)
     }
 
     struct VerifySubcommand: AsyncParsableCommand {
@@ -52,12 +87,18 @@ struct ProvenanceCommand: AsyncParsableCommand {
         var publicKey: String?
 
         func run() async throws {
-            let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(URL(fileURLWithPath: file))
+            let signatureURL = signature.map { URL(fileURLWithPath: $0) }
+            let publicKeyURL = publicKey.map { URL(fileURLWithPath: $0) }
+            let provenanceURL = try ProvenanceCommand.resolveVerifiableURL(
+                URL(fileURLWithPath: file),
+                signatureURL: signatureURL,
+                publicKeyURL: publicKeyURL
+            )
             do {
                 let result = try ProvenanceSignatureVerifier.verify(
                     provenanceURL: provenanceURL,
-                    signatureURL: signature.map { URL(fileURLWithPath: $0) },
-                    publicKeyURL: publicKey.map { URL(fileURLWithPath: $0) }
+                    signatureURL: signatureURL,
+                    publicKeyURL: publicKeyURL
                 )
                 print("Signature valid")
                 print("Provider: \(result.provider)")
@@ -81,7 +122,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
 
         @Option(
             name: [.customLong("format"), .customLong("export-format"), .customShort("f")],
-            help: "Export format: shell, nextflow, snakemake, methods, json"
+            help: "Export format: shell, python, nextflow, snakemake, methods, json"
         )
         var exportFormat: String
 
@@ -92,8 +133,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
             let inputURL = URL(fileURLWithPath: input)
             let outputURL = URL(fileURLWithPath: output)
             do {
-                let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(inputURL)
-                let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
+                let provenanceSource = try ProvenanceCommand.resolveProvenanceSource(inputURL)
                 let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
                 let fallbackArgv = [
                     "lungfish", "provenance", "export",
@@ -106,10 +146,10 @@ struct ProvenanceCommand: AsyncParsableCommand {
                     fallback: fallbackArgv
                 )
                 let bundle = try ProvenanceExporter().exportBundle(
-                    envelope,
+                    provenanceSource.envelope,
                     format: selectedExportFormat,
                     to: outputURL,
-                    sourceSidecarURL: provenanceURL,
+                    sourceSidecarURL: provenanceSource.sidecarURL,
                     sourceRootURL: inputURL,
                     exportArgv: exportArgv
                 )

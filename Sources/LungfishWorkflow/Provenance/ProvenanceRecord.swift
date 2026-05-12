@@ -459,7 +459,7 @@ extension ProvenanceEnvelope {
                     toolVersion: toolVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
-                    command: argv,
+                    command: legacyCommand(argv: argv, reproducibleCommand: reproducibleCommand),
                     inputs: files.filter { $0.role == .input }.map(FileRecord.init(provenanceFile:)),
                     outputs: fallbackOutputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: exitStatus.map(Int32.init),
@@ -477,7 +477,7 @@ extension ProvenanceEnvelope {
                     toolVersion: step.toolVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
-                    command: step.argv,
+                    command: legacyCommand(argv: step.argv, reproducibleCommand: step.reproducibleCommand),
                     inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
                     outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: step.exitStatus.map(Int32.init),
@@ -529,6 +529,17 @@ extension ProvenanceEnvelope {
         }
 
         return descriptors
+    }
+
+    private func legacyCommand(argv: [String], reproducibleCommand: String) -> [String] {
+        if !argv.isEmpty {
+            return argv
+        }
+        let trimmedCommand = reproducibleCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else {
+            return []
+        }
+        return ["/bin/sh", "-lc", trimmedCommand]
     }
 }
 

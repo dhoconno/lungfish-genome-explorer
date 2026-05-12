@@ -497,6 +497,61 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         commandInvocations.map(\.commandLine)
     }
 
+    public func canonicalEnvelope(sourceDirectory: URL) -> ProvenanceEnvelope {
+        let sourceDirectory = sourceDirectory.standardizedFileURL
+        let inputRecords = canonicalInputRecords(relativeTo: sourceDirectory)
+        let outputRecords = canonicalOutputRecords(relativeTo: sourceDirectory)
+        let stepExecutions = canonicalStepExecutions(
+            inputs: inputRecords,
+            outputs: outputRecords,
+            recordedAt: recordedAt
+        )
+        let allFiles = inputRecords + outputRecords
+        let allOutputs = outputRecords.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let primaryOutput = allOutputs.first { $0.role == .output && $0.format == .bam }
+            ?? allOutputs.first { $0.role == .output }
+            ?? allOutputs.first
+
+        return ProvenanceEnvelope(
+            createdAt: recordedAt.addingTimeInterval(-max(0, wallClockSeconds)),
+            workflowName: workflowName,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: mapper.rawValue,
+            toolVersion: ProvenanceVersion.required(mapperVersion),
+            tool: ProvenanceToolIdentity(name: mapper.rawValue, version: ProvenanceVersion.required(mapperVersion), kind: "cli"),
+            argv: mapperInvocation.argv,
+            options: ProvenanceOptions(explicit: canonicalParameters()),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: WorkflowRun.currentAppVersion,
+                executablePath: mapperInvocation.argv.first ?? mapper.rawValue,
+                operatingSystemVersion: WorkflowRun.currentHostOS,
+                condaEnvironment: mapper.rawValue
+            ),
+            files: allFiles.map { ProvenanceFileDescriptor(fileRecord: $0) },
+            output: primaryOutput,
+            outputs: allOutputs,
+            steps: stepExecutions.map(ProvenanceStep.init(stepExecution:)),
+            wallTimeSeconds: wallClockSeconds,
+            exitStatus: exitStatus.map(Int.init) ?? 0,
+            stderr: stderr,
+            legacyWorkflowRun: WorkflowRun(
+                name: workflowName,
+                startTime: recordedAt.addingTimeInterval(-max(0, wallClockSeconds)),
+                endTime: recordedAt,
+                status: (exitStatus ?? 0) == 0 ? .completed : .failed,
+                appVersion: WorkflowRun.currentAppVersion,
+                hostOS: WorkflowRun.currentHostOS,
+                runtime: WorkflowRuntime(
+                    appVersion: WorkflowRun.currentAppVersion,
+                    hostOS: WorkflowRun.currentHostOS,
+                    user: WorkflowRun.currentUser
+                ),
+                steps: stepExecutions,
+                parameters: canonicalParameters()
+            )
+        )
+    }
+
     private var inputFASTQURLs: [URL] {
         inputFASTQPaths.map { URL(fileURLWithPath: $0) }
     }
@@ -563,6 +618,138 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             return URL(fileURLWithPath: path).standardizedFileURL.path
         }
         return directory.appendingPathComponent(path).standardizedFileURL.path
+    }
+
+    private func canonicalInputRecords(relativeTo directory: URL) -> [FileRecord] {
+        if !inputFiles.isEmpty {
+            return inputFiles.map { Self.resolvedRecord($0, relativeTo: directory) }
+        }
+
+        var records = inputFASTQPaths.map { path in
+            FileRecord(
+                path: Self.resolvedPath(for: path, relativeTo: directory),
+                format: .fastq,
+                role: .input
+            )
+        }
+        records.append(
+            FileRecord(
+                path: Self.resolvedPath(for: referenceFASTAPath, relativeTo: directory),
+                format: .fasta,
+                role: .reference
+            )
+        )
+        return records
+    }
+
+    private func canonicalOutputRecords(relativeTo directory: URL) -> [FileRecord] {
+        var records = outputFiles.map { Self.resolvedRecord($0, relativeTo: directory) }
+        if let viewerBundlePath {
+            let viewerBundleRecord = FileRecord(
+                path: Self.resolvedPath(for: viewerBundlePath, relativeTo: directory),
+                role: .output
+            )
+            if !records.contains(where: { $0.path == viewerBundleRecord.path }) {
+                records.append(viewerBundleRecord)
+            }
+        }
+        return records
+    }
+
+    private func canonicalStepExecutions(
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        recordedAt: Date
+    ) -> [StepExecution] {
+        if !steps.isEmpty {
+            var retainedSteps = steps
+            guard !outputs.isEmpty else { return retainedSteps }
+            let finalStepIndex = retainedSteps.index(before: retainedSteps.endIndex)
+            var seenOutputs = Set(retainedSteps[finalStepIndex].outputs.map(\.path))
+            let missingOutputs = outputs.filter { seenOutputs.insert($0.path).inserted }
+            retainedSteps[finalStepIndex].outputs.append(contentsOf: missingOutputs)
+            return retainedSteps
+        }
+
+        let invocations = commandInvocations
+        guard !invocations.isEmpty else {
+            return [
+                StepExecution(
+                    toolName: mapper.rawValue,
+                    toolVersion: ProvenanceVersion.required(mapperVersion),
+                    command: mapperInvocation.argv,
+                    inputs: inputs,
+                    outputs: outputs,
+                    exitCode: exitStatus,
+                    wallTime: wallClockSeconds,
+                    stderr: stderr,
+                    startTime: recordedAt.addingTimeInterval(-max(0, wallClockSeconds)),
+                    endTime: recordedAt
+                )
+            ]
+        }
+
+        return invocations.enumerated().map { index, invocation in
+            let isFirst = index == invocations.startIndex
+            let isLast = index == invocations.index(before: invocations.endIndex)
+            return StepExecution(
+                toolName: Self.toolName(for: invocation),
+                toolVersion: toolVersion(for: invocation),
+                command: invocation.argv,
+                inputs: isFirst ? inputs : [],
+                outputs: isLast ? outputs : [],
+                exitCode: isLast ? exitStatus : 0,
+                wallTime: isLast ? wallClockSeconds : nil,
+                stderr: isLast ? stderr : nil,
+                startTime: recordedAt.addingTimeInterval(-max(0, wallClockSeconds)),
+                endTime: isLast ? recordedAt : nil
+            )
+        }
+    }
+
+    private func canonicalParameters() -> [String: ParameterValue] {
+        [
+            "mapper": .string(mapper.rawValue),
+            "modeID": .string(modeID),
+            "sampleName": .string(sampleName),
+            "pairedEnd": .boolean(pairedEnd),
+            "threads": .integer(threads),
+            "minimumMappingQuality": .integer(minimumMappingQuality),
+            "includeSecondary": .boolean(includeSecondary),
+            "includeSupplementary": .boolean(includeSupplementary),
+            "advancedArguments": .array(advancedArguments.map(ParameterValue.string)),
+            "readClassHints": .array(readClassHints.map(ParameterValue.string)),
+            "mapperRuntime": .string(runtimeIdentity["mapper"] ?? ""),
+            "samtoolsRuntime": .string(runtimeIdentity["samtools"] ?? "")
+        ]
+    }
+
+    private static func resolvedRecord(_ record: FileRecord, relativeTo directory: URL) -> FileRecord {
+        FileRecord(
+            path: resolvedPath(for: record.path, relativeTo: directory),
+            sha256: record.sha256,
+            sizeBytes: record.sizeBytes,
+            format: record.format,
+            role: record.role
+        )
+    }
+
+    private static func toolName(for invocation: MappingCommandInvocation) -> String {
+        if let executable = invocation.argv.first, !executable.isEmpty {
+            return URL(fileURLWithPath: executable).lastPathComponent
+        }
+        return invocation.label.split(separator: " ").first.map(String.init) ?? invocation.label
+    }
+
+    private func toolVersion(for invocation: MappingCommandInvocation) -> String {
+        let name = Self.toolName(for: invocation).lowercased()
+        if name == "samtools" || invocation.label.lowercased().hasPrefix("samtools") {
+            return ProvenanceVersion.required(samtoolsVersion)
+        }
+        if name == mapper.rawValue || invocation.label.lowercased().contains(mapper.rawValue.lowercased()) {
+            return ProvenanceVersion.required(mapperVersion)
+        }
+        return "unknown"
     }
 
 }

@@ -188,14 +188,27 @@ struct SearchCommand: AsyncParsableCommand {
                     "forwardOnly": .boolean(forwardOnly),
                     "caseSensitive": .boolean(caseSensitive),
                     "sequenceCount": .integer(sequences.count),
-                    "matchCount": .integer(allMatches.count),
-                    "resolvedDefaults": .dictionary([
-                        "useRegex": .boolean(false),
-                        "useIUPAC": .boolean(false),
-                        "maxMismatches": .integer(0),
-                        "forwardOnly": .boolean(false),
-                        "caseSensitive": .boolean(false)
-                    ])
+                    "matchCount": .integer(allMatches.count)
+                ],
+                defaults: [
+                    "useRegex": .boolean(false),
+                    "useIUPAC": .boolean(false),
+                    "maxMismatches": .integer(0),
+                    "forwardOnly": .boolean(false),
+                    "caseSensitive": .boolean(false)
+                ],
+                resolved: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "pattern": .string(pattern),
+                    "patternType": .string(useRegex ? "regex" : (useIUPAC ? "iupac" : "exact")),
+                    "useRegex": .boolean(useRegex),
+                    "useIUPAC": .boolean(useIUPAC),
+                    "maxMismatches": .integer(maxMismatches),
+                    "forwardOnly": .boolean(forwardOnly),
+                    "caseSensitive": .boolean(caseSensitive),
+                    "sequenceCount": .integer(sequences.count),
+                    "matchCount": .integer(allMatches.count)
                 ],
                 toolName: "lungfish search",
                 toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",

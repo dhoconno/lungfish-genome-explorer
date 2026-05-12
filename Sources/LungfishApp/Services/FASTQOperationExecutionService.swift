@@ -156,6 +156,13 @@ struct FASTQOperationExecutionService {
                 outputURLs: outputURLs,
                 outputDirectory: outputDirectory
             )
+            try ensureGroupedResultProvenance(
+                originalRequest: request,
+                resolvedRequest: resolvedRequest,
+                invocations: invocations,
+                outputURLs: outputURLs,
+                outputDirectory: outputDirectory
+            )
             return FASTQOperationExecutionResult(
                 resolvedRequest: resolvedRequest,
                 executedInvocations: invocations,
@@ -336,6 +343,9 @@ struct FASTQOperationExecutionService {
     private func defaultFASTQOutputFilename(for request: FASTQOperationLaunchRequest) -> String {
         switch request {
         case .derivative(let derivativeRequest, _, _):
+            if case .translate = derivativeRequest {
+                return "\(derivativeRequest.operationKindString).fasta"
+            }
             return "\(derivativeRequest.operationKindString).fastq"
         default:
             return "output.fastq"
@@ -388,6 +398,162 @@ struct FASTQOperationExecutionService {
             inputBundlePaths: originalRequest.inputURLs.compactMap { Self.relativePath(from: outputDirectory, to: $0) }
         )
         try FASTQBatchManifest.appendOperation(record, to: outputDirectory)
+    }
+
+    private func ensureGroupedResultProvenance(
+        originalRequest: FASTQOperationLaunchRequest,
+        resolvedRequest: FASTQOperationLaunchRequest,
+        invocations: [CLIInvocation],
+        outputURLs: [URL],
+        outputDirectory: URL
+    ) throws {
+        let existingEnvelope = ProvenanceRecorder.loadEnvelope(from: outputDirectory)
+
+        let missingProvenance = outputURLs.filter { !hasDiscoverableProvenance(forGroupedOutput: $0) }
+        guard missingProvenance.isEmpty else {
+            throw ProvenanceRehydrationError.missingSourceProvenance(
+                "Missing provenance for grouped outputs: \(missingProvenance.map(\.path).joined(separator: ", "))"
+            )
+        }
+
+        let outputPayloadURLs = uniqueExistingRegularPayloadURLs(from: outputURLs)
+        guard !outputPayloadURLs.isEmpty else {
+            throw ProvenanceRehydrationError.missingSourceProvenance(
+                "No regular scientific payload files were discovered for grouped output \(outputDirectory.path)."
+            )
+        }
+
+        if let existingEnvelope,
+           groupedEnvelope(existingEnvelope, matches: outputPayloadURLs) {
+            return
+        }
+
+        let inputPayloadURLs = uniqueExistingRegularPayloadURLs(from: originalRequest.provenanceInputURLs)
+        let inputDescriptors = try inputPayloadURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, role: .input)
+        }
+        let outputDescriptors = try outputPayloadURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, role: .output)
+        }
+        let commandLines = invocations.map { invocation in
+            ["lungfish", invocation.subcommand] + invocation.arguments
+        }
+        let argv = commandLines.count == 1
+            ? (commandLines.first ?? ["lungfish", "fastq"])
+            : ["lungfish", "gui", "fastq-grouped-result", "--operation", resolvedRequest.batchManifestOperationKind]
+        let reproducibleCommand = commandLines
+            .map { $0.map(shellEscape).joined(separator: " ") }
+            .joined(separator: " && ")
+        var parameters = Dictionary(
+            uniqueKeysWithValues: resolvedRequest.batchManifestParameters.map { key, value in
+                (key, ParameterValue.string(value))
+            }
+        )
+        parameters["operationKind"] = .string(resolvedRequest.batchManifestOperationKind)
+        parameters["outputDirectory"] = .file(outputDirectory)
+        parameters["outputMode"] = .string(FASTQOperationOutputMode.groupedResult.rawValue)
+        parameters["outputCount"] = .integer(outputURLs.count)
+
+        let step = ProvenanceStep(
+            toolName: "lungfish gui grouped FASTQ operation",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            reproducibleCommand: reproducibleCommand,
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: 0
+        )
+        let now = Date()
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "\(resolvedRequest.batchManifestOperationKind) grouped FASTQ operation",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "lungfish gui grouped FASTQ operation",
+            toolVersion: WorkflowRun.currentAppVersion
+        )
+        .argv(argv)
+        .reproducibleCommand(reproducibleCommand)
+        .options(explicit: parameters, defaults: [:], resolved: parameters)
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(step)
+        .complete(exitStatus: 0, startedAt: now, endedAt: now)
+
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: outputDirectory)
+    }
+
+    private func groupedEnvelope(_ envelope: ProvenanceEnvelope, matches outputPayloadURLs: [URL]) -> Bool {
+        let expectedPaths = Set(outputPayloadURLs.map { $0.standardizedFileURL.path })
+        let recordedPaths = Set((
+            (envelope.output.map { [$0.path] } ?? [])
+                + envelope.outputs.map(\.path)
+                + envelope.steps.flatMap { $0.outputs.map(\.path) }
+        ).map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        return expectedPaths.isSubset(of: recordedPaths)
+    }
+
+    private func hasDiscoverableProvenance(forGroupedOutput outputURL: URL) -> Bool {
+        if ProvenanceRecorder.loadEnvelope(from: outputURL) != nil {
+            return true
+        }
+        if isDirectory(outputURL) {
+            if let primaryURL = SequenceInputResolver.resolvePrimarySequenceURL(for: outputURL),
+               let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: primaryURL),
+               provenanceSidecar(resolved.sidecarURL, isLocalTo: outputURL) {
+                return true
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: outputURL) {
+                return provenanceSidecar(resolved.sidecarURL, isLocalTo: outputURL)
+            }
+            return false
+        }
+        return ProvenanceRecorder.findProvenance(forFile: outputURL) != nil
+    }
+
+    private func provenanceSidecar(_ sidecarURL: URL, isLocalTo outputURL: URL) -> Bool {
+        let sidecarPath = sidecarURL.standardizedFileURL.path
+        let outputPath = outputURL.standardizedFileURL.path
+        return sidecarPath == outputPath
+            || sidecarPath.hasPrefix(outputPath + "/")
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    private func uniqueExistingRegularPayloadURLs(from urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        return urls
+            .flatMap(regularPayloadURLs)
+            .filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    private func regularPayloadURLs(for url: URL) -> [URL] {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return []
+        }
+        if !isDirectory.boolValue {
+            return [url]
+        }
+        if let primaryURL = SequenceInputResolver.resolvePrimarySequenceURL(for: url) {
+            return [primaryURL]
+        }
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+        return enumerator.compactMap { item -> URL? in
+            guard let fileURL = item as? URL,
+                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  !fileURL.lastPathComponent.hasSuffix(".lungfish-provenance.json") else {
+                return nil
+            }
+            return fileURL
+        }
     }
 
     private func buildExecutionInvocation(
@@ -1443,46 +1609,14 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         sourceInputURL: URL?,
         operation: FASTQDerivativeOperation
     ) async throws {
-        do {
-            _ = try ProvenanceRehydrator.rehydrateSelectedOutputs(
-                sourceDirectory: sourceURL.deletingLastPathComponent(),
-                finalDirectory: bundleURL,
-                pathMap: [sourceURL.path: outputFASTQ.path]
-            )
-            return
-        } catch ProvenanceRehydrationError.missingSourceProvenance {
-            // Fall through to app-native provenance for operations without CLI sidecars.
-        }
-
-        let parameters = fallbackProvenanceParameters(
-            for: outputFASTQ,
-            bundleURL: bundleURL,
-            sourceURL: sourceURL,
-            sourceInputURL: sourceInputURL,
-            originalRequest: originalRequest,
-            operation: operation
+        _ = originalRequest
+        _ = sourceInputURL
+        _ = operation
+        _ = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceURL.deletingLastPathComponent(),
+            finalDirectory: bundleURL,
+            pathMap: [sourceURL.path: outputFASTQ.path]
         )
-        let argv = fallbackProvenanceCommand(for: operation)
-        let startedAt = Date()
-        let inputURL = primaryInputForProvenance(sourceInputURL: sourceInputURL, sourceURL: sourceURL)
-
-        let envelope = try ProvenanceRunBuilder(
-            workflowName: "\(operation.kind.rawValue) FASTQ operation",
-            workflowVersion: WorkflowRun.currentAppVersion,
-            toolName: operation.toolUsed ?? "lungfish-cli",
-            toolVersion: operation.toolVersion ?? "unknown"
-        )
-        .argv(argv)
-        .options(explicit: parameters, defaults: [:], resolved: parameters)
-        .input(inputURL, format: .fastq, role: .input)
-        .output(outputFASTQ, format: .fastq, role: .output)
-        .runtime(ProvenanceRuntimeIdentity())
-        .complete(
-            exitStatus: 0,
-            startedAt: startedAt,
-            endedAt: startedAt
-        )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 
     private func fallbackProvenanceParameters(
@@ -1654,6 +1788,10 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
                     outputDirectory: destinationDirectory,
                     preferredBundleName: bundleBaseName
                 )
+                try rehydrateReferenceBundleProvenance(
+                    sourceURL: outputURL,
+                    referenceBundleURL: referenceBundleURL
+                )
                 importedBundleURLs.append(referenceBundleURL)
                 continue
             }
@@ -1675,6 +1813,62 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         }
 
         return importedBundleURLs
+    }
+
+    private func rehydrateReferenceBundleProvenance(
+        sourceURL: URL,
+        referenceBundleURL: URL
+    ) throws {
+        guard let finalPayloadURL = SequenceInputResolver.resolvePrimarySequenceURL(for: referenceBundleURL) else {
+            return
+        }
+
+        let wrappingEnvelope = ProvenanceRecorder.loadEnvelope(from: referenceBundleURL)
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceURL.deletingLastPathComponent(),
+            finalDirectory: referenceBundleURL,
+            pathMap: [sourceURL.path: finalPayloadURL.path]
+        )
+        guard let wrappingEnvelope else { return }
+        let merged = ProvenanceEnvelope(
+            schemaVersion: rehydrated.schemaVersion,
+            id: rehydrated.id,
+            createdAt: rehydrated.createdAt,
+            workflowName: rehydrated.workflowName,
+            workflowVersion: rehydrated.workflowVersion,
+            toolName: rehydrated.toolName,
+            toolVersion: rehydrated.toolVersion,
+            tool: rehydrated.tool,
+            argv: rehydrated.argv,
+            reproducibleCommand: rehydrated.reproducibleCommand,
+            options: rehydrated.options,
+            runtimeIdentity: rehydrated.runtimeIdentity,
+            files: mergedProvenanceFiles(rehydrated.files, wrappingEnvelope.files),
+            output: rehydrated.output,
+            outputs: rehydrated.outputs,
+            steps: rehydrated.steps + wrappingEnvelope.steps,
+            wallTimeSeconds: rehydrated.wallTimeSeconds,
+            exitStatus: rehydrated.exitStatus,
+            stderr: rehydrated.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(merged, to: referenceBundleURL)
+    }
+
+    private func mergedProvenanceFiles(
+        _ primary: [ProvenanceFileDescriptor],
+        _ additional: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var merged: [ProvenanceFileDescriptor] = []
+        for descriptor in primary + additional {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                merged.append(descriptor)
+            }
+        }
+        return merged
     }
 
     private func bundleNameStem(
@@ -1818,6 +2012,24 @@ private extension FASTQOperationLaunchRequest {
         case .classify(_, let inputURLs, _, _):
             return inputURLs
         }
+    }
+
+    var provenanceInputURLs: [URL] {
+        var urls = inputURLs
+        switch self {
+        case .derivative(let request, _, _):
+            urls.append(contentsOf: request.provenanceInputURLs)
+        case .map(_, let referenceURL, _):
+            urls.append(referenceURL)
+        case .classify(_, _, let databaseName, _):
+            let databaseURL = URL(fileURLWithPath: databaseName)
+            if FileManager.default.fileExists(atPath: databaseURL.path) {
+                urls.append(databaseURL)
+            }
+        default:
+            break
+        }
+        return urls
     }
 
     var primaryInputURL: URL? {
@@ -1982,6 +2194,25 @@ private extension AssemblyRunRequest {
 }
 
 private extension FASTQDerivativeRequest {
+    var provenanceInputURLs: [URL] {
+        switch self {
+        case .contaminantFilter(_, let referenceFasta, _, _):
+            return referenceFasta.map { [URL(fileURLWithPath: $0)] } ?? []
+        case .primerRemoval(let configuration):
+            guard configuration.source == .reference,
+                  let referenceFasta = configuration.referenceFasta else {
+                return []
+            }
+            return [URL(fileURLWithPath: referenceFasta)]
+        case .sequencePresenceFilter(_, let fastaPath, _, _, _, _, _):
+            return fastaPath.map { [URL(fileURLWithPath: $0)] } ?? []
+        case .orient(let referenceURL, _, _, _, _):
+            return [referenceURL]
+        default:
+            return []
+        }
+    }
+
     var isDemultiplexRequest: Bool {
         if case .demultiplex = self {
             return true

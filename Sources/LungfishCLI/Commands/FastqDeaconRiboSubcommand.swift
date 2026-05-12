@@ -284,9 +284,7 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
         }()
         let inputRecords = inputURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: fileFormat, role: .input)
-        } + [
-            ProvenanceRecorder.fileRecord(url: databaseURL, format: .unknown, role: .index),
-        ]
+        } + provenanceRecords(for: databaseURL, role: .reference)
 
         for invocation in invocations {
             await ProvenanceRecorder.shared.recordStep(
@@ -310,6 +308,12 @@ struct FastqDeaconRiboSubcommand: AsyncParsableCommand {
 
         await ProvenanceRecorder.shared.completeRun(runID, status: status)
         try await ProvenanceRecorder.shared.save(runID: runID, to: outputDirectoryURL)
+        guard let envelope = ProvenanceRecorder.loadEnvelope(from: outputDirectoryURL) else { return }
+        let writer = ProvenanceWriter(signingProvider: nil)
+        for outputURL in invocations.flatMap(\.outputs) where FileManager.default.fileExists(atPath: outputURL.path) {
+            let output = ProvenanceFileDescriptor(fileRecord: ProvenanceRecorder.fileRecord(url: outputURL, format: fileFormat, role: .output))
+            try writer.write(envelope.focusedOnOutput(output), toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        }
     }
 
     private func validateInputs(_ inputPaths: [String]) throws -> [URL] {
