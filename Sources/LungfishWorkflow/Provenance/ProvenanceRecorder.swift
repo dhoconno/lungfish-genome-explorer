@@ -5,7 +5,6 @@
 import Foundation
 import os.log
 import LungfishCore
-import CryptoKit
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProvenanceRecorder")
 
@@ -268,49 +267,8 @@ public actor ProvenanceRecorder {
     // MARK: - Checksum Helpers
 
     /// Computes SHA-256 checksum of a file.
-    ///
-    /// For files larger than 100 MB, only the first and last 50 MB are hashed
-    /// (with the file size mixed in) to avoid blocking on multi-GB genomes.
     public static func sha256(of url: URL) -> String? {
-        guard let fileHandle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? fileHandle.close() }
-
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = (attributes?[.size] as? UInt64) ?? 0
-        let threshold: UInt64 = 100 * 1024 * 1024 // 100 MB
-
-        if fileSize <= threshold {
-            // Hash the entire file in chunks
-            var hasher = SHA256()
-            while autoreleasepool(invoking: {
-                let chunk = fileHandle.readData(ofLength: 1_048_576) // 1 MB
-                if chunk.isEmpty { return false }
-                hasher.update(data: chunk)
-                return true
-            }) {}
-            let digest = hasher.finalize()
-            return digest.map { String(format: "%02x", $0) }.joined()
-        } else {
-            // Partial hash for large files: first 50 MB + size + last 50 MB
-            var hasher = SHA256()
-            let partialSize = 50 * 1024 * 1024
-
-            // First 50 MB
-            let head = fileHandle.readData(ofLength: partialSize)
-            hasher.update(data: head)
-
-            // Mix in file size
-            var size = fileSize
-            withUnsafeBytes(of: &size) { hasher.update(bufferPointer: $0) }
-
-            // Last 50 MB
-            fileHandle.seek(toFileOffset: fileSize - UInt64(partialSize))
-            let tail = fileHandle.readData(ofLength: partialSize)
-            hasher.update(data: tail)
-
-            let digest = hasher.finalize()
-            return "partial:" + digest.map { String(format: "%02x", $0) }.joined()
-        }
+        try? ProvenanceFileHasher.sha256(of: url)
     }
 
     /// Creates a FileRecord with computed checksum and size.

@@ -403,6 +403,36 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         try container.encodeIfPresent(originPath, forKey: .originPath)
         try container.encodeIfPresent(sourceProvenancePath, forKey: .sourceProvenancePath)
     }
+
+    public static func file(
+        url: URL,
+        format: FileFormat? = nil,
+        role: FileRole = .input,
+        originPath: String? = nil,
+        sourceProvenancePath: String? = nil
+    ) throws -> ProvenanceFileDescriptor {
+        try ProvenanceFileDescriptor(
+            path: url.path,
+            checksumSHA256: ProvenanceFileHasher.sha256(of: url),
+            fileSize: ProvenanceFileHasher.fileSize(of: url),
+            format: format,
+            role: role,
+            originPath: originPath,
+            sourceProvenancePath: sourceProvenancePath
+        )
+    }
+}
+
+// MARK: - ProvenanceDirectoryManifest
+
+public struct ProvenanceDirectoryManifest: Codable, Sendable, Equatable {
+    public let rootPath: String
+    public let files: [ProvenanceFileDescriptor]
+
+    public init(rootPath: String, files: [ProvenanceFileDescriptor]) {
+        self.rootPath = rootPath
+        self.files = files
+    }
 }
 
 // MARK: - ProvenanceStep
