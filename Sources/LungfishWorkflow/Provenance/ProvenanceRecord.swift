@@ -476,11 +476,11 @@ extension ProvenanceEnvelope {
             startTime: legacySteps.first?.startTime ?? createdAt,
             endTime: legacySteps.compactMap(\.endTime).max() ?? completedAtFromWallTime,
             status: legacyStatus,
-            appVersion: runtimeIdentity.appVersion ?? WorkflowRun.currentAppVersion,
-            hostOS: runtimeIdentity.operatingSystemVersion ?? WorkflowRun.currentHostOS,
+            appVersion: runtimeIdentity.appVersion,
+            hostOS: runtimeIdentity.operatingSystemVersion,
             runtime: WorkflowRuntime(
-                appVersion: runtimeIdentity.appVersion ?? WorkflowRun.currentAppVersion,
-                hostOS: runtimeIdentity.operatingSystemVersion ?? WorkflowRun.currentHostOS,
+                appVersion: runtimeIdentity.appVersion,
+                hostOS: runtimeIdentity.operatingSystemVersion,
                 user: runtimeIdentity.user
             ),
             steps: legacySteps,

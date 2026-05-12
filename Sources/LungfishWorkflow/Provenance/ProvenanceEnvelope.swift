@@ -31,6 +31,12 @@ enum ProvenanceVersion {
     }
 }
 
+private struct RawProvenanceToolIdentity: Decodable {
+    let name: String
+    let version: String?
+    let kind: String?
+}
+
 // MARK: - ProvenanceEnvelope
 
 public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
@@ -137,9 +143,20 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             fallback: WorkflowRun.currentAppVersion
         )
         toolName = try container.decode(String.self, forKey: .toolName)
-        toolVersion = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .toolVersion))
-        let decodedTool = try container.decodeIfPresent(ProvenanceToolIdentity.self, forKey: .tool)
-        tool = decodedTool ?? ProvenanceToolIdentity(name: toolName, version: toolVersion)
+        let decodedTool = try container.decodeIfPresent(RawProvenanceToolIdentity.self, forKey: .tool)
+        toolVersion = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .toolVersion),
+            fallback: decodedTool?.version ?? "unknown"
+        )
+        if let decodedTool {
+            tool = ProvenanceToolIdentity(
+                name: decodedTool.name,
+                version: ProvenanceVersion.required(decodedTool.version, fallback: toolVersion),
+                kind: decodedTool.kind
+            )
+        } else {
+            tool = ProvenanceToolIdentity(name: toolName, version: toolVersion)
+        }
         argv = try container.decode([String].self, forKey: .argv)
         reproducibleCommand = try container.decode(String.self, forKey: .reproducibleCommand)
         options = try container.decode(ProvenanceOptions.self, forKey: .options)
@@ -204,11 +221,11 @@ public struct ProvenanceOptions: Codable, Sendable, Equatable {
 // MARK: - ProvenanceRuntimeIdentity
 
 public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
-    public let appVersion: String?
-    public let executablePath: String?
-    public let processIdentifier: Int?
-    public let operatingSystemVersion: String?
-    public let architecture: String?
+    public let appVersion: String
+    public let executablePath: String
+    public let processIdentifier: Int
+    public let operatingSystemVersion: String
+    public let architecture: String
     public let gitRevision: String?
     public let user: String?
     public let condaEnvironment: String?
@@ -217,12 +234,27 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
     public let containerImage: String?
     public let containerDigest: String?
 
+    private enum CodingKeys: String, CodingKey {
+        case appVersion
+        case executablePath
+        case processIdentifier
+        case operatingSystemVersion
+        case architecture
+        case gitRevision
+        case user
+        case condaEnvironment
+        case condaPrefix
+        case pluginPack
+        case containerImage
+        case containerDigest
+    }
+
     public init(
-        appVersion: String? = nil,
-        executablePath: String? = nil,
-        processIdentifier: Int? = nil,
-        operatingSystemVersion: String? = nil,
-        architecture: String? = nil,
+        appVersion: String = WorkflowRun.currentAppVersion,
+        executablePath: String = Self.currentExecutablePath,
+        processIdentifier: Int = Int(ProcessInfo.processInfo.processIdentifier),
+        operatingSystemVersion: String = WorkflowRun.currentHostOS,
+        architecture: String = Self.currentArchitecture,
         gitRevision: String? = nil,
         user: String? = nil,
         condaEnvironment: String? = nil,
@@ -243,6 +275,52 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         self.pluginPack = pluginPack
         self.containerImage = containerImage
         self.containerDigest = containerDigest
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        appVersion = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .appVersion),
+            fallback: WorkflowRun.currentAppVersion
+        )
+        executablePath = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .executablePath),
+            fallback: Self.currentExecutablePath
+        )
+        processIdentifier = try container.decodeIfPresent(Int.self, forKey: .processIdentifier)
+            ?? Int(ProcessInfo.processInfo.processIdentifier)
+        operatingSystemVersion = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .operatingSystemVersion),
+            fallback: WorkflowRun.currentHostOS
+        )
+        architecture = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .architecture),
+            fallback: Self.currentArchitecture
+        )
+        gitRevision = try container.decodeIfPresent(String.self, forKey: .gitRevision)
+        user = try container.decodeIfPresent(String.self, forKey: .user)
+        condaEnvironment = try container.decodeIfPresent(String.self, forKey: .condaEnvironment)
+        condaPrefix = try container.decodeIfPresent(String.self, forKey: .condaPrefix)
+        pluginPack = try container.decodeIfPresent(String.self, forKey: .pluginPack)
+        containerImage = try container.decodeIfPresent(String.self, forKey: .containerImage)
+        containerDigest = try container.decodeIfPresent(String.self, forKey: .containerDigest)
+    }
+
+    public static var currentExecutablePath: String {
+        ProvenanceVersion.required(
+            Bundle.main.executablePath ?? CommandLine.arguments.first,
+            fallback: "unknown"
+        )
+    }
+
+    public static var currentArchitecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
     }
 }
 

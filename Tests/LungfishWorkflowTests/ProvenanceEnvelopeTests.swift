@@ -30,7 +30,12 @@ struct ProvenanceEnvelopeTests {
         #expect(json["argv"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])
         #expect(json["reproducibleCommand"] as? String == "fastp -i reads.fastq -o trimmed.fastq")
         #expect(json["options"] is [String: Any])
-        #expect(json["runtimeIdentity"] is [String: Any])
+        let runtimeIdentity = try #require(json["runtimeIdentity"] as? [String: Any])
+        #expect((runtimeIdentity["appVersion"] as? String)?.isEmpty == false)
+        #expect((runtimeIdentity["executablePath"] as? String)?.isEmpty == false)
+        #expect(runtimeIdentity["processIdentifier"] is Int)
+        #expect((runtimeIdentity["operatingSystemVersion"] as? String)?.isEmpty == false)
+        #expect((runtimeIdentity["architecture"] as? String)?.isEmpty == false)
         #expect(json["files"] is [[String: Any]])
         #expect(json["output"] is [String: Any])
         #expect(json["outputs"] is [[String: Any]])
@@ -176,8 +181,8 @@ struct ProvenanceEnvelopeTests {
         #expect((tool["version"] as? String)?.isEmpty == false)
     }
 
-    @Test("malformed canonical JSON missing versions rehydrates required version fields")
-    func malformedCanonicalJSONMissingVersionsRehydratesRequiredVersionFields() throws {
+    @Test("malformed canonical JSON missing versions rehydrates required identity fields")
+    func malformedCanonicalJSONMissingVersionsRehydratesRequiredIdentityFields() throws {
         let data = Data("""
         {
           "schemaVersion": 1,
@@ -225,5 +230,78 @@ struct ProvenanceEnvelopeTests {
         #expect((json["toolVersion"] as? String)?.isEmpty == false)
         #expect((tool["version"] as? String)?.isEmpty == false)
         #expect((firstStep["toolVersion"] as? String)?.isEmpty == false)
+
+        let runtimeIdentity = try #require(json["runtimeIdentity"] as? [String: Any])
+        #expect((runtimeIdentity["appVersion"] as? String)?.isEmpty == false)
+        #expect((runtimeIdentity["executablePath"] as? String)?.isEmpty == false)
+        #expect(runtimeIdentity["processIdentifier"] is Int)
+        #expect((runtimeIdentity["operatingSystemVersion"] as? String)?.isEmpty == false)
+        #expect((runtimeIdentity["architecture"] as? String)?.isEmpty == false)
+    }
+
+    @Test("malformed canonical JSON reconciles top-level tool version from tool identity")
+    func malformedCanonicalJSONReconcilesTopLevelToolVersionFromToolIdentity() throws {
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data("""
+            {
+              "schemaVersion": 1,
+              "id": "00000000-0000-0000-0000-000000000003",
+              "createdAt": "1970-01-01T00:00:00Z",
+              "workflowName": "malformed.workflow",
+              "workflowVersion": "workflow-1",
+              "toolName": "real-tool",
+              "tool": {
+                "name": "real-tool",
+                "version": "9.9.9",
+                "kind": "cli"
+              },
+              "argv": ["real-tool"],
+              "reproducibleCommand": "real-tool",
+              "options": {"explicit": {}, "defaults": {}, "resolvedDefaults": {}},
+              "runtimeIdentity": {},
+              "files": [],
+              "outputs": [],
+              "steps": [],
+              "signatures": []
+            }
+            """.utf8)
+        )
+
+        #expect(envelope.toolVersion == "9.9.9")
+        #expect(envelope.tool.version == "9.9.9")
+    }
+
+    @Test("malformed canonical JSON reconciles tool identity version from top-level version")
+    func malformedCanonicalJSONReconcilesToolIdentityVersionFromTopLevelVersion() throws {
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data("""
+            {
+              "schemaVersion": 1,
+              "id": "00000000-0000-0000-0000-000000000004",
+              "createdAt": "1970-01-01T00:00:00Z",
+              "workflowName": "malformed.workflow",
+              "workflowVersion": "workflow-1",
+              "toolName": "real-tool",
+              "toolVersion": "8.8.8",
+              "tool": {
+                "name": "real-tool",
+                "kind": "cli"
+              },
+              "argv": ["real-tool"],
+              "reproducibleCommand": "real-tool",
+              "options": {"explicit": {}, "defaults": {}, "resolvedDefaults": {}},
+              "runtimeIdentity": {},
+              "files": [],
+              "outputs": [],
+              "steps": [],
+              "signatures": []
+            }
+            """.utf8)
+        )
+
+        #expect(envelope.toolVersion == "8.8.8")
+        #expect(envelope.tool.version == "8.8.8")
     }
 }
