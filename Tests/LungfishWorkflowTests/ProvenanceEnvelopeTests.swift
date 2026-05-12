@@ -142,6 +142,42 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.stderr == "later step failed")
     }
 
+    @Test("legacy failed run without nonzero step exit emits nonzero canonical failure")
+    func legacyFailedRunWithoutNonzeroStepExitEmitsNonzeroCanonicalFailure() throws {
+        let legacy = WorkflowRun(
+            name: "legacy failed workflow with zero exits",
+            startTime: Date(timeIntervalSince1970: 220),
+            endTime: Date(timeIntervalSince1970: 225),
+            status: .failed,
+            steps: [
+                StepExecution(
+                    toolName: "fastp",
+                    toolVersion: "0.24.1",
+                    command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "reads.fastq", role: .input)],
+                    outputs: [FileRecord(path: "trimmed.fastq", role: .output)],
+                    exitCode: 0,
+                    wallTime: 1
+                ),
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.28",
+                    command: ["minimap2", "reference.fasta", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "trimmed.fastq", role: .input)],
+                    outputs: [FileRecord(path: "aligned.sam", role: .output)],
+                    exitCode: 0,
+                    wallTime: 4,
+                    stderr: "workflow failed after final status aggregation"
+                )
+            ]
+        )
+
+        let decoded = legacy.canonicalEnvelope()
+
+        #expect(decoded.exitStatus == 1)
+        #expect(decoded.stderr == "workflow failed after final status aggregation")
+    }
+
     @Test("canonical envelope with singular output converts to legacy output")
     func canonicalSingularOutputConvertsToLegacyOutput() throws {
         let output = ProvenanceFileDescriptor(
@@ -179,6 +215,25 @@ struct ProvenanceEnvelopeTests {
         #expect((json["workflowVersion"] as? String)?.isEmpty == false)
         #expect((json["toolVersion"] as? String)?.isEmpty == false)
         #expect((tool["version"] as? String)?.isEmpty == false)
+    }
+
+    @Test("runtime identity initializer normalizes blank required fields")
+    func runtimeIdentityInitializerNormalizesBlankRequiredFields() throws {
+        let runtimeIdentity = ProvenanceRuntimeIdentity(
+            appVersion: "  ",
+            executablePath: "",
+            processIdentifier: 123,
+            operatingSystemVersion: "\n",
+            architecture: "\t"
+        )
+        let data = try ProvenanceJSON.encoder.encode(runtimeIdentity)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        #expect((json["appVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        #expect((json["executablePath"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        #expect(json["processIdentifier"] as? Int == 123)
+        #expect((json["operatingSystemVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+        #expect((json["architecture"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
     }
 
     @Test("malformed canonical JSON missing versions rehydrates required identity fields")

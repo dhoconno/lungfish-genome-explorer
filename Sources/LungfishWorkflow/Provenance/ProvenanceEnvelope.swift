@@ -263,11 +263,11 @@ public struct ProvenanceRuntimeIdentity: Codable, Sendable, Equatable {
         containerImage: String? = nil,
         containerDigest: String? = nil
     ) {
-        self.appVersion = appVersion
-        self.executablePath = executablePath
+        self.appVersion = ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion)
+        self.executablePath = ProvenanceVersion.required(executablePath, fallback: Self.currentExecutablePath)
         self.processIdentifier = processIdentifier
-        self.operatingSystemVersion = operatingSystemVersion
-        self.architecture = architecture
+        self.operatingSystemVersion = ProvenanceVersion.required(operatingSystemVersion, fallback: WorkflowRun.currentHostOS)
+        self.architecture = ProvenanceVersion.required(architecture, fallback: Self.currentArchitecture)
         self.gitRevision = gitRevision
         self.user = user
         self.condaEnvironment = condaEnvironment

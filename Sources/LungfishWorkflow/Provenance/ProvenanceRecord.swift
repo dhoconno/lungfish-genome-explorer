@@ -410,7 +410,10 @@ extension WorkflowRun {
             return outcomeStep?.exitCode.map(Int.init) ?? 0
         }
         if status == .failed {
-            return outcomeStep?.exitCode.map(Int.init) ?? 1
+            if let exitCode = outcomeStep?.exitCode, exitCode != 0 {
+                return Int(exitCode)
+            }
+            return 1
         }
         return outcomeStep?.exitCode.map(Int.init)
     }
