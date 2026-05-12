@@ -49,7 +49,9 @@ public struct ProvenanceWriter: Sendable {
         let signedEnvelope = envelope.upsertingSignatureReference(finalReference)
         try write(signedEnvelope, toSidecar: provenanceURL)
         _ = try signingProvider.sign(provenanceURL: provenanceURL)
-        _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
+        if signingProvider.providerIdentifier == ProvenanceSigningConfiguration.localProviderID {
+            _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
+        }
 
         return provenanceURL
     }

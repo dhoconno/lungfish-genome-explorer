@@ -176,6 +176,23 @@ struct ProvenanceSigningTests {
         }
     }
 
+    @Test("Writer accepts custom signing provider without local verification")
+    func testWriterAcceptsCustomSigningProvider() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = ProvenanceWriter(signingProvider: CustomSigningProvider())
+
+        let provenanceURL = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+        let decoded = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: provenanceURL))
+        let reference = try #require(decoded.signatures.first { $0.provider == "custom-provider" })
+
+        #expect(reference.signaturePath == "\(ProvenanceRecorder.provenanceFilename).custom.signature")
+        #expect(reference.publicKeyPath == "\(ProvenanceRecorder.provenanceFilename).custom.pub")
+        #expect(reference.provenanceSHA256.count == 64)
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(reference.signaturePath).path))
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(reference.publicKeyPath ?? "").path))
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -190,5 +207,19 @@ struct ProvenanceSigningTests {
     private func writeJSONObject(_ object: [String: Any], to url: URL) throws {
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: .atomic)
+    }
+}
+
+private struct CustomSigningProvider: ProvenanceSigningProvider {
+    let providerIdentifier = "custom-provider"
+
+    func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
+        let signatureURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent("\(provenanceURL.lastPathComponent).custom.signature")
+        let publicKeyURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent("\(provenanceURL.lastPathComponent).custom.pub")
+        try Data("custom-signature".utf8).write(to: signatureURL, options: .atomic)
+        try Data("custom-public-key".utf8).write(to: publicKeyURL, options: .atomic)
+        return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
     }
 }

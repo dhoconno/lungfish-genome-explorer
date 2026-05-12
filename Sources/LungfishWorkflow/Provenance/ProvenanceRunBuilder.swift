@@ -25,7 +25,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
         case .invalidTimeRange(let workflowName):
             return "Workflow '\(workflowName)' has an invalid provenance time range; endedAt is before startedAt."
         case .incompleteFileDescriptor(let path):
-            return "Successful provenance output descriptor is missing checksum or file size: \(path)"
+            return "Successful provenance file descriptor is missing checksum or file size: \(path)"
         }
     }
 }
@@ -147,7 +147,7 @@ public struct ProvenanceRunBuilder: Sendable {
         guard endedAt >= startedAt else {
             throw ProvenanceBuilderError.invalidTimeRange(workflowName)
         }
-        let combinedOutputs = deduplicated(outputs + provenanceSteps.flatMap(\.outputs))
+        let combinedOutputs = deduplicatedOutputs()
 
         if exitStatus == 0 {
             guard arguments.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
@@ -156,8 +156,8 @@ public struct ProvenanceRunBuilder: Sendable {
             guard !combinedOutputs.isEmpty else {
                 throw ProvenanceBuilderError.missingOutput(workflowName)
             }
-            if let incompleteOutput = combinedOutputs.first(where: { $0.checksumSHA256 == nil || $0.fileSize == nil }) {
-                throw ProvenanceBuilderError.incompleteFileDescriptor(incompleteOutput.path)
+            if let incompleteDescriptor = allSuccessfulDescriptors().first(where: isIncompleteDescriptor) {
+                throw ProvenanceBuilderError.incompleteFileDescriptor(incompleteDescriptor.path)
             }
             guard runtimeIdentity != nil else {
                 throw ProvenanceBuilderError.missingRuntimeIdentity(workflowName)
@@ -218,6 +218,14 @@ public struct ProvenanceRunBuilder: Sendable {
         return provenanceSteps.last?.outputs.first
     }
 
+    private func allSuccessfulDescriptors() -> [ProvenanceFileDescriptor] {
+        inputs + outputs + provenanceSteps.flatMap { $0.inputs + $0.outputs }
+    }
+
+    private func isIncompleteDescriptor(_ descriptor: ProvenanceFileDescriptor) -> Bool {
+        descriptor.checksumSHA256 == nil || descriptor.fileSize == nil
+    }
+
     private func replacing(
         arguments: [String]? = nil,
         command: String?? = nil,
@@ -242,15 +250,52 @@ public struct ProvenanceRunBuilder: Sendable {
         )
     }
 
+    private func deduplicatedOutputs() -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+
+        for output in outputs {
+            let key = deduplicationKey(for: output)
+            if seen.insert(key).inserted {
+                result.append(output)
+            }
+        }
+
+        var latestStepOutputByKey: [String: (order: Int, descriptor: ProvenanceFileDescriptor)] = [:]
+        var order = 0
+        for step in provenanceSteps {
+            for output in step.outputs {
+                let key = deduplicationKey(for: output)
+                order += 1
+                guard !seen.contains(key) else {
+                    continue
+                }
+                latestStepOutputByKey[key] = (order, output)
+            }
+        }
+
+        result.append(
+            contentsOf: latestStepOutputByKey.values
+                .sorted { $0.order < $1.order }
+                .map(\.descriptor)
+        )
+
+        return result
+    }
+
     private func deduplicated(_ files: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
         var seen = Set<String>()
         var result: [ProvenanceFileDescriptor] = []
         for file in files {
-            let key = "\(file.role.rawValue)\u{0}\(file.path)"
+            let key = deduplicationKey(for: file)
             if seen.insert(key).inserted {
                 result.append(file)
             }
         }
         return result
+    }
+
+    private func deduplicationKey(for file: ProvenanceFileDescriptor) -> String {
+        "\(file.role.rawValue)\u{0}\(file.path)"
     }
 }

@@ -118,6 +118,12 @@ struct ProvenanceBuilderTests {
             fileSize: 12,
             role: .output
         )
+        let intermediateInput = ProvenanceFileDescriptor(
+            path: "trimmed.fastq",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 12,
+            role: .input
+        )
         let final = ProvenanceFileDescriptor(
             path: "aligned.bam",
             checksumSHA256: String(repeating: "b", count: 64),
@@ -146,7 +152,7 @@ struct ProvenanceBuilderTests {
                 toolName: "minimap2",
                 toolVersion: "2.28",
                 argv: ["minimap2", "reference.fasta", "trimmed.fastq"],
-                inputs: [ProvenanceFileDescriptor(path: "trimmed.fastq", role: .input)],
+                inputs: [intermediateInput],
                 outputs: [final],
                 exitStatus: 0
             )
@@ -195,6 +201,141 @@ struct ProvenanceBuilderTests {
                 .errorDescription?
                 .contains("aligned.bam") == true
         )
+    }
+
+    @Test("Successful path-only step input is rejected")
+    func successfulPathOnlyStepInputIsRejected() throws {
+        let output = ProvenanceFileDescriptor(
+            path: "aligned.bam",
+            checksumSHA256: String(repeating: "b", count: 64),
+            fileSize: 24,
+            role: .output
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "fastq.map.minimap2",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "workflow", "run"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                argv: ["minimap2", "reference.fasta", "reads.fastq"],
+                inputs: [ProvenanceFileDescriptor(path: "reads.fastq", role: .input)],
+                outputs: [output],
+                exitStatus: 0
+            )
+        )
+
+        #expect(throws: ProvenanceBuilderError.incompleteFileDescriptor("reads.fastq")) {
+            _ = try builder.complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 57),
+                endedAt: Date(timeIntervalSince1970: 58)
+            )
+        }
+    }
+
+    @Test("Successful hidden incomplete step output is rejected")
+    func successfulHiddenIncompleteStepOutputIsRejected() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let outputURL = directory.appendingPathComponent("aligned.bam")
+        try Data("complete-bam".utf8).write(to: outputURL, options: .atomic)
+
+        let builder = try ProvenanceRunBuilder(
+            workflowName: "fastq.map.minimap2",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "workflow", "run"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .output(outputURL, format: .bam, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                argv: ["minimap2", "reference.fasta", "reads.fastq"],
+                outputs: [ProvenanceFileDescriptor(path: outputURL.path, role: .output)],
+                exitStatus: 0
+            )
+        )
+
+        #expect(throws: ProvenanceBuilderError.incompleteFileDescriptor(outputURL.path)) {
+            _ = try builder.complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 58),
+                endedAt: Date(timeIntervalSince1970: 59)
+            )
+        }
+    }
+
+    @Test("Repeated step output paths keep final metadata")
+    func repeatedStepOutputPathsKeepFinalMetadata() throws {
+        let early = ProvenanceFileDescriptor(
+            path: "aligned.bam",
+            checksumSHA256: String(repeating: "1", count: 64),
+            fileSize: 10,
+            role: .output
+        )
+        let final = ProvenanceFileDescriptor(
+            path: "aligned.bam",
+            checksumSHA256: String(repeating: "2", count: 64),
+            fileSize: 20,
+            role: .output
+        )
+        let builder = ProvenanceRunBuilder(
+            workflowName: "fastq.map.minimap2",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "workflow", "run"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "samtools",
+                toolVersion: "1.20",
+                argv: ["samtools", "sort", "-o", "aligned.bam"],
+                outputs: [early],
+                exitStatus: 0
+            )
+        )
+        .step(
+            ProvenanceStep(
+                toolName: "samtools",
+                toolVersion: "1.20",
+                argv: ["samtools", "index", "aligned.bam"],
+                inputs: [
+                    ProvenanceFileDescriptor(
+                        path: "aligned.bam",
+                        checksumSHA256: String(repeating: "1", count: 64),
+                        fileSize: 10,
+                        role: .input
+                    )
+                ],
+                outputs: [final],
+                exitStatus: 0
+            )
+        )
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 59),
+            endedAt: Date(timeIntervalSince1970: 60)
+        )
+        let output = try #require(envelope.outputs.first { $0.path == "aligned.bam" })
+        let fileOutput = try #require(envelope.files.first { $0.path == "aligned.bam" && $0.role == .output })
+
+        #expect(envelope.outputs.count == 1)
+        #expect(output.checksumSHA256 == String(repeating: "2", count: 64))
+        #expect(output.fileSize == 20)
+        #expect(fileOutput.checksumSHA256 == String(repeating: "2", count: 64))
+        #expect(fileOutput.fileSize == 20)
     }
 
     @Test("Successful argv run without output is rejected")
