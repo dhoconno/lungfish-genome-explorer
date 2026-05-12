@@ -112,8 +112,18 @@ struct ProvenanceBuilderTests {
 
     @Test("Step-only multi-step workflow chooses terminal output as primary")
     func stepOnlyWorkflowChoosesTerminalOutputAsPrimary() throws {
-        let intermediate = ProvenanceFileDescriptor(path: "trimmed.fastq", role: .output)
-        let final = ProvenanceFileDescriptor(path: "aligned.bam", role: .output)
+        let intermediate = ProvenanceFileDescriptor(
+            path: "trimmed.fastq",
+            checksumSHA256: String(repeating: "a", count: 64),
+            fileSize: 12,
+            role: .output
+        )
+        let final = ProvenanceFileDescriptor(
+            path: "aligned.bam",
+            checksumSHA256: String(repeating: "b", count: 64),
+            fileSize: 24,
+            role: .output
+        )
         let builder = ProvenanceRunBuilder(
             workflowName: "fastq.map.minimap2",
             workflowVersion: "2026.05",
@@ -150,6 +160,41 @@ struct ProvenanceBuilderTests {
 
         #expect(envelope.output?.path == "aligned.bam")
         #expect(envelope.outputs.map(\.path) == ["trimmed.fastq", "aligned.bam"])
+    }
+
+    @Test("Successful path-only step output is rejected")
+    func successfulPathOnlyStepOutputIsRejected() throws {
+        let builder = ProvenanceRunBuilder(
+            workflowName: "fastq.map.minimap2",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "workflow", "run"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                argv: ["minimap2", "reference.fasta", "reads.fastq"],
+                outputs: [ProvenanceFileDescriptor(path: "aligned.bam", role: .output)],
+                exitStatus: 0
+            )
+        )
+
+        #expect(throws: ProvenanceBuilderError.incompleteFileDescriptor("aligned.bam")) {
+            _ = try builder.complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 56),
+                endedAt: Date(timeIntervalSince1970: 57)
+            )
+        }
+        #expect(
+            ProvenanceBuilderError
+                .incompleteFileDescriptor("aligned.bam")
+                .errorDescription?
+                .contains("aligned.bam") == true
+        )
     }
 
     @Test("Successful argv run without output is rejected")

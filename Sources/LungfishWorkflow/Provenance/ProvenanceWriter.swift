@@ -35,7 +35,11 @@ public struct ProvenanceWriter: Sendable {
         try write(envelopeWithSignaturePaths, toSidecar: provenanceURL)
 
         _ = try signingProvider.sign(provenanceURL: provenanceURL)
-        let finalDigest = try ProvenanceSigningPayload.sha256Hex(ofProvenanceAt: provenanceURL)
+        let finalDigest = try ProvenanceSigningPayload.sha256Hex(
+            ofProvenanceAt: provenanceURL,
+            provider: signingProvider.providerIdentifier,
+            signatureURL: initialArtifact.signatureURL
+        )
         let finalReference = signatureReference(
             provider: signingProvider.providerIdentifier,
             artifact: initialArtifact,

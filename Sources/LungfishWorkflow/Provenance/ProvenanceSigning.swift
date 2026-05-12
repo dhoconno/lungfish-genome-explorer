@@ -103,13 +103,17 @@ public struct LocalProvenanceSigningProvider: ProvenanceSigningProvider {
         guard FileManager.default.fileExists(atPath: provenanceURL.path) else {
             throw ProvenanceSignatureVerificationError.provenanceMissing(provenanceURL.path)
         }
-        let provenanceData = try ProvenanceSigningPayload.data(forProvenanceAt: provenanceURL)
+        let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
+        let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
+        let provenanceData = try ProvenanceSigningPayload.data(
+            forProvenanceAt: provenanceURL,
+            provider: providerIdentifier,
+            signatureURL: signatureURL
+        )
         let signingKey = try Self.signingKey(for: privateKey)
         let publicKey = Self.publicKeyArtifact(for: signingKey.publicKey.rawRepresentation)
         let digest = ProvenanceSigningPayload.sha256Hex(provenanceData)
         let signature = try signingKey.signature(for: provenanceData).base64EncodedString()
-        let signatureURL = ProvenanceSigningConfiguration.signatureURL(for: provenanceURL)
-        let publicKeyURL = ProvenanceSigningConfiguration.publicKeyURL(for: provenanceURL)
 
         let envelope = ProvenanceSignatureEnvelope(
             schemaVersion: 1,
@@ -177,7 +181,11 @@ public enum ProvenanceSignatureVerifier {
             throw ProvenanceSignatureVerificationError.unsupportedProvider(envelope.provider)
         }
 
-        let provenanceData = try ProvenanceSigningPayload.data(forProvenanceAt: provenanceURL)
+        let provenanceData = try ProvenanceSigningPayload.data(
+            forProvenanceAt: provenanceURL,
+            provider: envelope.provider,
+            signatureURL: resolvedSignatureURL
+        )
         let actualDigest = ProvenanceSigningPayload.sha256Hex(provenanceData)
         guard envelope.provenanceSHA256 == actualDigest else {
             throw ProvenanceSignatureVerificationError.provenanceDigestMismatch(expected: envelope.provenanceSHA256, actual: actualDigest)
@@ -268,38 +276,73 @@ private struct ProvenanceSignatureEnvelope: Codable {
 enum ProvenanceSigningPayload {
     private static let normalizedEmbeddedDigest = ""
 
-    static func data(forProvenanceAt url: URL) throws -> Data {
-        try data(forProvenanceData: Data(contentsOf: url))
+    static func data(
+        forProvenanceAt url: URL,
+        provider: String? = nil,
+        signatureURL: URL? = nil
+    ) throws -> Data {
+        try data(
+            forProvenanceData: Data(contentsOf: url),
+            provider: provider,
+            signatureURL: signatureURL
+        )
     }
 
-    static func data(forProvenanceData data: Data) throws -> Data {
+    static func data(
+        forProvenanceData data: Data,
+        provider: String? = nil,
+        signatureURL: URL? = nil
+    ) throws -> Data {
         guard (try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)) != nil else {
             return data
         }
         guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return data
         }
-        normalizeEmbeddedSignatureDigests(in: &json)
+        normalizeEmbeddedSignatureDigest(in: &json, provider: provider, signatureURL: signatureURL)
         return try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }
 
-    static func sha256Hex(ofProvenanceAt url: URL) throws -> String {
-        sha256Hex(try data(forProvenanceAt: url))
+    static func sha256Hex(
+        ofProvenanceAt url: URL,
+        provider: String? = nil,
+        signatureURL: URL? = nil
+    ) throws -> String {
+        sha256Hex(try data(forProvenanceAt: url, provider: provider, signatureURL: signatureURL))
     }
 
     static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func normalizeEmbeddedSignatureDigests(in json: inout [String: Any]) {
+    private static func normalizeEmbeddedSignatureDigest(
+        in json: inout [String: Any],
+        provider: String?,
+        signatureURL: URL?
+    ) {
+        guard let provider, let signatureURL else {
+            return
+        }
         guard var signatures = json["signatures"] as? [[String: Any]] else {
             return
         }
         for index in signatures.indices {
-            if signatures[index]["provenanceSHA256"] != nil {
+            if signatures[index]["provider"] as? String == provider,
+               let signaturePath = signatures[index]["signaturePath"] as? String,
+               signaturePathMatches(signaturePath, signatureURL: signatureURL) {
                 signatures[index]["provenanceSHA256"] = normalizedEmbeddedDigest
             }
         }
         json["signatures"] = signatures
+    }
+
+    private static func signaturePathMatches(_ storedPath: String, signatureURL: URL) -> Bool {
+        if storedPath == signatureURL.lastPathComponent {
+            return true
+        }
+        if storedPath == signatureURL.path {
+            return true
+        }
+        return URL(fileURLWithPath: storedPath).standardizedFileURL == signatureURL.standardizedFileURL
     }
 }

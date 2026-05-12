@@ -10,6 +10,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case missingRuntimeIdentity(String)
     case unreadableFile(String)
     case invalidTimeRange(String)
+    case incompleteFileDescriptor(String)
 
     public var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Provenance file is unreadable: \(path)"
         case .invalidTimeRange(let workflowName):
             return "Workflow '\(workflowName)' has an invalid provenance time range; endedAt is before startedAt."
+        case .incompleteFileDescriptor(let path):
+            return "Successful provenance output descriptor is missing checksum or file size: \(path)"
         }
     }
 }
@@ -152,6 +155,9 @@ public struct ProvenanceRunBuilder: Sendable {
             }
             guard !combinedOutputs.isEmpty else {
                 throw ProvenanceBuilderError.missingOutput(workflowName)
+            }
+            if let incompleteOutput = combinedOutputs.first(where: { $0.checksumSHA256 == nil || $0.fileSize == nil }) {
+                throw ProvenanceBuilderError.incompleteFileDescriptor(incompleteOutput.path)
             }
             guard runtimeIdentity != nil else {
                 throw ProvenanceBuilderError.missingRuntimeIdentity(workflowName)

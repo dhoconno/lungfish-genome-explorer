@@ -154,6 +154,28 @@ struct ProvenanceSigningTests {
         }
     }
 
+    @Test("Verification fails when other provider embedded digest changes")
+    func testOtherProviderDigestTamperFails() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "other-provider-key")
+        )
+        let provenanceURL = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+        var sidecar = try jsonObject(from: provenanceURL)
+        var signatures = try #require(sidecar["signatures"] as? [[String: Any]])
+        let otherProviderIndex = try #require(
+            signatures.firstIndex { $0["provider"] as? String == "fixture-provider" }
+        )
+        signatures[otherProviderIndex]["provenanceSHA256"] = String(repeating: "2", count: 64)
+        sidecar["signatures"] = signatures
+        try writeJSONObject(sidecar, to: provenanceURL)
+
+        #expect(throws: ProvenanceSignatureVerificationError.self) {
+            _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
+        }
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
