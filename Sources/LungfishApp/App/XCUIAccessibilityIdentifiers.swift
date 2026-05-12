@@ -136,6 +136,7 @@ enum MainMenuAccessibilityID {
     static let workflowBuilder = "tools-menu-workflow-builder"
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"
+    static let newWindowForCurrentProject = "window-menu-new-window-current-project"
     static let setWindowSize = "window-menu-set-size"
 
     static let helpHome = "help-menu-lungfish-help"

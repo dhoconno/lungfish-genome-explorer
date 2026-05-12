@@ -21,6 +21,9 @@ public class MainWindowController: NSWindowController {
     /// The main split view controller
     public private(set) var mainSplitViewController: MainSplitViewController!
 
+    /// Window-owned project/session state.
+    public private(set) var projectSession: ProjectSession
+
     /// Toolbar item identifiers
     private enum ToolbarIdentifier {
         static let toolbar = NSToolbar.Identifier("MainToolbarMinimal")
@@ -67,9 +70,27 @@ public class MainWindowController: NSWindowController {
     // MARK: - Initialization
 
     public convenience init() {
+        self.init(projectSession: ProjectSession())
+    }
+
+    public convenience init(projectSession: ProjectSession = ProjectSession()) {
         let window = Self.createMainWindow()
-        self.init(window: window)
+        self.init(window: window, projectSession: projectSession)
         configureWindow()
+    }
+
+    public init(window: NSWindow?, projectSession: ProjectSession) {
+        self.projectSession = projectSession
+        super.init(window: window)
+    }
+
+    public override convenience init(window: NSWindow?) {
+        self.init(window: window, projectSession: ProjectSession())
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("MainWindowController does not support storyboard initialization")
     }
 
     private static func createMainWindow() -> NSWindow {
@@ -119,7 +140,7 @@ public class MainWindowController: NSWindowController {
     private func configureWindow() {
         guard let window = window else { return }
 
-        mainSplitViewController = MainSplitViewController()
+        mainSplitViewController = MainSplitViewController(projectSession: projectSession)
         window.contentViewController = mainSplitViewController
         mainSplitViewController.view.setAccessibilityElement(true)
         mainSplitViewController.view.setAccessibilityIdentifier(AccessibilityIdentifier.shell)
@@ -129,6 +150,26 @@ public class MainWindowController: NSWindowController {
         setupNotificationObservers()
 
         window.delegate = self
+    }
+
+    public func captureProjectWindowSnapshot(windowOrdinal: Int, windowOrder: Int) -> ProjectWindowSnapshot? {
+        guard let projectURL = projectSession.projectURL else { return nil }
+        let frame = window.map {
+            CodableWindowFrame(
+                x: Double($0.frame.origin.x),
+                y: Double($0.frame.origin.y),
+                width: Double($0.frame.size.width),
+                height: Double($0.frame.size.height)
+            )
+        }
+        return mainSplitViewController.captureProjectWindowSnapshot(
+            id: projectSession.id,
+            projectURL: projectURL,
+            windowOrdinal: windowOrdinal,
+            windowOrder: windowOrder,
+            windowTitleSuffix: "[\(windowOrdinal)]",
+            frame: frame
+        )
     }
 
     // MARK: - Notification Observers
@@ -155,12 +196,20 @@ public class MainWindowController: NSWindowController {
     // MARK: - Content Mode → Toolbar Adaptation
 
     @objc private func handleContentModeChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let rawMode = notification.userInfo?[NotificationUserInfoKey.contentMode] as? String,
               let mode = ViewportContentMode(rawValue: rawMode) else { return }
         guard mode != currentContentMode else { return }
 
         currentContentMode = mode
         updateToolbarForContentMode(mode)
+    }
+
+    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
+        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
+            return true
+        }
+        return notificationScope == projectSession.windowStateScope
     }
 
     /// Updates toolbar item visibility based on the viewport content mode.
@@ -219,6 +268,7 @@ public class MainWindowController: NSWindowController {
     // MARK: - Bundle Loaded → Index Building
 
     @objc private func handleBundleLoaded(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo,
               let chromosomes = userInfo[NotificationUserInfoKey.chromosomes] as? [ChromosomeInfo] else { return }
 

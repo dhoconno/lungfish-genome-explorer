@@ -48,6 +48,74 @@ final class ViewerViewportNotificationTests: XCTestCase {
         wait(for: [notification], timeout: 0.1)
     }
 
+    func testViewerOriginatedContentModeNotificationIncludesWindowScope() {
+        let viewer = ViewerViewController()
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
+
+        let capture = ViewerNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .viewportContentModeDidChange,
+            object: viewer,
+            queue: nil
+        ) { notification in
+            capture.record(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        viewer.contentMode = .mapping
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+    }
+
+    func testViewerOriginatedBundleLoadNotificationIncludesWindowScope() {
+        let viewer = ViewerViewController()
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
+
+        let capture = ViewerNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .bundleDidLoad,
+            object: viewer,
+            queue: nil
+        ) { notification in
+            capture.record(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        viewer.publishBundleDidLoadNotification(
+            userInfo: [NotificationUserInfoKey.bundleURL: URL(fileURLWithPath: "/tmp/example.lungfishref")]
+        )
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+    }
+
+    func testSequenceViewerAnnotationSelectionNotificationIncludesWindowScope() {
+        let viewer = SequenceViewerView()
+        let scope = WindowStateScope()
+        viewer.windowStateScope = scope
+        let annotation = SequenceAnnotation(
+            type: .gene,
+            name: "GeneA",
+            chromosome: "chr1",
+            intervals: [AnnotationInterval(start: 10, end: 40)]
+        )
+
+        let capture = ViewerNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .annotationSelected,
+            object: viewer,
+            queue: nil
+        ) { notification in
+            capture.record(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        viewer.postAnnotationSelectedNotification(annotation)
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+    }
+
     func testMaskingDepthChangeDoesNotInvalidateConsensusCache() {
         let viewer = ViewerViewController()
         _ = viewer.view
@@ -107,5 +175,22 @@ final class ViewerViewportNotificationTests: XCTestCase {
         viewer.viewDidLayout()
 
         XCTAssertEqual(viewer.viewerView.testDisplayInvalidationCount, invalidationCount + 1)
+    }
+}
+
+private final class ViewerNotificationUserInfoCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var capturedUserInfo: [AnyHashable: Any]?
+
+    var userInfo: [AnyHashable: Any]? {
+        lock.lock()
+        defer { lock.unlock() }
+        return capturedUserInfo
+    }
+
+    func record(_ notification: Notification) {
+        lock.lock()
+        capturedUserInfo = notification.userInfo
+        lock.unlock()
     }
 }

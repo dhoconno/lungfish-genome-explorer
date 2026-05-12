@@ -49,6 +49,12 @@ public protocol SidebarSelectionDelegate: AnyObject {
     ///
     /// - Parameter items: Array of selected sidebar items (may be empty)
     func sidebarDidSelectItems(_ items: [SidebarItem])
+
+    /// Called when filesystem refresh keeps the same sidebar selection but the selected
+    /// item may have new on-disk content.
+    ///
+    /// - Parameter items: Array of selected sidebar items that are still selected after refresh.
+    func sidebarDidRefreshSelectedItems(_ items: [SidebarItem])
 }
 
 // MARK: - Default Implementations
@@ -58,4 +64,6 @@ public extension SidebarSelectionDelegate {
     func sidebarDidSelectItems(_ items: [SidebarItem]) {
         sidebarDidSelectItem(items.first)
     }
+
+    func sidebarDidRefreshSelectedItems(_ items: [SidebarItem]) {}
 }

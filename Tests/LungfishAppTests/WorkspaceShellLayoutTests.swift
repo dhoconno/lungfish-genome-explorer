@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishApp
 
 @MainActor
@@ -370,6 +371,28 @@ final class WorkspaceShellLayoutTests: XCTestCase {
 
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 260)
         XCTAssertEqual(controller.testingSidebarConstraintWidth, 260, accuracy: 2)
+    }
+
+    func testControllerIgnoresSidebarRecommendationFromDifferentWindowScope() {
+        let (controller, window) = makeController()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
+        NotificationCenter.default.post(
+            name: .sidebarPreferredWidthRecommended,
+            object: self,
+            userInfo: [
+                "width": CGFloat(360),
+                NotificationUserInfoKey.windowStateScope: WindowStateScope()
+            ]
+        )
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        XCTAssertNotEqual(controller.testingSidebarConstraintWidth, 360, accuracy: 0.5)
     }
 
     func testFocusViewerCollapsesBothSidePanesAndRestoreShowsThemAgain() {

@@ -101,6 +101,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         let drawer = AnnotationTableDrawerView()
         drawer.translatesAutoresizingMaskIntoConstraints = false
         drawer.delegate = self
+        drawer.windowStateScope = windowStateScope
         drawer.setViewportSyncSource(viewerView)
         drawer.setSampleDisplayState(viewerView.sampleDisplayState)
         view.addSubview(drawer)
@@ -282,7 +283,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             NotificationCenter.default.post(
                 name: .variantSelected,
                 object: self,
-                userInfo: [NotificationUserInfoKey.searchResult: result]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.searchResult: result])
             )
         }
         viewerView.setNeedsDisplay(viewerView.bounds)

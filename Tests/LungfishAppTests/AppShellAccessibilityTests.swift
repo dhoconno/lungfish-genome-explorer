@@ -30,6 +30,9 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertEqual(restoreSidePanesItem.identifier?.rawValue, "view-menu-restore-side-panes")
 
         let windowMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Window" })?.submenu)
+        let newProjectWindowItem = try XCTUnwrap(windowMenu.items.first(where: { $0.title == "New Window for Current Project" }))
+        XCTAssertEqual(newProjectWindowItem.identifier?.rawValue, MainMenuAccessibilityID.newWindowForCurrentProject)
+        XCTAssertEqual(newProjectWindowItem.action, #selector(AppDelegate.newWindowForCurrentProject(_:)))
         XCTAssertNil(
             windowMenu.items.first(where: { $0.title == "Move & Resize" }),
             "The app must not create a duplicate Move & Resize menu; macOS supplies that menu at runtime."

@@ -395,6 +395,11 @@ extension SequenceViewerView {
     ) {
         let sourceBundleName = currentReferenceBundle?.manifest.name
         let outputDir = extractionsDirectory()
+        let projectURL = ProjectTempDirectory.findProjectRoot(outputDir)
+        guard canWriteExtractionProjectOutputs(
+            projectURL: projectURL,
+            workflowName: "Sequence extraction"
+        ) else { return }
 
         // Collect all annotation tracks with SQLite databases from the source bundle.
         var sourceAnnotationTracks: [SequenceExtractionPipeline.SourceAnnotationTrack] = []
@@ -437,7 +442,11 @@ extension SequenceViewerView {
         let itemId = DownloadCenter.shared.start(
             title: "Extracting \(result.sourceName)",
             detail: "Preparing...",
-            operationType: .bundleBuild
+            operationType: .bundleBuild,
+            routeContext: OperationRouteContext(
+                projectURL: projectURL,
+                windowStateScope: windowStateScope
+            )
         )
 
         let capturedResult = result
@@ -484,21 +493,9 @@ extension SequenceViewerView {
                 scheduleExtractionOnMainRunLoop {
                     MainActor.assumeIsolated {
                         extractionLogger.info("createExtractionBundle: SUCCESS -> \(finalBundleURL.path)")
-                        let bundleURLs = [finalBundleURL]
 
                         // Mark as complete for UI cards.
-                        DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready")
-
-                        // Import through AppDelegate pipeline.
-                        if let appDelegate = NSApp.delegate as? AppDelegate {
-                            appDelegate.importReadyBundles(bundleURLs)
-
-                            // Force immediate sidebar refresh/selection as an additional safety path.
-                            if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                                sidebar.reloadFromFilesystem()
-                                _ = sidebar.selectItem(forURL: finalBundleURL)
-                            }
-                        }
+                        DownloadCenter.shared.complete(id: itemId, detail: "Bundle ready", bundleURLs: [finalBundleURL])
                     }
                 }
             } catch {
@@ -557,7 +554,7 @@ extension SequenceViewerView {
 
     /// Returns the directory for saved extraction bundles.
     private func extractionsDirectory() -> URL {
-        if let projectURL = DocumentManager.shared.activeProject?.url {
+        if let projectURL = projectURLForCurrentViewerOutput() {
             return projectURL.appendingPathComponent("Extractions", isDirectory: true)
         }
         if let appDelegate = NSApp.delegate as? AppDelegate,
@@ -566,6 +563,30 @@ extension SequenceViewerView {
         }
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         return docs.appendingPathComponent("Lungfish Extractions", isDirectory: true)
+    }
+
+    private func projectURLForCurrentViewerOutput() -> URL? {
+        if let currentBundleURL = viewController?.currentBundleURL,
+           let projectURL = ProjectTempDirectory.findProjectRoot(currentBundleURL) {
+            return projectURL
+        }
+        if let referenceBundleURL = currentReferenceBundle?.url,
+           let projectURL = ProjectTempDirectory.findProjectRoot(referenceBundleURL) {
+            return projectURL
+        }
+        return nil
+    }
+
+    private func canWriteExtractionProjectOutputs(projectURL: URL?, workflowName: String) -> Bool {
+        if let viewController {
+            return viewController.canWriteProjectOutputs(projectURL: projectURL, workflowName: workflowName)
+        }
+        return AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: window
+        ) ?? true
     }
 
     // MARK: - Sequence Provider Helpers

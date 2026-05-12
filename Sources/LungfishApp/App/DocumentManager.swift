@@ -13,6 +13,50 @@ import os.log
 /// Logger for document operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "DocumentManager")
 
+@MainActor
+enum ProjectDocumentLoader {
+    static func loadSequences(from project: ProjectFile) throws -> [LoadedDocument] {
+        let sequenceSummaries = try project.listSequences()
+        logger.info("ProjectDocumentLoader: Found \(sequenceSummaries.count) sequences")
+        var projectDocuments: [LoadedDocument] = []
+
+        for summary in sequenceSummaries {
+            let content = try project.getSequenceContent(id: summary.id)
+            let alphabet: SequenceAlphabet = summary.alphabet == "dna" ? .dna :
+                summary.alphabet == "rna" ? .rna : .protein
+            let sequence = try Sequence(
+                id: summary.id,
+                name: summary.name,
+                alphabet: alphabet,
+                bases: content
+            )
+
+            let document = LoadedDocument(
+                url: project.url.appendingPathComponent(summary.name),
+                type: .lungfishProject
+            )
+            document.sequences = [sequence]
+            document.annotations = try project.getAnnotations(for: summary.id).map { stored in
+                SequenceAnnotation(
+                    id: stored.id,
+                    type: AnnotationType(rawValue: stored.type) ?? .region,
+                    name: stored.name,
+                    intervals: [AnnotationInterval(
+                        start: stored.startPosition,
+                        end: stored.endPosition
+                    )],
+                    strand: stored.strand == "+" ? .forward : (stored.strand == "-" ? .reverse : .unknown),
+                    qualifiers: (stored.qualifiers ?? [:]).mapValues { AnnotationQualifier($0) }
+                )
+            }
+            projectDocuments.append(document)
+            logger.debug("ProjectDocumentLoader: Loaded sequence '\(summary.name, privacy: .public)'")
+        }
+
+        return projectDocuments
+    }
+}
+
 // MARK: - Document State
 
 /// Represents a loaded document with its associated data.
@@ -246,54 +290,27 @@ public final class DocumentManager {
         transitionDocumentState(to: [], activeDocument: nil)
     }
 
-    /// Loads sequences from a project into documents.
-    private func loadSequencesFromProject(_ project: ProjectFile) throws -> [LoadedDocument] {
-        let sequenceSummaries = try project.listSequences()
-        logger.info("loadSequencesFromProject: Found \(sequenceSummaries.count) sequences")
-        var projectDocuments: [LoadedDocument] = []
-
-        for summary in sequenceSummaries {
-            // Get full sequence content
-            let content = try project.getSequenceContent(id: summary.id)
-
-            // Create a sequence object
-            let alphabet: SequenceAlphabet = summary.alphabet == "dna" ? .dna :
-                                             summary.alphabet == "rna" ? .rna : .protein
-            let sequence = try Sequence(
-                id: summary.id,
-                name: summary.name,
-                alphabet: alphabet,
-                bases: content
-            )
-
-            // Create a loaded document for this sequence
-            let document = LoadedDocument(
-                url: project.url.appendingPathComponent(summary.name),
-                type: .lungfishProject
-            )
-            document.sequences = [sequence]
-
-            // Load annotations
-            let storedAnnotations = try project.getAnnotations(for: summary.id)
-            document.annotations = storedAnnotations.map { stored in
-                SequenceAnnotation(
-                    id: stored.id,
-                    type: AnnotationType(rawValue: stored.type) ?? .region,
-                    name: stored.name,
-                    intervals: [AnnotationInterval(
-                        start: stored.startPosition,
-                        end: stored.endPosition
-                    )],
-                    strand: stored.strand == "+" ? .forward : (stored.strand == "-" ? .reverse : .unknown),
-                    qualifiers: (stored.qualifiers ?? [:]).mapValues { AnnotationQualifier($0) }
-                )
+    /// Mirrors a window-owned project session into the legacy singleton facade.
+    ///
+    /// Multi-window project state lives in ``ProjectSession``. This method keeps
+    /// older workflows that still read ``DocumentManager.shared.activeProject``
+    /// pointed at the frontmost project without sharing window-local selection.
+    public func mirrorProjectSession(_ session: ProjectSession) {
+        guard let project = session.project else {
+            if activeProject?.url == nil {
+                transitionDocumentState(to: [], activeDocument: nil)
             }
-
-            projectDocuments.append(document)
-            logger.debug("loadSequencesFromProject: Loaded sequence '\(summary.name, privacy: .public)'")
+            return
         }
 
-        return projectDocuments
+        activeProject = project
+        activeProjectOpenWarningState = session.openWarningState
+        transitionDocumentState(to: session.documents, activeDocument: session.activeDocument)
+    }
+
+    /// Loads sequences from a project into documents.
+    private func loadSequencesFromProject(_ project: ProjectFile) throws -> [LoadedDocument] {
+        try ProjectDocumentLoader.loadSequences(from: project)
     }
 
     /// Adds a sequence to the active project.

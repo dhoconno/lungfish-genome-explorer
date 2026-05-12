@@ -28,6 +28,34 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(controller.isInspectorVisible)
     }
 
+    func testBundleDidLoadIgnoresScopedNotificationFromDifferentWindow() {
+        let controller = MainSplitViewController()
+        _ = controller.view
+        controller.setInspectorVisible(false, animated: false, source: "test.hide")
+
+        NotificationCenter.default.post(
+            name: .bundleDidLoad,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: WindowStateScope()]
+        )
+
+        XCTAssertFalse(controller.isInspectorVisible)
+    }
+
+    func testChromosomeInspectorRequestIgnoresScopedNotificationFromDifferentWindow() {
+        let controller = MainSplitViewController()
+        _ = controller.view
+        controller.setInspectorVisible(false, animated: false, source: "test.hide")
+
+        NotificationCenter.default.post(
+            name: .chromosomeInspectorRequested,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: WindowStateScope()]
+        )
+
+        XCTAssertFalse(controller.isInspectorVisible)
+    }
+
     func testStaleDelayedSelectionCommitCannotMutateInspectorAfterNewerSelectionBecomesActive() {
         let controller = MainSplitViewController()
         _ = controller.view
@@ -173,6 +201,102 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), otherURL.resolvingSymlinksInPath())
     }
 
+    func testSidebarPreferredWidthRecommendationIncludesWindowScope() throws {
+        let (tempRoot, projectURL, _) = try makeSidebarProjectFixture(prefix: "SidebarWidthScope")
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let scope = WindowStateScope()
+        sidebar.windowStateScope = scope
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        let capture = MainSplitNotificationUserInfoCapture()
+        let observer = NotificationCenter.default.addObserver(
+            forName: .sidebarPreferredWidthRecommended,
+            object: sidebar,
+            queue: nil
+        ) { notification in
+            capture.record(notification)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        sidebar.openProject(at: projectURL)
+        if capture.userInfo == nil {
+            let longNameURL = projectURL.appendingPathComponent(
+                "a-very-long-sidebar-label-that-forces-a-new-width-recommendation-\(UUID().uuidString).fasta"
+            )
+            try ">long\nACGT\n".write(to: longNameURL, atomically: true, encoding: .utf8)
+            sidebar.reloadFromFilesystem()
+        }
+
+        XCTAssertEqual(capture.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope, scope)
+    }
+
+    func testSidebarReloadReportsUnchangedSelectionAsFilesystemRefresh() throws {
+        let (tempRoot, projectURL, fastaURL) = try makeSidebarProjectFixture(prefix: "SidebarRefreshSelection")
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: fastaURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        sidebar.reloadFromFilesystem()
+
+        XCTAssertEqual(
+            delegate.refreshedItems.compactMap { $0.url?.resolvingSymlinksInPath() },
+            [fastaURL.resolvingSymlinksInPath()]
+        )
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
+    func testSidecarOnlyFASTQMetadataChangeRefreshesSelectedPayload() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarSidecarRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let fastqURL = projectURL.appendingPathComponent("reads.fastq")
+        let sidecarURL = fastqURL.appendingPathExtension("lungfish-meta.json")
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: fastqURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [], all: [sidecarURL])
+        )
+
+        XCTAssertEqual(
+            delegate.refreshedItems.compactMap { $0.url?.resolvingSymlinksInPath() },
+            [fastqURL.resolvingSymlinksInPath()]
+        )
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
     func testInspectorDocumentModeRequestAfterDownloadIncludesWindowScope() {
         let controller = MainSplitViewController()
         _ = controller.view
@@ -223,6 +347,7 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
 @MainActor
 private final class SidebarSelectionSpy: SidebarSelectionDelegate {
     var selectedItems: [SidebarItem] = []
+    var refreshedItems: [SidebarItem] = []
 
     func sidebarDidSelectItem(_ item: SidebarItem?) {
         if let item {
@@ -232,6 +357,10 @@ private final class SidebarSelectionSpy: SidebarSelectionDelegate {
 
     func sidebarDidSelectItems(_ items: [SidebarItem]) {
         selectedItems.append(contentsOf: items)
+    }
+
+    func sidebarDidRefreshSelectedItems(_ items: [SidebarItem]) {
+        refreshedItems.append(contentsOf: items)
     }
 }
 

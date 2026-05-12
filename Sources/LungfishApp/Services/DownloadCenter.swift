@@ -103,6 +103,22 @@ public enum OperationLogLevel: String, Sendable, Codable {
     case error
 }
 
+/// Window/project context used to route operation results back to the originating workspace.
+public struct OperationRouteContext: Sendable, Codable, Equatable {
+    public let projectURL: URL?
+    public let windowStateScopeID: UUID?
+
+    public init(projectURL: URL?, windowStateScope: WindowStateScope?) {
+        self.projectURL = projectURL?.standardizedFileURL
+        self.windowStateScopeID = windowStateScope?.id
+    }
+
+    public init(projectURL: URL?, windowStateScopeID: UUID?) {
+        self.projectURL = projectURL?.standardizedFileURL
+        self.windowStateScopeID = windowStateScopeID
+    }
+}
+
 @MainActor
 public final class OperationCenter: ObservableObject {
     public struct Item: Identifiable, Sendable {
@@ -148,6 +164,8 @@ public final class OperationCenter: ObservableObject {
         public var errorDetail: String?
         /// Durable workflow-builder run identifier carried by parent and child rows.
         public var workflowRunID: UUID?
+        /// The project/window context that launched this operation, when available.
+        public var routeContext: OperationRouteContext?
 
         public var hasWarnings: Bool {
             logEntries.contains { $0.level == .warning }
@@ -189,7 +207,8 @@ public final class OperationCenter: ObservableObject {
             targetBundleURL: URL? = nil,
             onCancel: (@Sendable () -> Void)? = nil,
             cliCommand: String? = nil,
-            workflowRunID: UUID? = nil
+            workflowRunID: UUID? = nil,
+            routeContext: OperationRouteContext? = nil
         ) {
             self.id = id
             self.title = title
@@ -207,6 +226,7 @@ public final class OperationCenter: ObservableObject {
             self.onCancel = onCancel
             self.cliCommand = cliCommand
             self.workflowRunID = workflowRunID
+            self.routeContext = routeContext
         }
     }
 
@@ -217,6 +237,8 @@ public final class OperationCenter: ObservableObject {
     /// Called when an operation completes with bundle URLs that need importing.
     /// The AppDelegate sets this once at startup to handle bundle import.
     public var onBundleReady: (([URL]) -> Void)?
+    /// Context-aware bundle delivery for multi-window project sessions.
+    public var onBundleReadyWithContext: (([URL], OperationRouteContext?) -> Void)?
 
     /// Maps bundle path string to the operation ID that holds the lock.
     private var bundleLocks: [String: UUID] = [:]
@@ -302,6 +324,7 @@ public final class OperationCenter: ObservableObject {
         startedAt: Date = Date(),
         cliCommand: String? = nil,
         workflowRunID: UUID? = nil,
+        routeContext: OperationRouteContext? = nil,
         onCancel: (@Sendable () -> Void)? = nil
     ) -> UUID {
         let id = UUID()
@@ -317,7 +340,8 @@ public final class OperationCenter: ObservableObject {
                 targetBundleURL: targetBundleURL,
                 onCancel: onCancel,
                 cliCommand: cliCommand,
-                workflowRunID: workflowRunID
+                workflowRunID: workflowRunID,
+                routeContext: routeContext
             ),
             at: 0
         )
@@ -468,12 +492,17 @@ public final class OperationCenter: ObservableObject {
         items[index].detail = detail
         items[index].bundleURLs = bundleURLs
         items[index].outputURLs = []
+        let routeContext = items[index].routeContext
         finishItem(at: index, finishedAt: finishedAt)
         unlockBundle(for: id)
         trimCompletedItemsIfNeeded()
 
         if !bundleURLs.isEmpty {
-            onBundleReady?(bundleURLs)
+            if let onBundleReadyWithContext {
+                onBundleReadyWithContext(bundleURLs, routeContext)
+            } else {
+                onBundleReady?(bundleURLs)
+            }
         }
         postStateChangedNotification(id: id, state: .completed)
     }

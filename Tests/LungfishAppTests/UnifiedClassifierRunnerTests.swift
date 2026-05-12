@@ -120,15 +120,15 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
 
         XCTAssertTrue(source.contains("if let config = state.pendingMinimap2Config"))
-        XCTAssertTrue(source.contains("self.runMinimap2Mapping(config: config)"))
+        XCTAssertTrue(source.contains("self.runMinimap2Mapping(config: config, routeContext: routeContext)"))
         XCTAssertFalse(source.contains("pendingSPAdesConfig"))
         XCTAssertFalse(source.contains("AssemblyRunner.run(config:"))
         XCTAssertTrue(source.contains("if !state.pendingClassificationConfigs.isEmpty"))
-        XCTAssertTrue(source.contains("self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController)"))
+        XCTAssertTrue(source.contains("self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController, routeContext: routeContext)"))
         XCTAssertTrue(source.contains("if !state.pendingEsVirituConfigs.isEmpty"))
-        XCTAssertTrue(source.contains("self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController)"))
+        XCTAssertTrue(source.contains("self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController, routeContext: routeContext)"))
         XCTAssertTrue(source.contains("if let config = state.pendingTaxTriageConfig"))
-        XCTAssertTrue(source.contains("self.runTaxTriage(config: config, viewerController: viewerController)"))
+        XCTAssertTrue(source.contains("self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)"))
     }
 
     func testFASTQOperationsDialogRoutesDerivativeLaunchesThroughMainSplitExecutionPath() throws {

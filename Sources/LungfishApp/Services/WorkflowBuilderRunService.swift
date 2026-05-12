@@ -65,7 +65,8 @@ public final class WorkflowBuilderRunService {
         URL,
         WorkflowBuilderRunBinding,
         UUID,
-        URL
+        URL,
+        OperationRouteContext?
     ) async throws -> GraphExecutionResult
 
     private struct GraphExecutionResult {
@@ -104,7 +105,8 @@ public final class WorkflowBuilderRunService {
     public func run(
         graph: WorkflowGraph,
         workflowBundleURL: URL,
-        binding: WorkflowBuilderRunBinding
+        binding: WorkflowBuilderRunBinding,
+        routeContext: OperationRouteContext? = nil
     ) async throws -> RunResult {
         let issues = graph.validate()
         let blockingIssues = issues.filter { $0.severity == .error }
@@ -136,7 +138,8 @@ public final class WorkflowBuilderRunService {
             operationType: .workflow,
             targetBundleURL: workflowBundleURL,
             cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
-            workflowRunID: runID
+            workflowRunID: runID,
+            routeContext: routeContext
         )
         operationCenter.log(id: parentOperationID, level: .info, message: "Run ID: \(runID.uuidString)")
         operationCenter.log(id: parentOperationID, level: .info, message: "Sample: \(binding.sample.path)")
@@ -164,7 +167,7 @@ public final class WorkflowBuilderRunService {
             try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
 
             do {
-                let executionResult = try await graphExecutor(graph, workflowBundleURL, binding, runID, runDirectoryURL)
+                let executionResult = try await graphExecutor(graph, workflowBundleURL, binding, runID, runDirectoryURL, routeContext)
                 additionalOutputs.append(LocalWorkflowInputBinding(url: executionResult.bundleURL, role: .output))
                 for node in sortedNodes {
                     setNodeStatus(node.id, in: &record, status: .succeeded, completedAt: Date())
@@ -204,7 +207,8 @@ public final class WorkflowBuilderRunService {
                     operationType: .workflow,
                     targetBundleURL: workflowBundleURL,
                     cliCommand: argv.map(shellEscapeForWorkflowBuilder).joined(separator: " "),
-                    workflowRunID: runID
+                    workflowRunID: runID,
+                    routeContext: routeContext
                 )
                 setNodeStatus(node.id, in: &record, status: .running, startedAt: Date())
                 try WorkflowBuilderRunStore.write(record, to: workflowBundleURL)
@@ -258,7 +262,7 @@ public final class WorkflowBuilderRunService {
             operationCenter: operationCenter,
             processRunner: processRunner
         )
-        return { graph, workflowBundleURL, binding, runID, runDirectoryURL in
+        return { graph, workflowBundleURL, binding, runID, runDirectoryURL, routeContext in
             if graph.allNodes.contains(where: { $0.type == .fastqBundleInput }) {
                 return try await runNativeWorkflowBuilderGraph(
                     graph: graph,
@@ -267,7 +271,8 @@ public final class WorkflowBuilderRunService {
                     runID: runID,
                     runDirectoryURL: runDirectoryURL,
                     operationCenter: operationCenter,
-                    processRunner: processRunner
+                    processRunner: processRunner,
+                    routeContext: routeContext
                 )
             }
 
@@ -288,7 +293,8 @@ public final class WorkflowBuilderRunService {
             )
             let result = try await localWorkflowService.run(
                 request,
-                bundleRoot: runDirectoryURL.appendingPathComponent("local-runs", isDirectory: true)
+                bundleRoot: runDirectoryURL.appendingPathComponent("local-runs", isDirectory: true),
+                routeContext: routeContext
             )
             return GraphExecutionResult(bundleURL: result.bundleURL)
         }
@@ -301,7 +307,8 @@ public final class WorkflowBuilderRunService {
         runID: UUID,
         runDirectoryURL: URL,
         operationCenter: OperationCenter,
-        processRunner: LocalWorkflowCLIProcessRunning
+        processRunner: LocalWorkflowCLIProcessRunning,
+        routeContext: OperationRouteContext?
     ) async throws -> GraphExecutionResult {
         let arguments = [
             "workflow",
@@ -320,7 +327,8 @@ public final class WorkflowBuilderRunService {
             operationType: .workflow,
             targetBundleURL: workflowBundleURL,
             cliCommand: command,
-            workflowRunID: runID
+            workflowRunID: runID,
+            routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: command)
 

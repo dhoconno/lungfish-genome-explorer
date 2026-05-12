@@ -52,6 +52,7 @@ public struct AssemblySheetPresenter {
         inputFiles: [URL],
         outputDirectory: URL?,
         initialTool: AssemblyTool = .spades,
+        routeContext: OperationRouteContext? = nil,
         onRun: ((AssemblyRunRequest) -> Void)? = nil,
         onCancel: (() -> Void)? = nil
     ) {
@@ -83,7 +84,7 @@ public struct AssemblySheetPresenter {
                     if let onRun {
                         onRun(config)
                     } else {
-                        AssemblyRunner.runValidated(request: config)
+                        AssemblyRunner.runValidated(request: config, routeContext: routeContext)
                     }
                 }
             },

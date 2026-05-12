@@ -130,6 +130,62 @@ final class InspectorNotificationScopingTests: XCTestCase {
 
         XCTAssertTrue(accepted)
     }
+
+    func testFASTQAnalysisNavigationDoesNotUseGlobalActiveProjectOrMainWindow() throws {
+        let inspectorURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift")
+        let source = try String(contentsOf: inspectorURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "@objc private func handleFASTQDatasetLoaded"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "viewModel.selectedTab = .bundle"))
+        let body = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertFalse(
+            body.contains("DocumentManager.shared.activeProject"),
+            "FASTQ analysis manifest/navigation should resolve project state from the window scope, not the global active project"
+        )
+        XCTAssertFalse(
+            body.contains("mainWindowController"),
+            "FASTQ analysis navigation should target the scoped window rather than the most recent global main window"
+        )
+        XCTAssertTrue(
+            body.contains("NotificationUserInfoKey.windowStateScope"),
+            "Analysis navigation should carry window scope so only the originating sidebar responds"
+        )
+    }
+
+    func testInspectorVariantSampleMetadataWritesUseWindowScopedWriteGuard() throws {
+        let inspectorURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/InspectorViewController.swift")
+        let source = try String(contentsOf: inspectorURL, encoding: .utf8)
+
+        let sampleUpdateBody = try sourceBody(
+            named: "private func updateSampleSection",
+            endingBefore: "/// Presents an open panel for importing sample metadata from TSV/CSV.",
+            in: source
+        )
+        XCTAssertTrue(sampleUpdateBody.contains("canWriteProjectOutputs"))
+        XCTAssertTrue(sampleUpdateBody.contains("workflowName: \"Sample metadata edit\""))
+
+        let importBody = try sourceBody(
+            named: "private func presentMetadataImportPanel(variantDBURLs: [URL], bundle: ReferenceBundle)",
+            endingBefore: "private func makeReadDisplaySettingsPayload",
+            in: source
+        )
+        XCTAssertTrue(importBody.contains("canWriteProjectOutputs"))
+        XCTAssertTrue(importBody.contains("workflowName: \"Sample metadata import\""))
+    }
+
+    private func sourceBody(named startNeedle: String, endingBefore endNeedle: String, in source: String) throws -> String {
+        let start = try XCTUnwrap(source.range(of: startNeedle))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: endNeedle))
+        return String(source[start.lowerBound..<end.lowerBound])
+    }
 }
 
 private final class InspectorNotificationUserInfoCapture: @unchecked Sendable {

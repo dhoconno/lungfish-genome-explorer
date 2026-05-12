@@ -5,6 +5,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import LungfishCore
 import LungfishIO
 
 /// Minimal form that collects the inputs for a user-authored primer-scheme
@@ -15,6 +16,7 @@ import LungfishIO
 struct PrimerSchemeImportView: View {
     @Bindable var viewModel: PrimerSchemeImportViewModel
     let projectURL: URL
+    let windowStateScope: WindowStateScope?
     let onComplete: (PrimerSchemeImportViewModel.ImportResult) -> Void
     let onCancel: () -> Void
 
@@ -89,6 +91,11 @@ struct PrimerSchemeImportView: View {
     private func runImport() {
         guard let bedURL else { return }
         errorMessage = nil
+        guard AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: windowStateScope,
+            workflowName: "Primer scheme import"
+        ) ?? true else { return }
         do {
             let equivalents = equivalentAccessionsText
                 .split(separator: ",")
@@ -138,4 +145,3 @@ struct PrimerSchemeImportView: View {
         return panel.runModal() == .OK ? panel.url : nil
     }
 }
-

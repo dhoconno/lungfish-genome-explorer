@@ -115,6 +115,9 @@ public class MainSplitViewController: NSSplitViewController {
     /// The shared activity indicator for showing progress across the app
     public private(set) var activityIndicator: ActivityIndicatorView!
 
+    /// Window-owned project/session state.
+    public private(set) var projectSession: ProjectSession
+
     // MARK: - Split View Items
 
     private var sidebarItem: NSSplitViewItem!
@@ -168,7 +171,15 @@ public class MainSplitViewController: NSSplitViewController {
     /// cannot repaint the viewport after a tool result is displayed.
     private var multiDocumentLoadTask: Task<Void, Never>?
 
-    private let windowStateScope = WindowStateScope()
+    private var windowStateScope: WindowStateScope {
+        projectSession.windowStateScope
+    }
+    private var operationRouteContext: OperationRouteContext {
+        OperationRouteContext(
+            projectURL: projectSession.projectURL ?? sidebarController.currentProjectURL,
+            windowStateScope: windowStateScope
+        )
+    }
     private var activeContentSelectionIdentity: ContentSelectionIdentity?
     private var displayRequestGate = AsyncRequestGate<ContentSelectionIdentity>()
 
@@ -225,6 +236,18 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Tracks sidebar width recommendations versus explicit user drags.
     private let sidebarWidthCoordinator = SplitShellWidthCoordinator()
+
+    // MARK: - Initialization
+
+    public init(projectSession: ProjectSession = ProjectSession()) {
+        self.projectSession = projectSession
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("MainSplitViewController does not support storyboard initialization")
+    }
 
     // MARK: - Lifecycle
 
@@ -303,6 +326,7 @@ public class MainSplitViewController: NSSplitViewController {
         sidebarController = SidebarViewController()
         viewerController = ViewerViewController()
         inspectorController = InspectorViewController()
+        viewerController.windowStateScope = windowStateScope
         _ = inspectorController.view
         let sidebarView = sidebarController.view
         sidebarView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -440,11 +464,13 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc private func handleBundleDidLoad(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         logger.info("handleBundleDidLoad: Bundle loaded, ensuring inspector is visible")
         setInspectorVisible(true, animated: false, source: "notification.bundleDidLoad")
     }
 
     @objc private func handleChromosomeInspectorRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         logger.info("handleChromosomeInspectorRequested: Showing inspector for chromosome")
         setInspectorVisible(true, animated: false, source: "notification.chromosomeInspectorRequested")
         // Chromosome details are handled by InspectorViewController observing the same notification
@@ -705,8 +731,150 @@ public class MainSplitViewController: NSSplitViewController {
         }
     }
 
+    public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
+        guard let project = projectSession.project else {
+            sidebarController.closeProject()
+            viewerController?.showNoSequenceSelected()
+            return
+        }
+
+        let projectName = project.url.deletingPathExtension().lastPathComponent
+        view.window?.title = "\(projectName) - Lungfish Genome Explorer"
+        sidebarController.openProject(at: project.url)
+
+        if let firstDoc = projectSession.activeDocument ?? projectSession.documents.first {
+            viewerController?.hideProgress()
+            viewerController?.displayDocument(firstDoc)
+        } else {
+            viewerController?.showNoSequenceSelected()
+        }
+
+        guard let snapshot else { return }
+        sidebarController.applyRestoredState(
+            selectedURL: snapshot.selectedSidebarURL,
+            expandedURLs: snapshot.expandedSidebarURLs,
+            searchText: snapshot.sidebarSearchText
+        )
+        setSidebarVisible(!snapshot.sidebarCollapsed, animated: false)
+        setInspectorVisible(!snapshot.inspectorCollapsed, animated: false, source: "window-state-restore")
+        applyRestoredPaneWidths(
+            sidebarWidth: snapshot.sidebarWidth,
+            inspectorWidth: snapshot.inspectorWidth
+        )
+        if let tab = snapshot.inspectorTab {
+            inspectorController?.restoreSelectedTabIdentifier(tab)
+        }
+        if let content = snapshot.activeContent {
+            restoreActiveContentState(content)
+        }
+    }
+
+    private func restoreActiveContentState(_ state: RestorableContentState) {
+        guard let url = state.url else { return }
+        if let document = projectSession.documents.first(where: {
+            $0.url.standardizedFileURL == url.standardizedFileURL
+        }) {
+            viewerController?.hideProgress()
+            viewerController?.displayDocument(document)
+            projectSession.setActiveDocument(document)
+            DocumentManager.shared.setActiveDocument(document)
+            return
+        }
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            viewerController?.restoreContentState(state)
+            return
+        }
+
+        switch url.pathExtension.lowercased() {
+        case "lungfishref":
+            displayReferenceBundleViewportFromSidebar(at: url, forceReload: true)
+        case MultipleSequenceAlignmentBundle.directoryExtension:
+            displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
+        case "lungfishtree":
+            displayPhylogeneticTreeBundleFromSidebar(at: url)
+        case FASTQBundle.directoryExtension:
+            loadFASTQDatasetInBackground(sourceURL: url)
+        default:
+            loadGenomicsFileInBackground(url: url)
+        }
+    }
+
+    private func applyRestoredPaneWidths(sidebarWidth: Double?, inspectorWidth: Double?) {
+        guard sidebarWidth != nil || inspectorWidth != nil else { return }
+        withProgrammaticShellResizeSuppression {
+            ensureShellWidthConstraints()
+
+            if let sidebarWidth, !sidebarItem.isCollapsed {
+                let width = min(max(CGFloat(sidebarWidth), sidebarMinWidth), sidebarMaxWidth)
+                sidebarWidthCoordinator.noteProgrammaticWidth(width)
+                sidebarWidthConstraint?.constant = width
+                shellLayoutCoordinator.recordUserSidebarWidth(width)
+            }
+
+            if let inspectorWidth, !inspectorItem.isCollapsed {
+                let width = min(max(CGFloat(inspectorWidth), inspectorMinWidth), inspectorMaxWidth)
+                inspectorWidthConstraint?.constant = width
+                shellLayoutCoordinator.recordUserInspectorWidth(width)
+            }
+
+            splitView.adjustSubviews()
+            view.layoutSubtreeIfNeeded()
+        }
+        sidebarWidthCoordinator.finishProgrammaticWidth()
+    }
+
+    private func canWriteProjectOutputs(workflowName: String) -> Bool {
+        guard projectSession.isReadOnlyRecommended else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Project Is Open Read Only"
+        alert.informativeText = "\(workflowName) writes files into the project. Close the other writer or reopen the project after the lock is released before running this workflow."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.applyLungfishBranding()
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+        return false
+    }
+
+    public func captureProjectWindowSnapshot(
+        id: UUID,
+        projectURL: URL,
+        windowOrdinal: Int,
+        windowOrder: Int,
+        windowTitleSuffix: String?,
+        frame: CodableWindowFrame?
+    ) -> ProjectWindowSnapshot {
+        ProjectWindowSnapshot(
+            id: id,
+            projectURL: projectURL,
+            windowOrdinal: windowOrdinal,
+            windowOrder: windowOrder,
+            windowTitleSuffix: windowTitleSuffix,
+            frame: frame,
+            isFullScreen: view.window?.styleMask.contains(.fullScreen) == true,
+            selectedSidebarURL: sidebarController.selectedFileURL,
+            expandedSidebarURLs: sidebarController.expandedItemURLsForPersistence(),
+            sidebarSearchText: sidebarController.searchTextForPersistence(),
+            activeContent: viewerController?.restorableContentState(),
+            inspectorTab: inspectorController?.restorableSelectedTabIdentifier(),
+            sidebarCollapsed: sidebarItem.isCollapsed,
+            inspectorCollapsed: inspectorItem.isCollapsed,
+            sidebarWidth: sidebarWidthConstraint.map { Double($0.constant) },
+            inspectorWidth: inspectorWidthConstraint.map { Double($0.constant) },
+            operationsPanelFilter: nil,
+            operationsPanelVisible: false
+        )
+    }
+
     @objc private func handleSidebarFileDropped(_ notification: Notification) {
         logger.info("handleSidebarFileDropped: Notification received!")
+        guard shouldAcceptScopedNotification(notification) else {
+            logger.debug("handleSidebarFileDropped: Ignoring drop notification from another project window scope")
+            return
+        }
         guard shouldHandleSidebarFileDropNotification(from: notification.object) else {
             logger.debug("handleSidebarFileDropped: Ignoring drop notification from another project window")
             return
@@ -720,6 +888,22 @@ public class MainSplitViewController: NSSplitViewController {
             allURLs = [url]
         } else {
             logger.warning("handleSidebarFileDropped: No URLs in notification userInfo")
+            return
+        }
+        guard canWriteProjectOutputs(workflowName: "File import") else {
+            let requestID = notification.userInfo?["requestID"] as? String
+            for url in allURLs {
+                NotificationCenter.default.post(
+                    name: .sidebarFileDropCompleted,
+                    object: self,
+                    userInfo: [
+                        "requestID": requestID ?? "",
+                        "url": url,
+                        "success": false,
+                        NotificationUserInfoKey.windowStateScope: windowStateScope
+                    ]
+                )
+            }
             return
         }
         let requestID = notification.userInfo?["requestID"] as? String
@@ -856,7 +1040,8 @@ public class MainSplitViewController: NSSplitViewController {
                     title: "Reference Import",
                     detail: "Importing \(url.lastPathComponent)...",
                     operationType: .bundleBuild,
-                    cliCommand: cliCmd
+                    cliCommand: cliCmd,
+                    routeContext: operationRouteContext
                 )
 
                 let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
@@ -926,7 +1111,8 @@ public class MainSplitViewController: NSSplitViewController {
                 title: "Annotation Import",
                 detail: "Importing \(url.lastPathComponent)...",
                 operationType: .bundleBuild,
-                cliCommand: nil
+                cliCommand: nil,
+                routeContext: operationRouteContext
             )
 
             do {
@@ -1055,6 +1241,7 @@ public class MainSplitViewController: NSSplitViewController {
 
     /// Presents the FASTQ import configuration sheet for the given file pairs.
     private func presentFASTQImportSheet(pairs: [FASTQFilePair], projectDirectory: URL, requestID: String?) {
+        guard canWriteProjectOutputs(workflowName: "FASTQ import") else { return }
         guard let window = view.window else {
             // Fallback: import first pair with defaults if no window for sheet
             for pair in pairs {
@@ -1162,7 +1349,8 @@ public class MainSplitViewController: NSSplitViewController {
                 pair: pair,
                 projectDirectory: projectDirectory,
                 bundleName: effectiveBundleName,
-                importConfig: config
+                importConfig: config,
+                routeContext: operationRouteContext
             ) { [weak self, weak viewerController] result in
                 defer { continuation.resume() }
                 switch result {
@@ -1241,6 +1429,10 @@ public class MainSplitViewController: NSSplitViewController {
     /// Flow: source FASTQ → copy to temp → clumpify + compress → create bundle
     /// in project → move processed file into bundle → display.
     private func importFASTQFileInBackground(sourceURL: URL, projectDirectory: URL, requestID: String?) {
+        guard canWriteProjectOutputs(workflowName: "FASTQ import") else {
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Project is open read only.")
+            return
+        }
         guard let viewerController = self.viewerController else {
             postSidebarFileDropCompleted(
                 requestID: requestID,
@@ -1333,7 +1525,8 @@ public class MainSplitViewController: NSSplitViewController {
         FASTQIngestionService.ingestAndBundle(
             sourceURL: sourceURL,
             projectDirectory: projectDirectory,
-            bundleName: effectiveBundleName
+            bundleName: effectiveBundleName,
+            routeContext: operationRouteContext
         ) { [weak self, weak viewerController] result in
             viewerController?.hideProgress()
             switch result {
@@ -1372,6 +1565,10 @@ public class MainSplitViewController: NSSplitViewController {
     /// Imports an ONT output directory into per-barcode `.lungfishfastq` bundles
     /// via the ONTDirectoryImporter, running in the background.
     func importONTDirectoryInBackground(sourceURL: URL, projectURL: URL, requestID: String? = nil) {
+        guard canWriteProjectOutputs(workflowName: "ONT import") else {
+            postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: "Project is open read only.")
+            return
+        }
         guard let viewerController = self.viewerController else {
             postSidebarFileDropCompleted(
                 requestID: requestID,
@@ -1431,7 +1628,8 @@ public class MainSplitViewController: NSSplitViewController {
             title: "ONT Import: \(sourceURL.lastPathComponent)",
             detail: "Detecting layout\u{2026}",
             operationType: .ingestion,
-            cliCommand: ontCliCmd
+            cliCommand: ontCliCmd,
+            routeContext: operationRouteContext
         )
 
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -1503,6 +1701,7 @@ public class MainSplitViewController: NSSplitViewController {
     }
 
     @objc private func handleSidebarPreferredWidthRecommended(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let rawWidth = notification.userInfo?["width"] as? CGFloat else { return }
         applySidebarPreferredWidth(rawWidth, allowShrink: false, isRecommendation: true)
     }
@@ -2583,6 +2782,23 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: workItem)
     }
 
+    public func sidebarDidRefreshSelectedItems(_ items: [SidebarItem]) {
+        selectionDebounceWorkItem?.cancel()
+        selectionDebounceWorkItem = nil
+        selectionGeneration &+= 1
+
+        let displayableItems = items.filter { item in
+            item.type != .folder && item.type != .project && item.type != .group
+        }
+        guard !displayableItems.isEmpty else { return }
+
+        if displayableItems.count == 1 {
+            displayContent(for: displayableItems[0])
+        } else {
+            handleMultipleItemsSelected(displayableItems)
+        }
+    }
+
     /// Unified content dispatch - synchronous for reliability.
     ///
     /// This method handles all content display decisions synchronously,
@@ -2729,6 +2945,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             if let document = DocumentManager.shared.documents.first(where: { $0.name == item.title }) {
                 logger.info("displayContent: Found matching document by name, displaying")
                 viewerController.displayDocument(document)
+                projectSession.setActiveDocument(document)
                 DocumentManager.shared.setActiveDocument(document)
             }
         }
@@ -3967,6 +4184,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         // Naked FASTQ files in the project: auto-bundle in place, then display the bundle
         if FASTQBundle.isFASTQFileURL(url),
            !FASTQBundle.isBundleURL(url.deletingLastPathComponent()) {
+            guard canWriteProjectOutputs(workflowName: "FASTQ import") else {
+                loadFASTQDatasetInBackground(sourceURL: url)
+                return
+            }
             let parentDir = url.deletingLastPathComponent()
             let baseName = FASTQBundle.deriveBaseName(from: url)
             let bundleURL = parentDir.appendingPathComponent("\(baseName).\(FASTQBundle.directoryExtension)")
@@ -4021,6 +4242,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             if isFullyLoaded {
                 logger.info("displayGenomicsFile: Document cached, displaying directly")
                 viewerController.displayDocument(existingDocument)
+                projectSession.setActiveDocument(existingDocument)
                 DocumentManager.shared.setActiveDocument(existingDocument)
                 return
             }
@@ -4047,6 +4269,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     /// Loads one or more standalone VCF files into a single auto-ingested bundle.
     func loadVCFFilesInBackground(urls: [URL]) {
         guard !urls.isEmpty else { return }
+        guard canWriteProjectOutputs(workflowName: "VCF import") else { return }
         let fileCount = urls.count
         logger.info("loadVCFFilesInBackground: Auto-ingesting \(fileCount) VCF file(s)")
 
@@ -4194,11 +4417,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         ncbiAccessions: [String],
         bundleURL: URL
     ) {
+        guard canWriteProjectOutputs(workflowName: "Reference download") else { return }
         let assemblyName = inferredRef.assembly ?? ncbiAccessions.first ?? "Reference"
 
         let downloadID = DownloadCenter.shared.start(
             title: "\(assemblyName) Reference",
-            detail: "Searching NCBI\u{2026}"
+            detail: "Searching NCBI\u{2026}",
+            routeContext: operationRouteContext
         )
 
         Task.detached { [weak self] in
@@ -4395,6 +4620,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
     /// Continuation of downloadReferenceForVCF after user confirms the download.
     private func performDownloadReferenceForVCF(_ inferredRef: ReferenceInference.Result, assembly: String) {
+        guard canWriteProjectOutputs(workflowName: "Reference download") else { return }
         // Search term: use accession if available, otherwise assembly name
         let searchTerm: String
         if let accession = inferredRef.accession {
@@ -4405,7 +4631,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         let downloadID = DownloadCenter.shared.start(
             title: "\(assembly) Reference",
-            detail: "Searching NCBI..."
+            detail: "Searching NCBI...",
+            routeContext: operationRouteContext
         )
 
         Task.detached {
@@ -4559,6 +4786,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        let shouldWriteFASTQStatisticsCache = !projectSession.isReadOnlyRecommended
         viewerController.showProgress("Computing FASTQ statistics...")
 
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
@@ -4582,11 +4810,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
                 // Cache the computed statistics for next time.
                 // Skip stale/deleted targets so we don't write sidecars into removed paths.
-                if FileManager.default.fileExists(atPath: fastqURL.path) {
+                if FileManager.default.fileExists(atPath: fastqURL.path),
+                   shouldWriteFASTQStatisticsCache {
                     var metadata = cachedMeta ?? PersistedFASTQMetadata()
                     metadata.computedStatistics = statistics
                     metadata.seqkitStats = statsResult.seqkitMetadata
                     FASTQMetadataStore.save(metadata, for: fastqURL)
+                } else if !shouldWriteFASTQStatisticsCache {
+                    logger.debug("loadFASTQDatasetInBackground: Project is read-only, skipping FASTQ statistics sidecar save")
                 } else {
                     logger.debug("loadFASTQDatasetInBackground: FASTQ deleted before cache write, skipping sidecar save")
                 }
@@ -4642,6 +4873,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     }
 
     private func runFASTQOperation(_ request: FASTQDerivativeRequest, sourceURL: URL) async throws {
+        guard canWriteProjectOutputs(workflowName: request.operationLabel) else {
+            throw CancellationError()
+        }
         let inputURLs = selectedFASTQOperationSources(fallback: sourceURL)
         let sourceBundleURLs = try inputURLs.map(resolveFASTQOperationSourceBundle(from:))
 
@@ -4658,7 +4892,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             title: opTitle,
             detail: "Preparing...",
             operationType: .fastqOperation,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: operationRouteContext
         )
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationLabel)")
         if sourceBundleURLs.count > 1 {
@@ -4833,6 +5068,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             ?? request.primaryInputURL?.deletingLastPathComponent().standardizedFileURL
             ?? FileManager.default.temporaryDirectory
 
+        if outputDirectoryWritesIntoCurrentProject(destinationRoot) {
+            guard canWriteProjectOutputs(workflowName: request.operationDisplayTitle) else { return }
+        }
+
         do {
             try FileManager.default.createDirectory(at: destinationRoot, withIntermediateDirectories: true)
         } catch {
@@ -4875,7 +5114,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             title: opTitle,
             detail: "Preparing...",
             operationType: .fastqOperation,
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: operationRouteContext
         )
         OperationCenter.shared.log(id: opID, level: .info, message: "Starting \(request.operationDisplayTitle)")
 
@@ -4967,6 +5207,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+    }
+
+    private func outputDirectoryWritesIntoCurrentProject(_ outputDirectory: URL) -> Bool {
+        guard let currentProjectURL = sidebarController.currentProjectURL?.standardizedFileURL else {
+            return false
+        }
+        let projectPath = currentProjectURL.resolvingSymlinksInPath().path
+        let outputPath = outputDirectory.resolvingSymlinksInPath().path
+        return outputPath == projectPath || outputPath.hasPrefix(projectPath + "/")
     }
 
     private func selectedFASTQOperationSources(fallback sourceURL: URL) -> [URL] {
@@ -5123,6 +5372,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                         }
                         viewerController.hideProgress()
                         viewerController.displayDocument(document)
+                        self.projectSession.setActiveDocument(document)
                         sidebarController.refreshItem(for: url)
                         logger.info("loadGenomicsFileInBackground: Loaded and displayed")
                     }

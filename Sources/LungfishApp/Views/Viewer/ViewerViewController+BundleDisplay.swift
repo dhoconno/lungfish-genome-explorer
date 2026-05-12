@@ -481,7 +481,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         NotificationCenter.default.post(
             name: .chromosomeInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.chromosome: chromosome]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.chromosome: chromosome])
         )
 
         // Persist navigation state
@@ -608,7 +608,7 @@ extension ViewerViewController {
         NotificationCenter.default.post(
             name: .bundleDidLoad,
             object: self,
-            userInfo: userInfo
+            userInfo: windowScopedUserInfo(userInfo)
         )
     }
 }

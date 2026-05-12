@@ -1429,7 +1429,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
 
         XCTAssertTrue(appDelegateSource.contains("state.pendingMSAAlignmentRequest"))
-        XCTAssertTrue(appDelegateSource.contains("self.runMAFFTAlignment(request: request)"))
+        XCTAssertTrue(appDelegateSource.contains("self.runMAFFTAlignment(request: request, routeContext: routeContext)"))
         XCTAssertTrue(appDelegateSource.contains("CLIMSAAlignmentRunner.buildArguments"))
         XCTAssertTrue(appDelegateSource.contains("operationType: .multipleSequenceAlignmentGeneration"))
     }

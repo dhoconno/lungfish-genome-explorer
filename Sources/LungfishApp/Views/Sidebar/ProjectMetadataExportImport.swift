@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import UniformTypeIdentifiers
 import os.log
@@ -364,6 +365,7 @@ final class MetadataImportSheet: NSViewController {
     // MARK: - Properties
 
     private let folderURL: URL
+    private let windowStateScope: WindowStateScope?
     private var existingSamples: [String: FASTQSampleMetadata] = [:]
     private var existingOrder: [String] = []
 
@@ -380,8 +382,9 @@ final class MetadataImportSheet: NSViewController {
 
     // MARK: - Init
 
-    init(folderURL: URL) {
+    init(folderURL: URL, windowStateScope: WindowStateScope? = nil) {
         self.folderURL = folderURL
+        self.windowStateScope = windowStateScope
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -589,6 +592,7 @@ final class MetadataImportSheet: NSViewController {
             NSSound.beep()
             return
         }
+        guard canWriteFolderMetadata(workflowName: "Project metadata import") else { return }
 
         // Apply updates: only overwrite fields that have values in the CSV
         var updatedMeta = existingSamples
@@ -627,7 +631,7 @@ final class MetadataImportSheet: NSViewController {
             NotificationCenter.default.post(
                 name: .sampleMetadataDidChange,
                 object: self,
-                userInfo: ["folderURL": folderURL]
+                userInfo: windowScopedUserInfo(["folderURL": folderURL])
             )
 
             dismiss(nil)
@@ -641,6 +645,22 @@ final class MetadataImportSheet: NSViewController {
                 alert.beginSheetModal(for: window)
             }
         }
+    }
+
+    private func canWriteFolderMetadata(workflowName: String) -> Bool {
+        AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(folderURL) ?? folderURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: view.window
+        ) ?? true
+    }
+
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
     }
 }
 

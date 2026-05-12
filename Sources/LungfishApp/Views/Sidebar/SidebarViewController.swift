@@ -162,8 +162,8 @@ public class SidebarViewController: NSViewController {
     /// Public read-only accessor for the current project folder URL.
     public var projectFolderURL: URL? { projectURL }
 
-    /// File system watcher for auto-refreshing when files change
-    private var fileSystemWatcher: FileSystemWatcher?
+    /// Shared project refresh subscription for auto-refreshing when files change.
+    private var projectRefreshSubscriptionID: ProjectFilesystemRefreshCoordinator.SubscriptionID?
 
     /// Universal search coordinator for project-scoped metadata/entity queries.
     private let universalSearchService = UniversalProjectSearchService.shared
@@ -325,6 +325,10 @@ public class SidebarViewController: NSViewController {
     }
 
     deinit {
+        let subscriptionID = projectRefreshSubscriptionID
+        Task { @MainActor in
+            ProjectFilesystemRefreshCoordinator.shared.unregister(subscriptionID)
+        }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -580,10 +584,14 @@ public class SidebarViewController: NSViewController {
         let width = recommendedSidebarWidth()
         guard abs(width - lastRecommendedSidebarWidth) >= 2 else { return }
         lastRecommendedSidebarWidth = width
+        var userInfo: [AnyHashable: Any] = ["width": width]
+        if let windowStateScope {
+            userInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        }
         NotificationCenter.default.post(
             name: .sidebarPreferredWidthRecommended,
             object: self,
-            userInfo: ["width": width]
+            userInfo: userInfo
         )
     }
 
@@ -684,6 +692,30 @@ public class SidebarViewController: NSViewController {
         return notificationScope == windowStateScope
     }
 
+    private func canWriteSidebarProjectOutputs(workflowName: String, targetURL: URL? = nil) -> Bool {
+        let resolvedProjectURL = projectURL
+            ?? targetURL.flatMap(ProjectTempDirectory.findProjectRoot)
+        return AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: resolvedProjectURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: view.window
+        ) ?? true
+    }
+
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
+    }
+
+    private func rehydrateScientificProvenance(from sourceURL: URL, to destinationURL: URL) {
+        ProvenancePathRehydrator.rehydrate(from: sourceURL, to: destinationURL) { message in
+            logger.warning("rehydrateScientificProvenance: \(message, privacy: .public)")
+        }
+    }
+
     /// Expands all parent items of the given item to ensure it's visible.
     private func expandParents(of item: SidebarItem) {
         // Find and expand parents by searching from root
@@ -721,7 +753,8 @@ public class SidebarViewController: NSViewController {
         logger.info("openProject: Opening project at '\(url.path, privacy: .public)'")
 
         // Stop watching previous project
-        fileSystemWatcher?.stopWatching()
+        ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
+        projectRefreshSubscriptionID = nil
         clearUniversalSearchState(for: projectURL)
 
         // Store the new project URL
@@ -731,12 +764,13 @@ public class SidebarViewController: NSViewController {
         reloadFromFilesystem()
         scheduleUniversalSearchRebuild(immediate: true)
 
-        // Start watching for changes
-        fileSystemWatcher = FileSystemWatcher { [weak self] changedPaths in
+        // Subscribe to shared project filesystem refreshes.
+        projectRefreshSubscriptionID = ProjectFilesystemRefreshCoordinator.shared.register(projectURL: url) { [weak self] changedPaths in
             guard let self else { return }
             if changedPaths.nonSidecar.isEmpty && !changedPaths.all.isEmpty {
-                // Sidecar-only changes — just update the search index
+                // Sidecar-only changes update metadata/search state without rebuilding the outline.
                 self.updateSearchIndex(changedPaths: changedPaths.all)
+                self.notifySelectedItemsRefreshedIfNeeded(changedPaths: changedPaths.all)
             } else if changedPaths.nonSidecar.isEmpty && changedPaths.all.isEmpty {
                 // kFSEventStreamEventFlagMustScanSubDirs — full reload
                 self.reloadFromFilesystem()
@@ -745,9 +779,8 @@ public class SidebarViewController: NSViewController {
                 self.updateSidebar(changedPaths: changedPaths)
             }
         }
-        fileSystemWatcher?.startWatching(directory: url)
 
-        logger.info("openProject: Project opened, watching for changes")
+        logger.info("openProject: Project opened, subscribed for filesystem changes")
     }
 
     /// Closes the current project and clears the sidebar.
@@ -755,8 +788,8 @@ public class SidebarViewController: NSViewController {
         logger.info("closeProject: Closing current project")
 
         let priorProjectURL = projectURL
-        fileSystemWatcher?.stopWatching()
-        fileSystemWatcher = nil
+        ProjectFilesystemRefreshCoordinator.shared.unregister(projectRefreshSubscriptionID)
+        projectRefreshSubscriptionID = nil
         projectURL = nil
         clearUniversalSearchState(for: priorProjectURL)
         rootItems = []
@@ -778,6 +811,26 @@ public class SidebarViewController: NSViewController {
         }
         collectExpanded(items: rootItems)
         return expanded
+    }
+
+    public func expandedItemURLsForPersistence() -> [URL] {
+        Array(saveExpandedItemURLs()).sorted { $0.path < $1.path }
+    }
+
+    public func searchTextForPersistence() -> String? {
+        let value = searchField?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? nil : value
+    }
+
+    public func applyRestoredState(selectedURL: URL?, expandedURLs: [URL], searchText: String?) {
+        if let searchText {
+            searchField?.stringValue = searchText
+            searchFieldChanged(searchField)
+        }
+        restoreExpandedItemURLs(Set(expandedURLs.map(\.standardizedFileURL)))
+        if let selectedURL {
+            _ = selectItem(forURL: selectedURL)
+        }
     }
 
     /// Re-expand items whose URLs match the saved set (recursive).
@@ -850,6 +903,8 @@ public class SidebarViewController: NSViewController {
             } else {
                 handleSelectionChange(restoredItems, source: "reloadFromFilesystem")
             }
+        } else if !restoredItems.isEmpty {
+            selectionDelegate?.sidebarDidRefreshSelectedItems(restoredItems)
         }
 
         let itemCount = rootItems.reduce(0) { $0 + countItems(in: $1) }
@@ -929,6 +984,42 @@ public class SidebarViewController: NSViewController {
                 indexInParent: existingItemIndex
             )
         }
+
+        notifySelectedItemsRefreshedIfNeeded(changedPaths: changedPaths.all)
+    }
+
+    private func notifySelectedItemsRefreshedIfNeeded(changedPaths: [URL]) {
+        let items = selectedItems()
+        guard !items.isEmpty else { return }
+        let changedPaths = changedPaths
+            .flatMap { selectedItemRefreshPaths(forChangedPath: $0) }
+            .map(\.path)
+        let selectedPaths = items.compactMap { $0.url?.standardizedFileURL.path }
+        guard selectedPaths.contains(where: { selectedPath in
+            changedPaths.contains { changedPath in
+                changedPath == selectedPath
+                    || changedPath.hasPrefix(selectedPath + "/")
+                    || selectedPath.hasPrefix(changedPath + "/")
+            }
+        }) else {
+            return
+        }
+        selectionDelegate?.sidebarDidRefreshSelectedItems(items)
+    }
+
+    private func selectedItemRefreshPaths(forChangedPath url: URL) -> [URL] {
+        let standardizedURL = url.standardizedFileURL
+        let fastqMetadataSuffix = ".lungfish-meta.json"
+        guard standardizedURL.lastPathComponent.hasSuffix(fastqMetadataSuffix) else {
+            return [standardizedURL]
+        }
+
+        let ownerName = String(standardizedURL.lastPathComponent.dropLast(fastqMetadataSuffix.count))
+        guard !ownerName.isEmpty else { return [standardizedURL] }
+        return [
+            standardizedURL,
+            standardizedURL.deletingLastPathComponent().appendingPathComponent(ownerName).standardizedFileURL
+        ]
     }
 
     /// Applies a diff between an existing sidebar item's children and a rebuilt version,
@@ -2820,6 +2911,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
             logger.debug("deleteSelectedItems: No deletable items in selection")
             return
         }
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Sidebar delete",
+            targetURL: deletableItems.first?.url
+        ) else {
+            return
+        }
 
         // Show confirmation dialog
         let itemCount = deletableItems.count
@@ -2845,6 +2942,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
     /// Performs the actual deletion of items
     private func performDelete(items: [SidebarItem]) {
         logger.info("performDelete: Deleting \(items.count) items")
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Sidebar delete",
+            targetURL: items.first?.url
+        ) else {
+            return
+        }
 
         var failedItems: [(SidebarItem, Error)] = []
 
@@ -2883,7 +2986,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         NotificationCenter.default.post(
             name: .sidebarItemsDeleted,
             object: self,
-            userInfo: ["items": items]
+            userInfo: windowScopedUserInfo(["items": items])
         )
     }
 
@@ -2957,6 +3060,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     private func moveItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
         guard !sourceItems.isEmpty else { return false }
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Sidebar move",
+            targetURL: destFolderURL
+        ) else {
+            return false
+        }
 
         var movedCount = 0
         for sourceItem in sourceItems {
@@ -2987,6 +3096,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
             do {
                 try FileManager.default.moveItem(at: sourceURL, to: destURL)
+                rehydrateScientificProvenance(from: sourceURL, to: destURL)
                 movedCount += 1
                 logger.info("moveItems: File moved from \(sourceURL.path, privacy: .public) to \(destURL.path, privacy: .public)")
             } catch {
@@ -3024,6 +3134,12 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
     private func copyItems(_ sourceItems: [SidebarItem], toFolderURL destFolderURL: URL, at index: Int) -> Bool {
         guard !sourceItems.isEmpty else { return false }
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Sidebar copy",
+            targetURL: destFolderURL
+        ) else {
+            return false
+        }
 
         var copiedCount = 0
         for sourceItem in sourceItems {
@@ -3036,6 +3152,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
 
             do {
                 try FileManager.default.copyItem(at: sourceURL, to: destURL)
+                rehydrateScientificProvenance(from: sourceURL, to: destURL)
                 copiedCount += 1
                 logger.info("copyItems: File copied to \(destURL.path, privacy: .public)")
             } catch {
@@ -3607,7 +3724,7 @@ extension SidebarViewController: NSMenuDelegate {
         }
 
         // Edit / Export / Import Sample Metadata (for folders containing FASTQ bundles)
-        if items.count == 1 && hasFolders, let folderItem = items.first, let folderURL = folderItem.url {
+        if items.count == 1 && hasFolders, let folderItem = items.first, folderItem.url != nil {
             let hasFASTQChildren = folderItem.children.contains { $0.type == .fastqBundle }
             if hasFASTQChildren {
                 let editMetaItem = NSMenuItem(
@@ -3871,8 +3988,15 @@ extension SidebarViewController: NSMenuDelegate {
               let bundleURL = item.url else { return }
 
         logger.info("contextMenuImportSampleMetadata: Importing metadata into '\(item.title, privacy: .public)'")
+        guard canWriteSidebarProjectOutputs(workflowName: "Sample metadata import", targetURL: bundleURL) else {
+            return
+        }
         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
-        appDelegate.presentMetadataImportPanel(for: bundleURL, presentingWindow: view.window)
+        appDelegate.presentMetadataImportPanel(
+            for: bundleURL,
+            presentingWindow: view.window,
+            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        )
     }
 
     @objc private func contextMenuEditFolderMetadata(_ sender: Any?) {
@@ -3882,8 +4006,11 @@ extension SidebarViewController: NSMenuDelegate {
               let folderURL = item.url else { return }
 
         logger.info("contextMenuEditFolderMetadata: Opening metadata editor for '\(item.title, privacy: .public)'")
+        guard canWriteSidebarProjectOutputs(workflowName: "Folder metadata edit", targetURL: folderURL) else {
+            return
+        }
 
-        let editorSheet = FolderMetadataEditorSheet(folderURL: folderURL)
+        let editorSheet = FolderMetadataEditorSheet(folderURL: folderURL, windowStateScope: windowStateScope)
         guard let window = view.window else { return }
 
         window.contentViewController?.presentAsSheet(editorSheet)
@@ -3909,8 +4036,11 @@ extension SidebarViewController: NSMenuDelegate {
               let folderURL = item.url else { return }
 
         logger.info("contextMenuImportProjectMetadata: Importing metadata into '\(item.title, privacy: .public)'")
+        guard canWriteSidebarProjectOutputs(workflowName: "Project metadata import", targetURL: folderURL) else {
+            return
+        }
 
-        let sheet = MetadataImportSheet(folderURL: folderURL)
+        let sheet = MetadataImportSheet(folderURL: folderURL, windowStateScope: windowStateScope)
         guard let window = view.window else { return }
         window.contentViewController?.presentAsSheet(sheet)
     }
@@ -3927,6 +4057,9 @@ extension SidebarViewController: NSMenuDelegate {
     @objc private func contextMenuDeleteVariantTracks(_ sender: Any?) {
         let items = selectedItems()
         guard let item = items.first, item.type == .referenceBundle, let bundleURL = item.url else { return }
+        guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
+            return
+        }
 
         let manifestURL = bundleURL.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: manifestURL),
@@ -3952,6 +4085,9 @@ extension SidebarViewController: NSMenuDelegate {
     private func performDeleteVariantTracks(bundleURL: URL, manifest: BundleManifest) {
         let tracks = manifest.variants
         guard !tracks.isEmpty else { return }
+        guard canWriteSidebarProjectOutputs(workflowName: "Variant track deletion", targetURL: bundleURL) else {
+            return
+        }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let fm = FileManager.default
@@ -4102,6 +4238,10 @@ extension SidebarViewController: NSMenuDelegate {
             inputFiles: inputFiles,
             outputDirectory: outputDir,
             initialTool: initialTool,
+            routeContext: OperationRouteContext(
+                projectURL: projectURL,
+                windowStateScope: windowStateScope
+            ),
             onCancel: nil
         )
     }
@@ -4229,6 +4369,9 @@ extension SidebarViewController: NSMenuDelegate {
     }
 
     private func createFolder(named name: String, in parentURL: URL) {
+        guard canWriteSidebarProjectOutputs(workflowName: "Folder creation", targetURL: parentURL) else {
+            return
+        }
         var folderURL = parentURL.appendingPathComponent(name, isDirectory: true)
 
         // Handle duplicate names
@@ -4293,6 +4436,9 @@ extension SidebarViewController: NSMenuDelegate {
             reloadOutlineView()
             return
         }
+        guard canWriteSidebarProjectOutputs(workflowName: "Sidebar rename", targetURL: url) else {
+            return
+        }
 
         // Construct new URL with same extension
         let fileExtension = url.pathExtension
@@ -4301,6 +4447,7 @@ extension SidebarViewController: NSMenuDelegate {
 
         do {
             try FileManager.default.moveItem(at: url, to: newURL)
+            rehydrateScientificProvenance(from: url, to: newURL)
             logger.info("performRename: Renamed to '\(newFilename, privacy: .public)'")
             // Immediately refresh sidebar for instant feedback
             reloadFromFilesystem()
@@ -4321,6 +4468,12 @@ extension SidebarViewController: NSMenuDelegate {
     @objc private func contextMenuDuplicate(_ sender: Any?) {
         let items = selectedItems()
         logger.info("contextMenuDuplicate: Duplicating \(items.count) items")
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Sidebar duplicate",
+            targetURL: items.first?.url
+        ) else {
+            return
+        }
 
         for item in items {
             guard let url = item.url else { continue }
@@ -4338,6 +4491,7 @@ extension SidebarViewController: NSMenuDelegate {
 
             do {
                 try FileManager.default.copyItem(at: url, to: newURL)
+                rehydrateScientificProvenance(from: url, to: newURL)
                 logger.info("contextMenuDuplicate: Created '\(newURL.lastPathComponent, privacy: .public)'")
             } catch {
                 logger.error("contextMenuDuplicate: Failed - \(error.localizedDescription, privacy: .public)")
@@ -4359,6 +4513,12 @@ extension SidebarViewController: NSMenuDelegate {
     @objc private func contextMenuCloneMetadata(_ sender: Any?) {
         let targetItems = selectedItems().filter { $0.type == .fastqBundle }
         guard !targetItems.isEmpty else { return }
+        guard canWriteSidebarProjectOutputs(
+            workflowName: "Metadata cloning",
+            targetURL: targetItems.first?.url
+        ) else {
+            return
+        }
 
         // Find all FASTQ bundles in the same parent folder as potential sources
         guard let parentURL = targetItems.first?.url?.deletingLastPathComponent() else { return }
@@ -4422,7 +4582,7 @@ extension SidebarViewController: NSMenuDelegate {
                     NotificationCenter.default.post(
                         name: .sampleMetadataDidChange,
                         object: self,
-                        userInfo: nil
+                        userInfo: self?.windowScopedUserInfo([:]) ?? [:]
                     )
                 }
             }
@@ -4499,6 +4659,9 @@ extension SidebarViewController: NSMenuDelegate {
             logger.warning("contextMenuMoveToFolder: No destination URL")
             return
         }
+        guard canWriteSidebarProjectOutputs(workflowName: "Sidebar move", targetURL: destinationURL) else {
+            return
+        }
 
         let items = selectedItems()
         logger.info("contextMenuMoveToFolder: Moving \(items.count) items to '\(destinationURL.lastPathComponent, privacy: .public)'")
@@ -4524,6 +4687,7 @@ extension SidebarViewController: NSMenuDelegate {
 
             do {
                 // Check for existing file with same name
+                let finalURL: URL
                 if FileManager.default.fileExists(atPath: destURL.path) {
                     // Generate unique name
                     var uniqueURL = destURL
@@ -4537,12 +4701,13 @@ extension SidebarViewController: NSMenuDelegate {
                         uniqueURL = destinationURL.appendingPathComponent(newName)
                     }
 
-                    try FileManager.default.moveItem(at: sourceURL, to: uniqueURL)
-                    logger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)' to '\(uniqueURL.lastPathComponent, privacy: .public)'")
+                    finalURL = uniqueURL
                 } else {
-                    try FileManager.default.moveItem(at: sourceURL, to: destURL)
-                    logger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)'")
+                    finalURL = destURL
                 }
+                try FileManager.default.moveItem(at: sourceURL, to: finalURL)
+                rehydrateScientificProvenance(from: sourceURL, to: finalURL)
+                logger.info("contextMenuMoveToFolder: Moved '\(item.title, privacy: .public)' to '\(finalURL.lastPathComponent, privacy: .public)'")
             } catch {
                 logger.error("contextMenuMoveToFolder: Failed to move '\(item.title, privacy: .public)' - \(error.localizedDescription, privacy: .public)")
                 failedItems.append((item, error))

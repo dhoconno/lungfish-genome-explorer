@@ -678,7 +678,13 @@ public class InspectorViewController: NSViewController {
         // Load FASTQ sample metadata and analysis manifest if bundle URL is provided
         if let bundleURL = notification.userInfo?["bundleURL"] as? URL {
             viewModel.fastqMetadataSectionViewModel.load(from: bundleURL)
-            let projectURL = DocumentManager.shared.activeProject?.url
+            let routeContext = OperationRouteContext(
+                projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+                windowStateScope: windowStateScope
+            )
+            let projectURL = routeContext.projectURL
+                ?? AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                    .projectSession.projectURL
             viewModel.documentSectionViewModel.updateAnalysisManifest(
                 bundleURL: bundleURL,
                 projectURL: projectURL
@@ -687,7 +693,7 @@ public class InspectorViewController: NSViewController {
             // Wire navigation callback so clicking an analysis entry in the
             // Inspector opens it in the viewer via the sidebar selection path.
             viewModel.documentSectionViewModel.navigateToAnalysis = { [weak self] entry in
-                guard let projectURL = DocumentManager.shared.activeProject?.url else { return }
+                guard let projectURL else { return }
                 let analysisURL = projectURL
                     .appendingPathComponent(AnalysesFolder.directoryName)
                     .appendingPathComponent(entry.analysisDirectoryName)
@@ -699,9 +705,15 @@ public class InspectorViewController: NSViewController {
                     )
                     return
                 }
-                // Select the analysis in the sidebar, which triggers displayContent
-                AppDelegate.shared?.mainWindowController?.mainSplitViewController?
-                    .sidebarController.selectItem(forURL: analysisURL)
+                var userInfo: [AnyHashable: Any] = ["url": analysisURL]
+                if let scope = self?.windowStateScope {
+                    userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                }
+                NotificationCenter.default.post(
+                    name: .navigateToSidebarItem,
+                    object: self,
+                    userInfo: userInfo
+                )
             }
         }
 
@@ -754,6 +766,32 @@ public class InspectorViewController: NSViewController {
         }
         guard let windowStateScope else { return true }
         return notificationScope == windowStateScope
+    }
+
+    private func operationRouteContext(for bundleURL: URL?) -> OperationRouteContext? {
+        OperationRouteContext(
+            projectURL: bundleURL.flatMap(ProjectTempDirectory.findProjectRoot),
+            windowStateScope: windowStateScope
+        )
+    }
+
+    private func canWriteProjectOutputs(bundleURL: URL?, workflowName: String) -> Bool {
+        guard let appDelegate = NSApp.delegate as? AppDelegate else { return true }
+        return appDelegate.canWriteProjectOutputs(
+            projectURL: bundleURL.flatMap(ProjectTempDirectory.findProjectRoot),
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: view.window
+        )
+    }
+
+    public func restorableSelectedTabIdentifier() -> String {
+        viewModel.selectedTab.rawValue
+    }
+
+    public func restoreSelectedTabIdentifier(_ identifier: String) {
+        guard let tab = InspectorTab(rawValue: identifier) else { return }
+        viewModel.selectedTab = tab
     }
 
     private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
@@ -1545,7 +1583,12 @@ public class InspectorViewController: NSViewController {
 
         // Wire save callback for metadata editing
         let capturedURLs = variantDBURLs
-        viewModel.sampleSectionViewModel.onSaveMetadata = { sampleName, metadata in
+        let capturedBundleURL = bundle.url
+        viewModel.sampleSectionViewModel.onSaveMetadata = { [weak self] sampleName, metadata in
+            guard self?.canWriteProjectOutputs(
+                bundleURL: capturedBundleURL,
+                workflowName: "Sample metadata edit"
+            ) == true else { return }
             for dbURL in capturedURLs {
                 do {
                     let rwDB = try VariantDatabase(url: dbURL, readWrite: true)
@@ -1570,6 +1613,9 @@ public class InspectorViewController: NSViewController {
 
     /// Presents an open panel for importing sample metadata from TSV/CSV.
     private func presentMetadataImportPanel(variantDBURLs: [URL], bundle: ReferenceBundle) {
+        guard canWriteProjectOutputs(bundleURL: bundle.url, workflowName: "Sample metadata import") else {
+            return
+        }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
             .init(filenameExtension: "tsv")!,
@@ -1582,6 +1628,10 @@ public class InspectorViewController: NSViewController {
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let fileURL = panel.url else { return }
+            guard self?.canWriteProjectOutputs(
+                bundleURL: bundle.url,
+                workflowName: "Sample metadata import"
+            ) == true else { return }
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
@@ -1711,6 +1761,7 @@ public class InspectorViewController: NSViewController {
         bundleURL: URL,
         shouldReloadMappingViewer: Bool
     ) {
+        guard canWriteProjectOutputs(bundleURL: bundleURL, workflowName: "Derived alignment removal") else { return }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 presentSimpleAlert(
@@ -1725,7 +1776,8 @@ public class InspectorViewController: NSViewController {
             title: "Remove Derived Alignment",
             detail: "Removing \(trackName)...",
             operationType: .bamImport,
-            targetBundleURL: bundleURL
+            targetBundleURL: bundleURL,
+            routeContext: operationRouteContext(for: bundleURL)
         )
 
         Task(priority: .userInitiated) { [weak self] in
@@ -1951,6 +2003,7 @@ public class InspectorViewController: NSViewController {
     private func launchVariantCallingOperation(state: BAMVariantCallingDialogState) {
         let bundleURL = state.bundle.url
 
+        guard canWriteProjectOutputs(bundleURL: bundleURL, workflowName: "Variant calling") else { return }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 presentSimpleAlert(
@@ -1995,7 +2048,8 @@ public class InspectorViewController: NSViewController {
             detail: "Preparing \(state.selectedCaller.displayName)...",
             operationType: .variantCalling,
             targetBundleURL: bundleURL,
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: operationRouteContext(for: bundleURL)
         )
 
         final class ResultTracker: @unchecked Sendable {
@@ -2097,7 +2151,8 @@ public class InspectorViewController: NSViewController {
             detail: "Running \(displayName)...",
             operationType: .variantCalling,
             targetBundleURL: bundleURL,
-            cliCommand: commandPreview
+            cliCommand: commandPreview,
+            routeContext: operationRouteContext(for: bundleURL)
         )
 
         let task = Task(priority: .userInitiated) { [weak self] in
@@ -2303,6 +2358,7 @@ public class InspectorViewController: NSViewController {
     private func launchPrimerTrimOperation(state: BAMPrimerTrimDialogState) {
         let bundleURL = state.bundle.url
 
+        guard canWriteProjectOutputs(bundleURL: bundleURL, workflowName: "Primer trim") else { return }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 presentSimpleAlert(
@@ -2348,7 +2404,8 @@ public class InspectorViewController: NSViewController {
             detail: "Preparing primer trim...",
             operationType: .bamPrimerTrim,
             targetBundleURL: bundleURL,
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: operationRouteContext(for: bundleURL)
         )
 
         final class ResultTracker: @unchecked Sendable {

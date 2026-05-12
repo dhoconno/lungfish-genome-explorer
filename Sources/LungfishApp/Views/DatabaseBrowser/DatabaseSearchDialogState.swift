@@ -54,6 +54,12 @@ final class DatabaseSearchDialogState {
     let sraRunsViewModel: DatabaseBrowserViewModel
     let pathoplexusViewModel: DatabaseBrowserViewModel
 
+    var routeContext: OperationRouteContext? {
+        didSet {
+            applyRouteContext(routeContext)
+        }
+    }
+
     init(
         initialDestination: DatabaseSearchDestination = .genBankGenomes,
         automationBackend: DatabaseSearchAutomationBackend? = nil
@@ -188,6 +194,12 @@ final class DatabaseSearchDialogState {
         for viewModel in [genBankGenomesViewModel, sraRunsViewModel, pathoplexusViewModel] {
             viewModel.onCancel = onCancel
             viewModel.onDownloadStarted = onDownloadStarted
+        }
+    }
+
+    func applyRouteContext(_ routeContext: OperationRouteContext?) {
+        for viewModel in [genBankGenomesViewModel, sraRunsViewModel, pathoplexusViewModel] {
+            viewModel.routeContext = routeContext
         }
     }
 

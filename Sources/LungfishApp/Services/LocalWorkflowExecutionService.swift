@@ -20,7 +20,11 @@ final class LocalWorkflowExecutionService {
         self.processRunner = processRunner
     }
 
-    func prepare(_ request: LocalWorkflowRunRequest, bundleRoot: URL) async throws -> RunResult {
+    func prepare(
+        _ request: LocalWorkflowRunRequest,
+        bundleRoot: URL,
+        routeContext: OperationRouteContext? = nil
+    ) async throws -> RunResult {
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(for: request, in: bundleRoot)
         let createdAt = Date()
@@ -45,7 +49,8 @@ final class LocalWorkflowExecutionService {
             detail: "Preparing \(request.engine.displayName) workflow",
             operationType: .workflow,
             targetBundleURL: bundleURL,
-            cliCommand: commandPreview
+            cliCommand: commandPreview,
+            routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: "Prepared run bundle at \(bundleURL.path)")
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)
@@ -64,7 +69,11 @@ final class LocalWorkflowExecutionService {
         )
     }
 
-    func run(_ request: LocalWorkflowRunRequest, bundleRoot: URL) async throws -> RunResult {
+    func run(
+        _ request: LocalWorkflowRunRequest,
+        bundleRoot: URL,
+        routeContext: OperationRouteContext? = nil
+    ) async throws -> RunResult {
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(for: request, in: bundleRoot)
         let commandPreview = cliCommandPreview(for: request, bundleURL: bundleURL, prepareOnly: false)
@@ -73,7 +82,8 @@ final class LocalWorkflowExecutionService {
             detail: "Running \(request.engine.displayName) workflow",
             operationType: .workflow,
             targetBundleURL: bundleURL,
-            cliCommand: commandPreview
+            cliCommand: commandPreview,
+            routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: "Run bundle: \(bundleURL.path)")
         operationCenter.log(id: operationID, level: .info, message: request.commandPreview)

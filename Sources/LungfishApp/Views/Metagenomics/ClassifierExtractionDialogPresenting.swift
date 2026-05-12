@@ -46,11 +46,18 @@ extension NSViewController {
         suggestedName: String
     ) {
         guard let window = view.window, !selectors.isEmpty else { return }
+        let mainController = window.windowController as? MainWindowController
+        let routeContext = OperationRouteContext(
+            projectURL: mainController?.projectSession.projectURL
+                ?? mainController?.mainSplitViewController?.sidebarController.currentProjectURL,
+            windowStateScope: mainController?.projectSession.windowStateScope
+        )
         let ctx = TaxonomyReadExtractionAction.Context(
             tool: tool,
             resultPath: resultPath,
             selections: selectors,
-            suggestedName: suggestedName
+            suggestedName: suggestedName,
+            routeContext: routeContext
         )
         TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
     }

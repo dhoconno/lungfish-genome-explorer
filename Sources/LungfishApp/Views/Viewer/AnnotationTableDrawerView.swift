@@ -255,6 +255,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     // MARK: - Properties
 
     weak var delegate: AnnotationTableDrawerDelegate?
+    var windowStateScope: WindowStateScope?
 
     /// Reference to the search index for direct SQL queries.
     private(set) var searchIndex: AnnotationSearchIndex?
@@ -1295,10 +1296,38 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.removeObserver(self)
     }
 
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
+    }
+
+    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
+        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
+            return true
+        }
+        guard let windowStateScope else { return true }
+        return notificationScope == windowStateScope
+    }
+
+    private func canWriteVariantDatabaseOutputs(workflowName: String) -> Bool {
+        let projectURL = searchIndex?.variantDatabaseHandles
+            .compactMap { ProjectTempDirectory.findProjectRoot($0.db.databaseURL) }
+            .first
+        return AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: window
+        ) ?? true
+    }
+
     // MARK: - Variant Selection Sync
 
     /// Handles `.variantSelected` notification from the viewer to sync the drawer's selection.
     @objc private func handleVariantSelected(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let result = notification.userInfo?[NotificationUserInfoKey.searchResult]
                 as? AnnotationSearchIndex.SearchResult else { return }
         // Ignore if we're the source of the notification
@@ -1359,6 +1388,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Handles `.viewportVariantsUpdated` notification to auto-sync the variant table.
     @objc private func handleViewportVariantsUpdated(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard viewportSyncEnabled else { return }
         guard let expectedSource = viewportSyncSourceIdentifier,
               let sender = notification.object as AnyObject?,
@@ -1386,6 +1416,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     /// Tracks viewer pan/zoom even when variant fetch notifications are delayed or skipped by cache reuse.
     @objc private func handleViewerCoordinatesChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard viewportSyncEnabled else { return }
         guard let expectedSource = viewportSyncSourceIdentifier,
               let sender = notification.object as AnyObject?,
@@ -5386,7 +5417,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.post(
             name: .copyAnnotationAsFASTARequested,
             object: nil,
-            userInfo: ["annotation": annotation]
+            userInfo: windowScopedUserInfo(["annotation": annotation])
         )
     }
 
@@ -5396,7 +5427,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.post(
             name: .copyTranslationAsFASTARequested,
             object: nil,
-            userInfo: ["annotation": annotation]
+            userInfo: windowScopedUserInfo(["annotation": annotation])
         )
     }
 
@@ -5812,7 +5843,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.post(
             name: .copyAnnotationSequenceRequested,
             object: nil,
-            userInfo: ["annotation": annotation]
+            userInfo: windowScopedUserInfo(["annotation": annotation])
         )
     }
 
@@ -5822,7 +5853,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.post(
             name: .copyAnnotationReverseComplementRequested,
             object: nil,
-            userInfo: ["annotation": annotation]
+            userInfo: windowScopedUserInfo(["annotation": annotation])
         )
     }
 
@@ -5832,7 +5863,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         NotificationCenter.default.post(
             name: .zoomToAnnotationRequested,
             object: nil,
-            userInfo: ["annotation": annotation]
+            userInfo: windowScopedUserInfo(["annotation": annotation])
         )
     }
 
@@ -5842,21 +5873,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             NotificationCenter.default.post(
                 name: .variantSelected,
                 object: self,
-                userInfo: [NotificationUserInfoKey.searchResult: result]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.searchResult: result])
             )
         } else {
             let annotation = makeAnnotation(from: result)
             NotificationCenter.default.post(
                 name: .annotationSelected,
                 object: nil,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
         }
         // Then show inspector
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.inspectorTab: "selection"])
         )
     }
 
@@ -6507,6 +6538,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         let scopedIDs = variantIDsByTrack(from: selectedVariants)
         let count = scopedIDs.values.reduce(0) { $0 + $1.count }
         guard count > 0 else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
 
         let alert = NSAlert()
         alert.messageText = "Delete \(count) Variant\(count == 1 ? "" : "s")?"
@@ -6524,6 +6556,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     @objc private func deleteAllVariantsAction(_ sender: NSMenuItem) {
         let count = totalVariantCount
+        guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
         let alert = NSAlert()
         alert.messageText = "Delete All \(count) Variants?"
         alert.informativeText = "This will permanently remove all variants from the database. This cannot be undone."
@@ -6541,6 +6574,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func performVariantDeletion(_ idsByTrack: [String: [Int64]]) {
         guard let searchIndex else { return }
         guard !idsByTrack.isEmpty else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
 
         let handlesByTrack = Dictionary(uniqueKeysWithValues: searchIndex.variantDatabaseHandles.map { ($0.trackId, $0.db) })
         var deletedCount = 0
@@ -6568,6 +6602,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     private func performDeleteAllVariants() {
         guard let searchIndex else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Variant deletion") else { return }
 
         var deletedCount = 0
         for (_, db) in searchIndex.variantDatabaseHandles {
@@ -7222,11 +7257,12 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         NotificationCenter.default.post(
             name: .sampleDisplayStateChanged,
             object: self,
-            userInfo: [NotificationUserInfoKey.sampleDisplayState: currentSampleDisplayState]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.sampleDisplayState: currentSampleDisplayState])
         )
     }
 
     @objc private func handleSampleDisplayStateChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         // Ignore if we are the source
         if notification.object as AnyObject? === self { return }
         guard let state = notification.userInfo?[NotificationUserInfoKey.sampleDisplayState] as? SampleDisplayState else { return }
@@ -7726,6 +7762,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
               !fieldName.isEmpty,
               sampleMetadataFields.contains(fieldName),
               let window = self.window else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata column deletion") else { return }
 
         let alert = NSAlert()
         alert.alertStyle = .warning
@@ -7737,6 +7774,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }
+            guard self.canWriteVariantDatabaseOutputs(workflowName: "Sample metadata column deletion") else { return }
             guard let searchIndex = self.searchIndex else { return }
 
             let fieldToRemove = fieldName
@@ -7868,6 +7906,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
     @objc private func importMetadataAction(_ sender: Any?) {
         guard let searchIndex else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [
             .init(filenameExtension: "tsv")!,
@@ -7880,6 +7919,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let fileURL = panel.url else { return }
+            guard self.canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
             let ext = fileURL.pathExtension.lowercased()
             let format: MetadataFormat = ext == "csv" ? .csv : .tsv
 
@@ -7989,6 +8029,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         // Handle Display Name column edits
         if columnId == Self.sampleDisplayNameColumn {
+            guard canWriteVariantDatabaseOutputs(workflowName: "Sample display name edit") else {
+                tableView.reloadData()
+                return
+            }
             let displayName = newValue.isEmpty ? nil : newValue
             displayedSamples[row].displayName = displayName
             if let displayName {
@@ -8022,6 +8066,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
 
         // Handle metadata column edits
         guard columnId.rawValue.hasPrefix("meta_") else { return }
+        guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata edit") else {
+            tableView.reloadData()
+            return
+        }
 
         let metaKey = String(columnId.rawValue.dropFirst(5))
 
