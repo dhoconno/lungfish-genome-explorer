@@ -280,6 +280,13 @@ Test groups:
 - XCUI tests for provenance buttons, inspector rendering, export menu, signing status, and invalid provenance warnings.
 - Regression tests proving final GUI bundle provenance points at final stored payloads rather than temporary staging files.
 
+End-to-end testing with real fixtures is required. Use two tiers:
+
+- Hermetic release-blocking fixtures that are small enough to run in normal CI and local `swift test`: tiny FASTQ pairs, mini FASTA/GFF/reference bundles, small BAM/BAI fixtures, compact classifier TSVs, MSA/tree fixtures, and signed provenance fixtures. These tests must execute real CLI or app service workflows, then inspect the emitted `.lungfish-provenance.json`, exported reports, signature artifacts, and final bundle paths.
+- Gated release fixtures for workflows that need large databases, managed conda tools, or mounted real projects. These tests may be skipped when prerequisites are unavailable, but the skip reason must name the missing tool, database, or fixture path. They should cover representative real FASTQ operations, classifier imports, extraction workflows, variant calling, workflow-builder runs, and GUI/XCUI provenance interactions against realistic bundles.
+
+The E2E assertions should validate more than sidecar existence. They should check canonical schema fields, exact argv or reproducible command, resolved defaults, runtime identity, full checksums and sizes, final stored output paths, exit status, wall time, useful stderr on failures, export bundle contents, and signature verification where configured.
+
 The branch already has a clean baseline: `swift test` passed before implementation started. Every implementation task should keep focused tests green before moving to broader verification.
 
 ## Independent Review Loop
@@ -305,4 +312,5 @@ Each review round should produce a written feedback artifact under `docs/superpo
 - Signed provenance sidecars and reports can be verified with the existing local signature verifier.
 - Missing provenance is a failing condition for new scientific features and for migrated release-critical workflows.
 - XCUI coverage proves users can open, inspect, export, and verify provenance through the documented GUI surfaces.
+- Real-fixture E2E tests cover the representative scientific workflows and inspect both generated sidecars and exported provenance reports.
 - Three independent review teams complete at least two feedback iterations, with blockers resolved or explicitly documented if a non-blocking limitation remains.
