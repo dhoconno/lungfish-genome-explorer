@@ -56,6 +56,9 @@ public enum NativeToolError: Error, LocalizedError, Sendable {
     /// Invalid arguments provided.
     case invalidArguments(String)
 
+    /// Native tool execution was attempted without a provenance policy.
+    case missingProvenancePolicy(String)
+
     /// Tools directory not found in app bundle.
     case toolsDirectoryNotFound
 
@@ -69,6 +72,8 @@ public enum NativeToolError: Error, LocalizedError, Sendable {
             return "Tool '\(tool)' timed out after \(Int(seconds)) seconds"
         case .invalidArguments(let reason):
             return "Invalid arguments: \(reason)"
+        case .missingProvenancePolicy(let tool):
+            return "Native tool '\(tool)' is missing a scientific provenance policy."
         case .toolsDirectoryNotFound:
             return "Tools directory not found in app bundle. The app may need to be reinstalled."
         }
@@ -660,6 +665,7 @@ public actor NativeToolRunner {
         environment: [String: String]? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> NativeToolResult {
+        _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
 
         // BBTools shell scripts use unquoted $@ which causes word-splitting on spaces.
@@ -874,6 +880,14 @@ public actor NativeToolRunner {
         }
         return "bbtools-\(UUID().uuidString.lowercased())\(suffix)"
     }
+
+    private func requireProvenancePolicy(for tool: NativeTool) throws -> ProvenancePolicyEntry {
+        guard let policy = ScientificProvenancePolicy.nativeTool(tool),
+              policy.requiresProvenance else {
+            throw NativeToolError.missingProvenancePolicy(tool.rawValue)
+        }
+        return policy
+    }
     
     /// Returns the path to a tool if available, or nil.
     public func toolPath(for tool: NativeTool) throws -> URL {
@@ -891,6 +905,7 @@ public actor NativeToolRunner {
         environment: [String: String]? = nil,
         timeout: TimeInterval? = nil
     ) async throws -> NativeToolResult {
+        _ = try requireProvenancePolicy(for: tool)
         let toolPath = try findTool(tool)
         let actualTimeout = timeout ?? defaultTimeout
         logger.info("Running \(tool.rawValue): \(arguments.joined(separator: " ")) > \(outputFile.path, privacy: .public)")
@@ -1170,6 +1185,7 @@ extension NativeToolRunner {
         guard !stages.isEmpty else {
             throw NativeToolError.invalidArguments("Pipeline must have at least one stage")
         }
+        try stages.forEach { _ = try requireProvenancePolicy(for: $0.tool) }
 
         // Single stage: delegate to regular run
         if stages.count == 1 {
@@ -1365,6 +1381,7 @@ extension NativeToolRunner {
         guard !stages.isEmpty else {
             throw NativeToolError.invalidArguments("Pipeline must have at least one stage")
         }
+        try stages.forEach { _ = try requireProvenancePolicy(for: $0.tool) }
 
         // Resolve all tool paths upfront
         var toolPaths: [URL] = []

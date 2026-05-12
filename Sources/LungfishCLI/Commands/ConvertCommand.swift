@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Convert between sequence file formats
 struct ConvertCommand: AsyncParsableCommand {
@@ -52,6 +53,7 @@ struct ConvertCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -169,6 +171,40 @@ struct ConvertCommand: AsyncParsableCommand {
         default:
             throw CLIError.unsupportedFormat(format: toFormat)
         }
+        let completedAt = Date()
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish convert",
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "inputFormat": .string(ext),
+                "toFormat": .string(toFormat),
+                "includeAnnotations": .boolean(includeAnnotations),
+                "force": .boolean(force),
+                "sequenceCount": .integer(sequences.count),
+                "annotationCount": .integer(includeAnnotations ? annotations.count : 0),
+                "resolvedDefaults": .dictionary([
+                    "toFormat": .string("fasta"),
+                    "includeAnnotations": .boolean(false),
+                    "force": .boolean(false)
+                ])
+            ],
+            toolName: "lungfish convert",
+            toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+            command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: inputURL, role: .input)
+            ],
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
+            ],
+            exitCode: 0,
+            wallTime: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputURL.deletingLastPathComponent()
+        )
 
         // Success message
         if !globalOptions.quiet {
@@ -195,6 +231,23 @@ struct ConvertCommand: AsyncParsableCommand {
         formatter.dateFormat = "dd-MMM-yyyy"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         return formatter.string(from: Date()).uppercased()
+    }
+
+    private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
+        var command = [
+            "lungfish",
+            "convert",
+            inputURL.path,
+            "--to", outputURL.path,
+            "--to-format", toFormat
+        ]
+        if includeAnnotations {
+            command.append("--include-annotations")
+        }
+        if force {
+            command.append("--force")
+        }
+        return command
     }
 
     private static func readReferenceBundle(
