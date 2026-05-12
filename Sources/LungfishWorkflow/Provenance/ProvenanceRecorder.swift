@@ -58,9 +58,6 @@ public actor ProvenanceRecorder {
     /// Optional signer used after JSON sidecars are written.
     private var signingProvider: (any ProvenanceSigningProvider)?
 
-    /// Maximum stderr length to store per step (10 KB).
-    private static let maxStderrLength = 10_240
-
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
     }
@@ -126,12 +123,7 @@ public actor ProvenanceRecorder {
             return nil
         }
 
-        let truncatedStderr: String?
-        if let stderr, stderr.count > Self.maxStderrLength {
-            truncatedStderr = String(stderr.prefix(Self.maxStderrLength)) + "\n... [truncated]"
-        } else {
-            truncatedStderr = stderr
-        }
+        let truncatedStderr = ProvenanceStderr.truncated(stderr)
 
         let step = StepExecution(
             toolName: toolName,

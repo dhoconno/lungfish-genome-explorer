@@ -4,6 +4,31 @@
 
 import Foundation
 
+public enum ProvenanceWriterError: Error, LocalizedError, Sendable, Equatable {
+    case unstableSignatureArtifact(
+        provider: String,
+        expectedSignaturePath: String,
+        actualSignaturePath: String,
+        expectedPublicKeyPath: String,
+        actualPublicKeyPath: String
+    )
+
+    public var errorDescription: String? {
+        switch self {
+        case .unstableSignatureArtifact(
+            let provider,
+            let expectedSignaturePath,
+            let actualSignaturePath,
+            let expectedPublicKeyPath,
+            let actualPublicKeyPath
+        ):
+            return """
+            Provenance signing provider '\(provider)' changed signature artifact URLs for the same provenance URL; expected signature \(expectedSignaturePath) and public key \(expectedPublicKeyPath), got signature \(actualSignaturePath) and public key \(actualPublicKeyPath).
+            """
+        }
+    }
+}
+
 public struct ProvenanceWriter: Sendable {
     public static let provenanceFilename = ProvenanceRecorder.provenanceFilename
 
@@ -34,7 +59,12 @@ public struct ProvenanceWriter: Sendable {
         let envelopeWithSignaturePaths = envelope.upsertingSignatureReference(placeholderReference)
         try write(envelopeWithSignaturePaths, toSidecar: provenanceURL)
 
-        _ = try signingProvider.sign(provenanceURL: provenanceURL)
+        let signaturePathArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
+        try validateStableArtifact(
+            signaturePathArtifact,
+            matches: initialArtifact,
+            provider: signingProvider.providerIdentifier
+        )
         let finalDigest = try ProvenanceSigningPayload.sha256Hex(
             ofProvenanceAt: provenanceURL,
             provider: signingProvider.providerIdentifier,
@@ -48,7 +78,12 @@ public struct ProvenanceWriter: Sendable {
         )
         let signedEnvelope = envelope.upsertingSignatureReference(finalReference)
         try write(signedEnvelope, toSidecar: provenanceURL)
-        _ = try signingProvider.sign(provenanceURL: provenanceURL)
+        let finalArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
+        try validateStableArtifact(
+            finalArtifact,
+            matches: initialArtifact,
+            provider: signingProvider.providerIdentifier
+        )
         if signingProvider.providerIdentifier == ProvenanceSigningConfiguration.localProviderID {
             _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
         }
@@ -59,6 +94,27 @@ public struct ProvenanceWriter: Sendable {
     private func write(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {
         let data = try ProvenanceJSON.encoder.encode(envelope)
         try data.write(to: provenanceURL, options: .atomic)
+    }
+
+    private func validateStableArtifact(
+        _ artifact: ProvenanceSignatureArtifact,
+        matches expected: ProvenanceSignatureArtifact,
+        provider: String
+    ) throws {
+        let actualSignatureURL = artifact.signatureURL.standardizedFileURL
+        let expectedSignatureURL = expected.signatureURL.standardizedFileURL
+        let actualPublicKeyURL = artifact.publicKeyURL.standardizedFileURL
+        let expectedPublicKeyURL = expected.publicKeyURL.standardizedFileURL
+        guard actualSignatureURL == expectedSignatureURL,
+              actualPublicKeyURL == expectedPublicKeyURL else {
+            throw ProvenanceWriterError.unstableSignatureArtifact(
+                provider: provider,
+                expectedSignaturePath: expectedSignatureURL.path,
+                actualSignaturePath: actualSignatureURL.path,
+                expectedPublicKeyPath: expectedPublicKeyURL.path,
+                actualPublicKeyPath: actualPublicKeyURL.path
+            )
+        }
     }
 
     private func signatureReference(

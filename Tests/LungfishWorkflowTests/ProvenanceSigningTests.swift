@@ -193,6 +193,21 @@ struct ProvenanceSigningTests {
         #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(reference.publicKeyPath ?? "").path))
     }
 
+    @Test("Writer rejects signing providers that change artifact URLs")
+    func testWriterRejectsUnstableSigningProviderArtifacts() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = ProvenanceWriter(signingProvider: UnstableSigningProvider())
+
+        do {
+            _ = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+            #expect(Bool(false), "Expected unstable signing artifact error")
+        } catch {
+            #expect(error.localizedDescription.contains("unstable-provider"))
+            #expect(error.localizedDescription.contains("changed signature artifact URLs"))
+        }
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
@@ -220,6 +235,27 @@ private struct CustomSigningProvider: ProvenanceSigningProvider {
             .appendingPathComponent("\(provenanceURL.lastPathComponent).custom.pub")
         try Data("custom-signature".utf8).write(to: signatureURL, options: .atomic)
         try Data("custom-public-key".utf8).write(to: publicKeyURL, options: .atomic)
+        return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
+    }
+}
+
+private final class UnstableSigningProvider: ProvenanceSigningProvider, @unchecked Sendable {
+    let providerIdentifier = "unstable-provider"
+    private let lock = NSLock()
+    private var callCount = 0
+
+    func sign(provenanceURL: URL) throws -> ProvenanceSignatureArtifact {
+        lock.lock()
+        callCount += 1
+        let callNumber = callCount
+        lock.unlock()
+
+        let signatureURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent("\(provenanceURL.lastPathComponent).unstable.\(callNumber).signature")
+        let publicKeyURL = provenanceURL.deletingLastPathComponent()
+            .appendingPathComponent("\(provenanceURL.lastPathComponent).unstable.\(callNumber).pub")
+        try Data("unstable-signature-\(callNumber)".utf8).write(to: signatureURL, options: .atomic)
+        try Data("unstable-public-key-\(callNumber)".utf8).write(to: publicKeyURL, options: .atomic)
         return ProvenanceSignatureArtifact(signatureURL: signatureURL, publicKeyURL: publicKeyURL)
     }
 }

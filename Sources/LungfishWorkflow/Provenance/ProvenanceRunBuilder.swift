@@ -4,6 +4,28 @@
 
 import Foundation
 
+enum ProvenanceStderr {
+    static let maxLength = 10_240
+    static let truncationMarker = "\n... [truncated]"
+
+    static func truncated(_ stderr: String?) -> String? {
+        guard let stderr else {
+            return nil
+        }
+        guard stderr.count > maxLength else {
+            return stderr
+        }
+        return String(stderr.prefix(maxLength)) + truncationMarker
+    }
+
+    static func normalized(_ stderr: String?) -> String? {
+        guard let stderr = truncated(stderr) else {
+            return nil
+        }
+        return stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : stderr
+    }
+}
+
 public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case missingArgv(String)
     case missingOutput(String)
@@ -165,9 +187,6 @@ public struct ProvenanceRunBuilder: Sendable {
         }
 
         let combinedFiles = deduplicated(inputs + combinedOutputs + provenanceSteps.flatMap { $0.inputs + $0.outputs })
-        let usefulStderr = stderr.flatMap { value -> String? in
-            value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
-        }
 
         return ProvenanceEnvelope(
             id: UUID(),
@@ -187,7 +206,7 @@ public struct ProvenanceRunBuilder: Sendable {
             steps: provenanceSteps,
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
             exitStatus: exitStatus,
-            stderr: usefulStderr
+            stderr: ProvenanceStderr.normalized(stderr)
         )
     }
 

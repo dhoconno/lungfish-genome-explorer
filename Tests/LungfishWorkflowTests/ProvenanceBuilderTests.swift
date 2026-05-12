@@ -442,6 +442,33 @@ struct ProvenanceBuilderTests {
         )
     }
 
+    @Test("Nil and empty stderr are omitted")
+    func nilAndEmptyStderrAreOmitted() throws {
+        let nilEnvelope = try successfulEnvelope(stderr: nil)
+        let emptyEnvelope = try successfulEnvelope(stderr: "")
+
+        #expect(nilEnvelope.stderr == nil)
+        #expect(emptyEnvelope.stderr == nil)
+    }
+
+    @Test("Short stderr is preserved")
+    func shortStderrIsPreserved() throws {
+        let envelope = try successfulEnvelope(stderr: "fastp warning\n")
+
+        #expect(envelope.stderr == "fastp warning\n")
+    }
+
+    @Test("Long stderr is truncated with marker")
+    func longStderrIsTruncatedWithMarker() throws {
+        let longStderr = String(repeating: "x", count: 10_241)
+        let expected = String(repeating: "x", count: 10_240) + "\n... [truncated]"
+
+        let envelope = try successfulEnvelope(stderr: longStderr)
+
+        #expect(envelope.stderr == expected)
+        #expect(envelope.stderr?.hasSuffix("\n... [truncated]") == true)
+    }
+
     @Test("Writer replaces stale signature references for the same provider")
     func writerReplacesStaleSameProviderSignatureReferences() throws {
         let directory = try makeTempDirectory()
@@ -472,6 +499,38 @@ struct ProvenanceBuilderTests {
         #expect(localReferences.count == 1)
         #expect(localReferences.first?.signaturePath == "\(ProvenanceRecorder.provenanceFilename).signature.json")
         #expect(decoded.signatures.contains { $0.provider == "other-provider" })
+    }
+
+    private func successfulEnvelope(stderr: String?) throws -> ProvenanceEnvelope {
+        let output = ProvenanceFileDescriptor(
+            path: "result.fastq",
+            checksumSHA256: String(repeating: "f", count: 64),
+            fileSize: 12,
+            role: .output
+        )
+        return try ProvenanceRunBuilder(
+            workflowName: "fastq.trim.fastp",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-o", "result.fastq"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "fastp",
+                toolVersion: "0.24.1",
+                argv: ["fastp", "-o", "result.fastq"],
+                outputs: [output],
+                exitStatus: 0
+            )
+        )
+        .complete(
+            exitStatus: 0,
+            stderr: stderr,
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 101)
+        )
     }
 
     private func makeTempDirectory() throws -> URL {
