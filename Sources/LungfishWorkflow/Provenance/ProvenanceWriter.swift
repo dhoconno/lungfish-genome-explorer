@@ -81,9 +81,7 @@ public struct ProvenanceWriter: Sendable {
 
 extension ProvenanceEnvelope {
     func upsertingSignatureReference(_ reference: ProvenanceSignatureReference) -> ProvenanceEnvelope {
-        let filtered = signatures.filter { existing in
-            existing.provider != reference.provider || existing.signaturePath != reference.signaturePath
-        }
+        let filtered = signatures.filter { $0.provider != reference.provider }
         return replacingSignatures(filtered + [reference])
     }
 

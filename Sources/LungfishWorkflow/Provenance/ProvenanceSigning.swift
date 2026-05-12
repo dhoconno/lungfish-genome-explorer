@@ -13,6 +13,11 @@ public protocol ProvenanceSigningProvider: Sendable {
 public struct ProvenanceSignatureArtifact: Sendable, Equatable {
     public let signatureURL: URL
     public let publicKeyURL: URL
+
+    public init(signatureURL: URL, publicKeyURL: URL) {
+        self.signatureURL = signatureURL
+        self.publicKeyURL = publicKeyURL
+    }
 }
 
 public struct ProvenanceSignatureVerificationResult: Sendable, Equatable {
@@ -268,19 +273,14 @@ enum ProvenanceSigningPayload {
     }
 
     static func data(forProvenanceData data: Data) throws -> Data {
-        guard let envelope = try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data) else {
+        guard (try? ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)) != nil else {
             return data
         }
-        let normalizedSignatures = envelope.signatures.map { signature in
-            ProvenanceSignatureReference(
-                provider: signature.provider,
-                provenanceSHA256: normalizedEmbeddedDigest,
-                signaturePath: signature.signaturePath,
-                publicKeyPath: signature.publicKeyPath
-            )
+        guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return data
         }
-        let normalizedEnvelope = envelope.replacingSignatures(normalizedSignatures)
-        return try ProvenanceJSON.encoder.encode(normalizedEnvelope)
+        normalizeEmbeddedSignatureDigests(in: &json)
+        return try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
     }
 
     static func sha256Hex(ofProvenanceAt url: URL) throws -> String {
@@ -289,5 +289,17 @@ enum ProvenanceSigningPayload {
 
     static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func normalizeEmbeddedSignatureDigests(in json: inout [String: Any]) {
+        guard var signatures = json["signatures"] as? [[String: Any]] else {
+            return
+        }
+        for index in signatures.indices {
+            if signatures[index]["provenanceSHA256"] != nil {
+                signatures[index]["provenanceSHA256"] = normalizedEmbeddedDigest
+            }
+        }
+        json["signatures"] = signatures
     }
 }

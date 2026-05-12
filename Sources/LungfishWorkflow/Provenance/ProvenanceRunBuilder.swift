@@ -9,6 +9,7 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
     case missingOutput(String)
     case missingRuntimeIdentity(String)
     case unreadableFile(String)
+    case invalidTimeRange(String)
 
     public var errorDescription: String? {
         switch self {
@@ -20,6 +21,8 @@ public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
             return "Workflow '\(workflowName)' completed successfully without recording an explicit runtime identity."
         case .unreadableFile(let path):
             return "Provenance file is unreadable: \(path)"
+        case .invalidTimeRange(let workflowName):
+            return "Workflow '\(workflowName)' has an invalid provenance time range; endedAt is before startedAt."
         }
     }
 }
@@ -138,6 +141,9 @@ public struct ProvenanceRunBuilder: Sendable {
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
+        guard endedAt >= startedAt else {
+            throw ProvenanceBuilderError.invalidTimeRange(workflowName)
+        }
         let combinedOutputs = deduplicated(outputs + provenanceSteps.flatMap(\.outputs))
 
         if exitStatus == 0 {
@@ -170,7 +176,7 @@ public struct ProvenanceRunBuilder: Sendable {
             options: provenanceOptions,
             runtimeIdentity: runtimeIdentity ?? ProvenanceRuntimeIdentity(),
             files: combinedFiles,
-            output: combinedOutputs.first,
+            output: primaryOutput(),
             outputs: combinedOutputs,
             steps: provenanceSteps,
             wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
@@ -189,6 +195,21 @@ public struct ProvenanceRunBuilder: Sendable {
         } catch {
             throw ProvenanceBuilderError.unreadableFile(url.path)
         }
+    }
+
+    private func primaryOutput() -> ProvenanceFileDescriptor? {
+        if let explicitOutput = outputs.first {
+            return explicitOutput
+        }
+
+        for index in provenanceSteps.indices.reversed() {
+            let laterInputPaths = Set(provenanceSteps.dropFirst(index + 1).flatMap { $0.inputs.map(\.path) })
+            if let terminalOutput = provenanceSteps[index].outputs.first(where: { !laterInputPaths.contains($0.path) }) {
+                return terminalOutput
+            }
+        }
+
+        return provenanceSteps.last?.outputs.first
     }
 
     private func replacing(

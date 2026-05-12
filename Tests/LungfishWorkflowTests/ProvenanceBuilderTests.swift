@@ -110,6 +110,48 @@ struct ProvenanceBuilderTests {
         #expect(ProvenanceBuilderError.missingArgv("fastq.trim.fastp").errorDescription?.contains("fastq.trim.fastp") == true)
     }
 
+    @Test("Step-only multi-step workflow chooses terminal output as primary")
+    func stepOnlyWorkflowChoosesTerminalOutputAsPrimary() throws {
+        let intermediate = ProvenanceFileDescriptor(path: "trimmed.fastq", role: .output)
+        let final = ProvenanceFileDescriptor(path: "aligned.bam", role: .output)
+        let builder = ProvenanceRunBuilder(
+            workflowName: "fastq.map.minimap2",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "workflow", "run"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "fastp",
+                toolVersion: "0.24.1",
+                argv: ["fastp", "-o", "trimmed.fastq"],
+                outputs: [intermediate],
+                exitStatus: 0
+            )
+        )
+        .step(
+            ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                argv: ["minimap2", "reference.fasta", "trimmed.fastq"],
+                inputs: [ProvenanceFileDescriptor(path: "trimmed.fastq", role: .input)],
+                outputs: [final],
+                exitStatus: 0
+            )
+        )
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 50),
+            endedAt: Date(timeIntervalSince1970: 55)
+        )
+
+        #expect(envelope.output?.path == "aligned.bam")
+        #expect(envelope.outputs.map(\.path) == ["trimmed.fastq", "aligned.bam"])
+    }
+
     @Test("Successful argv run without output is rejected")
     func successfulRunWithoutOutputIsRejected() throws {
         let builder = ProvenanceRunBuilder(
@@ -177,6 +219,73 @@ struct ProvenanceBuilderTests {
             _ = try builder.input(missingURL, format: .fastq, role: .input)
         }
         #expect(ProvenanceBuilderError.unreadableFile(missingURL.path).errorDescription?.contains(missingURL.path) == true)
+    }
+
+    @Test("Invalid time range is rejected with workflow context")
+    func invalidTimeRangeIsRejected() throws {
+        let builder = ProvenanceRunBuilder(
+            workflowName: "fastq.trim.fastp",
+            workflowVersion: "2026.05",
+            toolName: "fastp",
+            toolVersion: "0.24.1"
+        )
+        .argv(["fastp", "-o", "result.fastq"])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "fastp",
+                toolVersion: "0.24.1",
+                argv: ["fastp", "-o", "result.fastq"],
+                outputs: [ProvenanceFileDescriptor(path: "result.fastq", role: .output)],
+                exitStatus: 0
+            )
+        )
+
+        #expect(throws: ProvenanceBuilderError.invalidTimeRange("fastq.trim.fastp")) {
+            _ = try builder.complete(
+                exitStatus: 0,
+                startedAt: Date(timeIntervalSince1970: 90),
+                endedAt: Date(timeIntervalSince1970: 80)
+            )
+        }
+        #expect(
+            ProvenanceBuilderError
+                .invalidTimeRange("fastq.trim.fastp")
+                .errorDescription?
+                .contains("fastq.trim.fastp") == true
+        )
+    }
+
+    @Test("Writer replaces stale signature references for the same provider")
+    func writerReplacesStaleSameProviderSignatureReferences() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let staleLocalReference = ProvenanceSignatureReference(
+            provider: ProvenanceSigningConfiguration.localProviderID,
+            provenanceSHA256: String(repeating: "1", count: 64),
+            signaturePath: "stale.signature.json",
+            publicKeyPath: "stale.pub"
+        )
+        let otherProviderReference = ProvenanceSignatureReference(
+            provider: "other-provider",
+            provenanceSHA256: String(repeating: "2", count: 64),
+            signaturePath: "other.signature.json",
+            publicKeyPath: "other.pub"
+        )
+        let envelope = ProvenanceEnvelope
+            .fixture()
+            .replacingSignatures([staleLocalReference, otherProviderReference])
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "replace-provider-key")
+        )
+
+        let sidecarURL = try writer.write(envelope, to: directory)
+        let decoded = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: sidecarURL))
+        let localReferences = decoded.signatures.filter { $0.provider == ProvenanceSigningConfiguration.localProviderID }
+
+        #expect(localReferences.count == 1)
+        #expect(localReferences.first?.signaturePath == "\(ProvenanceRecorder.provenanceFilename).signature.json")
+        #expect(decoded.signatures.contains { $0.provider == "other-provider" })
     }
 
     private func makeTempDirectory() throws -> URL {
