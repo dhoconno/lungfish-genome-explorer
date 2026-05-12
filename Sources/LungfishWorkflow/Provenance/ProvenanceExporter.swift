@@ -192,19 +192,23 @@ public struct ProvenanceExporter: Sendable {
         try fileManager.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
 
         let destination = provenanceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(envelope).write(to: destination, options: .atomic)
+
+        var sidecarURLs = [destination]
         if let sourceSidecarURL {
             let source = sourceSidecarURL.standardizedFileURL
             let target = destination.standardizedFileURL
             if source != target {
-                if fileManager.fileExists(atPath: destination.path) {
-                    try fileManager.removeItem(at: destination)
+                let originalURL = provenanceDirectory
+                    .appendingPathComponent("source-\(sourceSidecarURL.lastPathComponent)")
+                if fileManager.fileExists(atPath: originalURL.path) {
+                    try fileManager.removeItem(at: originalURL)
                 }
-                try fileManager.copyItem(at: sourceSidecarURL, to: destination)
+                try fileManager.copyItem(at: sourceSidecarURL, to: originalURL)
+                sidecarURLs.append(originalURL)
             }
-        } else {
-            try ProvenanceJSON.encoder.encode(envelope).write(to: destination, options: .atomic)
         }
-        return [destination]
+        return sidecarURLs
     }
 
     private func exportNextflowConfig(_ run: WorkflowRun) -> String {
@@ -711,7 +715,7 @@ public struct ProvenanceExporter: Sendable {
         if !args.isEmpty && args[0].contains("/") {
             args[0] = URL(fileURLWithPath: args[0]).lastPathComponent
         }
-        return args.joined(separator: " ")
+        return args.map { shellEscape($0) }.joined(separator: " ")
     }
 
     /// Returns a human-readable description of what a tool does.

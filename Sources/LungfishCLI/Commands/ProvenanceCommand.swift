@@ -100,7 +100,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 )
                 print("Exported provenance \(exportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
                 for sidecar in bundle.copiedSidecarURLs {
-                    print("Copied provenance sidecar to \(sidecar.path)")
+                    print("Wrote provenance sidecar to \(sidecar.path)")
                 }
             } catch let error as CLIError {
                 throw error
