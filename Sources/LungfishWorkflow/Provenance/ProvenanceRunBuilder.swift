@@ -5,19 +5,19 @@
 import Foundation
 
 public enum ProvenanceBuilderError: Error, LocalizedError, Sendable, Equatable {
-    case missingArgv
-    case missingOutput
-    case missingRuntime
+    case missingArgv(String)
+    case missingOutput(String)
+    case missingRuntimeIdentity(String)
     case unreadableFile(String)
 
     public var errorDescription: String? {
         switch self {
-        case .missingArgv:
-            return "Successful provenance runs must record the exact argv that produced scientific output."
-        case .missingOutput:
-            return "Successful provenance runs must record at least one scientific output."
-        case .missingRuntime:
-            return "Successful provenance runs must record an explicit runtime identity."
+        case .missingArgv(let workflowName):
+            return "Workflow '\(workflowName)' produced successful scientific output without recording the exact argv."
+        case .missingOutput(let workflowName):
+            return "Workflow '\(workflowName)' completed successfully without recording at least one scientific output."
+        case .missingRuntimeIdentity(let workflowName):
+            return "Workflow '\(workflowName)' completed successfully without recording an explicit runtime identity."
         case .unreadableFile(let path):
             return "Provenance file is unreadable: \(path)"
         }
@@ -134,7 +134,7 @@ public struct ProvenanceRunBuilder: Sendable {
 
     public func complete(
         exitStatus: Int,
-        stderr: String?,
+        stderr: String? = nil,
         startedAt: Date,
         endedAt: Date
     ) throws -> ProvenanceEnvelope {
@@ -142,13 +142,13 @@ public struct ProvenanceRunBuilder: Sendable {
 
         if exitStatus == 0 {
             guard arguments.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-                throw ProvenanceBuilderError.missingArgv
+                throw ProvenanceBuilderError.missingArgv(workflowName)
             }
             guard !combinedOutputs.isEmpty else {
-                throw ProvenanceBuilderError.missingOutput
+                throw ProvenanceBuilderError.missingOutput(workflowName)
             }
             guard runtimeIdentity != nil else {
-                throw ProvenanceBuilderError.missingRuntime
+                throw ProvenanceBuilderError.missingRuntimeIdentity(workflowName)
             }
         }
 

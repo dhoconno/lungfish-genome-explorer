@@ -14,14 +14,14 @@ public struct ProvenanceWriter: Sendable {
     }
 
     @discardableResult
-    public func write(_ envelope: ProvenanceEnvelope, to directory: URL) throws -> ProvenanceEnvelope {
+    public func write(_ envelope: ProvenanceEnvelope, to directory: URL) throws -> URL {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let provenanceURL = directory.appendingPathComponent(Self.provenanceFilename)
 
         try write(envelope, toSidecar: provenanceURL)
 
         guard let signingProvider else {
-            return envelope
+            return provenanceURL
         }
 
         let initialArtifact = try signingProvider.sign(provenanceURL: provenanceURL)
@@ -47,7 +47,7 @@ public struct ProvenanceWriter: Sendable {
         _ = try signingProvider.sign(provenanceURL: provenanceURL)
         _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
 
-        return signedEnvelope
+        return provenanceURL
     }
 
     private func write(_ envelope: ProvenanceEnvelope, toSidecar provenanceURL: URL) throws {

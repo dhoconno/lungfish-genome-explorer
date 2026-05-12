@@ -97,7 +97,8 @@ struct ProvenanceSigningTests {
         let writer = ProvenanceWriter(
             signingProvider: LocalProvenanceSigningProvider(privateKey: "embedded-reference-key")
         )
-        let signedEnvelope = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+        let provenanceURL = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+        let signedEnvelope = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: provenanceURL))
         let reference = try #require(
             signedEnvelope.signatures.first { $0.provider == ProvenanceSigningConfiguration.localProviderID }
         )
@@ -108,7 +109,6 @@ struct ProvenanceSigningTests {
             publicKeyPath: reference.publicKeyPath
         )
         let tamperedEnvelope = signedEnvelope.upsertingSignatureReference(tamperedReference)
-        let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try ProvenanceJSON.encoder.encode(tamperedEnvelope).write(to: provenanceURL, options: .atomic)
 
         do {

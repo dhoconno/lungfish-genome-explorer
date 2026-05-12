@@ -50,15 +50,14 @@ struct ProvenanceBuilderTests {
             signingProvider: LocalProvenanceSigningProvider(privateKey: "builder-test-key")
         )
 
-        let signedEnvelope = try writer.write(envelope, to: workingDirectory.appendingPathComponent("bundle"))
-
-        let sidecarURL = workingDirectory
+        let expectedSidecarURL = workingDirectory
             .appendingPathComponent("bundle")
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let sidecarURL = try writer.write(envelope, to: workingDirectory.appendingPathComponent("bundle"))
         let decoded = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: sidecarURL))
         let verification = try ProvenanceSignatureVerifier.verify(provenanceURL: sidecarURL)
 
-        #expect(signedEnvelope == decoded)
+        #expect(sidecarURL == expectedSidecarURL)
         #expect(decoded.workflowName == "fastq.trim.fastp")
         #expect(decoded.workflowVersion == "2026.05")
         #expect(decoded.toolName == "fastp")
@@ -101,14 +100,14 @@ struct ProvenanceBuilderTests {
         .output(outputURL, format: .fastq, role: .output)
         .runtime(ProvenanceRuntimeIdentity.fixture())
 
-        #expect(throws: ProvenanceBuilderError.missingArgv) {
+        #expect(throws: ProvenanceBuilderError.missingArgv("fastq.trim.fastp")) {
             _ = try builder.complete(
                 exitStatus: 0,
-                stderr: nil,
                 startedAt: Date(timeIntervalSince1970: 20),
                 endedAt: Date(timeIntervalSince1970: 21)
             )
         }
+        #expect(ProvenanceBuilderError.missingArgv("fastq.trim.fastp").errorDescription?.contains("fastq.trim.fastp") == true)
     }
 
     @Test("Successful argv run without output is rejected")
@@ -122,14 +121,14 @@ struct ProvenanceBuilderTests {
         .argv(["fastp", "--version"])
         .runtime(ProvenanceRuntimeIdentity.fixture())
 
-        #expect(throws: ProvenanceBuilderError.missingOutput) {
+        #expect(throws: ProvenanceBuilderError.missingOutput("fastq.trim.fastp")) {
             _ = try builder.complete(
                 exitStatus: 0,
-                stderr: nil,
                 startedAt: Date(timeIntervalSince1970: 30),
                 endedAt: Date(timeIntervalSince1970: 31)
             )
         }
+        #expect(ProvenanceBuilderError.missingOutput("fastq.trim.fastp").errorDescription?.contains("fastq.trim.fastp") == true)
     }
 
     @Test("Successful output without runtime identity is rejected")
@@ -148,14 +147,19 @@ struct ProvenanceBuilderTests {
         .argv(["fastp", "-o", outputURL.path])
         .output(outputURL, format: .fastq, role: .output)
 
-        #expect(throws: ProvenanceBuilderError.missingRuntime) {
+        #expect(throws: ProvenanceBuilderError.missingRuntimeIdentity("fastq.trim.fastp")) {
             _ = try builder.complete(
                 exitStatus: 0,
-                stderr: nil,
                 startedAt: Date(timeIntervalSince1970: 40),
                 endedAt: Date(timeIntervalSince1970: 41)
             )
         }
+        #expect(
+            ProvenanceBuilderError
+                .missingRuntimeIdentity("fastq.trim.fastp")
+                .errorDescription?
+                .contains("fastq.trim.fastp") == true
+        )
     }
 
     @Test("Unreadable input file is rejected while building descriptors")
@@ -172,6 +176,7 @@ struct ProvenanceBuilderTests {
         #expect(throws: ProvenanceBuilderError.unreadableFile(missingURL.path)) {
             _ = try builder.input(missingURL, format: .fastq, role: .input)
         }
+        #expect(ProvenanceBuilderError.unreadableFile(missingURL.path).errorDescription?.contains(missingURL.path) == true)
     }
 
     private func makeTempDirectory() throws -> URL {
