@@ -277,17 +277,7 @@ public actor ProvenanceRecorder {
         format: FileFormat? = nil,
         role: FileRole = .input
     ) -> FileRecord {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let size: UInt64?
-        if let value = attributes?[.size] as? UInt64 {
-            size = value
-        } else if let value = attributes?[.size] as? NSNumber {
-            size = value.uint64Value
-        } else if let value = attributes?[.size] as? Int64, value >= 0 {
-            size = UInt64(value)
-        } else {
-            size = nil
-        }
+        let size = try? ProvenanceFileHasher.fileSize(of: url)
         let checksum = sha256(of: url)
         let detectedFormat = format ?? detectFormat(url: url)
 

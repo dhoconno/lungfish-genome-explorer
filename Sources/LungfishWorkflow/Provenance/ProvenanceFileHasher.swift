@@ -38,14 +38,15 @@ public enum ProvenanceFileHasher {
     }
 
     public static func fileSize(of url: URL) throws -> UInt64 {
-        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-        if let size = fileSize(from: attributes[.size]) {
-            return size
-        }
-        throw ProvenanceFileHasherError.fileSizeUnavailable(url.path)
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+        return try fileHandle.seekToEnd()
     }
 
-    public static func directoryManifest(for root: URL) throws -> ProvenanceDirectoryManifest {
+    public static func directoryManifest(
+        for root: URL,
+        role: FileRole = .output
+    ) throws -> ProvenanceDirectoryManifest {
         let fileManager = FileManager.default
         let rootURL = root.standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -78,27 +79,12 @@ public enum ProvenanceFileHasher {
                 ProvenanceFileDescriptor(
                     path: entry.relativePath,
                     checksumSHA256: try sha256(of: entry.url),
-                    fileSize: try fileSize(of: entry.url)
+                    fileSize: try fileSize(of: entry.url),
+                    role: role
                 )
             }
 
         return ProvenanceDirectoryManifest(rootPath: rootURL.path, files: files)
-    }
-
-    private static func fileSize(from value: Any?) -> UInt64? {
-        if let value = value as? UInt64 {
-            return value
-        }
-        if let value = value as? NSNumber {
-            return value.uint64Value
-        }
-        if let value = value as? Int64, value >= 0 {
-            return UInt64(value)
-        }
-        if let value = value as? Int, value >= 0 {
-            return UInt64(value)
-        }
-        return nil
     }
 
     private static func relativePath(for url: URL, relativeTo root: URL) -> String {

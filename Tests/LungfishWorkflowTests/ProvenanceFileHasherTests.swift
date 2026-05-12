@@ -32,6 +32,44 @@ struct ProvenanceFileHasherTests {
         #expect(descriptor.sourceProvenancePath == "/source/.lungfish-provenance.json")
     }
 
+    @Test("direct file descriptor follows symlink payload while preserving path")
+    func directFileDescriptorFollowsSymlinkPayloadWhilePreservingPath() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let targetURL = directory.appendingPathComponent("target.fastq")
+        let linkURL = directory.appendingPathComponent("link.fastq")
+        let payload = Data("@read1\nACGTACGTACGT\n+\nFFFFFFFFFFFF\n".utf8)
+        try payload.write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let descriptor = try ProvenanceFileDescriptor.file(url: linkURL, format: .fastq, role: .input)
+
+        #expect(descriptor.path == linkURL.path)
+        #expect(descriptor.checksumSHA256 == (try ProvenanceFileHasher.sha256(of: targetURL)))
+        #expect(descriptor.fileSize == UInt64(payload.count))
+        #expect(descriptor.role == .input)
+    }
+
+    @Test("recorder file record follows symlink payload while preserving path")
+    func recorderFileRecordFollowsSymlinkPayloadWhilePreservingPath() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let targetURL = directory.appendingPathComponent("target.txt")
+        let linkURL = directory.appendingPathComponent("link.txt")
+        let payload = Data("resolved symlink payload\n".utf8)
+        try payload.write(to: targetURL)
+        try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: targetURL)
+
+        let record = ProvenanceRecorder.fileRecord(url: linkURL, format: .text, role: .output)
+
+        #expect(record.path == linkURL.path)
+        #expect(record.sha256 == (try ProvenanceFileHasher.sha256(of: targetURL)))
+        #expect(record.sizeBytes == UInt64(payload.count))
+        #expect(record.role == .output)
+    }
+
     @Test("recorder SHA-256 uses full file hashing for large files")
     func recorderSHA256UsesFullFileHashingForLargeFiles() throws {
         let directory = try makeTemporaryDirectory()
@@ -71,8 +109,21 @@ struct ProvenanceFileHasherTests {
         #expect(manifest.rootPath == directory.path)
         #expect(manifest.files.map(\.path) == ["alpha.txt", "nested/beta.txt"])
         #expect(manifest.files.map(\.fileSize) == [6, 5])
+        #expect(manifest.files.map(\.role) == [.output, .output])
         #expect(manifest.files.allSatisfy { $0.checksumSHA256?.count == 64 })
         #expect(manifest.files.allSatisfy { !$0.path.split(separator: "/").contains { $0.hasPrefix(".") } })
+    }
+
+    @Test("directory manifest applies explicit role to each file")
+    func directoryManifestAppliesExplicitRoleToEachFile() throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        try "reference\n".write(to: directory.appendingPathComponent("reference.fasta"), atomically: true, encoding: .utf8)
+
+        let manifest = try ProvenanceFileHasher.directoryManifest(for: directory, role: .reference)
+
+        #expect(manifest.files.map(\.role) == [.reference])
     }
 }
 
