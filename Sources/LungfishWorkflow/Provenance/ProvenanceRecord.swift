@@ -12,7 +12,7 @@ import Foundation
 /// tool versions, container digests, exact commands, input/output checksums,
 /// and the dependency DAG between steps. It serves as the source of truth
 /// from which Nextflow, Snakemake, shell, and Python scripts are generated.
-public struct WorkflowRun: Codable, Sendable, Identifiable {
+public struct WorkflowRun: Codable, Sendable, Identifiable, Equatable {
     /// Unique identifier for this run.
     public let id: UUID
 
@@ -178,7 +178,7 @@ public struct WorkflowRuntime: Codable, Sendable, Equatable {
 // MARK: - RunStatus
 
 /// Status of a workflow run.
-public enum RunStatus: String, Codable, Sendable {
+public enum RunStatus: String, Codable, Sendable, Equatable {
     case running
     case completed
     case failed
@@ -352,6 +352,168 @@ public enum FileRole: String, Codable, Sendable {
     case index
     case log
     case report
+}
+
+// MARK: - Canonical Provenance Conversion
+
+extension WorkflowRun {
+    public func canonicalEnvelope() -> ProvenanceEnvelope {
+        let firstStep = steps.first
+        let convertedSteps = steps.map(ProvenanceStep.init(stepExecution:))
+        let allFiles = convertedSteps.flatMap { $0.inputs + $0.outputs }
+        let allOutputs = convertedSteps.flatMap(\.outputs)
+        let topLevelOutput = firstStep?.outputs.first.map { ProvenanceFileDescriptor(fileRecord: $0) }
+
+        return ProvenanceEnvelope(
+            id: id,
+            createdAt: startTime,
+            workflowName: name,
+            toolName: firstStep?.toolName ?? name,
+            toolVersion: firstStep?.toolVersion,
+            tool: ProvenanceToolIdentity(
+                name: firstStep?.toolName ?? name,
+                version: firstStep?.toolVersion,
+                kind: "cli"
+            ),
+            argv: firstStep?.command ?? [],
+            reproducibleCommand: firstStep?.commandString,
+            options: ProvenanceOptions(explicit: parameters),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: appVersion,
+                operatingSystemVersion: hostOS,
+                user: runtime.user,
+                containerImage: firstStep?.containerImage,
+                containerDigest: firstStep?.containerDigest
+            ),
+            files: allFiles,
+            output: topLevelOutput,
+            outputs: allOutputs,
+            steps: convertedSteps,
+            wallTimeSeconds: wallTime,
+            exitStatus: firstStep?.exitCode.map(Int.init),
+            stderr: firstStep?.stderr,
+            legacyWorkflowRun: self
+        )
+    }
+}
+
+extension ProvenanceEnvelope {
+    public func legacyWorkflowRun() -> WorkflowRun {
+        if let legacyRun {
+            return legacyRun
+        }
+
+        let legacySteps: [StepExecution]
+        if steps.isEmpty {
+            legacySteps = [
+                StepExecution(
+                    id: UUID(),
+                    toolName: toolName,
+                    toolVersion: toolVersion ?? "",
+                    containerImage: runtimeIdentity.containerImage,
+                    containerDigest: runtimeIdentity.containerDigest,
+                    command: argv,
+                    inputs: files.filter { $0.role == .input }.map(FileRecord.init(provenanceFile:)),
+                    outputs: outputs.map(FileRecord.init(provenanceFile:)),
+                    exitCode: exitStatus.map(Int32.init),
+                    wallTime: wallTimeSeconds,
+                    stderr: stderr,
+                    startTime: createdAt,
+                    endTime: completedAtFromWallTime
+                )
+            ]
+        } else {
+            legacySteps = steps.map { step in
+                StepExecution(
+                    id: step.id,
+                    toolName: step.toolName,
+                    toolVersion: step.toolVersion ?? "",
+                    containerImage: runtimeIdentity.containerImage,
+                    containerDigest: runtimeIdentity.containerDigest,
+                    command: step.argv,
+                    inputs: step.inputs.map(FileRecord.init(provenanceFile:)),
+                    outputs: step.outputs.map(FileRecord.init(provenanceFile:)),
+                    exitCode: step.exitStatus.map(Int32.init),
+                    wallTime: step.wallTimeSeconds,
+                    stderr: step.stderr,
+                    dependsOn: step.dependsOn,
+                    startTime: step.startedAt ?? createdAt,
+                    endTime: step.completedAt
+                )
+            }
+        }
+
+        return WorkflowRun(
+            id: id,
+            name: workflowName,
+            startTime: legacySteps.first?.startTime ?? createdAt,
+            endTime: legacySteps.compactMap(\.endTime).max() ?? completedAtFromWallTime,
+            status: legacyStatus,
+            appVersion: runtimeIdentity.appVersion ?? WorkflowRun.currentAppVersion,
+            hostOS: runtimeIdentity.operatingSystemVersion ?? WorkflowRun.currentHostOS,
+            runtime: WorkflowRuntime(
+                appVersion: runtimeIdentity.appVersion ?? WorkflowRun.currentAppVersion,
+                hostOS: runtimeIdentity.operatingSystemVersion ?? WorkflowRun.currentHostOS,
+                user: runtimeIdentity.user
+            ),
+            steps: legacySteps,
+            parameters: options.explicit
+        )
+    }
+
+    private var legacyStatus: RunStatus {
+        guard let exitStatus else { return .running }
+        return exitStatus == 0 ? .completed : .failed
+    }
+
+    private var completedAtFromWallTime: Date? {
+        wallTimeSeconds.map { createdAt.addingTimeInterval($0) }
+    }
+}
+
+extension ProvenanceFileDescriptor {
+    public init(fileRecord: FileRecord, sourceProvenancePath: String? = nil) {
+        self.init(
+            path: fileRecord.path,
+            checksumSHA256: fileRecord.sha256,
+            fileSize: fileRecord.sizeBytes,
+            format: fileRecord.format,
+            role: fileRecord.role,
+            sourceProvenancePath: sourceProvenancePath
+        )
+    }
+}
+
+extension FileRecord {
+    public init(provenanceFile: ProvenanceFileDescriptor) {
+        self.init(
+            path: provenanceFile.path,
+            sha256: provenanceFile.checksumSHA256,
+            sizeBytes: provenanceFile.fileSize,
+            format: provenanceFile.format,
+            role: provenanceFile.role
+        )
+    }
+}
+
+extension ProvenanceStep {
+    public init(stepExecution: StepExecution) {
+        self.init(
+            id: stepExecution.id,
+            toolName: stepExecution.toolName,
+            toolVersion: stepExecution.toolVersion,
+            argv: stepExecution.command,
+            reproducibleCommand: stepExecution.commandString,
+            inputs: stepExecution.inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+            outputs: stepExecution.outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+            exitStatus: stepExecution.exitCode.map(Int.init),
+            wallTimeSeconds: stepExecution.wallTime,
+            stderr: stepExecution.stderr,
+            dependsOn: stepExecution.dependsOn,
+            startedAt: stepExecution.startTime,
+            completedAt: stepExecution.endTime
+        )
+    }
 }
 
 // Note: Uses ParameterValue from WorkflowParameters.swift for workflow parameters.
