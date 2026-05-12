@@ -83,6 +83,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case tool
         case argv
         case reproducibleCommand
+        case reproducibleShellCommand
         case options
         case runtimeIdentity
         case files
@@ -145,7 +146,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
-        id = try container.decode(UUID.self, forKey: .id)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         workflowName = ProvenanceName.required(try container.decodeIfPresent(String.self, forKey: .workflowName))
         workflowVersion = ProvenanceVersion.required(
@@ -170,19 +171,49 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         } else {
             tool = ProvenanceToolIdentity(name: toolName, version: toolVersion)
         }
-        argv = try container.decode([String].self, forKey: .argv)
-        reproducibleCommand = try container.decode(String.self, forKey: .reproducibleCommand)
-        options = try container.decode(ProvenanceOptions.self, forKey: .options)
+        argv = try container.decodeIfPresent([String].self, forKey: .argv) ?? []
+        reproducibleCommand = try container.decodeIfPresent(String.self, forKey: .reproducibleCommand)
+            ?? container.decodeIfPresent(String.self, forKey: .reproducibleShellCommand)
+            ?? argv.map(shellEscape).joined(separator: " ")
+        options = try container.decodeIfPresent(ProvenanceOptions.self, forKey: .options) ?? ProvenanceOptions()
         runtimeIdentity = try container.decode(ProvenanceRuntimeIdentity.self, forKey: .runtimeIdentity)
-        files = try container.decode([ProvenanceFileDescriptor].self, forKey: .files)
-        output = try container.decodeIfPresent(ProvenanceFileDescriptor.self, forKey: .output)
-        outputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .outputs)
-        steps = try container.decode([ProvenanceStep].self, forKey: .steps)
+        files = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .files) ?? []
+        let decodedOutput = try container.decodeIfPresent(ProvenanceFileDescriptor.self, forKey: .output)
+        let normalizedOutput = decodedOutput?.withRole(.output)
+        output = normalizedOutput
+        outputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .outputs)
+            ?? normalizedOutput.map { [$0] } ?? []
+        steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps) ?? []
         wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
-        signatures = try container.decode([ProvenanceSignatureReference].self, forKey: .signatures)
+        signatures = try container.decodeIfPresent([ProvenanceSignatureReference].self, forKey: .signatures) ?? []
         legacyRun = try container.decodeIfPresent(WorkflowRun.self, forKey: .legacyRun)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(workflowName, forKey: .workflowName)
+        try container.encode(workflowVersion, forKey: .workflowVersion)
+        try container.encode(toolName, forKey: .toolName)
+        try container.encode(toolVersion, forKey: .toolVersion)
+        try container.encode(tool, forKey: .tool)
+        try container.encode(argv, forKey: .argv)
+        try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
+        try container.encode(options, forKey: .options)
+        try container.encode(runtimeIdentity, forKey: .runtimeIdentity)
+        try container.encode(files, forKey: .files)
+        try container.encodeIfPresent(output, forKey: .output)
+        try container.encode(outputs, forKey: .outputs)
+        try container.encode(steps, forKey: .steps)
+        try container.encodeIfPresent(wallTimeSeconds, forKey: .wallTimeSeconds)
+        try container.encodeIfPresent(exitStatus, forKey: .exitStatus)
+        try container.encodeIfPresent(stderr, forKey: .stderr)
+        try container.encode(signatures, forKey: .signatures)
+        try container.encodeIfPresent(legacyRun, forKey: .legacyRun)
     }
 }
 
@@ -220,6 +251,13 @@ public struct ProvenanceOptions: Codable, Sendable, Equatable {
     public let defaults: [String: ParameterValue]
     public let resolvedDefaults: [String: ParameterValue]
 
+    private enum CodingKeys: String, CodingKey {
+        case explicit
+        case defaults
+        case resolvedDefaults
+        case userVisibleOptions
+    }
+
     public init(
         explicit: [String: ParameterValue] = [:],
         defaults: [String: ParameterValue] = [:],
@@ -228,6 +266,99 @@ public struct ProvenanceOptions: Codable, Sendable, Equatable {
         self.explicit = explicit
         self.defaults = defaults
         self.resolvedDefaults = resolvedDefaults
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        var decodedExplicit = try Self.decodeMapIfPresent(from: container, forKey: .explicit) ?? [:]
+        let userVisibleOptions = try Self.decodeMapIfPresent(from: container, forKey: .userVisibleOptions) ?? [:]
+        let legacyTopLevelOptions = try Self.decodeLegacyTopLevelOptions(from: decoder)
+        decodedExplicit.merge(legacyTopLevelOptions) { current, _ in current }
+        decodedExplicit.merge(userVisibleOptions) { _, userVisible in userVisible }
+
+        explicit = decodedExplicit
+        defaults = try Self.decodeMapIfPresent(from: container, forKey: .defaults) ?? [:]
+        resolvedDefaults = try Self.decodeMapIfPresent(from: container, forKey: .resolvedDefaults) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(explicit, forKey: .explicit)
+        try container.encode(defaults, forKey: .defaults)
+        try container.encode(resolvedDefaults, forKey: .resolvedDefaults)
+    }
+
+    private static func decodeMapIfPresent(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> [String: ParameterValue]? {
+        guard container.contains(key) else { return nil }
+        let values = try container.decode([String: FlexibleParameterValue].self, forKey: key)
+        return values.mapValues(\.value)
+    }
+
+    private static func decodeLegacyTopLevelOptions(from decoder: Decoder) throws -> [String: ParameterValue] {
+        let container = try decoder.container(keyedBy: DynamicCodingKey.self)
+        let reservedKeys: Set<String> = [
+            CodingKeys.explicit.stringValue,
+            CodingKeys.defaults.stringValue,
+            CodingKeys.resolvedDefaults.stringValue,
+            CodingKeys.userVisibleOptions.stringValue,
+        ]
+
+        var values: [String: ParameterValue] = [:]
+        for key in container.allKeys where !reservedKeys.contains(key.stringValue) {
+            values[key.stringValue] = try container.decode(FlexibleParameterValue.self, forKey: key).value
+        }
+        return values
+    }
+
+    private struct DynamicCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            stringValue = "\(intValue)"
+            self.intValue = intValue
+        }
+    }
+
+    private struct FlexibleParameterValue: Decodable {
+        let value: ParameterValue
+
+        init(from decoder: Decoder) throws {
+            if let typedValue = try? ParameterValue(from: decoder) {
+                value = typedValue
+                return
+            }
+
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() {
+                value = .null
+            } else if let boolValue = try? container.decode(Bool.self) {
+                value = .boolean(boolValue)
+            } else if let intValue = try? container.decode(Int.self) {
+                value = .integer(intValue)
+            } else if let doubleValue = try? container.decode(Double.self) {
+                value = .number(doubleValue)
+            } else if let stringValue = try? container.decode(String.self) {
+                value = .string(stringValue)
+            } else if let arrayValue = try? container.decode([FlexibleParameterValue].self) {
+                value = .array(arrayValue.map(\.value))
+            } else if let dictionaryValue = try? container.decode([String: FlexibleParameterValue].self) {
+                value = .dictionary(dictionaryValue.mapValues(\.value))
+            } else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unsupported provenance option value"
+                )
+            }
+        }
     }
 }
 
@@ -402,6 +533,18 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
         try container.encode(role, forKey: .role)
         try container.encodeIfPresent(originPath, forKey: .originPath)
         try container.encodeIfPresent(sourceProvenancePath, forKey: .sourceProvenancePath)
+    }
+
+    public func withRole(_ role: FileRole) -> ProvenanceFileDescriptor {
+        ProvenanceFileDescriptor(
+            path: path,
+            checksumSHA256: checksumSHA256,
+            fileSize: fileSize,
+            format: format,
+            role: role,
+            originPath: originPath,
+            sourceProvenancePath: sourceProvenancePath
+        )
     }
 
     public static func file(

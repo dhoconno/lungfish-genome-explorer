@@ -105,6 +105,69 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.outputs.first?.checksumSHA256 == String(repeating: "b", count: 64))
     }
 
+    @Test("primitive canonical sidecar decodes through compatibility reader")
+    func primitiveCanonicalSidecarDecodesThroughEnvelopeReader() throws {
+        let data = Data("""
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-05-10T23:19:32Z",
+          "workflowName": "analysis-fixture-provenance-historical-backfill",
+          "toolName": "write-analysis-fixture-provenance.py",
+          "toolVersion": "0.4.0-alpha.12",
+          "tool": {
+            "name": "write-analysis-fixture-provenance.py",
+            "version": "0.4.0-alpha.12"
+          },
+          "argv": ["scripts/testing/write-analysis-fixture-provenance.py"],
+          "reproducibleCommand": "scripts/testing/write-analysis-fixture-provenance.py",
+          "runtimeIdentity": {
+            "executablePath": "/usr/bin/python3",
+            "gitRevision": "06d97a401e825b16cbaabade40d462875484789d",
+            "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
+            "processIdentifier": 38076
+          },
+          "options": {
+            "fixtureToolName": "kraken2",
+            "inputPaths": [],
+            "outputDirectory": "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
+            "resolvedDefaults": {
+              "backfillMode": "historical-fixture-sidecar-only",
+              "overwriteExistingSidecar": false
+            },
+            "userVisibleOptions": {
+              "fixtureDirectory": "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00",
+              "tool": "kraken2"
+            }
+          },
+          "files": [
+            {
+              "checksumSHA256": "\(String(repeating: "a", count: 64))",
+              "fileSize": 707,
+              "path": "classification-result.json"
+            }
+          ],
+          "output": {
+            "checksumSHA256": "\(String(repeating: "b", count: 64))",
+            "fileSize": 1440,
+            "path": "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00"
+          },
+          "exitStatus": 0,
+          "wallTimeSeconds": 0
+        }
+        """.utf8)
+
+        let decoded = try ProvenanceEnvelopeReader.decode(data)
+
+        #expect(decoded.workflowName == "analysis-fixture-provenance-historical-backfill")
+        #expect(decoded.workflowVersion.isEmpty == false)
+        #expect(decoded.toolName == "write-analysis-fixture-provenance.py")
+        #expect(decoded.outputs.map(\.path) == ["Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00"])
+        #expect(decoded.outputs.first?.role == .output)
+        #expect(decoded.options.explicit["tool"]?.stringValue == "kraken2")
+        #expect(decoded.options.explicit["fixtureToolName"]?.stringValue == "kraken2")
+        #expect(decoded.options.resolvedDefaults["overwriteExistingSidecar"]?.booleanValue == false)
+    }
+
     @Test("legacy multi-step canonical output prefers terminal final output")
     func legacyMultiStepCanonicalOutputPrefersTerminalFinalOutput() throws {
         let intermediate = FileRecord(

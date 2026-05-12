@@ -79,8 +79,11 @@ struct ProvenanceCommand: AsyncParsableCommand {
         @Argument(help: "Provenance sidecar file, bundle, or output directory")
         var input: String
 
-        @Option(name: .customLong("format"), help: "Export format: shell, nextflow, snakemake, methods, json")
-        var format: String
+        @Option(
+            name: [.customLong("export-format"), .customShort("f")],
+            help: "Export format: shell, nextflow, snakemake, methods, json"
+        )
+        var exportFormat: String
 
         @Option(name: .customLong("output"), help: "Output directory for the export bundle")
         var output: String
@@ -91,16 +94,24 @@ struct ProvenanceCommand: AsyncParsableCommand {
             do {
                 let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(inputURL)
                 let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
-                let exportFormat = try ProvenanceExportFormat.cliValue(format)
+                let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
+                let exportArgv = [
+                    "lungfish", "provenance", "export",
+                    input,
+                    "--export-format", exportFormat,
+                    "--output", output
+                ]
                 let bundle = try ProvenanceExporter().exportBundle(
                     envelope,
-                    format: exportFormat,
+                    format: selectedExportFormat,
                     to: outputURL,
-                    sourceSidecarURL: provenanceURL
+                    sourceSidecarURL: provenanceURL,
+                    sourceRootURL: inputURL,
+                    exportArgv: exportArgv
                 )
-                print("Exported provenance \(exportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
+                print("Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
                 for sidecar in bundle.copiedSidecarURLs {
-                    print("Wrote provenance sidecar to \(sidecar.path)")
+                    print("Wrote provenance artifact to \(sidecar.path)")
                 }
             } catch let error as CLIError {
                 throw error

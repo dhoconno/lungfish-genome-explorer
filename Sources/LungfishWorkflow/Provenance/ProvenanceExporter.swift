@@ -39,6 +39,17 @@ public enum ProvenanceExportFormat: String, CaseIterable, Sendable {
         }
     }
 
+    public var cliToken: String {
+        switch self {
+        case .shell: return "shell"
+        case .python: return "python"
+        case .nextflow: return "nextflow"
+        case .snakemake: return "snakemake"
+        case .methods: return "methods"
+        case .json: return "json"
+        }
+    }
+
     public static func cliValue(_ value: String) throws -> ProvenanceExportFormat {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch normalized {
@@ -80,20 +91,27 @@ public struct ProvenanceExportBundle: Sendable, Equatable {
 /// script that can reproduce the analysis on any system with the same
 /// tools installed (or via containers).
 public struct ProvenanceExporter: Sendable {
+    private let signingProvider: (any ProvenanceSigningProvider)?
 
-    public init() {}
+    public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
+        self.signingProvider = signingProvider
+    }
 
     public func exportBundle(
         _ envelope: ProvenanceEnvelope,
         format: ProvenanceExportFormat,
         to outputDirectory: URL,
-        sourceSidecarURL: URL?
+        sourceSidecarURL: URL?,
+        sourceRootURL: URL? = nil,
+        exportArgv: [String] = []
     ) throws -> ProvenanceExportBundle {
+        let startedAt = Date()
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
         let run = envelope.legacyWorkflowRun()
         let primaryArtifactURL: URL
+        var generatedArtifactURLs: [URL] = []
         switch format {
         case .shell:
             primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
@@ -101,26 +119,31 @@ public struct ProvenanceExporter: Sendable {
         case .nextflow:
             primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
             try exportNextflow(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            let nextflowConfigURL = outputDirectory.appendingPathComponent("nextflow.config")
             try exportNextflowConfig(run).write(
-                to: outputDirectory.appendingPathComponent("nextflow.config"),
+                to: nextflowConfigURL,
                 atomically: true,
                 encoding: .utf8
             )
             let containersDirectory = outputDirectory.appendingPathComponent("containers", isDirectory: true)
             try fileManager.createDirectory(at: containersDirectory, withIntermediateDirectories: true)
+            let containerManifestURL = containersDirectory.appendingPathComponent("manifest.json")
             try exportContainerManifest(run).write(
-                to: containersDirectory.appendingPathComponent("manifest.json"),
+                to: containerManifestURL,
                 atomically: true,
                 encoding: .utf8
             )
+            generatedArtifactURLs.append(contentsOf: [nextflowConfigURL, containerManifestURL])
         case .snakemake:
             primaryArtifactURL = outputDirectory.appendingPathComponent("Snakefile")
             try exportSnakemake(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            let configURL = outputDirectory.appendingPathComponent("config.yaml")
             try exportSnakemakeConfig(run).write(
-                to: outputDirectory.appendingPathComponent("config.yaml"),
+                to: configURL,
                 atomically: true,
                 encoding: .utf8
             )
+            generatedArtifactURLs.append(configURL)
         case .methods:
             primaryArtifactURL = outputDirectory.appendingPathComponent("methods.md")
             try exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
@@ -133,16 +156,33 @@ public struct ProvenanceExporter: Sendable {
                 "Unsupported provenance export format '\(format.rawValue)' for canonical bundles. Supported formats: shell, nextflow, snakemake, methods, json."
             )
         }
+        generatedArtifactURLs.insert(primaryArtifactURL, at: 0)
 
-        let copiedSidecarURLs = try writeCanonicalSidecar(
-            envelope,
-            to: outputDirectory,
-            sourceSidecarURL: sourceSidecarURL
+        let provenanceDirectory = outputDirectory.appendingPathComponent("provenance", isDirectory: true)
+        try fileManager.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        let copiedSourceArtifacts = try copySourceArtifacts(
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: sourceRootURL,
+            outputDirectory: outputDirectory,
+            provenanceDirectory: provenanceDirectory
+        )
+        let exportSidecarURL = try writeExportProvenanceSidecar(
+            format: format,
+            outputDirectory: outputDirectory,
+            provenanceDirectory: provenanceDirectory,
+            sourceInputURL: sourceRootURL ?? sourceSidecarURL,
+            sourceArtifacts: copiedSourceArtifacts,
+            generatedArtifactURLs: generatedArtifactURLs,
+            argv: exportArgv,
+            startedAt: startedAt,
+            endedAt: Date()
         )
         return ProvenanceExportBundle(
             rootURL: outputDirectory,
             primaryArtifactURL: primaryArtifactURL,
-            copiedSidecarURLs: copiedSidecarURLs
+            copiedSidecarURLs: [exportSidecarURL] + copiedSourceArtifacts
+                .map(\.destinationURL)
+                .filter(isProvenanceOrSignatureArtifact)
         )
     }
 
@@ -182,33 +222,242 @@ public struct ProvenanceExporter: Sendable {
         return s
     }
 
-    private func writeCanonicalSidecar(
-        _ envelope: ProvenanceEnvelope,
-        to outputDirectory: URL,
-        sourceSidecarURL: URL?
+    private struct CopiedSourceArtifact {
+        let sourceURL: URL
+        let destinationURL: URL
+    }
+
+    private func writeExportProvenanceSidecar(
+        format: ProvenanceExportFormat,
+        outputDirectory: URL,
+        provenanceDirectory: URL,
+        sourceInputURL: URL?,
+        sourceArtifacts: [CopiedSourceArtifact],
+        generatedArtifactURLs: [URL],
+        argv: [String],
+        startedAt: Date,
+        endedAt: Date
+    ) throws -> URL {
+        var builder = ProvenanceRunBuilder(
+            workflowName: "provenance.export.\(format.cliToken)",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "lungfish provenance export",
+            toolVersion: WorkflowRun.currentAppVersion
+        )
+        .argv(
+            exportArgv(
+                provided: argv,
+                sourceInputURL: sourceInputURL,
+                format: format,
+                outputDirectory: outputDirectory
+            )
+        )
+        .options(
+            explicit: exportOptions(
+                sourceInputURL: sourceInputURL,
+                format: format,
+                outputDirectory: outputDirectory
+            ),
+            defaults: [
+                "preserveSourceProvenance": .boolean(true)
+            ],
+            resolved: [
+                "preserveSourceProvenance": .boolean(true)
+            ]
+        )
+        .runtime(ProvenanceRuntimeIdentity())
+
+        for artifact in sourceArtifacts {
+            builder = try builder.input(artifact.sourceURL)
+        }
+        for outputURL in generatedArtifactURLs + sourceArtifacts.map(\.destinationURL) {
+            builder = try builder.output(outputURL)
+        }
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: provenanceDirectory)
+    }
+
+    private func exportArgv(
+        provided argv: [String],
+        sourceInputURL: URL?,
+        format: ProvenanceExportFormat,
+        outputDirectory: URL
+    ) -> [String] {
+        if !argv.isEmpty { return argv }
+        var arguments = ["lungfish", "provenance", "export"]
+        if let sourceInputURL {
+            arguments.append(sourceInputURL.path)
+        }
+        arguments.append(contentsOf: ["--export-format", format.cliToken, "--output", outputDirectory.path])
+        return arguments
+    }
+
+    private func exportOptions(
+        sourceInputURL: URL?,
+        format: ProvenanceExportFormat,
+        outputDirectory: URL
+    ) -> [String: ParameterValue] {
+        var options: [String: ParameterValue] = [
+            "exportFormat": .string(format.cliToken),
+            "output": .file(outputDirectory)
+        ]
+        if let sourceInputURL {
+            options["input"] = .file(sourceInputURL)
+        }
+        return options
+    }
+
+    private func copySourceArtifacts(
+        sourceSidecarURL: URL?,
+        sourceRootURL: URL?,
+        outputDirectory: URL,
+        provenanceDirectory: URL
+    ) throws -> [CopiedSourceArtifact] {
+        let fileManager = FileManager.default
+        let sourceDestinationRoot = provenanceDirectory.appendingPathComponent("source", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDestinationRoot, withIntermediateDirectories: true)
+
+        let sourceURLs = try sourceArtifactURLs(
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: sourceRootURL,
+            outputDirectory: outputDirectory
+        )
+
+        return try sourceURLs.map { sourceURL in
+            let destinationURL = sourceArtifactDestination(
+                for: sourceURL,
+                sourceRootURL: sourceRootURL,
+                sourceDestinationRoot: sourceDestinationRoot
+            )
+            try fileManager.createDirectory(
+                at: destinationURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            if sourceURL.standardizedFileURL != destinationURL.standardizedFileURL {
+                try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            }
+            return CopiedSourceArtifact(sourceURL: sourceURL, destinationURL: destinationURL)
+        }
+    }
+
+    private func sourceArtifactURLs(
+        sourceSidecarURL: URL?,
+        sourceRootURL: URL?,
+        outputDirectory: URL
     ) throws -> [URL] {
         let fileManager = FileManager.default
-        let provenanceDirectory = outputDirectory.appendingPathComponent("provenance", isDirectory: true)
-        try fileManager.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        var sidecars: [URL] = []
+        var manifests: [URL] = []
 
-        let destination = provenanceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        try ProvenanceJSON.encoder.encode(envelope).write(to: destination, options: .atomic)
-
-        var sidecarURLs = [destination]
-        if let sourceSidecarURL {
-            let source = sourceSidecarURL.standardizedFileURL
-            let target = destination.standardizedFileURL
-            if source != target {
-                let originalURL = provenanceDirectory
-                    .appendingPathComponent("source-\(sourceSidecarURL.lastPathComponent)")
-                if fileManager.fileExists(atPath: originalURL.path) {
-                    try fileManager.removeItem(at: originalURL)
+        if let sourceRootURL, isDirectory(sourceRootURL) {
+            let root = sourceRootURL.standardizedFileURL
+            if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) {
+                for case let url as URL in enumerator {
+                    let standardizedURL = url.standardizedFileURL
+                    guard !isDescendant(standardizedURL, of: outputDirectory.standardizedFileURL),
+                          try isRegularFile(standardizedURL) else {
+                        continue
+                    }
+                    if isProvenanceSidecar(standardizedURL) {
+                        sidecars.append(standardizedURL)
+                    } else if isSourceManifest(standardizedURL) {
+                        manifests.append(standardizedURL)
+                    }
                 }
-                try fileManager.copyItem(at: sourceSidecarURL, to: originalURL)
-                sidecarURLs.append(originalURL)
             }
         }
-        return sidecarURLs
+
+        if let sourceSidecarURL {
+            sidecars.append(sourceSidecarURL.standardizedFileURL)
+        }
+
+        var artifacts = sidecars.flatMap { sidecar -> [URL] in
+            [sidecar] + pairedSigningArtifacts(for: sidecar)
+        }
+        artifacts.append(contentsOf: manifests)
+        return uniqueExistingURLs(artifacts)
+    }
+
+    private func pairedSigningArtifacts(for sidecarURL: URL) -> [URL] {
+        [
+            ProvenanceSigningConfiguration.signatureURL(for: sidecarURL),
+            ProvenanceSigningConfiguration.publicKeyURL(for: sidecarURL)
+        ].filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func sourceArtifactDestination(
+        for sourceURL: URL,
+        sourceRootURL: URL?,
+        sourceDestinationRoot: URL
+    ) -> URL {
+        if let sourceRootURL,
+           let relativePath = relativePath(for: sourceURL, relativeTo: sourceRootURL) {
+            return sourceDestinationRoot.appendingPathComponent(relativePath)
+        }
+        return sourceDestinationRoot.appendingPathComponent(sourceURL.lastPathComponent)
+    }
+
+    private func relativePath(for url: URL, relativeTo root: URL) -> String? {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let urlComponents = url.standardizedFileURL.pathComponents
+        guard urlComponents.starts(with: rootComponents),
+              urlComponents.count > rootComponents.count else {
+            return nil
+        }
+        return urlComponents.dropFirst(rootComponents.count).joined(separator: "/")
+    }
+
+    private func uniqueExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            let key = url.standardizedFileURL.path
+            if seen.insert(key).inserted {
+                result.append(url)
+            }
+        }
+        return result.sorted { $0.path < $1.path }
+    }
+
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func isRegularFile(_ url: URL) throws -> Bool {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        return values.isRegularFile == true
+    }
+
+    private func isDescendant(_ url: URL, of root: URL) -> Bool {
+        let rootComponents = root.standardizedFileURL.pathComponents
+        let urlComponents = url.standardizedFileURL.pathComponents
+        return urlComponents.starts(with: rootComponents) && urlComponents.count > rootComponents.count
+    }
+
+    private func isProvenanceSidecar(_ url: URL) -> Bool {
+        let filename = url.lastPathComponent
+        return filename == ProvenanceRecorder.provenanceFilename
+            || filename.hasSuffix("lungfish-provenance.json")
+    }
+
+    private func isSourceManifest(_ url: URL) -> Bool {
+        let filename = url.lastPathComponent.lowercased()
+        return filename == "manifest.json" || filename.hasSuffix(".manifest.json")
+    }
+
+    private func isProvenanceOrSignatureArtifact(_ url: URL) -> Bool {
+        isProvenanceSidecar(url)
+            || url.lastPathComponent.hasSuffix(".signature.json")
+            || url.lastPathComponent.hasSuffix(".pub")
     }
 
     private func exportNextflowConfig(_ run: WorkflowRun) -> String {

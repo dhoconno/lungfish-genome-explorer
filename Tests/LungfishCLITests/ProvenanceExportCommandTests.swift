@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import ArgumentParser
 import Foundation
 import XCTest
 @testable import LungfishCLI
@@ -17,16 +18,30 @@ final class ProvenanceExportCommandTests: XCTestCase {
     func testProvenanceExportParsesInputFormatAndOutput() throws {
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             "/tmp/.lungfish-provenance.json",
-            "--format", "shell",
+            "--export-format", "shell",
             "--output", "/tmp/provenance-export"
         ])
 
         XCTAssertEqual(command.input, "/tmp/.lungfish-provenance.json")
-        XCTAssertEqual(command.format, "shell")
+        XCTAssertEqual(command.exportFormat, "shell")
         XCTAssertEqual(command.output, "/tmp/provenance-export")
     }
 
-    func testShellExportWritesRunScriptAndCanonicalizesSourceSidecar() async throws {
+    func testProvenanceExportParsesThroughTopLevelCLIWithoutGlobalFormatCollision() throws {
+        let command = try LungfishCLI.parseAsRoot([
+            "provenance",
+            "export",
+            "/tmp/.lungfish-provenance.json",
+            "--export-format", "shell",
+            "--output", "/tmp/provenance-export"
+        ])
+        let export = try XCTUnwrap(command as? ProvenanceCommand.ExportSubcommand)
+
+        XCTAssertEqual(export.exportFormat, "shell")
+        XCTAssertEqual(export.output, "/tmp/provenance-export")
+    }
+
+    func testShellExportWritesRunScriptAndRecordsExportProvenance() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -44,35 +59,44 @@ final class ProvenanceExportCommandTests: XCTestCase {
 
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             sidecarURL.path,
-            "--format", "shell",
+            "--export-format", "shell",
             "--output", outputDirectory.path
         ])
 
         try await command.run()
 
         let runScriptURL = outputDirectory.appendingPathComponent("run.sh")
-        let copiedSidecarURL = outputDirectory
+        let exportSidecarURL = outputDirectory
             .appendingPathComponent("provenance", isDirectory: true)
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         XCTAssertTrue(FileManager.default.fileExists(atPath: runScriptURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedSidecarURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportSidecarURL.path))
 
         let script = try String(contentsOf: runScriptURL, encoding: .utf8)
         XCTAssertTrue(script.contains("fastp"), script)
         XCTAssertTrue(script.contains("'reads 1.fastq'") || script.contains("\"reads 1.fastq\""), script)
         XCTAssertTrue(script.contains("trimmed.fastq"), script)
 
-        let copiedEnvelope = try ProvenanceJSON.decoder.decode(
+        let exportEnvelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
-            from: try Data(contentsOf: copiedSidecarURL)
+            from: try Data(contentsOf: exportSidecarURL)
         )
-        XCTAssertEqual(copiedEnvelope.schemaVersion, 1)
-        XCTAssertEqual(copiedEnvelope.workflowName, "fastq.trim.fastp")
-        XCTAssertEqual(copiedEnvelope.argv, ["fastp", "-i", "reads 1.fastq", "-o", "trimmed.fastq"])
+        XCTAssertEqual(exportEnvelope.schemaVersion, 1)
+        XCTAssertEqual(exportEnvelope.workflowName, "provenance.export.shell")
+        XCTAssertEqual(exportEnvelope.toolName, "lungfish provenance export")
+        XCTAssertEqual(exportEnvelope.argv, [
+            "lungfish", "provenance", "export",
+            sidecarURL.path,
+            "--export-format", "shell",
+            "--output", outputDirectory.path
+        ])
+        XCTAssertTrue(exportEnvelope.files.contains { $0.role == .input && $0.path == sidecarURL.path })
+        XCTAssertTrue(exportEnvelope.outputs.contains { $0.path == runScriptURL.path && $0.checksumSHA256 != nil })
 
         let preservedSourceURL = outputDirectory
             .appendingPathComponent("provenance", isDirectory: true)
-            .appendingPathComponent("source-\(sidecarURL.lastPathComponent)")
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent(sidecarURL.lastPathComponent)
         XCTAssertEqual(try Data(contentsOf: preservedSourceURL), try Data(contentsOf: sidecarURL))
     }
 
@@ -94,7 +118,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
 
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             sidecarURL.path,
-            "--format", "nextflow",
+            "--export-format", "nextflow",
             "--output", outputDirectory.path
         ])
 
@@ -138,28 +162,195 @@ final class ProvenanceExportCommandTests: XCTestCase {
 
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             sidecarURL.path,
-            "--format", "json",
+            "--export-format", "json",
             "--output", outputDirectory.path
         ])
 
         try await command.run()
 
-        let copiedSidecarURL = outputDirectory
+        let exportSidecarURL = outputDirectory
             .appendingPathComponent("provenance", isDirectory: true)
             .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-        let canonical = try ProvenanceJSON.decoder.decode(
+        let exportEnvelope = try ProvenanceJSON.decoder.decode(
             ProvenanceEnvelope.self,
-            from: try Data(contentsOf: copiedSidecarURL)
+            from: try Data(contentsOf: exportSidecarURL)
         )
-        XCTAssertEqual(canonical.schemaVersion, 1)
-        XCTAssertEqual(canonical.id, legacy.id)
-        XCTAssertEqual(canonical.workflowName, "Legacy Export")
-        XCTAssertEqual(canonical.toolName, "legacy-tool")
-        XCTAssertEqual(canonical.toolVersion, "1.0")
+        XCTAssertEqual(exportEnvelope.schemaVersion, 1)
+        XCTAssertEqual(exportEnvelope.workflowName, "provenance.export.json")
+        XCTAssertEqual(exportEnvelope.toolName, "lungfish provenance export")
 
-        let object = try JSONSerialization.jsonObject(with: try Data(contentsOf: copiedSidecarURL)) as? [String: Any]
+        let exportedJSONURL = outputDirectory.appendingPathComponent("provenance.json")
+        let canonicalSource = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: exportedJSONURL)
+        )
+        XCTAssertEqual(canonicalSource.id, legacy.id)
+        XCTAssertEqual(canonicalSource.workflowName, "Legacy Export")
+        XCTAssertEqual(canonicalSource.toolName, "legacy-tool")
+        XCTAssertEqual(canonicalSource.toolVersion, "1.0")
+
+        let preservedSourceURL = outputDirectory
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent(sidecarURL.lastPathComponent)
+        XCTAssertEqual(try Data(contentsOf: preservedSourceURL), try Data(contentsOf: sidecarURL))
+
+        let object = try JSONSerialization.jsonObject(with: try Data(contentsOf: exportSidecarURL)) as? [String: Any]
         XCTAssertNotNil(object?["schemaVersion"])
         XCTAssertNil(object?["name"])
+    }
+
+    func testExportReadsHistoricalAnalysisFixtureProvenance() async throws {
+        let outputDirectory = try makeTempDirectory()
+            .appendingPathComponent("fixture-export", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: outputDirectory.deletingLastPathComponent()) }
+
+        let fixtureDirectory = try fixtureURL("analyses/kraken2-2026-01-15T11-00-00")
+        let command = try ProvenanceCommand.ExportSubcommand.parse([
+            fixtureDirectory.path,
+            "--export-format", "json",
+            "--output", outputDirectory.path
+        ])
+
+        try await command.run()
+
+        let exportedJSONURL = outputDirectory.appendingPathComponent("provenance.json")
+        let exportSidecarURL = outputDirectory
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let preservedSourceURL = outputDirectory
+            .appendingPathComponent("provenance/source/.lungfish-provenance.json")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportedJSONURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: exportSidecarURL.path))
+        XCTAssertEqual(
+            try Data(contentsOf: preservedSourceURL),
+            try Data(contentsOf: fixtureDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        )
+
+        let canonicalSource = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: exportedJSONURL)
+        )
+        XCTAssertEqual(canonicalSource.workflowName, "analysis-fixture-provenance-historical-backfill")
+        XCTAssertEqual(canonicalSource.options.explicit["tool"]?.stringValue, "kraken2")
+        XCTAssertEqual(canonicalSource.outputs.first?.role, .output)
+    }
+
+    func testExportPreservesSignedSourceProvenanceArtifacts() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let outputDirectory = directory.appendingPathComponent("signed-export", isDirectory: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "signed.source",
+            toolName: "fastp",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"]
+        )
+        let sourceSidecarURL = try ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "source-signing-key")
+        ).write(envelope, to: directory)
+
+        let command = try ProvenanceCommand.ExportSubcommand.parse([
+            directory.path,
+            "--export-format", "shell",
+            "--output", outputDirectory.path
+        ])
+
+        try await command.run()
+
+        let copiedSourceURL = outputDirectory
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent("source", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedSourceURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: copiedSourceURL).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: copiedSourceURL).path))
+
+        let verification = try ProvenanceSignatureVerifier.verify(provenanceURL: copiedSourceURL)
+        XCTAssertTrue(verification.isValid)
+        XCTAssertEqual(try Data(contentsOf: copiedSourceURL), try Data(contentsOf: sourceSidecarURL))
+    }
+
+    func testExporterCanSignExportOperationSidecar() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceSidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let outputDirectory = directory.appendingPathComponent("signed-report-export", isDirectory: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "signed.report.source",
+            toolName: "fastp",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"]
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: sourceSidecarURL, options: .atomic)
+
+        let bundle = try ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "export-report-key")
+        ).exportBundle(
+            envelope,
+            format: .shell,
+            to: outputDirectory,
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: directory,
+            exportArgv: [
+                "lungfish", "provenance", "export",
+                directory.path,
+                "--export-format", "shell",
+                "--output", outputDirectory.path
+            ]
+        )
+
+        let exportSidecarURL = outputDirectory
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(bundle.copiedSidecarURLs.contains(exportSidecarURL))
+
+        let verification = try ProvenanceSignatureVerifier.verify(provenanceURL: exportSidecarURL)
+        XCTAssertTrue(verification.isValid)
+    }
+
+    func testDirectoryExportPreservesAllSourceProvenanceSidecarsAndManifests() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let rootSidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenanceDirectory = directory.appendingPathComponent("provenance", isDirectory: true)
+        try FileManager.default.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+        let bundleSidecarURL = provenanceDirectory.appendingPathComponent("bundle.lungfish-provenance.json")
+        let outputSidecarURL = provenanceDirectory.appendingPathComponent("reads.lungfish-provenance.json")
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        let outputDirectory = directory.appendingPathComponent("directory-export", isDirectory: true)
+
+        try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture(workflowName: "root"))
+            .write(to: rootSidecarURL, options: .atomic)
+        try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture(workflowName: "bundle"))
+            .write(to: bundleSidecarURL, options: .atomic)
+        try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture(workflowName: "reads"))
+            .write(to: outputSidecarURL, options: .atomic)
+        try Data(#"{"bundle":"manifest"}"#.utf8).write(to: manifestURL, options: .atomic)
+
+        let command = try ProvenanceCommand.ExportSubcommand.parse([
+            directory.path,
+            "--export-format", "methods",
+            "--output", outputDirectory.path
+        ])
+
+        try await command.run()
+
+        let copiedRoot = outputDirectory
+            .appendingPathComponent("provenance/source/.lungfish-provenance.json")
+        let copiedBundle = outputDirectory
+            .appendingPathComponent("provenance/source/provenance/bundle.lungfish-provenance.json")
+        let copiedOutput = outputDirectory
+            .appendingPathComponent("provenance/source/provenance/reads.lungfish-provenance.json")
+        let copiedManifest = outputDirectory
+            .appendingPathComponent("provenance/source/manifest.json")
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedRoot.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedBundle.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedOutput.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedManifest.path))
     }
 
     func testFormatParserAcceptsCliValuesAndRejectsUnsupportedValues() throws {
@@ -180,5 +371,17 @@ final class ProvenanceExportCommandTests: XCTestCase {
             .appendingPathComponent("lungfish-provenance-export-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func fixtureURL(_ relativePath: String) throws -> URL {
+        var dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        while dir.path != "/" {
+            let candidate = dir.appendingPathComponent("Tests/Fixtures/\(relativePath)")
+            if FileManager.default.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+            dir.deleteLastPathComponent()
+        }
+        throw XCTSkip("Missing fixture \(relativePath)")
     }
 }
