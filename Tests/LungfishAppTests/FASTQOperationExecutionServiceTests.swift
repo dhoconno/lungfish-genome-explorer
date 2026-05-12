@@ -743,15 +743,29 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let bundledFASTQPath = bundledFASTQ.standardizedFileURL.path
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+        let descriptor = try XCTUnwrap(envelope.output)
+        XCTAssertEqual(envelope.workflowName, "Deacon rRNA FASTQ filter")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.toolName, "deacon")
+        XCTAssertEqual(envelope.toolVersion, "0.15.0")
+        XCTAssertEqual(envelope.argv.prefix(5), ["micromamba", "run", "-n", "deacon", "deacon"])
+        XCTAssertEqual(descriptor.path, bundledFASTQPath)
+        XCTAssertEqual(descriptor.originPath, stagedFASTQ.path)
+        XCTAssertEqual(
+            descriptor.sourceProvenancePath,
+            stagingDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+        )
+        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: bundledFASTQ))
+        XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: bundledFASTQ))
+        XCTAssertEqual(envelope.outputs.map(\.path), [bundledFASTQPath])
+        XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [bundledFASTQPath])
+
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(provenance.name, "Deacon rRNA FASTQ filter")
-        XCTAssertEqual(provenance.status, .completed)
-        XCTAssertEqual(step.toolName, "deacon")
-        XCTAssertEqual(step.toolVersion, "0.15.0")
-        XCTAssertEqual(step.command.prefix(5), ["micromamba", "run", "-n", "deacon", "deacon"])
         XCTAssertEqual(step.outputs.map(\.filename), [bundledFASTQ.lastPathComponent])
-        XCTAssertEqual(step.outputs.first?.format, .fastq)
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: bundledFASTQ))
     }
 
@@ -791,6 +805,16 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
 
         let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        let bundledFASTQPath = bundledFASTQ.standardizedFileURL.path
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+        let descriptor = try XCTUnwrap(envelope.output)
+        XCTAssertEqual(envelope.schemaVersion, 1)
+        XCTAssertEqual(envelope.workflowName, "lengthFilter FASTQ operation")
+        XCTAssertEqual(envelope.toolName, "lungfish-cli")
+        XCTAssertEqual(descriptor.path, bundledFASTQPath)
+        XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: bundledFASTQ))
+        XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: bundledFASTQ))
+
         let provenance = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
         let step = try XCTUnwrap(provenance.steps.first)
         XCTAssertEqual(step.toolName, "lungfish-cli")
@@ -1882,34 +1906,40 @@ private func writeSyntheticProvenance(
     outputURL: URL,
     parameters: [String: ParameterValue] = [:]
 ) throws {
-    let run = WorkflowRun(
-        name: name,
-        endTime: Date(),
-        status: .completed,
-        steps: [
-            StepExecution(
-                toolName: toolName,
-                toolVersion: toolVersion,
-                command: command,
-                inputs: [
-                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
-                ],
-                outputs: [
-                    ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output),
-                ],
-                exitCode: 0,
-                wallTime: 1.25,
-                stderr: nil,
-                endTime: Date()
-            ),
-        ],
-        parameters: parameters
+    let startedAt = Date(timeIntervalSince1970: 1_800)
+    let endedAt = Date(timeIntervalSince1970: 1_801.25)
+    let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+    let output = try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output)
+    let envelope = try ProvenanceRunBuilder(
+        workflowName: name,
+        workflowVersion: WorkflowRun.currentAppVersion,
+        toolName: toolName,
+        toolVersion: toolVersion
     )
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
-    try data.write(to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+    .argv(command)
+    .options(explicit: parameters, defaults: [:], resolved: parameters)
+    .input(inputURL, format: .fastq, role: .input)
+    .output(outputURL, format: .fastq, role: .output)
+    .step(
+        ProvenanceStep(
+            toolName: toolName,
+            toolVersion: toolVersion,
+            argv: command,
+            inputs: [input],
+            outputs: [output],
+            exitStatus: 0,
+            wallTimeSeconds: 1.25,
+            startedAt: startedAt,
+            completedAt: endedAt
+        )
+    )
+    .runtime(ProvenanceRuntimeIdentity.fixture())
+    .complete(
+        exitStatus: 0,
+        startedAt: startedAt,
+        endedAt: endedAt
+    )
+    try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
 }
 
 private func makeFullFASTABundle(

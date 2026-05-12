@@ -1443,52 +1443,46 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         sourceInputURL: URL?,
         operation: FASTQDerivativeOperation
     ) async throws {
-        let sourceRun = ProvenanceRecorder.load(from: sourceURL.deletingLastPathComponent())
-        let sourceStep = sourceRun.flatMap { sourceRun in
-            sourceRun.steps.first { step in
-                step.outputs.contains { output in
-                    output.path == sourceURL.path || output.filename == sourceURL.lastPathComponent
-                }
-            } ?? sourceRun.steps.last
+        do {
+            _ = try ProvenanceRehydrator.rehydrate(
+                sourceDirectory: sourceURL.deletingLastPathComponent(),
+                finalDirectory: bundleURL,
+                pathMap: [sourceURL.path: outputFASTQ.path]
+            )
+            return
+        } catch ProvenanceRehydrationError.missingSourceProvenance {
+            // Fall through to app-native provenance for operations without CLI sidecars.
         }
 
-        var parameters = sourceRun?.parameters ?? [:]
-        for (key, value) in fallbackProvenanceParameters(
+        let parameters = fallbackProvenanceParameters(
             for: outputFASTQ,
             bundleURL: bundleURL,
             sourceURL: sourceURL,
             sourceInputURL: sourceInputURL,
             originalRequest: originalRequest,
             operation: operation
-        ) where parameters[key] == nil {
-            parameters[key] = value
-        }
+        )
+        let argv = fallbackProvenanceCommand(for: operation)
+        let startedAt = Date()
+        let inputURL = primaryInputForProvenance(sourceInputURL: sourceInputURL, sourceURL: sourceURL)
 
-        let runID = await ProvenanceRecorder.shared.beginRun(
-            name: sourceRun?.name ?? "\(operation.kind.rawValue) FASTQ operation",
-            parameters: parameters
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "\(operation.kind.rawValue) FASTQ operation",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: operation.toolUsed ?? "lungfish-cli",
+            toolVersion: operation.toolVersion ?? "unknown"
         )
-        await ProvenanceRecorder.shared.recordStep(
-            runID: runID,
-            toolName: sourceStep?.toolName ?? operation.toolUsed ?? "lungfish-cli",
-            toolVersion: sourceStep?.toolVersion ?? operation.toolVersion ?? "unknown",
-            command: sourceStep?.command ?? fallbackProvenanceCommand(for: operation),
-            inputs: sourceStep?.inputs ?? [
-                ProvenanceRecorder.fileRecord(
-                    url: primaryInputForProvenance(sourceInputURL: sourceInputURL, sourceURL: sourceURL),
-                    format: .fastq,
-                    role: .input
-                ),
-            ],
-            outputs: [
-                ProvenanceRecorder.fileRecord(url: outputFASTQ, format: .fastq, role: .output),
-            ],
-            exitCode: sourceStep?.exitCode ?? 0,
-            wallTime: sourceStep?.wallTime ?? 0,
-            stderr: sourceStep?.stderr
+        .argv(argv)
+        .options(explicit: parameters, defaults: [:], resolved: parameters)
+        .input(inputURL, format: .fastq, role: .input)
+        .output(outputFASTQ, format: .fastq, role: .output)
+        .runtime(ProvenanceRuntimeIdentity())
+        .complete(
+            exitStatus: 0,
+            startedAt: startedAt,
+            endedAt: startedAt
         )
-        await ProvenanceRecorder.shared.completeRun(runID, status: sourceRun?.status ?? .completed)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
     }
 
     private func fallbackProvenanceParameters(
