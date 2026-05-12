@@ -101,6 +101,95 @@ final class ProvenanceRehydrationTests: XCTestCase {
         }
     }
 
+    func testSelectedOutputProjectionKeepsIntermediateProducerSteps() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        let intermediateURL = sourceDirectory.appendingPathComponent("intermediate.fastq")
+        let selectedURL = sourceDirectory.appendingPathComponent("selected.fastq")
+        let siblingURL = sourceDirectory.appendingPathComponent("sibling.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq.gz")
+        try Data("@in\nACGT\n+\n!!!!\n".utf8).write(to: inputURL, options: .atomic)
+        try Data("@mid\nACG\n+\n!!!\n".utf8).write(to: intermediateURL, options: .atomic)
+        try Data("@sel\nAC\n+\n!!\n".utf8).write(to: selectedURL, options: .atomic)
+        try Data("@sib\nGT\n+\n!!\n".utf8).write(to: siblingURL, options: .atomic)
+        try Data("@sel\nAC\n+\n!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+        let intermediateOutput = try ProvenanceFileDescriptor.file(url: intermediateURL, format: .fastq, role: .output)
+        let intermediateInput = ProvenanceFileDescriptor(
+            path: intermediateOutput.path,
+            checksumSHA256: intermediateOutput.checksumSHA256,
+            fileSize: intermediateOutput.fileSize,
+            format: intermediateOutput.format,
+            role: .input
+        )
+        let selectedOutput = try ProvenanceFileDescriptor.file(url: selectedURL, format: .fastq, role: .output)
+        let siblingOutput = try ProvenanceFileDescriptor.file(url: siblingURL, format: .fastq, role: .output)
+        let producerStepID = UUID()
+        let selectedStepID = UUID()
+        let producerStep = ProvenanceStep(
+            id: producerStepID,
+            toolName: "fastq-prep",
+            toolVersion: "1.0",
+            argv: ["fastq-prep", inputURL.path, "-o", intermediateURL.path],
+            inputs: [input],
+            outputs: [intermediateOutput],
+            exitStatus: 0
+        )
+        let selectedStep = ProvenanceStep(
+            id: selectedStepID,
+            toolName: "fastq-split",
+            toolVersion: "1.0",
+            argv: ["fastq-split", intermediateURL.path, "--selected", selectedURL.path, "--sibling", siblingURL.path],
+            inputs: [intermediateInput],
+            outputs: [selectedOutput, siblingOutput],
+            exitStatus: 0,
+            dependsOn: [producerStepID]
+        )
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "split selected FASTQ",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "fastq", "split"])
+        .input(inputURL, format: .fastq, role: .input)
+        .output(selectedURL, format: .fastq, role: .output)
+        .output(siblingURL, format: .fastq, role: .output)
+        .step(producerStep)
+        .step(selectedStep)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 23)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: sourceDirectory)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [selectedURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.output?.path, finalOutputURL.path)
+        XCTAssertEqual(rehydrated.outputs.map(\.path), [finalOutputURL.path])
+        XCTAssertEqual(rehydrated.steps.map(\.id), [producerStepID, selectedStepID])
+        XCTAssertEqual(rehydrated.steps[0].outputs.map(\.path), [intermediateURL.path])
+        XCTAssertEqual(rehydrated.steps[1].inputs.map(\.path), [intermediateURL.path])
+        XCTAssertEqual(rehydrated.steps[1].outputs.map(\.path), [finalOutputURL.path])
+        XCTAssertFalse(rehydrated.files.contains { $0.path == siblingURL.path })
+        XCTAssertTrue(rehydrated.files.contains { $0.path == intermediateURL.path && $0.role == .output })
+        XCTAssertTrue(rehydrated.files.contains { $0.path == finalOutputURL.path && $0.role == .output })
+    }
+
     func testRehydrateThrowsWhenSourceSidecarIsMissing() throws {
         let tempDir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }

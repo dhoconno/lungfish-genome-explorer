@@ -58,24 +58,27 @@ public enum ProvenanceRehydrator {
               let sourceEnvelope = try ProvenanceEnvelopeReader.load(from: sourceDirectory) else {
             throw ProvenanceRehydrationError.missingSourceProvenance(sourceDirectory.path)
         }
+        let selectedProjection = outputMode == .selectedOnly
+            ? selectedProjection(for: sourceEnvelope.steps, pathMap: pathMap)
+            : nil
         let outputs = try rewriteOutputs(
             sourceEnvelope.outputs,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            outputMode: outputMode
+            selectedProjection: selectedProjection
         )
         let output = try rewritePrimaryOutput(
             sourceEnvelope.output,
             rewrittenOutputs: outputs,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            outputMode: outputMode
+            selectedProjection: selectedProjection
         )
         let steps = try rewriteSteps(
             sourceEnvelope.steps,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            outputMode: outputMode
+            selectedProjection: selectedProjection
         )
 
         let rehydrated = try ProvenanceEnvelope(
@@ -95,7 +98,7 @@ public enum ProvenanceRehydrator {
                 sourceEnvelope.files,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenanceURL.path,
-                outputMode: outputMode
+                selectedProjection: selectedProjection
             ),
             output: output,
             outputs: outputs,
@@ -116,11 +119,62 @@ public enum ProvenanceRehydrator {
         case selectedOnly
     }
 
+    private struct SelectedProjection {
+        let retainedStepIDs: Set<UUID>
+        let retainedIntermediateOutputPaths: Set<String>
+    }
+
+    private static func selectedProjection(
+        for steps: [ProvenanceStep],
+        pathMap: [String: String]
+    ) -> SelectedProjection {
+        var retainedStepIDs = Set<UUID>()
+
+        for step in steps where step.outputs.contains(where: { mappedPath(for: $0.path, in: pathMap) != nil }) {
+            retainedStepIDs.insert(step.id)
+        }
+
+        var changed = true
+        while changed {
+            changed = false
+            let consumedInputPaths = Set(
+                steps
+                    .filter { retainedStepIDs.contains($0.id) }
+                    .flatMap { $0.inputs.map(\.path) }
+            )
+
+            for step in steps where retainedStepIDs.contains(step.id) {
+                for dependencyID in step.dependsOn where retainedStepIDs.insert(dependencyID).inserted {
+                    changed = true
+                }
+            }
+
+            for step in steps
+                where !retainedStepIDs.contains(step.id)
+                    && step.outputs.contains(where: { consumedInputPaths.contains($0.path) }) {
+                retainedStepIDs.insert(step.id)
+                changed = true
+            }
+        }
+
+        let retainedSteps = steps.filter { retainedStepIDs.contains($0.id) }
+        let consumedInputPaths = Set(retainedSteps.flatMap { $0.inputs.map(\.path) })
+        let retainedOutputPaths = Set(retainedSteps.flatMap { $0.outputs.map(\.path) })
+        let intermediateOutputPaths = consumedInputPaths
+            .intersection(retainedOutputPaths)
+            .filter { mappedPath(for: $0, in: pathMap) == nil }
+
+        return SelectedProjection(
+            retainedStepIDs: retainedStepIDs,
+            retainedIntermediateOutputPaths: Set(intermediateOutputPaths)
+        )
+    }
+
     private static func rewriteTopLevelFiles(
         _ descriptors: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?
     ) throws -> [ProvenanceFileDescriptor] {
         try descriptors.compactMap { descriptor in
             if descriptor.role == .output {
@@ -128,7 +182,8 @@ public enum ProvenanceRehydrator {
                     descriptor,
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
-                    outputMode: outputMode
+                    selectedProjection: selectedProjection,
+                    preserveConsumedIntermediates: true
                 )
             }
             return try rewriteInputDescriptor(
@@ -144,19 +199,20 @@ public enum ProvenanceRehydrator {
         rewrittenOutputs: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?
     ) throws -> ProvenanceFileDescriptor? {
         guard let output else {
             return rewrittenOutputs.first
         }
-        if outputMode == .selectedOnly, mappedPath(for: output.path, in: pathMap) == nil {
+        if selectedProjection != nil, mappedPath(for: output.path, in: pathMap) == nil {
             return rewrittenOutputs.first
         }
         return try rewriteOutputDescriptor(
             output,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenancePath,
-            outputMode: outputMode
+            selectedProjection: selectedProjection,
+            preserveConsumedIntermediates: false
         )
     }
 
@@ -164,17 +220,18 @@ public enum ProvenanceRehydrator {
         _ outputs: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?
     ) throws -> [ProvenanceFileDescriptor] {
         let rewritten = try outputs.compactMap {
             try rewriteOutputDescriptor(
                 $0,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenancePath,
-                outputMode: outputMode
+                selectedProjection: selectedProjection,
+                preserveConsumedIntermediates: false
             )
         }
-        if outputMode == .selectedOnly, rewritten.isEmpty, let firstOutput = outputs.first {
+        if selectedProjection != nil, rewritten.isEmpty, let firstOutput = outputs.first {
             throw ProvenanceRehydrationError.outputPathNotMapped(firstOutput.path)
         }
         return rewritten
@@ -184,28 +241,26 @@ public enum ProvenanceRehydrator {
         _ steps: [ProvenanceStep],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?
     ) throws -> [ProvenanceStep] {
-        let rewritten = try steps.compactMap { step -> ProvenanceStep? in
-            let rewrittenStep = try rewriteStep(
+        let retainedSteps = selectedProjection.map { projection in
+            steps.filter { projection.retainedStepIDs.contains($0.id) }
+        } ?? steps
+        return try retainedSteps.map { step in
+            try rewriteStep(
                 step,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenancePath,
-                outputMode: outputMode
+                selectedProjection: selectedProjection
             )
-            if outputMode == .selectedOnly, step.outputs.isEmpty == false, rewrittenStep.outputs.isEmpty {
-                return nil
-            }
-            return rewrittenStep
         }
-        return rewritten
     }
 
     private static func rewriteStep(
         _ step: ProvenanceStep,
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?
     ) throws -> ProvenanceStep {
         ProvenanceStep(
             id: step.id,
@@ -225,7 +280,8 @@ public enum ProvenanceRehydrator {
                     $0,
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
-                    outputMode: outputMode
+                    selectedProjection: selectedProjection,
+                    preserveConsumedIntermediates: true
                 )
             },
             exitStatus: step.exitStatus,
@@ -256,10 +312,15 @@ public enum ProvenanceRehydrator {
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
         sourceProvenancePath: String,
-        outputMode: OutputMode
+        selectedProjection: SelectedProjection?,
+        preserveConsumedIntermediates: Bool
     ) throws -> ProvenanceFileDescriptor? {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
-            if outputMode == .selectedOnly {
+            if preserveConsumedIntermediates,
+               selectedProjection?.retainedIntermediateOutputPaths.contains(descriptor.path) == true {
+                return descriptor
+            }
+            if selectedProjection != nil {
                 return nil
             }
             throw ProvenanceRehydrationError.outputPathNotMapped(descriptor.path)
