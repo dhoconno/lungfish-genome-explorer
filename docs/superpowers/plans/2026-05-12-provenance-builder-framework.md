@@ -2191,7 +2191,32 @@ xcodebuild test -scheme Lungfish -destination 'platform=macOS' -only-testing:Lun
 
 Expected: `swift test` passes. XCUI passes or has a documented infrastructure limitation unrelated to provenance behavior.
 
-- [ ] **Step 8: Commit review artifacts**
+- [ ] **Step 8: Produce a fresh debug build for release candidate testing**
+
+Run:
+
+```bash
+./scripts/build-app.sh --configuration debug --log-dir build/logs
+```
+
+Expected:
+
+- `build/Debug/Lungfish.app` exists.
+- `build/Debug/Lungfish.app/Contents/MacOS/Lungfish` exists and is executable.
+- `build/Debug/Lungfish.app/Contents/MacOS/lungfish-cli` exists and is executable when the SwiftPM build produced the CLI.
+- The build log is written under `build/logs/`.
+
+Then run a lightweight launch/build sanity check:
+
+```bash
+test -x build/Debug/Lungfish.app/Contents/MacOS/Lungfish
+test -x build/Debug/Lungfish.app/Contents/MacOS/lungfish-cli
+build/Debug/Lungfish.app/Contents/MacOS/lungfish-cli --version
+```
+
+Record the debug app path, build log path, and CLI version output in the final review artifact. Do not start release packaging until the user has had a chance to test this debug build.
+
+- [ ] **Step 9: Commit review artifacts**
 
 ```bash
 git add docs/superpowers/reviews
@@ -2202,7 +2227,7 @@ git commit -m "docs: record provenance review rounds"
 
 ## Self-Review Checklist
 
-- Spec coverage: The plan covers canonical schema, builder API, full checksums, policy gates, CLI migration, GUI rehydration, export/reporting/signing, GUI/XCUI interactions, real-fixture E2E tests, and 2-5 independent review rounds.
+- Spec coverage: The plan covers canonical schema, builder API, full checksums, policy gates, CLI migration, GUI rehydration, export/reporting/signing, GUI/XCUI interactions, real-fixture E2E tests, 2-5 independent review rounds, and a final debug app build for user release-candidate testing.
 - Placeholder scan: No placeholder markers, incomplete sections, or vague test-only steps are intentionally present.
 - Type consistency: The plan consistently uses `ProvenanceEnvelope`, `ProvenanceEnvelopeReader`, `ProvenanceFileDescriptor`, `ProvenanceRunBuilder`, `ProvenanceWriter`, `ProvenanceRehydrator`, and `ScientificProvenancePolicy`.
 - Risk note: Some exact CLI parse arguments in real-fixture tests may need adjustment to match current command signatures; the plan requires keeping the tests real and updating arguments rather than weakening assertions.
