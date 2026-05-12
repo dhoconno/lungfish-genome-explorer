@@ -8,9 +8,33 @@ struct ProvenanceCommand: AsyncParsableCommand {
         abstract: "Inspect provenance recorded in Lungfish bundles",
         subcommands: [
             BibliographySubcommand.self,
+            ExportSubcommand.self,
             VerifySubcommand.self,
         ]
     )
+
+    static func resolveProvenanceURL(_ url: URL) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: url.path)
+        }
+        guard isDirectory.boolValue else { return url }
+
+        let candidates = [
+            url.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            url.appendingPathComponent("bundle.lungfish-provenance.json"),
+            url
+                .appendingPathComponent("provenance", isDirectory: true)
+                .appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            url
+                .appendingPathComponent("provenance", isDirectory: true)
+                .appendingPathComponent("bundle.lungfish-provenance.json"),
+        ]
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        throw CLIError.inputFileNotFound(path: candidates[0].path)
+    }
 
     struct VerifySubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -28,7 +52,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
         var publicKey: String?
 
         func run() async throws {
-            let provenanceURL = try Self.resolveProvenanceURL(URL(fileURLWithPath: file))
+            let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(URL(fileURLWithPath: file))
             do {
                 let result = try ProvenanceSignatureVerifier.verify(
                     provenanceURL: provenanceURL,
@@ -44,25 +68,45 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
         }
+    }
 
-        private static func resolveProvenanceURL(_ url: URL) throws -> URL {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-                throw CLIError.inputFileNotFound(path: url.path)
-            }
-            guard isDirectory.boolValue else { return url }
+    struct ExportSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "export",
+            abstract: "Export reproducible reports from a Lungfish provenance sidecar"
+        )
 
-            let rootSidecar = url.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-            if FileManager.default.fileExists(atPath: rootSidecar.path) {
-                return rootSidecar
+        @Argument(help: "Provenance sidecar file, bundle, or output directory")
+        var input: String
+
+        @Option(name: .customLong("format"), help: "Export format: shell, nextflow, snakemake, methods, json")
+        var format: String
+
+        @Option(name: .customLong("output"), help: "Output directory for the export bundle")
+        var output: String
+
+        func run() async throws {
+            let inputURL = URL(fileURLWithPath: input)
+            let outputURL = URL(fileURLWithPath: output)
+            do {
+                let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(inputURL)
+                let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
+                let exportFormat = try ProvenanceExportFormat.cliValue(format)
+                let bundle = try ProvenanceExporter().exportBundle(
+                    envelope,
+                    format: exportFormat,
+                    to: outputURL,
+                    sourceSidecarURL: provenanceURL
+                )
+                print("Exported provenance \(exportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
+                for sidecar in bundle.copiedSidecarURLs {
+                    print("Copied provenance sidecar to \(sidecar.path)")
+                }
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
-            let provenanceSidecar = url
-                .appendingPathComponent("provenance", isDirectory: true)
-                .appendingPathComponent("bundle.lungfish-provenance.json")
-            if FileManager.default.fileExists(atPath: provenanceSidecar.path) {
-                return provenanceSidecar
-            }
-            throw CLIError.inputFileNotFound(path: rootSidecar.path)
         }
     }
 

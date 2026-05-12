@@ -38,6 +38,38 @@ public enum ProvenanceExportFormat: String, CaseIterable, Sendable {
         case .json: return "provenance.json"
         }
     }
+
+    public static func cliValue(_ value: String) throws -> ProvenanceExportFormat {
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch normalized {
+        case "shell", "sh", "bash", ProvenanceExportFormat.shell.rawValue.lowercased():
+            return .shell
+        case "nextflow", "nf", ProvenanceExportFormat.nextflow.rawValue.lowercased():
+            return .nextflow
+        case "snakemake", "snakefile", ProvenanceExportFormat.snakemake.rawValue.lowercased():
+            return .snakemake
+        case "methods", "methods.md", "method", ProvenanceExportFormat.methods.rawValue.lowercased():
+            return .methods
+        case "json", "provenance.json", ProvenanceExportFormat.json.rawValue.lowercased():
+            return .json
+        default:
+            throw ProvenanceError.exportFailed(
+                "Unsupported provenance export format '\(value)'. Supported formats: shell, nextflow, snakemake, methods, json."
+            )
+        }
+    }
+}
+
+public struct ProvenanceExportBundle: Sendable, Equatable {
+    public let rootURL: URL
+    public let primaryArtifactURL: URL
+    public let copiedSidecarURLs: [URL]
+
+    public init(rootURL: URL, primaryArtifactURL: URL, copiedSidecarURLs: [URL]) {
+        self.rootURL = rootURL
+        self.primaryArtifactURL = primaryArtifactURL
+        self.copiedSidecarURLs = copiedSidecarURLs
+    }
 }
 
 // MARK: - ProvenanceExporter
@@ -51,6 +83,69 @@ public struct ProvenanceExporter: Sendable {
 
     public init() {}
 
+    public func exportBundle(
+        _ envelope: ProvenanceEnvelope,
+        format: ProvenanceExportFormat,
+        to outputDirectory: URL,
+        sourceSidecarURL: URL?
+    ) throws -> ProvenanceExportBundle {
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        let run = envelope.legacyWorkflowRun()
+        let primaryArtifactURL: URL
+        switch format {
+        case .shell:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
+            try exportShell(envelope, fallbackRun: run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+        case .nextflow:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("main.nf")
+            try exportNextflow(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportNextflowConfig(run).write(
+                to: outputDirectory.appendingPathComponent("nextflow.config"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let containersDirectory = outputDirectory.appendingPathComponent("containers", isDirectory: true)
+            try fileManager.createDirectory(at: containersDirectory, withIntermediateDirectories: true)
+            try exportContainerManifest(run).write(
+                to: containersDirectory.appendingPathComponent("manifest.json"),
+                atomically: true,
+                encoding: .utf8
+            )
+        case .snakemake:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("Snakefile")
+            try exportSnakemake(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportSnakemakeConfig(run).write(
+                to: outputDirectory.appendingPathComponent("config.yaml"),
+                atomically: true,
+                encoding: .utf8
+            )
+        case .methods:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("methods.md")
+            try exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+        case .json:
+            primaryArtifactURL = outputDirectory.appendingPathComponent("provenance.json")
+            let data = try ProvenanceJSON.encoder.encode(envelope)
+            try data.write(to: primaryArtifactURL, options: .atomic)
+        case .python:
+            throw ProvenanceError.exportFailed(
+                "Unsupported provenance export format '\(format.rawValue)' for canonical bundles. Supported formats: shell, nextflow, snakemake, methods, json."
+            )
+        }
+
+        let copiedSidecarURLs = try writeCanonicalSidecar(
+            envelope,
+            to: outputDirectory,
+            sourceSidecarURL: sourceSidecarURL
+        )
+        return ProvenanceExportBundle(
+            rootURL: outputDirectory,
+            primaryArtifactURL: primaryArtifactURL,
+            copiedSidecarURLs: copiedSidecarURLs
+        )
+    }
+
     /// Exports a workflow run in the specified format.
     public func export(_ run: WorkflowRun, format: ProvenanceExportFormat) throws -> String {
         switch format {
@@ -61,6 +156,100 @@ public struct ProvenanceExporter: Sendable {
         case .methods: return exportMethods(run)
         case .json: return try exportJSON(run)
         }
+    }
+
+    private func exportShell(_ envelope: ProvenanceEnvelope, fallbackRun: WorkflowRun) -> String {
+        var s = ""
+        s += "#!/usr/bin/env bash\n"
+        s += "#\n"
+        s += "# \(envelope.workflowName)\n"
+        s += "# Generated by \(envelope.workflowVersion)\n"
+        s += "# Original run: \(iso8601(envelope.createdAt))\n"
+        s += "# Host: \(envelope.runtimeIdentity.operatingSystemVersion)\n"
+        if let user = envelope.runtimeIdentity.user {
+            s += "# User: \(user)\n"
+        }
+        s += "#\n"
+        s += "set -euo pipefail\n\n"
+
+        if envelope.argv.isEmpty {
+            s += exportShell(fallbackRun)
+        } else {
+            s += envelope.argv.map { shellEscape($0) }.joined(separator: " \\\n    ")
+            s += "\n"
+        }
+
+        return s
+    }
+
+    private func writeCanonicalSidecar(
+        _ envelope: ProvenanceEnvelope,
+        to outputDirectory: URL,
+        sourceSidecarURL: URL?
+    ) throws -> [URL] {
+        let fileManager = FileManager.default
+        let provenanceDirectory = outputDirectory.appendingPathComponent("provenance", isDirectory: true)
+        try fileManager.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
+
+        let destination = provenanceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        if let sourceSidecarURL {
+            let source = sourceSidecarURL.standardizedFileURL
+            let target = destination.standardizedFileURL
+            if source != target {
+                if fileManager.fileExists(atPath: destination.path) {
+                    try fileManager.removeItem(at: destination)
+                }
+                try fileManager.copyItem(at: sourceSidecarURL, to: destination)
+            }
+        } else {
+            try ProvenanceJSON.encoder.encode(envelope).write(to: destination, options: .atomic)
+        }
+        return [destination]
+    }
+
+    private func exportNextflowConfig(_ run: WorkflowRun) -> String {
+        var s = ""
+        s += "process {\n"
+        s += "    errorStrategy = 'terminate'\n"
+        if run.steps.contains(where: { $0.containerImage != nil }) {
+            s += "    container = null\n"
+        }
+        s += "}\n\n"
+        s += "docker.enabled = true\n"
+        return s
+    }
+
+    private func exportContainerManifest(_ run: WorkflowRun) throws -> String {
+        struct ContainerEntry: Encodable {
+            let toolName: String
+            let toolVersion: String
+            let image: String
+            let digest: String?
+        }
+        let entries = run.steps.compactMap { step -> ContainerEntry? in
+            guard let image = step.containerImage else { return nil }
+            return ContainerEntry(
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                image: image,
+                digest: step.containerDigest
+            )
+        }
+        let data = try ProvenanceJSON.encoder.encode(entries)
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw ProvenanceError.exportFailed("Failed to encode container manifest as UTF-8")
+        }
+        return string
+    }
+
+    private func exportSnakemakeConfig(_ run: WorkflowRun) -> String {
+        var s = ""
+        s += "outdir: results\n"
+        for input in run.primaryInputFiles {
+            let key = sanitize(input.filename.replacingOccurrences(of: ".", with: "_"))
+            s += "\(key): \(input.filename)\n"
+        }
+        return s
     }
 
     // MARK: - Shell Script Export
