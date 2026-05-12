@@ -359,4 +359,58 @@ struct ProvenanceEnvelopeTests {
         #expect(envelope.toolVersion == "8.8.8")
         #expect(envelope.tool.version == "8.8.8")
     }
+
+    @Test("initializer normalizes conflicting nested tool identity to top-level authority")
+    func initializerNormalizesConflictingNestedToolIdentity() throws {
+        let envelope = ProvenanceEnvelope(
+            workflowName: "conflicting.workflow",
+            workflowVersion: "workflow-1",
+            toolName: "canonical-tool",
+            toolVersion: "1.2.3",
+            tool: ProvenanceToolIdentity(name: "nested-tool", version: "9.9.9", kind: "cli")
+        )
+
+        #expect(envelope.toolName == "canonical-tool")
+        #expect(envelope.toolVersion == "1.2.3")
+        #expect(envelope.tool.name == "canonical-tool")
+        #expect(envelope.tool.version == "1.2.3")
+        #expect(envelope.tool.kind == "cli")
+    }
+
+    @Test("decoder normalizes conflicting nested tool identity to top-level authority")
+    func decoderNormalizesConflictingNestedToolIdentity() throws {
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data("""
+            {
+              "schemaVersion": 1,
+              "id": "00000000-0000-0000-0000-000000000005",
+              "createdAt": "1970-01-01T00:00:00Z",
+              "workflowName": "conflicting.workflow",
+              "workflowVersion": "workflow-1",
+              "toolName": "canonical-tool",
+              "toolVersion": "1.2.3",
+              "tool": {
+                "name": "nested-tool",
+                "version": "9.9.9",
+                "kind": "cli"
+              },
+              "argv": ["canonical-tool"],
+              "reproducibleCommand": "canonical-tool",
+              "options": {"explicit": {}, "defaults": {}, "resolvedDefaults": {}},
+              "runtimeIdentity": {},
+              "files": [],
+              "outputs": [],
+              "steps": [],
+              "signatures": []
+            }
+            """.utf8)
+        )
+
+        #expect(envelope.toolName == "canonical-tool")
+        #expect(envelope.toolVersion == "1.2.3")
+        #expect(envelope.tool.name == "canonical-tool")
+        #expect(envelope.tool.version == "1.2.3")
+        #expect(envelope.tool.kind == "cli")
+    }
 }

@@ -116,7 +116,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.workflowVersion = ProvenanceVersion.required(workflowVersion, fallback: WorkflowRun.currentAppVersion)
         self.toolName = toolName
         self.toolVersion = ProvenanceVersion.required(toolVersion)
-        self.tool = tool ?? ProvenanceToolIdentity(name: toolName, version: self.toolVersion)
+        self.tool = ProvenanceToolIdentity(name: toolName, version: self.toolVersion, kind: tool?.kind)
         self.argv = argv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
         self.options = options
@@ -150,8 +150,8 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         )
         if let decodedTool {
             tool = ProvenanceToolIdentity(
-                name: decodedTool.name,
-                version: ProvenanceVersion.required(decodedTool.version, fallback: toolVersion),
+                name: toolName,
+                version: toolVersion,
                 kind: decodedTool.kind
             )
         } else {
