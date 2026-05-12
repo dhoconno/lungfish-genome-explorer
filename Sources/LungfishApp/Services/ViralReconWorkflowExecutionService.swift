@@ -20,7 +20,11 @@ final class ViralReconWorkflowExecutionService {
         self.processRunner = processRunner
     }
 
-    func run(_ request: ViralReconRunRequest, bundleRoot: URL) async throws -> RunResult {
+    func run(
+        _ request: ViralReconRunRequest,
+        bundleRoot: URL,
+        routeContext: OperationRouteContext? = nil
+    ) async throws -> RunResult {
         try FileManager.default.createDirectory(at: bundleRoot, withIntermediateDirectories: true)
         let bundleURL = try availableBundleURL(in: bundleRoot)
         let persistedRequest = try persistGeneratedInputs(from: request, in: bundleURL)
@@ -32,7 +36,8 @@ final class ViralReconWorkflowExecutionService {
             detail: initialDetail(for: persistedRequest),
             operationType: .viralRecon,
             targetBundleURL: bundleURL,
-            cliCommand: commandPreview
+            cliCommand: commandPreview,
+            routeContext: routeContext
         )
         logPreparation(for: persistedRequest, bundleURL: bundleURL, commandPreview: commandPreview, operationID: operationID)
 

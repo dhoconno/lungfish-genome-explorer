@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
+import LungfishCore
 import LungfishIO
 import os.log
 
@@ -22,6 +23,7 @@ final class FolderMetadataEditorSheet: NSViewController {
     // MARK: - Properties
 
     let folderURL: URL
+    private let windowStateScope: WindowStateScope?
 
     private var sampleNames: [String] = []
     private var metadata: [String: FASTQSampleMetadata] = [:]
@@ -44,8 +46,9 @@ final class FolderMetadataEditorSheet: NSViewController {
 
     // MARK: - Init
 
-    init(folderURL: URL) {
+    init(folderURL: URL, windowStateScope: WindowStateScope? = nil) {
         self.folderURL = folderURL
+        self.windowStateScope = windowStateScope
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -159,6 +162,7 @@ final class FolderMetadataEditorSheet: NSViewController {
     // MARK: - Actions
 
     @objc private func save(_ sender: Any?) {
+        guard canWriteFolderMetadata(workflowName: "Folder metadata edit") else { return }
         let orderedSamples = sampleNames.compactMap { metadata[$0] }
         let folderMeta = FASTQFolderMetadata(orderedSamples: orderedSamples)
 
@@ -170,7 +174,7 @@ final class FolderMetadataEditorSheet: NSViewController {
             NotificationCenter.default.post(
                 name: .sampleMetadataDidChange,
                 object: self,
-                userInfo: ["folderURL": folderURL]
+                userInfo: windowScopedUserInfo(["folderURL": folderURL])
             )
         } catch {
             logger.error("Failed to save folder metadata: \(error.localizedDescription)")
@@ -222,6 +226,22 @@ final class FolderMetadataEditorSheet: NSViewController {
         } catch {
             logger.error("Failed to import CSV: \(error.localizedDescription)")
         }
+    }
+
+    private func canWriteFolderMetadata(workflowName: String) -> Bool {
+        AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(folderURL) ?? folderURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: view.window
+        ) ?? true
+    }
+
+    private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]) -> [AnyHashable: Any] {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
     }
 
     @objc private func exportCSV(_ sender: Any?) {

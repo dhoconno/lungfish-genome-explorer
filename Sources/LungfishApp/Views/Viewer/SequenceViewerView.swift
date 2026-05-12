@@ -43,6 +43,9 @@ public class SequenceViewerView: NSView {
     /// Reference to the parent controller
     weak var viewController: ViewerViewController?
 
+    /// Window scope included with viewer-originated notifications.
+    var windowStateScope: WindowStateScope?
+
     /// When true, the placeholder text ("Select a file…") is not drawn.
     /// Set by the progress overlay to avoid text overlap.
     var suppressPlaceholder = false
@@ -1119,7 +1122,7 @@ public class SequenceViewerView: NSView {
         activeAlignmentFetchIdentity = nil
         if !selectedReadIDs.isEmpty {
             selectedReadIDs.removeAll()
-            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
         }
         updateSelectionStatus()
     }
@@ -1138,6 +1141,13 @@ public class SequenceViewerView: NSView {
             limitReadRowsSetting ? "limitRows=1" : "limitRows=0",
             "readGroups=\(selectedReadGroupsSetting.sorted().joined(separator: ","))",
         ].joined(separator: "|")
+    }
+
+    func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
     }
 
     private func alignmentFetchIdentity(
@@ -2974,12 +2984,12 @@ public class SequenceViewerView: NSView {
                 NotificationCenter.default.post(
                     name: .viewportVariantsUpdated,
                     object: viewer,
-                    userInfo: [
+                    userInfo: viewer.windowScopedUserInfo([
                         NotificationUserInfoKey.chromosome: region.chromosome,
                         NotificationUserInfoKey.start: region.start,
                         NotificationUserInfoKey.end: region.end,
                         "variantCount": count,
-                    ]
+                    ])
                 )
             }
         }
@@ -5818,7 +5828,7 @@ public class SequenceViewerView: NSView {
             NotificationCenter.default.post(
                 name: .annotationSelected,
                 object: self,
-                userInfo: [NotificationUserInfoKey.annotation: annotation]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
             )
             postVariantSelectedNotificationIfNeeded(annotation)
             logger.info("Posted annotationSelected notification for '\(annotation.name, privacy: .public)'")
@@ -5827,9 +5837,9 @@ public class SequenceViewerView: NSView {
             NotificationCenter.default.post(
                 name: .annotationSelected,
                 object: self,
-                userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.inspectorTab: "selection"])
             )
-            NotificationCenter.default.post(name: .variantSelected, object: self, userInfo: nil)
+            NotificationCenter.default.post(name: .variantSelected, object: self, userInfo: windowScopedUserInfo())
             logger.info("Posted annotationSelected notification (deselection)")
         }
     }
@@ -5841,7 +5851,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .variantSelected,
             object: self,
-            userInfo: [NotificationUserInfoKey.searchResult: result]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.searchResult: result])
         )
         return true
     }
@@ -6138,7 +6148,7 @@ public class SequenceViewerView: NSView {
             NotificationCenter.default.post(
                 name: .readSelected,
                 object: self,
-                userInfo: selectedRead.map { [NotificationUserInfoKey.alignedRead: $0] }
+                userInfo: selectedRead.map { windowScopedUserInfo([NotificationUserInfoKey.alignedRead: $0]) ?? [:] }
             )
             isSelecting = false
             setNeedsDisplay(bounds)
@@ -6148,7 +6158,7 @@ public class SequenceViewerView: NSView {
         // Clear read selection if clicking elsewhere (unless modifier held)
         if !selectedReadIDs.isEmpty && !hasCmd && !hasShift {
             selectedReadIDs.removeAll()
-            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
         }
 
         // 2. Variant track click — route to variant selection
@@ -6707,10 +6717,10 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .variantSelected,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.searchResult: result,
                 NotificationUserInfoKey.variantSelectionMode: "calls",
-            ]
+            ])
         )
     }
 
@@ -6719,10 +6729,10 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .variantSelected,
             object: self,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.searchResult: result,
                 NotificationUserInfoKey.variantSelectionMode: "genotypes",
-            ]
+            ])
         )
     }
 
@@ -6732,7 +6742,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: NSNotification.Name("createAnnotationFromSelection"),
             object: self,
-            userInfo: ["range": range]
+            userInfo: windowScopedUserInfo(["range": range])
         )
     }
 
@@ -6802,7 +6812,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.inspectorTab: "selection"])
         )
     }
 
@@ -7036,7 +7046,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .annotationDeleted,
             object: self,
-            userInfo: [NotificationUserInfoKey.annotation: annotation]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.annotation: annotation])
         )
         // Clear selection if it was the selected annotation
         if selectedAnnotation?.id == annotation.id {
@@ -7057,7 +7067,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "selection"]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.inspectorTab: "selection"])
         )
         logger.info("Show in Inspector: annotation '\(annotation.name)'")
     }
@@ -7068,7 +7078,7 @@ public class SequenceViewerView: NSView {
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
+            userInfo: windowScopedUserInfo([NotificationUserInfoKey.inspectorTab: "document"])
         )
         logger.info("Show in Inspector: document tab")
     }
@@ -7248,7 +7258,7 @@ public class SequenceViewerView: NSView {
         columnDragStartBase = nil
         if !selectedReadIDs.isEmpty {
             selectedReadIDs.removeAll()
-            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: nil)
+            NotificationCenter.default.post(name: .readSelected, object: self, userInfo: windowScopedUserInfo())
         }
         setNeedsDisplay(bounds)
         updateSelectionStatus()

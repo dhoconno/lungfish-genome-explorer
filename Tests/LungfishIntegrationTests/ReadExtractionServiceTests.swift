@@ -298,6 +298,8 @@ final class ReadExtractionServiceTests: XCTestCase {
                        "Bundle should contain a FASTQ file")
         XCTAssertTrue(contents.contains("extraction-metadata.json"),
                        "Bundle should contain extraction metadata")
+        XCTAssertTrue(contents.contains(ProvenanceRecorder.provenanceFilename),
+                      "Bundle should contain reproducibility provenance")
 
         // Verify metadata is valid JSON (encoder uses .iso8601)
         let metadataURL = bundleURL.appendingPathComponent("extraction-metadata.json")
@@ -307,6 +309,14 @@ final class ReadExtractionServiceTests: XCTestCase {
         let decoded = try decoder.decode(ExtractionMetadata.self, from: metadataData)
         XCTAssertEqual(decoded.toolName, "TestSuite")
         XCTAssertEqual(decoded.sourceDescription, "SARS-CoV-2 test")
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let provenance = try decoder.decode(WorkflowRun.self, from: Data(contentsOf: provenanceURL))
+        XCTAssertEqual(provenance.name, "Classifier Read Extraction")
+        XCTAssertEqual(provenance.status, .completed)
+        XCTAssertEqual(provenance.steps.first?.toolName, "TestSuite")
+        XCTAssertTrue(provenance.allOutputFiles.contains { $0.path.hasSuffix("extraction-metadata.json") })
+        XCTAssertTrue(provenance.allOutputFiles.contains { $0.path.hasSuffix(".fastq") })
     }
 
     // MARK: - BAMRegionMatcher with Real BAM

@@ -842,6 +842,16 @@ public final class MainMenu {
 
         windowMenu.addItem(.separator())
 
+        let newProjectWindowItem = windowMenu.addItem(
+            withTitle: "New Window for Current Project",
+            action: #selector(AppDelegate.newWindowForCurrentProject(_:)),
+            keyEquivalent: "n"
+        )
+        newProjectWindowItem.keyEquivalentModifierMask = [.command, .option]
+        newProjectWindowItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.newWindowForCurrentProject)
+
+        windowMenu.addItem(.separator())
+
         windowMenu.addItem(
             withTitle: "Bring All to Front",
             action: #selector(NSApplication.arrangeInFront(_:)),

@@ -565,16 +565,29 @@ public actor ReadExtractionService {
         }
 
         // Write extraction-metadata.json (provenance)
+        let metadataURL = bundleURL.appendingPathComponent("extraction-metadata.json")
         do {
             let encoder = JSONEncoder()
             encoder.dateEncodingStrategy = .iso8601
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             let metadataData = try encoder.encode(metadata)
-            let metadataURL = bundleURL.appendingPathComponent("extraction-metadata.json")
             try metadataData.write(to: metadataURL)
         } catch {
             throw ExtractionError.bundleCreationFailed(
                 "Could not write extraction metadata: \(error.localizedDescription)"
+            )
+        }
+
+        do {
+            try writeExtractionProvenance(
+                bundleURL: bundleURL,
+                payloadURLs: result.fastqURLs.map { bundleURL.appendingPathComponent($0.lastPathComponent) },
+                metadataURL: metadataURL,
+                metadata: metadata
+            )
+        } catch {
+            throw ExtractionError.bundleCreationFailed(
+                "Could not write extraction provenance: \(error.localizedDescription)"
             )
         }
 
@@ -591,6 +604,58 @@ public actor ReadExtractionService {
 
         logger.info("Created extraction bundle: \(bundleDirName, privacy: .public)")
         return bundleURL
+    }
+
+    private func writeExtractionProvenance(
+        bundleURL: URL,
+        payloadURLs: [URL],
+        metadataURL: URL,
+        metadata: ExtractionMetadata
+    ) throws {
+        let commandString = metadata.parameters["reproducibleCommand"]
+        let command = commandString.map { ["sh", "-lc", $0] }
+            ?? ["lungfish-cli", "extract", "reads", "--by-classifier"]
+        let inputRecords: [FileRecord]
+        if let resultPath = metadata.parameters["resultPath"] {
+            inputRecords = [ProvenanceRecorder.fileRecord(url: URL(fileURLWithPath: resultPath), role: .input)]
+        } else {
+            inputRecords = []
+        }
+        let outputRecords =
+            payloadURLs.map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+            + [ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)]
+        let parameters = metadata.parameters.reduce(into: [String: ParameterValue]()) { partialResult, entry in
+            partialResult[entry.key] = .string(entry.value)
+        }
+        let completedAt = Date()
+        let step = StepExecution(
+            toolName: metadata.toolName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: completedAt.timeIntervalSince(metadata.extractionDate),
+            startTime: metadata.extractionDate,
+            endTime: completedAt
+        )
+        var run = WorkflowRun(
+            name: "Classifier Read Extraction",
+            startTime: metadata.extractionDate,
+            endTime: completedAt,
+            status: .completed,
+            steps: [step],
+            parameters: parameters
+        )
+        run.endTime = completedAt
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(run)
+        try data.write(
+            to: bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
     }
 
     // MARK: - Private Helpers

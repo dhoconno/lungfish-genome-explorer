@@ -95,6 +95,16 @@ public class ViewerViewController: NSViewController {
     /// rendering stack but must not overwrite the main inspector or toolbar state.
     var publishesGlobalViewportNotifications = true
 
+    /// Window scope used to keep viewer-originated notifications inside their owning project window.
+    var windowStateScope: WindowStateScope? {
+        didSet {
+            if isViewLoaded {
+                viewerView?.windowStateScope = windowStateScope
+                annotationDrawerView?.windowStateScope = windowStateScope
+            }
+        }
+    }
+
     /// Callback used by container viewports to forward explicit sequence-region selections.
     var onSequenceRegionSelectionChanged: ((SequenceRegionSelectionState?) -> Void)?
 
@@ -111,7 +121,7 @@ public class ViewerViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .viewportContentModeDidChange,
                 object: self,
-                userInfo: [NotificationUserInfoKey.contentMode: contentMode.rawValue]
+                userInfo: windowScopedUserInfo([NotificationUserInfoKey.contentMode: contentMode.rawValue])
             )
         }
     }
@@ -266,6 +276,7 @@ public class ViewerViewController: NSViewController {
         viewerView = SequenceViewerView()
         viewerView.translatesAutoresizingMaskIntoConstraints = false
         viewerView.viewController = self
+        viewerView.windowStateScope = windowStateScope
         viewerView.trackY = sequenceTrackY
         viewerView.trackHeight = sequenceTrackHeight
         viewerView.layer?.masksToBounds = true
@@ -588,12 +599,37 @@ public class ViewerViewController: NSViewController {
         viewerView.horizontalScrollDirectionOverride = ReferenceBundleScrollDirectionPreference.current()
     }
 
+    func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
+        guard let windowStateScope else { return userInfo }
+        var scopedUserInfo = userInfo ?? [:]
+        scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
+        return scopedUserInfo
+    }
+
+    func canWriteProjectOutputs(projectURL: URL?, workflowName: String) -> Bool {
+        AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: windowStateScope,
+            workflowName: workflowName,
+            presentingWindow: view.window
+        ) ?? true
+    }
+
+    private func shouldAcceptScopedNotification(_ notification: Notification) -> Bool {
+        guard let notificationScope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope else {
+            return true
+        }
+        guard let windowStateScope else { return true }
+        return notificationScope == windowStateScope
+    }
+
     @objc private func handleBundleScrollDirectionChanged(_ notification: Notification) {
         applyBundleHorizontalScrollDirectionPreference()
     }
 
     /// Handles the toggle of CDS translation display from the inspector.
     @objc private func handleShowCDSTranslationRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo,
               let annotation = userInfo["annotation"] as? SequenceAnnotation,
               let visible = userInfo["visible"] as? Bool else {
@@ -609,36 +645,43 @@ public class ViewerViewController: NSViewController {
     }
 
     @objc private func handleExtractSequenceRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.presentAnnotationSequenceExtractionDialog([annotation])
     }
 
     @objc private func handleCopyAnnotationAsFASTARequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationAsFASTAImpl(annotation)
     }
 
     @objc private func handleCopyTranslationAsFASTARequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationTranslationAsFASTAImpl(annotation)
     }
 
     @objc private func handleZoomToAnnotationRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.zoomToAnnotation(annotation)
     }
 
     @objc private func handleCopyAnnotationSequenceRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationSequenceImpl(annotation)
     }
 
     @objc private func handleCopyAnnotationReverseComplementRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.copyAnnotationReverseComplementImpl(annotation)
     }
 
     @objc private func handleRunFASTAOperationOnAnnotationRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let annotation = notification.userInfo?["annotation"] as? SequenceAnnotation else { return }
         viewerView?.runAnnotationFASTAOperationImpl(annotation)
     }
@@ -649,6 +692,7 @@ public class ViewerViewController: NSViewController {
     ///
     /// - Parameter notification: The notification containing userInfo with settings values.
     @objc private func handleAnnotationSettingsChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleAnnotationSettingsChanged: No userInfo in notification")
             return
@@ -698,6 +742,7 @@ public class ViewerViewController: NSViewController {
     ///
     /// - Parameter notification: The notification containing userInfo with filter values.
     @objc private func handleAnnotationFilterChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleAnnotationFilterChanged: No userInfo in notification")
             return
@@ -728,6 +773,7 @@ public class ViewerViewController: NSViewController {
 
     /// Handles variant filter changes from the inspector.
     @objc private func handleVariantFilterChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else {
             logger.warning("handleVariantFilterChanged: No userInfo in notification")
             return
@@ -757,6 +803,7 @@ public class ViewerViewController: NSViewController {
 
     /// Handles sample display state changes from the inspector.
     @objc private func handleSampleDisplayStateChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let state = notification.userInfo?[NotificationUserInfoKey.sampleDisplayState] as? SampleDisplayState else {
             return
         }
@@ -799,6 +846,7 @@ public class ViewerViewController: NSViewController {
     /// Clears type color overrides, deletes the `.viewstate.json` file,
     /// and resets the in-memory `BundleViewState` to defaults.
     @objc private func handleBundleViewStateResetRequested(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         logger.info("handleBundleViewStateResetRequested: Resetting bundle view state to defaults")
 
         // Clear type color caches and per-annotation colors (reverts to defaults)
@@ -868,6 +916,7 @@ public class ViewerViewController: NSViewController {
     }
 
     @objc private func handleReadDisplaySettingsChanged(_ notification: Notification) {
+        guard shouldAcceptScopedNotification(notification) else { return }
         guard let userInfo = notification.userInfo else { return }
         applyReadDisplaySettings(userInfo)
     }
@@ -1003,6 +1052,32 @@ public class ViewerViewController: NSViewController {
         fastqDatasetController != nil
     }
 
+    public func restorableContentState() -> RestorableContentState? {
+        if let currentBundleURL {
+            return RestorableContentState(
+                kind: "bundle",
+                url: currentBundleURL,
+                payload: ["contentMode": contentMode.rawValue]
+            )
+        }
+        if let currentDocument {
+            return RestorableContentState(
+                kind: "document",
+                url: currentDocument.url,
+                payload: ["contentMode": contentMode.rawValue]
+            )
+        }
+        return nil
+    }
+
+    public func restoreContentState(_ state: RestorableContentState) {
+        guard let url = state.url else { return }
+        if currentDocument?.url.standardizedFileURL == url.standardizedFileURL,
+           let currentDocument {
+            displayDocument(currentDocument)
+        }
+    }
+
     public func updateFASTQOperationStatus(_ message: String) {
         fastqDatasetController?.updateOperationStatus(message)
     }
@@ -1098,7 +1173,7 @@ public class ViewerViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .fastqDatasetLoaded,
                 object: self,
-                userInfo: updatedUserInfo
+                userInfo: windowScopedUserInfo(updatedUserInfo)
             )
         }
         fastqDatasetController = controller
@@ -1132,7 +1207,7 @@ public class ViewerViewController: NSViewController {
         NotificationCenter.default.post(
             name: .fastqDatasetLoaded,
             object: self,
-            userInfo: userInfo
+            userInfo: windowScopedUserInfo(userInfo)
         )
 
         if fastqMetadataDrawerView != nil {
@@ -1208,7 +1283,7 @@ public class ViewerViewController: NSViewController {
         NotificationCenter.default.post(
             name: .vcfDatasetLoaded,
             object: self,
-            userInfo: ["summary": summary]
+            userInfo: windowScopedUserInfo(["summary": summary])
         )
 
         logger.info("displayVCFDataset: Showing dashboard with \(summary.variantCount) variants")
@@ -1544,7 +1619,11 @@ public class ViewerViewController: NSViewController {
                 detail: isBundleOutput ? "Creating bundle from \(request.displayName)..." : "Exporting \(request.displayName)...",
                 operationType: .multipleSequenceAlignmentAction,
                 targetBundleURL: request.bundleURL,
-                cliCommand: cliCommand
+                cliCommand: cliCommand,
+                routeContext: OperationRouteContext(
+                    projectURL: ProjectTempDirectory.findProjectRoot(request.bundleURL),
+                    windowStateScope: windowStateScope
+                )
             )
             let runner = CLIMSAActionRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
@@ -1623,12 +1702,18 @@ public class ViewerViewController: NSViewController {
         refreshing controller: MultipleSequenceAlignmentViewController?
     ) {
         let cliCommand = CLIMSAActionCommandBuilder.displayCommand(arguments: arguments)
+        let projectURL = ProjectTempDirectory.findProjectRoot(targetBundleURL)
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: title) else { return }
         let opID = OperationCenter.shared.start(
             title: title,
             detail: detail,
             operationType: .multipleSequenceAlignmentAction,
             targetBundleURL: targetBundleURL,
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: OperationRouteContext(
+                projectURL: projectURL,
+                windowStateScope: windowStateScope
+            )
         )
         let runner = CLIMSAActionRunner()
         OperationCenter.shared.setCancelCallback(for: opID) {
@@ -1669,8 +1754,8 @@ public class ViewerViewController: NSViewController {
     }
 
     func inferTreeFromMSAViaCLI(_ request: MultipleSequenceAlignmentTreeInferenceRequest) {
-        guard let projectURL = DocumentManager.shared.activeProject?.url
-                ?? Self.enclosingProjectURL(for: request.bundleURL) else {
+        guard let projectURL = Self.enclosingProjectURL(for: request.bundleURL)
+                ?? projectURLForDerivedReferenceBundle() else {
             presentBlockingAlert(
                 title: "No Project",
                 message: "Open a Lungfish project before building a tree from this alignment."
@@ -1685,6 +1770,8 @@ public class ViewerViewController: NSViewController {
             )
             return
         }
+
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Tree inference") else { return }
 
         IQTreeInferenceDialogPresenter.present(
             from: window,
@@ -1701,6 +1788,8 @@ public class ViewerViewController: NSViewController {
         projectURL: URL,
         options: IQTreeInferenceOptions
     ) {
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Tree inference") else { return }
+
         do {
             let treeDirectory = projectURL.appendingPathComponent("Phylogenetic Trees", isDirectory: true)
             try FileManager.default.createDirectory(at: treeDirectory, withIntermediateDirectories: true)
@@ -1738,7 +1827,11 @@ public class ViewerViewController: NSViewController {
                 detail: "Inferring tree from \(request.displayName)...",
                 operationType: .phylogeneticTreeInference,
                 targetBundleURL: request.bundleURL,
-                cliCommand: cliCommand
+                cliCommand: cliCommand,
+                routeContext: OperationRouteContext(
+                    projectURL: projectURL,
+                    windowStateScope: windowStateScope
+                )
             )
             let runner = CLITreeInferenceRunner()
             OperationCenter.shared.setCancelCallback(for: opID) {
@@ -1819,7 +1912,8 @@ public class ViewerViewController: NSViewController {
 
     func createReferenceBundle(from records: [String], suggestedName: String) {
         guard !records.isEmpty else { return }
-        let projectURL = DocumentManager.shared.activeProject?.url
+        let projectURL = projectURLForDerivedReferenceBundle()
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Reference bundle creation") else { return }
         let tempDirectory = try? ProjectTempDirectory.create(
             prefix: "fasta-bundle-source-",
             in: projectURL
@@ -1831,7 +1925,10 @@ public class ViewerViewController: NSViewController {
         )
         let normalized = records.joined(separator: "")
         try? normalized.write(to: sourceURL, atomically: true, encoding: .utf8)
-        AppDelegate.shared?.importFASTAFromURL(sourceURL)
+        AppDelegate.shared?.importFASTAFromURL(
+            sourceURL,
+            routeContext: OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        )
     }
 
     func createReferenceBundle(
@@ -1844,8 +1941,10 @@ public class ViewerViewController: NSViewController {
             createReferenceBundle(from: records, suggestedName: suggestedName)
             return
         }
+        let projectURL = projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: sourceAlignmentBundleURL)
+        guard canWriteProjectOutputs(projectURL: projectURL, workflowName: "Annotated reference import") else { return }
         guard !records.isEmpty,
-              let projectURL = DocumentManager.shared.activeProject?.url,
+              let projectURL,
               let refsDir = try? ReferenceSequenceFolder.ensureFolder(in: projectURL),
               let tempDirectory = try? ProjectTempDirectory.create(prefix: "fasta-bundle-source-", in: projectURL) else {
             createReferenceBundle(from: records, suggestedName: suggestedName)
@@ -1871,7 +1970,11 @@ public class ViewerViewController: NSViewController {
             title: "Annotated Reference Import",
             detail: "Creating \(stem).lungfishref...",
             operationType: .bundleBuild,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: OperationRouteContext(
+                projectURL: projectURL,
+                windowStateScope: windowStateScope
+            )
         )
 
         Task.detached {
@@ -1908,9 +2011,9 @@ public class ViewerViewController: NSViewController {
                     MainActor.assumeIsolated {
                         OperationCenter.shared.complete(
                             id: opID,
-                            detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)"
+                            detail: "Created \(result.bundleURL.lastPathComponent) with \(annotationResult.featureCount) annotation(s)",
+                            bundleURLs: [result.bundleURL]
                         )
-                        AppDelegate.shared?.importReadyBundles([result.bundleURL])
                     }
                 }
             } catch {
@@ -1924,9 +2027,29 @@ public class ViewerViewController: NSViewController {
         }
     }
 
+    private func projectURLForDerivedReferenceBundle(sourceAlignmentBundleURL: URL? = nil) -> URL? {
+        if let sourceAlignmentBundleURL,
+           let projectURL = Self.enclosingProjectURL(for: sourceAlignmentBundleURL) {
+            return projectURL
+        }
+        if let currentBundleURL,
+           let projectURL = Self.enclosingProjectURL(for: currentBundleURL) {
+            return projectURL
+        }
+        if let referenceBundleURL = currentReferenceBundle?.url,
+           let projectURL = Self.enclosingProjectURL(for: referenceBundleURL) {
+            return projectURL
+        }
+        if let documentURL = currentDocument?.url,
+           let projectURL = Self.enclosingProjectURL(for: documentURL) {
+            return projectURL
+        }
+        return nil
+    }
+
     func shareFASTARecords(_ records: [String], suggestedName: String) {
         guard !records.isEmpty else { return }
-        let projectURL = DocumentManager.shared.activeProject?.url
+        let projectURL = projectURLForDerivedReferenceBundle()
         guard let tempDirectory = try? ProjectTempDirectory.create(
             prefix: "fasta-share-",
             in: projectURL
@@ -2099,7 +2222,7 @@ public class ViewerViewController: NSViewController {
         initialToolID: FASTQOperationToolID? = nil
     ) {
         guard !records.isEmpty, !FASTAOperationCatalog.availableToolIDs().isEmpty else { return }
-        let projectURL = DocumentManager.shared.activeProject?.url
+        let projectURL = projectURLForDerivedReferenceBundle()
         guard let bundleURL = try? FASTAOperationCatalog.createTemporaryInputBundle(
             fastaRecords: records,
             suggestedName: suggestedName,
@@ -2108,7 +2231,7 @@ public class ViewerViewController: NSViewController {
             return
         }
         AppDelegate.shared?.showFASTQOperationsDialog(
-            nil,
+            view,
             initialCategory: initialCategory,
             initialToolID: initialToolID,
             preferredInputURLs: [bundleURL]
@@ -3179,12 +3302,12 @@ public class ViewerViewController: NSViewController {
         NotificationCenter.default.post(
             name: .viewerCoordinatesChanged,
             object: viewerView,
-            userInfo: [
+            userInfo: windowScopedUserInfo([
                 NotificationUserInfoKey.chromosome: frame.chromosome,
                 NotificationUserInfoKey.variantChromosome: viewerView.variantDatabaseChromosomeName(for: frame.chromosome),
                 NotificationUserInfoKey.start: Int(frame.start),
                 NotificationUserInfoKey.end: Int(frame.end),
-            ]
+            ])
         )
     }
 
@@ -3211,8 +3334,8 @@ public class ViewerViewController: NSViewController {
         let vcfURLs = urls.filter { isVCFFile($0) }
         let otherURLs = urls.filter { !isVCFFile($0) }
 
-        guard let appDelegate = NSApp.delegate as? AppDelegate,
-              let mainSplit = appDelegate.mainWindowController?.mainSplitViewController else {
+        guard let mainSplit = (view.window?.windowController as? MainWindowController)?
+            .mainSplitViewController else {
             logger.error("handleFileDrop: Unable to resolve MainSplitViewController")
             return
         }
@@ -3227,7 +3350,7 @@ public class ViewerViewController: NSViewController {
             NotificationCenter.default.post(
                 name: .sidebarFileDropped,
                 object: self,
-                userInfo: ["urls": otherURLs, "destination": NSNull()]
+                userInfo: windowScopedUserInfo(["urls": otherURLs, "destination": NSNull()])
             )
         }
     }

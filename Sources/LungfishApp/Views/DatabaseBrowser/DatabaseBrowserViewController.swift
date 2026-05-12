@@ -336,6 +336,13 @@ public class DatabaseBrowserViewController: NSViewController {
     /// Called when a download is kicked off (sheet should dismiss immediately).
     public var onDownloadStarted: (() -> Void)?
 
+    /// Project/window route used for completed bundle delivery.
+    public var routeContext: OperationRouteContext? {
+        didSet {
+            dialogState?.routeContext = routeContext
+        }
+    }
+
     /// Optional initial NCBI search type to pre-select when the browser opens.
     ///
     /// Set this before presenting the controller to open with a specific search type
@@ -365,6 +372,7 @@ public class DatabaseBrowserViewController: NSViewController {
             initialDestination: DatabaseSearchDestination(databaseSource: databaseSource),
             automationBackend: automationBackend
         )
+        dialogState.routeContext = routeContext
 
         if let searchType = initialSearchType {
             dialogState.genBankGenomesViewModel.ncbiSearchType = searchType
@@ -1082,6 +1090,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
 
     /// Called when a download is kicked off so the sheet can dismiss immediately.
     var onDownloadStarted: (() -> Void)?
+
+    /// Project/window route used for operation completion delivery.
+    var routeContext: OperationRouteContext?
 
     // MARK: - Pathoplexus-Specific Properties
 
@@ -2362,6 +2373,19 @@ public class DatabaseBrowserViewModel: ObservableObject {
             guard response == .alertFirstButtonReturn else { return }
         }
 
+        if let projectURL = routeContext?.projectURL {
+            guard AppDelegate.shared?.canWriteProjectOutputs(
+                projectURL: projectURL,
+                windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+                workflowName: "Database download",
+                presentingWindow: AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?.window
+                    ?? NSApp.keyWindow
+                    ?? NSApp.mainWindow
+            ) ?? true else {
+                return
+            }
+        }
+
         isDownloading = true
         downloadProgress = 0
         errorMessage = nil
@@ -2424,7 +2448,8 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let downloadCenterTaskID = DownloadCenter.shared.start(
             title: downloadTitle,
             detail: "Preparing \(totalCount) record(s)...",
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: routeContext
         )
 
         // Log details about selected records for debugging
@@ -2522,7 +2547,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
         onDownloadStarted?()
 
         // Capture project URL for project-local temp allocation
-        let batchProjectURL = DocumentManager.shared.activeProject?.url
+        let batchProjectURL = routeContext?.projectURL
 
         // Use Task.detached to break out of MainActor context.
         // This is critical when running in a modal sheet - regular Task {}
@@ -2854,13 +2879,33 @@ public class DatabaseBrowserViewModel: ObservableObject {
         let optimizeStorage = !importConfig.skipClumpify
         let confirmedPlatform = importConfig.confirmedPlatform
 
-        // Capture project URL for project-local temp allocation
-        let projectURL = DocumentManager.shared.activeProject?.url
+        let enaRouteContext = routeContext
+        let projectURL = enaRouteContext?.projectURL
 
         Task.detached {
             var downloadedURLs: [URL] = []
             var failedCount = 0
             var failureDetails: [String] = []
+
+            if let projectURL {
+                let canWriteProject = await MainActor.run {
+                    AppDelegate.shared?.canWriteProjectOutputs(
+                        projectURL: projectURL,
+                        windowStateScope: enaRouteContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+                        workflowName: "SRA/ENA download",
+                        presentingWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                    ) ?? true
+                }
+                guard canWriteProject else {
+                    performOnMainRunLoop {
+                        DownloadCenter.shared.fail(
+                            id: downloadCenterTaskID,
+                            detail: "Project is open read only"
+                        )
+                    }
+                    return
+                }
+            }
 
             let batchDir = try ProjectTempDirectory.create(prefix: "sra-batch-", in: projectURL)
             logger.info("startENADownloadTask: Created batch directory at \(batchDir.path, privacy: .public)")
@@ -3123,7 +3168,11 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     // Deliver bundle immediately so it appears in sidebar right away
                     let deliverURL = bundleURL
                     performOnMainRunLoop {
-                        DownloadCenter.shared.onBundleReady?([deliverURL])
+                        if let handler = DownloadCenter.shared.onBundleReadyWithContext {
+                            handler([deliverURL], enaRouteContext)
+                        } else {
+                            DownloadCenter.shared.onBundleReady?([deliverURL])
+                        }
                     }
 
                 } catch {

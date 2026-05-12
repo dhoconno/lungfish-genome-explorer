@@ -81,13 +81,19 @@ extension ViewerViewController {
         // Wire batch extraction callback for the taxa collections drawer.
         // When the user clicks "Extract" on a collection, run the batch pipeline
         // using the same Task.detached + OperationCenter pattern.
-        controller.onBatchExtract = { collection, classResult in
+        controller.onBatchExtract = { [weak self] collection, classResult in
+            guard let self else { return }
+            let routeContext = OperationRouteContext(
+                projectURL: ProjectTempDirectory.findProjectRoot(classResult.outputURL),
+                windowStateScope: self.windowStateScope
+            )
             let batchExtractCliCmd = "# Batch extraction for collection '\(collection.name)' \u{2014} run individual 'lungfish conda extract' commands per taxon"
             let opID = OperationCenter.shared.start(
                 title: "Extract \(collection.name)",
                 detail: "Preparing batch extraction\u{2026}",
                 operationType: .taxonomyExtraction,
-                cliCommand: batchExtractCliCmd
+                cliCommand: batchExtractCliCmd,
+                routeContext: routeContext
             )
 
             let tree = classResult.tree
@@ -126,10 +132,8 @@ extension ViewerViewController {
                             )
 
                             // Refresh sidebar to pick up new extracted files
-                            if let appDelegate = NSApp.delegate as? AppDelegate {
-                                if let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
-                                    sidebar.reloadFromFilesystem()
-                                }
+                            if let sidebar = (self.parent as? MainSplitViewController)?.sidebarController {
+                                sidebar.reloadFromFilesystem()
                             }
                         }
                     }

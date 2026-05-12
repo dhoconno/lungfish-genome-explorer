@@ -135,17 +135,20 @@ public final class TaxonomyReadExtractionAction {
         public let resultPath: URL
         public let selections: [ClassifierRowSelector]
         public let suggestedName: String
+        public let routeContext: OperationRouteContext?
 
         public init(
             tool: ClassifierTool,
             resultPath: URL,
             selections: [ClassifierRowSelector],
-            suggestedName: String
+            suggestedName: String,
+            routeContext: OperationRouteContext? = nil
         ) {
             self.tool = tool
             self.resultPath = resultPath
             self.selections = selections
             self.suggestedName = suggestedName
+            self.routeContext = routeContext
         }
     }
 
@@ -346,7 +349,7 @@ public final class TaxonomyReadExtractionAction {
                 // because the host already has the extraction dialog attached
                 // as a sheet, and AppKit only supports one sheet per window.
                 let panelHost = sheetWindow ?? hostWindow
-                let destination = try await self.resolveDestination(
+                var destination = try await self.resolveDestination(
                     model: model,
                     context: context,
                     savePanel: self.savePanelPresenter,
@@ -362,12 +365,14 @@ public final class TaxonomyReadExtractionAction {
                 // Log the equivalent CLI command so the operations panel row
                 // reproduces what the GUI did.
                 let cli = Self.buildCLIString(context: context, options: options, destination: destination)
+                destination = Self.destination(destination, recordingProvenanceCommand: cli, context: context)
 
                 let opID = OperationCenter.shared.start(
                     title: "Extract Reads — \(context.tool.displayName)",
                     detail: "Running \(context.tool.displayName) extraction…",
                     operationType: .taxonomyExtraction,
-                    cliCommand: cli
+                    cliCommand: cli,
+                    routeContext: context.routeContext
                 )
                 OperationCenter.shared.log(id: opID, level: .info, message: "Extraction started: \(cli)")
 
@@ -509,12 +514,21 @@ public final class TaxonomyReadExtractionAction {
                 sourceDescription: disambiguatedName,
                 toolName: context.tool.displayName,
                 parameters: [
+                    "resultPath": context.resultPath.path,
                     "accessions": context.selections.flatMap { $0.accessions }.joined(separator: ","),
                     "taxIds": context.selections.flatMap { $0.taxIds.map(String.init) }.joined(separator: ","),
                     "format": model.format.rawValue,
                     "includeUnmappedMates": model.includeUnmappedMates ? "yes" : "no",
                 ]
             )
+            guard AppDelegate.shared?.canWriteProjectOutputs(
+                projectURL: projectRoot,
+                windowStateScope: context.routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+                workflowName: "Read extraction",
+                presentingWindow: hostWindow
+            ) ?? true else {
+                throw ClassifierExtractionError.cancelled
+            }
             return .bundle(projectRoot: projectRoot, displayName: disambiguatedName, metadata: metadata)
 
         case .file:
@@ -529,6 +543,14 @@ public final class TaxonomyReadExtractionAction {
 
         case .share:
             let projectRoot = ClassifierReadResolver.resolveProjectRoot(from: context.resultPath)
+            guard AppDelegate.shared?.canWriteProjectOutputs(
+                projectURL: projectRoot,
+                windowStateScope: context.routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+                workflowName: "Read extraction sharing",
+                presentingWindow: hostWindow
+            ) ?? true else {
+                throw ClassifierExtractionError.cancelled
+            }
             let tempDir = projectRoot.appendingPathComponent(".lungfish/.tmp")
             try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
             return .share(tempDirectory: tempDir)
@@ -556,7 +578,8 @@ public final class TaxonomyReadExtractionAction {
             OperationCenter.shared.log(id: opID, level: .info, message: "Bundle created: \(url.path)")
             // Reload sidebar to show the new bundle.
             if let appDelegate = NSApp.delegate as? AppDelegate,
-               let sidebar = appDelegate.mainWindowController?.mainSplitViewController?.sidebarController {
+               let sidebar = appDelegate.targetMainWindowController(routeContext: context.routeContext)?
+                .mainSplitViewController?.sidebarController {
                 sidebar.reloadFromFilesystem()
             }
             dismiss(sheetWindow: sheetWindow, host: hostWindow)
@@ -655,6 +678,26 @@ public final class TaxonomyReadExtractionAction {
             args.append("# (\(destinationLabel(destination)) — GUI only)")
         }
         return OperationCenter.buildCLICommand(subcommand: "extract reads", args: args)
+    }
+
+    private static func destination(
+        _ destination: ExtractionDestination,
+        recordingProvenanceCommand command: String,
+        context: Context
+    ) -> ExtractionDestination {
+        guard case .bundle(let projectRoot, let displayName, let metadata) = destination else {
+            return destination
+        }
+        var parameters = metadata.parameters
+        parameters["reproducibleCommand"] = command
+        parameters["resultPath"] = context.resultPath.path
+        let updatedMetadata = ExtractionMetadata(
+            sourceDescription: metadata.sourceDescription,
+            toolName: metadata.toolName,
+            extractionDate: metadata.extractionDate,
+            parameters: parameters
+        )
+        return .bundle(projectRoot: projectRoot, displayName: displayName, metadata: updatedMetadata)
     }
 
     private static func destinationLabel(_ destination: ExtractionDestination) -> String {

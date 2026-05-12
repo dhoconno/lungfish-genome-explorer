@@ -38,6 +38,7 @@ public final class FileSystemWatcher {
     // MARK: - Properties
 
     private let onChange: @MainActor (ChangedPaths) -> Void
+    private let onRootChanged: (@MainActor () -> Void)?
     private var watchedDirectory: URL?
     private nonisolated(unsafe) var eventStream: FSEventStreamRef?
     private let latency: CFTimeInterval = 3.0
@@ -48,8 +49,12 @@ public final class FileSystemWatcher {
 
     // MARK: - Initialization
 
-    public init(onChange: @escaping @MainActor (ChangedPaths) -> Void) {
+    public init(
+        onChange: @escaping @MainActor (ChangedPaths) -> Void,
+        onRootChanged: (@MainActor () -> Void)? = nil
+    ) {
         self.onChange = onChange
+        self.onRootChanged = onRootChanged
         logger.debug("FileSystemWatcher initialized")
     }
 
@@ -186,6 +191,7 @@ public final class FileSystemWatcher {
                     MainActor.assumeIsolated {
                         logger.warning("FSEvents: Root directory changed — stopping watcher")
                         watcher.stopWatching()
+                        watcher.onRootChanged?()
                     }
                 }
                 return

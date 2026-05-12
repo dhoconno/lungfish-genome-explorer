@@ -71,7 +71,8 @@ public enum FASTQIngestionService {
         url: URL,
         pairingMode: FASTQIngestionConfig.PairingMode = .singleEnd,
         pairedFile: URL? = nil,
-        existingMetadata: PersistedFASTQMetadata? = nil
+        existingMetadata: PersistedFASTQMetadata? = nil,
+        routeContext: OperationRouteContext? = nil
     ) {
         // Skip if already ingested
         if let existing = existingMetadata ?? FASTQMetadataStore.load(for: url),
@@ -106,7 +107,8 @@ public enum FASTQIngestionService {
             title: title,
             detail: "Preparing...",
             operationType: .ingestion,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached {
@@ -136,6 +138,7 @@ public enum FASTQIngestionService {
         sourceURL: URL,
         projectDirectory: URL,
         bundleName: String,
+        routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) {
         let title = "FASTQ Import: \(bundleName)"
@@ -145,7 +148,8 @@ public enum FASTQIngestionService {
             title: title,
             detail: "Preparing import workspace\u{2026}",
             operationType: .ingestion,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached {
@@ -226,6 +230,7 @@ public enum FASTQIngestionService {
             var metadata = existingMetadata ?? PersistedFASTQMetadata()
             metadata.ingestion = ingestion
             FASTQMetadataStore.save(metadata, for: result.outputFile)
+            try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
 
             let savedStr = ByteCountFormatter.string(
                 fromByteCount: result.originalSizeBytes - result.finalSizeBytes,
@@ -272,6 +277,7 @@ public enum FASTQIngestionService {
         projectDirectory: URL,
         bundleName: String,
         importConfig: FASTQImportConfiguration,
+        routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<URL, Error>) -> Void
     ) {
         let title = "FASTQ Import: \(bundleName)"
@@ -285,7 +291,8 @@ public enum FASTQIngestionService {
             title: title,
             detail: "Preparing import workspace\u{2026}",
             operationType: .ingestion,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached {
@@ -339,8 +346,7 @@ public enum FASTQIngestionService {
     ///
     /// Spawns `lungfish-cli import fastq` as a subprocess, parses its JSON progress
     /// events, and bridges them to ``OperationCenter`` for the Operations Panel.
-    /// After the CLI creates the bundle, this method computes FASTQ statistics
-    /// and records provenance (which the CLI does not do).
+    /// The CLI creates the bundle and writes first-class provenance itself.
     nonisolated private static func runIngestAndBundle(
         pair: FASTQFilePair,
         projectDirectory: URL,
@@ -404,85 +410,56 @@ public enum FASTQIngestionService {
         importConfig: FASTQImportConfiguration,
         operationID opID: UUID
     ) async -> Result<URL, Error> {
-        do {
-            let recipeName = resolvedRecipeName(for: importConfig)
-            let args = cliImportArguments(
-                pair: pair,
-                projectDirectory: projectDirectory,
-                importConfig: importConfig
-            )
+        let args = cliImportArguments(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            importConfig: importConfig
+        )
 
-            // 5. Spawn CLI runner
-            final class ResultTracker: @unchecked Sendable {
-                var bundleURL: URL?
-                var errorMessage: String?
-            }
-            let tracker = ResultTracker()
-
-            let runner = CLIImportRunner()
-            await runner.run(
-                arguments: args,
-                operationID: opID,
-                projectDirectory: projectDirectory,
-                onBundleCreated: { url in tracker.bundleURL = url },
-                onError: { error in tracker.errorMessage = error }
-            )
-
-            // 6. Handle failure
-            if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
-                return .failure(NSError(
-                    domain: "FASTQIngestionService", code: 1,
-                    userInfo: [NSLocalizedDescriptionKey: errorMsg]
-                ))
-            }
-
-            guard let bundleURL = tracker.bundleURL else {
-                return .failure(NSError(
-                    domain: "FASTQIngestionService", code: 2,
-                    userInfo: [NSLocalizedDescriptionKey: "Import produced no output bundle"]
-                ))
-            }
-
-            logger.info("CLI import produced bundle at \(bundleURL.path)")
-            // Statistics are computed by the CLI as the final pipeline step —
-            // no duplicate computation needed here.
-
-            // 7. Record provenance
-            var parameters: [String: ParameterValue] = [
-                "platform": .string(importConfig.confirmedPlatform.rawValue),
-                "pairingMode": .string(importConfig.pairingMode.rawValue),
-                "qualityBinning": .string(importConfig.qualityBinning.rawValue),
-                "skipClumpify": .boolean(importConfig.skipClumpify),
-            ]
-            if let recipeName {
-                parameters["recipe"] = .string(recipeName)
-            }
-            if let sampleSheetURL = pair.sampleSheetURL {
-                parameters["sampleSheet"] = .file(sampleSheetURL)
-            }
-            if !pair.metadata.isEmpty {
-                parameters["sampleSheetMetadata"] = .dictionary(pair.metadata.mapValues { .string($0) })
-                try? FASTQBundleCSVMetadata.save(
-                    FASTQBundleCSVMetadata(keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }),
-                    to: bundleURL
-                )
-            }
-            let runID = await ProvenanceRecorder.shared.beginRun(
-                name: "FASTQ Import: \(bundleName)",
-                parameters: parameters
-            )
-            await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
-            try? await ProvenanceRecorder.shared.save(runID: runID, to: bundleURL)
-
-            logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner — returning success")
-            return .success(bundleURL)
-
-        } catch is CancellationError {
-            return .failure(CancellationError())
-        } catch {
-            logger.error("ingestAndBundle: \(error)")
-            return .failure(error)
+        // 5. Spawn CLI runner
+        final class ResultTracker: @unchecked Sendable {
+            var bundleURL: URL?
+            var errorMessage: String?
         }
+        let tracker = ResultTracker()
+
+        let runner = CLIImportRunner()
+        await runner.run(
+            arguments: args,
+            operationID: opID,
+            projectDirectory: projectDirectory,
+            onBundleCreated: { url in tracker.bundleURL = url },
+            onError: { error in tracker.errorMessage = error }
+        )
+
+        // 6. Handle failure
+        if let errorMsg = tracker.errorMessage, tracker.bundleURL == nil {
+            return .failure(NSError(
+                domain: "FASTQIngestionService", code: 1,
+                userInfo: [NSLocalizedDescriptionKey: errorMsg]
+            ))
+        }
+
+        guard let bundleURL = tracker.bundleURL else {
+            return .failure(NSError(
+                domain: "FASTQIngestionService", code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Import produced no output bundle"]
+            ))
+        }
+
+        logger.info("CLI import produced bundle at \(bundleURL.path)")
+        // Statistics are computed by the CLI as the final pipeline step —
+        // no duplicate computation needed here.
+
+        if !pair.metadata.isEmpty {
+            try? FASTQBundleCSVMetadata.save(
+                FASTQBundleCSVMetadata(keyValuePairs: ["sample": pair.sampleName].merging(pair.metadata) { current, _ in current }),
+                to: bundleURL
+            )
+        }
+
+        logger.info("ingestAndBundle: Created bundle \(bundleURL.lastPathComponent) via CLIImportRunner — returning success")
+        return .success(bundleURL)
     }
 
     nonisolated static func cliImportCommandPreview(
@@ -541,6 +518,87 @@ public enum FASTQIngestionService {
             return nr.id
         }
         return recipe.name.lowercased()
+    }
+
+    nonisolated static func testingSaveInPlaceIngestionProvenance(
+        result: FASTQIngestionResult,
+        config: FASTQIngestionConfig,
+        ingestion: IngestionMetadata
+    ) async throws {
+        try saveInPlaceIngestionProvenance(result: result, config: config, ingestion: ingestion)
+    }
+
+    nonisolated private static func saveInPlaceIngestionProvenance(
+        result: FASTQIngestionResult,
+        config: FASTQIngestionConfig,
+        ingestion: IngestionMetadata
+    ) throws {
+        let outputDirectory = result.outputFile.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+        var parameters: [String: ParameterValue] = [
+            "inputFiles": .array(config.inputFiles.map { .file($0) }),
+            "outputFile": .file(result.outputFile),
+            "pairingMode": .string(config.pairingMode.rawValue),
+            "outputPairingMode": .string(result.pairingMode.rawValue),
+            "qualityBinning": .string(config.qualityBinning.rawValue),
+            "skipClumpify": .boolean(config.skipClumpify),
+            "deleteOriginals": .boolean(config.deleteOriginals),
+            "threads": .integer(config.threads),
+            "wasClumpified": .boolean(result.wasClumpified),
+            "isCompressed": .boolean(ingestion.isCompressed),
+            "originalSizeBytes": .integer(Int(result.originalSizeBytes)),
+            "finalSizeBytes": .integer(Int(result.finalSizeBytes)),
+            "originalFilenames": .array(result.originalFilenames.map { .string($0) })
+        ]
+        if let processingTool = result.processingTool {
+            parameters["processingTool"] = .string(processingTool)
+        }
+        if let processingToolVersion = result.processingToolVersion {
+            parameters["processingToolVersion"] = .string(processingToolVersion)
+        }
+        if let processingCommandLine = result.processingCommandLine {
+            parameters["processingCommandLine"] = .string(processingCommandLine)
+        }
+
+        let metadataURL = FASTQMetadataStore.metadataURL(for: result.outputFile)
+        var steps = result.provenanceSteps
+        steps.append(
+            StepExecution(
+                toolName: "lungfish-app",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: [
+                    "lungfish-app",
+                    "fastq-ingestion",
+                    "write-metadata",
+                    result.outputFile.path
+                ],
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: result.outputFile, format: .fastq, role: .input)
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: 0
+            )
+        )
+
+        let run = WorkflowRun(
+            name: "FASTQ Ingestion",
+            endTime: Date(),
+            status: .completed,
+            steps: steps,
+            parameters: parameters
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(run)
+        try data.write(
+            to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            options: .atomic
+        )
     }
 
     nonisolated private static func writeImportManifest(
@@ -837,6 +895,7 @@ public enum FASTQIngestionService {
         projectDirectory: URL,
         recipe: String,
         qualityBinning: QualityBinningScheme = .illumina4,
+        routeContext: OperationRouteContext? = nil,
         completion: @escaping @MainActor (Result<Int, Error>) -> Void
     ) {
         let title = "FASTQ Batch Import"
@@ -845,7 +904,8 @@ public enum FASTQIngestionService {
             title: title,
             detail: "Starting batch import\u{2026}",
             operationType: .ingestion,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached {

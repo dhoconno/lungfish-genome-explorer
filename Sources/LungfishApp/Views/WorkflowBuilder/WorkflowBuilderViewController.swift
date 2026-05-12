@@ -61,6 +61,12 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     /// Preferred sample context used to preselect the pinned sample input anchor.
     public var preferredSampleURL: URL?
 
+    /// Owning main window scope used to route run completions back to the invoking workspace.
+    private var activeWindowStateScope: WindowStateScope?
+
+    /// Whether the invoking project window recommends read-only behavior.
+    private var isReadOnlyRecommended = false
+
     private var workflowLibraryEntries: [WorkflowLibraryEntry] = []
 
     private static let workflowBundleType = UTType(exportedAs: "org.lungfish.workflow", conformingTo: .package)
@@ -389,9 +395,16 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         explicitFASTQBundleInputURL(projectURL: projectURL)
     }
 
-    public func configureRunContext(projectURL: URL?, preferredSampleURL: URL?) {
+    public func configureRunContext(
+        projectURL: URL?,
+        preferredSampleURL: URL?,
+        windowStateScope: WindowStateScope? = nil,
+        isReadOnlyRecommended: Bool = false
+    ) {
         activeProjectURL = projectURL?.standardizedFileURL
         self.preferredSampleURL = preferredSampleURL?.standardizedFileURL
+        activeWindowStateScope = windowStateScope
+        self.isReadOnlyRecommended = isReadOnlyRecommended
         reloadWorkflowLibrary()
         inspectorViewController?.inspector.inspect(
             node: canvasViewController?.canvasView.selectedNodeForInspection,
@@ -445,6 +458,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func createWorkflowInLibrary() {
+        guard canWriteProjectOutputs(workflowName: "Workflow creation") else { return }
         promptForWorkflowName(
             title: "New Workflow",
             message: "Name this workflow before adding it to the project library.",
@@ -464,6 +478,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let activeProjectURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Open a Lungfish project before creating a workflow."])
         }
+        try requireWritableProject(workflowName: "Workflow creation")
         try persistDirtyWorkflowBeforeLibraryMutation()
         let newGraph = WorkflowGraph(name: name)
         let bundleURL = try WorkflowLibraryStore.createWorkflow(newGraph, in: activeProjectURL)
@@ -476,6 +491,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func renameWorkflowInLibrary(entry: WorkflowLibraryEntry, to name: String) {
+        guard canWriteProjectOutputs(workflowName: "Workflow rename") else { return }
         do {
             _ = try renameWorkflowInLibrary(sourceURL: entry.bundleURL, to: name)
         } catch {
@@ -485,6 +501,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     @discardableResult
     private func renameSelectedWorkflowInLibrary(to name: String) throws -> URL {
+        try requireWritableProject(workflowName: "Workflow rename")
         guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to rename."])
         }
@@ -496,6 +513,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let activeProjectURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Open a Lungfish project before renaming a workflow."])
         }
+        try requireWritableProject(workflowName: "Workflow rename")
         try persistDirtyWorkflowBeforeLibraryMutation()
         let currentPath = workflowURL?.standardizedFileURL.path
         let sourcePath = sourceURL.standardizedFileURL.path
@@ -509,6 +527,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func duplicateSelectedWorkflowInLibrary() {
+        guard canWriteProjectOutputs(workflowName: "Workflow duplication") else { return }
         do {
             _ = try duplicateSelectedWorkflowInLibraryOrThrow()
         } catch {
@@ -521,6 +540,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let activeProjectURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Open a Lungfish project before duplicating a workflow."])
         }
+        try requireWritableProject(workflowName: "Workflow duplication")
         let selectedSourceURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL
         try persistDirtyWorkflowBeforeLibraryMutation()
         guard let sourceURL = selectedSourceURL ?? workflowURL else {
@@ -533,6 +553,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func persistDirtyWorkflowBeforeLibraryMutation() throws {
         guard hasUnsavedChanges else { return }
+        try requireWritableProject(workflowName: "Workflow save")
         if let workflowURL {
             _ = try saveWorkflowBundle(to: workflowURL)
         } else if let activeProjectURL {
@@ -544,6 +565,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func deleteSelectedWorkflowInLibrary() {
+        guard canWriteProjectOutputs(workflowName: "Workflow deletion") else { return }
         do {
             try deleteSelectedWorkflowInLibrary(confirm: true)
         } catch {
@@ -552,6 +574,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func deleteSelectedWorkflowInLibrary(confirm: Bool) throws {
+        try requireWritableProject(workflowName: "Workflow deletion")
         guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to delete."])
         }
@@ -665,12 +688,17 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
+                try self.requireWritableProject(workflowName: "Workflow run")
                 let bundleURL = try self.ensureWorkflowBundleForRun(projectURL: projectURL)
                 let binding = WorkflowBuilderRunBinding(sampleURL: sampleURL, projectURL: projectURL)
                 _ = try await WorkflowBuilderRunService().run(
                     graph: self.graph,
                     workflowBundleURL: bundleURL,
-                    binding: binding
+                    binding: binding,
+                    routeContext: OperationRouteContext(
+                        projectURL: projectURL,
+                        windowStateScope: self.activeWindowStateScope
+                    )
                 )
             } catch {
                 let alert = NSAlert()
@@ -747,6 +775,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func ensureWorkflowBundleForRun(projectURL: URL) throws -> URL {
+        try requireWritableProject(workflowName: "Workflow run")
         if let workflowURL {
             return try saveWorkflowBundle(to: workflowURL)
         }
@@ -762,6 +791,25 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
             alert.beginSheetModal(for: window)
         } else {
             alert.runModal()
+        }
+    }
+
+    private func canWriteProjectOutputs(workflowName: String) -> Bool {
+        guard isReadOnlyRecommended else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Project Is Open Read Only"
+        alert.informativeText = "\(workflowName) writes files into the project. Close the other writer or reopen the project after the lock is released before running this workflow."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        presentAlert(alert)
+        return false
+    }
+
+    private func requireWritableProject(workflowName: String) throws {
+        guard canWriteProjectOutputs(workflowName: workflowName) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [
+                NSLocalizedDescriptionKey: "The project is open read only."
+            ])
         }
     }
 

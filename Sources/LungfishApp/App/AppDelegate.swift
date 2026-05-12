@@ -335,6 +335,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// All open main windows (strong references for multi-project workflows).
     private var mainWindowControllers: [MainWindowController] = []
 
+    private let projectSessionRegistry = ProjectSessionRegistry()
+
     /// Welcome window controller for project selection
     private var welcomeWindowController: WelcomeWindowController?
 
@@ -367,6 +369,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Repeating timer that cleans stale project temp directories (>24 h old) every 4 hours.
     private var projectTempCleanupTimer: Timer?
+    private var isTerminating = false
 
     private struct VCFImportHelperEvent: Decodable {
         let event: String
@@ -414,6 +417,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("DownloadCenter.onBundleReady: Received \(bundleURLs.count) bundle(s)")
             self?.handleMultipleDownloadsSync(bundleURLs)
         }
+        DownloadCenter.shared.onBundleReadyWithContext = { [weak self] bundleURLs, routeContext in
+            debugLog("DownloadCenter.onBundleReadyWithContext: Received \(bundleURLs.count) bundle(s)")
+            self?.handleMultipleDownloadsSync(bundleURLs, routeContext: routeContext)
+        }
 
         // Check for command-line arguments
         let args = ProcessInfo.processInfo.arguments
@@ -444,14 +451,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
+        if restoreProjectWindowsFromSavedState() {
+            NSApp.activate()
+            return
+        }
+
         // Show welcome window for normal launch
         showWelcomeWindow()
     }
 
     /// Fallback import entry point for callers that have bundle URLs but cannot
     /// rely on DownloadCenter callback wiring (e.g. alternate app startup paths).
-    func importReadyBundles(_ bundleURLs: [URL]) {
-        handleMultipleDownloadsSync(bundleURLs)
+    func importReadyBundles(_ bundleURLs: [URL], routeContext: OperationRouteContext? = nil) {
+        handleMultipleDownloadsSync(bundleURLs, routeContext: routeContext)
     }
 
     /// Returns true when `url` is inside `directory`, using resolved paths
@@ -464,11 +476,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Ensures the sidebar is scoped to the project containing `url` (or a safe
     /// fallback folder), then refreshes and selects the item.
-    private func refreshSidebarAndSelectImportedURL(_ url: URL) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController else { return }
+    private func refreshSidebarAndSelectImportedURL(_ url: URL, in controller: MainWindowController? = nil) {
+        let controller = controller ?? mainWindowController
+        guard let sidebarController = controller?.mainSplitViewController?.sidebarController else { return }
 
         let targetRoot: URL?
-        if let projectURL = DocumentManager.shared.activeProject?.url, isURL(url, inside: projectURL) {
+        if let projectURL = controller?.projectSession.projectURL, isURL(url, inside: projectURL) {
             targetRoot = projectURL
         } else if let workingURL = workingDirectoryURL, isURL(url, inside: workingURL) {
             targetRoot = workingURL
@@ -501,7 +514,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             || url.lastPathComponent.hasPrefix("taxtriage-")
             || url.lastPathComponent.hasPrefix("nvd-")
         if !isMetagenomicsResult {
-            requestInspectorDocumentModeAfterDownload()
+            requestInspectorDocumentModeAfterDownload(in: controller)
         }
     }
 
@@ -509,12 +522,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// Download/import workflows should default to bundle/document context, not
     /// selection editing context.
-    private func requestInspectorDocumentModeAfterDownload() {
-        NotificationCenter.default.post(
-            name: .showInspectorRequested,
-            object: nil,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
-        )
+    private func requestInspectorDocumentModeAfterDownload(in controller: MainWindowController? = nil) {
+        var userInfo: [String: Any] = [NotificationUserInfoKey.inspectorTab: "document"]
+        if let scope = controller?.projectSession.windowStateScope {
+            userInfo[NotificationUserInfoKey.windowStateScope] = scope
+        }
+        NotificationCenter.default.post(name: .showInspectorRequested, object: nil, userInfo: userInfo)
     }
 
     deinit {
@@ -542,24 +555,116 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @discardableResult
-    private func createAndShowMainWindow() -> MainWindowController {
-        let controller = MainWindowController()
+    private func createAndShowMainWindow(projectSession: ProjectSession = ProjectSession()) -> MainWindowController {
+        let controller = MainWindowController(projectSession: projectSession)
         controller.showWindow(nil)
         mainWindowController = controller
+        projectSessionRegistry.register(projectSession, projectURL: projectSession.projectURL)
         if !mainWindowControllers.contains(where: { $0 === controller }) {
             mainWindowControllers.append(controller)
         }
         return controller
     }
 
+    private func controller(forWindowStateScopeID scopeID: UUID?) -> MainWindowController? {
+        guard let scopeID else { return nil }
+        return mainWindowControllers.first {
+            $0.projectSession.windowStateScope.id == scopeID
+        }
+    }
+
+    private func controller(forProjectURL projectURL: URL?) -> MainWindowController? {
+        guard let projectURL else { return nil }
+        let canonical = projectURL.standardizedFileURL.resolvingSymlinksInPath()
+        if let mainWindowController,
+           mainWindowController.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath() == canonical {
+            return mainWindowController
+        }
+        return mainWindowControllers.first {
+            $0.projectSession.projectURL?.standardizedFileURL.resolvingSymlinksInPath() == canonical
+        }
+    }
+
+    func targetMainWindowController(routeContext: OperationRouteContext?) -> MainWindowController? {
+        controller(forWindowStateScopeID: routeContext?.windowStateScopeID)
+            ?? controller(forProjectURL: routeContext?.projectURL)
+            ?? (NSApp.keyWindow?.windowController as? MainWindowController)
+            ?? mainWindowController
+    }
+
+    private func activeMainWindowController(sender: Any? = nil) -> MainWindowController? {
+        if let view = sender as? NSView,
+           let window = view.window,
+           let controller = window.windowController as? MainWindowController {
+            return controller
+        }
+        return (NSApp.keyWindow?.windowController as? MainWindowController)
+            ?? (NSApp.mainWindow?.windowController as? MainWindowController)
+            ?? mainWindowController
+    }
+
+    private func currentOperationRouteContext(for controller: MainWindowController? = nil) -> OperationRouteContext? {
+        let controller = controller ?? activeMainWindowController()
+        return OperationRouteContext(
+            projectURL: controller?.projectSession.projectURL
+                ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL
+                ?? workingDirectoryURL,
+            windowStateScope: controller?.projectSession.windowStateScope
+        )
+    }
+
+    func canWriteProjectOutputs(
+        projectURL: URL? = nil,
+        windowStateScope: WindowStateScope? = nil,
+        workflowName: String,
+        presentingWindow: NSWindow? = nil
+    ) -> Bool {
+        guard isProjectWriteBlocked(projectURL: projectURL, windowStateScope: windowStateScope) else {
+            return true
+        }
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScope: windowStateScope)
+        let controller = targetMainWindowController(routeContext: routeContext)
+
+        let alert = NSAlert()
+        alert.messageText = "Project Is Open Read Only"
+        alert.informativeText = "\(workflowName) writes files into the project. Close the other writer or reopen the project after the lock is released before running this workflow."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.applyLungfishBranding()
+        if let window = presentingWindow ?? controller?.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
+        return false
+    }
+
+    private func isProjectWriteBlocked(projectURL: URL?, windowStateScope: WindowStateScope?) -> Bool {
+        if let projectURL {
+            let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+            if let scopedController = controller(forWindowStateScopeID: windowStateScope?.id),
+               scopedController.projectSession.projectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL,
+               scopedController.projectSession.isReadOnlyRecommended {
+                return true
+            }
+            if let projectController = controller(forProjectURL: projectURL),
+               projectController.projectSession.isReadOnlyRecommended {
+                return true
+            }
+            return ProjectOpenWarningState.evaluate(projectURL: projectURL).isReadOnlyRecommended
+        }
+
+        if let scopedController = controller(forWindowStateScopeID: windowStateScope?.id) {
+            return scopedController.projectSession.isReadOnlyRecommended
+        }
+        return false
+    }
+
     private func openProject(_ projectURL: URL, in controller: MainWindowController) {
         // Keep global working directory in sync with most recently activated project.
         workingDirectoryURL = projectURL
         mainWindowController = controller
-
-        // Update window title to reflect the project name
-        let projectName = projectURL.deletingPathExtension().lastPathComponent
-        controller.window?.title = "\(projectName) \u{2014} Lungfish Genome Explorer"
+        let shouldCleanProjectTemp = shouldCleanProjectTempOnOpen(projectURL, excluding: controller)
 
         // Migrate analysis results from legacy derivatives/ location to Analyses/.
         // This is idempotent and safe to run on every project open.
@@ -567,16 +672,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("openProject: Migrated \(count) analysis director\(count == 1 ? "y" : "ies") from derivatives/ to Analyses/")
         }
 
-        // Use DocumentManager to preserve project semantics and persisted metadata.
         do {
-            let project = try DocumentManager.shared.openProject(at: projectURL)
+            let project = try controller.projectSession.openProject(at: projectURL)
+            DocumentManager.shared.mirrorProjectSession(controller.projectSession)
+            projectSessionRegistry.register(controller.projectSession, projectURL: project.url)
+            controller.mainSplitViewController?.applyProjectSessionState()
+            updateProjectWindowTitle(controller)
             RecentProjectsManager.shared.addRecentProject(
                 url: project.url,
                 name: project.name
             )
-            debugLog("openProject: Opened project via DocumentManager")
+            debugLog("openProject: Opened project via ProjectSession")
         } catch {
-            debugLog("openProject: Failed via DocumentManager, falling back to filesystem sidebar: \(error.localizedDescription)")
+            let projectName = projectURL.deletingPathExtension().lastPathComponent
+            controller.window?.title = "\(projectName) - Lungfish Genome Explorer"
+            debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(error.localizedDescription)")
             controller.mainSplitViewController?.sidebarController.openProject(at: projectURL)
             RecentProjectsManager.shared.addRecentProject(
                 url: projectURL,
@@ -584,8 +694,54 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             )
         }
 
-        // Clean project temp files on open and start periodic stale-file cleanup.
-        cleanProjectTempOnOpen(projectURL)
+        // Clean stale project temp files only for the first open session. Duplicate
+        // same-project windows may be observing active workflow temp state.
+        if shouldCleanProjectTemp {
+            cleanProjectTempOnOpen(projectURL)
+        } else {
+            debugLog("openProject: Skipping project temp purge because project is already open")
+            startProjectTempCleanupTimer(for: projectURL)
+        }
+        saveApplicationState()
+    }
+
+    private func shouldCleanProjectTempOnOpen(_ projectURL: URL, excluding controller: MainWindowController) -> Bool {
+        let existingSessions = projectSessionRegistry
+            .sessions(forProjectURL: projectURL)
+            .filter { $0.id != controller.projectSession.id }
+        if !existingSessions.isEmpty {
+            return false
+        }
+
+        let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        return !mainWindowControllers.contains { candidate in
+            guard candidate !== controller else { return false }
+            let candidateProjectURL = candidate.projectSession.projectURL
+                ?? candidate.mainSplitViewController?.sidebarController?.currentProjectURL
+            return candidateProjectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL
+        }
+    }
+
+    private func updateProjectWindowTitle(_ controller: MainWindowController) {
+        guard let projectURL = controller.projectSession.projectURL else {
+            controller.window?.title = "Lungfish Genome Explorer"
+            return
+        }
+        let projectName = projectURL.deletingPathExtension().lastPathComponent
+        let number = projectSessionRegistry.windowNumber(for: controller.projectSession)
+        let suffix = controller.projectSession.isReadOnlyRecommended ? " (Read Only)" : ""
+        controller.window?.title = "\(projectName) [\(number)]\(suffix) - Lungfish Genome Explorer"
+    }
+
+    private func refreshProjectWindowTitles(forProjectURL projectURL: URL?) {
+        guard let projectURL else { return }
+        let canonicalProjectURL = ProjectSessionRegistry.canonicalProjectURL(projectURL)
+        for controller in mainWindowControllers {
+            guard controller.projectSession.projectURL.map(ProjectSessionRegistry.canonicalProjectURL) == canonicalProjectURL else {
+                continue
+            }
+            updateProjectWindowTitle(controller)
+        }
     }
 
     private func showMainWindowWithProject(_ projectURL: URL) {
@@ -612,6 +768,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         welcomeWindowController = nil
     }
 
+    @IBAction func newWindowForCurrentProject(_ sender: Any?) {
+        guard let sourceController = activeMainWindowController(sender: sender),
+              let projectURL = sourceController.projectSession.projectURL
+                ?? sourceController.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(title: "No Project Open", message: "Open a project before creating another window for it.")
+            return
+        }
+
+        let controller = createAndShowMainWindow()
+        NSApp.activate()
+        openProject(projectURL, in: controller)
+    }
+
+    @discardableResult
+    func testingNewWindowForCurrentProject() -> MainWindowController? {
+        let before = Set(mainWindowControllers.map(ObjectIdentifier.init))
+        newWindowForCurrentProject(nil)
+        return mainWindowControllers.first { !before.contains(ObjectIdentifier($0)) }
+    }
+
     /// Loads project folder contents with proper background threading.
     ///
     /// Three-phase loading flow:
@@ -621,6 +797,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// This approach follows professional genome browser patterns (IGV, UCSC) and:
     public func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
+
         // Ensure app-managed imports/workflows and any native tool descendants
         // are stopped before AppKit tears down the process.
         OperationCenter.shared.cancelAll()
@@ -654,11 +832,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     public func applicationDidBecomeActive(_ notification: Notification) {
-        // Ensure the main window is key and the menu bar is properly updated
-        // This fixes the issue where the menu bar doesn't switch to the app's menu
-        // when returning from another application
-        if let mainWindow = mainWindowController?.window, mainWindow.isVisible {
-            mainWindow.makeKeyAndOrderFront(nil)
+        if let activeController = activeMainWindowController() {
+            mainWindowController = activeController
+            projectSessionRegistry.markFrontmost(activeController.projectSession)
+            DocumentManager.shared.mirrorProjectSession(activeController.projectSession)
         }
     }
 
@@ -750,7 +927,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        let viewerController = viewerController(for: notification)
 
         // Update in-memory document annotations if available
         if let document = viewerController?.currentDocument,
@@ -769,7 +946,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         // Remove the annotation from the current document
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        let viewerController = viewerController(for: notification)
         guard let document = viewerController?.currentDocument else { return }
 
         // Remove the annotation
@@ -789,7 +966,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        let viewerController = viewerController(for: notification)
 
         // Update in-memory document annotations if available
         if let document = viewerController?.currentDocument {
@@ -805,6 +982,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // The applyColorToType method already schedules a view state save via the
         // viewController reference, so no additional save trigger is needed here.
+    }
+
+    private func viewerController(for notification: Notification) -> ViewerViewController? {
+        if let scope = notification.userInfo?[NotificationUserInfoKey.windowStateScope] as? WindowStateScope {
+            return controller(forWindowStateScopeID: scope.id)?.mainSplitViewController?.viewerController
+        }
+        return activeMainWindowController()?.mainSplitViewController?.viewerController
     }
 
     /// Applies runtime settings that require service reconfiguration.
@@ -830,8 +1014,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - Project Temp Cleanup
 
-    /// Cleans the project `.tmp/` directory when a project is opened and starts a
-    /// periodic timer that removes stale (>24 h) subdirectories every 4 hours.
+    /// Cleans the project `.tmp/` directory when a project is explicitly opened and starts
+    /// a periodic timer that removes stale (>24 h) subdirectories every 4 hours.
     private func cleanProjectTempOnOpen(_ projectURL: URL) {
         // Remove the entire .tmp/ directory left from previous sessions.
         do {
@@ -841,6 +1025,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("cleanProjectTempOnOpen: failed to clean project temp: \(error.localizedDescription)")
         }
 
+        startProjectTempCleanupTimer(for: projectURL)
+    }
+
+    private func startProjectTempCleanupTimer(for projectURL: URL) {
         // Invalidate any previous timer (e.g. switching projects).
         projectTempCleanupTimer?.invalidate()
 
@@ -1046,7 +1234,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc private func windowWillClose(_ notification: Notification) {
+        guard !isTerminating else { return }
         guard let closedWindow = notification.object as? NSWindow else { return }
+
+        let closedControllers = mainWindowControllers.filter { controller in
+            controller.window === closedWindow
+        }
+        let affectedProjectURLs = Set(closedControllers.compactMap { $0.projectSession.projectURL })
+        for controller in closedControllers {
+            projectSessionRegistry.unregister(controller.projectSession)
+        }
 
         // Remove closed main windows from our tracked list.
         mainWindowControllers.removeAll { controller in
@@ -1056,6 +1253,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if mainWindowController?.window === closedWindow {
             mainWindowController = mainWindowControllers.first(where: { $0.window?.isMainWindow == true }) ?? mainWindowControllers.last
         }
+        for projectURL in affectedProjectURLs {
+            refreshProjectWindowTitles(forProjectURL: projectURL)
+        }
+        saveApplicationState()
     }
 
     @objc private func windowDidBecomeMain(_ notification: Notification) {
@@ -1068,11 +1269,88 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if !mainWindowControllers.contains(where: { $0 === controller }) {
             mainWindowControllers.append(controller)
         }
+        projectSessionRegistry.markFrontmost(controller.projectSession)
+        DocumentManager.shared.mirrorProjectSession(controller.projectSession)
     }
 
     private func saveApplicationState() {
-        // Persist user preferences and window state
-        // UserDefaults auto-saves; no manual synchronize needed
+        let snapshots = mainWindowControllers.enumerated().compactMap { index, controller -> ProjectWindowSnapshot? in
+            let ordinal = projectSessionRegistry.windowNumber(for: controller.projectSession)
+            return controller.captureProjectWindowSnapshot(windowOrdinal: ordinal, windowOrder: index)
+        }
+
+        do {
+            try ProjectWindowStateStore().save(ProjectWindowStateEnvelope(windows: snapshots))
+        } catch {
+            appDelegateLogger.error("Failed to save project window state: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func restoreProjectWindowsFromSavedState() -> Bool {
+        do {
+            let envelope = try ProjectWindowStateStore().load()
+            return try restoreProjectWindows(from: envelope)
+        } catch {
+            appDelegateLogger.error("Failed to restore project windows: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+    }
+
+    @discardableResult
+    func restoreProjectWindows(from envelope: ProjectWindowStateEnvelope) throws -> Bool {
+        let existingWindows = envelope.windows
+            .filter { FileManager.default.fileExists(atPath: $0.projectURL.path) }
+            .sorted { $0.windowOrder < $1.windowOrder }
+        guard !existingWindows.isEmpty else { return false }
+
+        var restoredAnyWindow = false
+        for snapshot in existingWindows {
+            let session = ProjectSession(id: snapshot.id)
+            do {
+                try session.openProject(at: snapshot.projectURL)
+            } catch {
+                appDelegateLogger.warning(
+                    "Skipping saved project window for \(snapshot.projectURL.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                continue
+            }
+
+            let controller = createAndShowMainWindow(projectSession: session)
+            DocumentManager.shared.mirrorProjectSession(session)
+            workingDirectoryURL = snapshot.projectURL
+            controller.mainSplitViewController?.applyProjectSessionState(restoring: snapshot)
+            updateProjectWindowTitle(controller)
+            startProjectTempCleanupTimer(for: snapshot.projectURL)
+            if let frame = snapshot.frame {
+                controller.window?.setFrame(
+                    NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height),
+                    display: true
+                )
+            }
+            if snapshot.isFullScreen, controller.window?.styleMask.contains(.fullScreen) == false {
+                controller.window?.toggleFullScreen(nil)
+            }
+            restoredAnyWindow = true
+        }
+
+        return restoredAnyWindow
+    }
+
+    var testingMainWindowControllers: [MainWindowController] {
+        mainWindowControllers
+    }
+
+    @discardableResult
+    func testingRestoreProjectWindows(from envelope: ProjectWindowStateEnvelope) throws -> Bool {
+        try restoreProjectWindows(from: envelope)
+    }
+
+    func testingOpenProject(_ projectURL: URL, in controller: MainWindowController) {
+        openProject(projectURL, in: controller)
+    }
+
+    func testingRehydrateCopiedProvenance(from sourceURL: URL, to destinationURL: URL) {
+        rehydrateCopiedProvenance(from: sourceURL, to: destinationURL)
     }
 
     private func canQueueDocumentOpen(at url: URL) -> DocumentType? {
@@ -1204,7 +1482,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             let projectURL = url.deletingPathExtension().appendingPathExtension("lungfish")
             do {
-                let project = try DocumentManager.shared.createProject(
+                let session = ProjectSession()
+                let project = try session.createProject(
                     at: projectURL,
                     name: projectURL.deletingPathExtension().lastPathComponent
                 )
@@ -1212,7 +1491,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     url: project.url,
                     name: project.name
                 )
-                self.showMainWindowWithProject(project.url)
+                let controller = self.createAndShowMainWindow(projectSession: session)
+                NSApp.activate()
+                self.welcomeWindowController?.close()
+                self.welcomeWindowController = nil
+                self.workingDirectoryURL = project.url
+                DocumentManager.shared.mirrorProjectSession(session)
+                controller.mainSplitViewController?.applyProjectSessionState()
+                self.updateProjectWindowTitle(controller)
+                self.saveApplicationState()
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "Failed to Create Project"
@@ -1308,7 +1595,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     @objc func importFiles(_ sender: Any?) {
         debugLog("importFiles: Menu action triggered")
 
-        guard let window = mainWindowController?.window else {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
             debugLog("importFiles: No main window available")
             return
         }
@@ -1340,19 +1628,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 return
             }
 
-            self?.importProjectFilesFromURLs(selectedURLs)
+            self?.importProjectFilesFromURLs(selectedURLs, in: controller)
         }
     }
 
-    func importProjectFilesFromURLs(_ selectedURLs: [URL]) {
-        guard workingDirectoryURL != nil else {
+    func importProjectFilesFromURLs(_ selectedURLs: [URL], in targetController: MainWindowController? = nil) {
+        let controller = targetController ?? activeMainWindowController()
+        guard let splitViewController = controller?.mainSplitViewController,
+              controller?.projectSession.projectURL != nil
+                || splitViewController.sidebarController.currentProjectURL != nil
+                || workingDirectoryURL != nil else {
             let alert = NSAlert()
             alert.messageText = "No Project Open"
             alert.informativeText = "Please open or create a project before importing files."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.applyLungfishBranding()
-            if let window = mainWindowController?.window ?? NSApp.keyWindow {
+            if let window = controller?.window ?? NSApp.keyWindow {
                 alert.beginSheetModal(for: window)
             }
             return
@@ -1364,9 +1656,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         scheduleOnMainRunLoop {
             debugLog("importProjectFilesFromURLs: Starting import pipeline dispatch")
 
-            let activityIndicator = self.mainWindowController?.mainSplitViewController?.activityIndicator
-            let importPlan = self.mainWindowController?.mainSplitViewController?.makeSidebarImportPlan(for: selectedURLs)
-                ?? SidebarImportPlanner.makePlan(for: selectedURLs)
+            let activityIndicator = splitViewController.activityIndicator
+            let importPlan = splitViewController.makeSidebarImportPlan(for: selectedURLs)
             let trackedURLs = importPlan.sourceURLs
 
             guard !trackedURLs.isEmpty else {
@@ -1417,7 +1708,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             alert.alertStyle = .warning
                             alert.addButton(withTitle: "OK")
                             alert.applyLungfishBranding()
-                            if let window = NSApp.keyWindow {
+                            if let window = controller?.window ?? NSApp.keyWindow {
                                 await alert.beginSheetModal(for: window)
                             }
                         }
@@ -1431,8 +1722,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             NotificationCenter.default.post(
                 name: .sidebarFileDropped,
-                object: self,
-                userInfo: ["urls": trackedURLs, "destination": NSNull(), "requestID": requestID]
+                object: splitViewController.sidebarController,
+                userInfo: [
+                    "urls": trackedURLs,
+                    "destination": NSNull(),
+                    "requestID": requestID,
+                    NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+                ]
             )
 
             debugLog("importProjectFilesFromURLs: Dispatched batch of \(trackedURLs.count) file(s) to sidebar import pipeline")
@@ -1442,12 +1738,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     @objc func importVCFToBundle(_ sender: Any?) {
         debugLog("importVCFToBundle: Menu action triggered")
 
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        let bundleURL = viewerController?.currentBundleURL
-
-        guard let window = mainWindowController?.window else {
+        guard let originController = activeMainWindowController(sender: sender),
+              let originSplit = originController.mainSplitViewController else {
             debugLog("importVCFToBundle: No main window available")
             return
+        }
+        let viewerController = originSplit.viewerController
+        let bundleURL = viewerController?.currentBundleURL
+
+        guard let window = originController.window else {
+            debugLog("importVCFToBundle: No main window available")
+            return
+        }
+        let routeContext = currentOperationRouteContext(for: originController)
+        if let bundleURL {
+            let projectURL = ProjectTempDirectory.findProjectRoot(bundleURL)
+            guard canWriteProjectOutputs(
+                projectURL: projectURL,
+                windowStateScope: originController.projectSession.windowStateScope,
+                workflowName: "VCF import",
+                presentingWindow: window
+            ) else { return }
         }
 
         // Show NSOpenPanel for VCF files
@@ -1482,13 +1793,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             if let bundleURL {
                 // Existing bundle loaded — import into it (use first file for backward compat)
                 if let firstURL = selectedURLs.first {
-                    self?.performVCFImport(vcfURL: firstURL, bundleURL: bundleURL)
+                    self?.performVCFImport(vcfURL: firstURL, bundleURL: bundleURL, routeContext: routeContext)
                 }
             } else {
                 // No bundle loaded — auto-ingest into a new naked bundle
-                if let mainSplit = self?.mainWindowController?.mainSplitViewController {
-                    mainSplit.loadVCFFilesInBackground(urls: selectedURLs)
-                }
+                originSplit.loadVCFFilesInBackground(urls: selectedURLs)
             }
         }
     }
@@ -1497,16 +1806,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         debugLog("importBAMToBundle: Menu action triggered")
 
         // Require a bundle to be loaded
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+        guard let originController = activeMainWindowController(sender: sender),
+              let viewerController = originController.mainSplitViewController?.viewerController,
               let bundleURL = viewerController.currentBundleURL else {
             showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
             return
         }
 
-        guard let window = mainWindowController?.window else {
+        guard let window = originController.window else {
             debugLog("importBAMToBundle: No main window available")
             return
         }
+        let routeContext = currentOperationRouteContext(for: originController)
+        let projectURL = ProjectTempDirectory.findProjectRoot(bundleURL)
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "BAM import",
+            presentingWindow: window
+        ) else { return }
 
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
@@ -1529,7 +1847,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 return
             }
             debugLog("importBAMToBundle: Selected \(bamURL.lastPathComponent)")
-            self?.performBAMImport(bamURL: bamURL, bundleURL: bundleURL)
+            self?.performBAMImport(bamURL: bamURL, bundleURL: bundleURL, routeContext: routeContext)
         }
     }
 
@@ -1537,22 +1855,48 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Import a BAM file from a known URL (called from Import Center).
     func importBAMFromURL(_ url: URL) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+        guard let originController = activeMainWindowController(),
+              let viewerController = originController.mainSplitViewController?.viewerController,
               let bundleURL = viewerController.currentBundleURL else {
             showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing alignments.")
             return
         }
-        performBAMImport(bamURL: url, bundleURL: bundleURL)
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "BAM import",
+            presentingWindow: originController.window
+        ) else { return }
+        performBAMImport(
+            bamURL: url,
+            bundleURL: bundleURL,
+            routeContext: currentOperationRouteContext(for: originController)
+        )
     }
 
     /// Import a VCF file from a known URL (called from Import Center).
     func importVCFFromURL(_ url: URL) {
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+        guard let originController = activeMainWindowController(),
+              let originSplit = originController.mainSplitViewController else {
+            showAlert(title: "No Project Open", message: "Please open a project before importing variants.")
+            return
+        }
+        let viewerController = originSplit.viewerController
         let bundleURL = viewerController?.currentBundleURL
         if let bundleURL {
-            performVCFImport(vcfURL: url, bundleURL: bundleURL)
-        } else if let mainSplit = mainWindowController?.mainSplitViewController {
-            mainSplit.loadVCFFilesInBackground(urls: [url])
+            guard canWriteProjectOutputs(
+                projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+                windowStateScope: originController.projectSession.windowStateScope,
+                workflowName: "VCF import",
+                presentingWindow: originController.window
+            ) else { return }
+            performVCFImport(
+                vcfURL: url,
+                bundleURL: bundleURL,
+                routeContext: currentOperationRouteContext(for: originController)
+            )
+        } else {
+            originSplit.loadVCFFilesInBackground(urls: [url])
         }
     }
 
@@ -1571,14 +1915,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+        guard let originController = activeMainWindowController(),
+              let originSplit = originController.mainSplitViewController,
+              let projectURL = originSplit.sidebarController.currentProjectURL
                 ?? workingDirectoryURL else {
             showAlert(title: "No Project Open", message: "Please open a project before importing annotation tracks.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "Annotation import",
+            presentingWindow: originController.window
+        ) else { return }
 
-        let preferredBundleURL = mainWindowController?.mainSplitViewController?.viewerController?.currentBundleURL
-        chooseReferenceBundleForAnnotation(projectURL: projectURL, preferredBundleURL: preferredBundleURL) { [weak self] bundleURL in
+        let preferredBundleURL = originSplit.viewerController.currentBundleURL
+        chooseReferenceBundleForAnnotation(
+            projectURL: projectURL,
+            preferredBundleURL: preferredBundleURL,
+            presentingWindow: originController.window
+        ) { [weak self] bundleURL in
             guard let self, let bundleURL else { return }
             self.performAnnotationTrackImports(annotationURLs: urls, bundleURL: bundleURL)
         }
@@ -1586,11 +1942,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Import an ONT run directory from a known URL (called from Import Center).
     func importONTRunFromURL(_ url: URL) {
-        guard let projectURL = workingDirectoryURL else {
+        guard let originController = activeMainWindowController(),
+              let originSplit = originController.mainSplitViewController,
+              let projectURL = originController.projectSession.projectURL
+                ?? originSplit.sidebarController.currentProjectURL
+                ?? workingDirectoryURL else {
             showAlert(title: "No Project Open", message: "Please open or create a project before importing an ONT run.")
             return
         }
-        mainWindowController?.mainSplitViewController?.importONTDirectoryInBackground(
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "ONT run import",
+            presentingWindow: originController.window
+        ) else { return }
+        originSplit.importONTDirectoryInBackground(
             sourceURL: url,
             projectURL: projectURL
         )
@@ -1602,7 +1968,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// Groups URLs into R1/R2 pairs and presents the FASTQ import config sheet
     /// via ``MainSplitViewController``.
     func importFASTQFromURLs(_ urls: [URL]) {
-        guard let mainSplit = mainWindowController?.mainSplitViewController else {
+        guard let originController = activeMainWindowController(),
+              let mainSplit = originController.mainSplitViewController else {
             showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
             return
         }
@@ -1611,6 +1978,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "FASTQ import",
+            presentingWindow: originController.window
+        ) else { return }
 
         // Collect FASTQ files, expanding directories
         var fastqURLs: [URL] = []
@@ -1640,7 +2013,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     /// Import paired FASTQ batches from a CSV sample sheet.
     func importFASTQSampleSheetFromURL(_ url: URL) {
-        guard let mainSplit = mainWindowController?.mainSplitViewController else {
+        guard let originController = activeMainWindowController(),
+              let mainSplit = originController.mainSplitViewController else {
             showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
             return
         }
@@ -1649,6 +2023,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             showAlert(title: "No Project Open", message: "Please open a project before importing sequencing reads.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: originController.projectSession.windowStateScope,
+            workflowName: "FASTQ sample sheet import",
+            presentingWindow: originController.window
+        ) else { return }
 
         do {
             let sheet = try FASTQSampleSheet.parse(url: url)
@@ -1667,12 +2047,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    func importFASTAFromURL(_ url: URL) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
-              let projectURL = sidebarController.currentProjectURL else {
+    func importFASTAFromURL(_ url: URL, routeContext: OperationRouteContext? = nil) {
+        guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
+              let sidebarController = controller.mainSplitViewController?.sidebarController,
+              let projectURL = routeContext?.projectURL ?? sidebarController.currentProjectURL else {
             showAlert(title: "No Project Open", message: "Please open a project before importing reference sequences.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: controller.projectSession.windowStateScope,
+            workflowName: "Reference import",
+            presentingWindow: controller.window
+        ) else { return }
 
         guard ReferenceBundleImportService.isStandaloneReferenceSource(url) else {
             let classification = ReferenceBundleImportService.classify(url)
@@ -1701,6 +2088,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
+        let routeContext = routeContext ?? currentOperationRouteContext(for: controller)
         let cliCmd = OperationCenter.buildCLICommand(
             subcommand: "import",
             args: ["fasta", url.path, "--output-dir", refsDir.path]
@@ -1710,7 +2098,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "Reference Import",
             detail: "Importing \(url.lastPathComponent)...",
             operationType: .bundleBuild,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         Task.detached { [weak self] in
@@ -1734,9 +2123,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     MainActor.assumeIsolated {
                         OperationCenter.shared.complete(
                             id: opID,
-                            detail: "Imported \(result.bundleURL.lastPathComponent)"
+                            detail: "Imported \(result.bundleURL.lastPathComponent)",
+                            bundleURLs: [result.bundleURL]
                         )
-                        self?.refreshSidebarAndSelectImportedURL(result.bundleURL)
                     }
                 }
             } catch {
@@ -1754,11 +2143,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     func importGeneiousExportFromURL(_ url: URL) {
-        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+        let routeContext = currentOperationRouteContext()
+        guard let projectURL = routeContext?.projectURL
                 ?? workingDirectoryURL else {
             showAlert(title: "No Project Open", message: "Please open a project before importing a Geneious export.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Geneious import"
+        ) else { return }
 
         let arguments = CLIApplicationExportImportRunner.buildGeneiousArguments(
             sourceURL: url,
@@ -1773,6 +2168,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 subcommand: "import",
                 args: Array(arguments.dropFirst())
             ),
+            routeContext: routeContext,
             onCancel: {
                 Task { await runner.cancel() }
             }
@@ -1792,7 +2188,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         } else {
                             OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
                         }
-                        self?.refreshSidebarAndSelectImportedURL(result.collectionURL)
+                        self?.refreshSidebarAndSelectImportedURL(
+                            result.collectionURL,
+                            in: self?.targetMainWindowController(routeContext: routeContext)
+                        )
                     }
                 }
             } catch {
@@ -1807,11 +2206,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     func importApplicationExportFromURL(_ url: URL, kind: ApplicationExportKind) {
-        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+        let routeContext = currentOperationRouteContext()
+        guard let projectURL = routeContext?.projectURL
                 ?? workingDirectoryURL else {
             showAlert(title: "No Project Open", message: "Please open a project before importing an application export.")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "\(kind.displayName) import"
+        ) else { return }
 
         let arguments = CLIApplicationExportImportRunner.buildApplicationExportArguments(
             sourceURL: url,
@@ -1827,6 +2232,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 subcommand: "import",
                 args: Array(arguments.dropFirst())
             ),
+            routeContext: routeContext,
             onCancel: {
                 Task { await runner.cancel() }
             }
@@ -1846,7 +2252,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         } else {
                             OperationCenter.shared.completeWithWarning(id: opID, detail: detail)
                         }
-                        self?.refreshSidebarAndSelectImportedURL(result.collectionURL)
+                        self?.refreshSidebarAndSelectImportedURL(
+                            result.collectionURL,
+                            in: self?.targetMainWindowController(routeContext: routeContext)
+                        )
                     }
                 }
             } catch {
@@ -1869,11 +2278,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func importNativeBundleFromURL(_ url: URL, kind: CLINativeBundleImportRunner.BundleKind) {
-        guard let projectURL = mainWindowController?.mainSplitViewController?.sidebarController.currentProjectURL
+        let routeContext = currentOperationRouteContext()
+        guard let projectURL = routeContext?.projectURL
                 ?? workingDirectoryURL else {
             showAlert(title: "No Project Open", message: "Please open a project before importing \(kind.operationTitle.lowercased()).")
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: kind.operationTitle
+        ) else { return }
 
         let arguments = CLINativeBundleImportRunner.buildArguments(
             sourceURL: url,
@@ -1892,6 +2307,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 subcommand: "import",
                 args: Array(arguments.dropFirst())
             ),
+            routeContext: routeContext,
             onCancel: {
                 Task { await runner.cancel() }
             }
@@ -1919,7 +2335,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 bundleURLs: [result.bundleURL]
                             )
                         }
-                        self?.refreshSidebarAndSelectImportedURL(result.bundleURL)
                     }
                 }
             } catch {
@@ -1936,6 +2351,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func chooseReferenceBundleForAnnotation(
         projectURL: URL,
         preferredBundleURL: URL?,
+        presentingWindow: NSWindow? = nil,
         completion: @escaping (URL?) -> Void
     ) {
         let choices: [ReferenceBundleChoice]
@@ -1982,7 +2398,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             completion(popup.selectedItem?.representedObject as? URL)
         }
 
-        if let window = mainWindowController?.window {
+        if let window = presentingWindow ?? mainWindowController?.window {
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {
             finish(alert.runModal())
@@ -2004,11 +2420,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func performSingleAnnotationTrackImport(annotationURL: URL, bundleURL: URL) async {
+        let routeContext = currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Annotation import"
+        ) else { return }
         let opID = OperationCenter.shared.start(
             title: "Annotation Import",
             detail: "Importing \(annotationURL.lastPathComponent)...",
             operationType: .bundleBuild,
-            cliCommand: nil
+            cliCommand: nil,
+            routeContext: routeContext
         )
 
         do {
@@ -2018,8 +2441,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 id: opID,
                 detail: "Imported \(result.featureCount) annotations"
             )
-            refreshSidebarAndSelectImportedURL(bundleURL)
-            if let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+            let targetController = targetMainWindowController(routeContext: routeContext)
+            refreshSidebarAndSelectImportedURL(bundleURL, in: targetController)
+            if let viewerController = targetController?.mainSplitViewController?.viewerController,
                viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                 try viewerController.displayBundle(at: bundleURL)
             }
@@ -2059,12 +2483,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
-    private func importNaoMgsResultFromURL(_ url: URL) {
+    private func importNaoMgsResultFromURL(_ url: URL, routeContext: OperationRouteContext? = nil) {
         importClassifierResultFromURL(
             url,
             kind: .naomgs,
             operationTitle: "NAO-MGS Import",
             missingProjectMessage: "Please open a project before importing NAO-MGS results.",
+            routeContext: routeContext,
             naoMgsOptions: .init(fetchReferences: true)
         )
     }
@@ -2075,13 +2500,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         operationTitle: String,
         missingProjectMessage: String,
         preferredName: String? = nil,
+        routeContext explicitRouteContext: OperationRouteContext? = nil,
         naoMgsOptions: MetagenomicsImportHelperClient.NaoMgsOptions? = nil
     ) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let targetController = targetMainWindowController(routeContext: routeContext)
+        guard let sidebarController = targetController?.mainSplitViewController?.sidebarController,
               let projectURL = sidebarController.currentProjectURL else {
-            showAlert(title: "No Project Open", message: missingProjectMessage)
+            showAlert(title: "No Project Open", message: missingProjectMessage, presentingWindow: targetController?.window)
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: operationTitle,
+            presentingWindow: targetController?.window
+        ) else { return }
 
         // NAO-MGS results go to Analyses/ (they are analysis results, not raw imports)
         let outputDir: URL
@@ -2089,7 +2523,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             do {
                 outputDir = try AnalysesFolder.url(for: projectURL)
             } catch {
-                showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)")
+                showAlert(title: "Import Failed", message: "Could not prepare Analyses folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
                 return
             }
         } else {
@@ -2097,7 +2531,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             do {
                 try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
             } catch {
-                showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)")
+                showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: targetController?.window)
                 return
             }
         }
@@ -2120,7 +2554,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let opID = OperationCenter.shared.start(
             title: operationTitle,
             detail: "Importing \(url.lastPathComponent)...",
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -2155,7 +2590,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             level: .info,
                             message: "Imported result at \(result.resultDirectory.lastPathComponent)"
                         )
-                        self?.refreshSidebarAndSelectImportedURL(result.resultDirectory)
                     }
                 }
             } catch {
@@ -2177,7 +2611,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                         self?.showAlert(
                             title: "\(operationTitle) Failed",
-                            message: detail
+                            message: detail,
+                            presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
                         )
                     }
                 }
@@ -2191,29 +2626,67 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     @objc func importSampleMetadataToBundle(_ sender: Any?) {
         debugLog("importSampleMetadataToBundle: Menu action triggered")
 
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+        let controller = activeMainWindowController(sender: sender)
+        guard let viewerController = controller?.mainSplitViewController?.viewerController,
               let bundleURL = viewerController.currentBundleURL else {
-            showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing sample metadata.")
+            showAlert(
+                title: "No Bundle Loaded",
+                message: "Please open a reference genome bundle before importing sample metadata.",
+                presentingWindow: controller?.window
+            )
             return
         }
 
-        presentMetadataImportPanel(for: bundleURL, presentingWindow: mainWindowController?.window)
+        let routeContext = currentOperationRouteContext(for: controller)
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: controller?.projectSession.windowStateScope,
+            workflowName: "Sample metadata import",
+            presentingWindow: controller?.window
+        ) else { return }
+
+        presentMetadataImportPanel(for: bundleURL, presentingWindow: controller?.window, routeContext: routeContext)
     }
 
     func importBundleSampleMetadataFromURL(_ url: URL) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+        let controller = activeMainWindowController()
+        guard let viewerController = controller?.mainSplitViewController?.viewerController,
               let bundleURL = viewerController.currentBundleURL else {
-            showAlert(title: "No Bundle Loaded", message: "Please open a reference genome bundle before importing sample metadata.")
+            showAlert(
+                title: "No Bundle Loaded",
+                message: "Please open a reference genome bundle before importing sample metadata.",
+                presentingWindow: controller?.window
+            )
             return
         }
-        importBundleSampleMetadataFromURL(url, bundleURL: bundleURL)
+        importBundleSampleMetadataFromURL(
+            url,
+            bundleURL: bundleURL,
+            routeContext: currentOperationRouteContext(for: controller)
+        )
     }
 
-    func importBundleSampleMetadataFromURL(_ url: URL, bundleURL: URL) {
-        performSampleMetadataImport(metadataURL: url, bundleURL: bundleURL)
+    func importBundleSampleMetadataFromURL(
+        _ url: URL,
+        bundleURL: URL,
+        routeContext: OperationRouteContext? = nil
+    ) {
+        performSampleMetadataImport(metadataURL: url, bundleURL: bundleURL, routeContext: routeContext)
     }
 
-    func presentMetadataImportPanel(for bundleURL: URL, presentingWindow: NSWindow?) {
+    func presentMetadataImportPanel(
+        for bundleURL: URL,
+        presentingWindow: NSWindow?,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Sample metadata import",
+            presentingWindow: presentingWindow ?? targetMainWindowController(routeContext: routeContext)?.window
+        ) else { return }
+
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -2231,16 +2704,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 debugLog("presentMetadataImportPanel: User cancelled")
                 return
             }
-            self?.performSampleMetadataImport(metadataURL: metadataURL, bundleURL: bundleURL)
+            self?.performSampleMetadataImport(
+                metadataURL: metadataURL,
+                bundleURL: bundleURL,
+                routeContext: routeContext,
+                presentingWindow: presentingWindow
+            )
         }
 
-        if let window = presentingWindow ?? mainWindowController?.window ?? NSApp.keyWindow {
+        if let window = presentingWindow ?? targetMainWindowController(routeContext: routeContext)?.window ?? NSApp.keyWindow {
             panel.beginSheetModal(for: window, completionHandler: handleSelection)
         }
     }
 
-    private func performSampleMetadataImport(metadataURL: URL, bundleURL: URL) {
+    private func performSampleMetadataImport(
+        metadataURL: URL,
+        bundleURL: URL,
+        routeContext explicitRouteContext: OperationRouteContext? = nil,
+        presentingWindow: NSWindow? = nil
+    ) {
         debugLog("performSampleMetadataImport: Starting import of \(metadataURL.lastPathComponent) into \(bundleURL.lastPathComponent)")
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let targetController = targetMainWindowController(routeContext: routeContext)
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Sample metadata import",
+            presentingWindow: presentingWindow ?? targetController?.window
+        ) else { return }
         let format: MetadataFormat = metadataURL.pathExtension.lowercased() == "csv" ? .csv : .tsv
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -2273,7 +2764,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 scheduleOnMainRunLoop { [weak self] in
                     guard let self else { return }
                     debugLog("performSampleMetadataImport: Completed; tracks=\(updatedTracks), rows=\(totalUpdated)")
-                    if let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController,
+                    let targetController = self.targetMainWindowController(routeContext: routeContext)
+                    if let viewerController = targetController?.mainSplitViewController?.viewerController,
                        viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                         do {
                             try viewerController.displayBundle(at: bundleURL)
@@ -2283,19 +2775,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     }
                     self.showAlert(
                         title: "Metadata Imported",
-                        message: "Updated \(totalUpdated.formatted()) sample metadata values across \(updatedTracks) variant track(s)."
+                        message: "Updated \(totalUpdated.formatted()) sample metadata values across \(updatedTracks) variant track(s).",
+                        presentingWindow: targetController?.window ?? presentingWindow
                     )
                 }
             } catch {
                 scheduleOnMainRunLoop { [weak self] in
                     debugLog("performSampleMetadataImport: Failed: \(error.localizedDescription)")
-                    self?.showAlert(title: "Metadata Import Failed", message: error.localizedDescription)
+                    self?.showAlert(
+                        title: "Metadata Import Failed",
+                        message: error.localizedDescription,
+                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window ?? presentingWindow
+                    )
                 }
             }
         }
     }
 
-    private func performVCFImport(vcfURL: URL, bundleURL: URL) {
+    private func performVCFImport(vcfURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "VCF import",
+            presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
+        ) else { return }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 showAlert(title: "Operation in Progress",
@@ -2334,6 +2838,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             operationType: .vcfImport,
             targetBundleURL: bundleURL,
             cliCommand: cliCmd,
+            routeContext: routeContext,
             onCancel: { cancelFlag.withLock { $0 = true } }
         )
         let importStartedAt = Date()
@@ -2587,7 +3092,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 case .success(let (variantCount, _)):
                     OperationCenter.shared.complete(id: opID, detail: "\(variantCount) variants imported")
 
-                    guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController else {
+                    guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?.viewerController else {
                         debugLog("performVCFImport: No viewer controller")
                         return
                     }
@@ -3137,7 +3643,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     // MARK: - BAM/CRAM Import
 
-    private func performBAMImport(bamURL: URL, bundleURL: URL) {
+    private func performBAMImport(bamURL: URL, bundleURL: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "BAM import",
+            presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
+        ) else { return }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
             if let holder = OperationCenter.shared.activeLockHolder(for: bundleURL) {
                 showAlert(title: "Operation in Progress",
@@ -3161,6 +3674,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             operationType: .bamImport,
             targetBundleURL: bundleURL,
             cliCommand: cliCmd,
+            routeContext: routeContext,
             onCancel: { cancelFlag.withLock { $0 = true } }
         )
         let importStartedAt = Date()
@@ -3193,7 +3707,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     let readCount = importResult.mappedReads + importResult.unmappedReads
                     OperationCenter.shared.complete(id: opID, detail: "\(readCount) reads imported")
 
-                    guard let viewerController = self?.mainWindowController?.mainSplitViewController?.viewerController else {
+                    guard let viewerController = self?.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?.viewerController else {
                         debugLog("performBAMImport: No viewer controller")
                         return
                     }
@@ -3340,7 +3855,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     outputURL: outputURL,
                     format: format,
                     compression: compression
-                )
+                ),
+                routeContext: currentOperationRouteContext()
             )
 
             let task = Task.detached { [weak self] in
@@ -3468,7 +3984,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 cliCommand: cliCommands.first.map { firstCommand in
                     guard cliCommands.count > 1 else { return firstCommand }
                     return "\(firstCommand)\n# ... \(cliCommands.count - 1) more export command(s)"
-                }
+                },
+                routeContext: currentOperationRouteContext()
             )
 
             let task = Task.detached { [weak self] in
@@ -4264,41 +4781,41 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - ViewMenuActions
 
     @objc func toggleSidebar(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.toggleSidebar()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.toggleSidebar()
     }
 
     @objc func toggleInspector(_ sender: Any?) {
         let senderType = sender.map { String(describing: type(of: $0)) } ?? "nil"
         debugLog("toggleInspector[AppDelegate]: sender=\(senderType)")
-        mainWindowController?.mainSplitViewController?.toggleInspector(source: "AppDelegate.toggleInspector")
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.toggleInspector(source: "AppDelegate.toggleInspector")
     }
 
     @objc func focusViewer(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.focusViewer()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.focusViewer()
     }
 
     @objc func restoreSidePanes(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.restoreSidePanes()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.restoreSidePanes()
     }
 
     @objc func zoomIn(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.viewerController?.zoomIn()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomIn()
     }
 
     @objc func zoomOut(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.viewerController?.zoomOut()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomOut()
     }
 
     @objc func zoomToFit(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.viewerController?.zoomToFit()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomToFit()
     }
 
     @objc func zoomReset(_ sender: Any?) {
-        mainWindowController?.mainSplitViewController?.viewerController?.zoomReset()
+        activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.zoomReset()
     }
 
     @objc func toggleNucleotideMode(_ sender: Any?) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+        guard let viewerController = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController else {
             return
         }
 
@@ -4313,19 +4830,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func resetViewSettingsToDefaults(_ sender: Any?) {
-        guard let splitVC = mainWindowController?.mainSplitViewController else { return }
+        guard let splitVC = activeMainWindowController(sender: sender)?.mainSplitViewController else { return }
 
         // Delegate to the inspector's existing reset (which posts all needed notifications)
         splitVC.inspectorController.resetAllAppearanceSettings()
     }
 
     @objc func showDocumentInspector(_ sender: Any?) {
-        guard let splitViewController = mainWindowController?.mainSplitViewController else { return }
+        guard let splitViewController = activeMainWindowController(sender: sender)?.mainSplitViewController else { return }
         splitViewController.setInspectorVisible(true, animated: false, source: "AppDelegate.showDocumentInspector")
         NotificationCenter.default.post(
             name: .showInspectorRequested,
             object: self,
-            userInfo: [NotificationUserInfoKey.inspectorTab: "document"]
+            userInfo: [
+                NotificationUserInfoKey.inspectorTab: "document",
+                NotificationUserInfoKey.windowStateScope: splitViewController.projectSession.windowStateScope
+            ]
         )
     }
 
@@ -4626,7 +5146,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Update Sidebar menu item title based on state (Apple HIG compliance)
         // Tag 1000 is for sidebar toggle
         if menuItem.tag == 1000 {
-            if let isSidebarVisible = mainWindowController?.mainSplitViewController?.isSidebarVisible {
+            if let isSidebarVisible = activeMainWindowController()?.mainSplitViewController?.isSidebarVisible {
                 menuItem.title = isSidebarVisible ? "Hide Sidebar" : "Show Sidebar"
             }
             return true
@@ -4634,7 +5154,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Update Inspector menu item title based on state
         if menuItem.tag == 1001 {
-            if let isInspectorVisible = mainWindowController?.mainSplitViewController?.isInspectorVisible {
+            if let isInspectorVisible = activeMainWindowController()?.mainSplitViewController?.isInspectorVisible {
                 menuItem.title = isInspectorVisible ? "Hide Inspector" : "Show Inspector"
             }
             return true
@@ -4642,7 +5162,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Update DNA/RNA mode menu item state
         if menuItem.tag == 1002 {
-            if let isRNAMode = mainWindowController?.mainSplitViewController?.viewerController?.isRNAMode {
+            if let isRNAMode = activeMainWindowController()?.mainSplitViewController?.viewerController?.isRNAMode {
                 menuItem.state = isRNAMode ? .on : .off
             }
             return true
@@ -4660,23 +5180,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // "Import BAM/CRAM Alignments..." and sample metadata require a loaded bundle
         if menuItem.action == #selector(importBAMToBundle(_:))
             || menuItem.action == #selector(importSampleMetadataToBundle(_:)) {
-            let hasBundle = mainWindowController?.mainSplitViewController?.viewerController?.currentBundleURL != nil
+            let hasBundle = activeMainWindowController()?.mainSplitViewController?.viewerController?.currentBundleURL != nil
             return hasBundle
         }
 
         if menuItem.action == #selector(showBAMVariantCalling(_:)) {
-            let bundle = mainWindowController?.mainSplitViewController?.viewerController?.currentReferenceBundle
+            let bundle = activeMainWindowController()?.mainSplitViewController?.viewerController?.currentReferenceBundle
             return canShowBAMVariantCalling(bundle: bundle)
         }
 
         // Copy visible region requires an active viewer.
         if menuItem.action == #selector(copySelectionFASTA(_:)) {
-            return mainWindowController?.mainSplitViewController?.viewerController?.viewerView != nil
+            return activeMainWindowController()?.mainSplitViewController?.viewerController?.viewerView != nil
         }
 
         // Extract can bootstrap from the currently visible region.
         if menuItem.action == #selector(extractSelection(_:)) {
-            let hasViewer = mainWindowController?.mainSplitViewController?.viewerController?.viewerView != nil
+            let hasViewer = activeMainWindowController()?.mainSplitViewController?.viewerController?.viewerView != nil
             return hasViewer
         }
 
@@ -4692,11 +5212,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // "Clear Temporary Files..." requires an open project
         if menuItem.action == #selector(clearProjectTempFiles(_:)) {
-            return mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
+            return activeMainWindowController()?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
         }
 
         if menuItem.action == #selector(showWindowSizeDialog(_:)) {
-            return mainWindowController?.window != nil || NSApp.keyWindow != nil || NSApp.mainWindow != nil
+            return activeMainWindowController()?.window != nil || NSApp.keyWindow != nil || NSApp.mainWindow != nil
+        }
+
+        if menuItem.action == #selector(newWindowForCurrentProject(_:)) {
+            let controller = activeMainWindowController()
+            return controller?.projectSession.projectURL != nil
+                || controller?.mainSplitViewController?.sidebarController?.currentProjectURL != nil
         }
 
         return true
@@ -4717,7 +5243,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - SequenceMenuActions
 
     @objc func reverseComplement(_ sender: Any?) {
-        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
             return
         }
@@ -4725,7 +5251,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func translate(_ sender: Any?) {
-        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Translate.")
             return
         }
@@ -4735,7 +5261,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func goToPosition(_ sender: Any?) {
         // Ensure we have a viewer controller
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+        guard let viewerController = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer is available.")
             return
         }
@@ -4995,13 +5521,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func addAnnotation(_ sender: Any?) {
         // Get the current selection from the viewer
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+        guard let originController = activeMainWindowController(sender: sender),
+              let viewerController = originController.mainSplitViewController?.viewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer available.")
             return
         }
+        let routeContext = currentOperationRouteContext(for: originController)
 
         if let alignmentController = viewerController.multipleSequenceAlignmentViewController {
-            alignmentController.presentAddAnnotationDialog(window: mainWindowController?.window ?? NSApp.keyWindow)
+            alignmentController.presentAddAnnotationDialog(window: originController.window ?? NSApp.keyWindow)
             return
         }
 
@@ -5054,7 +5582,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         alert.accessoryView = accessoryView
 
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        guard let window = originController.window ?? NSApp.keyWindow else { return }
         Task {
             let response = await alert.beginSheetModal(for: window)
             if response == .alertFirstButtonReturn {
@@ -5078,9 +5606,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     await self.persistManualReferenceAnnotation(
                         annotation,
                         bundleURL: bundleURL,
-                        viewerController: viewerController
+                        viewerController: viewerController,
+                        routeContext: routeContext
                     )
-                } else if let document = DocumentManager.shared.activeDocument {
+                } else if let document = viewerController.currentDocument {
                     document.annotations.append(annotation)
 
                     // Refresh the viewer to show the new annotation
@@ -5095,13 +5624,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func persistManualReferenceAnnotation(
         _ annotation: SequenceAnnotation,
         bundleURL: URL,
-        viewerController: ViewerViewController
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext?
     ) async {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Add annotation",
+            presentingWindow: targetMainWindowController(routeContext: routeContext)?.window ?? viewerController.view.window
+        ) else { return }
         let opID = OperationCenter.shared.start(
             title: "Add Annotation",
             detail: "Adding \(annotation.name)...",
             operationType: .bundleBuild,
-            cliCommand: nil
+            cliCommand: nil,
+            routeContext: routeContext
         )
 
         do {
@@ -5113,17 +5651,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 id: opID,
                 detail: "Added annotation to \(result.track.name)"
             )
-            if let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController {
+            let targetController = targetMainWindowController(routeContext: routeContext)
+            let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
+            if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
                 sidebarController.reloadFromFilesystem()
                 _ = sidebarController.selectItem(forURL: bundleURL)
             }
 
-            if let referenceViewport = viewerController.referenceBundleViewportController,
+            if let referenceViewport = targetViewerController.referenceBundleViewportController,
                referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
                 try referenceViewport.reloadViewerBundleForInspectorChanges()
-                mainWindowController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
-            } else if viewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
-                try viewerController.displayBundle(at: bundleURL)
+                targetController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
+            } else if targetViewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try targetViewerController.displayBundle(at: bundleURL)
             }
         } catch {
             OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
@@ -5132,9 +5672,14 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func applyAlignmentAnnotationToSelection(_ sender: Any?) {
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController,
+        let controller = activeMainWindowController(sender: sender)
+        guard let viewerController = controller?.mainSplitViewController?.viewerController,
               let alignmentController = viewerController.multipleSequenceAlignmentViewController else {
-            showAlert(title: "No Alignment Viewer", message: "Open a multiple sequence alignment before applying annotations.")
+            showAlert(
+                title: "No Alignment Viewer",
+                message: "Open a multiple sequence alignment before applying annotations.",
+                presentingWindow: controller?.window
+            )
             return
         }
         do {
@@ -5142,21 +5687,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             if projected.isEmpty {
                 showAlert(
                     title: "No Annotation to Apply",
-                    message: "Select an annotated alignment range and at least one additional target row."
+                    message: "Select an annotated alignment range and at least one additional target row.",
+                    presentingWindow: controller?.window
                 )
             }
         } catch {
-            showAlert(title: "Apply Annotation Failed", message: error.localizedDescription)
+            showAlert(title: "Apply Annotation Failed", message: error.localizedDescription, presentingWindow: controller?.window)
         }
     }
 
-    private func showAlert(title: String, message: String) {
+    private func showAlert(title: String, message: String, presentingWindow: NSWindow? = nil) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .informational
         alert.addButton(withTitle: "OK")
-        if let window = mainWindowController?.window ?? NSApp.keyWindow {
+        if let window = presentingWindow ?? mainWindowController?.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         }
     }
@@ -5234,12 +5780,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         initialToolID: FASTQOperationToolID? = nil,
         preferredInputURLs: [URL] = []
     ) {
-        guard let window = mainWindowController?.window else {
+        guard let originController = activeMainWindowController(sender: sender),
+              let originSplit = originController.mainSplitViewController,
+              let window = originController.window else {
             debugLog("showFASTQOperationsDialog: No main window available")
             return
         }
 
-        let selectedInputURLs = gatherFASTQOperationInputURLs(preferredInputURLs: preferredInputURLs)
+        let routeContext = currentOperationRouteContext(for: originController)
+        let selectedInputURLs = gatherFASTQOperationInputURLs(
+            preferredInputURLs: preferredInputURLs,
+            controller: originController
+        )
         guard !selectedInputURLs.isEmpty else {
             let alert = NSAlert()
             alert.alertStyle = .informational
@@ -5250,7 +5802,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        let currentProjectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL
+        let currentProjectURL = routeContext?.projectURL
+            ?? originSplit.sidebarController?.currentProjectURL
         FASTQOperationsDialogPresenter.present(
             from: window,
             selectedInputURLs: selectedInputURLs,
@@ -5274,7 +5827,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         ?? request.outputDirectory.deletingLastPathComponent()
                     Task {
                         do {
-                            _ = try await service.run(request, bundleRoot: bundleRoot)
+                            _ = try await service.run(request, bundleRoot: bundleRoot, routeContext: routeContext)
                         } catch {
                             debugLog("showFASTQOperationsDialog: Viral Recon failed to start: \(String(describing: error))")
                         }
@@ -5283,17 +5836,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
 
                 if let request = state.pendingMappingRequest {
-                    self.runManagedMapping(request: request)
+                    self.runManagedMapping(request: request, routeContext: routeContext)
                     return
                 }
 
                 if let request = state.pendingMSAAlignmentRequest {
-                    self.runMAFFTAlignment(request: request)
+                    self.runMAFFTAlignment(request: request, routeContext: routeContext)
                     return
                 }
 
                 if let config = state.pendingMinimap2Config {
-                    self.runMinimap2Mapping(config: config)
+                    self.runMinimap2Mapping(config: config, routeContext: routeContext)
                     return
                 }
 
@@ -5301,39 +5854,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                    state.pendingClassificationConfigs.isEmpty,
                    state.pendingEsVirituConfigs.isEmpty,
                    state.pendingTaxTriageConfig == nil {
-                    self.mainWindowController?.mainSplitViewController?.runFASTQOperationLaunchRequest(
+                    originSplit.runFASTQOperationLaunchRequest(
                         request,
                         preferredOutputDirectory: state.outputDirectoryURL
                     )
                     return
                 }
 
-                guard let viewerController = self.mainWindowController?.mainSplitViewController?.viewerController else {
+                guard let viewerController = originSplit.viewerController else {
                     debugLog("showFASTQOperationsDialog: No viewer controller available for \(state.selectedToolID.rawValue)")
                     return
                 }
 
                 if !state.pendingClassificationConfigs.isEmpty {
-                    self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController)
+                    self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
 
                 if !state.pendingEsVirituConfigs.isEmpty {
-                    self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController)
+                    self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
 
                 if let config = state.pendingTaxTriageConfig {
-                    self.runTaxTriage(config: config, viewerController: viewerController)
+                    self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)
                     return
                 }
             }
         )
     }
 
-    private func gatherFASTQOperationInputURLs(preferredInputURLs: [URL]) -> [URL] {
-        let selectedURLs = mainWindowController?.mainSplitViewController?.sidebarController.selectedFileURLs() ?? []
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
+    private func gatherFASTQOperationInputURLs(
+        preferredInputURLs: [URL],
+        controller: MainWindowController? = nil
+    ) -> [URL] {
+        let controller = controller ?? activeMainWindowController()
+        let selectedURLs = controller?.mainSplitViewController?.sidebarController.selectedFileURLs() ?? []
+        let viewerController = controller?.mainSplitViewController?.viewerController
         let currentFASTQURL = viewerController?.currentFASTQDatasetURL ?? viewerController?.currentBundleURL
         return Self.resolveFASTQOperationInputURLs(
             preferredInputURLs: preferredInputURLs,
@@ -5402,10 +5959,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func launchNaoMgsImport(_ sender: Any?) {
-        guard let window = mainWindowController?.window else {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
             debugLog("launchNaoMgsImport: No main window available")
             return
         }
+        let routeContext = currentOperationRouteContext(for: controller)
 
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         wizardPanel.title = "NAO-MGS Import"
@@ -5414,7 +5973,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         var sheet = NaoMgsImportSheet(datasetURL: nil)
         sheet.onImport = { [weak self] (resultsDir: URL) in
             window.endSheet(wizardPanel)
-            self?.importNaoMgsResultFromURL(resultsDir)
+            self?.importNaoMgsResultFromURL(resultsDir, routeContext: routeContext)
         }
         sheet.onCancel = {
             window.endSheet(wizardPanel)
@@ -5427,15 +5986,28 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func launchPrimerSchemeImport(_ sender: Any?) {
-        guard let window = mainWindowController?.window else {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
             debugLog("launchPrimerSchemeImport: No main window available")
             return
         }
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
-              let projectURL = sidebarController.currentProjectURL else {
-            showAlert(title: "No Project Open", message: "Open a project before importing a primer scheme.")
+        let routeContext = currentOperationRouteContext(for: controller)
+        guard let projectURL = routeContext?.projectURL
+                ?? controller.projectSession.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(
+                title: "No Project Open",
+                message: "Open a project before importing a primer scheme.",
+                presentingWindow: window
+            )
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: controller.projectSession.windowStateScope,
+            workflowName: "Primer scheme import",
+            presentingWindow: window
+        ) else { return }
 
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         wizardPanel.title = "Import Primer Scheme"
@@ -5445,6 +6017,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let view = PrimerSchemeImportView(
             viewModel: importViewModel,
             projectURL: projectURL,
+            windowStateScope: controller.projectSession.windowStateScope,
             onComplete: { _ in
                 window.endSheet(wizardPanel)
             },
@@ -5460,10 +6033,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func launchNvdImport(_ sender: Any?) {
-        guard let window = mainWindowController?.window else {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
             debugLog("launchNvdImport: No main window available")
             return
         }
+        let routeContext = currentOperationRouteContext(for: controller)
 
         let wizardPanel = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         wizardPanel.title = "NVD Import"
@@ -5472,7 +6047,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         var sheet = NvdImportSheet(datasetURL: nil)
         sheet.onImport = { [weak self] (nvdDir: URL) in
             window.endSheet(wizardPanel)
-            self?.importNvdResultFromURL(nvdDir)
+            self?.importNvdResultFromURL(nvdDir, routeContext: routeContext)
         }
         sheet.onCancel = {
             window.endSheet(wizardPanel)
@@ -5485,13 +6060,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func launchCzIdImport(_ sender: Any?) {
-        guard let window = mainWindowController?.window else {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else {
             debugLog("launchCzIdImport: No main window available")
             return
         }
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
-              let projectURL = sidebarController.currentProjectURL else {
-            showAlert(title: "No Project Open", message: "Please open a project before importing CZ-ID results.")
+        let routeContext = currentOperationRouteContext(for: controller)
+        guard let projectURL = routeContext?.projectURL
+                ?? controller.projectSession.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(
+                title: "No Project Open",
+                message: "Please open a project before importing CZ-ID results.",
+                presentingWindow: window
+            )
             return
         }
 
@@ -5502,7 +6084,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         var sheet = CzIdImportSheet(projectURL: projectURL, datasetURL: nil)
         sheet.onImport = { [weak self] sourceURL in
             window.endSheet(wizardPanel)
-            self?.importCzIdResultFromURL(sourceURL)
+            self?.importCzIdResultFromURL(sourceURL, routeContext: routeContext)
         }
         sheet.onCancel = {
             window.endSheet(wizardPanel)
@@ -5514,25 +6096,39 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         window.beginSheet(wizardPanel)
     }
 
-    func importNvdResultFromURL(_ url: URL) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
-              let projectURL = sidebarController.currentProjectURL else {
-            showAlert(title: "No Project Open", message: "Please open a project before importing NVD results.")
+    func importNvdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
+              let projectURL = routeContext?.projectURL
+                ?? controller.projectSession.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(
+                title: "No Project Open",
+                message: "Please open a project before importing NVD results.",
+                presentingWindow: targetMainWindowController(routeContext: explicitRouteContext)?.window
+            )
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "NVD Import",
+            presentingWindow: controller.window
+        ) else { return }
 
         let importsDir = projectURL.appendingPathComponent("Imports", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: importsDir, withIntermediateDirectories: true)
         } catch {
-            showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)")
+            showAlert(title: "Import Failed", message: "Could not prepare Imports folder: \(error.localizedDescription)", presentingWindow: controller.window)
             return
         }
 
         let opID = OperationCenter.shared.start(
             title: "NVD Import",
             detail: "Parsing \(url.lastPathComponent)...",
-            cliCommand: nil
+            cliCommand: nil,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -5874,7 +6470,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             level: .info,
                             message: "NVD import complete: \(bundleName)"
                         )
-                        self?.refreshSidebarAndSelectImportedURL(bundleDir)
                     }
                 }
             } catch {
@@ -5985,10 +6580,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .orientReads)
     }
 
-    private func runMinimap2Mapping(config: Minimap2Config) {
+    private func runMinimap2Mapping(
+        config: Minimap2Config,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         // Redirect output to project-level Analyses/ folder when a project is open.
         var config = config
-        if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Read mapping"
+        ) else { return }
+        if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "minimap2", in: projectURL) {
                 config.outputDirectory = analysisDir
             }
@@ -5996,7 +6600,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let opID = OperationCenter.shared.start(
             title: "Map Reads (minimap2)",
-            detail: "Mapping \(config.inputFiles.count) file(s) to \(config.referenceURL.lastPathComponent)"
+            detail: "Mapping \(config.inputFiles.count) file(s) to \(config.referenceURL.lastPathComponent)",
+            routeContext: routeContext
         )
 
         Task.detached { [weak self] in
@@ -6048,8 +6653,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         do { try AnalysisManifestStore.recordAnalysis(entry, bundleURL: bundleURL) } catch { appDelegateLogger.warning("Failed to record analysis manifest: \(error.localizedDescription, privacy: .public)") }
                     }
 
-                    // Reload sidebar
-                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                    // Reload the originating window's sidebar.
+                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                         .sidebarController.reloadFromFilesystem()
                 }}
             } catch {
@@ -6060,12 +6665,25 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    func importCzIdResultFromURL(_ url: URL) {
-        guard let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController,
-              let projectURL = sidebarController.currentProjectURL else {
-            showAlert(title: "No Project Open", message: "Please open a project before importing CZ-ID results.")
+    func importCzIdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard let controller = targetMainWindowController(routeContext: routeContext) ?? activeMainWindowController(),
+              let projectURL = routeContext?.projectURL
+                ?? controller.projectSession.projectURL
+                ?? controller.mainSplitViewController?.sidebarController?.currentProjectURL else {
+            showAlert(
+                title: "No Project Open",
+                message: "Please open a project before importing CZ-ID results.",
+                presentingWindow: targetMainWindowController(routeContext: explicitRouteContext)?.window
+            )
             return
         }
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "CZ-ID Import",
+            presentingWindow: controller.window
+        ) else { return }
 
         Task.detached { [weak self] in
             var opID: UUID?
@@ -6099,7 +6717,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     OperationCenter.shared.start(
                         title: "CZ-ID Import",
                         detail: "Converting \(preview.reportFileName)...",
-                        cliCommand: cliCmd
+                        cliCommand: cliCmd,
+                        routeContext: routeContext
                     )
                 }
 
@@ -6131,7 +6750,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         level: .info,
                         message: "Imported CZ-ID result at \(imported.bundleURL.lastPathComponent)"
                     )
-                    self?.refreshSidebarAndSelectImportedURL(imported.bundleURL)
                 }
             } catch is CancellationError {
                 if let bundleURL {
@@ -6151,16 +6769,29 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     if let opID {
                         OperationCenter.shared.fail(id: opID, detail: detail)
                     }
-                    self?.showAlert(title: "CZ-ID Import Failed", message: detail)
+                    self?.showAlert(
+                        title: "CZ-ID Import Failed",
+                        message: detail,
+                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                    )
                 }
             }
         }
 
     }
 
-    private func runManagedMapping(request: MappingRunRequest) {
+    private func runManagedMapping(
+        request: MappingRunRequest,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         var request = request
-        let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL ?? request.projectURL
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Read mapping"
+        ) else { return }
+        let projectURL = routeContext?.projectURL ?? request.projectURL
         if let projectURL,
            let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: request.tool.rawValue, in: projectURL) {
             request = request.withOutputDirectory(analysisDir)
@@ -6168,7 +6799,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         let opID = OperationCenter.shared.start(
             title: "Map Reads (\(request.tool.displayName))",
-            detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)"
+            detail: "Mapping \(request.inputFASTQURLs.count) file(s) to \(request.referenceFASTAURL.lastPathComponent)",
+            routeContext: routeContext
         )
 
         Task.detached { [weak self] in
@@ -6265,7 +6897,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         }
                     }
 
-                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                         .sidebarController.reloadFromFilesystem()
                 }}
             } catch {
@@ -6276,8 +6908,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    private func runMAFFTAlignment(request: MSAAlignmentRunRequest) {
+    private func runMAFFTAlignment(
+        request: MSAAlignmentRunRequest,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         let outputURL = request.resolvedOutputBundleURL
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL ?? request.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "MAFFT alignment"
+        ) else { return }
         let cliArgs = CLIMSAAlignmentRunner.buildArguments(
             inputURLs: request.inputSequenceURLs,
             projectURL: request.projectURL,
@@ -6301,7 +6942,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "Align Sequences (MAFFT)",
             detail: "Preparing MAFFT alignment...",
             operationType: .multipleSequenceAlignmentGeneration,
-            cliCommand: cliCommand
+            cliCommand: cliCommand,
+            routeContext: routeContext
         )
 
         Task.detached { [weak self] in
@@ -6316,7 +6958,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         detail: "MAFFT complete: \(result.rowCount) rows, \(result.alignedLength) columns",
                         bundleURLs: [result.bundleURL]
                     )
-                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                    self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                         .sidebarController.reloadFromFilesystem()
                 }}
             } catch {
@@ -6425,7 +7067,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func runOrientReads(config: OrientConfig) {
         let opID = OperationCenter.shared.start(
             title: "Orient Reads",
-            detail: "Orienting reads against \(config.referenceURL.lastPathComponent)"
+            detail: "Orienting reads against \(config.referenceURL.lastPathComponent)",
+            routeContext: currentOperationRouteContext()
         )
 
         Task.detached { [weak self] in
@@ -6479,16 +7122,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
 
     @objc func searchNCBI(_ sender: Any?) {
-        showDatabaseBrowser(source: .ncbi)
+        showDatabaseBrowser(source: .ncbi, sender: sender)
     }
 
     @objc func searchSRA(_ sender: Any?) {
         // Use ENA service for SRA/FASTQ retrieval
-        showDatabaseBrowser(source: .ena)
+        showDatabaseBrowser(source: .ena, sender: sender)
     }
 
     @objc func searchPathoplexus(_ sender: Any?) {
-        showDatabaseBrowser(source: .pathoplexus)
+        showDatabaseBrowser(source: .pathoplexus, sender: sender)
     }
 
     @objc func showWorkflowBuilder(_ sender: Any?) {
@@ -6497,6 +7140,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             SettingsNavigationState.shared.open(.advanced)
             return
         }
+        let sourceController = activeMainWindowController(sender: sender)
 
         if workflowBuilderWindowController == nil {
             let viewController = WorkflowBuilderViewController()
@@ -6521,10 +7165,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         if let viewController = workflowBuilderWindowController?.window?.contentViewController as? WorkflowBuilderViewController {
-            let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+            let sidebarController = sourceController?.mainSplitViewController?.sidebarController
             viewController.configureRunContext(
                 projectURL: sidebarController?.currentProjectURL,
-                preferredSampleURL: sidebarController?.selectedFileURL
+                preferredSampleURL: sidebarController?.selectedFileURL,
+                windowStateScope: sourceController?.projectSession.windowStateScope,
+                isReadOnlyRecommended: sourceController?.projectSession.isReadOnlyRecommended == true
             )
         }
 
@@ -6577,13 +7223,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// - `.profile`: Runs Kraken2 + Bracken, displays taxonomy browser with abundances.
     /// - `.extract`: Runs Kraken2, displays taxonomy browser, then auto-presents
     ///   the extraction sheet so the user can select taxa to extract.
-    private func runClassification(configs: [ClassificationConfig], viewerController: ViewerViewController) {
+    private func runClassification(
+        configs: [ClassificationConfig],
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext? = nil
+    ) {
         guard let first = configs.first else { return }
         if configs.count == 1 {
-            runClassification(config: first, viewerController: viewerController)
+            runClassification(config: first, viewerController: viewerController, routeContext: routeContext)
             return
         }
-        runClassificationBatch(configs: configs, viewerController: viewerController)
+        runClassificationBatch(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
     /// Resolves input FASTQ files using ``FASTQSourceResolver``, materializing
@@ -6650,10 +7300,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return resolved
     }
 
-    private func runClassification(config: ClassificationConfig, viewerController: ViewerViewController) {
+    private func runClassification(
+        config: ClassificationConfig,
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         // Redirect output to project-level Analyses/ folder when a project is open.
         var config = config
-        if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Classification"
+        ) else { return }
+        if let projectURL = routeContext?.projectURL {
             if let analysisDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL) {
                 config.outputDirectory = analysisDir
             }
@@ -6681,7 +7341,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: operationTitle,
             detail: "Starting Kraken2 with \(config.databaseName)...",
             operationType: .classification,
-            cliCommand: cliCmd
+            cliCommand: cliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -6775,21 +7436,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                            viewerController.taxonomyViewController != nil,
                            let topSpecies = result.tree.dominantSpecies,
                            let window = viewerController.view.window {
-                            let ctx = TaxonomyReadExtractionAction.Context(
-                                tool: .kraken2,
-                                resultPath: capturedConfig.outputDirectory,
-                                selections: [ClassifierRowSelector(
-                                    sampleId: nil,
-                                    accessions: [],
-                                    taxIds: [topSpecies.taxId]
-                                )],
-                                suggestedName: "kraken2_\(topSpecies.name.replacingOccurrences(of: " ", with: "_"))"
-                            )
+	                            let ctx = TaxonomyReadExtractionAction.Context(
+	                                tool: .kraken2,
+	                                resultPath: capturedConfig.outputDirectory,
+	                                selections: [ClassifierRowSelector(
+	                                    sampleId: nil,
+	                                    accessions: [],
+	                                    taxIds: [topSpecies.taxId]
+	                                )],
+	                                suggestedName: "kraken2_\(topSpecies.name.replacingOccurrences(of: " ", with: "_"))",
+	                                routeContext: routeContext
+	                            )
                             TaxonomyReadExtractionAction.shared.present(context: ctx, hostWindow: window)
                         }
 
                         // Reload sidebar so the new result bundle appears
-                        AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                        AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
                             .sidebarController.reloadFromFilesystem()
 
                         // Record analysis in source bundle manifest
@@ -6834,21 +7497,35 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// Registers the operation with ``OperationCenter`` and displays the
     /// ``EsVirituResultViewController`` when complete.
-    private func runEsViritu(configs: [EsVirituConfig], viewerController: ViewerViewController) {
+    private func runEsViritu(
+        configs: [EsVirituConfig],
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext? = nil
+    ) {
         guard let first = configs.first else { return }
         if configs.count == 1 {
-            runEsViritu(config: first, viewerController: viewerController)
+            runEsViritu(config: first, viewerController: viewerController, routeContext: routeContext)
             return
         }
-        runEsVirituBatch(configs: configs, viewerController: viewerController)
+        runEsVirituBatch(configs: configs, viewerController: viewerController, routeContext: routeContext)
     }
 
-    private func runEsViritu(config: EsVirituConfig, viewerController: ViewerViewController) {
+    private func runEsViritu(
+        config: EsVirituConfig,
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         // Redirect output to project-level Analyses/ folder when a project is open.
         // Single-sample runs also use batch-style layout (sample in a subdirectory)
         // so there's only one display path for EsViritu results.
         var config = config
-        if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "EsViritu detection"
+        ) else { return }
+        if let projectURL = routeContext?.projectURL {
             if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
                 tool: "esviritu", in: projectURL, isBatch: true
             ) {
@@ -6867,7 +7544,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "EsViritu \(config.sampleName)",
             detail: "Starting EsViritu viral detection\u{2026}",
             operationType: .classification,
-            cliCommand: esCliCmd
+            cliCommand: esCliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -6981,7 +7659,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         )
                         // Reload sidebar so the new result bundle appears.
                         // User clicks the new result to view it (batch-only display path).
-                        AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                        self?.targetMainWindowController(routeContext: routeContext)?.mainSplitViewController?
                             .sidebarController.reloadFromFilesystem()
 
                         // Record analysis in source bundle manifest
@@ -7022,12 +7700,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     /// Runs Kraken2/Bracken profiling in batch mode (one run per sample).
-    private func runClassificationBatch(configs: [ClassificationConfig], viewerController: ViewerViewController) {
+    private func runClassificationBatch(
+        configs: [ClassificationConfig],
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         guard !configs.isEmpty else { return }
 
         // Redirect output to project-level Analyses/ folder when a project is open.
         var configs = configs
-        let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let projectURL = routeContext?.projectURL
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Classification batch"
+        ) else { return }
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "kraken2", in: projectURL, isBatch: true) {
             for i in configs.indices {
                 let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
@@ -7071,7 +7759,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "Classification Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting Kraken2/Bracken batch\u{2026}",
             operationType: .classification,
-            cliCommand: batchCliCmd
+            cliCommand: batchCliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -7299,7 +7988,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         viewerController.displayTaxonomyResult(firstResult)
                     }
 
-                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?.sidebarController.reloadFromFilesystem()
+                    self.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?
+                        .sidebarController.reloadFromFilesystem()
 
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
@@ -7325,12 +8016,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     /// Runs EsViritu detection in batch mode (one run per sample).
-    private func runEsVirituBatch(configs: [EsVirituConfig], viewerController: ViewerViewController) {
+    private func runEsVirituBatch(
+        configs: [EsVirituConfig],
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         guard !configs.isEmpty else { return }
 
         // Redirect output to project-level Analyses/ folder when a project is open.
         var configs = configs
-        let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        let projectURL = routeContext?.projectURL
+        guard canWriteProjectOutputs(
+            projectURL: projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "EsViritu batch"
+        ) else { return }
         if let projectURL, let batchDir = try? AnalysesFolder.createAnalysisDirectory(tool: "esviritu", in: projectURL, isBatch: true) {
             for i in configs.indices {
                 let sampleSubdir = batchDir.appendingPathComponent(configs[i].outputDirectory.lastPathComponent, isDirectory: true)
@@ -7361,7 +8062,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",
             operationType: .classification,
-            cliCommand: esBatchCliCmd
+            cliCommand: esBatchCliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -7587,7 +8289,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                     // Reload sidebar so the new batch result appears.
                     // User clicks the new result to view it (batch-only display path).
-                    AppDelegate.shared?.mainWindowController?.mainSplitViewController?.sidebarController.reloadFromFilesystem()
+                    self.targetMainWindowController(routeContext: routeContext)?
+                        .mainSplitViewController?
+                        .sidebarController.reloadFromFilesystem()
 
                     // Record analysis in source bundle manifests
                     for entry in successfulResults {
@@ -7615,12 +8319,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ///
     /// Registers the operation with ``OperationCenter`` and displays the
     /// ``TaxTriageResultViewController`` when complete.
-    private func runTaxTriage(config: TaxTriageConfig, viewerController: ViewerViewController) {
+    private func runTaxTriage(
+        config: TaxTriageConfig,
+        viewerController: ViewerViewController,
+        routeContext explicitRouteContext: OperationRouteContext? = nil
+    ) {
         // Redirect output to project-level Analyses/ folder when a project is open.
         // TaxTriage pipeline writes its own sample-subdirectory layout, so we just
         // create the batch-style parent directory and point outputDirectory at it.
         var config = config
-        if let projectURL = mainWindowController?.mainSplitViewController?.sidebarController?.currentProjectURL {
+        let routeContext = explicitRouteContext ?? currentOperationRouteContext()
+        guard canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "TaxTriage"
+        ) else { return }
+        if let projectURL = routeContext?.projectURL {
             if let batchDir = try? AnalysesFolder.createAnalysisDirectory(
                 tool: "taxtriage", in: projectURL, isBatch: true
             ) {
@@ -7640,7 +8354,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             title: "TaxTriage (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting TaxTriage pipeline\u{2026}",
             operationType: .classification,
-            cliCommand: ttCliCmd
+            cliCommand: ttCliCmd,
+            routeContext: routeContext
         )
 
         let task = Task.detached { [weak self] in
@@ -7778,7 +8493,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         BatchRunHistory.recordRun(result: capturedResult, config: capturedConfig)
 
                         // Reload sidebar so the new result bundle appears
-                        AppDelegate.shared?.mainWindowController?.mainSplitViewController?
+                        AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?
+                            .mainSplitViewController?
                             .sidebarController.reloadFromFilesystem()
 
                         // Record analysis in source bundle manifests
@@ -7858,10 +8574,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     /// Shows the database browser for the specified source.
-    private func showDatabaseBrowser(source: DatabaseSource) {
-        guard let window = mainWindowController?.window else { return }
+    private func showDatabaseBrowser(source: DatabaseSource, sender: Any? = nil) {
+        guard let controller = activeMainWindowController(sender: sender),
+              let window = controller.window else { return }
 
         let browserController = DatabaseBrowserViewController(source: source)
+        browserController.routeContext = currentOperationRouteContext(for: controller)
 
         // Dismiss the sheet immediately when a download is kicked off.
         // The download continues in background via DownloadCenter. Bundle
@@ -7896,22 +8614,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     /// in the activity indicator and refreshing the sidebar once at the end.
     ///
     /// - Parameter tempFileURLs: Array of URLs of downloaded files in the temp directory
-    private func handleMultipleDownloadsSync(_ tempFileURLs: [URL]) {
+    private func handleMultipleDownloadsSync(_ tempFileURLs: [URL], routeContext: OperationRouteContext? = nil) {
         guard !tempFileURLs.isEmpty else { return }
 
         debugLog("handleMultipleDownloadsSync: Starting with \(tempFileURLs.count) files")
 
         // Get UI controllers
-        let activityIndicator = mainWindowController?.mainSplitViewController?.activityIndicator
-        let viewerController = mainWindowController?.mainSplitViewController?.viewerController
-        let sidebarController = mainWindowController?.mainSplitViewController?.sidebarController
+        let targetController = targetMainWindowController(routeContext: routeContext)
+        let activityIndicator = targetController?.mainSplitViewController?.activityIndicator
+        let viewerController = targetController?.mainSplitViewController?.viewerController
+        let sidebarController = targetController?.mainSplitViewController?.sidebarController
+
+        let routedProjectURL = routeContext?.projectURL ?? targetController?.projectSession.projectURL
+        guard canWriteProjectOutputs(
+            projectURL: routedProjectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "Downloaded imports",
+            presentingWindow: targetController?.window
+        ) else {
+            return
+        }
 
         let totalCount = tempFileURLs.count
         activityIndicator?.show(message: "Importing \(totalCount) file\(totalCount == 1 ? "" : "s")...", style: .indeterminate)
 
         // Determine destination directory
         let destinationDirectory: URL
-        if let projectURL = DocumentManager.shared.activeProject?.url {
+        if let projectURL = routedProjectURL {
             destinationDirectory = projectURL.appendingPathComponent("Downloads", isDirectory: true)
         } else if let workingURL = workingDirectoryURL {
             destinationDirectory = workingURL.appendingPathComponent("Downloads", isDirectory: true)
@@ -7938,7 +8667,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             // copied into Downloads so the sidebar can surface it.
             let alreadyInProject = DownloadImportRouting.shouldPreserveInPlace(
                 downloadedURL: tempURL,
-                projectURL: DocumentManager.shared.activeProject?.url,
+                projectURL: routedProjectURL,
                 workingDirectoryURL: workingDirectoryURL
             )
 
@@ -8005,6 +8734,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     let bundledFASTQURL = bundleURL.appendingPathComponent(cleanFilename)
                     try FileManager.default.copyItem(at: tempURL, to: bundledFASTQURL)
                     debugLog("handleMultipleDownloadsSync: Packaged \(originalFilename) into \(bundleURL.path)")
+                    rehydrateCopiedProvenance(from: tempURL, to: bundledFASTQURL)
 
                     let sourceSidecar = FASTQMetadataStore.metadataURL(for: tempURL)
                     if FileManager.default.fileExists(atPath: sourceSidecar.path) {
@@ -8042,6 +8772,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             do {
                 try FileManager.default.copyItem(at: tempURL, to: destinationURL)
                 debugLog("handleMultipleDownloadsSync: Copied \(originalFilename) to \(destinationURL.path)")
+                rehydrateCopiedProvenance(from: tempURL, to: destinationURL)
 
                 // Copy metadata sidecar if it exists (e.g. SRA/ENA download metadata)
                 let sidecarURL = FASTQMetadataStore.metadataURL(for: tempURL)
@@ -8070,7 +8801,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         for url in copiedURLs {
             if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
                 let existingMeta = FASTQMetadataStore.load(for: fastqURL)
-                FASTQIngestionService.ingestIfNeeded(url: fastqURL, existingMetadata: existingMeta)
+                FASTQIngestionService.ingestIfNeeded(
+                    url: fastqURL,
+                    existingMetadata: existingMeta,
+                    routeContext: routeContext
+                )
             }
         }
 
@@ -8079,7 +8814,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             if firstURL.pathExtension.lowercased() == "lungfishref" ||
                 FASTQBundle.resolvePrimaryFASTQURL(for: firstURL) != nil {
                 activityIndicator?.hide()
-                refreshSidebarAndSelectImportedURL(firstURL)
+                refreshSidebarAndSelectImportedURL(firstURL, in: targetController)
                 debugLog("handleMultipleDownloadsSync: Imported \(copiedURLs.count) bundled item(s)")
                 return
             }
@@ -8107,7 +8842,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     // Select the first downloaded file in the sidebar to highlight what's being viewed
                     if result.error == nil {
                         sidebarController?.selectItem(forURL: result.url)
-                        self.requestInspectorDocumentModeAfterDownload()
+                        self.requestInspectorDocumentModeAfterDownload(in: targetController)
                     }
 
                     debugLog("handleMultipleDownloadsSync: Completed importing \(importedFileCount) files")
@@ -8116,6 +8851,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         } else {
             activityIndicator?.hide()
             sidebarController?.reloadFromFilesystem()
+        }
+    }
+
+    private func rehydrateCopiedProvenance(from sourceURL: URL, to destinationURL: URL) {
+        ProvenancePathRehydrator.rehydrate(from: sourceURL, to: destinationURL) { message in
+            debugLog("rehydrateCopiedProvenance: \(message)")
         }
     }
 
@@ -8541,28 +9282,43 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Project-Level Metadata Export/Import
 
     @objc func exportProjectSampleMetadata(_ sender: Any?) {
-        guard let projectURL = projectFolderURLForMetadata() else {
-            showAlert(title: "No Project Open", message: "Open a project folder to export sample metadata.")
+        let controller = activeMainWindowController(sender: sender)
+        guard let projectURL = projectFolderURLForMetadata(controller: controller) else {
+            showAlert(
+                title: "No Project Open",
+                message: "Open a project folder to export sample metadata.",
+                presentingWindow: controller?.window
+            )
             return
         }
         let sheet = MetadataExportSheet(folderURL: projectURL)
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        guard let window = controller?.window ?? NSApp.keyWindow else { return }
         window.contentViewController?.presentAsSheet(sheet)
     }
 
     @objc func importProjectSampleMetadata(_ sender: Any?) {
-        guard let projectURL = projectFolderURLForMetadata() else {
-            showAlert(title: "No Project Open", message: "Open a project folder to import sample metadata.")
+        guard let controller = activeMainWindowController(sender: sender),
+              let projectURL = projectFolderURLForMetadata(controller: controller) else {
+            showAlert(
+                title: "No Project Open",
+                message: "Open a project folder to import sample metadata.",
+                presentingWindow: activeMainWindowController(sender: sender)?.window
+            )
             return
         }
-        let sheet = MetadataImportSheet(folderURL: projectURL)
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        let sheet = MetadataImportSheet(
+            folderURL: projectURL,
+            windowStateScope: controller.projectSession.windowStateScope
+        )
+        guard let window = controller.window ?? NSApp.keyWindow else { return }
         window.contentViewController?.presentAsSheet(sheet)
     }
 
     /// Returns the current project folder URL from the sidebar, if available.
-    private func projectFolderURLForMetadata() -> URL? {
-        mainWindowController?.mainSplitViewController?.sidebarController?.projectFolderURL
+    private func projectFolderURLForMetadata(controller: MainWindowController? = nil) -> URL? {
+        let controller = controller ?? activeMainWindowController()
+        return controller?.mainSplitViewController?.sidebarController?.projectFolderURL
+            ?? controller?.projectSession.projectURL
     }
 
     // MARK: - OperationsMenuActions

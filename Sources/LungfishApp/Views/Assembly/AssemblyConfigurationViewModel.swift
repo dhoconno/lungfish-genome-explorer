@@ -37,7 +37,7 @@ public enum AssemblyRunner {
     ///
     /// Task 4 routes the shared UI through ``AssemblyRunRequest`` even while
     /// the standalone execution backend is being generalized.
-    public static func run(request: AssemblyRunRequest) {
+    public static func run(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
         Task { @MainActor in
             if let warning = await AssemblyRuntimePreflight.warningMessage(for: request) {
                 AssemblyRuntimePreflight.presentWarning(
@@ -47,13 +47,21 @@ public enum AssemblyRunner {
                 )
                 return
             }
-            runValidated(request: request)
+            runValidated(request: request, routeContext: routeContext)
         }
     }
 
-    static func runValidated(request: AssemblyRunRequest) {
+    static func runValidated(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
         let request = request.normalizedForExecution()
         let projectName = request.projectName
+        guard AppDelegate.shared?.canWriteProjectOutputs(
+            projectURL: routeContext?.projectURL,
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: "\(request.tool.displayName) assembly",
+            presentingWindow: AppDelegate.shared?.targetMainWindowController(routeContext: routeContext)?.window
+        ) ?? true else {
+            return
+        }
 
         if Bundle.main.bundleIdentifier != nil {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, error in
@@ -89,14 +97,6 @@ public enum AssemblyRunner {
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        let task = Task.detached {
-            await runManagedAssemblyOperation(
-                request: executionRequest,
-                baseOutputDirectory: baseOutputDirectory,
-                projectName: projectName
-            )
-        }
-
         var args = request.inputURLs.map(\.path)
         if request.pairedEnd {
             args.append("--paired")
@@ -121,13 +121,24 @@ public enum AssemblyRunner {
         }
         args += ["--output", executionRequest.outputDirectory.path]
 
-        _ = OperationCenter.shared.start(
+        let opID = OperationCenter.shared.start(
             title: "\(request.tool.displayName) Assembly: \(projectName)",
             detail: "Initializing...",
             operationType: .assembly,
             cliCommand: "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args),
-            onCancel: { task.cancel() }
+            routeContext: routeContext
         )
+
+        let task = Task.detached {
+            await runManagedAssemblyOperation(
+                request: executionRequest,
+                baseOutputDirectory: baseOutputDirectory,
+                projectName: projectName,
+                operationID: opID
+            )
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     /// Launches a SPAdes assembly in the background.
@@ -136,7 +147,7 @@ public enum AssemblyRunner {
     /// pipeline in a detached task so the calling sheet can safely dismiss.
     ///
     /// - Parameter config: The fully configured ``SPAdesAssemblyConfig``.
-    public static func run(config: SPAdesAssemblyConfig) {
+    public static func run(config: SPAdesAssemblyConfig, routeContext: OperationRouteContext? = nil) {
         let projectName = config.projectName
 
         // Request notification permission (idempotent).
@@ -158,10 +169,6 @@ public enum AssemblyRunner {
 
         logger.info("Starting SPAdes assembly: mode=\(config.mode.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        let task = Task.detached {
-            await runAssemblyOperation(config: config, projectName: projectName)
-        }
-
         let cliCmd: String = {
             var args: [String] = []
             for r in config.forwardReads { args += ["--pe1-1", r.path] }
@@ -172,13 +179,19 @@ public enum AssemblyRunner {
                 + " (CLI command not yet available)"
         }()
 
-        _ = OperationCenter.shared.start(
+        let opID = OperationCenter.shared.start(
             title: "SPAdes Assembly: \(projectName)",
             detail: "Initializing...",
             operationType: .assembly,
             cliCommand: cliCmd,
-            onCancel: { task.cancel() }
+            routeContext: routeContext
         )
+
+        let task = Task.detached {
+            await runAssemblyOperation(config: config, projectName: projectName, operationID: opID)
+        }
+
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     private static func spadesConfig(from request: AssemblyRunRequest) -> SPAdesAssemblyConfig? {
@@ -212,19 +225,9 @@ public enum AssemblyRunner {
     private static func runManagedAssemblyOperation(
         request: AssemblyRunRequest,
         baseOutputDirectory: URL,
-        projectName: String
+        projectName: String,
+        operationID opID: UUID
     ) async {
-        let operationID: UUID? = await MainActor.run {
-            OperationCenter.shared.items.first(where: {
-                $0.title == "\(request.tool.displayName) Assembly: \(projectName)" && $0.state == .running
-            })?.id
-        }
-
-        guard let opID = operationID else {
-            logger.error("Managed assembly operation not found in OperationCenter")
-            return
-        }
-
         do {
             await MainActor.run {
                 OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
@@ -312,19 +315,9 @@ public enum AssemblyRunner {
     /// the calling sheet can safely dismiss while the assembly continues.
     private static func runAssemblyOperation(
         config: SPAdesAssemblyConfig,
-        projectName: String
+        projectName: String,
+        operationID opID: UUID
     ) async {
-        let operationID: UUID? = await MainActor.run {
-            OperationCenter.shared.items.first(where: {
-                $0.title == "SPAdes Assembly: \(projectName)" && $0.state == .running
-            })?.id
-        }
-
-        guard let opID = operationID else {
-            logger.error("Assembly operation not found in OperationCenter")
-            return
-        }
-
         do {
             // Materialize virtual FASTQ bundles (subset/trim/demux produce only preview.fastq)
             await MainActor.run {
