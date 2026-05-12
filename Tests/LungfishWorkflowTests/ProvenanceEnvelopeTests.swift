@@ -942,7 +942,7 @@ struct ProvenanceEnvelopeTests {
           "schemaVersion": 1,
           "workflowName": "phylogenetic-tree-infer-iqtree",
           "toolName": "lungfish tree infer iqtree",
-          "toolVersion": "0.4.0-alpha.13",
+          "toolVersion": "0.4.0-alpha.14",
           "argv": ["lungfish", "tree", "infer", "iqtree", "aligned.lungfishmsa"],
           "command": "lungfish tree infer iqtree aligned.lungfishmsa",
           "runtimeIdentity": {
@@ -1004,7 +1004,7 @@ struct ProvenanceEnvelopeTests {
           "schemaVersion": 1,
           "workflowName": "phylogenetic-tree-infer-iqtree",
           "toolName": "lungfish tree infer iqtree",
-          "toolVersion": "0.4.0-alpha.13",
+          "toolVersion": "0.4.0-alpha.14",
           "command": "lungfish tree infer iqtree aligned.lungfishmsa",
           "output": {
             "path": "/project/tree.lungfishtree",
@@ -1034,7 +1034,7 @@ struct ProvenanceEnvelopeTests {
         {
           "schemaVersion": 1,
           "toolName": "lungfish import tree",
-          "toolVersion": "0.4.0-alpha.13",
+          "toolVersion": "0.4.0-alpha.14",
           "argv": ["lungfish", "import", "tree", "tree.nwk"],
           "command": "lungfish import tree tree.nwk",
           "input": {
@@ -1105,9 +1105,9 @@ struct ProvenanceEnvelopeTests {
             },
             {
               "workflowName": "lungfish annotation track import",
-              "workflowVersion": "0.4.0-alpha.13",
+              "workflowVersion": "0.4.0-alpha.14",
               "toolName": "Lungfish Genome Explorer",
-              "toolVersion": "0.4.0-alpha.13",
+              "toolVersion": "0.4.0-alpha.14",
               "argv": ["Lungfish.app", "annotation-import", "--track-id", "genes"],
               "options": { "trackID": "genes" },
               "inputPaths": ["/project/genes.gff3"],
@@ -1118,7 +1118,7 @@ struct ProvenanceEnvelopeTests {
               "outputFileInfo": [
                 { "path": "/project/Reference.lungfishref/annotations/genes.db", "sha256": "\(String(repeating: "d", count: 64))", "sizeBytes": 40 }
               ],
-              "runtime": { "appVersion": "0.4.0-alpha.13" },
+              "runtime": { "appVersion": "0.4.0-alpha.14" },
               "exitStatus": 0,
               "wallTimeSeconds": 0.5,
               "recordedAt": "2026-05-12T12:00:00Z"
@@ -1190,7 +1190,7 @@ struct ProvenanceEnvelopeTests {
           "schemaVersion": 1,
           "workflowName": "multiple-sequence-alignment-annotation-edit",
           "toolName": "lungfish-gui msa annotation edit",
-          "toolVersion": "0.4.0-alpha.13",
+          "toolVersion": "0.4.0-alpha.14",
           "argv": ["lungfish-gui", "msa", "annotate"],
           "reproducibleCommand": "lungfish-gui msa annotate",
           "createdAt": "2026-05-12T18:41:18Z",
@@ -1236,7 +1236,7 @@ struct ProvenanceEnvelopeTests {
           "entries": [
             {
               "workflowName": "lungfish manual annotation",
-              "workflowVersion": "0.4.0-alpha.13",
+              "workflowVersion": "0.4.0-alpha.14",
               "argv": ["Lungfish.app", "manual-annotation"],
               "options": { "trackID": "manual_annotations" },
               "inputPaths": ["\(referenceBundleURL.path)"],
@@ -1256,9 +1256,9 @@ struct ProvenanceEnvelopeTests {
           "entries": [
             {
               "workflowName": "lungfish annotation track import",
-              "workflowVersion": "0.4.0-alpha.13",
+              "workflowVersion": "0.4.0-alpha.14",
               "toolName": "Lungfish Genome Explorer",
-              "toolVersion": "0.4.0-alpha.13",
+              "toolVersion": "0.4.0-alpha.14",
               "argv": ["Lungfish.app", "annotation-import"],
               "options": { "trackID": "genes" },
               "inputPaths": ["/project/genes.gff3"],
@@ -1293,7 +1293,7 @@ struct ProvenanceEnvelopeTests {
         {
           "workflowName": "lungfish bam adopt-mapping",
           "toolName": "lungfish-cli",
-          "toolVersion": "0.4.0-alpha.13",
+          "toolVersion": "0.4.0-alpha.14",
           "argv": ["lungfish-cli", "bam", "adopt-mapping"],
           "outputFiles": [{ "path": "\(adoptedBAMURL.path)" }],
           "recordedAt": "2026-05-12T13:30:00Z",
