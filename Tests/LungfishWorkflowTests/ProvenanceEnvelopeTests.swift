@@ -19,23 +19,53 @@ struct ProvenanceEnvelopeTests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         #expect(json["schemaVersion"] as? Int == 1)
+        #expect(json["id"] as? String == envelope.id.uuidString)
+        #expect(json["createdAt"] as? String == "1970-01-01T00:00:00Z")
         #expect(json["workflowName"] as? String == "fastq.trim.fastp")
+        #expect(json["workflowVersion"] as? String == "fixture-workflow-version")
         #expect(json["toolName"] as? String == "fastp")
         #expect(json["toolVersion"] as? String == "0.24.1")
+        #expect(json["tool"] is [String: Any])
         #expect(json["argv"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])
         #expect(json["reproducibleCommand"] as? String == "fastp -i reads.fastq -o trimmed.fastq")
+        #expect(json["options"] is [String: Any])
         #expect(json["runtimeIdentity"] is [String: Any])
         #expect(json["files"] is [[String: Any]])
         #expect(json["output"] is [String: Any])
         #expect(json["outputs"] is [[String: Any]])
+        #expect(json["steps"] is [[String: Any]])
         #expect(json["wallTimeSeconds"] as? Double == 1.25)
         #expect(json["exitStatus"] as? Int == 0)
+        #expect(json["stderr"] as? String == "fixture stderr")
+        #expect(json["signatures"] is [[String: Any]])
+        #expect(json["legacyWorkflowRun"] is [String: Any])
 
         let output = try #require(json["output"] as? [String: Any])
         #expect(output["checksumSHA256"] as? String == String(repeating: "b", count: 64))
         #expect(output["sha256"] as? String == String(repeating: "b", count: 64))
         #expect(output["fileSize"] as? Int == 22)
         #expect(output["sizeBytes"] as? Int == 22)
+    }
+
+    @Test("file descriptor decodes legacy checksum and size aliases into canonical fields")
+    func fileDescriptorDecodesLegacyAliases() throws {
+        let data = Data("""
+        {
+          "path": "legacy.fastq",
+          "sha256": "\(String(repeating: "c", count: 64))",
+          "sizeBytes": 42,
+          "format": "fastq",
+          "role": "input"
+        }
+        """.utf8)
+
+        let decoded = try ProvenanceJSON.decoder.decode(ProvenanceFileDescriptor.self, from: data)
+
+        #expect(decoded.path == "legacy.fastq")
+        #expect(decoded.checksumSHA256 == String(repeating: "c", count: 64))
+        #expect(decoded.fileSize == 42)
+        #expect(decoded.format == .fastq)
+        #expect(decoded.role == .input)
     }
 
     @Test("legacy WorkflowRun sidecar decodes through canonical reader")

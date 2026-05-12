@@ -359,9 +359,28 @@ extension ProvenanceEnvelope {
             exitStatus: 0,
             wallTimeSeconds: 1.25
         )
+        let legacyRun = WorkflowRun(
+            name: workflowName,
+            startTime: Date(timeIntervalSince1970: 0),
+            endTime: Date(timeIntervalSince1970: 1.25),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: toolName,
+                    toolVersion: toolVersion,
+                    command: argv,
+                    inputs: [FileRecord(provenanceFile: input)],
+                    outputs: [FileRecord(provenanceFile: output)],
+                    exitCode: 0,
+                    wallTime: 1.25,
+                    stderr: "fixture stderr"
+                )
+            ]
+        )
         return ProvenanceEnvelope(
             createdAt: Date(timeIntervalSince1970: 0),
             workflowName: workflowName,
+            workflowVersion: "fixture-workflow-version",
             toolName: toolName,
             toolVersion: toolVersion,
             tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: "cli"),
@@ -372,7 +391,17 @@ extension ProvenanceEnvelope {
             outputs: [output],
             steps: [step],
             wallTimeSeconds: 1.25,
-            exitStatus: 0
+            exitStatus: 0,
+            stderr: "fixture stderr",
+            signatures: [
+                ProvenanceSignatureReference(
+                    provider: "fixture-provider",
+                    provenanceSHA256: String(repeating: "d", count: 64),
+                    signaturePath: "fixture.sig",
+                    publicKeyPath: "fixture.pub"
+                )
+            ],
+            legacyWorkflowRun: legacyRun
         )
     }
 }
