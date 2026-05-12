@@ -90,6 +90,40 @@ struct ProvenanceSigningTests {
         #expect(result.isValid)
     }
 
+    @Test("Verification checks embedded signature reference digest")
+    func testEmbeddedSignatureReferenceDigestMismatchFails() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let writer = ProvenanceWriter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "embedded-reference-key")
+        )
+        let signedEnvelope = try writer.write(ProvenanceEnvelope.fixture(), to: directory)
+        let reference = try #require(
+            signedEnvelope.signatures.first { $0.provider == ProvenanceSigningConfiguration.localProviderID }
+        )
+        let tamperedReference = ProvenanceSignatureReference(
+            provider: reference.provider,
+            provenanceSHA256: String(repeating: "0", count: 64),
+            signaturePath: reference.signaturePath,
+            publicKeyPath: reference.publicKeyPath
+        )
+        let tamperedEnvelope = signedEnvelope.upsertingSignatureReference(tamperedReference)
+        let provenanceURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        try ProvenanceJSON.encoder.encode(tamperedEnvelope).write(to: provenanceURL, options: .atomic)
+
+        do {
+            _ = try ProvenanceSignatureVerifier.verify(provenanceURL: provenanceURL)
+            #expect(Bool(false), "Expected embedded provenance digest mismatch")
+        } catch let error as ProvenanceSignatureVerificationError {
+            if case .provenanceDigestMismatch(let expected, let actual) = error {
+                #expect(expected == String(repeating: "0", count: 64))
+                #expect(actual == reference.provenanceSHA256)
+            } else {
+                #expect(Bool(false), "Expected provenance digest mismatch, got \(error)")
+            }
+        }
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("lungfish-provenance-signing-\(UUID().uuidString)", isDirectory: true)
