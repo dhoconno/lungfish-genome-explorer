@@ -217,6 +217,43 @@ struct ProvenanceEnvelopeTests {
         #expect((tool["version"] as? String)?.isEmpty == false)
     }
 
+    @Test("canonical envelope merges top-level output into final legacy step")
+    func canonicalEnvelopeMergesTopLevelOutputIntoFinalLegacyStep() throws {
+        let output = ProvenanceFileDescriptor(
+            path: "top-level-output.fastq",
+            checksumSHA256: String(repeating: "f", count: 64),
+            fileSize: 77,
+            format: .fastq,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "canonical step output merge",
+            workflowVersion: "workflow-1",
+            toolName: "lungfish-cli",
+            toolVersion: "1.0.0",
+            argv: ["lungfish-cli", "export"],
+            files: [output],
+            output: output,
+            outputs: [],
+            steps: [
+                ProvenanceStep(
+                    toolName: "lungfish-cli",
+                    toolVersion: "1.0.0",
+                    argv: ["lungfish-cli", "export"],
+                    outputs: []
+                )
+            ],
+            exitStatus: 0
+        )
+
+        let legacy = envelope.legacyWorkflowRun()
+
+        #expect(legacy.steps.count == 1)
+        #expect(legacy.steps.first?.outputs.count == 1)
+        #expect(legacy.steps.first?.outputs.first?.path == "top-level-output.fastq")
+        #expect(legacy.steps.first?.outputs.first?.sha256 == String(repeating: "f", count: 64))
+    }
+
     @Test("runtime identity initializer normalizes blank required fields")
     func runtimeIdentityInitializerNormalizesBlankRequiredFields() throws {
         let runtimeIdentity = ProvenanceRuntimeIdentity(
@@ -377,6 +414,23 @@ struct ProvenanceEnvelopeTests {
         #expect(envelope.tool.kind == "cli")
     }
 
+    @Test("initializer normalizes blank workflow and tool names")
+    func initializerNormalizesBlankWorkflowAndToolNames() throws {
+        let envelope = ProvenanceEnvelope(
+            workflowName: "  ",
+            workflowVersion: "workflow-1",
+            toolName: "\n",
+            toolVersion: "1.2.3",
+            tool: ProvenanceToolIdentity(name: "nested-tool", version: "1.2.3", kind: "cli")
+        )
+
+        #expect(envelope.workflowName == "unknown")
+        #expect(envelope.toolName == "unknown")
+        #expect(envelope.tool.name == "unknown")
+        #expect(envelope.tool.version == "1.2.3")
+        #expect(envelope.tool.kind == "cli")
+    }
+
     @Test("decoder normalizes conflicting nested tool identity to top-level authority")
     func decoderNormalizesConflictingNestedToolIdentity() throws {
         let envelope = try ProvenanceJSON.decoder.decode(
@@ -410,6 +464,43 @@ struct ProvenanceEnvelopeTests {
         #expect(envelope.toolName == "canonical-tool")
         #expect(envelope.toolVersion == "1.2.3")
         #expect(envelope.tool.name == "canonical-tool")
+        #expect(envelope.tool.version == "1.2.3")
+        #expect(envelope.tool.kind == "cli")
+    }
+
+    @Test("decoder normalizes blank top-level names with nested tool fallback")
+    func decoderNormalizesBlankTopLevelNamesWithNestedToolFallback() throws {
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data("""
+            {
+              "schemaVersion": 1,
+              "id": "00000000-0000-0000-0000-000000000006",
+              "createdAt": "1970-01-01T00:00:00Z",
+              "workflowName": "  ",
+              "workflowVersion": "workflow-1",
+              "toolName": "",
+              "toolVersion": "1.2.3",
+              "tool": {
+                "name": "nested-tool",
+                "version": "1.2.3",
+                "kind": "cli"
+              },
+              "argv": ["nested-tool"],
+              "reproducibleCommand": "nested-tool",
+              "options": {"explicit": {}, "defaults": {}, "resolvedDefaults": {}},
+              "runtimeIdentity": {},
+              "files": [],
+              "outputs": [],
+              "steps": [],
+              "signatures": []
+            }
+            """.utf8)
+        )
+
+        #expect(envelope.workflowName == "unknown")
+        #expect(envelope.toolName == "nested-tool")
+        #expect(envelope.tool.name == "nested-tool")
         #expect(envelope.tool.version == "1.2.3")
         #expect(envelope.tool.kind == "cli")
     }

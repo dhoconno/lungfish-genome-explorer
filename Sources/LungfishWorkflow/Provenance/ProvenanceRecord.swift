@@ -453,7 +453,7 @@ extension ProvenanceEnvelope {
                 )
             ]
         } else {
-            legacySteps = steps.map { step in
+            var convertedSteps = steps.map { step in
                 StepExecution(
                     id: step.id,
                     toolName: step.toolName,
@@ -471,6 +471,8 @@ extension ProvenanceEnvelope {
                     endTime: step.completedAt
                 )
             }
+            convertedSteps.mergeFallbackOutputsIntoFinalStep(legacyFallbackOutputs())
+            legacySteps = convertedSteps
         }
 
         return WorkflowRun(
@@ -510,6 +512,19 @@ extension ProvenanceEnvelope {
         }
 
         return descriptors
+    }
+}
+
+private extension Array where Element == StepExecution {
+    mutating func mergeFallbackOutputsIntoFinalStep(_ fallbackOutputs: [ProvenanceFileDescriptor]) {
+        guard !isEmpty, !fallbackOutputs.isEmpty else { return }
+        let finalStepIndex = index(before: endIndex)
+        var seenOutputPaths = Set(self[finalStepIndex].outputs.map(\.path))
+        let missingOutputs = fallbackOutputs
+            .map(FileRecord.init(provenanceFile:))
+            .filter { seenOutputPaths.insert($0.path).inserted }
+        guard !missingOutputs.isEmpty else { return }
+        self[finalStepIndex].outputs.append(contentsOf: missingOutputs)
     }
 }
 
