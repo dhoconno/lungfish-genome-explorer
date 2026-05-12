@@ -362,8 +362,8 @@ extension WorkflowRun {
         let convertedSteps = steps.map(ProvenanceStep.init(stepExecution:))
         let allFiles = convertedSteps.flatMap { $0.inputs + $0.outputs }
         let allOutputs = convertedSteps.flatMap(\.outputs)
-        let topLevelOutput = firstStep?.outputs.first.map { ProvenanceFileDescriptor(fileRecord: $0) }
         let outcomeStep = canonicalOutcomeStep()
+        let topLevelOutput = canonicalTopLevelOutput(outcomeStep: outcomeStep)
 
         return ProvenanceEnvelope(
             id: id,
@@ -403,6 +403,23 @@ extension WorkflowRun {
             return failedStep
         }
         return steps.last ?? steps.first
+    }
+
+    private func canonicalTopLevelOutput(outcomeStep: StepExecution?) -> ProvenanceFileDescriptor? {
+        for index in steps.indices.reversed() {
+            let laterInputPaths = Set(steps.dropFirst(index + 1).flatMap { $0.inputs.map(\.path) })
+            if let terminalOutput = steps[index].outputs.first(where: { !laterInputPaths.contains($0.path) }) {
+                return ProvenanceFileDescriptor(fileRecord: terminalOutput)
+            }
+        }
+
+        if let output = outcomeStep?.outputs.first {
+            return ProvenanceFileDescriptor(fileRecord: output)
+        }
+        if let output = steps.last?.outputs.first ?? steps.first?.outputs.first {
+            return ProvenanceFileDescriptor(fileRecord: output)
+        }
+        return nil
     }
 
     private func canonicalExitStatus(outcomeStep: StepExecution?) -> Int? {

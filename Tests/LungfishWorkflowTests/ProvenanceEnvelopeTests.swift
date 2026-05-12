@@ -105,6 +105,58 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.outputs.first?.checksumSHA256 == String(repeating: "b", count: 64))
     }
 
+    @Test("legacy multi-step canonical output prefers terminal final output")
+    func legacyMultiStepCanonicalOutputPrefersTerminalFinalOutput() throws {
+        let intermediate = FileRecord(
+            path: "trimmed.fastq",
+            sha256: String(repeating: "b", count: 64),
+            sizeBytes: 22,
+            format: .fastq,
+            role: .output
+        )
+        let finalOutput = FileRecord(
+            path: "aligned.bam",
+            sha256: String(repeating: "c", count: 64),
+            sizeBytes: 44,
+            format: .bam,
+            role: .output
+        )
+        let legacy = WorkflowRun(
+            name: "legacy two-step workflow",
+            startTime: Date(timeIntervalSince1970: 120),
+            endTime: Date(timeIntervalSince1970: 126),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: "fastp",
+                    toolVersion: "0.24.1",
+                    command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "reads.fastq", role: .input)],
+                    outputs: [intermediate],
+                    exitCode: 0,
+                    wallTime: 2
+                ),
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.28",
+                    command: ["minimap2", "reference.fasta", "trimmed.fastq", "-o", "aligned.bam"],
+                    inputs: [
+                        FileRecord(path: "reference.fasta", role: .reference),
+                        FileRecord(path: "trimmed.fastq", role: .input)
+                    ],
+                    outputs: [finalOutput],
+                    exitCode: 0,
+                    wallTime: 4
+                )
+            ]
+        )
+
+        let envelope = legacy.canonicalEnvelope()
+
+        #expect(envelope.output?.path == "aligned.bam")
+        #expect(envelope.output?.checksumSHA256 == String(repeating: "c", count: 64))
+    }
+
     @Test("legacy failed multi-step run reports failed canonical top-level outcome")
     func legacyFailedMultiStepRunReportsFailedTopLevelOutcome() throws {
         let legacy = WorkflowRun(
