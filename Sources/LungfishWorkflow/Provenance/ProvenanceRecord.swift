@@ -363,6 +363,7 @@ extension WorkflowRun {
         let allFiles = convertedSteps.flatMap { $0.inputs + $0.outputs }
         let allOutputs = convertedSteps.flatMap(\.outputs)
         let topLevelOutput = firstStep?.outputs.first.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let outcomeStep = canonicalOutcomeStep()
 
         return ProvenanceEnvelope(
             id: id,
@@ -390,10 +391,34 @@ extension WorkflowRun {
             outputs: allOutputs,
             steps: convertedSteps,
             wallTimeSeconds: wallTime,
-            exitStatus: firstStep?.exitCode.map(Int.init),
-            stderr: firstStep?.stderr,
+            exitStatus: canonicalExitStatus(outcomeStep: outcomeStep),
+            stderr: canonicalStderr(outcomeStep: outcomeStep),
             legacyWorkflowRun: self
         )
+    }
+
+    private func canonicalOutcomeStep() -> StepExecution? {
+        if status == .failed, let failedStep = steps.last(where: { ($0.exitCode ?? 0) != 0 }) {
+            return failedStep
+        }
+        return steps.last ?? steps.first
+    }
+
+    private func canonicalExitStatus(outcomeStep: StepExecution?) -> Int? {
+        if status == .completed {
+            return outcomeStep?.exitCode.map(Int.init) ?? 0
+        }
+        if status == .failed {
+            return outcomeStep?.exitCode.map(Int.init) ?? 1
+        }
+        return outcomeStep?.exitCode.map(Int.init)
+    }
+
+    private func canonicalStderr(outcomeStep: StepExecution?) -> String? {
+        if status == .failed {
+            return outcomeStep?.stderr ?? steps.reversed().first { !($0.stderr ?? "").isEmpty }?.stderr
+        }
+        return outcomeStep?.stderr
     }
 }
 
@@ -405,6 +430,7 @@ extension ProvenanceEnvelope {
 
         let legacySteps: [StepExecution]
         if steps.isEmpty {
+            let fallbackOutputs = legacyFallbackOutputs()
             legacySteps = [
                 StepExecution(
                     id: UUID(),
@@ -414,7 +440,7 @@ extension ProvenanceEnvelope {
                     containerDigest: runtimeIdentity.containerDigest,
                     command: argv,
                     inputs: files.filter { $0.role == .input }.map(FileRecord.init(provenanceFile:)),
-                    outputs: outputs.map(FileRecord.init(provenanceFile:)),
+                    outputs: fallbackOutputs.map(FileRecord.init(provenanceFile:)),
                     exitCode: exitStatus.map(Int32.init),
                     wallTime: wallTimeSeconds,
                     stderr: stderr,
@@ -468,6 +494,18 @@ extension ProvenanceEnvelope {
 
     private var completedAtFromWallTime: Date? {
         wallTimeSeconds.map { createdAt.addingTimeInterval($0) }
+    }
+
+    private func legacyFallbackOutputs() -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var descriptors: [ProvenanceFileDescriptor] = []
+
+        for descriptor in outputs + [output].compactMap({ $0 }) + files.filter({ $0.role == .output }) {
+            guard seen.insert(descriptor.path).inserted else { continue }
+            descriptors.append(descriptor)
+        }
+
+        return descriptors
     }
 }
 

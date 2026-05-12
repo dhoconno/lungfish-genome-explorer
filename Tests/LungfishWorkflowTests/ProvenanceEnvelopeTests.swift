@@ -98,4 +98,72 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.output?.path == "trimmed.fastq")
         #expect(decoded.outputs.first?.checksumSHA256 == String(repeating: "b", count: 64))
     }
+
+    @Test("legacy failed multi-step run reports failed canonical top-level outcome")
+    func legacyFailedMultiStepRunReportsFailedTopLevelOutcome() throws {
+        let legacy = WorkflowRun(
+            name: "legacy failed workflow",
+            startTime: Date(timeIntervalSince1970: 200),
+            endTime: Date(timeIntervalSince1970: 205),
+            status: .failed,
+            steps: [
+                StepExecution(
+                    toolName: "fastp",
+                    toolVersion: "0.24.1",
+                    command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "reads.fastq", role: .input)],
+                    outputs: [FileRecord(path: "trimmed.fastq", role: .output)],
+                    exitCode: 0,
+                    wallTime: 1,
+                    stderr: "first step succeeded"
+                ),
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.28",
+                    command: ["minimap2", "reference.fasta", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "trimmed.fastq", role: .input)],
+                    outputs: [FileRecord(path: "aligned.sam", role: .output)],
+                    exitCode: 2,
+                    wallTime: 4,
+                    stderr: "later step failed"
+                )
+            ]
+        )
+
+        let decoded = legacy.canonicalEnvelope()
+
+        #expect(decoded.exitStatus == 2)
+        #expect(decoded.stderr == "later step failed")
+    }
+
+    @Test("canonical envelope with singular output converts to legacy output")
+    func canonicalSingularOutputConvertsToLegacyOutput() throws {
+        let output = ProvenanceFileDescriptor(
+            path: "single-output.fastq",
+            checksumSHA256: String(repeating: "e", count: 64),
+            fileSize: 64,
+            format: .fastq,
+            role: .output
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "canonical single output",
+            toolName: "lungfish-cli",
+            argv: ["lungfish-cli", "export"],
+            files: [
+                ProvenanceFileDescriptor(path: "input.fastq", role: .input),
+                output
+            ],
+            output: output,
+            outputs: [],
+            steps: [],
+            exitStatus: 0
+        )
+
+        let legacy = envelope.legacyWorkflowRun()
+
+        #expect(legacy.steps.count == 1)
+        #expect(legacy.steps.first?.outputs.count == 1)
+        #expect(legacy.steps.first?.outputs.first?.path == "single-output.fastq")
+        #expect(legacy.steps.first?.outputs.first?.sha256 == String(repeating: "e", count: 64))
+    }
 }
