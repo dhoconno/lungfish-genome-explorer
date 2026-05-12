@@ -8,9 +8,68 @@ struct ProvenanceCommand: AsyncParsableCommand {
         abstract: "Inspect provenance recorded in Lungfish bundles",
         subcommands: [
             BibliographySubcommand.self,
+            ExportSubcommand.self,
             VerifySubcommand.self,
         ]
     )
+
+    static func resolveProvenanceURL(_ url: URL) throws -> URL {
+        try resolveProvenanceSource(url).sidecarURL
+    }
+
+    static func resolveProvenanceSource(_ url: URL) throws -> (sidecarURL: URL, envelope: ProvenanceEnvelope) {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: url.path)
+        }
+        guard isDirectory.boolValue else {
+            if let envelope = ProvenanceRecorder.loadEnvelope(fromSidecar: url) {
+                return (url, envelope)
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+                return resolved
+            }
+            throw CLIError.inputFileNotFound(path: ProvenanceRecorder.fileSidecarURL(for: url).path)
+        }
+
+        if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: url) {
+            return resolved
+        }
+        throw CLIError.inputFileNotFound(
+            path: url.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+        )
+    }
+
+    static func resolveVerifiableURL(
+        _ url: URL,
+        signatureURL: URL? = nil,
+        publicKeyURL: URL? = nil
+    ) throws -> URL {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: url.path)
+        }
+        guard !isDirectory.boolValue else {
+            return try resolveProvenanceURL(url)
+        }
+        if isProvenanceSidecarURL(url)
+            || signatureURL != nil
+            || publicKeyURL != nil
+            || hasDefaultSigningArtifacts(for: url) {
+            return url
+        }
+        return try resolveProvenanceURL(url)
+    }
+
+    private static func isProvenanceSidecarURL(_ url: URL) -> Bool {
+        url.lastPathComponent == ProvenanceRecorder.provenanceFilename
+            || url.lastPathComponent.hasSuffix(".lungfish-provenance.json")
+    }
+
+    private static func hasDefaultSigningArtifacts(for url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.signatureURL(for: url).path)
+            && FileManager.default.fileExists(atPath: ProvenanceSigningConfiguration.publicKeyURL(for: url).path)
+    }
 
     struct VerifySubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -28,12 +87,18 @@ struct ProvenanceCommand: AsyncParsableCommand {
         var publicKey: String?
 
         func run() async throws {
-            let provenanceURL = try Self.resolveProvenanceURL(URL(fileURLWithPath: file))
+            let signatureURL = signature.map { URL(fileURLWithPath: $0) }
+            let publicKeyURL = publicKey.map { URL(fileURLWithPath: $0) }
+            let provenanceURL = try ProvenanceCommand.resolveVerifiableURL(
+                URL(fileURLWithPath: file),
+                signatureURL: signatureURL,
+                publicKeyURL: publicKeyURL
+            )
             do {
                 let result = try ProvenanceSignatureVerifier.verify(
                     provenanceURL: provenanceURL,
-                    signatureURL: signature.map { URL(fileURLWithPath: $0) },
-                    publicKeyURL: publicKey.map { URL(fileURLWithPath: $0) }
+                    signatureURL: signatureURL,
+                    publicKeyURL: publicKeyURL
                 )
                 print("Signature valid")
                 print("Provider: \(result.provider)")
@@ -44,25 +109,71 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
         }
+    }
 
-        private static func resolveProvenanceURL(_ url: URL) throws -> URL {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
-                throw CLIError.inputFileNotFound(path: url.path)
-            }
-            guard isDirectory.boolValue else { return url }
+    struct ExportSubcommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "export",
+            abstract: "Export reproducible reports from a Lungfish provenance sidecar"
+        )
 
-            let rootSidecar = url.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
-            if FileManager.default.fileExists(atPath: rootSidecar.path) {
-                return rootSidecar
+        @Argument(help: "Provenance sidecar file, bundle, or output directory")
+        var input: String
+
+        @Option(
+            name: [.customLong("format"), .customLong("export-format"), .customShort("f")],
+            help: "Export format: shell, python, nextflow, snakemake, methods, json"
+        )
+        var exportFormat: String
+
+        @Option(name: .customLong("output"), help: "Output directory for the export bundle")
+        var output: String
+
+        func run() async throws {
+            let inputURL = URL(fileURLWithPath: input)
+            let outputURL = URL(fileURLWithPath: output)
+            do {
+                let provenanceSource = try ProvenanceCommand.resolveProvenanceSource(inputURL)
+                let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
+                let fallbackArgv = [
+                    "lungfish", "provenance", "export",
+                    input,
+                    "--export-format", exportFormat,
+                    "--output", output
+                ]
+                let exportArgv = Self.exportArgv(
+                    processArguments: CommandLine.arguments,
+                    fallback: fallbackArgv
+                )
+                let bundle = try ProvenanceExporter().exportBundle(
+                    provenanceSource.envelope,
+                    format: selectedExportFormat,
+                    to: outputURL,
+                    sourceSidecarURL: provenanceSource.sidecarURL,
+                    sourceRootURL: inputURL,
+                    exportArgv: exportArgv
+                )
+                print("Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
+                for artifact in bundle.signedReportArtifactURLs {
+                    print("Wrote signed report artifact to \(artifact.path)")
+                }
+                for sidecar in bundle.copiedSidecarURLs {
+                    print("Wrote provenance artifact to \(sidecar.path)")
+                }
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
-            let provenanceSidecar = url
-                .appendingPathComponent("provenance", isDirectory: true)
-                .appendingPathComponent("bundle.lungfish-provenance.json")
-            if FileManager.default.fileExists(atPath: provenanceSidecar.path) {
-                return provenanceSidecar
+        }
+
+        static func exportArgv(processArguments: [String], fallback: [String]) -> [String] {
+            guard let provenanceIndex = processArguments.firstIndex(of: "provenance"),
+                  processArguments.indices.contains(processArguments.index(after: provenanceIndex)),
+                  processArguments[processArguments.index(after: provenanceIndex)] == "export" else {
+                return fallback
             }
-            throw CLIError.inputFileNotFound(path: rootSidecar.path)
+            return processArguments
         }
     }
 
@@ -134,9 +245,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
 
         private func decodeWorkflowRun(at url: URL) -> WorkflowRun? {
             guard let data = try? Data(contentsOf: url) else { return nil }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try? decoder.decode(WorkflowRun.self, from: data)
+            return try? ProvenanceEnvelopeReader.decode(data).legacyWorkflowRun()
         }
 
         private func printBibliography(_ bibliography: ProvenanceBibliographyResult, bundleURL: URL) {

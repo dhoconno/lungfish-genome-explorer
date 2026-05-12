@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Search for patterns in sequences
 struct SearchCommand: AsyncParsableCommand {
@@ -74,6 +75,7 @@ struct SearchCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -166,10 +168,62 @@ struct SearchCommand: AsyncParsableCommand {
 
         // Write output
         if let outputPath = output {
+            let outputURL = URL(fileURLWithPath: outputPath)
             try outputText.write(
-                to: URL(fileURLWithPath: outputPath),
+                to: outputURL,
                 atomically: true,
                 encoding: .utf8
+            )
+            let completedAt = Date()
+            try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish search",
+                parameters: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "pattern": .string(pattern),
+                    "patternType": .string(useRegex ? "regex" : (useIUPAC ? "iupac" : "exact")),
+                    "useRegex": .boolean(useRegex),
+                    "useIUPAC": .boolean(useIUPAC),
+                    "maxMismatches": .integer(maxMismatches),
+                    "forwardOnly": .boolean(forwardOnly),
+                    "caseSensitive": .boolean(caseSensitive),
+                    "sequenceCount": .integer(sequences.count),
+                    "matchCount": .integer(allMatches.count)
+                ],
+                defaults: [
+                    "useRegex": .boolean(false),
+                    "useIUPAC": .boolean(false),
+                    "maxMismatches": .integer(0),
+                    "forwardOnly": .boolean(false),
+                    "caseSensitive": .boolean(false)
+                ],
+                resolved: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "pattern": .string(pattern),
+                    "patternType": .string(useRegex ? "regex" : (useIUPAC ? "iupac" : "exact")),
+                    "useRegex": .boolean(useRegex),
+                    "useIUPAC": .boolean(useIUPAC),
+                    "maxMismatches": .integer(maxMismatches),
+                    "forwardOnly": .boolean(forwardOnly),
+                    "caseSensitive": .boolean(caseSensitive),
+                    "sequenceCount": .integer(sequences.count),
+                    "matchCount": .integer(allMatches.count)
+                ],
+                toolName: "lungfish search",
+                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: outputURL, format: .bed, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: outputURL.deletingLastPathComponent()
             )
             if !globalOptions.quiet {
                 print(formatter.success(
@@ -356,6 +410,27 @@ struct SearchCommand: AsyncParsableCommand {
         case "N": return "[ACGTU]"
         default: return NSRegularExpression.escapedPattern(for: String(char))
         }
+    }
+
+    private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
+        var command = ["lungfish", "search", inputURL.path, pattern]
+        if useRegex {
+            command.append("--regex")
+        }
+        if useIUPAC {
+            command.append("--iupac")
+        }
+        if maxMismatches != 0 {
+            command += ["--max-mismatches", String(maxMismatches)]
+        }
+        if forwardOnly {
+            command.append("--forward-only")
+        }
+        if caseSensitive {
+            command.append("--case-sensitive")
+        }
+        command += ["--output", outputURL.path]
+        return command
     }
 }
 

@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Extract data from genomic files — subsequences from FASTA or reads from FASTQ/BAM/database.
 struct ExtractCommand: AsyncParsableCommand {
@@ -97,6 +98,7 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -208,10 +210,69 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
 
         // Write output
         if let outputPath = output {
+            let outputURL = URL(fileURLWithPath: outputPath)
             try fastaOutput.write(
-                to: URL(fileURLWithPath: outputPath),
+                to: outputURL,
                 atomically: true,
                 encoding: .utf8
+            )
+            let completedAt = Date()
+            let effectiveFlank5 = flank5 ?? flank
+            let effectiveFlank3 = flank3 ?? flank
+            try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish extract sequence",
+                parameters: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "region": .string(region),
+                    "chromosome": .string(targetSequence.name),
+                    "requestedStart": .integer(parsed.start),
+                    "requestedEnd": .integer(parsed.end),
+                    "effectiveStart": .integer(result.effectiveStart),
+                    "effectiveEnd": .integer(result.effectiveEnd),
+                    "reverseComplement": .boolean(reverseComplement),
+                    "flank": .integer(flank),
+                    "flank5": flank5.map(ParameterValue.integer) ?? .null,
+                    "flank3": flank3.map(ParameterValue.integer) ?? .null,
+                    "lineWidth": .integer(lineWidth),
+                    "extractedLength": .integer(result.nucleotideSequence.count)
+                ],
+                defaults: [
+                    "reverseComplement": .boolean(false),
+                    "flank": .integer(0),
+                    "flank5": .null,
+                    "flank3": .null,
+                    "lineWidth": .integer(70)
+                ],
+                resolved: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "region": .string(region),
+                    "chromosome": .string(targetSequence.name),
+                    "requestedStart": .integer(parsed.start),
+                    "requestedEnd": .integer(parsed.end),
+                    "effectiveStart": .integer(result.effectiveStart),
+                    "effectiveEnd": .integer(result.effectiveEnd),
+                    "reverseComplement": .boolean(reverseComplement),
+                    "flank5": .integer(effectiveFlank5),
+                    "flank3": .integer(effectiveFlank3),
+                    "lineWidth": .integer(lineWidth),
+                    "extractedLength": .integer(result.nucleotideSequence.count)
+                ],
+                toolName: "lungfish extract sequence",
+                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: outputURL.deletingLastPathComponent()
             )
             if !globalOptions.quiet {
                 print(formatter.success(
@@ -240,6 +301,27 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
             let handler = JSONOutputHandler()
             handler.writeData(jsonResult, label: nil)
         }
+    }
+
+    private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
+        var command = ["lungfish", "extract", "sequence", inputURL.path, region]
+        if reverseComplement {
+            command.append("--reverse-complement")
+        }
+        if flank != 0 {
+            command += ["--flank", String(flank)]
+        }
+        if let flank5 {
+            command += ["--flank-5", String(flank5)]
+        }
+        if let flank3 {
+            command += ["--flank-3", String(flank3)]
+        }
+        command += ["--output", outputURL.path]
+        if lineWidth != 70 {
+            command += ["--line-width", String(lineWidth)]
+        }
+        return command
     }
 
     // MARK: - Region Parsing

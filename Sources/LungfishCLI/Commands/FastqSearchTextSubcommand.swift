@@ -42,10 +42,51 @@ struct FastqSearchTextSubcommand: AsyncParsableCommand {
         }
 
         let runner = NativeToolRunner.shared
+        let startedAt = Date()
         let result = try await runner.run(.seqkit, arguments: args, environment: [:], timeout: 1800)
 
         if !result.isSuccess {
             throw CLIError.conversionFailed(reason: result.stderr)
         }
+
+        var cliArguments = ["search-text", inputURL.path, "--output", output.output, "--query", query]
+        if field != "id" {
+            cliArguments += ["--field", field]
+        }
+        if regex {
+            cliArguments.append("--regex")
+        }
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq search-text",
+            nativeTool: .seqkit,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "query": .string(query),
+                "field": .string(field),
+                "regex": .boolean(regex),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "field": .string("id"),
+                "regex": .boolean(false),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
     }
 }

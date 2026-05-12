@@ -277,6 +277,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
     // MARK: - Execution
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         let fm = FileManager.default
         let service = ReadExtractionService()
@@ -320,6 +321,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         }
 
         // Bundle wrapping
+        var bundleURL: URL?
         if createBundle || bundleName != nil {
             let metadata = ExtractionMetadata(
                 sourceDescription: bundleName ?? outputBase,
@@ -327,17 +329,25 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
                 parameters: strategyParameters
             )
 
-            let bundleURL = try await service.createBundle(
+            let createdBundleURL = try await service.createBundle(
                 from: result,
                 sourceName: bundleName ?? outputBase,
                 selectionDescription: "extract",
                 metadata: metadata,
                 in: outputDir
             )
+            bundleURL = createdBundleURL
 
             print("")
-            print(formatter.success("Created bundle: \(bundleURL.lastPathComponent)"))
+            print(formatter.success("Created bundle: \(createdBundleURL.lastPathComponent)"))
         }
+
+        try await recordProvenance(
+            result: result,
+            outputURL: outputURL,
+            bundleURL: bundleURL,
+            startedAt: startedAt
+        )
 
         // Print summary
         print("")
@@ -354,6 +364,64 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         }
         print("")
         print(formatter.success("Extraction complete"))
+    }
+
+    private func recordProvenance(
+        result: ReadExtractionResult,
+        outputURL: URL,
+        bundleURL: URL?,
+        startedAt: Date
+    ) async throws {
+        var parameters = strategyParameterValues()
+        parameters["output"] = .file(outputURL)
+        parameters["createBundle"] = .boolean(createBundle || bundleName != nil)
+        parameters["bundleName"] = bundleName.map(ParameterValue.string) ?? .null
+        parameters["readCount"] = .integer(result.readCount)
+        parameters["pairedEnd"] = .boolean(result.pairedEnd)
+        if let bundleURL {
+            parameters["outputBundle"] = .file(bundleURL)
+        }
+
+        let outputRecords = outputFileRecords(for: result, bundleURL: bundleURL)
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish extract reads",
+            parameters: parameters,
+            defaults: [
+                "createBundle": .boolean(false),
+                "keepReadPairs": .boolean(true),
+                "excludeUnmapped": .boolean(false),
+                "readFormat": .string("fastq"),
+                "includeUnmappedMates": .boolean(false)
+            ],
+            resolved: parameters,
+            toolName: "lungfish extract reads",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: provenanceCommand(outputURL: outputURL),
+            inputs: provenanceInputRecords(),
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: bundleURL ?? outputURL.deletingLastPathComponent()
+        )
+    }
+
+    private func outputFileRecords(
+        for result: ReadExtractionResult,
+        bundleURL: URL?
+    ) -> [FileRecord] {
+        if let bundleURL {
+            return result.fastqURLs
+                .map { bundleURL.appendingPathComponent($0.lastPathComponent) }
+                .filter { FileManager.default.fileExists(atPath: $0.path) }
+                .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
+        }
+
+        return result.fastqURLs
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
     }
 
     // MARK: - Strategy Implementations
@@ -757,6 +825,128 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             params["includeUnmappedMates"] = includeUnmappedMates ? "yes" : "no"
         }
         return params
+    }
+
+    private func strategyParameterValues() -> [String: ParameterValue] {
+        strategyParameters.mapValues(ParameterValue.string)
+    }
+
+    private func provenanceInputRecords() -> [FileRecord] {
+        if byId {
+            let sourceRecords = sourceFiles
+                .map { URL(fileURLWithPath: $0) }
+                .flatMap { provenanceRecords(for: $0, role: .input) }
+            let idRecords = idsFile
+                .map { provenanceRecords(for: URL(fileURLWithPath: $0), format: .text, role: .input) }
+                ?? []
+            return sourceRecords + idRecords
+        }
+
+        if byRegion {
+            guard let bamFile else { return [] }
+            let bamURL = URL(fileURLWithPath: bamFile)
+            var records = provenanceRecords(for: bamURL, format: .bam, role: .input)
+            let baiURL = URL(fileURLWithPath: "\(bamFile).bai")
+            if FileManager.default.fileExists(atPath: baiURL.path) {
+                records += provenanceRecords(for: baiURL, role: .index)
+            }
+            return records
+        }
+
+        if byDb {
+            guard let databaseFile else { return [] }
+            return provenanceRecords(for: URL(fileURLWithPath: databaseFile), role: .input)
+        }
+
+        guard let classifierResult else { return [] }
+        let resultURL = URL(fileURLWithPath: classifierResult)
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: resultURL.path, isDirectory: &isDirectory) {
+            return provenanceRecords(for: resultURL, role: .input)
+        }
+
+        let parentURL = resultURL.deletingLastPathComponent()
+        if FileManager.default.fileExists(atPath: parentURL.path) {
+            return provenanceRecords(for: parentURL, role: .input)
+        }
+
+        return provenanceRecords(for: resultURL, role: .input)
+    }
+
+    private func provenanceCommand(outputURL: URL) -> [String] {
+        var command = ["lungfish", "extract", "reads"]
+        if byId {
+            command.append("--by-id")
+            if let idsFile {
+                command += ["--ids", idsFile]
+            }
+            for sourceFile in sourceFiles {
+                command += ["--source", sourceFile]
+            }
+            if keepReadPairs {
+                command.append("--keep-read-pairs")
+            }
+            if noKeepReadPairs {
+                command.append("--no-keep-read-pairs")
+            }
+        } else if byRegion {
+            command.append("--by-region")
+            if let bamFile {
+                command += ["--bam", bamFile]
+            }
+            for region in regions {
+                command += ["--region", region]
+            }
+            if excludeUnmapped {
+                command.append("--exclude-unmapped")
+            }
+        } else if byDb {
+            command.append("--by-db")
+            if let databaseFile {
+                command += ["--database", databaseFile]
+            }
+            if let sample {
+                command += ["--db-sample", sample]
+            }
+            for taxID in taxIds {
+                command += ["--db-taxid", taxID]
+            }
+            for accession in accessions {
+                command += ["--db-accession", accession]
+            }
+            if let maxReads {
+                command += ["--max-reads", "\(maxReads)"]
+            }
+        } else {
+            command.append("--by-classifier")
+            if let classifierTool {
+                command += ["--tool", classifierTool]
+            }
+            if let classifierResult {
+                command += ["--result", classifierResult]
+            }
+            for sample in classifierSamples {
+                command += ["--sample", sample]
+            }
+            for accession in classifierAccessionsRaw {
+                command += ["--accession", accession]
+            }
+            for taxon in classifierTaxonsRaw {
+                command += ["--taxon", taxon]
+            }
+            command += ["--read-format", classifierFormat]
+            if includeUnmappedMates {
+                command.append("--include-unmapped-mates")
+            }
+        }
+        command += ["--output", outputURL.path]
+        if createBundle {
+            command.append("--bundle")
+        }
+        if let bundleName {
+            command += ["--bundle-name", bundleName]
+        }
+        return command
     }
 }
 

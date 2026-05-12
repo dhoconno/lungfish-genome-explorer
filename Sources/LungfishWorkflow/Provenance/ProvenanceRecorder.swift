@@ -5,7 +5,6 @@
 import Foundation
 import os.log
 import LungfishCore
-import CryptoKit
 
 private let logger = Logger(subsystem: LogSubsystem.workflow, category: "ProvenanceRecorder")
 
@@ -58,9 +57,6 @@ public actor ProvenanceRecorder {
 
     /// Optional signer used after JSON sidecars are written.
     private var signingProvider: (any ProvenanceSigningProvider)?
-
-    /// Maximum stderr length to store per step (10 KB).
-    private static let maxStderrLength = 10_240
 
     public init(signingProvider: (any ProvenanceSigningProvider)? = ProvenanceSigningConfiguration.defaultProvider()) {
         self.signingProvider = signingProvider
@@ -127,12 +123,7 @@ public actor ProvenanceRecorder {
             return nil
         }
 
-        let truncatedStderr: String?
-        if let stderr, stderr.count > Self.maxStderrLength {
-            truncatedStderr = String(stderr.prefix(Self.maxStderrLength)) + "\n... [truncated]"
-        } else {
-            truncatedStderr = stderr
-        }
+        let truncatedStderr = ProvenanceStderr.truncated(stderr)
 
         let step = StepExecution(
             toolName: toolName,
@@ -206,16 +197,26 @@ public actor ProvenanceRecorder {
         guard let run = runs[runID] else {
             throw ProvenanceError.runNotFound(runID)
         }
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        let url = directory.appendingPathComponent(Self.provenanceFilename)
-        try data.write(to: url, options: .atomic)
-        if let signingProvider {
-            _ = try signingProvider.sign(provenanceURL: url)
-        }
-        logger.info("Provenance: saved run \(runID) to \(url.path)")
+        let envelope = run.canonicalEnvelope()
+        let url = try ProvenanceWriter(signingProvider: signingProvider).write(envelope, to: directory)
+        logger.info("Provenance: saved canonical run \(runID) to \(url.path)")
+    }
+
+    /// Loads a canonical provenance envelope from a directory's sidecar file.
+    ///
+    /// - Parameter directory: Directory containing `.lungfish-provenance.json`
+    /// - Returns: The decoded canonical envelope, or nil if no readable sidecar exists
+    public static func loadEnvelope(from directory: URL) -> ProvenanceEnvelope? {
+        try? ProvenanceEnvelopeReader.load(from: directory)
+    }
+
+    /// Loads a canonical provenance envelope from a specific sidecar file.
+    ///
+    /// File-producing CLI commands may write `output.ext.lungfish-provenance.json`
+    /// beside the output to avoid one directory-level sidecar overwriting
+    /// another output's provenance.
+    public static func loadEnvelope(fromSidecar sidecarURL: URL) -> ProvenanceEnvelope? {
+        try? ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL)
     }
 
     /// Loads a provenance record from a directory's sidecar file.
@@ -223,11 +224,7 @@ public actor ProvenanceRecorder {
     /// - Parameter directory: Directory containing `.lungfish-provenance.json`
     /// - Returns: The decoded workflow run, or nil if no sidecar exists
     public static func load(from directory: URL) -> WorkflowRun? {
-        let url = directory.appendingPathComponent(provenanceFilename)
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(WorkflowRun.self, from: data)
+        loadEnvelope(from: directory)?.legacyWorkflowRun()
     }
 
     /// Searches for a provenance record by walking up from a file path.
@@ -238,21 +235,245 @@ public actor ProvenanceRecorder {
     /// - Parameter filePath: Path to a derivative file
     /// - Returns: The workflow run that produced it, or nil
     public static func findProvenance(forFile filePath: URL) -> WorkflowRun? {
-        var dir = filePath.deletingLastPathComponent()
-        for _ in 0..<5 {
-            if let run = load(from: dir) {
-                // Verify this run actually produced the file
-                let filename = filePath.lastPathComponent
-                let producedThis = run.allOutputFiles.contains { record in
-                    record.path.hasSuffix(filename) || URL(fileURLWithPath: record.path).lastPathComponent == filename
+        findProvenanceEnvelope(for: filePath)?.envelope.legacyWorkflowRun()
+    }
+
+    /// Finds the canonical provenance sidecar that applies to a selected file or bundle directory.
+    ///
+    /// GUI menu actions often operate on a selected `.lungfish*` bundle directory rather than an
+    /// individual payload file. This lookup checks bundle roots, documented `provenance/` roll-ups,
+    /// exact file sidecars, and nearby parent-directory sidecars while still rejecting unrelated
+    /// parent provenance for regular files.
+    public static func findProvenanceEnvelope(
+        for url: URL
+    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        let standardizedURL = url.standardizedFileURL
+        let selectedIsDirectory = isDirectory(standardizedURL)
+
+        if selectedIsDirectory {
+            for candidate in directorySidecarCandidates(for: standardizedURL) {
+                if let envelope = loadEnvelope(fromSidecar: candidate) {
+                    return (candidate, envelope)
                 }
-                if producedThis { return run }
             }
+            if let mappingProvenance = mappingProvenanceCandidate(for: standardizedURL) {
+                return mappingProvenance
+            }
+        } else if standardizedURL.lastPathComponent == MappingProvenance.filename,
+                  let mappingProvenance = mappingProvenanceCandidate(
+                    for: standardizedURL.deletingLastPathComponent()
+                  ) {
+            return mappingProvenance
+        } else {
+            for candidate in fileSidecarCandidates(for: standardizedURL) {
+                if let envelope = loadEnvelope(fromSidecar: candidate) {
+                    return (candidate, envelope)
+                }
+            }
+        }
+
+        var dir = selectedIsDirectory ? standardizedURL : standardizedURL.deletingLastPathComponent()
+        var checkedSelectedDirectory = false
+        for _ in 0..<5 {
+            if let bundleSidecar = ProvenanceWriter.bundleOutputSidecarURL(for: standardizedURL, inBundle: dir),
+               let envelope = loadEnvelope(fromSidecar: bundleSidecar),
+               provenanceEnvelope(envelope, produced: standardizedURL) {
+                return (bundleSidecar, envelope)
+            }
+
+            for candidate in directorySidecarCandidates(for: dir) {
+                guard let envelope = loadEnvelope(fromSidecar: candidate) else { continue }
+                if selectedIsDirectory && !checkedSelectedDirectory {
+                    return (candidate, envelope)
+                }
+                if provenanceEnvelope(envelope, produced: standardizedURL) {
+                    return (candidate, envelope)
+                }
+            }
+            if let mappingProvenance = mappingProvenanceCandidate(for: dir) {
+                if selectedIsDirectory && !checkedSelectedDirectory {
+                    return mappingProvenance
+                }
+                if provenanceEnvelope(mappingProvenance.envelope, produced: standardizedURL) {
+                    return mappingProvenance
+                }
+            }
+            checkedSelectedDirectory = checkedSelectedDirectory || selectedIsDirectory
             let parent = dir.deletingLastPathComponent()
             if parent == dir { break }
             dir = parent
         }
         return nil
+    }
+
+    private static func mappingProvenanceCandidate(
+        for directory: URL
+    ) -> (sidecarURL: URL, envelope: ProvenanceEnvelope)? {
+        let sidecarURL = directory.appendingPathComponent(MappingProvenance.filename)
+        guard FileManager.default.fileExists(atPath: sidecarURL.path),
+              let provenance = MappingProvenance.load(from: directory) else {
+            return nil
+        }
+        return (sidecarURL, provenance.canonicalEnvelope(sourceDirectory: directory))
+    }
+
+    private static func directorySidecarCandidates(for directory: URL) -> [URL] {
+        let operationCandidates = [
+            directory
+                .appendingPathComponent("assembly", isDirectory: true)
+                .appendingPathComponent("provenance.json"),
+            directory
+                .appendingPathComponent("metadata", isDirectory: true)
+                .appendingPathComponent("annotation-edit-provenance.json"),
+            directory
+                .appendingPathComponent("annotations", isDirectory: true)
+                .appendingPathComponent("manual-annotation-provenance.json"),
+            directory.appendingPathComponent("extraction-metadata.json"),
+        ] + nestedOperationSidecarCandidates(for: directory)
+
+        let canonicalCandidates = [
+            directory.appendingPathComponent(provenanceFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory.appendingPathComponent(ProvenanceWriter.bundleRollupFilename),
+            directory
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(provenanceFilename),
+        ]
+        return operationCandidates + canonicalCandidates
+    }
+
+    private static func fileSidecarCandidates(for fileURL: URL) -> [URL] {
+        [fileSidecarURL(for: fileURL)]
+            + alignmentArtifactSidecarCandidates(for: fileURL)
+            + variantTrackSidecarCandidates(for: fileURL)
+    }
+
+    private static func alignmentArtifactSidecarCandidates(for fileURL: URL) -> [URL] {
+        let alignmentURL = primaryAlignmentArtifactURL(for: fileURL)
+        return [
+            alignmentURL.deletingPathExtension().appendingPathExtension("primer-trim-provenance.json"),
+            alignmentURL.deletingPathExtension().appendingPathExtension("adopt-mapping-provenance.json"),
+        ]
+    }
+
+    private static func primaryAlignmentArtifactURL(for fileURL: URL) -> URL {
+        let filename = fileURL.lastPathComponent
+        if filename.hasSuffix(".bam.bai")
+            || filename.hasSuffix(".bam.csi")
+            || filename.hasSuffix(".cram.crai") {
+            return fileURL.deletingPathExtension()
+        }
+        return fileURL
+    }
+
+    private static func variantTrackSidecarCandidates(for fileURL: URL) -> [URL] {
+        guard let trackID = variantTrackID(forArtifactFilename: fileURL.lastPathComponent) else {
+            return []
+        }
+        return [
+            fileURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("\(trackID).lungfish-provenance.json")
+        ]
+    }
+
+    private static func variantTrackID(forArtifactFilename filename: String) -> String? {
+        let suffixes = [
+            ".vcf.gz.tbi",
+            ".vcf.gz.csi",
+            ".vcf.gz.idx",
+            ".vcf.gz",
+            ".vcf.tbi",
+            ".vcf.idx",
+            ".vcf",
+            ".bcf.csi",
+            ".bcf",
+            ".db",
+        ]
+        for suffix in suffixes where filename.hasSuffix(suffix) {
+            let trackID = String(filename.dropLast(suffix.count))
+            return trackID.isEmpty ? nil : trackID
+        }
+        return nil
+    }
+
+    private static func nestedOperationSidecarCandidates(for directory: URL) -> [URL] {
+        guard ProvenanceWriter.isBundleDirectory(directory) else {
+            return []
+        }
+        let variantsURL = directory.appendingPathComponent("variants", isDirectory: true)
+        let annotationsURL = directory.appendingPathComponent("annotations", isDirectory: true)
+        let alignmentsURL = directory.appendingPathComponent("alignments", isDirectory: true)
+        return operationSidecars(in: variantsURL)
+            + operationSidecars(in: variantsURL.appendingPathComponent("gatk", isDirectory: true))
+            + operationSidecars(in: annotationsURL, recursive: true)
+            + operationSidecars(in: alignmentsURL, recursive: true)
+    }
+
+    private static func operationSidecars(in directory: URL, recursive: Bool = false) -> [URL] {
+        let fileManager = FileManager.default
+        let keys: [URLResourceKey] = [.isRegularFileKey]
+        let urls: [URL]
+        if recursive {
+            guard let enumerator = fileManager.enumerator(
+                at: directory,
+                includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles]
+            ) else {
+                return []
+            }
+            urls = enumerator.compactMap { $0 as? URL }
+        } else {
+            guard let contents = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: keys
+            ) else {
+                return []
+            }
+            urls = contents
+        }
+        return urls
+            .filter { url in
+                guard isOperationProvenanceSidecarFilename(url.lastPathComponent) else { return false }
+                let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+                return values?.isRegularFile == true
+            }
+            .sorted { $0.path < $1.path }
+    }
+
+    private static func isOperationProvenanceSidecarFilename(_ filename: String) -> Bool {
+        filename == provenanceFilename
+            || filename == MappingProvenance.filename
+            || filename == "annotation-edit-provenance.json"
+            || filename == "manual-annotation-provenance.json"
+            || filename == "extraction-metadata.json"
+            || filename.hasSuffix(".lungfish-provenance.json")
+            || filename.hasSuffix("-provenance.json")
+    }
+
+    private static func provenanceEnvelope(_ envelope: ProvenanceEnvelope, produced url: URL) -> Bool {
+        let selectedPath = url.standardizedFileURL.path
+        return envelope.outputs.contains { descriptor in
+            let outputURL = URL(fileURLWithPath: descriptor.path).standardizedFileURL
+            return outputURL.path == selectedPath
+                || selectedPath.hasPrefix(outputURL.path + "/")
+        } || envelope.steps.flatMap(\.outputs).contains { descriptor in
+            let outputURL = URL(fileURLWithPath: descriptor.path).standardizedFileURL
+            return outputURL.path == selectedPath
+                || selectedPath.hasPrefix(outputURL.path + "/")
+        }
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+    }
+
+    public static func fileSidecarURL(for outputURL: URL) -> URL {
+        URL(fileURLWithPath: "\(outputURL.path).lungfish-provenance.json")
     }
 
     /// Imports a previously saved provenance record into memory.
@@ -268,49 +489,8 @@ public actor ProvenanceRecorder {
     // MARK: - Checksum Helpers
 
     /// Computes SHA-256 checksum of a file.
-    ///
-    /// For files larger than 100 MB, only the first and last 50 MB are hashed
-    /// (with the file size mixed in) to avoid blocking on multi-GB genomes.
     public static func sha256(of url: URL) -> String? {
-        guard let fileHandle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? fileHandle.close() }
-
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = (attributes?[.size] as? UInt64) ?? 0
-        let threshold: UInt64 = 100 * 1024 * 1024 // 100 MB
-
-        if fileSize <= threshold {
-            // Hash the entire file in chunks
-            var hasher = SHA256()
-            while autoreleasepool(invoking: {
-                let chunk = fileHandle.readData(ofLength: 1_048_576) // 1 MB
-                if chunk.isEmpty { return false }
-                hasher.update(data: chunk)
-                return true
-            }) {}
-            let digest = hasher.finalize()
-            return digest.map { String(format: "%02x", $0) }.joined()
-        } else {
-            // Partial hash for large files: first 50 MB + size + last 50 MB
-            var hasher = SHA256()
-            let partialSize = 50 * 1024 * 1024
-
-            // First 50 MB
-            let head = fileHandle.readData(ofLength: partialSize)
-            hasher.update(data: head)
-
-            // Mix in file size
-            var size = fileSize
-            withUnsafeBytes(of: &size) { hasher.update(bufferPointer: $0) }
-
-            // Last 50 MB
-            fileHandle.seek(toFileOffset: fileSize - UInt64(partialSize))
-            let tail = fileHandle.readData(ofLength: partialSize)
-            hasher.update(data: tail)
-
-            let digest = hasher.finalize()
-            return "partial:" + digest.map { String(format: "%02x", $0) }.joined()
-        }
+        try? ProvenanceFileHasher.sha256(of: url)
     }
 
     /// Creates a FileRecord with computed checksum and size.
@@ -319,17 +499,7 @@ public actor ProvenanceRecorder {
         format: FileFormat? = nil,
         role: FileRole = .input
     ) -> FileRecord {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let size: UInt64?
-        if let value = attributes?[.size] as? UInt64 {
-            size = value
-        } else if let value = attributes?[.size] as? NSNumber {
-            size = value.uint64Value
-        } else if let value = attributes?[.size] as? Int64, value >= 0 {
-            size = UInt64(value)
-        } else {
-            size = nil
-        }
+        let size = try? ProvenanceFileHasher.fileSize(of: url)
         let checksum = sha256(of: url)
         let detectedFormat = format ?? detectFormat(url: url)
 

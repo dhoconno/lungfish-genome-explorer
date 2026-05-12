@@ -241,6 +241,10 @@ public struct DemultiplexResult: Sendable {
 
     /// Wall clock time in seconds.
     public let wallClockSeconds: Double
+
+    /// Exact native argv used for the primary demultiplexing tool, when the run
+    /// uses an external native tool.
+    public let nativeCommand: [String]?
 }
 
 // MARK: - Demultiplex Error
@@ -1028,7 +1032,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             manifest: manifest,
             outputBundleURLs: bundleURLs,
             unassignedBundleURL: unassignedBundleURL,
-            wallClockSeconds: elapsed
+            wallClockSeconds: elapsed,
+            nativeCommand: result.arguments
         )
     }
 
@@ -1303,7 +1308,8 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
             manifest: manifest,
             outputBundleURLs: bundleURLs,
             unassignedBundleURL: unassignedBundleURL,
-            wallClockSeconds: elapsed
+            wallClockSeconds: elapsed,
+            nativeCommand: nil
         )
     }
 

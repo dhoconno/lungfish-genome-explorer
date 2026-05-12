@@ -560,7 +560,9 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         let dest = bamDirectory.appendingPathComponent("\(sampleId).filtered.bam")
         try fm.copyItem(at: bam, to: dest)
         try fm.copyItem(at: bai, to: URL(fileURLWithPath: dest.path + ".bai"))
-        return root.appendingPathComponent("fake-nvd.sqlite")
+        let resultURL = root.appendingPathComponent("fake-nvd.sqlite")
+        try Data("fake nvd classifier result\n".utf8).write(to: resultURL, options: .atomic)
+        return resultURL
     }
 
     func testRun_byClassifier_nvd_endToEnd() async throws {

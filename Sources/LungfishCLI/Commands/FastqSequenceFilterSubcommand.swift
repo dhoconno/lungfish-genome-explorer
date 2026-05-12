@@ -81,10 +81,83 @@ struct FastqSequenceFilterSubcommand: AsyncParsableCommand {
 
         let runner = NativeToolRunner.shared
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
 
         if !result.isSuccess {
             throw CLIError.conversionFailed(reason: result.stderr)
         }
+
+        var cliArguments = ["sequence-filter", inputURL.path, "--output", output.output]
+        if let sequence {
+            cliArguments += ["--sequence", sequence]
+        }
+        if let fastaPath {
+            cliArguments += ["--fasta-path", fastaPath]
+        }
+        if searchEnd != "both" {
+            cliArguments += ["--search-end", searchEnd]
+        }
+        if minOverlap != 8 {
+            cliArguments += ["--min-overlap", String(minOverlap)]
+        }
+        if errorRate != 0.1 {
+            cliArguments += ["--error-rate", String(errorRate)]
+        }
+        if keepMatched {
+            cliArguments.append("--keep-matched")
+        }
+        if searchReverseComplement {
+            cliArguments.append("--search-rc")
+        }
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        var inputURLs = [inputURL]
+        var inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+        if let fastaPath {
+            let fastaURL = try validateInput(fastaPath)
+            inputURLs.append(fastaURL)
+            inputRecords += provenanceRecords(for: fastaURL, format: .fasta, role: .reference)
+        }
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq sequence-filter",
+            nativeTool: .bbduk,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: inputURLs,
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "sequence": sequence.map(ParameterValue.string) ?? .null,
+                "fastaPath": fastaPath.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+                "searchEnd": .string(searchEnd),
+                "minOverlap": .integer(minOverlap),
+                "errorRate": .number(errorRate),
+                "keepMatched": .boolean(keepMatched),
+                "searchReverseComplement": .boolean(searchReverseComplement),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "sequence": .null,
+                "fastaPath": .null,
+                "searchEnd": .string("both"),
+                "minOverlap": .integer(8),
+                "errorRate": .number(0.1),
+                "keepMatched": .boolean(false),
+                "searchReverseComplement": .boolean(false),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            inputRecords: inputRecords,
+            startedAt: startedAt
+        )
     }
 }

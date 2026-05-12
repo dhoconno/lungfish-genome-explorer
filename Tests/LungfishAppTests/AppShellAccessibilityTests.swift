@@ -1,4 +1,5 @@
 import AppKit
+import LungfishWorkflow
 import XCTest
 @testable import LungfishApp
 
@@ -48,6 +49,57 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertEqual(aiGuideItem.identifier?.rawValue, "help-menu-ai-assistant-guide")
         XCTAssertEqual(releaseNotesItem.identifier?.rawValue, "help-menu-release-notes")
         XCTAssertEqual(reportIssueItem.identifier?.rawValue, "help-menu-report-issue")
+    }
+
+    func testProvenanceExportMenuItemsMatchSupportedFormats() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+
+        let fileMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "File" })?.submenu)
+        let exportMenu = try XCTUnwrap(fileMenu.items.first(where: { $0.title == "Export" })?.submenu)
+        let provenanceMenu = try XCTUnwrap(exportMenu.items.first(where: { $0.title == "Provenance" })?.submenu)
+
+        let modelItems = ProvenanceExportMenuModel.items
+        XCTAssertEqual(
+            modelItems.map(\.title),
+            [
+                "Shell Script…",
+                "Python Script…",
+                "Nextflow Pipeline…",
+                "Snakemake Workflow…",
+                "Methods Section…",
+                "Full Provenance (JSON)…"
+            ]
+        )
+
+        for modelItem in modelItems {
+            let menuItem = try XCTUnwrap(provenanceMenu.items.first(where: { $0.title == modelItem.title }))
+            XCTAssertEqual(menuItem.action, modelItem.action)
+            XCTAssertEqual(menuItem.identifier?.rawValue, modelItem.accessibilityIdentifier)
+            XCTAssertEqual(menuItem.representedObject as? ProvenanceExportFormat, modelItem.format)
+        }
+    }
+
+    func testGUIProvenanceExportCommandIsRunnableCLIInvocation() throws {
+        let sourceURL = URL(fileURLWithPath: "/tmp/project/read bundle.lungfishfastq")
+        let outputDirectory = URL(fileURLWithPath: "/tmp/project/read bundle-provenance-shell")
+
+        let argv = AppProvenanceExportCommandBuilder.argv(
+            format: .shell,
+            sourceURL: sourceURL,
+            outputDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(argv, [
+            "lungfish",
+            "provenance",
+            "export",
+            sourceURL.path,
+            "--export-format",
+            "shell",
+            "--output",
+            outputDirectory.path,
+        ])
     }
 
     func testSetSizeInstallsIntoExistingMoveAndResizeMenu() throws {

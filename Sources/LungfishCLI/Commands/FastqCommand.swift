@@ -4,6 +4,7 @@
 
 import ArgumentParser
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
@@ -50,6 +51,8 @@ struct FastqCommand: AsyncParsableCommand {
             FastqScrubHumanSubcommand.self,
             FastqSequenceFilterSubcommand.self,
             FastqDeaconRiboSubcommand.self,
+            FastqReverseComplementSubcommand.self,
+            FastqTranslateSubcommand.self,
         ]
     )
 }
@@ -99,7 +102,7 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         let started = Date()
         let args = try fastpArguments(inputURL: inputURL)
         let result = try await NativeToolRunner.shared.run(.fastp, arguments: args)
-        try writeProvenance(inputURL: inputURL, arguments: args, result: result, started: started)
+        try await writeProvenance(inputURL: inputURL, arguments: args, result: result, started: started)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp combined trim failed: \(result.stderr)")
         }
@@ -147,28 +150,43 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
         arguments: [String],
         result: NativeToolResult,
         started: Date
-    ) throws {
+    ) async throws {
         let outputURL = URL(fileURLWithPath: output.output)
-        let completed = Date()
-        let step = StepExecution(
-            toolName: "fastp",
-            toolVersion: awaitlessFastpVersion,
-            command: ["fastp"] + arguments,
-            inputs: [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)],
-            outputs: FileManager.default.fileExists(atPath: outputURL.path)
-                ? [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)]
-                : [],
-            exitCode: result.exitCode,
-            wallTime: completed.timeIntervalSince(started),
-            stderr: result.stderr.nilIfEmpty,
-            startTime: started,
-            endTime: completed
-        )
-        var run = WorkflowRun(
-            name: "lungfish fastq trim",
-            startTime: started,
-            endTime: completed,
-            status: result.isSuccess ? .completed : .failed,
+        var cliArguments = ["trim", inputURL.path]
+        if threshold != 20 {
+            cliArguments += ["--threshold", String(threshold)]
+        }
+        if windowSize != 4 {
+            cliArguments += ["--window", String(windowSize)]
+        }
+        if mode != "cut-right" {
+            cliArguments += ["--mode", mode]
+        }
+        if !adapterTrimming {
+            cliArguments.append("--no-adapter-trimming")
+        }
+        if let adapterSequence {
+            cliArguments += ["--adapter", adapterSequence]
+        }
+        if !extraArgs.isEmpty {
+            cliArguments += ["--extra-args", extraArgs]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq trim",
+            nativeTool: .fastp,
+            cliArguments: cliArguments,
+            nativeArguments: arguments,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
             parameters: [
                 "threshold": .integer(threshold),
                 "window": .integer(windowSize),
@@ -176,17 +194,20 @@ struct FastqTrimSubcommand: AsyncParsableCommand {
                 "adapterTrimming": .boolean(adapterTrimming),
                 "adapterSequence": adapterSequence.map(ParameterValue.string) ?? .null,
                 "operation": .string("combined fastp adapter+quality trim"),
-            ]
-        )
-        run.steps = [step]
-
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(run).write(
-            to: outputURL.deletingLastPathComponent()
-                .appendingPathComponent("\(outputURL.lastPathComponent).lungfish-provenance.json"),
-            options: .atomic
+                "output": .file(outputURL),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "threshold": .integer(20),
+                "window": .integer(4),
+                "mode": .string("cut-right"),
+                "adapterTrimming": .boolean(true),
+                "adapterSequence": .null,
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: started
         )
     }
 
@@ -270,11 +291,51 @@ struct FastqSubsampleSubcommand: AsyncParsableCommand {
         }
         args += [inputURL.path, "-o", output.output]
 
+        let startedAt = Date()
         let result = try await runner.run(.seqkit, arguments: args)
         guard result.isSuccess else {
             let command = count == nil ? "seqkit sample" : "seqkit sample2"
             throw CLIError.conversionFailed(reason: "\(command) failed: \(result.stderr)")
         }
+        var cliArguments = ["subsample"]
+        if let proportion {
+            cliArguments += ["--proportion", String(proportion)]
+        }
+        if let count {
+            cliArguments += ["--count", String(count)]
+        }
+        cliArguments += [inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq subsample",
+            nativeTool: .seqkit,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "proportion": proportion.map(ParameterValue.number) ?? .null,
+                "count": count.map(ParameterValue.integer) ?? .null,
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "proportion": .null,
+                "count": .null,
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Subsampled reads written to \(output.output)\n".utf8))
     }
 }
@@ -316,10 +377,46 @@ struct FastqLengthFilterSubcommand: AsyncParsableCommand {
         if let maxLength { args += ["-M", String(maxLength)] }
         args += [inputURL.path, "-o", output.output]
 
+        let startedAt = Date()
         let result = try await runner.run(.seqkit, arguments: args)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "seqkit seq failed: \(result.stderr)")
         }
+        var cliArguments = ["length-filter"]
+        if let minLength { cliArguments += ["--min", String(minLength)] }
+        if let maxLength { cliArguments += ["--max", String(maxLength)] }
+        cliArguments += [inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq length-filter",
+            nativeTool: .seqkit,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "min": minLength.map(ParameterValue.integer) ?? .null,
+                "max": maxLength.map(ParameterValue.integer) ?? .null,
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "min": .null,
+                "max": .null,
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
     }
 }
@@ -366,15 +463,56 @@ struct FastqQualityTrimSubcommand: AsyncParsableCommand {
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp quality trim failed: \(result.stderr)")
         }
-        try saveProvenance(
-            inputURL: inputURL,
-            outputURL: URL(fileURLWithPath: output.output),
-            argv: CommandLine.arguments,
-            fastpArguments: ["fastp"] + args,
-            exitCode: result.exitCode,
-            wallTime: wallTime,
-            stderr: result.stderr
+        var cliArguments = ["quality-trim"]
+        if threshold != 20 {
+            cliArguments += ["--threshold", String(threshold)]
+        }
+        if windowSize != 4 {
+            cliArguments += ["--window", String(windowSize)]
+        }
+        if mode != "cut-right" {
+            cliArguments += ["--mode", mode]
+        }
+        if !extraArgs.isEmpty {
+            cliArguments += ["--extra-args", extraArgs]
+        }
+        cliArguments += [inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq quality-trim",
+            nativeTool: .fastp,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "threshold": .integer(threshold),
+                "windowSize": .integer(windowSize),
+                "mode": .string(mode),
+                "extraArgs": .string(extraArgs),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "threshold": .integer(20),
+                "windowSize": .integer(4),
+                "mode": .string("cut-right"),
+                "extraArgs": .string(""),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
         )
+        _ = wallTime
         FileHandle.standardError.write(Data("Quality-trimmed reads written to \(output.output)\n".utf8))
     }
 
@@ -506,6 +644,304 @@ private func writeWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
     )
 }
 
+func recordFASTQNativeToolProvenance(
+    workflowName: String,
+    nativeTool: NativeTool,
+    cliArguments: [String],
+    nativeArguments: [String],
+    result: NativeToolResult,
+    inputURLs: [URL],
+    outputURLs: [URL],
+    parameters: [String: ParameterValue],
+    defaults: [String: ParameterValue] = [:],
+    inputRecords: [FileRecord]? = nil,
+    outputRecords: [FileRecord]? = nil,
+    startedAt: Date
+) async throws {
+    guard let firstOutputURL = outputURLs.first else { return }
+    let completedAt = Date()
+    let toolVersion = await NativeToolRunner.shared.getToolVersion(nativeTool) ?? "unknown"
+    let stepCommand = result.arguments.isEmpty
+        ? [nativeTool.executableName] + nativeArguments
+        : result.arguments
+
+    var resolved = parameters
+    for (key, value) in defaults where resolved[key] == nil {
+        resolved[key] = value
+    }
+
+    try await CLIProvenanceSupport.recordSingleStepRun(
+        name: workflowName,
+        parameters: parameters,
+        defaults: defaults,
+        resolved: resolved,
+        toolName: nativeTool.rawValue,
+        toolVersion: toolVersion,
+        command: ["lungfish", "fastq"] + cliArguments,
+        stepCommand: stepCommand,
+        inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+        outputs: outputRecords ?? outputURLs
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) },
+        exitCode: result.exitCode,
+        wallTime: completedAt.timeIntervalSince(startedAt),
+        stderr: result.stderr,
+        status: result.isSuccess ? .completed : .failed,
+        outputDirectory: firstOutputURL.deletingLastPathComponent()
+    )
+}
+
+func recordFASTQSwiftToolProvenance(
+    workflowName: String,
+    cliArguments: [String],
+    inputURLs: [URL],
+    outputURLs: [URL],
+    parameters: [String: ParameterValue],
+    defaults: [String: ParameterValue] = [:],
+    inputRecords: [FileRecord]? = nil,
+    outputFormat: FileFormat = .fastq,
+    startedAt: Date
+) async throws {
+    guard let firstOutputURL = outputURLs.first else { return }
+    let completedAt = Date()
+    let command = ["lungfish", "fastq"] + cliArguments
+    var resolved = parameters
+    for (key, value) in defaults where resolved[key] == nil {
+        resolved[key] = value
+    }
+
+    try await CLIProvenanceSupport.recordSingleStepRun(
+        name: workflowName,
+        parameters: parameters,
+        defaults: defaults,
+        resolved: resolved,
+        toolName: workflowName,
+        toolVersion: WorkflowRun.currentAppVersion,
+        command: command,
+        stepCommand: command,
+        inputs: inputRecords ?? inputURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+        outputs: outputURLs
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+            .map { ProvenanceRecorder.fileRecord(url: $0, format: outputFormat, role: .output) },
+        exitCode: 0,
+        wallTime: completedAt.timeIntervalSince(startedAt),
+        stderr: nil,
+        status: .completed,
+        outputDirectory: firstOutputURL.deletingLastPathComponent()
+    )
+}
+
+func provenanceRecords(
+    for url: URL,
+    format: FileFormat? = nil,
+    role: FileRole
+) -> [FileRecord] {
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
+    }
+    guard isDirectory.boolValue else {
+        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
+    }
+    guard let enumerator = FileManager.default.enumerator(
+        at: url,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return [ProvenanceRecorder.fileRecord(url: url, format: format, role: role)]
+    }
+    return enumerator
+        .compactMap { item -> URL? in
+            guard let fileURL = item as? URL,
+                  (try? fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                return nil
+            }
+            return fileURL
+        }
+        .sorted { $0.path < $1.path }
+        .map { ProvenanceRecorder.fileRecord(url: $0, format: format, role: role) }
+}
+
+// MARK: - Reverse Complement
+
+struct FastqReverseComplementSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "reverse-complement",
+        abstract: "Reverse-complement FASTQ reads and reverse their quality scores"
+    )
+
+    @Argument(help: "Input FASTQ file")
+    var input: String
+
+    @OptionGroup var output: OutputOptions
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
+        let outputURL = URL(fileURLWithPath: output.output)
+        let startedAt = Date()
+
+        let reader = FASTQReader(validateSequence: false)
+        let writer = FASTQWriter(url: outputURL)
+        do {
+            try writer.open()
+            for try await record in reader.records(from: inputURL) {
+                try writer.write(record.reverseComplement())
+            }
+            try writer.close()
+        } catch {
+            try? writer.close()
+            throw error
+        }
+
+        var cliArguments = ["reverse-complement", inputURL.path, "-o", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        try await recordFASTQSwiftToolProvenance(
+            workflowName: "lungfish fastq reverse-complement",
+            cliArguments: cliArguments,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
+        FileHandle.standardError.write(Data("Reverse-complemented reads written to \(output.output)\n".utf8))
+    }
+}
+
+// MARK: - FASTQ Translate
+
+struct FastqTranslateSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "translate",
+        abstract: "Translate FASTQ reads to protein FASTA"
+    )
+
+    @Argument(help: "Input FASTQ file")
+    var input: String
+
+    @Option(name: .customLong("frame"), help: "Reading frame: 1-3 forward, 4-6 reverse (default: 1)")
+    var frame: Int = 1
+
+    @Option(name: .customLong("table"), help: "Genetic code table ID (default: 1)")
+    var table: Int = 1
+
+    @OptionGroup var output: OutputOptions
+
+    func run() async throws {
+        let inputURL = try validateInput(input)
+        try output.validateOutput()
+        guard (1...6).contains(frame) else {
+            throw CLIError.conversionFailed(reason: "Frame must be 1-6.")
+        }
+        guard let codonTable = CodonTable.table(id: table) else {
+            throw CLIError.conversionFailed(reason: "Unknown genetic code table ID \(table).")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        let readingFrame = Self.readingFrame(for: frame)
+        let startedAt = Date()
+
+        FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: outputURL)
+        do {
+            let reader = FASTQReader(validateSequence: false)
+            for try await record in reader.records(from: inputURL) {
+                let translated = TranslationEngine.translateFrames(
+                    [readingFrame],
+                    sequence: record.sequence,
+                    table: codonTable
+                )
+                guard let protein = translated.first?.1, !protein.isEmpty else { continue }
+                try Self.writeFASTARecord(
+                    identifier: "\(record.identifier)_frame\(readingFrame.rawValue)",
+                    description: "[\(codonTable.name)] [\(protein.count) aa]",
+                    sequence: protein,
+                    to: handle
+                )
+            }
+            try handle.close()
+        } catch {
+            try? handle.close()
+            throw error
+        }
+
+        var cliArguments = ["translate", inputURL.path, "--frame", "\(frame)", "-o", output.output]
+        if table != 1 {
+            cliArguments += ["--table", "\(table)"]
+        }
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        try await recordFASTQSwiftToolProvenance(
+            workflowName: "lungfish fastq translate",
+            cliArguments: cliArguments,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "frame": .integer(frame),
+                "table": .integer(table),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "frame": .integer(1),
+                "table": .integer(1),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            outputFormat: .fasta,
+            startedAt: startedAt
+        )
+        FileHandle.standardError.write(Data("Translated reads written to \(output.output)\n".utf8))
+    }
+
+    private static func readingFrame(for number: Int) -> ReadingFrame {
+        switch number {
+        case 1: return .plus1
+        case 2: return .plus2
+        case 3: return .plus3
+        case 4: return .minus1
+        case 5: return .minus2
+        case 6: return .minus3
+        default: return .plus1
+        }
+    }
+
+    private static func writeFASTARecord(
+        identifier: String,
+        description: String,
+        sequence: String,
+        to handle: FileHandle
+    ) throws {
+        try handle.write(contentsOf: Data(">\(identifier) \(description)\n".utf8))
+        var offset = 0
+        while offset < sequence.count {
+            let start = sequence.index(sequence.startIndex, offsetBy: offset)
+            let end = sequence.index(start, offsetBy: min(70, sequence.count - offset))
+            try handle.write(contentsOf: Data("\(sequence[start..<end])\n".utf8))
+            offset += 70
+        }
+    }
+}
+
 // MARK: - Adapter Trim
 
 struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
@@ -540,10 +976,45 @@ struct FastqAdapterTrimSubcommand: AsyncParsableCommand {
             args += ["--adapter_sequence", adapterSequence]
         }
 
+        let startedAt = Date()
         let result = try await runner.run(.fastp, arguments: args)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp adapter trim failed: \(result.stderr)")
         }
+        var cliArguments = ["adapter-trim"]
+        if let adapterSequence {
+            cliArguments += ["--adapter", adapterSequence]
+        }
+        cliArguments += [inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq adapter-trim",
+            nativeTool: .fastp,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "adapter": adapterSequence.map(ParameterValue.string) ?? .null,
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "adapter": .null,
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Adapter-trimmed reads written to \(output.output)\n".utf8))
     }
 }
@@ -589,10 +1060,50 @@ struct FastqFixedTrimSubcommand: AsyncParsableCommand {
         if front > 0 { args += ["--trim_front1", String(front)] }
         if tail > 0 { args += ["--trim_tail1", String(tail)] }
 
+        let startedAt = Date()
         let result = try await runner.run(.fastp, arguments: args)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "fastp fixed trim failed: \(result.stderr)")
         }
+        var cliArguments = ["fixed-trim"]
+        if front != 0 {
+            cliArguments += ["--front", String(front)]
+        }
+        if tail != 0 {
+            cliArguments += ["--tail", String(tail)]
+        }
+        cliArguments += [inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq fixed-trim",
+            nativeTool: .fastp,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "front": .integer(front),
+                "tail": .integer(tail),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "front": .integer(0),
+                "tail": .integer(0),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Fixed-trimmed reads written to \(output.output)\n".utf8))
     }
 }
@@ -622,6 +1133,32 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
 
     @OptionGroup var output: OutputOptions
 
+    static func bbdukReferenceURL(
+        mode: String,
+        reference: String?,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) throws -> URL {
+        switch mode {
+        case "phix":
+            guard let phixReference = CoreToolLocator.bbToolsPhiXReferenceURL(homeDirectory: homeDirectory) else {
+                throw ValidationError(
+                    "PhiX reference not found in managed BBTools resources: \(CoreToolLocator.bbToolsPhiXReferenceFileName)"
+                )
+            }
+            return phixReference
+        case "custom":
+            guard let reference else {
+                throw ValidationError("Custom mode requires --ref")
+            }
+            guard FileManager.default.fileExists(atPath: reference) else {
+                throw CLIError.inputFileNotFound(path: reference)
+            }
+            return URL(fileURLWithPath: reference)
+        default:
+            throw ValidationError("Invalid mode: \(mode). Use: phix, custom")
+        }
+    }
+
     static func bbdukArguments(
         inputURL: URL,
         outputPath: String,
@@ -638,26 +1175,8 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
             "hdist=\(hammingDistance)",
         ]
 
-        switch mode {
-        case "phix":
-            guard let phixReference = CoreToolLocator.bbToolsPhiXReferenceURL(homeDirectory: homeDirectory) else {
-                throw ValidationError(
-                    "PhiX reference not found in managed BBTools resources: \(CoreToolLocator.bbToolsPhiXReferenceFileName)"
-                )
-            }
-            args.append("ref=\(phixReference.path)")
-        case "custom":
-            guard let reference else {
-                throw ValidationError("Custom mode requires --ref")
-            }
-            guard FileManager.default.fileExists(atPath: reference) else {
-                throw CLIError.inputFileNotFound(path: reference)
-            }
-            args.append("ref=\(reference)")
-        default:
-            throw ValidationError("Invalid mode: \(mode). Use: phix, custom")
-        }
-
+        let referenceURL = try bbdukReferenceURL(mode: mode, reference: reference, homeDirectory: homeDirectory)
+        args.append("ref=\(referenceURL.path)")
         return args
     }
 
@@ -678,10 +1197,61 @@ struct FastqContaminantFilterSubcommand: AsyncParsableCommand {
         )
 
         let env = await bbToolsEnvironment(runner: runner)
+        let resolvedReferenceURL = try Self.bbdukReferenceURL(mode: mode, reference: reference)
+        let startedAt = Date()
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbduk contaminant filter failed: \(result.stderr)")
         }
+        var cliArguments = ["contaminant-filter", inputURL.path, "--mode", mode]
+        if let reference {
+            cliArguments += ["--ref", reference]
+        }
+        if kmerSize != 31 {
+            cliArguments += ["--kmer", String(kmerSize)]
+        }
+        if hammingDistance != 1 {
+            cliArguments += ["--hdist", String(hammingDistance)]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq contaminant-filter",
+            nativeTool: .bbduk,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "mode": .string(mode),
+                "reference": .file(resolvedReferenceURL),
+                "kmer": .integer(kmerSize),
+                "hdist": .integer(hammingDistance),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "mode": .string("phix"),
+                "reference": .null,
+                "kmer": .integer(31),
+                "hdist": .integer(1),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            inputRecords: [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+            ] + provenanceRecords(for: resolvedReferenceURL, format: .fasta, role: .reference),
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Filtered reads written to \(output.output)\n".utf8))
     }
 }
@@ -746,10 +1316,69 @@ struct FastqPrimerRemovalSubcommand: AsyncParsableCommand {
         }
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbduk primer removal failed: \(result.stderr)")
         }
+        var cliArguments = ["primer-remove", inputURL.path]
+        if let literalSequence {
+            cliArguments += ["--literal", literalSequence]
+        }
+        if let reference {
+            cliArguments += ["--ref", reference]
+        }
+        if kmerSize != 23 {
+            cliArguments += ["--kmer", String(kmerSize)]
+        }
+        if minKmer != 11 {
+            cliArguments += ["--mink", String(minKmer)]
+        }
+        if hammingDistance != 1 {
+            cliArguments += ["--hdist", String(hammingDistance)]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        let referenceURL = reference.map { URL(fileURLWithPath: $0) }
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq primer-remove",
+            nativeTool: .bbduk,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "literal": literalSequence.map(ParameterValue.string) ?? .null,
+                "reference": reference.map { .file(URL(fileURLWithPath: $0)) } ?? .null,
+                "kmer": .integer(kmerSize),
+                "mink": .integer(minKmer),
+                "hdist": .integer(hammingDistance),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "literal": .null,
+                "reference": .null,
+                "kmer": .integer(23),
+                "mink": .integer(11),
+                "hdist": .integer(1),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            inputRecords: [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)
+            ] + (referenceURL.map { provenanceRecords(for: $0, format: .fasta, role: .reference) } ?? []),
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Primer-trimmed reads written to \(output.output)\n".utf8))
     }
 }
@@ -787,10 +1416,45 @@ struct FastqErrorCorrectSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.tadpole, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "tadpole error correction failed: \(result.stderr)")
         }
+        var cliArguments = ["error-correct", inputURL.path]
+        if kmerSize != 50 {
+            cliArguments += ["--kmer", String(kmerSize)]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq error-correct",
+            nativeTool: .tadpole,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "kmer": .integer(kmerSize),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "kmer": .integer(50),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Error-corrected reads written to \(output.output)\n".utf8))
     }
 }
@@ -838,6 +1502,7 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
         if strict { args.append("strict=t") }
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "bbmerge failed: \(result.stderr)")
@@ -858,6 +1523,44 @@ struct FastqMergeSubcommand: AsyncParsableCommand {
                 outputHandle.write(chunk)
             }
         }
+        var cliArguments = ["merge", inputURL.path]
+        if minOverlap != 12 {
+            cliArguments += ["--min-overlap", String(minOverlap)]
+        }
+        if strict {
+            cliArguments.append("--strict")
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq merge",
+            nativeTool: .bbmerge,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "minOverlap": .integer(minOverlap),
+                "strict": .boolean(strict),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "minOverlap": .integer(12),
+                "strict": .boolean(false),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
 
         FileHandle.standardError.write(Data("Merged reads written to \(output.output)\n".utf8))
     }
@@ -897,6 +1600,7 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.repair, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "repair.sh failed: \(result.stderr)")
@@ -917,6 +1621,33 @@ struct FastqRepairSubcommand: AsyncParsableCommand {
                 outputHandle.write(chunk)
             }
         }
+        var cliArguments = ["repair", inputURL.path, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq repair",
+            nativeTool: .repair,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
 
         FileHandle.standardError.write(Data("Repaired reads written to \(output.output)\n".utf8))
     }
@@ -951,10 +1682,28 @@ struct FastqDeinterleaveSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "reformat.sh deinterleave failed: \(result.stderr)")
         }
+        let out1URL = URL(fileURLWithPath: out1)
+        let out2URL = URL(fileURLWithPath: out2)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq deinterleave",
+            nativeTool: .reformat,
+            cliArguments: ["deinterleave", inputURL.path, "--out1", out1, "--out2", out2],
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [out1URL, out2URL],
+            parameters: [
+                "input": .file(inputURL),
+                "out1": .file(out1URL),
+                "out2": .file(out2URL)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Deinterleaved: R1 → \(out1), R2 → \(out2)\n".utf8))
     }
 }
@@ -992,10 +1741,42 @@ struct FastqInterleaveSubcommand: AsyncParsableCommand {
         ]
 
         let env = await bbToolsEnvironment(runner: runner)
+        let startedAt = Date()
         let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "reformat.sh interleave failed: \(result.stderr)")
         }
+        let in1URL = URL(fileURLWithPath: in1)
+        let in2URL = URL(fileURLWithPath: in2)
+        let outputURL = URL(fileURLWithPath: output.output)
+        var cliArguments = ["interleave", "--in1", in1, "--in2", in2, "--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq interleave",
+            nativeTool: .reformat,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [in1URL, in2URL],
+            outputURLs: [outputURL],
+            parameters: [
+                "in1": .file(in1URL),
+                "in2": .file(in2URL),
+                "output": .file(outputURL),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Interleaved reads written to \(output.output)\n".utf8))
     }
 }
@@ -1042,10 +1823,55 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
             args.append("dupedist=\(opticalDistance)")
         }
 
+        let startedAt = Date()
         let result = try await runner.run(.clumpify, arguments: args)
         guard result.isSuccess else {
             throw CLIError.conversionFailed(reason: "clumpify deduplication failed: \(result.stderr)")
         }
+        var cliArguments = ["deduplicate", inputURL.path]
+        if substitutions != 0 {
+            cliArguments += ["--subs", String(substitutions)]
+        }
+        if optical {
+            cliArguments.append("--optical")
+        }
+        if opticalDistance != 40 {
+            cliArguments += ["--dupedist", String(opticalDistance)]
+        }
+        cliArguments += ["--output", output.output]
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let outputURL = URL(fileURLWithPath: output.output)
+        try await recordFASTQNativeToolProvenance(
+            workflowName: "lungfish fastq deduplicate",
+            nativeTool: .clumpify,
+            cliArguments: cliArguments,
+            nativeArguments: args,
+            result: result,
+            inputURLs: [inputURL],
+            outputURLs: [outputURL],
+            parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "subs": .integer(substitutions),
+                "optical": .boolean(optical),
+                "dupedist": .integer(opticalDistance),
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "subs": .integer(0),
+                "optical": .boolean(false),
+                "dupedist": .integer(40),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            startedAt: startedAt
+        )
         FileHandle.standardError.write(Data("Deduplicated reads written to \(output.output)\n".utf8))
     }
 }
@@ -1133,12 +1959,15 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
 
         // Resolve barcode kit
         let barcodeKit: BarcodeKitDefinition
+        let customKitURL: URL?
         if let builtin = BarcodeKitRegistry.kit(byID: kit) {
             barcodeKit = builtin
+            customKitURL = nil
         } else if FileManager.default.fileExists(atPath: kit) {
             let csvURL = URL(fileURLWithPath: kit)
             let name = csvURL.deletingPathExtension().lastPathComponent
             barcodeKit = try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: name)
+            customKitURL = csvURL
         } else {
             throw ValidationError(
                 "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
@@ -1171,9 +2000,86 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         )
 
         let pipeline = DemultiplexingPipeline()
+        let startedAt = Date()
         let result = try await pipeline.run(config: config) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
+        var cliArguments = ["demultiplex", inputURL.path, "--kit", kit, "--output", output]
+        if location != "bothends" {
+            cliArguments += ["--location", location]
+        }
+        if maxDistanceFrom5Prime != 0 {
+            cliArguments += ["--max-distance-5prime", String(maxDistanceFrom5Prime)]
+        }
+        if maxDistanceFrom3Prime != 0 {
+            cliArguments += ["--max-distance-3prime", String(maxDistanceFrom3Prime)]
+        }
+        if errorRate != 0.15 {
+            cliArguments += ["--error-rate", String(errorRate)]
+        }
+        if overlap != 3 {
+            cliArguments += ["--overlap", String(overlap)]
+        }
+        if noTrim {
+            cliArguments.append("--no-trim")
+        }
+        if discardUnassigned {
+            cliArguments.append("--discard-unassigned")
+        }
+        if threads != 4 {
+            cliArguments += ["--threads", String(threads)]
+        }
+        let outputBundleURLs = result.outputBundleURLs
+            + (result.unassignedBundleURL.map { [$0] } ?? [])
+        let outputPayloads = outputBundleURLs
+        .compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
+        let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
+            + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
+        let cutadaptVersion = await NativeToolRunner.shared.getToolVersion(.cutadapt) ?? "unknown"
+        let inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+            + (customKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq demultiplex",
+            parameters: [
+                "input": .file(inputURL),
+                "kit": .string(kit),
+                "resolvedKit": .string(barcodeKit.id),
+                "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
+                "output": .file(outputURL),
+                "location": .string(location),
+                "resolvedLocation": .string(barcodeLocation.rawValue),
+                "maxDistanceFrom5Prime": .integer(maxDistanceFrom5Prime),
+                "maxDistanceFrom3Prime": .integer(maxDistanceFrom3Prime),
+                "errorRate": .number(errorRate),
+                "overlap": .integer(overlap),
+                "trimBarcodes": .boolean(!noTrim),
+                "discardUnassigned": .boolean(discardUnassigned),
+                "threads": .integer(threads)
+            ],
+            defaults: [
+                "location": .string("bothends"),
+                "maxDistanceFrom5Prime": .integer(0),
+                "maxDistanceFrom3Prime": .integer(0),
+                "errorRate": .number(0.15),
+                "overlap": .integer(3),
+                "trimBarcodes": .boolean(true),
+                "discardUnassigned": .boolean(false),
+                "customBarcodeKit": .null,
+                "threads": .integer(4)
+            ],
+            toolName: NativeTool.cutadapt.rawValue,
+            toolVersion: cutadaptVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: result.nativeCommand,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputURL
+        )
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- Demultiplexing Summary ---\n".utf8))
@@ -1252,9 +2158,49 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             includeUnclassified: includeUnclassified
         )
 
+        let startedAt = Date()
         let result = try await importer.importDirectory(config: config) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
+        var cliArguments = ["import-ont", inputURL.path, "--output", output]
+        if includeUnclassified {
+            cliArguments.append("--include-unclassified")
+        }
+        if concurrency != 4 {
+            cliArguments += ["--concurrency", String(concurrency)]
+        }
+        let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
+        let outputPayloads = result.bundleURLs.compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+        let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
+            + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
+        let chunkURLs = layout.barcodeDirectories.flatMap(\.chunkFiles)
+        let parameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "output": .file(outputURL),
+            "includeUnclassified": .boolean(includeUnclassified),
+            "concurrency": .integer(concurrency),
+            "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
+            "chunkCount": .integer(layout.totalChunkCount)
+        ]
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq import-ont",
+            parameters: parameters,
+            defaults: [
+                "includeUnclassified": .boolean(false),
+                "concurrency": .integer(4)
+            ],
+            toolName: "lungfish fastq import-ont",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: ["lungfish", "fastq"] + cliArguments,
+            inputs: chunkURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputURL
+        )
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- ONT Import Summary ---\n".utf8))

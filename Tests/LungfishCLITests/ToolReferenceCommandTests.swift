@@ -93,6 +93,27 @@ final class ToolReferenceCommandTests: XCTestCase {
         XCTAssertTrue(output.contains("10.1093/bioinformatics/bty560"), output)
     }
 
+    func testProvenanceBibliographyReadsCanonicalBundleProvenanceFolderRollup() async throws {
+        let bundle = try makeBundleWithCanonicalProvenance(
+            steps: [
+                ProvenanceStep(
+                    toolName: "fastp",
+                    toolVersion: "1.3.2",
+                    argv: ["fastp", "--in1", "reads.fastq"]
+                )
+            ],
+            provenanceRelativePath: "provenance/bundle.lungfish-provenance.json"
+        )
+
+        let command = try ProvenanceCommand.BibliographySubcommand.parse([bundle.path])
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("fastp"), output)
+        XCTAssertTrue(output.contains("10.1093/bioinformatics/bty560"), output)
+    }
+
     private func makeBundleWithProvenance(
         steps: [StepExecution],
         provenanceRelativePath: String = ProvenanceRecorder.provenanceFilename
@@ -124,6 +145,48 @@ final class ToolReferenceCommandTests: XCTestCase {
             withIntermediateDirectories: true
         )
         try data.write(to: provenanceURL, options: .atomic)
+        return bundle
+    }
+
+    private func makeBundleWithCanonicalProvenance(
+        steps: [ProvenanceStep],
+        provenanceRelativePath: String
+    ) throws -> URL {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-tool-reference-\(UUID().uuidString)", isDirectory: true)
+        let bundle = tempRoot.appendingPathComponent("sample.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+
+        let envelope = ProvenanceEnvelope(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000017")!,
+            createdAt: Date(timeIntervalSince1970: 0),
+            workflowName: "Synthetic canonical citation test",
+            workflowVersion: "Lungfish test",
+            toolName: "lungfish test",
+            toolVersion: "Lungfish test",
+            argv: ["lungfish", "test"],
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: "Lungfish test",
+                executablePath: "/usr/local/bin/lungfish",
+                processIdentifier: 123,
+                operatingSystemVersion: "macOS test",
+                architecture: "arm64",
+                user: "tester"
+            ),
+            files: [],
+            output: ProvenanceFileDescriptor(path: bundle.path, role: .output),
+            outputs: [ProvenanceFileDescriptor(path: bundle.path, role: .output)],
+            steps: steps,
+            wallTimeSeconds: 1,
+            exitStatus: 0
+        )
+
+        let provenanceURL = bundle.appendingPathComponent(provenanceRelativePath)
+        try FileManager.default.createDirectory(
+            at: provenanceURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: provenanceURL, options: .atomic)
         return bundle
     }
 

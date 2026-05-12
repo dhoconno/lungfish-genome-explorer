@@ -6,6 +6,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Translate DNA/RNA sequences to protein
 struct TranslateCommand: AsyncParsableCommand {
@@ -69,6 +70,7 @@ struct TranslateCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Validate input file exists
@@ -159,10 +161,58 @@ struct TranslateCommand: AsyncParsableCommand {
         let outputText = outputLines.joined(separator: "\n") + "\n"
 
         if let outputPath = output {
+            let outputURL = URL(fileURLWithPath: outputPath)
             try outputText.write(
-                to: URL(fileURLWithPath: outputPath),
+                to: outputURL,
                 atomically: true,
                 encoding: .utf8
+            )
+            let completedAt = Date()
+            try await CLIProvenanceSupport.recordSingleStepRun(
+                name: "lungfish translate",
+                parameters: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "frame": frame.map(ParameterValue.integer) ?? .string("all"),
+                    "table": .integer(table),
+                    "trimToStop": .boolean(trimToStop),
+                    "noStopAsterisk": .boolean(noStopAsterisk),
+                    "longestORF": .boolean(longestORF),
+                    "sequenceCount": .integer(sequences.count),
+                    "translationCount": .integer(translationCount)
+                ],
+                defaults: [
+                    "frame": .string("all"),
+                    "table": .integer(1),
+                    "trimToStop": .boolean(false),
+                    "noStopAsterisk": .boolean(false),
+                    "longestORF": .boolean(false)
+                ],
+                resolved: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "frame": frame.map(ParameterValue.integer) ?? .string("all"),
+                    "table": .integer(table),
+                    "trimToStop": .boolean(trimToStop),
+                    "noStopAsterisk": .boolean(noStopAsterisk),
+                    "longestORF": .boolean(longestORF),
+                    "sequenceCount": .integer(sequences.count),
+                    "translationCount": .integer(translationCount)
+                ],
+                toolName: "lungfish translate",
+                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+                inputs: [
+                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
+                ],
+                outputs: [
+                    ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
+                ],
+                exitCode: 0,
+                wallTime: completedAt.timeIntervalSince(startedAt),
+                stderr: nil,
+                status: .completed,
+                outputDirectory: outputURL.deletingLastPathComponent()
             )
             if !globalOptions.quiet {
                 print(formatter.success(
@@ -228,6 +278,27 @@ struct TranslateCommand: AsyncParsableCommand {
             index = end
         }
         return lines
+    }
+
+    private func provenanceCommand(inputURL: URL, outputURL: URL) -> [String] {
+        var command = ["lungfish", "translate", inputURL.path]
+        if let frame {
+            command += ["--frame", String(frame)]
+        }
+        if table != 1 {
+            command += ["--table", String(table)]
+        }
+        command += ["--output", outputURL.path]
+        if trimToStop {
+            command.append("--trim-to-stop")
+        }
+        if noStopAsterisk {
+            command.append("--no-stop-asterisk")
+        }
+        if longestORF {
+            command.append("--longest-orf")
+        }
+        return command
     }
 }
 

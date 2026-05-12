@@ -66,46 +66,56 @@ struct FastqOrientSubcommand: AsyncParsableCommand {
             throw CLIError.conversionFailed(reason: result.stderr)
         }
         let outputURL = URL(fileURLWithPath: output.output)
-        let run = WorkflowRun(
+        var cliArguments = ["orient", inputURL.path, "--output", output.output, "--reference", referenceURL.path]
+        if wordLength != 12 {
+            cliArguments += ["--word-length", String(wordLength)]
+        }
+        if dbMask != "dust" {
+            cliArguments += ["--db-mask", dbMask]
+        }
+        if !extraArgs.isEmpty {
+            cliArguments += ["--extra-args", extraArgs]
+        }
+        if output.force {
+            cliArguments.append("--force")
+        }
+        if output.compress {
+            cliArguments.append("--compress")
+        }
+        let toolVersion = await NativeToolRunner.shared.getToolVersion(.vsearch) ?? "unknown"
+        try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq orient",
-            endTime: Date(),
-            status: .completed,
-            steps: [
-                StepExecution(
-                    toolName: "vsearch",
-                    toolVersion: "bundled",
-                    command: ["vsearch"] + args,
-                    inputs: [
-                        ProvenanceRecorder.fileRecord(url: inputURL, role: .input),
-                        ProvenanceRecorder.fileRecord(url: referenceURL, role: .reference),
-                    ],
-                    outputs: [ProvenanceRecorder.fileRecord(url: outputURL, role: .output)],
-                    exitCode: result.exitCode,
-                    wallTime: wallTime,
-                    stderr: result.stderr,
-                    endTime: Date()
-                ),
-            ],
             parameters: [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "reference": .file(referenceURL),
                 "wordLength": .integer(wordLength),
                 "dbMask": .string(dbMask),
                 "extraArgs": .string(extraArgs),
-                "argv": .array(CommandLine.arguments.map { .string($0) }),
-                "command": .string(CommandLine.arguments.map(shellEscape).joined(separator: " ")),
-            ]
+                "force": .boolean(output.force),
+                "compress": .boolean(output.compress)
+            ],
+            defaults: [
+                "wordLength": .integer(12),
+                "dbMask": .string("dust"),
+                "extraArgs": .string(""),
+                "force": .boolean(false),
+                "compress": .boolean(false)
+            ],
+            toolName: NativeTool.vsearch.rawValue,
+            toolVersion: toolVersion,
+            command: ["lungfish", "fastq"] + cliArguments,
+            stepCommand: result.arguments.isEmpty ? [NativeTool.vsearch.executableName] + args : result.arguments,
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)
+            ],
+            outputs: [ProvenanceRecorder.fileRecord(url: outputURL, format: .fastq, role: .output)],
+            exitCode: result.exitCode,
+            wallTime: wallTime,
+            stderr: result.stderr,
+            status: .completed,
+            outputDirectory: outputURL.deletingLastPathComponent()
         )
-        try writeFastqOrientWorkflowRun(run, to: outputURL.deletingLastPathComponent())
     }
-}
-
-private func writeFastqOrientWorkflowRun(_ run: WorkflowRun, to directory: URL) throws {
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let data = try encoder.encode(run)
-    try data.write(
-        to: directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-        options: .atomic
-    )
 }

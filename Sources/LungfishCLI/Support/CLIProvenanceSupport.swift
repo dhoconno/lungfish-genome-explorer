@@ -41,9 +41,12 @@ enum CLIProvenanceSupport {
     static func recordSingleStepRun(
         name: String,
         parameters: [String: ParameterValue],
+        defaults: [String: ParameterValue] = [:],
+        resolved: [String: ParameterValue]? = nil,
         toolName: String,
         toolVersion: String,
         command: [String],
+        stepCommand: [String]? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord],
         exitCode: Int32,
@@ -51,22 +54,63 @@ enum CLIProvenanceSupport {
         peakMemoryBytes: UInt64? = nil,
         stderr: String?,
         status: RunStatus,
-        outputDirectory: URL
+        outputDirectory: URL,
+        writeFileSidecars: Bool = true
     ) async throws {
-        let runID = await ProvenanceRecorder.shared.beginRun(name: name, parameters: parameters)
-        await ProvenanceRecorder.shared.recordStep(
-            runID: runID,
+        _ = peakMemoryBytes
+        _ = status
+
+        let startedAt = Date().addingTimeInterval(-wallTime)
+        let completedAt = Date()
+        let inputDescriptors = inputs.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let outputDescriptors = outputs.map { ProvenanceFileDescriptor(fileRecord: $0) }
+        let step = ProvenanceStep(
             toolName: toolName,
             toolVersion: toolVersion,
-            command: command,
-            inputs: inputs,
-            outputs: outputs,
-            exitCode: exitCode,
-            wallTime: wallTime,
-            peakMemoryBytes: peakMemoryBytes,
-            stderr: stderr
+            argv: stepCommand ?? command,
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: Int(exitCode),
+            wallTimeSeconds: wallTime,
+            stderr: stderr,
+            startedAt: startedAt,
+            completedAt: completedAt
         )
-        await ProvenanceRecorder.shared.completeRun(runID, status: status)
-        try await ProvenanceRecorder.shared.save(runID: runID, to: outputDirectory)
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: name,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: toolName,
+            toolVersion: toolVersion
+        )
+        .argv(command)
+        .options(explicit: parameters, defaults: defaults, resolved: resolved ?? parameters)
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(step)
+        .complete(
+            exitStatus: Int(exitCode),
+            stderr: stderr,
+            startedAt: startedAt,
+            endedAt: completedAt
+        )
+
+        let writer = ProvenanceWriter()
+        try writer.write(envelope, to: outputDirectory)
+
+        guard writeFileSidecars else { return }
+        for output in outputs {
+            let outputURL = URL(fileURLWithPath: output.path)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                if isDirectory.boolValue {
+                    let focusedEnvelope = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
+                    try writer.write(focusedEnvelope, to: outputURL)
+                }
+                continue
+            }
+            let focusedEnvelope = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
+            try writer.write(focusedEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
+        }
     }
 }

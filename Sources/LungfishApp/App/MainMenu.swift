@@ -7,6 +7,7 @@
 
 import AppKit
 import LungfishCore
+import LungfishWorkflow
 import UniformTypeIdentifiers
 
 /// Builds the application's main menu bar programmatically.
@@ -244,37 +245,13 @@ public final class MainMenu {
         let provenanceItem = NSMenuItem(title: "Provenance", action: nil, keyEquivalent: "")
         let provenanceMenu = NSMenu(title: "Provenance")
 
-        provenanceMenu.addItem(
-            withTitle: "Shell Script\u{2026}",
-            action: #selector(FileMenuActions.exportProvenanceShell(_:)),
-            keyEquivalent: ""
-        )
-        provenanceMenu.addItem(
-            withTitle: "Python Script\u{2026}",
-            action: #selector(FileMenuActions.exportProvenancePython(_:)),
-            keyEquivalent: ""
-        )
-        provenanceMenu.addItem(
-            withTitle: "Nextflow Pipeline\u{2026}",
-            action: #selector(FileMenuActions.exportProvenanceNextflow(_:)),
-            keyEquivalent: ""
-        )
-        provenanceMenu.addItem(
-            withTitle: "Snakemake Workflow\u{2026}",
-            action: #selector(FileMenuActions.exportProvenanceSnakemake(_:)),
-            keyEquivalent: ""
-        )
+        for item in ProvenanceExportMenuModel.items.prefix(4) {
+            provenanceMenu.addItem(provenanceMenuItem(for: item))
+        }
         provenanceMenu.addItem(.separator())
-        provenanceMenu.addItem(
-            withTitle: "Methods Section\u{2026}",
-            action: #selector(FileMenuActions.exportProvenanceMethods(_:)),
-            keyEquivalent: ""
-        )
-        provenanceMenu.addItem(
-            withTitle: "Full Provenance (JSON)\u{2026}",
-            action: #selector(FileMenuActions.exportProvenanceJSON(_:)),
-            keyEquivalent: ""
-        )
+        for item in ProvenanceExportMenuModel.items.dropFirst(4) {
+            provenanceMenu.addItem(provenanceMenuItem(for: item))
+        }
 
         provenanceItem.submenu = provenanceMenu
         exportMenu.addItem(provenanceItem)
@@ -293,6 +270,13 @@ public final class MainMenu {
 
         fileMenuItem.submenu = fileMenu
         return fileMenuItem
+    }
+
+    private static func provenanceMenuItem(for modelItem: ProvenanceExportMenuModel.Item) -> NSMenuItem {
+        let menuItem = NSMenuItem(title: modelItem.title, action: modelItem.action, keyEquivalent: "")
+        menuItem.identifier = NSUserInterfaceItemIdentifier(modelItem.accessibilityIdentifier)
+        menuItem.representedObject = modelItem.format
+        return menuItem
     }
 
     public static func updateOpenRecentMenuIfPresent() {
@@ -994,6 +978,55 @@ public final class MainMenu {
     func exportProjectSampleMetadata(_ sender: Any?)
     /// Import project-level FASTQ sample metadata from CSV.
     func importProjectSampleMetadata(_ sender: Any?)
+}
+
+@MainActor
+enum ProvenanceExportMenuModel {
+    struct Item: Equatable {
+        let title: String
+        let format: ProvenanceExportFormat
+        let action: Selector
+        let accessibilityIdentifier: String
+    }
+
+    static let items: [Item] = [
+        Item(
+            title: "Shell Script\u{2026}",
+            format: .shell,
+            action: #selector(FileMenuActions.exportProvenanceShell(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-shell"
+        ),
+        Item(
+            title: "Python Script\u{2026}",
+            format: .python,
+            action: #selector(FileMenuActions.exportProvenancePython(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-python"
+        ),
+        Item(
+            title: "Nextflow Pipeline\u{2026}",
+            format: .nextflow,
+            action: #selector(FileMenuActions.exportProvenanceNextflow(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-nextflow"
+        ),
+        Item(
+            title: "Snakemake Workflow\u{2026}",
+            format: .snakemake,
+            action: #selector(FileMenuActions.exportProvenanceSnakemake(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-snakemake"
+        ),
+        Item(
+            title: "Methods Section\u{2026}",
+            format: .methods,
+            action: #selector(FileMenuActions.exportProvenanceMethods(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-methods"
+        ),
+        Item(
+            title: "Full Provenance (JSON)\u{2026}",
+            format: .json,
+            action: #selector(FileMenuActions.exportProvenanceJSON(_:)),
+            accessibilityIdentifier: "file-menu-export-provenance-json"
+        ),
+    ]
 }
 
 /// View menu action handlers.

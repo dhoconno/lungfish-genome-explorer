@@ -1555,6 +1555,19 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         return categoryID != .classification && self != .removeRibosomalRNA
     }
 
+    var createsOrModifiesScientificData: Bool {
+        switch self {
+        case .refreshQCSummary:
+            return false
+        default:
+            return true
+        }
+    }
+
+    var requiresProvenance: Bool {
+        createsOrModifiesScientificData
+    }
+
     var defaultEmbeddedReadiness: Bool {
         switch self {
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:

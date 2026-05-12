@@ -13,7 +13,6 @@ import Foundation
 /// - Sequence translation, search, and extraction
 /// - Workflow execution via Apple Containerization
 /// - Debugging and troubleshooting
-@main
 struct LungfishCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "lungfish",
@@ -75,6 +74,41 @@ struct LungfishCLI: AsyncParsableCommand {
     )
 
     @OptionGroup var globalOptions: GlobalOptions
+
+    static func normalizedArgumentsForParsing(_ arguments: [String]) -> [String] {
+        guard let provenanceIndex = arguments.firstIndex(of: "provenance") else {
+            return arguments
+        }
+        let exportIndex = arguments.index(after: provenanceIndex)
+        guard arguments.indices.contains(exportIndex),
+              arguments[exportIndex] == "export" else {
+            return arguments
+        }
+
+        var normalized = arguments
+        var index = arguments.index(after: exportIndex)
+        while normalized.indices.contains(index) {
+            if normalized[index] == "--" {
+                break
+            }
+            if normalized[index] == "--format" {
+                normalized[index] = "--export-format"
+            } else if normalized[index].hasPrefix("--format=") {
+                normalized[index] = "--export-format=" + String(normalized[index].dropFirst("--format=".count))
+            }
+            index += 1
+        }
+        return normalized
+    }
+}
+
+@main
+enum LungfishCLIMain {
+    static func main() async {
+        await LungfishCLI.main(
+            LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
+        )
+    }
 }
 
 // MARK: - Exit Codes
