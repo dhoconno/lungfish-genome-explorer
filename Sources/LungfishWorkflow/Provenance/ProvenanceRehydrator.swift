@@ -121,6 +121,7 @@ public enum ProvenanceRehydrator {
 
     private struct SelectedProjection {
         let retainedStepIDs: Set<UUID>
+        let retainedInputPaths: Set<String>
         let retainedIntermediateOutputPaths: Set<String>
     }
 
@@ -166,6 +167,7 @@ public enum ProvenanceRehydrator {
 
         return SelectedProjection(
             retainedStepIDs: retainedStepIDs,
+            retainedInputPaths: consumedInputPaths,
             retainedIntermediateOutputPaths: Set(intermediateOutputPaths)
         )
     }
@@ -185,6 +187,11 @@ public enum ProvenanceRehydrator {
                     selectedProjection: selectedProjection,
                     preserveConsumedIntermediates: true
                 )
+            }
+            if let selectedProjection,
+               selectedProjection.retainedInputPaths.contains(descriptor.path) == false,
+               mappedPath(for: descriptor.path, in: pathMap) == nil {
+                return nil
             }
             return try rewriteInputDescriptor(
                 descriptor,

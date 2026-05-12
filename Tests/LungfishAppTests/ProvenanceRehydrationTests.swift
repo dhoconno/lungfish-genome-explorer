@@ -190,6 +190,85 @@ final class ProvenanceRehydrationTests: XCTestCase {
         XCTAssertTrue(rehydrated.files.contains { $0.path == finalOutputURL.path && $0.role == .output })
     }
 
+    func testSelectedOutputProjectionDropsUnrelatedBranchInputs() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let finalDirectory = tempDir.appendingPathComponent("bundle.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: finalDirectory, withIntermediateDirectories: true)
+
+        let selectedInputURL = tempDir.appendingPathComponent("selected-input.fastq")
+        let unrelatedInputURL = tempDir.appendingPathComponent("unrelated-input.fastq")
+        let selectedURL = sourceDirectory.appendingPathComponent("selected.fastq")
+        let unrelatedURL = sourceDirectory.appendingPathComponent("unrelated.fastq")
+        let finalOutputURL = finalDirectory.appendingPathComponent("payload.fastq.gz")
+        try Data("@a\nAC\n+\n!!\n".utf8).write(to: selectedInputURL, options: .atomic)
+        try Data("@b\nGT\n+\n!!\n".utf8).write(to: unrelatedInputURL, options: .atomic)
+        try Data("@a-out\nAC\n+\n!!\n".utf8).write(to: selectedURL, options: .atomic)
+        try Data("@b-out\nGT\n+\n!!\n".utf8).write(to: unrelatedURL, options: .atomic)
+        try Data("@a-out\nAC\n+\n!!\n".utf8).write(to: finalOutputURL, options: .atomic)
+
+        let selectedInput = try ProvenanceFileDescriptor.file(url: selectedInputURL, format: .fastq, role: .input)
+        let unrelatedInput = try ProvenanceFileDescriptor.file(url: unrelatedInputURL, format: .fastq, role: .input)
+        let selectedOutput = try ProvenanceFileDescriptor.file(url: selectedURL, format: .fastq, role: .output)
+        let unrelatedOutput = try ProvenanceFileDescriptor.file(url: unrelatedURL, format: .fastq, role: .output)
+        let selectedStepID = UUID()
+        let unrelatedStepID = UUID()
+        let selectedStep = ProvenanceStep(
+            id: selectedStepID,
+            toolName: "branch-a",
+            toolVersion: "1.0",
+            argv: ["branch-a", selectedInputURL.path, "-o", selectedURL.path],
+            inputs: [selectedInput],
+            outputs: [selectedOutput],
+            exitStatus: 0
+        )
+        let unrelatedStep = ProvenanceStep(
+            id: unrelatedStepID,
+            toolName: "branch-b",
+            toolVersion: "1.0",
+            argv: ["branch-b", unrelatedInputURL.path, "-o", unrelatedURL.path],
+            inputs: [unrelatedInput],
+            outputs: [unrelatedOutput],
+            exitStatus: 0
+        )
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "independent FASTQ branches",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "fastq", "branches"])
+        .input(selectedInputURL, format: .fastq, role: .input)
+        .input(unrelatedInputURL, format: .fastq, role: .input)
+        .output(selectedURL, format: .fastq, role: .output)
+        .output(unrelatedURL, format: .fastq, role: .output)
+        .step(selectedStep)
+        .step(unrelatedStep)
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 30),
+            endedAt: Date(timeIntervalSince1970: 31)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: sourceDirectory)
+
+        let rehydrated = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: [selectedURL.path: finalOutputURL.path]
+        )
+
+        XCTAssertEqual(rehydrated.steps.map(\.id), [selectedStepID])
+        XCTAssertEqual(rehydrated.outputs.map(\.path), [finalOutputURL.path])
+        XCTAssertTrue(rehydrated.files.contains { $0.path == selectedInputURL.path && $0.role == .input })
+        XCTAssertTrue(rehydrated.files.contains { $0.path == finalOutputURL.path && $0.role == .output })
+        XCTAssertFalse(rehydrated.files.contains { $0.path == unrelatedInputURL.path })
+        XCTAssertFalse(rehydrated.files.contains { $0.path == unrelatedURL.path })
+    }
+
     func testRehydrateThrowsWhenSourceSidecarIsMissing() throws {
         let tempDir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: tempDir) }
