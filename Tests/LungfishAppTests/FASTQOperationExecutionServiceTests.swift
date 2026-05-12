@@ -769,6 +769,83 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: bundledFASTQ))
     }
 
+    func testAppFASTQOutputBundleWriterPreservesMultiOutputCLIProvenanceOneBundleAtATime() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportMultiOutputProvenance")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceBundle.fastqURL,
+            readCount: 6,
+            readLength: 18
+        )
+
+        let stagingDir = tempDir.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        let stagedNonRRNA = stagingDir.appendingPathComponent("source.norrna.fastq")
+        let stagedRRNA = stagingDir.appendingPathComponent("source.rrna.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: stagedNonRRNA, readCount: 3, readLength: 12)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: stagedRRNA, readCount: 2, readLength: 12)
+        try writeSyntheticMultiOutputProvenance(
+            to: stagingDir,
+            name: "Deacon split rRNA FASTQ filter",
+            toolName: "deacon",
+            toolVersion: "0.15.0",
+            command: [
+                "deacon", "filter", "--retain-both",
+                sourceBundle.fastqURL.path,
+                "--norrna", stagedNonRRNA.path,
+                "--rrna", stagedRRNA.path,
+            ],
+            inputURL: sourceBundle.fastqURL,
+            outputURLs: [stagedNonRRNA, stagedRRNA],
+            parameters: ["retain": .string("both")]
+        )
+
+        let writer = AppFASTQOutputBundleWriter(ingestor: SpyFASTQOutputIngestor())
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .ribosomalRNAFilter(retention: .nonRRNA, ensure: .rrna),
+            inputURLs: [sourceBundle.bundleURL],
+            outputMode: .perInput
+        )
+        let nonRRNABundle = tempDir.appendingPathComponent(
+            "source-deacon-ribo-norrna.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let rrnaBundle = tempDir.appendingPathComponent(
+            "source-deacon-ribo-rrna.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+
+        let importedNonRRNA = try await writer.importFASTQOutput(
+            sourceURL: stagedNonRRNA,
+            bundleURL: nonRRNABundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+        let importedRRNA = try await writer.importFASTQOutput(
+            sourceURL: stagedRRNA,
+            bundleURL: rrnaBundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+
+        try assertProjectedProvenance(
+            in: importedNonRRNA,
+            sourceOutput: stagedNonRRNA,
+            sourceInput: sourceBundle.fastqURL,
+            sourceProvenanceDirectory: stagingDir,
+            workflowName: "Deacon split rRNA FASTQ filter"
+        )
+        try assertProjectedProvenance(
+            in: importedRRNA,
+            sourceOutput: stagedRRNA,
+            sourceInput: sourceBundle.fastqURL,
+            sourceProvenanceDirectory: stagingDir,
+            workflowName: "Deacon split rRNA FASTQ filter"
+        )
+    }
+
     func testAppFASTQOutputBundleWriterCreatesFallbackProvenanceForDerivativeBundles() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportFallbackProvenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -1940,6 +2017,84 @@ private func writeSyntheticProvenance(
         endedAt: endedAt
     )
     try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
+}
+
+private func writeSyntheticMultiOutputProvenance(
+    to directory: URL,
+    name: String,
+    toolName: String,
+    toolVersion: String,
+    command: [String],
+    inputURL: URL,
+    outputURLs: [URL],
+    parameters: [String: ParameterValue] = [:]
+) throws {
+    let startedAt = Date(timeIntervalSince1970: 1_900)
+    let endedAt = Date(timeIntervalSince1970: 1_902)
+    let input = try ProvenanceFileDescriptor.file(url: inputURL, format: .fastq, role: .input)
+    let outputs = try outputURLs.map {
+        try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .output)
+    }
+    var builder = try ProvenanceRunBuilder(
+        workflowName: name,
+        workflowVersion: WorkflowRun.currentAppVersion,
+        toolName: toolName,
+        toolVersion: toolVersion
+    )
+    .argv(command)
+    .options(explicit: parameters, defaults: [:], resolved: parameters)
+    .input(inputURL, format: .fastq, role: .input)
+    .runtime(ProvenanceRuntimeIdentity.fixture())
+
+    for outputURL in outputURLs {
+        builder = try builder.output(outputURL, format: .fastq, role: .output)
+    }
+
+    let envelope = try builder
+        .step(
+            ProvenanceStep(
+                toolName: toolName,
+                toolVersion: toolVersion,
+                argv: command,
+                inputs: [input],
+                outputs: outputs,
+                exitStatus: 0,
+                wallTimeSeconds: 2,
+                startedAt: startedAt,
+                completedAt: endedAt
+            )
+        )
+        .complete(exitStatus: 0, startedAt: startedAt, endedAt: endedAt)
+    try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
+}
+
+private func assertProjectedProvenance(
+    in bundleURL: URL,
+    sourceOutput: URL,
+    sourceInput: URL,
+    sourceProvenanceDirectory: URL,
+    workflowName: String
+) throws {
+    let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+    let bundledFASTQPath = bundledFASTQ.standardizedFileURL.path
+    let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+    let descriptor = try XCTUnwrap(envelope.output)
+
+    XCTAssertEqual(envelope.workflowName, workflowName)
+    XCTAssertEqual(envelope.output?.path, bundledFASTQPath)
+    XCTAssertEqual(envelope.outputs.map(\.path), [bundledFASTQPath])
+    XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [bundledFASTQPath])
+    XCTAssertEqual(envelope.steps.first?.inputs.map(\.path), [sourceInput.path])
+    XCTAssertEqual(descriptor.originPath, sourceOutput.path)
+    XCTAssertEqual(
+        descriptor.sourceProvenancePath,
+        sourceProvenanceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename).path
+    )
+    XCTAssertEqual(descriptor.checksumSHA256, try ProvenanceFileHasher.sha256(of: bundledFASTQ))
+    XCTAssertEqual(descriptor.fileSize, try ProvenanceFileHasher.fileSize(of: bundledFASTQ))
+
+    let legacy = try XCTUnwrap(ProvenanceRecorder.load(from: bundleURL))
+    XCTAssertEqual(legacy.steps.first?.outputs.map(\.filename), [bundledFASTQ.lastPathComponent])
 }
 
 private func makeFullFASTABundle(

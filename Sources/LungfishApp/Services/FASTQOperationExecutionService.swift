@@ -1444,7 +1444,7 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         operation: FASTQDerivativeOperation
     ) async throws {
         do {
-            _ = try ProvenanceRehydrator.rehydrate(
+            _ = try ProvenanceRehydrator.rehydrateSelectedOutputs(
                 sourceDirectory: sourceURL.deletingLastPathComponent(),
                 finalDirectory: bundleURL,
                 pathMap: [sourceURL.path: outputFASTQ.path]

@@ -25,11 +25,58 @@ public enum ProvenanceRehydrator {
         finalDirectory: URL,
         pathMap: [String: String]
     ) throws -> ProvenanceEnvelope {
+        try rehydrate(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: pathMap,
+            outputMode: .strict
+        )
+    }
+
+    @discardableResult
+    public static func rehydrateSelectedOutputs(
+        sourceDirectory: URL,
+        finalDirectory: URL,
+        pathMap: [String: String]
+    ) throws -> ProvenanceEnvelope {
+        try rehydrate(
+            sourceDirectory: sourceDirectory,
+            finalDirectory: finalDirectory,
+            pathMap: pathMap,
+            outputMode: .selectedOnly
+        )
+    }
+
+    private static func rehydrate(
+        sourceDirectory: URL,
+        finalDirectory: URL,
+        pathMap: [String: String],
+        outputMode: OutputMode
+    ) throws -> ProvenanceEnvelope {
         let sourceProvenanceURL = sourceDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         guard FileManager.default.isReadableFile(atPath: sourceProvenanceURL.path),
               let sourceEnvelope = try ProvenanceEnvelopeReader.load(from: sourceDirectory) else {
             throw ProvenanceRehydrationError.missingSourceProvenance(sourceDirectory.path)
         }
+        let outputs = try rewriteOutputs(
+            sourceEnvelope.outputs,
+            pathMap: pathMap,
+            sourceProvenancePath: sourceProvenanceURL.path,
+            outputMode: outputMode
+        )
+        let output = try rewritePrimaryOutput(
+            sourceEnvelope.output,
+            rewrittenOutputs: outputs,
+            pathMap: pathMap,
+            sourceProvenancePath: sourceProvenanceURL.path,
+            outputMode: outputMode
+        )
+        let steps = try rewriteSteps(
+            sourceEnvelope.steps,
+            pathMap: pathMap,
+            sourceProvenancePath: sourceProvenanceURL.path,
+            outputMode: outputMode
+        )
 
         let rehydrated = try ProvenanceEnvelope(
             schemaVersion: sourceEnvelope.schemaVersion,
@@ -47,29 +94,12 @@ public enum ProvenanceRehydrator {
             files: rewriteTopLevelFiles(
                 sourceEnvelope.files,
                 pathMap: pathMap,
-                sourceProvenancePath: sourceProvenanceURL.path
+                sourceProvenancePath: sourceProvenanceURL.path,
+                outputMode: outputMode
             ),
-            output: sourceEnvelope.output.map {
-                try rewriteOutputDescriptor(
-                    $0,
-                    pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenanceURL.path
-                )
-            },
-            outputs: sourceEnvelope.outputs.map {
-                try rewriteOutputDescriptor(
-                    $0,
-                    pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenanceURL.path
-                )
-            },
-            steps: sourceEnvelope.steps.map {
-                try rewriteStep(
-                    $0,
-                    pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenanceURL.path
-                )
-            },
+            output: output,
+            outputs: outputs,
+            steps: steps,
             wallTimeSeconds: sourceEnvelope.wallTimeSeconds,
             exitStatus: sourceEnvelope.exitStatus,
             stderr: sourceEnvelope.stderr,
@@ -81,17 +111,24 @@ public enum ProvenanceRehydrator {
         return rehydrated
     }
 
+    private enum OutputMode {
+        case strict
+        case selectedOnly
+    }
+
     private static func rewriteTopLevelFiles(
         _ descriptors: [ProvenanceFileDescriptor],
         pathMap: [String: String],
-        sourceProvenancePath: String
+        sourceProvenancePath: String,
+        outputMode: OutputMode
     ) throws -> [ProvenanceFileDescriptor] {
-        try descriptors.map { descriptor in
+        try descriptors.compactMap { descriptor in
             if descriptor.role == .output {
                 return try rewriteOutputDescriptor(
                     descriptor,
                     pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenancePath
+                    sourceProvenancePath: sourceProvenancePath,
+                    outputMode: outputMode
                 )
             }
             return try rewriteInputDescriptor(
@@ -102,10 +139,73 @@ public enum ProvenanceRehydrator {
         }
     }
 
+    private static func rewritePrimaryOutput(
+        _ output: ProvenanceFileDescriptor?,
+        rewrittenOutputs: [ProvenanceFileDescriptor],
+        pathMap: [String: String],
+        sourceProvenancePath: String,
+        outputMode: OutputMode
+    ) throws -> ProvenanceFileDescriptor? {
+        guard let output else {
+            return rewrittenOutputs.first
+        }
+        if outputMode == .selectedOnly, mappedPath(for: output.path, in: pathMap) == nil {
+            return rewrittenOutputs.first
+        }
+        return try rewriteOutputDescriptor(
+            output,
+            pathMap: pathMap,
+            sourceProvenancePath: sourceProvenancePath,
+            outputMode: outputMode
+        )
+    }
+
+    private static func rewriteOutputs(
+        _ outputs: [ProvenanceFileDescriptor],
+        pathMap: [String: String],
+        sourceProvenancePath: String,
+        outputMode: OutputMode
+    ) throws -> [ProvenanceFileDescriptor] {
+        let rewritten = try outputs.compactMap {
+            try rewriteOutputDescriptor(
+                $0,
+                pathMap: pathMap,
+                sourceProvenancePath: sourceProvenancePath,
+                outputMode: outputMode
+            )
+        }
+        if outputMode == .selectedOnly, rewritten.isEmpty, let firstOutput = outputs.first {
+            throw ProvenanceRehydrationError.outputPathNotMapped(firstOutput.path)
+        }
+        return rewritten
+    }
+
+    private static func rewriteSteps(
+        _ steps: [ProvenanceStep],
+        pathMap: [String: String],
+        sourceProvenancePath: String,
+        outputMode: OutputMode
+    ) throws -> [ProvenanceStep] {
+        let rewritten = try steps.compactMap { step -> ProvenanceStep? in
+            let rewrittenStep = try rewriteStep(
+                step,
+                pathMap: pathMap,
+                sourceProvenancePath: sourceProvenancePath,
+                outputMode: outputMode
+            )
+            if outputMode == .selectedOnly, step.outputs.isEmpty == false, rewrittenStep.outputs.isEmpty {
+                return nil
+            }
+            return rewrittenStep
+        }
+        return rewritten
+    }
+
     private static func rewriteStep(
         _ step: ProvenanceStep,
         pathMap: [String: String],
-        sourceProvenancePath: String
+        sourceProvenancePath: String,
+        outputMode: OutputMode
     ) throws -> ProvenanceStep {
         ProvenanceStep(
             id: step.id,
@@ -120,11 +220,12 @@ public enum ProvenanceRehydrator {
                     sourceProvenancePath: sourceProvenancePath
                 )
             },
-            outputs: try step.outputs.map {
+            outputs: try step.outputs.compactMap {
                 try rewriteOutputDescriptor(
                     $0,
                     pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenancePath
+                    sourceProvenancePath: sourceProvenancePath,
+                    outputMode: outputMode
                 )
             },
             exitStatus: step.exitStatus,
@@ -154,9 +255,13 @@ public enum ProvenanceRehydrator {
     private static func rewriteOutputDescriptor(
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
-        sourceProvenancePath: String
-    ) throws -> ProvenanceFileDescriptor {
+        sourceProvenancePath: String,
+        outputMode: OutputMode
+    ) throws -> ProvenanceFileDescriptor? {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
+            if outputMode == .selectedOnly {
+                return nil
+            }
             throw ProvenanceRehydrationError.outputPathNotMapped(descriptor.path)
         }
         return try rewriteMappedDescriptor(
