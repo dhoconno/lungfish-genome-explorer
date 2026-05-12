@@ -75,11 +75,18 @@ public struct ProvenanceExportBundle: Sendable, Equatable {
     public let rootURL: URL
     public let primaryArtifactURL: URL
     public let copiedSidecarURLs: [URL]
+    public let signedReportArtifactURLs: [URL]
 
-    public init(rootURL: URL, primaryArtifactURL: URL, copiedSidecarURLs: [URL]) {
+    public init(
+        rootURL: URL,
+        primaryArtifactURL: URL,
+        copiedSidecarURLs: [URL],
+        signedReportArtifactURLs: [URL] = []
+    ) {
         self.rootURL = rootURL
         self.primaryArtifactURL = primaryArtifactURL
         self.copiedSidecarURLs = copiedSidecarURLs
+        self.signedReportArtifactURLs = signedReportArtifactURLs
     }
 }
 
@@ -157,6 +164,7 @@ public struct ProvenanceExporter: Sendable {
             )
         }
         generatedArtifactURLs.insert(primaryArtifactURL, at: 0)
+        let signedReportArtifactURLs = try signReportArtifacts(generatedArtifactURLs)
 
         let provenanceDirectory = outputDirectory.appendingPathComponent("provenance", isDirectory: true)
         try fileManager.createDirectory(at: provenanceDirectory, withIntermediateDirectories: true)
@@ -172,7 +180,7 @@ public struct ProvenanceExporter: Sendable {
             provenanceDirectory: provenanceDirectory,
             sourceInputURL: sourceRootURL ?? sourceSidecarURL,
             sourceArtifacts: copiedSourceArtifacts,
-            generatedArtifactURLs: generatedArtifactURLs,
+            generatedArtifactURLs: generatedArtifactURLs + signedReportArtifactURLs,
             argv: exportArgv,
             startedAt: startedAt,
             endedAt: Date()
@@ -182,7 +190,8 @@ public struct ProvenanceExporter: Sendable {
             primaryArtifactURL: primaryArtifactURL,
             copiedSidecarURLs: [exportSidecarURL] + copiedSourceArtifacts
                 .map(\.destinationURL)
-                .filter(isProvenanceOrSignatureArtifact)
+                .filter(isProvenanceOrSignatureArtifact),
+            signedReportArtifactURLs: signedReportArtifactURLs
         )
     }
 
@@ -199,6 +208,10 @@ public struct ProvenanceExporter: Sendable {
     }
 
     private func exportShell(_ envelope: ProvenanceEnvelope, fallbackRun: WorkflowRun) -> String {
+        if !envelope.steps.isEmpty {
+            return exportShell(fallbackRun)
+        }
+
         var s = ""
         s += "#!/usr/bin/env bash\n"
         s += "#\n"
@@ -220,6 +233,23 @@ public struct ProvenanceExporter: Sendable {
         }
 
         return s
+    }
+
+    private func signReportArtifacts(_ urls: [URL]) throws -> [URL] {
+        guard let signingProvider else {
+            return []
+        }
+
+        var artifacts: [URL] = []
+        for url in urls {
+            let artifact = try signingProvider.sign(provenanceURL: url)
+            artifacts.append(artifact.signatureURL)
+            artifacts.append(artifact.publicKeyURL)
+            if signingProvider.providerIdentifier == ProvenanceSigningConfiguration.localProviderID {
+                _ = try ProvenanceSignatureVerifier.verify(provenanceURL: url)
+            }
+        }
+        return artifacts
     }
 
     private struct CopiedSourceArtifact {
@@ -451,7 +481,9 @@ public struct ProvenanceExporter: Sendable {
 
     private func isSourceManifest(_ url: URL) -> Bool {
         let filename = url.lastPathComponent.lowercased()
-        return filename == "manifest.json" || filename.hasSuffix(".manifest.json")
+        return filename == "manifest.json"
+            || filename.hasSuffix(".manifest.json")
+            || filename.hasSuffix("-manifest.json")
     }
 
     private func isProvenanceOrSignatureArtifact(_ url: URL) -> Bool {

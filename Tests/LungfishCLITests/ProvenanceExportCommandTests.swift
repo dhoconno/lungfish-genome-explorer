@@ -41,6 +41,50 @@ final class ProvenanceExportCommandTests: XCTestCase {
         XCTAssertEqual(export.output, "/tmp/provenance-export")
     }
 
+    func testProvenanceExportParsesDocumentedFormatOption() throws {
+        let command = try LungfishCLI.parseAsRoot(LungfishCLI.normalizedArgumentsForParsing([
+            "provenance",
+            "export",
+            "/tmp/.lungfish-provenance.json",
+            "--format", "shell",
+            "--output", "/tmp/provenance-export"
+        ]))
+        let export = try XCTUnwrap(command as? ProvenanceCommand.ExportSubcommand)
+
+        XCTAssertEqual(export.exportFormat, "shell")
+        XCTAssertEqual(export.output, "/tmp/provenance-export")
+    }
+
+    func testExportArgvUsesObservedProcessInvocationWhenAvailable() {
+        let observed = [
+            "/usr/local/bin/lungfish-cli",
+            "provenance",
+            "export",
+            "input.bundle",
+            "-f",
+            "methods",
+            "--output",
+            "report"
+        ]
+        let fallback = [
+            "lungfish",
+            "provenance",
+            "export",
+            "input.bundle",
+            "--export-format",
+            "methods",
+            "--output",
+            "report"
+        ]
+
+        let argv = ProvenanceCommand.ExportSubcommand.exportArgv(
+            processArguments: observed,
+            fallback: fallback
+        )
+
+        XCTAssertEqual(argv, observed)
+    }
+
     func testShellExportWritesRunScriptAndRecordsExportProvenance() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -98,6 +142,63 @@ final class ProvenanceExportCommandTests: XCTestCase {
             .appendingPathComponent("source", isDirectory: true)
             .appendingPathComponent(sidecarURL.lastPathComponent)
         XCTAssertEqual(try Data(contentsOf: preservedSourceURL), try Data(contentsOf: sidecarURL))
+    }
+
+    func testShellExportIncludesEveryStepFromLegacyWorkflowRun() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let outputDirectory = directory.appendingPathComponent("multi-step-export", isDirectory: true)
+        let legacy = WorkflowRun(
+            name: "Legacy Multi-Step",
+            startTime: Date(timeIntervalSince1970: 100),
+            endTime: Date(timeIntervalSince1970: 108),
+            status: .completed,
+            steps: [
+                StepExecution(
+                    toolName: "fastp",
+                    toolVersion: "0.24.1",
+                    command: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"],
+                    inputs: [FileRecord(path: "reads.fastq", role: .input)],
+                    outputs: [FileRecord(path: "trimmed.fastq", role: .output)],
+                    exitCode: 0,
+                    wallTime: 3
+                ),
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.28",
+                    command: ["minimap2", "reference.fasta", "trimmed.fastq", "-o", "aligned.sam"],
+                    inputs: [
+                        FileRecord(path: "reference.fasta", role: .reference),
+                        FileRecord(path: "trimmed.fastq", role: .input)
+                    ],
+                    outputs: [FileRecord(path: "aligned.sam", role: .output)],
+                    exitCode: 0,
+                    wallTime: 5
+                )
+            ]
+        )
+        try ProvenanceJSON.encoder.encode(legacy).write(to: sidecarURL, options: .atomic)
+
+        let command = try ProvenanceCommand.ExportSubcommand.parse([
+            sidecarURL.path,
+            "--export-format", "shell",
+            "--output", outputDirectory.path
+        ])
+
+        try await command.run()
+
+        let script = try String(
+            contentsOf: outputDirectory.appendingPathComponent("run.sh"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(script.contains("# Step 1: fastp 0.24.1"), script)
+        XCTAssertTrue(script.contains("# Step 2: minimap2 2.28"), script)
+        XCTAssertTrue(script.contains("fastp \\"), script)
+        XCTAssertTrue(script.contains("trimmed.fastq"), script)
+        XCTAssertTrue(script.contains("minimap2 \\"), script)
+        XCTAssertTrue(script.contains("aligned.sam"), script)
     }
 
     func testNextflowExportEscapesPortableCommands() async throws {
@@ -310,6 +411,44 @@ final class ProvenanceExportCommandTests: XCTestCase {
         XCTAssertTrue(verification.isValid)
     }
 
+    func testExporterSignsPrimaryReportArtifact() throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let sourceSidecarURL = directory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        let outputDirectory = directory.appendingPathComponent("signed-methods-report", isDirectory: true)
+        let envelope = ProvenanceEnvelope.fixture(
+            workflowName: "signed.methods.source",
+            toolName: "fastp",
+            argv: ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"]
+        )
+        try ProvenanceJSON.encoder.encode(envelope).write(to: sourceSidecarURL, options: .atomic)
+
+        let bundle = try ProvenanceExporter(
+            signingProvider: LocalProvenanceSigningProvider(privateKey: "export-report-key")
+        ).exportBundle(
+            envelope,
+            format: .methods,
+            to: outputDirectory,
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: directory,
+            exportArgv: [
+                "lungfish", "provenance", "export",
+                directory.path,
+                "--export-format", "methods",
+                "--output", outputDirectory.path
+            ]
+        )
+
+        let reportURL = outputDirectory.appendingPathComponent("methods.md")
+        XCTAssertEqual(bundle.primaryArtifactURL, reportURL)
+        XCTAssertTrue(bundle.signedReportArtifactURLs.contains(ProvenanceSigningConfiguration.signatureURL(for: reportURL)))
+        XCTAssertTrue(bundle.signedReportArtifactURLs.contains(ProvenanceSigningConfiguration.publicKeyURL(for: reportURL)))
+
+        let verification = try ProvenanceSignatureVerifier.verify(provenanceURL: reportURL)
+        XCTAssertTrue(verification.isValid)
+    }
+
     func testDirectoryExportPreservesAllSourceProvenanceSidecarsAndManifests() async throws {
         let directory = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -320,6 +459,10 @@ final class ProvenanceExportCommandTests: XCTestCase {
         let bundleSidecarURL = provenanceDirectory.appendingPathComponent("bundle.lungfish-provenance.json")
         let outputSidecarURL = provenanceDirectory.appendingPathComponent("reads.lungfish-provenance.json")
         let manifestURL = directory.appendingPathComponent("manifest.json")
+        let hyphenatedManifestURL = directory.appendingPathComponent("analyses-manifest.json")
+        let nestedManifestDirectory = directory.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedManifestDirectory, withIntermediateDirectories: true)
+        let nestedHyphenatedManifestURL = nestedManifestDirectory.appendingPathComponent("esviritu-batch-manifest.json")
         let outputDirectory = directory.appendingPathComponent("directory-export", isDirectory: true)
 
         try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture(workflowName: "root"))
@@ -329,6 +472,8 @@ final class ProvenanceExportCommandTests: XCTestCase {
         try ProvenanceJSON.encoder.encode(ProvenanceEnvelope.fixture(workflowName: "reads"))
             .write(to: outputSidecarURL, options: .atomic)
         try Data(#"{"bundle":"manifest"}"#.utf8).write(to: manifestURL, options: .atomic)
+        try Data(#"{"analyses":"manifest"}"#.utf8).write(to: hyphenatedManifestURL, options: .atomic)
+        try Data(#"{"batch":"manifest"}"#.utf8).write(to: nestedHyphenatedManifestURL, options: .atomic)
 
         let command = try ProvenanceCommand.ExportSubcommand.parse([
             directory.path,
@@ -346,11 +491,17 @@ final class ProvenanceExportCommandTests: XCTestCase {
             .appendingPathComponent("provenance/source/provenance/reads.lungfish-provenance.json")
         let copiedManifest = outputDirectory
             .appendingPathComponent("provenance/source/manifest.json")
+        let copiedHyphenatedManifest = outputDirectory
+            .appendingPathComponent("provenance/source/analyses-manifest.json")
+        let copiedNestedHyphenatedManifest = outputDirectory
+            .appendingPathComponent("provenance/source/nested/esviritu-batch-manifest.json")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedRoot.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedBundle.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedOutput.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: copiedManifest.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedHyphenatedManifest.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedNestedHyphenatedManifest.path))
     }
 
     func testFormatParserAcceptsCliValuesAndRejectsUnsupportedValues() throws {

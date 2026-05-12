@@ -87,9 +87,13 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case options
         case runtimeIdentity
         case files
+        case input
+        case inputFiles
         case output
         case outputs
         case steps
+        case workflowSteps
+        case externalToolInvocations
         case wallTimeSeconds
         case exitStatus
         case stderr
@@ -177,13 +181,33 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             ?? argv.map(shellEscape).joined(separator: " ")
         options = try container.decodeIfPresent(ProvenanceOptions.self, forKey: .options) ?? ProvenanceOptions()
         runtimeIdentity = try container.decode(ProvenanceRuntimeIdentity.self, forKey: .runtimeIdentity)
-        files = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .files) ?? []
-        let decodedOutput = try container.decodeIfPresent(ProvenanceFileDescriptor.self, forKey: .output)
+        let decodedInput = try Self.decodeFileDescriptorIfPresent(
+            from: container,
+            forKey: .input,
+            role: .input
+        )
+        let decodedInputFiles = try Self.decodeFileDescriptorsIfPresent(
+            from: container,
+            forKey: .inputFiles,
+            role: .input
+        ) ?? []
+        let decodedFiles = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .files) ?? []
+        files = Self.deduplicated((decodedInput.map { [$0] } ?? []) + decodedInputFiles + decodedFiles)
+        let decodedOutput = try Self.decodeFileDescriptorIfPresent(
+            from: container,
+            forKey: .output,
+            role: .output
+        )
         let normalizedOutput = decodedOutput?.withRole(.output)
         output = normalizedOutput
         outputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .outputs)
             ?? normalizedOutput.map { [$0] } ?? []
-        steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps) ?? []
+        steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps)
+            ?? Self.decodePrimitiveSteps(
+                from: container,
+                defaultToolVersion: toolVersion,
+                createdAt: createdAt
+            )
         wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
         exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
         stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
@@ -214,6 +238,131 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encodeIfPresent(stderr, forKey: .stderr)
         try container.encode(signatures, forKey: .signatures)
         try container.encodeIfPresent(legacyRun, forKey: .legacyRun)
+    }
+
+    private static func decodeFileDescriptorIfPresent(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        role: FileRole
+    ) throws -> ProvenanceFileDescriptor? {
+        guard container.contains(key) else { return nil }
+        if let descriptor = try? container.decode(ProvenanceFileDescriptor.self, forKey: key) {
+            return descriptor.withRole(role)
+        }
+        if let path = try? container.decode(String.self, forKey: key) {
+            return ProvenanceFileDescriptor(path: path, role: role)
+        }
+        return nil
+    }
+
+    private static func decodeFileDescriptorsIfPresent(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        role: FileRole
+    ) throws -> [ProvenanceFileDescriptor]? {
+        guard container.contains(key) else { return nil }
+        if let descriptors = try? container.decode([ProvenanceFileDescriptor].self, forKey: key) {
+            return descriptors.map { $0.withRole(role) }
+        }
+        if let paths = try? container.decode([String].self, forKey: key) {
+            return paths.map { ProvenanceFileDescriptor(path: $0, role: role) }
+        }
+        return nil
+    }
+
+    private static func decodePrimitiveSteps(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        defaultToolVersion: String,
+        createdAt: Date
+    ) throws -> [ProvenanceStep] {
+        if let workflowSteps = try container.decodeIfPresent([PrimitiveWorkflowStep].self, forKey: .workflowSteps),
+           !workflowSteps.isEmpty {
+            return workflowSteps.map { step in
+                step.provenanceStep(defaultToolVersion: defaultToolVersion, createdAt: createdAt)
+            }
+        }
+        if let invocations = try container.decodeIfPresent(
+            [PrimitiveExternalToolInvocation].self,
+            forKey: .externalToolInvocations
+        ),
+           !invocations.isEmpty {
+            return invocations.map { invocation in
+                invocation.provenanceStep(defaultToolVersion: defaultToolVersion, createdAt: createdAt)
+            }
+        }
+        return []
+    }
+
+    private static func deduplicated(_ files: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for file in files {
+            let key = "\(file.role.rawValue)\u{0}\(file.path)"
+            if seen.insert(key).inserted {
+                result.append(file)
+            }
+        }
+        return result
+    }
+
+    private struct PrimitiveWorkflowStep: Decodable {
+        let stepName: String?
+        let workflowName: String?
+        let toolName: String?
+        let toolVersion: String?
+        let argv: [String]?
+        let reproducibleCommand: String?
+        let input: String?
+        let output: String?
+        let exitStatus: Int?
+        let wallTimeSeconds: TimeInterval?
+        let stderr: String?
+
+        func provenanceStep(defaultToolVersion: String, createdAt: Date) -> ProvenanceStep {
+            let inputs = input.map { [ProvenanceFileDescriptor(path: $0, role: .input)] } ?? []
+            let outputs = output.map { [ProvenanceFileDescriptor(path: $0, role: .output)] } ?? []
+            let arguments = argv ?? []
+            return ProvenanceStep(
+                toolName: ProvenanceName.required(toolName, fallback: workflowName ?? stepName ?? "unknown"),
+                toolVersion: ProvenanceVersion.required(toolVersion, fallback: defaultToolVersion),
+                argv: arguments,
+                reproducibleCommand: reproducibleCommand ?? arguments.map(shellEscape).joined(separator: " "),
+                inputs: inputs,
+                outputs: outputs,
+                exitStatus: exitStatus,
+                wallTimeSeconds: wallTimeSeconds,
+                stderr: ProvenanceStderr.normalized(stderr),
+                startedAt: createdAt,
+                completedAt: wallTimeSeconds.map { createdAt.addingTimeInterval($0) }
+            )
+        }
+    }
+
+    private struct PrimitiveExternalToolInvocation: Decodable {
+        let name: String?
+        let version: String?
+        let argv: [String]?
+        let reproducibleCommand: String?
+        let exitStatus: Int?
+        let wallTimeSeconds: TimeInterval?
+        let stderr: String?
+
+        func provenanceStep(defaultToolVersion: String, createdAt: Date) -> ProvenanceStep {
+            let arguments = argv ?? []
+            return ProvenanceStep(
+                toolName: ProvenanceName.required(name),
+                toolVersion: ProvenanceVersion.required(version, fallback: defaultToolVersion),
+                argv: arguments,
+                reproducibleCommand: reproducibleCommand ?? arguments.map(shellEscape).joined(separator: " "),
+                inputs: [],
+                outputs: [],
+                exitStatus: exitStatus,
+                wallTimeSeconds: wallTimeSeconds,
+                stderr: ProvenanceStderr.normalized(stderr),
+                startedAt: createdAt,
+                completedAt: wallTimeSeconds.map { createdAt.addingTimeInterval($0) }
+            )
+        }
     }
 }
 

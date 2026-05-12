@@ -80,7 +80,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
         var input: String
 
         @Option(
-            name: [.customLong("export-format"), .customShort("f")],
+            name: [.customLong("format"), .customLong("export-format"), .customShort("f")],
             help: "Export format: shell, nextflow, snakemake, methods, json"
         )
         var exportFormat: String
@@ -95,12 +95,16 @@ struct ProvenanceCommand: AsyncParsableCommand {
                 let provenanceURL = try ProvenanceCommand.resolveProvenanceURL(inputURL)
                 let envelope = try ProvenanceEnvelopeReader.decode(Data(contentsOf: provenanceURL))
                 let selectedExportFormat = try ProvenanceExportFormat.cliValue(exportFormat)
-                let exportArgv = [
+                let fallbackArgv = [
                     "lungfish", "provenance", "export",
                     input,
                     "--export-format", exportFormat,
                     "--output", output
                 ]
+                let exportArgv = Self.exportArgv(
+                    processArguments: CommandLine.arguments,
+                    fallback: fallbackArgv
+                )
                 let bundle = try ProvenanceExporter().exportBundle(
                     envelope,
                     format: selectedExportFormat,
@@ -110,6 +114,9 @@ struct ProvenanceCommand: AsyncParsableCommand {
                     exportArgv: exportArgv
                 )
                 print("Exported provenance \(selectedExportFormat.rawValue) to \(bundle.primaryArtifactURL.path)")
+                for artifact in bundle.signedReportArtifactURLs {
+                    print("Wrote signed report artifact to \(artifact.path)")
+                }
                 for sidecar in bundle.copiedSidecarURLs {
                     print("Wrote provenance artifact to \(sidecar.path)")
                 }
@@ -118,6 +125,15 @@ struct ProvenanceCommand: AsyncParsableCommand {
             } catch {
                 throw CLIError.workflowFailed(reason: error.localizedDescription)
             }
+        }
+
+        static func exportArgv(processArguments: [String], fallback: [String]) -> [String] {
+            guard let provenanceIndex = processArguments.firstIndex(of: "provenance"),
+                  processArguments.indices.contains(processArguments.index(after: provenanceIndex)),
+                  processArguments[processArguments.index(after: provenanceIndex)] == "export" else {
+                return fallback
+            }
+            return processArguments
         }
     }
 
@@ -189,9 +205,7 @@ struct ProvenanceCommand: AsyncParsableCommand {
 
         private func decodeWorkflowRun(at url: URL) -> WorkflowRun? {
             guard let data = try? Data(contentsOf: url) else { return nil }
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try? decoder.decode(WorkflowRun.self, from: data)
+            return try? ProvenanceEnvelopeReader.decode(data).legacyWorkflowRun()
         }
 
         private func printBibliography(_ bibliography: ProvenanceBibliographyResult, bundleURL: URL) {

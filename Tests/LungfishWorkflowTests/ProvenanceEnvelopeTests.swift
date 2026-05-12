@@ -168,6 +168,110 @@ struct ProvenanceEnvelopeTests {
         #expect(decoded.options.resolvedDefaults["overwriteExistingSidecar"]?.booleanValue == false)
     }
 
+    @Test("primitive workflow steps decode as canonical steps")
+    func primitiveWorkflowStepsDecodeAsCanonicalSteps() throws {
+        let data = Data("""
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-05-10T23:19:32Z",
+          "workflowName": "alignment-fixture",
+          "toolName": "lungfish fixture",
+          "toolVersion": "0.4.0-alpha.12",
+          "argv": ["python3", "fixture.py"],
+          "reproducibleCommand": "python3 fixture.py",
+          "runtimeIdentity": {
+            "executablePath": "/usr/bin/python3",
+            "operatingSystemVersion": "macOS test",
+            "processIdentifier": 123
+          },
+          "files": [],
+          "output": {
+            "checksumSHA256": "\(String(repeating: "b", count: 64))",
+            "fileSize": 1440,
+            "path": "project.lungfish"
+          },
+          "exitStatus": 0,
+          "wallTimeSeconds": 2,
+          "workflowSteps": [
+            {
+              "stepName": "generate-input",
+              "workflowName": "fixture-generation",
+              "toolName": "create_fixture.py",
+              "argv": ["python3", "create_fixture.py"],
+              "reproducibleCommand": "python3 create_fixture.py",
+              "output": "project.lungfish/Inputs/input.fasta"
+            },
+            {
+              "stepName": "align-with-mafft",
+              "workflowName": "multiple-sequence-alignment-mafft",
+              "toolName": "lungfish align mafft",
+              "argv": ["lungfish", "align", "mafft", "input.fasta"],
+              "reproducibleCommand": "lungfish align mafft input.fasta",
+              "output": "project.lungfish/Alignments/aligned.lungfishmsa"
+            }
+          ]
+        }
+        """.utf8)
+
+        let decoded = try ProvenanceEnvelopeReader.decode(data)
+
+        #expect(decoded.steps.map(\.toolName) == ["create_fixture.py", "lungfish align mafft"])
+        #expect(decoded.steps.map(\.argv) == [
+            ["python3", "create_fixture.py"],
+            ["lungfish", "align", "mafft", "input.fasta"]
+        ])
+        #expect(decoded.steps.last?.outputs.first?.path == "project.lungfish/Alignments/aligned.lungfishmsa")
+        #expect(decoded.legacyWorkflowRun().steps.count == 2)
+    }
+
+    @Test("primitive external tool invocations decode as canonical steps")
+    func primitiveExternalToolInvocationsDecodeAsCanonicalSteps() throws {
+        let data = Data("""
+        {
+          "schemaVersion": 1,
+          "createdAt": "2026-05-10T23:19:32Z",
+          "workflowName": "mafft-alignment",
+          "toolName": "lungfish align mafft",
+          "toolVersion": "0.4.0-alpha.12",
+          "argv": ["lungfish", "align", "mafft", "input.fasta"],
+          "reproducibleCommand": "lungfish align mafft input.fasta",
+          "runtimeIdentity": {
+            "executablePath": "/usr/local/bin/lungfish",
+            "operatingSystemVersion": "macOS test",
+            "processIdentifier": 123
+          },
+          "files": [],
+          "output": {
+            "checksumSHA256": "\(String(repeating: "b", count: 64))",
+            "fileSize": 1440,
+            "path": "aligned.lungfishmsa"
+          },
+          "exitStatus": 0,
+          "wallTimeSeconds": 2,
+          "externalToolInvocations": [
+            {
+              "name": "mafft",
+              "version": "7.526",
+              "argv": ["mafft", "--auto", "alignment/input.unaligned.fasta"],
+              "reproducibleCommand": "mafft --auto alignment/input.unaligned.fasta > alignment/primary.aligned.fasta",
+              "exitStatus": 0,
+              "stderr": "mafft stderr",
+              "wallTimeSeconds": 1.5
+            }
+          ]
+        }
+        """.utf8)
+
+        let decoded = try ProvenanceEnvelopeReader.decode(data)
+
+        #expect(decoded.steps.count == 1)
+        #expect(decoded.steps.first?.toolName == "mafft")
+        #expect(decoded.steps.first?.toolVersion == "7.526")
+        #expect(decoded.steps.first?.argv == ["mafft", "--auto", "alignment/input.unaligned.fasta"])
+        #expect(decoded.steps.first?.reproducibleCommand == "mafft --auto alignment/input.unaligned.fasta > alignment/primary.aligned.fasta")
+        #expect(decoded.steps.first?.stderr == "mafft stderr")
+    }
+
     @Test("legacy multi-step canonical output prefers terminal final output")
     func legacyMultiStepCanonicalOutputPrefersTerminalFinalOutput() throws {
         let intermediate = FileRecord(
