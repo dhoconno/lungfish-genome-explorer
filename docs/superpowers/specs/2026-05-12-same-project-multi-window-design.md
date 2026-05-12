@@ -36,6 +36,7 @@ The Project Lead coordinated four parallel reviews:
 - Share project contents across windows: project metadata, on-disk bundles, provenance sidecars, search index, project-wide operations, and file change notifications.
 - Route every project mutation and async completion through an explicit origin window and canonical project URL.
 - Refresh all same-project windows when project contents change, while auto-selecting or focusing new outputs only in the originating window.
+- Persist the open project windows and their UI state across app launches so quitting and reopening restores the same project windows in the same state when the underlying projects still exist.
 - Preserve Lungfish provenance requirements for all scientific data created, imported, transformed, exported, or wrapped by GUI workflows.
 - Surface external active/unknown project locks as read-only UI state rather than a hidden log warning.
 
@@ -81,6 +82,9 @@ An instructor or reviewer can show a provenance panel, methods details, and an o
 - Operation rows include project name and originating window label.
 - Completed operations refresh every open window for the same project. Only the originating window auto-selects or displays the output.
 - Conflicting write actions are disabled while a relevant project or bundle operation is running elsewhere, with a direct `View Operation` affordance.
+- On app termination, each project window saves a restorable session snapshot. On the next normal launch, Lungfish restores the same set of windows, project URLs, window frames, sidebar state, active bundle/document, viewer state, inspector state, and operations panel filter where possible.
+- Restored windows are independent peers. If the same project had two windows open before quit, the app restores two windows for that same project, not one collapsed window.
+- If a saved project or selected bundle no longer exists, the app restores the remaining windows and shows an actionable missing-project or missing-selection state instead of silently opening a different project.
 
 ## Architecture
 
@@ -113,6 +117,30 @@ Add an app-scoped `ProjectSessionRegistry` that tracks:
 - helpers to find all windows for a project.
 
 The registry is the place where `Show Existing Window` vs `Open Another Window` decisions are made.
+
+### Persistent Window State
+
+Add an app-owned `ProjectWindowStateStore` that persists a versioned array of restorable project window snapshots to `Application Support/Lungfish/window-state.json` or an equivalent app-owned support location. The store should not write into `.lungfish` project bundles because this state is local to one user's workstation.
+
+This should be an explicit Lungfish state store, not AppKit window restoration. The current main window deliberately sets `isRestorable = false`; re-enabling AppKit restoration would require a separate `NSWindowRestoration` design and is outside this feature.
+
+Each snapshot records:
+
+- stable window session ID,
+- canonical project URL,
+- duplicate-window ordinal and user-facing title suffix,
+- window frame, full-screen state when representable, and key/main-window ordering,
+- active sidebar selection URL and expanded sidebar URLs,
+- sidebar search text if present,
+- active content identity,
+- viewer content mode and bundle/document URL,
+- viewer navigation state such as chromosome, visible range, scroll/zoom, active taxon, active contig, and selected variant/read when supported by that view,
+- inspector tab, drawer visibility, and shell/sidebar/inspector widths,
+- operations panel filter and visibility.
+
+The initial implementation may restore unsupported view-specific fields as absent values, but the schema must include typed extension points so each viewport can add its restorable state without overloading portable bundle `.viewstate.json`.
+
+On normal launch, restore saved windows only when no explicit launch argument, UI test launch project, file-open event, or welcome action overrides startup. On crash or force quit, use the last successful snapshot, but ignore snapshots with unreadable schema or missing project URLs and fall back to the welcome window.
 
 ### Notification Contract
 
@@ -162,6 +190,8 @@ Missing provenance remains a blocking defect for new scientific outputs.
 ## Error Handling
 
 - External active/unknown lock: open read-only, show banner, disable project-mutating actions, allow safe browsing and exports outside the project.
+- Restore references a missing project: skip that project window, show the welcome window if no project windows remain, and keep a recoverable "Some windows could not be restored" notification for the session.
+- Restore references a missing selected bundle or document: restore the project window, preserve sidebar expansion/search where possible, and show a missing-selection placeholder without selecting a different scientific dataset.
 - Origin window closed during operation: refresh same-project windows on completion, but do not focus or auto-select in another window.
 - Output naming conflict: serialize if same target bundle is being written, otherwise collision-rename with deterministic suffix and record the final name in provenance.
 - Selected item deleted or renamed from another window: preserve visible content if possible, show a stale-content banner, and offer reveal/reload actions.
@@ -171,6 +201,7 @@ Missing provenance remains a blocking defect for new scientific outputs.
 
 - Opening the same project twice creates two independently usable windows with distinct titles.
 - The same project can also be opened through `Window > New Window for Current Project`.
+- Quitting and relaunching the app restores the same project windows, including duplicate same-project windows, window frames, selected bundles/documents, sidebar expansion, viewer navigation, inspector tab, and pane layout.
 - Ambiguous reopen of an already-open project offers focus existing vs open another window.
 - Selecting or filtering content in one same-project window does not change selection or filters in the other.
 - Commands always apply to the sender/key window's project/session.
@@ -179,6 +210,7 @@ Missing provenance remains a blocking defect for new scientific outputs.
 - External active/unknown locks force visible read-only UI.
 - Missing required provenance blocks success presentation for new scientific outputs.
 - Tests cover two same-project sessions, notification scoping, operation routing, refresh fanout, lock read-only state, and one end-to-end XCUITest smoke path.
+- Tests cover persisted window-state encode/decode, normal-launch restoration, missing-project recovery, duplicate same-project restoration, and at least one restored viewer selection.
 
 ## Risks
 
@@ -186,4 +218,5 @@ Missing provenance remains a blocking defect for new scientific outputs.
 - Many `AppDelegate` actions rely on `mainWindowController`. The plan needs explicit sender/key-window routing before more feature work layers onto it.
 - Notification scoping is partially implemented. A partial migration could make behavior harder to reason about than today.
 - Centralizing filesystem watchers improves architecture but touches sidebar refresh behavior that already handles selection preservation.
+- Existing code persists shell widths globally through `UserDefaults` and disables AppKit window restoration for the main window. The new persistence layer must migrate from global layout defaults to per-window snapshots without regressing current pane behavior.
 - Provenance/currentness enforcement may reveal existing workflows that create outputs before provenance is complete. Those are blocking defects, not regressions in the new feature.

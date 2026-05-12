@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make opening the same `.lungfish` project in multiple app windows a supported, testable workflow with independent window state, project-wide refresh, correct operation routing, and enforced scientific provenance expectations.
+**Goal:** Make opening the same `.lungfish` project in multiple app windows a supported, testable workflow with independent window state, launch-to-launch restoration, project-wide refresh, correct operation routing, and enforced scientific provenance expectations.
 
-**Architecture:** Add window-owned project sessions and an app-owned project session registry. Route UI state by `WindowStateScope`, route project refresh by canonical project URL, and route operation completion by both project URL and origin window scope. Keep `DocumentManager.shared` temporarily as a compatibility facade while project/window state moves into sessions.
+**Architecture:** Add window-owned project sessions, an app-owned project session registry, and an app-owned window state store. Route UI state by `WindowStateScope`, route project refresh by canonical project URL, route operation completion by both project URL and origin window scope, and restore normal launches from saved project-window snapshots when no explicit startup project overrides restoration. Keep `DocumentManager.shared` temporarily as a compatibility facade while project/window state moves into sessions.
 
 **Tech Stack:** Swift 6.2+, AppKit, LungfishApp, LungfishCore `ProjectFile`, FSEvents through existing `FileSystemWatcher`, XCTest, XCUITest.
 
@@ -16,6 +16,8 @@
   Window-owned project/document state and project open/create/load behavior.
 - Create `Sources/LungfishApp/StateManagement/ProjectSessionRegistry.swift`
   App-owned registry for sessions, same-project numbering, frontmost session, duplicate-open choices, and read-only lock state.
+- Create `Sources/LungfishApp/StateManagement/ProjectWindowStateStore.swift`
+  Versioned persistence for the set of restorable project windows and local per-window UI state.
 - Modify `Sources/LungfishApp/App/DocumentManager.swift`
   Extract reusable document/project loading helpers and keep singleton compatibility during migration.
 - Modify `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift`
@@ -39,6 +41,7 @@
 - Add tests:
   `Tests/LungfishAppTests/ProjectSessionTests.swift`,
   `Tests/LungfishAppTests/ProjectSessionRegistryTests.swift`,
+  `Tests/LungfishAppTests/ProjectWindowStateStoreTests.swift`,
   `Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift`,
   `Tests/LungfishAppTests/NotificationProjectScopeTests.swift`,
   `Tests/LungfishAppTests/OperationRoutingTests.swift`,
@@ -591,7 +594,478 @@ git commit -m "refactor: open projects through window sessions"
 
 ---
 
-### Task 5: Route Menus and App Actions to the Sender Window
+### Task 5: Persist and Restore Project Windows
+
+**Files:**
+- Create: `Sources/LungfishApp/StateManagement/ProjectWindowStateStore.swift`
+- Modify: `Sources/LungfishApp/StateManagement/ProjectSession.swift`
+- Modify: `Sources/LungfishApp/App/AppDelegate.swift`
+- Modify: `Sources/LungfishApp/Views/MainWindow/MainWindowController.swift`
+- Modify: `Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`
+- Modify: `Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift`
+- Test: `Tests/LungfishAppTests/ProjectWindowStateStoreTests.swift`
+- Test: extend `Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift`
+
+- [ ] **Step 1: Write persistence encode/decode tests**
+
+```swift
+import XCTest
+@testable import LungfishApp
+
+@MainActor
+final class ProjectWindowStateStoreTests: XCTestCase {
+    private var tempRoot: URL!
+    private var stateURL: URL!
+
+    override func setUpWithError() throws {
+        tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ProjectWindowStateStoreTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+        stateURL = tempRoot.appendingPathComponent("window-state.json")
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: tempRoot)
+    }
+
+    func testSaveAndLoadRoundTripPreservesDuplicateProjectWindows() throws {
+        let projectURL = tempRoot.appendingPathComponent("Shared.lungfish", isDirectory: true)
+        let first = ProjectWindowSnapshot(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            projectURL: projectURL,
+            windowOrdinal: 1,
+            windowOrder: 0,
+            windowTitleSuffix: "[1]",
+            frame: CodableWindowFrame(x: 10, y: 20, width: 900, height: 700),
+            isFullScreen: false,
+            selectedSidebarURL: projectURL.appendingPathComponent("Analyses/run-a.lungfishrun", isDirectory: true),
+            expandedSidebarURLs: [projectURL.appendingPathComponent("Analyses", isDirectory: true)],
+            sidebarSearchText: "variants",
+            activeContent: RestorableContentState(kind: "mapping", url: projectURL.appendingPathComponent("Analyses/run-a.lungfishrun", isDirectory: true), payload: ["contig": "NC_045512.2"]),
+            inspectorTab: "document",
+            sidebarCollapsed: false,
+            inspectorCollapsed: false,
+            sidebarWidth: 280,
+            inspectorWidth: 340,
+            operationsPanelFilter: "currentWindow",
+            operationsPanelVisible: true
+        )
+        let second = ProjectWindowSnapshot(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
+            projectURL: projectURL,
+            windowOrdinal: 2,
+            windowOrder: 1,
+            windowTitleSuffix: "[2]",
+            frame: CodableWindowFrame(x: 80, y: 90, width: 1000, height: 760),
+            isFullScreen: false,
+            selectedSidebarURL: projectURL.appendingPathComponent("Imports/sample.lungfishfastq", isDirectory: true),
+            expandedSidebarURLs: [projectURL.appendingPathComponent("Imports", isDirectory: true)],
+            sidebarSearchText: nil,
+            activeContent: RestorableContentState(kind: "fastq", url: projectURL.appendingPathComponent("Imports/sample.lungfishfastq", isDirectory: true), payload: ["drawer": "metadata"]),
+            inspectorTab: "selection",
+            sidebarCollapsed: false,
+            inspectorCollapsed: true,
+            sidebarWidth: 240,
+            inspectorWidth: 300,
+            operationsPanelFilter: "currentProject",
+            operationsPanelVisible: false
+        )
+        let store = ProjectWindowStateStore(stateURL: stateURL)
+
+        try store.save(ProjectWindowStateEnvelope(windows: [first, second]))
+        let loaded = try store.load()
+
+        XCTAssertEqual(loaded.windows.count, 2)
+        XCTAssertEqual(loaded.windows.map(\.windowOrdinal), [1, 2])
+        XCTAssertEqual(loaded.windows.map(\.windowTitleSuffix), ["[1]", "[2]"])
+        XCTAssertEqual(loaded.windows[0].projectURL.standardizedFileURL, projectURL.standardizedFileURL)
+        XCTAssertEqual(loaded.windows[1].activeContent?.kind, "fastq")
+        XCTAssertEqual(loaded.windows[0].operationsPanelFilter, "currentWindow")
+    }
+
+    func testLoadMissingFileReturnsEmptyEnvelope() throws {
+        let store = ProjectWindowStateStore(stateURL: stateURL)
+        let loaded = try store.load()
+        XCTAssertTrue(loaded.windows.isEmpty)
+    }
+}
+```
+
+- [ ] **Step 2: Run the failing tests**
+
+Run: `swift test --filter ProjectWindowStateStoreTests`
+
+Expected: FAIL because `ProjectWindowStateStore` and snapshot types do not exist.
+
+- [ ] **Step 3: Implement snapshot models and store**
+
+```swift
+import Foundation
+
+public struct CodableWindowFrame: Codable, Hashable, Sendable {
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct RestorableContentState: Codable, Hashable, Sendable {
+    public var kind: String
+    public var url: URL?
+    public var payload: [String: String]
+
+    public init(kind: String, url: URL?, payload: [String: String] = [:]) {
+        self.kind = kind
+        self.url = url
+        self.payload = payload
+    }
+}
+
+public struct ProjectWindowSnapshot: Codable, Hashable, Identifiable, Sendable {
+    public var id: UUID
+    public var projectURL: URL
+    public var windowOrdinal: Int
+    public var windowOrder: Int
+    public var windowTitleSuffix: String?
+    public var frame: CodableWindowFrame?
+    public var isFullScreen: Bool
+    public var selectedSidebarURL: URL?
+    public var expandedSidebarURLs: [URL]
+    public var sidebarSearchText: String?
+    public var activeContent: RestorableContentState?
+    public var inspectorTab: String?
+    public var sidebarCollapsed: Bool
+    public var inspectorCollapsed: Bool
+    public var sidebarWidth: Double?
+    public var inspectorWidth: Double?
+    public var operationsPanelFilter: String?
+    public var operationsPanelVisible: Bool
+
+    public init(
+        id: UUID,
+        projectURL: URL,
+        windowOrdinal: Int,
+        windowOrder: Int,
+        windowTitleSuffix: String?,
+        frame: CodableWindowFrame?,
+        isFullScreen: Bool,
+        selectedSidebarURL: URL?,
+        expandedSidebarURLs: [URL],
+        sidebarSearchText: String?,
+        activeContent: RestorableContentState?,
+        inspectorTab: String?,
+        sidebarCollapsed: Bool,
+        inspectorCollapsed: Bool,
+        sidebarWidth: Double?,
+        inspectorWidth: Double?,
+        operationsPanelFilter: String?,
+        operationsPanelVisible: Bool
+    ) {
+        self.id = id
+        self.projectURL = projectURL.standardizedFileURL
+        self.windowOrdinal = windowOrdinal
+        self.windowOrder = windowOrder
+        self.windowTitleSuffix = windowTitleSuffix
+        self.frame = frame
+        self.isFullScreen = isFullScreen
+        self.selectedSidebarURL = selectedSidebarURL?.standardizedFileURL
+        self.expandedSidebarURLs = expandedSidebarURLs.map(\.standardizedFileURL)
+        self.sidebarSearchText = sidebarSearchText
+        self.activeContent = activeContent
+        self.inspectorTab = inspectorTab
+        self.sidebarCollapsed = sidebarCollapsed
+        self.inspectorCollapsed = inspectorCollapsed
+        self.sidebarWidth = sidebarWidth
+        self.inspectorWidth = inspectorWidth
+        self.operationsPanelFilter = operationsPanelFilter
+        self.operationsPanelVisible = operationsPanelVisible
+    }
+}
+
+public struct ProjectWindowStateEnvelope: Codable, Hashable, Sendable {
+    public var schemaVersion: Int
+    public var savedAt: Date
+    public var windows: [ProjectWindowSnapshot]
+
+    public init(schemaVersion: Int = 1, savedAt: Date = Date(), windows: [ProjectWindowSnapshot]) {
+        self.schemaVersion = schemaVersion
+        self.savedAt = savedAt
+        self.windows = windows
+    }
+}
+
+public final class ProjectWindowStateStore {
+    public let stateURL: URL
+    private let fileManager: FileManager
+
+    public init(
+        stateURL: URL = ProjectWindowStateStore.defaultStateURL(),
+        fileManager: FileManager = .default
+    ) {
+        self.stateURL = stateURL
+        self.fileManager = fileManager
+    }
+
+    public static func defaultStateURL() -> URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support", isDirectory: true)
+        return support
+            .appendingPathComponent("Lungfish", isDirectory: true)
+            .appendingPathComponent("window-state.json", isDirectory: false)
+    }
+
+    public func load() throws -> ProjectWindowStateEnvelope {
+        guard fileManager.fileExists(atPath: stateURL.path) else {
+            return ProjectWindowStateEnvelope(windows: [])
+        }
+        let data = try Data(contentsOf: stateURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let envelope = try decoder.decode(ProjectWindowStateEnvelope.self, from: data)
+        guard envelope.schemaVersion == 1 else {
+            return ProjectWindowStateEnvelope(windows: [])
+        }
+        return envelope
+    }
+
+    public func save(_ envelope: ProjectWindowStateEnvelope) throws {
+        try fileManager.createDirectory(at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(envelope)
+        try data.write(to: stateURL, options: [.atomic])
+    }
+}
+```
+
+- [ ] **Step 4: Add snapshot capture hooks**
+
+In `MainWindowController`, add:
+
+```swift
+public func captureProjectWindowSnapshot(windowOrdinal: Int, windowOrder: Int) -> ProjectWindowSnapshot? {
+    guard let projectURL = projectSession.projectURL else { return nil }
+    let frame = window.map {
+        CodableWindowFrame(
+            x: Double($0.frame.origin.x),
+            y: Double($0.frame.origin.y),
+            width: Double($0.frame.size.width),
+            height: Double($0.frame.size.height)
+        )
+    }
+    return mainSplitViewController.captureProjectWindowSnapshot(
+        id: projectSession.id,
+        projectURL: projectURL,
+        windowOrdinal: windowOrdinal,
+        windowOrder: windowOrder,
+        windowTitleSuffix: "[\(windowOrdinal)]",
+        frame: frame
+    )
+}
+```
+
+In `MainSplitViewController`, add:
+
+```swift
+public func captureProjectWindowSnapshot(
+    id: UUID,
+    projectURL: URL,
+    windowOrdinal: Int,
+    windowOrder: Int,
+    windowTitleSuffix: String?,
+    frame: CodableWindowFrame?
+) -> ProjectWindowSnapshot {
+    ProjectWindowSnapshot(
+        id: id,
+        projectURL: projectURL,
+        windowOrdinal: windowOrdinal,
+        windowOrder: windowOrder,
+        windowTitleSuffix: windowTitleSuffix,
+        frame: frame,
+        isFullScreen: view.window?.styleMask.contains(.fullScreen) == true,
+        selectedSidebarURL: sidebarController.selectedFileURL,
+        expandedSidebarURLs: sidebarController.expandedItemURLsForPersistence(),
+        sidebarSearchText: sidebarController.searchTextForPersistence(),
+        activeContent: viewerController?.restorableContentState(),
+        inspectorTab: inspectorController?.restorableSelectedTabIdentifier(),
+        sidebarCollapsed: sidebarItem.isCollapsed,
+        inspectorCollapsed: inspectorItem.isCollapsed,
+        sidebarWidth: sidebarWidthConstraint.map { Double($0.constant) },
+        inspectorWidth: inspectorWidthConstraint.map { Double($0.constant) },
+        operationsPanelFilter: nil,
+        operationsPanelVisible: false
+    )
+}
+```
+
+Add minimal testable accessors in sidebar, viewer, and inspector. The first implementation can return nil or empty values for view-specific fields that are not yet modeled, but it must return real selected sidebar URL, expansion URLs, pane collapsed state, and pane widths. Keep `MainWindowController.createMainWindow()` with `window.isRestorable = false`; this feature uses Lungfish's explicit state store rather than AppKit restoration because the current app has no `NSWindowRestoration` implementation.
+
+- [ ] **Step 5: Save snapshots on termination and important window changes**
+
+In `AppDelegate.saveApplicationState()`, replace the placeholder body with:
+
+```swift
+let snapshots = mainWindowControllers.enumerated().compactMap { index, controller -> ProjectWindowSnapshot? in
+    let ordinal = projectSessionRegistry.windowNumber(for: controller.projectSession)
+    return controller.captureProjectWindowSnapshot(windowOrdinal: ordinal, windowOrder: index)
+}
+do {
+    try ProjectWindowStateStore().save(ProjectWindowStateEnvelope(windows: snapshots))
+} catch {
+    appDelegateLogger.error("Failed to save project window state: \(error.localizedDescription, privacy: .public)")
+}
+```
+
+Also call `saveApplicationState()` after opening or closing project windows so normal relaunches restore the most recent stable state even if macOS terminates the app without a long shutdown window.
+
+- [ ] **Step 6: Restore windows on normal launch**
+
+Add:
+
+```swift
+private func restoreProjectWindowsFromSavedState() -> Bool {
+    do {
+        let envelope = try ProjectWindowStateStore().load()
+        let existingWindows = envelope.windows.filter { FileManager.default.fileExists(atPath: $0.projectURL.path) }
+        guard !existingWindows.isEmpty else { return false }
+
+        for snapshot in existingWindows.sorted(by: { $0.windowOrder < $1.windowOrder }) {
+            let session = ProjectSession(id: snapshot.id)
+            let controller = createAndShowMainWindow(projectSession: session)
+            try session.openProject(at: snapshot.projectURL)
+            projectSessionRegistry.register(session, projectURL: snapshot.projectURL)
+            controller.mainSplitViewController?.applyProjectSessionState(restoring: snapshot)
+            if let frame = snapshot.frame {
+                controller.window?.setFrame(
+                    NSRect(x: frame.x, y: frame.y, width: frame.width, height: frame.height),
+                    display: true
+                )
+            }
+            if snapshot.isFullScreen, controller.window?.styleMask.contains(.fullScreen) == false {
+                controller.window?.toggleFullScreen(nil)
+            }
+        }
+        return true
+    } catch {
+        appDelegateLogger.error("Failed to restore project windows: \(error.localizedDescription, privacy: .public)")
+        return false
+    }
+}
+```
+
+In `applicationDidFinishLaunching(_:)`, call `restoreProjectWindowsFromSavedState()` only after explicit launch overrides are checked and before showing the welcome window:
+
+```swift
+if restoreProjectWindowsFromSavedState() {
+    NSApp.activate()
+    return
+}
+showWelcomeWindow()
+```
+
+- [ ] **Step 7: Apply restored per-window state**
+
+Overload `applyProjectSessionState`:
+
+```swift
+public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
+    applyProjectSessionState()
+    guard let snapshot else { return }
+    sidebarController.applyRestoredState(
+        selectedURL: snapshot.selectedSidebarURL,
+        expandedURLs: snapshot.expandedSidebarURLs,
+        searchText: snapshot.sidebarSearchText
+    )
+    setSidebarVisible(!snapshot.sidebarCollapsed, animated: false)
+    setInspectorVisible(!snapshot.inspectorCollapsed, animated: false, source: "window-state-restore")
+    if let tab = snapshot.inspectorTab {
+        inspectorController?.restoreSelectedTabIdentifier(tab)
+    }
+    if let content = snapshot.activeContent {
+        viewerController?.restoreContentState(content)
+    }
+}
+```
+
+If `selectedSidebarURL` or `activeContent.url` no longer exists, keep the project open and show the existing empty/no-selection state. Do not select a different dataset as a fallback.
+
+- [ ] **Step 8: Add routing tests for restoration**
+
+Extend `MainWindowSessionRoutingTests`:
+
+```swift
+func testRestoreCreatesTwoControllersForSameProjectSnapshots() throws {
+    let delegate = AppDelegate()
+    let temp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RestoreSameProject-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temp) }
+    let projectURL = temp.appendingPathComponent("Shared.lungfish", isDirectory: true)
+    _ = try DocumentManager.shared.createProject(at: projectURL, name: "Shared")
+
+    let snapshots = [
+        ProjectWindowSnapshot(id: UUID(), projectURL: projectURL, windowOrdinal: 1, windowOrder: 0, windowTitleSuffix: "[1]", frame: nil, isFullScreen: false, selectedSidebarURL: nil, expandedSidebarURLs: [], sidebarSearchText: nil, activeContent: nil, inspectorTab: nil, sidebarCollapsed: false, inspectorCollapsed: false, sidebarWidth: nil, inspectorWidth: nil, operationsPanelFilter: nil, operationsPanelVisible: false),
+        ProjectWindowSnapshot(id: UUID(), projectURL: projectURL, windowOrdinal: 2, windowOrder: 1, windowTitleSuffix: "[2]", frame: nil, isFullScreen: false, selectedSidebarURL: nil, expandedSidebarURLs: [], sidebarSearchText: nil, activeContent: nil, inspectorTab: nil, sidebarCollapsed: false, inspectorCollapsed: false, sidebarWidth: nil, inspectorWidth: nil, operationsPanelFilter: nil, operationsPanelVisible: false)
+    ]
+
+    try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: snapshots))
+
+    XCTAssertEqual(delegate.testingMainWindowControllers.count, 2)
+    XCTAssertEqual(Set(delegate.testingMainWindowControllers.compactMap { $0.projectSession.projectURL?.standardizedFileURL }), [projectURL.standardizedFileURL])
+}
+
+func testRestoreSkipsMissingProjectAndKeepsExistingWindow() throws {
+    let delegate = AppDelegate()
+    let temp = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RestoreMissingProject-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: temp) }
+    let existingProjectURL = temp.appendingPathComponent("Existing.lungfish", isDirectory: true)
+    let missingProjectURL = temp.appendingPathComponent("Missing.lungfish", isDirectory: true)
+    _ = try DocumentManager.shared.createProject(at: existingProjectURL, name: "Existing")
+
+    let snapshots = [
+        ProjectWindowSnapshot(id: UUID(), projectURL: existingProjectURL, windowOrdinal: 1, windowOrder: 0, windowTitleSuffix: "[1]", frame: nil, isFullScreen: false, selectedSidebarURL: nil, expandedSidebarURLs: [], sidebarSearchText: nil, activeContent: nil, inspectorTab: nil, sidebarCollapsed: false, inspectorCollapsed: false, sidebarWidth: nil, inspectorWidth: nil, operationsPanelFilter: nil, operationsPanelVisible: false),
+        ProjectWindowSnapshot(id: UUID(), projectURL: missingProjectURL, windowOrdinal: 1, windowOrder: 1, windowTitleSuffix: "[1]", frame: nil, isFullScreen: false, selectedSidebarURL: nil, expandedSidebarURLs: [], sidebarSearchText: nil, activeContent: nil, inspectorTab: nil, sidebarCollapsed: false, inspectorCollapsed: false, sidebarWidth: nil, inspectorWidth: nil, operationsPanelFilter: nil, operationsPanelVisible: false)
+    ]
+
+    try delegate.testingRestoreProjectWindows(from: ProjectWindowStateEnvelope(windows: snapshots))
+
+    XCTAssertEqual(delegate.testingMainWindowControllers.count, 1)
+    XCTAssertEqual(delegate.testingMainWindowControllers.first?.projectSession.projectURL?.standardizedFileURL, existingProjectURL.standardizedFileURL)
+}
+```
+
+- [ ] **Step 9: Run persistence tests**
+
+Run:
+
+```bash
+swift test --filter ProjectWindowStateStoreTests
+swift test --filter MainWindowSessionRoutingTests
+swift test --filter WorkspaceShellLayoutTests
+```
+
+Expected: PASS.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add Sources/LungfishApp/StateManagement/ProjectWindowStateStore.swift Sources/LungfishApp/StateManagement/ProjectSession.swift Sources/LungfishApp/App/AppDelegate.swift Sources/LungfishApp/Views/MainWindow/MainWindowController.swift Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift Tests/LungfishAppTests/ProjectWindowStateStoreTests.swift Tests/LungfishAppTests/MainWindowSessionRoutingTests.swift
+git commit -m "feat: persist project window sessions"
+```
+
+---
+
+### Task 6: Route Menus and App Actions to the Sender Window
 
 **Files:**
 - Modify: `Sources/LungfishApp/App/AppDelegate.swift`
@@ -696,7 +1170,7 @@ git commit -m "refactor: route app actions through target windows"
 
 ---
 
-### Task 6: Formalize Window and Project Notification Scoping
+### Task 7: Formalize Window and Project Notification Scoping
 
 **Files:**
 - Modify: `Sources/LungfishApp/StateManagement/WindowStateScope.swift`
@@ -821,7 +1295,7 @@ git commit -m "fix: scope project window notifications"
 
 ---
 
-### Task 7: Add Operation Routing Metadata
+### Task 8: Add Operation Routing Metadata
 
 **Files:**
 - Modify: `Sources/LungfishApp/Services/DownloadCenter.swift`
@@ -954,7 +1428,7 @@ git commit -m "feat: route operation completions by project window"
 
 ---
 
-### Task 8: Centralize Project Filesystem Refresh Fanout
+### Task 9: Centralize Project Filesystem Refresh Fanout
 
 **Files:**
 - Create: `Sources/LungfishApp/Services/ProjectFilesystemRefreshCoordinator.swift`
@@ -1096,7 +1570,7 @@ git commit -m "refactor: fan out project filesystem refreshes"
 
 ---
 
-### Task 9: Add User-Facing Same-Project Window Affordances
+### Task 10: Add User-Facing Same-Project Window Affordances
 
 **Files:**
 - Modify: `Sources/LungfishApp/App/MainMenu.swift`
@@ -1185,7 +1659,7 @@ git commit -m "feat: add same-project window affordance"
 
 ---
 
-### Task 10: Enforce Read-Only UI for External Project Locks
+### Task 11: Enforce Read-Only UI for External Project Locks
 
 **Files:**
 - Modify: `Sources/LungfishApp/StateManagement/ProjectSession.swift`
@@ -1277,10 +1751,10 @@ git commit -m "feat: enforce read-only project lock state"
 
 ---
 
-### Task 11: Preserve Provenance and Currentness Across Windows
+### Task 12: Preserve Provenance and Currentness Across Windows
 
 **Files:**
-- Modify: operation launch paths touched by Task 7
+- Modify: operation launch paths touched by Task 8
 - Modify: `Sources/LungfishApp/Services/FASTQDerivativeService.swift`
 - Modify: `Sources/LungfishApp/Views/Metagenomics/TaxonomyReadExtractionAction.swift`
 - Modify: `Sources/LungfishApp/Views/Inspector/InspectorViewController.swift`
@@ -1338,7 +1812,7 @@ git commit -m "fix: preserve routed provenance for project window operations"
 
 ---
 
-### Task 12: Add Same-Project Multi-Window XCUITest Smoke
+### Task 13: Add Same-Project Multi-Window XCUITest Smoke
 
 **Files:**
 - Modify: `Tests/LungfishXCUITests/ProjectLifecycleXCUITests.swift`
@@ -1400,7 +1874,54 @@ Run the same `xcodebuild test` command.
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Add relaunch restoration smoke**
+
+```swift
+@MainActor
+func testSameProjectWindowsRestoreAfterRelaunch() throws {
+    let projectURL = try makeProjectFixture(named: "SameProjectRestore")
+    let robot = ProjectLifecycleRobot()
+
+    robot.launch(openingProject: projectURL)
+    XCTAssertTrue(robot.projectWindow(for: projectURL, index: 1).waitForExistence(timeout: 10))
+    robot.openNewWindowForCurrentProject()
+    XCTAssertTrue(robot.projectWindow(for: projectURL, index: 2).waitForExistence(timeout: 10))
+    robot.selectSidebarItem(named: "Analyses", inWindowIndex: 1)
+    robot.selectSidebarItem(named: "Reference Sequences", inWindowIndex: 2)
+    robot.app.terminate()
+
+    robot.launchWithoutStartupProject()
+
+    XCTAssertTrue(robot.projectWindow(for: projectURL, index: 1).waitForExistence(timeout: 10))
+    XCTAssertTrue(robot.projectWindow(for: projectURL, index: 2).waitForExistence(timeout: 10))
+    XCTAssertTrue(robot.sidebarItem(named: "Analyses", inWindowIndex: 1).isSelected)
+    XCTAssertTrue(robot.sidebarItem(named: "Reference Sequences", inWindowIndex: 2).isSelected)
+}
+```
+
+- [ ] **Step 6: Add robot launch helper**
+
+```swift
+func launchWithoutStartupProject() {
+    app.launchArguments = []
+    app.launchEnvironment = [:]
+    app.launch()
+}
+```
+
+Keep existing UI-test state injection hooks disabled for this relaunch path so it exercises saved project window state rather than explicit launch project arguments.
+
+- [ ] **Step 7: Run XCUITest restoration smoke**
+
+Run:
+
+```bash
+xcodebuild test -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/ProjectLifecycleXCUITests/testSameProjectWindowsRestoreAfterRelaunch
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add Tests/LungfishXCUITests/ProjectLifecycleXCUITests.swift Tests/LungfishXCUITests/TestSupport
@@ -1409,7 +1930,7 @@ git commit -m "test: cover same-project multi-window smoke"
 
 ---
 
-### Task 13: Final Verification and Audit
+### Task 14: Final Verification and Audit
 
 **Files:**
 - No planned source edits unless verification reveals a defect.
@@ -1431,6 +1952,7 @@ Run:
 ```bash
 swift test --filter ProjectSessionTests
 swift test --filter ProjectSessionRegistryTests
+swift test --filter ProjectWindowStateStoreTests
 swift test --filter MainWindowSessionRoutingTests
 swift test --filter NotificationProjectScopeTests
 swift test --filter OperationRoutingTests
@@ -1456,6 +1978,7 @@ Run:
 
 ```bash
 xcodebuild test -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/ProjectLifecycleXCUITests/testSameProjectCanOpenInTwoWindowsWithIndependentSelections
+xcodebuild test -scheme Lungfish -destination 'platform=macOS' -only-testing:LungfishXCUITests/ProjectLifecycleXCUITests/testSameProjectWindowsRestoreAfterRelaunch
 ```
 
 Expected: PASS, or record exact environment limitation.
@@ -1484,7 +2007,7 @@ Skip this commit if verification required no changes.
 
 ## Self-Review
 
-- Spec coverage: tasks cover session state, duplicate-window UX, notification scoping, operation routing, filesystem refresh, read-only lock behavior, provenance/currentness, and tests.
+- Spec coverage: tasks cover session state, duplicate-window UX, persistent launch-to-launch window restoration, notification scoping, operation routing, filesystem refresh, read-only lock behavior, provenance/currentness, and tests.
 - Placeholder scan: no implementation step depends on unspecified file paths or unnamed tests.
 - Type consistency: `ProjectSession`, `ProjectSessionRegistry`, `WindowStateScope`, `OperationRoute`, and `OperationBundleReadyDelivery` are named consistently across tasks.
 - Provenance: the plan explicitly blocks success presentation for new scientific outputs with missing or staging-path provenance.
