@@ -25,7 +25,8 @@ struct ProvenanceEnvelopeTests {
         #expect(json["workflowVersion"] as? String == "fixture-workflow-version")
         #expect(json["toolName"] as? String == "fastp")
         #expect(json["toolVersion"] as? String == "0.24.1")
-        #expect(json["tool"] is [String: Any])
+        let tool = try #require(json["tool"] as? [String: Any])
+        #expect(tool["version"] as? String == "0.24.1")
         #expect(json["argv"] as? [String] == ["fastp", "-i", "reads.fastq", "-o", "trimmed.fastq"])
         #expect(json["reproducibleCommand"] as? String == "fastp -i reads.fastq -o trimmed.fastq")
         #expect(json["options"] is [String: Any])
@@ -165,5 +166,64 @@ struct ProvenanceEnvelopeTests {
         #expect(legacy.steps.first?.outputs.count == 1)
         #expect(legacy.steps.first?.outputs.first?.path == "single-output.fastq")
         #expect(legacy.steps.first?.outputs.first?.sha256 == String(repeating: "e", count: 64))
+
+        let data = try ProvenanceJSON.encoder.encode(envelope)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let tool = try #require(json["tool"] as? [String: Any])
+
+        #expect((json["workflowVersion"] as? String)?.isEmpty == false)
+        #expect((json["toolVersion"] as? String)?.isEmpty == false)
+        #expect((tool["version"] as? String)?.isEmpty == false)
+    }
+
+    @Test("malformed canonical JSON missing versions rehydrates required version fields")
+    func malformedCanonicalJSONMissingVersionsRehydratesRequiredVersionFields() throws {
+        let data = Data("""
+        {
+          "schemaVersion": 1,
+          "id": "00000000-0000-0000-0000-000000000001",
+          "createdAt": "1970-01-01T00:00:00Z",
+          "workflowName": "malformed.workflow",
+          "toolName": "malformed-tool",
+          "tool": {
+            "name": "malformed-tool",
+            "kind": "cli"
+          },
+          "argv": ["malformed-tool"],
+          "reproducibleCommand": "malformed-tool",
+          "options": {
+            "explicit": {},
+            "defaults": {},
+            "resolvedDefaults": {}
+          },
+          "runtimeIdentity": {},
+          "files": [],
+          "outputs": [],
+          "steps": [
+            {
+              "id": "00000000-0000-0000-0000-000000000002",
+              "toolName": "malformed-tool",
+              "argv": ["malformed-tool"],
+              "reproducibleCommand": "malformed-tool",
+              "inputs": [],
+              "outputs": [],
+              "dependsOn": []
+            }
+          ],
+          "signatures": []
+        }
+        """.utf8)
+
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+        let encoded = try ProvenanceJSON.encoder.encode(envelope)
+        let json = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let tool = try #require(json["tool"] as? [String: Any])
+        let steps = try #require(json["steps"] as? [[String: Any]])
+        let firstStep = try #require(steps.first)
+
+        #expect((json["workflowVersion"] as? String)?.isEmpty == false)
+        #expect((json["toolVersion"] as? String)?.isEmpty == false)
+        #expect((tool["version"] as? String)?.isEmpty == false)
+        #expect((firstStep["toolVersion"] as? String)?.isEmpty == false)
     }
 }

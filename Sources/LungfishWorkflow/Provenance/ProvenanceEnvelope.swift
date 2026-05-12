@@ -21,6 +21,16 @@ public enum ProvenanceJSON {
     }
 }
 
+enum ProvenanceVersion {
+    static func required(_ value: String?, fallback: String = "unknown") -> String {
+        let fallbackValue = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedFallback = fallbackValue.isEmpty ? "unknown" : fallbackValue
+        guard let value else { return normalizedFallback }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? normalizedFallback : normalized
+    }
+}
+
 // MARK: - ProvenanceEnvelope
 
 public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
@@ -28,9 +38,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let createdAt: Date
     public let workflowName: String
-    public let workflowVersion: String?
+    public let workflowVersion: String
     public let toolName: String
-    public let toolVersion: String?
+    public let toolVersion: String
     public let tool: ProvenanceToolIdentity
     public let argv: [String]
     public let reproducibleCommand: String
@@ -75,9 +85,9 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         id: UUID = UUID(),
         createdAt: Date = Date(),
         workflowName: String,
-        workflowVersion: String? = nil,
+        workflowVersion: String = WorkflowRun.currentAppVersion,
         toolName: String,
-        toolVersion: String? = nil,
+        toolVersion: String = "unknown",
         tool: ProvenanceToolIdentity? = nil,
         argv: [String] = [],
         reproducibleCommand: String? = nil,
@@ -97,10 +107,10 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.id = id
         self.createdAt = createdAt
         self.workflowName = workflowName
-        self.workflowVersion = workflowVersion
+        self.workflowVersion = ProvenanceVersion.required(workflowVersion, fallback: WorkflowRun.currentAppVersion)
         self.toolName = toolName
-        self.toolVersion = toolVersion
-        self.tool = tool ?? ProvenanceToolIdentity(name: toolName, version: toolVersion)
+        self.toolVersion = ProvenanceVersion.required(toolVersion)
+        self.tool = tool ?? ProvenanceToolIdentity(name: toolName, version: self.toolVersion)
         self.argv = argv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
         self.options = options
@@ -115,19 +125,61 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.signatures = signatures
         self.legacyRun = legacyWorkflowRun
     }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        id = try container.decode(UUID.self, forKey: .id)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        workflowName = try container.decode(String.self, forKey: .workflowName)
+        workflowVersion = ProvenanceVersion.required(
+            try container.decodeIfPresent(String.self, forKey: .workflowVersion),
+            fallback: WorkflowRun.currentAppVersion
+        )
+        toolName = try container.decode(String.self, forKey: .toolName)
+        toolVersion = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .toolVersion))
+        let decodedTool = try container.decodeIfPresent(ProvenanceToolIdentity.self, forKey: .tool)
+        tool = decodedTool ?? ProvenanceToolIdentity(name: toolName, version: toolVersion)
+        argv = try container.decode([String].self, forKey: .argv)
+        reproducibleCommand = try container.decode(String.self, forKey: .reproducibleCommand)
+        options = try container.decode(ProvenanceOptions.self, forKey: .options)
+        runtimeIdentity = try container.decode(ProvenanceRuntimeIdentity.self, forKey: .runtimeIdentity)
+        files = try container.decode([ProvenanceFileDescriptor].self, forKey: .files)
+        output = try container.decodeIfPresent(ProvenanceFileDescriptor.self, forKey: .output)
+        outputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .outputs)
+        steps = try container.decode([ProvenanceStep].self, forKey: .steps)
+        wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
+        exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
+        stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
+        signatures = try container.decode([ProvenanceSignatureReference].self, forKey: .signatures)
+        legacyRun = try container.decodeIfPresent(WorkflowRun.self, forKey: .legacyRun)
+    }
 }
 
 // MARK: - ProvenanceToolIdentity
 
 public struct ProvenanceToolIdentity: Codable, Sendable, Equatable {
     public let name: String
-    public let version: String?
+    public let version: String
     public let kind: String?
 
-    public init(name: String, version: String? = nil, kind: String? = nil) {
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case version
+        case kind
+    }
+
+    public init(name: String, version: String = "unknown", kind: String? = nil) {
         self.name = name
-        self.version = version
+        self.version = ProvenanceVersion.required(version)
         self.kind = kind
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        version = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .version))
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
     }
 }
 
@@ -267,7 +319,7 @@ public struct ProvenanceFileDescriptor: Codable, Sendable, Equatable {
 public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let id: UUID
     public let toolName: String
-    public let toolVersion: String?
+    public let toolVersion: String
     public let argv: [String]
     public let reproducibleCommand: String
     public let inputs: [ProvenanceFileDescriptor]
@@ -279,10 +331,26 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let startedAt: Date?
     public let completedAt: Date?
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case toolName
+        case toolVersion
+        case argv
+        case reproducibleCommand
+        case inputs
+        case outputs
+        case exitStatus
+        case wallTimeSeconds
+        case stderr
+        case dependsOn
+        case startedAt
+        case completedAt
+    }
+
     public init(
         id: UUID = UUID(),
         toolName: String,
-        toolVersion: String? = nil,
+        toolVersion: String = "unknown",
         argv: [String] = [],
         reproducibleCommand: String? = nil,
         inputs: [ProvenanceFileDescriptor] = [],
@@ -296,7 +364,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     ) {
         self.id = id
         self.toolName = toolName
-        self.toolVersion = toolVersion
+        self.toolVersion = ProvenanceVersion.required(toolVersion)
         self.argv = argv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
         self.inputs = inputs
@@ -307,6 +375,23 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.dependsOn = dependsOn
         self.startedAt = startedAt
         self.completedAt = completedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        toolName = try container.decode(String.self, forKey: .toolName)
+        toolVersion = ProvenanceVersion.required(try container.decodeIfPresent(String.self, forKey: .toolVersion))
+        argv = try container.decode([String].self, forKey: .argv)
+        reproducibleCommand = try container.decode(String.self, forKey: .reproducibleCommand)
+        inputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .inputs)
+        outputs = try container.decode([ProvenanceFileDescriptor].self, forKey: .outputs)
+        exitStatus = try container.decodeIfPresent(Int.self, forKey: .exitStatus)
+        wallTimeSeconds = try container.decodeIfPresent(TimeInterval.self, forKey: .wallTimeSeconds)
+        stderr = try container.decodeIfPresent(String.self, forKey: .stderr)
+        dependsOn = try container.decodeIfPresent([UUID].self, forKey: .dependsOn) ?? []
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 }
 

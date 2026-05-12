@@ -369,11 +369,12 @@ extension WorkflowRun {
             id: id,
             createdAt: startTime,
             workflowName: name,
+            workflowVersion: ProvenanceVersion.required(appVersion, fallback: WorkflowRun.currentAppVersion),
             toolName: firstStep?.toolName ?? name,
-            toolVersion: firstStep?.toolVersion,
+            toolVersion: ProvenanceVersion.required(firstStep?.toolVersion, fallback: appVersion),
             tool: ProvenanceToolIdentity(
                 name: firstStep?.toolName ?? name,
-                version: firstStep?.toolVersion,
+                version: ProvenanceVersion.required(firstStep?.toolVersion, fallback: appVersion),
                 kind: "cli"
             ),
             argv: firstStep?.command ?? [],
@@ -435,7 +436,7 @@ extension ProvenanceEnvelope {
                 StepExecution(
                     id: UUID(),
                     toolName: toolName,
-                    toolVersion: toolVersion ?? "",
+                    toolVersion: toolVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: argv,
@@ -453,7 +454,7 @@ extension ProvenanceEnvelope {
                 StepExecution(
                     id: step.id,
                     toolName: step.toolName,
-                    toolVersion: step.toolVersion ?? "",
+                    toolVersion: step.toolVersion,
                     containerImage: runtimeIdentity.containerImage,
                     containerDigest: runtimeIdentity.containerDigest,
                     command: step.argv,
@@ -539,7 +540,7 @@ extension ProvenanceStep {
         self.init(
             id: stepExecution.id,
             toolName: stepExecution.toolName,
-            toolVersion: stepExecution.toolVersion,
+            toolVersion: ProvenanceVersion.required(stepExecution.toolVersion),
             argv: stepExecution.command,
             reproducibleCommand: stepExecution.commandString,
             inputs: stepExecution.inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
