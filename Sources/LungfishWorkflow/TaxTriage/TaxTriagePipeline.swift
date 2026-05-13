@@ -51,6 +51,20 @@ public enum TaxTriagePipelineError: Error, LocalizedError, Sendable {
     }
 }
 
+private extension Array where Element == URL {
+    func taxTriageUniquedByPath() -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in self {
+            let path = url.standardizedFileURL.path
+            guard !seen.contains(path) else { continue }
+            seen.insert(path)
+            result.append(url)
+        }
+        return result
+    }
+}
+
 // MARK: - TaxTriagePipeline
 
 /// Actor that orchestrates TaxTriage metagenomic classification via Nextflow.
@@ -335,6 +349,11 @@ public actor TaxTriagePipeline {
             requestedOutputDirectory: profileAdjustedConfig.outputDirectory,
             effectiveOutputDirectory: effectiveConfig.outputDirectory
         )
+        let runID = await ProvenanceRecorder.shared.beginRun(
+            name: "TaxTriage",
+            parameters: provenanceParameters(for: profileAdjustedConfig)
+        )
+        let provenanceCommand = [micromambaPath.path] + micromambaArgs
 
         let handle: ProcessHandle
         do {
@@ -348,6 +367,21 @@ public actor TaxTriagePipeline {
             let spawnMessage = "Failed to spawn Nextflow: \(error.localizedDescription)"
             let spawnLog = launchMetadata + "\n--- launcher error ---\n" + spawnMessage + "\n"
             try? spawnLog.write(to: logFile, atomically: true, encoding: .utf8)
+            await recordTaxTriageProvenanceStep(
+                runID: runID,
+                config: profileAdjustedConfig,
+                command: provenanceCommand,
+                outputFiles: [logFile],
+                exitCode: -1,
+                wallTime: Date().timeIntervalSince(startTime),
+                stderr: spawnMessage
+            )
+            await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
+            do {
+                try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
+            } catch {
+                logger.warning("Failed to save TaxTriage failure provenance: \(error.localizedDescription)")
+            }
             throw TaxTriagePipelineError.pipelineFailed(
                 exitCode: -1,
                 stderr: spawnMessage,
@@ -403,6 +437,24 @@ public actor TaxTriagePipeline {
 
         if exitCode != 0 {
             let stderrText = stderrLines.joined(separator: "\n")
+            await recordTaxTriageProvenanceStep(
+                runID: runID,
+                config: profileAdjustedConfig,
+                command: provenanceCommand,
+                outputFiles: [
+                    logFile,
+                    profileAdjustedConfig.outputDirectory.appendingPathComponent("trace.txt"),
+                ],
+                exitCode: exitCode,
+                wallTime: Date().timeIntervalSince(startTime),
+                stderr: stderrText
+            )
+            await ProvenanceRecorder.shared.completeRun(runID, status: .failed)
+            do {
+                try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
+            } catch {
+                logger.warning("Failed to save TaxTriage failure provenance: \(error.localizedDescription)")
+            }
             throw TaxTriagePipelineError.pipelineFailed(
                 exitCode: exitCode,
                 stderr: stderrText,
@@ -445,6 +497,25 @@ public actor TaxTriagePipeline {
             try result.save()
         } catch {
             logger.warning("Failed to save TaxTriage result: \(error.localizedDescription)")
+        }
+        await recordTaxTriageProvenanceStep(
+            runID: runID,
+            config: profileAdjustedConfig,
+            command: provenanceCommand,
+            outputFiles: (
+                result.allOutputFiles + [
+                    result.outputDirectory.appendingPathComponent("taxtriage-result.json"),
+                ]
+            ).taxTriageUniquedByPath(),
+            exitCode: exitCode,
+            wallTime: result.runtime,
+            stderr: ""
+        )
+        await ProvenanceRecorder.shared.completeRun(runID, status: .completed)
+        do {
+            try await ProvenanceRecorder.shared.save(runID: runID, to: profileAdjustedConfig.outputDirectory)
+        } catch {
+            logger.warning("Failed to save TaxTriage provenance: \(error.localizedDescription)")
         }
 
         progress?(1.0, "TaxTriage pipeline complete")
@@ -537,6 +608,70 @@ public actor TaxTriagePipeline {
             effectiveConfig: effectiveConfig,
             redirectDirectory: safeDir
         )
+    }
+
+    // MARK: - Provenance
+
+    private func provenanceParameters(for config: TaxTriageConfig) -> [String: ParameterValue] {
+        [
+            "workflow": .string("taxtriage"),
+            "sample_count": .integer(config.samples.count),
+            "platform": .string(config.platform.rawValue),
+            "classifiers": .array(config.classifiers.map { .string($0) }),
+            "top_hits_count": .integer(config.topHitsCount),
+            "k2_confidence": .number(config.k2Confidence),
+            "rank": .string(config.rank),
+            "skip_assembly": .boolean(config.skipAssembly),
+            "skip_krona": .boolean(config.skipKrona),
+            "max_memory": .string(config.maxMemory),
+            "max_cpus": .integer(config.maxCpus),
+            "profile": .string(config.profile),
+            "revision": .string(config.revision),
+            "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+            "output_directory": .file(config.outputDirectory),
+        ]
+    }
+
+    private func recordTaxTriageProvenanceStep(
+        runID: UUID,
+        config: TaxTriageConfig,
+        command: [String],
+        outputFiles: [URL],
+        exitCode: Int32,
+        wallTime: TimeInterval,
+        stderr: String?
+    ) async {
+        await ProvenanceRecorder.shared.recordStep(
+            runID: runID,
+            toolName: "TaxTriage",
+            toolVersion: config.revision,
+            command: command,
+            inputs: inputRecords(for: config),
+            outputs: outputRecords(for: outputFiles),
+            exitCode: exitCode,
+            wallTime: wallTime,
+            stderr: stderr
+        )
+    }
+
+    private func inputRecords(for config: TaxTriageConfig) -> [FileRecord] {
+        config.samples.flatMap { sample in
+            ([sample.fastq1] + (sample.fastq2.map { [$0] } ?? []))
+                .map { url in
+                    ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
+                }
+        }
+    }
+
+    private func outputRecords(for urls: [URL]) -> [FileRecord] {
+        urls
+            .taxTriageUniquedByPath()
+            .filter { url in
+                var isDirectory: ObjCBool = false
+                return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && !isDirectory.boolValue
+            }
+            .map { ProvenanceRecorder.fileRecord(url: $0, role: .output) }
     }
 
     // MARK: - Command Building

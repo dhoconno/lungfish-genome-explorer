@@ -102,5 +102,7 @@ final class AssemblyDocumentSectionTests: XCTestCase {
                     $0.fileURL == result.outputDirectory.appendingPathComponent(AssemblyProvenance.filename)
             }
         )
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, result.outputDirectory)
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .analysisResult)
     }
 }

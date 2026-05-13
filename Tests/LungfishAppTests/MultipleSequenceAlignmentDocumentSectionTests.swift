@@ -135,6 +135,8 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
                     $0.fileURL == bundleURL.appendingPathComponent("tree/primary.nwk")
             }
         )
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, bundleURL)
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .phylogeneticTreeBundle)
     }
 
     func testInspectorUpdateMSADocumentBuildsBundleStatistics() throws {
@@ -173,6 +175,8 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
                     $0.fileURL == bundleURL.appendingPathComponent("alignment/primary.aligned.fasta")
             }
         )
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.url, bundleURL)
+        XCTAssertEqual(inspector.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .multipleSequenceAlignmentBundle)
     }
 
     func testInspectorMSADocumentEnablesNumberingControlsAndBroadcastsMode() throws {

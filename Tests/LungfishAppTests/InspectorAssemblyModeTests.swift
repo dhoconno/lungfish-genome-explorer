@@ -4,11 +4,11 @@ import LungfishCore
 
 @MainActor
 final class InspectorAssemblyModeTests: XCTestCase {
-    func testAssemblyModeUsesDocumentOnlyInspectorTabAndHeaderLabel() {
+    func testAssemblyModeUsesDocumentAndProvenanceInspectorTabs() {
         let viewModel = InspectorViewModel()
         viewModel.contentMode = .assembly
 
-        XCTAssertEqual(viewModel.availableTabs, [.bundle])
+        XCTAssertEqual(viewModel.availableTabs, [.bundle, .provenance])
         XCTAssertEqual(viewModel.availableTabs.first?.displayLabel, "Bundle")
     }
 

@@ -213,7 +213,7 @@ public class MainSplitViewController: NSSplitViewController {
     /// Default inspector width
     private let inspectorDefaultWidth: CGFloat = 280
     /// Maximum inspector width
-    private let inspectorMaxWidth: CGFloat = 450
+    private let inspectorMaxWidth: CGFloat = 720
 
     /// Minimum viewer width
     private let viewerMinWidth: CGFloat = 400
@@ -225,6 +225,7 @@ public class MainSplitViewController: NSSplitViewController {
     private var pendingInspectorRevealRestore = false
     private var pendingSidebarRevealWidth: CGFloat?
     private var pendingInspectorRevealWidth: CGFloat?
+    private var lastObservedShellContentWidth: CGFloat?
 
     private lazy var shellLayoutCoordinator = WorkspaceShellLayoutCoordinator(
         sidebarMinWidth: sidebarMinWidth,
@@ -355,9 +356,9 @@ public class MainSplitViewController: NSSplitViewController {
         viewerItem.minimumThickness = viewerMinWidth
         viewerItem.holdingPriority = .defaultLow
 
-        // Inspector: collapsible, using inspectorWithViewController for macOS 26 Liquid Glass support
-        // This provides proper system-standard inspector behavior including translucent materials
-        inspectorItem = NSSplitViewItem(inspectorWithViewController: inspectorController)
+        // Inspector: collapsible trailing panel with the same user-owned resize
+        // semantics as the project sidebar.
+        inspectorItem = NSSplitViewItem(viewController: inspectorController)
         inspectorItem.canCollapse = true
         inspectorItem.minimumThickness = inspectorMinWidth
         inspectorItem.maximumThickness = inspectorMaxWidth
@@ -1792,46 +1793,21 @@ public class MainSplitViewController: NSSplitViewController {
             splitView.adjustSubviews()
             splitView.layoutSubtreeIfNeeded()
             view.layoutSubtreeIfNeeded()
+            lastObservedShellContentWidth = currentShellContentWidth()
         }
     }
 
-    @discardableResult
-    private func reapplyResolvedShellWidthsForOrdinaryResize(
+    private func mirrorLiveShellWidthsAfterOrdinaryResize(
         currentSidebarWidth: CGFloat,
-        currentInspectorWidth: CGFloat,
-        totalWidth: CGFloat
-    ) -> Bool {
+        currentInspectorWidth: CGFloat
+    ) {
         ensureShellWidthConstraints()
-        let resolvedWidths = shellLayoutCoordinator.resolvedShellWidths(
-            currentSidebarWidth: currentSidebarWidth,
-            currentInspectorWidth: currentInspectorWidth,
-            totalWidth: totalWidth
-        )
-        let sidebarNeedsUpdate = !sidebarItem.isCollapsed
-            && abs((sidebarWidthConstraint?.constant ?? currentSidebarWidth) - resolvedWidths.sidebarWidth) > 0.5
-        let inspectorNeedsUpdate = !inspectorItem.isCollapsed
-            && abs((inspectorWidthConstraint?.constant ?? currentInspectorWidth) - resolvedWidths.inspectorWidth) > 0.5
-        guard sidebarNeedsUpdate || inspectorNeedsUpdate else { return false }
-
-        withProgrammaticShellResizeSuppression {
-            if !sidebarItem.isCollapsed {
-                sidebarWidthConstraint?.constant = resolvedWidths.sidebarWidth
-                setShellDividerPosition(resolvedWidths.sidebarWidth, ofDividerAt: 0)
-            }
-
-            if !inspectorItem.isCollapsed {
-                inspectorWidthConstraint?.constant = resolvedWidths.inspectorWidth
-                let inspectorDividerPosition = shellContainerWidth()
-                    - resolvedWidths.inspectorWidth
-                    - splitView.dividerThickness
-                setShellDividerPosition(inspectorDividerPosition, ofDividerAt: 1)
-            }
-
-            splitView.adjustSubviews()
-            splitView.layoutSubtreeIfNeeded()
-            view.layoutSubtreeIfNeeded()
+        if !sidebarItem.isCollapsed, currentSidebarWidth > 0 {
+            sidebarWidthConstraint?.constant = currentSidebarWidth
         }
-        return true
+        if !inspectorItem.isCollapsed, currentInspectorWidth > 0 {
+            inspectorWidthConstraint?.constant = currentInspectorWidth
+        }
     }
 
     private func reapplyPersistedShellLayoutForCurrentVisibility(scheduleAsync: Bool) {
@@ -2386,9 +2362,9 @@ public class MainSplitViewController: NSSplitViewController {
         guard !isApplyingProgrammaticShellDividerMove else { return proposedPosition }
         guard !isSuppressingProgrammaticShellResize else { return proposedPosition }
 
-        let clampedPosition = min(
-            max(proposedPosition, splitView.minPossiblePositionOfDivider(at: dividerIndex)),
-            splitView.maxPossiblePositionOfDivider(at: dividerIndex)
+        let clampedPosition = clampedShellDividerPosition(
+            proposedPosition,
+            ofDividerAt: dividerIndex
         )
 
         switch dividerIndex {
@@ -2396,6 +2372,13 @@ public class MainSplitViewController: NSSplitViewController {
             pendingShellResizeEvent = .userDraggedSidebar
         case 1:
             pendingShellResizeEvent = .userDraggedInspector
+            let proposedInspectorWidth = splitView.bounds.width
+                - clampedPosition
+                - splitView.dividerThickness
+            if !inspectorItem.isCollapsed, proposedInspectorWidth > 0 {
+                ensureShellWidthConstraints()
+                inspectorWidthConstraint?.constant = proposedInspectorWidth
+            }
         default:
             pendingShellResizeEvent = .shellDidResize
         }
@@ -2409,12 +2392,37 @@ public class MainSplitViewController: NSSplitViewController {
         return clampedPosition
     }
 
+    private func clampedShellDividerPosition(
+        _ proposedPosition: CGFloat,
+        ofDividerAt dividerIndex: Int
+    ) -> CGFloat {
+        if dividerIndex == 1, !inspectorItem.isCollapsed {
+            let totalWidth = splitView.bounds.width
+            let viewerLeadingEdge = viewerContainerView?.frame.minX
+                ?? ((sidebarContainerView?.frame.width ?? 0) + splitView.dividerThickness)
+            let minimumPosition = max(
+                viewerLeadingEdge + viewerMinWidth,
+                totalWidth - inspectorMaxWidth - splitView.dividerThickness
+            )
+            let maximumPosition = totalWidth - inspectorMinWidth - splitView.dividerThickness
+            return min(max(proposedPosition, minimumPosition), maximumPosition)
+        }
+
+        return min(
+            max(proposedPosition, splitView.minPossiblePositionOfDivider(at: dividerIndex)),
+            splitView.maxPossiblePositionOfDivider(at: dividerIndex)
+        )
+    }
+
     public override func splitViewDidResizeSubviews(_ notification: Notification) {
         guard notification.object as? NSSplitView === splitView else { return }
 
         let sidebarWidth = !sidebarItem.isCollapsed ? (sidebarContainerView?.frame.width ?? 0) : 0
         let inspectorWidth = !inspectorItem.isCollapsed ? (inspectorContainerView?.frame.width ?? 0) : 0
         let totalWidth = currentShellContentWidth()
+        let previousTotalWidth = lastObservedShellContentWidth
+        lastObservedShellContentWidth = totalWidth
+        let shellContentWidthChanged = previousTotalWidth.map { abs($0 - totalWidth) > 0.5 } ?? true
         let resizeEvent = isSuppressingProgrammaticShellResize ? .shellDidResize : pendingShellResizeEvent
         pendingShellResizeEvent = .shellDidResize
         let decision = shellLayoutCoordinator.resizeDecision(
@@ -2437,13 +2445,23 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         if resizeEvent == .shellDidResize,
-           !isSuppressingProgrammaticShellResize,
-           reapplyResolvedShellWidthsForOrdinaryResize(
-                currentSidebarWidth: sidebarWidth,
-                currentInspectorWidth: inspectorWidth,
-                totalWidth: totalWidth
-           ) {
+           !isSuppressingProgrammaticShellResize {
+            if pendingSidebarRevealRestore || pendingInspectorRevealRestore {
+                schedulePendingRevealRestoreIfNeeded()
+                completeInspectorTransitionIfReachedTarget()
+                return
+            }
+            if shellContentWidthChanged {
+                mirrorLiveShellWidthsAfterOrdinaryResize(
+                    currentSidebarWidth: sidebarWidth,
+                    currentInspectorWidth: inspectorWidth
+                )
+            }
+            if !sidebarItem.isCollapsed {
+                sidebarWidthCoordinator.noteObservedWidth(sidebarWidth)
+            }
             schedulePendingRevealRestoreIfNeeded()
+            completeInspectorTransitionIfReachedTarget()
             return
         }
 
@@ -2453,6 +2471,10 @@ public class MainSplitViewController: NSSplitViewController {
         }
 
         schedulePendingRevealRestoreIfNeeded()
+        completeInspectorTransitionIfReachedTarget()
+    }
+
+    private func completeInspectorTransitionIfReachedTarget() {
         guard inspectorTransitionInFlight else { return }
         guard let targetCollapsed = inspectorTransitionTargetCollapsedState else { return }
         guard inspectorItem.isCollapsed == targetCollapsed else { return }
@@ -3149,6 +3171,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 provenance: provenance
             )
             inspectorController.clearSelection()
+            inspectorController.updateProvenanceTarget(
+                url: url,
+                sidebarType: .analysisResult,
+                displayName: url.lastPathComponent
+            )
             inspectorController.updateMappingDocument(
                 MappingDocumentStateBuilder.build(
                     result: result,
@@ -3227,6 +3254,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
         let toolId = AnalysesFolder.readAnalysisMetadata(from: batchURL)?.tool ?? dirName
+        inspectorController?.updateProvenanceTarget(
+            url: batchURL,
+            sidebarType: provenanceSidebarType(forMetagenomicsToolId: toolId, directoryName: dirName),
+            displayName: dirName
+        )
 
         if toolId.hasPrefix("spades")
             || toolId.hasPrefix("megahit")
@@ -3457,6 +3489,34 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         } else {
             logger.warning("displayBatchGroup: Unrecognized batch prefix in '\(dirName, privacy: .public)'")
         }
+    }
+
+    private func provenanceSidebarType(
+        forMetagenomicsToolId toolId: String,
+        directoryName: String
+    ) -> SidebarItemType {
+        if directoryName.hasPrefix("kraken2")
+            || directoryName.hasPrefix("classification")
+            || toolId.hasPrefix("kraken2")
+            || toolId.hasPrefix("classification") {
+            return .classificationResult
+        }
+        if directoryName.hasPrefix("esviritu") || toolId.hasPrefix("esviritu") {
+            return .esvirituResult
+        }
+        if directoryName.hasPrefix("taxtriage") || toolId.hasPrefix("taxtriage") {
+            return .taxTriageResult
+        }
+        if directoryName.hasPrefix("naomgs") || toolId == "naomgs" {
+            return .naoMgsResult
+        }
+        if directoryName.hasPrefix("nvd") || toolId == "nvd" {
+            return .nvdResult
+        }
+        if directoryName.hasPrefix("cz-id") || toolId.hasPrefix("cz-id") {
+            return .czIdResult
+        }
+        return .analysisResult
     }
 
     /// Shows a ``DatabaseBuildPlaceholderView`` in the viewport area and
@@ -3726,6 +3786,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         logger.info("displayNaoMgsResult: Opening '\(url.lastPathComponent, privacy: .public)'")
         let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "naoMgsResult")
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        inspectorController?.updateProvenanceTarget(
+            url: url,
+            sidebarType: .naoMgsResult,
+            displayName: url.lastPathComponent
+        )
 
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NaoMgsResultViewController()
@@ -3933,6 +3998,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         logger.info("displayNvdResult: Opening '\(url.lastPathComponent, privacy: .public)'")
         let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "nvdResult")
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        inspectorController?.updateProvenanceTarget(
+            url: url,
+            sidebarType: .nvdResult,
+            displayName: url.lastPathComponent
+        )
 
         // Show a placeholder immediately so the user gets feedback while we load.
         let placeholderVC = NvdResultViewController()
@@ -4033,6 +4103,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         logger.info("displayCzIdResult: Opening '\(url.lastPathComponent, privacy: .public)'")
         let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "czIdResult")
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        inspectorController?.updateProvenanceTarget(
+            url: url,
+            sidebarType: .czIdResult,
+            displayName: url.lastPathComponent
+        )
 
         let bundleURL = url
         Task {

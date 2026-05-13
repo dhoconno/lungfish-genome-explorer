@@ -697,9 +697,14 @@ public struct ProvenanceExporter: Sendable {
         sourceRootURL: URL?,
         sourceDestinationRoot: URL
     ) -> URL {
-        if let sourceRootURL,
-           let relativePath = relativePath(for: sourceURL, relativeTo: sourceRootURL) {
-            return sourceDestinationRoot.appendingPathComponent(relativePath)
+        if let sourceRootURL {
+            if !isDirectory(sourceRootURL),
+               shouldPreserveFileRootArtifactByName(sourceURL, sourceRootURL: sourceRootURL) {
+                return sourceDestinationRoot.appendingPathComponent(sourceURL.lastPathComponent)
+            }
+            if let relativePath = relativePath(for: sourceURL, relativeTo: sourceRootURL) {
+                return sourceDestinationRoot.appendingPathComponent(relativePath)
+            }
         }
         let components = sourceURL.standardizedFileURL.pathComponents.filter { $0 != "/" }
         guard !components.isEmpty else {
@@ -710,6 +715,15 @@ public struct ProvenanceExporter: Sendable {
         ) { partialURL, component in
             partialURL.appendingPathComponent(component)
         }
+    }
+
+    private func shouldPreserveFileRootArtifactByName(_ sourceURL: URL, sourceRootURL: URL) -> Bool {
+        let standardizedSourceURL = sourceURL.standardizedFileURL
+        let standardizedRootURL = sourceRootURL.standardizedFileURL
+        if standardizedSourceURL == standardizedRootURL {
+            return true
+        }
+        return standardizedSourceURL == ProvenanceRecorder.fileSidecarURL(for: standardizedRootURL).standardizedFileURL
     }
 
     private func relativePath(for url: URL, relativeTo root: URL) -> String? {

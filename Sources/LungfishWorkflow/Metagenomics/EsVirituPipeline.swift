@@ -475,26 +475,24 @@ public actor EsVirituPipeline {
 
         let esVirituWallTime = Date().timeIntervalSince(esVirituStart)
 
-        // Record provenance step.
-        let inputRecords = config.inputFiles.map { url in
-            FileRecord(path: url.path, format: .fastq, role: .input)
-        }
-        let outputRecords = [
-            FileRecord(path: config.detectionOutputURL.path, format: .text, role: .output),
-        ]
-        await provenanceRecorder.recordStep(
-            runID: runID,
-            toolName: "EsViritu",
-            toolVersion: toolVersion,
-            command: esVirituCommand,
-            inputs: inputRecords,
-            outputs: outputRecords,
-            exitCode: esVirituResult.exitCode,
-            wallTime: esVirituWallTime,
-            stderr: esVirituResult.stderr
-        )
-
         if esVirituResult.exitCode != 0 {
+            let inputRecords = config.inputFiles.map { url in
+                ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
+            }
+            let failureOutputs = fm.fileExists(atPath: effectiveConfig.detectionOutputURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: effectiveConfig.detectionOutputURL, format: .text, role: .output)]
+                : []
+            await provenanceRecorder.recordStep(
+                runID: runID,
+                toolName: "EsViritu",
+                toolVersion: toolVersion,
+                command: esVirituCommand,
+                inputs: inputRecords,
+                outputs: failureOutputs,
+                exitCode: esVirituResult.exitCode,
+                wallTime: esVirituWallTime,
+                stderr: esVirituResult.stderr
+            )
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw EsVirituPipelineError.esVirituFailed(
                 exitCode: esVirituResult.exitCode,
@@ -530,6 +528,26 @@ public actor EsVirituPipeline {
             await provenanceRecorder.completeRun(runID, status: .failed)
             throw EsVirituPipelineError.detectionOutputNotProduced(config.detectionOutputURL)
         }
+
+        // Record provenance after any temp output copy so file descriptors point
+        // at the final stored payload and can include checksum/size metadata.
+        let inputRecords = config.inputFiles.map { url in
+            ProvenanceRecorder.fileRecord(url: url, format: .fastq, role: .input)
+        }
+        let outputRecords = [
+            ProvenanceRecorder.fileRecord(url: config.detectionOutputURL, format: .text, role: .output),
+        ]
+        await provenanceRecorder.recordStep(
+            runID: runID,
+            toolName: "EsViritu",
+            toolVersion: toolVersion,
+            command: esVirituCommand,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: esVirituResult.exitCode,
+            wallTime: esVirituWallTime,
+            stderr: esVirituResult.stderr
+        )
 
         // Count detected viruses from the TSV (skip header line).
         let virusCount = countDetectedViruses(at: config.detectionOutputURL)

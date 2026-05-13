@@ -7535,11 +7535,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
 
-        let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: {
+        let esCliArgs: [String] = {
             var args = ["--input"] + config.inputFiles.map(\.path)
             args += ["--sample", config.sampleName]
             return args
-        }())
+        }()
+        let esCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esCliArgs)
+        let esCliArgv = ["lungfish", "esviritu", "detect"] + esCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu \(config.sampleName)",
             detail: "Starting EsViritu viral detection\u{2026}",
@@ -7638,6 +7640,60 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     appDelegateLogger.warning(
                         "runEsViritu: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
                     )
+                }
+
+                let summaryURL = esvBatchRoot.appendingPathComponent("esviritu-batch-summary.tsv")
+                let sampleID = MetagenomicsSampleGrouper.sanitizeSampleId(config.sampleName)
+                let summaryLines = [
+                    "sample_id\tstatus\tvirus_count\tfamilies\tspecies\terror",
+                    [
+                        appTSVField(sampleID),
+                        "ok",
+                        String(result.virusCount),
+                        String(ioResult.detectedFamilyCount),
+                        String(ioResult.detectedSpeciesCount),
+                        "",
+                    ].joined(separator: "\t"),
+                ]
+                do {
+                    try summaryLines.joined(separator: "\n").write(to: summaryURL, atomically: true, encoding: .utf8)
+                } catch {
+                    appDelegateLogger.warning("runEsViritu: Failed to write summary TSV - \(error.localizedDescription, privacy: .public)")
+                }
+
+                let manifest = EsVirituBatchResultManifest(
+                    header: MetagenomicsBatchManifestHeader(
+                        schemaVersion: 1,
+                        createdAt: Date(),
+                        sampleCount: 1
+                    ),
+                    summaryTSV: summaryURL.lastPathComponent,
+                    samples: [
+                        MetagenomicsBatchSampleRecord(
+                            sampleId: sampleID,
+                            resultDirectory: appRelativePath(from: esvBatchRoot, to: config.outputDirectory),
+                            inputFiles: config.inputFiles.map(\.path),
+                            isPairedEnd: config.isPairedEnd
+                        )
+                    ]
+                )
+
+                do {
+                    try MetagenomicsBatchResultStore.saveEsViritu(manifest, to: esvBatchRoot)
+                } catch {
+                    appDelegateLogger.warning("runEsViritu: Failed to save batch manifest - \(error.localizedDescription, privacy: .public)")
+                }
+
+                do {
+                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                        batchRoot: esvBatchRoot,
+                        manifest: manifest,
+                        summaryURL: summaryURL,
+                        sqliteURL: esvBatchRoot.appendingPathComponent("esviritu.sqlite"),
+                        command: esCliArgv
+                    )
+                } catch {
+                    appDelegateLogger.warning("runEsViritu: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
                 }
 
                 nonisolated(unsafe) let capturedResult = ioResult
@@ -8050,14 +8106,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return parent
         }()
 
-        let esBatchCliCmd: String = {
+        let esBatchCliArgs: [String] = {
             var args = ["--input"]
             for c in configs {
                 args += c.inputFiles.map(\.path)
             }
             args += ["--sample", configs.first?.sampleName ?? "batch"]
-            return OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: args)
+            return args
         }()
+        let esBatchCliCmd = OperationCenter.buildCLICommand(subcommand: "esviritu detect", args: esBatchCliArgs)
+        let esBatchCliArgv = ["lungfish", "esviritu", "detect"] + esBatchCliArgs
         let opID = OperationCenter.shared.start(
             title: "EsViritu Batch (\(sampleCount) sample\(sampleCount == 1 ? "" : "s"))",
             detail: "Starting EsViritu batch\u{2026}",
@@ -8236,6 +8294,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     appDelegateLogger.warning(
                         "runEsVirituBatch: Failed to build esviritu.sqlite - \(error.localizedDescription, privacy: .public)"
                     )
+                }
+            }
+
+            if !successfulResults.isEmpty {
+                do {
+                    try MetagenomicsBatchProvenanceWriter.writeEsVirituBatchProvenance(
+                        batchRoot: batchRoot,
+                        manifest: manifest,
+                        summaryURL: summaryURL,
+                        sqliteURL: batchRoot.appendingPathComponent("esviritu.sqlite"),
+                        command: esBatchCliArgv
+                    )
+                } catch {
+                    appDelegateLogger.warning("runEsVirituBatch: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
                 }
             }
 
@@ -8422,6 +8494,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         "runTaxTriage: Failed to build taxtriage.sqlite - \(error.localizedDescription, privacy: .public)"
                     )
                 }
+
+                _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(
+                    resultDirectory: result.outputDirectory
+                )
 
                 nonisolated(unsafe) let capturedResult = result
                 nonisolated(unsafe) let capturedConfig = config
@@ -8962,6 +9038,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             if firstVisibleCandidate == nil {
                 firstVisibleCandidate = standardized
             }
+            _ = MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: standardized)
+            _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: standardized)
             if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardized) {
                 return .resolved(
                     AppProvenanceExportSource(
@@ -8979,6 +9057,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         if let sidebarSelection = sidebarController?.selectedFileURL?.standardizedFileURL,
            seen.insert(sidebarSelection.path).inserted {
+            _ = MetagenomicsBatchProvenanceWriter.ensureEsVirituBatchProvenanceIfPossible(batchRoot: sidebarSelection)
+            _ = MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: sidebarSelection)
             if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: sidebarSelection) {
                 return .resolved(
                     AppProvenanceExportSource(

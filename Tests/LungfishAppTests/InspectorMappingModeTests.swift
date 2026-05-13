@@ -21,11 +21,11 @@ final class InspectorMappingModeTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testMappingModeUsesBundleSelectedItemViewAndAnalysisInspectorTabs() {
+    func testMappingModeUsesBundleSelectedItemViewAnalysisAndProvenanceInspectorTabs() {
         let viewModel = InspectorViewModel()
         viewModel.contentMode = .mapping
 
-        XCTAssertEqual(viewModel.availableTabs, [.bundle, .selectedItem, .view, .analysis])
+        XCTAssertEqual(viewModel.availableTabs, [.bundle, .selectedItem, .view, .analysis, .provenance])
     }
 
     func testMappingModeExposesSeparateViewAndAnalysisTabs() {
@@ -34,7 +34,7 @@ final class InspectorMappingModeTests: XCTestCase {
 
         XCTAssertEqual(
             viewModel.availableTabs.map(\.displayLabel),
-            ["Bundle", "Selected Item", "View", "Analysis"]
+            ["Bundle", "Selected Item", "View", "Analysis", "Provenance"]
         )
     }
 
@@ -115,6 +115,8 @@ final class InspectorMappingModeTests: XCTestCase {
         XCTAssertEqual(vc.viewModel.documentSectionViewModel.selectedChromosome?.name, "chr1")
         XCTAssertEqual(deliveredPayload?[NotificationUserInfoKey.showReads] as? Bool, vc.readStyleSectionViewModel.showReads)
         XCTAssertFalse(vc.readStyleSectionViewModel.supportsConsensusExtraction)
+        XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.url, bundle.url)
+        XCTAssertEqual(vc.viewModel.provenanceSectionViewModel.currentItem?.sidebarType, .referenceBundle)
     }
 
     func testEmptySidebarDeselectionPreservesActiveBundleContextForInspectorActions() throws {

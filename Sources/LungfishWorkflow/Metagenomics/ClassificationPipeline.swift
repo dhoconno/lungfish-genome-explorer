@@ -302,11 +302,11 @@ public actor ClassificationPipeline {
 
         // Record kraken2 provenance step.
         let inputRecords = effectiveConfig.inputFiles.map { url in
-            FileRecord(path: url.path, format: effectiveConfig.provenanceInputFileFormat, role: .input)
+            ProvenanceRecorder.fileRecord(url: url, format: effectiveConfig.provenanceInputFileFormat, role: .input)
         }
         let kraken2Outputs = [
-            FileRecord(path: effectiveConfig.reportURL.path, format: .text, role: .report),
-            FileRecord(path: effectiveConfig.outputURL.path, format: .text, role: .output),
+            ProvenanceRecorder.fileRecord(url: effectiveConfig.reportURL, format: .text, role: .report),
+            ProvenanceRecorder.fileRecord(url: effectiveConfig.outputURL, format: .text, role: .output),
         ]
         let kraken2StepID = await provenanceRecorder.recordStep(
             runID: runID,
@@ -382,11 +382,11 @@ public actor ClassificationPipeline {
             // Record bracken provenance step with dependency on kraken2.
             // Uses separately detected bracken version (Gap 22 fix).
             let brackenInputs = [
-                FileRecord(path: effectiveConfig.reportURL.path, format: .text, role: .input),
+                ProvenanceRecorder.fileRecord(url: effectiveConfig.reportURL, format: .text, role: .input),
             ]
-            let brackenOutputRecords = [
-                FileRecord(path: effectiveConfig.brackenURL.path, format: .text, role: .output),
-            ]
+            let brackenOutputRecords = fm.fileExists(atPath: effectiveConfig.brackenURL.path)
+                ? [ProvenanceRecorder.fileRecord(url: effectiveConfig.brackenURL, format: .text, role: .output)]
+                : []
             let dependsOn: [UUID] = kraken2StepID.map { [$0] } ?? []
             await provenanceRecorder.recordStep(
                 runID: runID,

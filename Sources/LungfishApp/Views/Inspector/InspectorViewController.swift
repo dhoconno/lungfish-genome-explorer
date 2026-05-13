@@ -84,6 +84,8 @@ enum InspectorTab: String, CaseIterable {
     case fastqMetadata
     /// Metagenomics result summary (metagenomics mode).
     case resultSummary
+    /// Reproducibility provenance for selected scientific bundles/results.
+    case provenance
 }
 
 /// Controller for the inspector panel showing selection details.
@@ -133,6 +135,11 @@ public class InspectorViewController: NSViewController {
     /// Public access to the FASTQ metadata section view model.
     public var fastqMetadataSectionViewModel: FASTQMetadataSectionViewModel {
         viewModel.fastqMetadataSectionViewModel
+    }
+
+    /// Access to the generic provenance section view model.
+    var provenanceSectionViewModel: ProvenanceInspectorViewModel {
+        viewModel.provenanceSectionViewModel
     }
 
     /// Cancellables for Combine subscriptions
@@ -425,6 +432,10 @@ public class InspectorViewController: NSViewController {
         viewModel.annotationSectionViewModel.onFilterChanged = { [weak self] visibleTypes, filterText in
             self?.handleAnnotationFilterChanged(visibleTypes: visibleTypes, filterText: filterText)
         }
+
+        viewModel.provenanceSectionViewModel.onExportRequested = { [weak self] format in
+            self?.presentProvenanceExport(format: format)
+        }
     }
 
     /// Ensures notification observers and section callbacks are bound.
@@ -506,6 +517,7 @@ public class InspectorViewController: NSViewController {
         // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
+        updateProvenanceTarget(url: item.url, sidebarType: item.type, displayName: item.title)
 
         if item.type == .sequence || item.type == .annotation || item.type == .alignment || item.type == .referenceBundle {
             syncAnnotationStateToViewer()
@@ -534,6 +546,9 @@ public class InspectorViewController: NSViewController {
 
         // Clear read selection
         viewModel.readStyleSectionViewModel.selectedRead = nil
+
+        // Clear provenance state for empty sidebar selections.
+        viewModel.provenanceSectionViewModel.clear()
     }
 
     public func clearSelection() {
@@ -558,6 +573,7 @@ public class InspectorViewController: NSViewController {
         viewModel.documentSectionViewModel.updateMappingDocument(nil)
         viewModel.documentSectionViewModel.updateAssemblyDocument(nil)
         viewModel.documentSectionViewModel.navigateToSourceData = nil
+        viewModel.provenanceSectionViewModel.clear()
 
         // Clear sample section
         viewModel.sampleSectionViewModel.clear()
@@ -678,6 +694,11 @@ public class InspectorViewController: NSViewController {
         // Load FASTQ sample metadata and analysis manifest if bundle URL is provided
         if let bundleURL = notification.userInfo?["bundleURL"] as? URL {
             viewModel.fastqMetadataSectionViewModel.load(from: bundleURL)
+            updateProvenanceTarget(
+                url: bundleURL,
+                sidebarType: .fastqBundle,
+                displayName: bundleURL.deletingPathExtension().lastPathComponent
+            )
             let routeContext = OperationRouteContext(
                 projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
                 windowStateScope: windowStateScope
@@ -732,6 +753,13 @@ public class InspectorViewController: NSViewController {
 
         logger.info("handleContentModeChanged: mode=\(rawMode, privacy: .public)")
         viewModel.contentMode = mode
+        if let currentItem = viewModel.provenanceSectionViewModel.currentItem {
+            updateProvenanceTarget(
+                url: currentItem.url,
+                sidebarType: currentItem.sidebarType,
+                displayName: currentItem.displayName
+            )
+        }
 
         // If the currently selected tab is not available in the new mode, switch to the first available tab.
         let available = viewModel.availableTabs
@@ -792,6 +820,94 @@ public class InspectorViewController: NSViewController {
     public func restoreSelectedTabIdentifier(_ identifier: String) {
         guard let tab = InspectorTab(rawValue: identifier) else { return }
         viewModel.selectedTab = tab
+    }
+
+    func updateProvenanceTarget(
+        url: URL?,
+        sidebarType: SidebarItemType?,
+        displayName: String?
+    ) {
+        viewModel.provenanceSectionViewModel.load(
+            item: ProvenanceInspectableItem(
+                url: url,
+                sidebarType: sidebarType,
+                contentMode: viewModel.contentMode,
+                displayName: displayName
+            )
+        )
+    }
+
+    private func presentProvenanceExport(format: ProvenanceExportFormat) {
+        guard let item = viewModel.provenanceSectionViewModel.currentItem,
+              let sourceURL = item.url,
+              let envelope = viewModel.provenanceSectionViewModel.resolvedEnvelope else {
+            presentSimpleAlert(
+                title: "No Provenance Available",
+                message: "No complete provenance record is available for the current selection."
+            )
+            return
+        }
+
+        let savePanel = NSSavePanel()
+        savePanel.title = "Export Provenance"
+        savePanel.message = "Choose a folder name for the exported reproducibility package."
+        savePanel.nameFieldStringValue = "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
+        savePanel.canCreateDirectories = true
+        savePanel.canSelectHiddenExtension = true
+
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+        savePanel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let outputDirectory = savePanel.url else { return }
+            do {
+                let existingState = self?.existingDirectoryState(outputDirectory)
+                if existingState == false {
+                    throw ProvenanceError.exportFailed(
+                        "The selected path exists and is not a folder: \(outputDirectory.path)"
+                    )
+                }
+                let bundle = try ProvenanceExporter().exportBundle(
+                    envelope,
+                    format: format,
+                    to: outputDirectory,
+                    sourceSidecarURL: self?.viewModel.provenanceSectionViewModel.resolvedSidecarURL,
+                    sourceRootURL: sourceURL,
+                    exportArgv: AppProvenanceExportCommandBuilder.argv(
+                        format: format,
+                        sourceURL: sourceURL,
+                        outputDirectory: outputDirectory
+                    )
+                )
+                self?.presentProvenanceExportComplete(bundle: bundle, format: format, window: window)
+            } catch {
+                self?.presentSimpleAlert(title: "Export Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
+    private func existingDirectoryState(_ url: URL) -> Bool? {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return nil
+        }
+        return isDirectory.boolValue
+    }
+
+    private func presentProvenanceExportComplete(
+        bundle: ProvenanceExportBundle,
+        format: ProvenanceExportFormat,
+        window: NSWindow
+    ) {
+        let alert = NSAlert()
+        alert.messageText = "Provenance Export Complete"
+        alert.informativeText = "\(format.rawValue) exported to \(bundle.primaryArtifactURL.lastPathComponent)."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Show in Finder")
+        alert.beginSheetModal(for: window) { response in
+            if response == .alertSecondButtonReturn {
+                NSWorkspace.shared.activateFileViewerSelecting([bundle.primaryArtifactURL])
+            }
+        }
     }
 
     private func windowScopedUserInfo(_ userInfo: [AnyHashable: Any]? = nil) -> [AnyHashable: Any]? {
@@ -1009,6 +1125,13 @@ public class InspectorViewController: NSViewController {
     ///   - bundleURL: The URL of the loaded bundle
     public func updateBundleMetadata(manifest: BundleManifest?, bundleURL: URL?) {
         viewModel.documentSectionViewModel.update(manifest: manifest, bundleURL: bundleURL)
+        if let bundleURL {
+            updateProvenanceTarget(
+                url: bundleURL,
+                sidebarType: .referenceBundle,
+                displayName: manifest?.name ?? bundleURL.deletingPathExtension().lastPathComponent
+            )
+        }
     }
 
     private func updateReferenceBundleDocumentState(
@@ -1058,6 +1181,11 @@ public class InspectorViewController: NSViewController {
             )
         }
         viewModel.documentSectionViewModel.updateAssemblyDocument(state)
+        updateProvenanceTarget(
+            url: result.outputDirectory,
+            sidebarType: .analysisResult,
+            displayName: result.outputDirectory.lastPathComponent
+        )
         viewModel.selectedTab = .bundle
     }
 
@@ -1083,9 +1211,6 @@ public class InspectorViewController: NSViewController {
     /// Updates the Document inspector with multiple-sequence-alignment bundle statistics.
     func updateMultipleSequenceAlignmentDocument(_ bundle: MultipleSequenceAlignmentBundle) {
         let manifest = bundle.manifest
-        let provenanceRows = Self.provenanceContextRows(
-            at: bundle.url.appendingPathComponent(".lungfish-provenance.json")
-        )
         viewModel.readStyleSectionViewModel.clear()
         viewModel.readStyleSectionViewModel.hasMultipleSequenceAlignmentBundle = true
         viewModel.readStyleSectionViewModel.msaReferenceRowOptions = bundle.rows.map {
@@ -1116,7 +1241,7 @@ public class InspectorViewController: NSViewController {
                 ("Parsimony Informative", "\(manifest.parsimonyInformativeSiteCount)"),
                 ("Source Format", manifest.sourceFormat.rawValue),
                 ("Source File", manifest.sourceFileName),
-            ] + provenanceRows,
+            ],
             warningRows: manifest.warnings,
             artifactRows: [
                 MultipleSequenceAlignmentDocumentArtifactRow(
@@ -1139,6 +1264,11 @@ public class InspectorViewController: NSViewController {
             consensusPreview: String(manifest.consensus.prefix(160))
         )
         viewModel.documentSectionViewModel.updateMultipleSequenceAlignmentDocument(state)
+        updateProvenanceTarget(
+            url: bundle.url,
+            sidebarType: .multipleSequenceAlignmentBundle,
+            displayName: manifest.name
+        )
         viewModel.selectedTab = .bundle
     }
 
@@ -1146,9 +1276,6 @@ public class InspectorViewController: NSViewController {
     func updatePhylogeneticTreeDocument(_ bundle: PhylogeneticTreeBundle) {
         let manifest = bundle.manifest
         let rootedText = manifest.isRooted ? "rooted" : "unrooted"
-        let provenanceRows = Self.provenanceContextRows(
-            at: bundle.url.appendingPathComponent(".lungfish-provenance.json")
-        )
         viewModel.readStyleSectionViewModel.clear()
         let state = PhylogeneticTreeDocumentState(
             title: manifest.name,
@@ -1163,7 +1290,7 @@ public class InspectorViewController: NSViewController {
                 ("Branch Unit", manifest.branchLengthUnit ?? "unspecified"),
                 ("Source File", manifest.sourceFileName),
                 ("Capabilities", manifest.capabilities.joined(separator: ", ")),
-            ] + provenanceRows,
+            ],
             warningRows: manifest.warnings,
             artifactRows: [
                 PhylogeneticTreeDocumentArtifactRow(
@@ -1185,33 +1312,12 @@ public class InspectorViewController: NSViewController {
             ]
         )
         viewModel.documentSectionViewModel.updatePhylogeneticTreeDocument(state)
+        updateProvenanceTarget(
+            url: bundle.url,
+            sidebarType: .phylogeneticTreeBundle,
+            displayName: manifest.name
+        )
         viewModel.selectedTab = .bundle
-    }
-
-    private static func provenanceContextRows(at url: URL) -> [(String, String)] {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return [("Provenance", "missing")]
-        }
-        var rows: [(String, String)] = []
-        if let toolName = object["toolName"] as? String, !toolName.isEmpty {
-            rows.append(("Workflow", toolName))
-        }
-        if let toolVersion = object["toolVersion"] as? String, !toolVersion.isEmpty {
-            rows.append(("Tool Version", toolVersion))
-        }
-        if let command = object["command"] as? String, !command.isEmpty {
-            rows.append(("Command", command))
-        } else if let argv = object["argv"] as? [String], !argv.isEmpty {
-            rows.append(("Command", argv.joined(separator: " ")))
-        }
-        if let exitStatus = object["exitStatus"] {
-            rows.append(("Exit Status", "\(exitStatus)"))
-        }
-        if let wallTime = object["wallTimeSeconds"] as? Double {
-            rows.append(("Wall Time", String(format: "%.2f s", wallTime)))
-        }
-        return rows
     }
 
     /// Updates the Selected Item inspector with MSA row/site/range metadata.
@@ -3099,15 +3205,15 @@ public final class InspectorViewModel {
     var availableTabs: [InspectorTab] {
         switch contentMode {
         case .genomics:
-            return [.bundle, .selectedItem, .view, .analysis, .ai]
+            return [.bundle, .selectedItem, .view, .analysis, .provenance, .ai]
         case .mapping:
-            return [.bundle, .selectedItem, .view, .analysis]
+            return [.bundle, .selectedItem, .view, .analysis, .provenance]
         case .assembly:
-            return [.bundle]
+            return [.bundle, .provenance]
         case .fastq:
-            return [.bundle]
+            return [.bundle, .provenance]
         case .metagenomics:
-            return [.resultSummary]
+            return [.resultSummary, .provenance]
         case .empty:
             return [.bundle, .selectedItem]
         }
@@ -3181,6 +3287,9 @@ public final class InspectorViewModel {
 
     /// View model for FASTQ sample metadata section (Document tab)
     let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()
+
+    /// View model for generic reproducibility provenance in the Inspector.
+    let provenanceSectionViewModel = ProvenanceInspectorViewModel()
 
     /// Shared AI assistant service for the inspector's AI tab.
     var aiAssistantService: AIAssistantService?
@@ -3266,7 +3375,7 @@ public struct InspectorView: View {
     @ViewBuilder
     private var tabContent: some View {
         switch viewModel.selectedTab {
-        case .bundle, .selectedItem, .view, .analysis, .fastqMetadata, .resultSummary:
+        case .bundle, .selectedItem, .view, .analysis, .fastqMetadata, .resultSummary, .provenance:
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     tabScrollContent
@@ -3333,6 +3442,9 @@ public struct InspectorView: View {
                 windowStateScope: viewModel.windowStateScope
             )
 
+        case .provenance:
+            ProvenanceSection(viewModel: viewModel.provenanceSectionViewModel)
+
         case .ai:
             EmptyView()
         }
@@ -3366,6 +3478,7 @@ extension InspectorTab {
         case .ai: return "sparkles"
         case .fastqMetadata: return "tag"
         case .resultSummary: return "chart.bar"
+        case .provenance: return "point.3.connected.trianglepath.dotted"
         }
     }
 
@@ -3379,6 +3492,7 @@ extension InspectorTab {
         case .ai: return "Assistant"
         case .fastqMetadata: return "Sample Metadata"
         case .resultSummary: return "Summary"
+        case .provenance: return "Provenance"
         }
     }
 }

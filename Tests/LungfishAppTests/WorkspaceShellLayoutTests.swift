@@ -165,7 +165,7 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(inspectorWidth, 430)
     }
 
-    func testOrdinaryWindowResizeUsesCurrentSplitWidthWithoutPersistingClampedWidths() {
+    func testOrdinaryWindowResizeMirrorsLiveSplitWidthsWithoutPersistingClampedWidths() {
         UserDefaults.standard.set(500, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
         UserDefaults.standard.set(430, forKey: MainSplitViewController.inspectorWidthDefaultsKey)
 
@@ -177,18 +177,56 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
-        controller.splitView.bounds.size.width = 1000
+        controller.testingSetShellFrames(sidebarWidth: 360, inspectorWidth: 300, totalWidth: 1100)
         controller.testingProcessShellResize()
         window.layoutIfNeeded()
         controller.view.layoutSubtreeIfNeeded()
 
-        XCTAssertLessThan(
-            controller.testingSidebarConstraintWidth + controller.testingInspectorConstraintWidth,
-            930,
-            "ordinary resize should immediately re-resolve side pane widths against the live split-view width"
-        )
+        XCTAssertEqual(controller.testingSidebarConstraintWidth, 360, accuracy: 0.5)
+        XCTAssertEqual(controller.testingInspectorConstraintWidth, 300, accuracy: 0.5)
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.sidebarWidthDefaultsKey), 500)
         XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 430)
+    }
+
+    func testControllerPersistsWideUserDraggedInspectorWidthLikeSidebar() {
+        let (controller, window) = makeController()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 640, totalWidth: 1700)
+        _ = controller.splitView(controller.splitView, constrainSplitPosition: 1060, ofSubviewAt: 1)
+        controller.testingProcessShellResize()
+
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 640)
+        XCTAssertEqual(controller.testingShellLayoutState.lastUserInspectorWidth, 640)
+    }
+
+    func testControllerLetsUserDragInspectorDividerToResizePane() {
+        let (controller, window) = makeController()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        controller.testingSetShellFrames(sidebarWidth: 240, inspectorWidth: 280, totalWidth: 1500)
+        controller.testingRestorePersistedShellLayout()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+
+        let dividerPosition = controller.splitView.bounds.width
+            - 520
+            - controller.splitView.dividerThickness
+        let constrainedPosition = controller.splitView(
+            controller.splitView,
+            constrainSplitPosition: dividerPosition,
+            ofSubviewAt: 1
+        )
+        controller.splitView.setPosition(constrainedPosition, ofDividerAt: 1)
+        controller.splitView.adjustSubviews()
+        window.layoutIfNeeded()
+        controller.view.layoutSubtreeIfNeeded()
+        controller.testingProcessShellResize()
+
+        XCTAssertEqual(controller.testingInspectorWidth, 520, accuracy: 2)
+        XCTAssertEqual(storedCGFloat(forKey: MainSplitViewController.inspectorWidthDefaultsKey), 520)
     }
 
     func testStackedTrackedSplitResizeClampsRequestedExtent() {
