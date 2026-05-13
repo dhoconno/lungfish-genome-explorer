@@ -55,6 +55,13 @@ The Inspector could draw a DAG. This is expressive, but the right panel is narro
 
 The `Provenance` tab uses the same compact visual language as the existing Inspector: caption text, disclosure groups, selectable values, link/plain file actions, monospaced command blocks, middle-truncated paths, and explicit empty/error messages.
 
+Visual constraints:
+
+- Follow the current Lungfish Inspector style and Apple HIG conventions for macOS utility sidebars.
+- Use system/app colors only: macOS label/control/separator/accent colors plus Lungfish orange, sage, cream, warm gray, and deep ink. Do not introduce a provenance-specific palette.
+- Keep the right sidebar dense and work-focused. Avoid decorative cards, oversized headers, gradients, marketing-style badges, and custom chart colors that are not already part of the app.
+- Use `DisclosureGroup` hierarchy and compact controls rather than a bespoke visual graph in the right sidebar.
+
 Tab layout:
 
 1. **Run Summary**: workflow/tool/version, created date, sidecar path, schema, status, exit status, wall time, step count, input/output counts, signature/checksum status.

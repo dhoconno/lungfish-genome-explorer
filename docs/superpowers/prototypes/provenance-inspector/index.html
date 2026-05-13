@@ -7,20 +7,21 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f7f8;
-      --panel: #ffffff;
-      --panel-2: #f2f4f7;
-      --line: #d9dde3;
-      --line-strong: #c4cad2;
-      --text: #1f2328;
-      --muted: #626a73;
-      --faint: #818894;
-      --blue: #0a84ff;
-      --teal: #0f8f87;
-      --green: #27864d;
-      --amber: #a96d00;
-      --red: #b3261e;
-      --purple: #8d55b4;
+      --window: #ffffff;
+      --control-bg: #f5f5f5;
+      --control-fill: #ececec;
+      --control-fill-active: #dedede;
+      --separator: #d7d7d7;
+      --separator-strong: #c7c7c7;
+      --label: #1f1a17;
+      --secondary-label: #6f6a63;
+      --tertiary-label: #8a847a;
+      --accent: #0a84ff;
+      --lungfish-orange: #d47b3a;
+      --lungfish-sage: #7a9364;
+      --lungfish-cream: #faf4ea;
+      --lungfish-peach: #f6b088;
+      --lungfish-warm-grey: #8a847a;
       --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
       --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
     }
@@ -32,8 +33,8 @@
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
-      color: var(--text);
+      background: var(--control-bg);
+      color: var(--label);
       font: 13px/1.35 var(--sans);
       overflow: hidden;
     }
@@ -45,15 +46,15 @@
 
     .window {
       display: grid;
-      grid-template-columns: 268px minmax(420px, 1fr) 362px;
+      grid-template-columns: 268px minmax(420px, 1fr) 288px;
       height: 100vh;
       width: 100vw;
-      background: var(--panel);
+      background: var(--window);
     }
 
     .sidebar {
-      border-right: 1px solid var(--line);
-      background: #f4f6f9;
+      border-right: 1px solid var(--separator);
+      background: var(--control-bg);
       min-width: 0;
       padding: 12px 12px 14px;
       overflow: hidden;
@@ -85,8 +86,8 @@
       border: 1px solid transparent;
       border-radius: 7px;
       padding: 4px 10px;
-      background: #e4e8ee;
-      color: var(--text);
+      background: var(--control-fill);
+      color: var(--label);
       outline: none;
     }
 
@@ -99,7 +100,7 @@
 
     .tree-section {
       margin: 10px 0 3px;
-      color: #111;
+      color: var(--label);
       font-size: 12px;
       font-weight: 650;
     }
@@ -112,11 +113,11 @@
       min-height: 28px;
       padding: 3px 5px;
       border-radius: 7px;
-      color: #1e242b;
+      color: var(--label);
     }
 
     .tree-row.active {
-      background: var(--blue);
+      background: var(--accent);
       color: white;
     }
 
@@ -140,23 +141,23 @@
       color: white;
     }
 
-    .tree-icon.fastq { background: var(--green); }
-    .tree-icon.ref { background: #5f6bf0; }
-    .tree-icon.vcf { background: var(--purple); }
-    .tree-icon.analysis { background: #e07a2f; }
+    .tree-icon.fastq { background: var(--lungfish-sage); }
+    .tree-icon.ref { background: var(--accent); }
+    .tree-icon.vcf { background: var(--lungfish-warm-grey); }
+    .tree-icon.analysis { background: var(--lungfish-orange); }
 
     .workspace {
       min-width: 0;
       display: grid;
       grid-template-rows: 56px 1fr 34px;
-      background: #fbfbfc;
+      background: var(--window);
     }
 
     .toolbar {
       display: flex;
       align-items: center;
       gap: 12px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--separator);
       padding: 0 18px;
       min-width: 0;
     }
@@ -177,10 +178,10 @@
     .toolbar-button {
       height: 28px;
       min-width: 28px;
-      border: 1px solid var(--line);
+      border: 1px solid var(--separator);
       border-radius: 7px;
-      background: var(--panel);
-      color: var(--muted);
+      background: var(--window);
+      color: var(--secondary-label);
     }
 
     .data-area {
@@ -198,9 +199,9 @@
     }
 
     .metric {
-      border: 1px solid var(--line);
+      border: 1px solid var(--separator);
       border-radius: 7px;
-      background: var(--panel);
+      background: var(--window);
       min-height: 48px;
       display: grid;
       place-items: center;
@@ -208,7 +209,7 @@
 
     .metric span {
       display: block;
-      color: var(--faint);
+      color: var(--tertiary-label);
       font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0;
@@ -221,10 +222,10 @@
     }
 
     .table {
-      border: 1px solid var(--line);
+      border: 1px solid var(--separator);
       border-radius: 8px;
       overflow: hidden;
-      background: var(--panel);
+      background: var(--window);
     }
 
     .table-head,
@@ -239,11 +240,11 @@
     .table-head {
       height: 30px;
       padding: 0 12px;
-      border-bottom: 1px solid var(--line);
-      color: var(--muted);
+      border-bottom: 1px solid var(--separator);
+      color: var(--secondary-label);
       font-size: 11px;
       font-weight: 650;
-      background: #fafbfc;
+      background: var(--control-bg);
     }
 
     .table-body {
@@ -257,7 +258,7 @@
     }
 
     .table-row:nth-child(even) {
-      background: #f2f3f5;
+      background: var(--control-bg);
     }
 
     .taxon {
@@ -271,37 +272,45 @@
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: var(--blue);
+      background: var(--lungfish-orange);
       flex: none;
+    }
+
+    .table-row:nth-child(2n) .marker {
+      background: var(--lungfish-sage);
+    }
+
+    .table-row:nth-child(3n) .marker {
+      background: var(--lungfish-warm-grey);
     }
 
     .bar {
       height: 7px;
       border-radius: 4px;
-      background: #d9e9ff;
+      background: var(--control-fill);
       overflow: hidden;
     }
 
     .bar > span {
       display: block;
       height: 100%;
-      background: #5aa2ff;
+      background: var(--accent);
     }
 
     .status {
       height: 34px;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--separator);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: var(--faint);
+      color: var(--tertiary-label);
       font-size: 12px;
     }
 
     .inspector {
       min-width: 0;
-      border-left: 1px solid var(--line);
-      background: var(--panel);
+      border-left: 1px solid var(--separator);
+      background: var(--window);
       display: grid;
       grid-template-rows: auto 1fr;
       overflow: hidden;
@@ -312,16 +321,16 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
       padding: 10px 12px 9px;
-      border-bottom: 1px solid var(--line);
-      background: #fbfbfc;
+      border-bottom: 1px solid var(--separator);
+      background: var(--window);
     }
 
     .tab {
       min-height: 26px;
       border: 0;
       border-radius: 7px;
-      background: #e9ecf1;
-      color: #252a31;
+      background: var(--control-fill);
+      color: var(--label);
       padding: 4px 7px;
       white-space: nowrap;
       overflow: hidden;
@@ -329,7 +338,7 @@
     }
 
     .tab.active {
-      background: var(--blue);
+      background: var(--accent);
       color: white;
       font-weight: 650;
     }
@@ -348,7 +357,7 @@
 
     .bundle-subtitle {
       margin: 0 0 8px;
-      color: var(--muted);
+      color: var(--secondary-label);
       font-size: 12px;
       line-height: 1.25;
     }
@@ -368,30 +377,30 @@
       gap: 5px;
       min-height: 21px;
       padding: 2px 7px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-      color: var(--muted);
+      border-radius: 6px;
+      border: 1px solid var(--separator);
+      background: var(--control-bg);
+      color: var(--secondary-label);
       font-size: 11px;
       white-space: nowrap;
     }
 
     .badge.good {
-      border-color: #b6ddc1;
-      background: #edf8ef;
-      color: var(--green);
+      border-color: var(--separator);
+      background: var(--control-bg);
+      color: var(--lungfish-sage);
     }
 
     .badge.warn {
-      border-color: #ead28b;
-      background: #fff7dd;
-      color: var(--amber);
+      border-color: var(--separator);
+      background: var(--control-bg);
+      color: var(--lungfish-orange);
     }
 
     .badge.bad {
-      border-color: #e8b9b6;
-      background: #fff0ef;
-      color: var(--red);
+      border-color: var(--separator);
+      background: var(--control-bg);
+      color: var(--lungfish-orange);
     }
 
     .pulse {
@@ -405,12 +414,12 @@
     .section {
       margin-top: 13px;
       padding-top: 12px;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--separator);
     }
 
     .section-title {
       margin: 0 0 8px;
-      color: #2f3338;
+      color: var(--label);
       font-size: 12px;
       font-weight: 700;
     }
@@ -424,7 +433,7 @@
     }
 
     .kv dt {
-      color: var(--muted);
+      color: var(--secondary-label);
       text-align: right;
       font-size: 11px;
     }
@@ -443,17 +452,17 @@
     .action-button {
       position: relative;
       min-height: 25px;
-      border: 1px solid var(--line-strong);
+      border: 1px solid var(--separator-strong);
       border-radius: 7px;
-      background: linear-gradient(#fff, #eef1f4);
-      color: var(--text);
+      background: var(--control-fill);
+      color: var(--label);
       padding: 3px 9px;
       white-space: nowrap;
     }
 
     .action-button.primary {
-      background: var(--blue);
-      border-color: #0071e0;
+      background: var(--accent);
+      border-color: var(--accent);
       color: white;
       font-weight: 650;
     }
@@ -461,7 +470,7 @@
     .action-button:focus,
     .tab:focus,
     .search:focus {
-      outline: 2px solid color-mix(in srgb, var(--blue) 50%, transparent);
+      outline: 2px solid var(--accent);
       outline-offset: 1px;
     }
 
@@ -475,9 +484,9 @@
       right: 0;
       top: 30px;
       min-width: 196px;
-      border: 1px solid var(--line-strong);
+      border: 1px solid var(--separator-strong);
       border-radius: 8px;
-      background: var(--panel);
+      background: var(--window);
       box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
       padding: 5px;
       display: none;
@@ -495,16 +504,16 @@
       text-align: left;
       padding: 5px 7px;
       border-radius: 5px;
-      color: var(--text);
+      color: var(--label);
     }
 
     .menu button:hover {
-      background: #eaf3ff;
+      background: var(--control-fill);
     }
 
     .menu hr {
       border: 0;
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--separator);
       margin: 5px 2px;
     }
 
@@ -517,8 +526,8 @@
 
     .control-strip .search {
       height: 27px;
-      background: #f0f2f5;
-      border-color: var(--line);
+      background: var(--control-fill);
+      border-color: var(--separator);
       border-radius: 7px;
       font-size: 12px;
     }
@@ -547,7 +556,7 @@
     }
 
     .node {
-      border-top: 1px solid var(--line);
+      border-top: 1px solid var(--separator);
     }
 
     .node:first-child {
@@ -564,7 +573,7 @@
 
     .twisty {
       width: 14px;
-      color: var(--muted);
+      color: var(--secondary-label);
       font-size: 11px;
       transform: rotate(0deg);
       transition: transform 120ms ease;
@@ -589,7 +598,7 @@
 
     .node-title span {
       display: block;
-      color: var(--muted);
+      color: var(--secondary-label);
       font-size: 11px;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -597,14 +606,14 @@
     }
 
     .count {
-      color: var(--faint);
+      color: var(--tertiary-label);
       font-size: 11px;
       white-space: nowrap;
     }
 
     .step {
       margin-left: 14px;
-      border-left: 2px solid #d7e0ea;
+      border-left: 2px solid var(--separator);
       padding-left: 9px;
     }
 
@@ -613,18 +622,18 @@
     }
 
     .step-ok {
-      color: var(--green);
+      color: var(--lungfish-sage);
     }
 
     .step-warn {
-      color: var(--amber);
+      color: var(--lungfish-orange);
     }
 
     .detail-block {
       margin: 0 0 9px 20px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #fbfcfd;
+      border: 1px solid var(--separator);
+      border-radius: 6px;
+      background: var(--window);
       overflow: hidden;
     }
 
@@ -633,9 +642,9 @@
       justify-content: space-between;
       gap: 8px;
       align-items: center;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--separator);
       padding: 6px 8px;
-      background: #f4f6f9;
+      background: var(--control-bg);
     }
 
     .detail-head strong {
@@ -647,7 +656,7 @@
       padding: 8px;
       white-space: pre-wrap;
       overflow-wrap: anywhere;
-      color: #26313d;
+      color: var(--label);
       font-family: var(--mono);
       font-size: 10.5px;
       line-height: 1.36;
@@ -673,7 +682,7 @@
     }
 
     .file-row span {
-      color: var(--faint);
+      color: var(--tertiary-label);
       font-family: var(--mono);
       font-size: 10px;
       white-space: nowrap;
@@ -689,12 +698,12 @@
     }
 
     .warning {
-      border-left: 3px solid var(--amber);
-      background: #fff8e6;
+      border-left: 3px solid var(--lungfish-orange);
+      background: var(--lungfish-cream);
       padding: 7px 8px;
       margin: 8px 0 0 20px;
       border-radius: 5px;
-      color: #5c4213;
+      color: var(--label);
       font-size: 11px;
     }
 
@@ -704,11 +713,11 @@
 
     .toast {
       position: fixed;
-      right: 378px;
+      right: 304px;
       bottom: 18px;
       padding: 7px 11px;
       border-radius: 8px;
-      background: #20252c;
+      background: var(--label);
       color: white;
       box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
       opacity: 0;
@@ -808,11 +817,11 @@
           </div>
           <div class="table-body">
             <div class="table-row"><span class="taxon"><i class="marker"></i>Human mastadenovirus F</span><span>Adenoviridae</span><span>1,090</span><span>4.1</span><div class="bar"><span style="width:96%"></span></div></div>
-            <div class="table-row"><span class="taxon"><i class="marker" style="background:#cc1b5e"></i>WU Polyomavirus</span><span>Polyomaviridae</span><span>520</span><span>12.8</span><div class="bar"><span style="width:67%"></span></div></div>
-            <div class="table-row"><span class="taxon"><i class="marker" style="background:#4a8ecf"></i>Human papillomavirus type 6b</span><span>Papillomaviridae</span><span>460</span><span>7.5</span><div class="bar"><span style="width:59%"></span></div></div>
-            <div class="table-row"><span class="taxon"><i class="marker" style="background:#d9782c"></i>human gammaherpesvirus 4</span><span>Orthoherpesviridae</span><span>402</span><span>0.2</span><div class="bar"><span style="width:50%"></span></div></div>
-            <div class="table-row"><span class="taxon"><i class="marker" style="background:#cc1b5e"></i>Human polyomavirus 6</span><span>Polyomaviridae</span><span>328</span><span>8.6</span><div class="bar"><span style="width:42%"></span></div></div>
-            <div class="table-row"><span class="taxon"><i class="marker" style="background:#d9782c"></i>Human betaherpesvirus 5</span><span>Orthoherpesviridae</span><span>288</span><span>0.2</span><div class="bar"><span style="width:36%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker"></i>WU Polyomavirus</span><span>Polyomaviridae</span><span>520</span><span>12.8</span><div class="bar"><span style="width:67%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker"></i>Human papillomavirus type 6b</span><span>Papillomaviridae</span><span>460</span><span>7.5</span><div class="bar"><span style="width:59%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker"></i>human gammaherpesvirus 4</span><span>Orthoherpesviridae</span><span>402</span><span>0.2</span><div class="bar"><span style="width:50%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker"></i>Human polyomavirus 6</span><span>Polyomaviridae</span><span>328</span><span>8.6</span><div class="bar"><span style="width:42%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker"></i>Human betaherpesvirus 5</span><span>Orthoherpesviridae</span><span>288</span><span>0.2</span><div class="bar"><span style="width:36%"></span></div></div>
           </div>
         </section>
       </div>
