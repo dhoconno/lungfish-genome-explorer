@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 @testable import LungfishWorkflow
 
 final class MappingProvenanceTests: XCTestCase {
@@ -290,6 +291,210 @@ final class MappingProvenanceTests: XCTestCase {
         }
     }
 
+    func testProvenanceExporterExpandsMappingInputLineage() throws {
+        let projectURL = tempDir.appendingPathComponent("SARS-CoV-2.lungfish", isDirectory: true)
+        let importsURL = projectURL.appendingPathComponent("Imports", isDirectory: true)
+        let analysesURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        let downloadsURL = projectURL.appendingPathComponent("Downloads", isDirectory: true)
+        try [importsURL, analysesURL, downloadsURL].forEach {
+            try FileManager.default.createDirectory(at: $0, withIntermediateDirectories: true)
+        }
+
+        let importBundleURL = importsURL.appendingPathComponent("SRR36291587.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: importBundleURL, withIntermediateDirectories: true)
+        let importedFASTQ = importBundleURL.appendingPathComponent("SRR36291587.fastq.gz")
+        try Data("imported reads".utf8).write(to: importedFASTQ)
+        try writeSyntheticEnvelope(
+            to: importBundleURL,
+            workflowName: "gui-sra-fastq-import",
+            toolName: "ena-download",
+            argv: ["curl", "https://example.org/SRR36291587_1.fastq.gz"],
+            inputPath: "https://example.org/SRR36291587_1.fastq.gz",
+            outputURL: importedFASTQ,
+            inputFormat: .fastq,
+            outputFormat: .fastq
+        )
+
+        let subsampleBundleURL = analysesURL.appendingPathComponent("SRR36291587-subsampleProportion.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: subsampleBundleURL, withIntermediateDirectories: true)
+        let subsampledFASTQ = subsampleBundleURL.appendingPathComponent("subsampleProportion.fastq.gz")
+        try Data("subsampled reads".utf8).write(to: subsampledFASTQ)
+        try writeSyntheticEnvelope(
+            to: subsampleBundleURL,
+            workflowName: "lungfish fastq subsample",
+            toolName: "seqkit",
+            argv: ["lungfish", "fastq", "subsample", importedFASTQ.path, "--output", subsampledFASTQ.path],
+            inputURL: importedFASTQ,
+            outputURL: subsampledFASTQ,
+            inputFormat: .fastq,
+            outputFormat: .fastq
+        )
+
+        let trimmedBundleURL = analysesURL.appendingPathComponent("SRR36291587-subsampleProportion-fastpTrim.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: trimmedBundleURL, withIntermediateDirectories: true)
+        let trimmedFASTQ = trimmedBundleURL.appendingPathComponent("fastpTrim.fastq.gz")
+        try Data("trimmed reads".utf8).write(to: trimmedFASTQ)
+        try writeSyntheticEnvelope(
+            to: trimmedBundleURL,
+            workflowName: "lungfish fastq trim",
+            toolName: "fastp",
+            argv: ["lungfish", "fastq", "trim", subsampledFASTQ.path, "--output", trimmedFASTQ.path],
+            inputURL: subsampledFASTQ,
+            outputURL: trimmedFASTQ,
+            inputFormat: .fastq,
+            outputFormat: .fastq
+        )
+
+        let referenceBundleURL = downloadsURL.appendingPathComponent("MN908947.lungfishref", isDirectory: true)
+        let referenceGenomeDir = referenceBundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceGenomeDir, withIntermediateDirectories: true)
+        let referenceGenomeURL = referenceGenomeDir.appendingPathComponent("sequence.fa.gz")
+        try Data(">MN908947\nACGT\n".utf8).write(to: referenceGenomeURL)
+        let referenceManifest = BundleManifest(
+            name: "MN908947",
+            identifier: "org.ncbi.genbank.mn908947",
+            source: SourceInfo(
+                organism: "SARS-CoV-2",
+                assembly: "MN908947",
+                assemblyAccession: "MN908947.3",
+                database: "NCBI",
+                sourceURL: URL(string: "https://www.ncbi.nlm.nih.gov/nuccore/MN908947"),
+                downloadDate: Date(timeIntervalSince1970: 2_000),
+                notes: "Downloaded from NCBI GenBank and converted to Lungfish reference bundle"
+            ),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "MN908947", length: 4, offset: 0, lineBases: 4, lineWidth: 5)
+                ]
+            )
+        )
+        try referenceManifest.save(to: referenceBundleURL)
+
+        let mappingURL = analysesURL.appendingPathComponent("minimap2-2026-05-12T19-36-10", isDirectory: true)
+        try FileManager.default.createDirectory(at: mappingURL, withIntermediateDirectories: true)
+        let stagedReferenceURL = mappingURL.appendingPathComponent("reference.fa")
+        let bamURL = mappingURL.appendingPathComponent("SRR36291587.sorted.bam")
+        let baiURL = mappingURL.appendingPathComponent("SRR36291587.sorted.bam.bai")
+        try Data(">MN908947\nACGT\n".utf8).write(to: stagedReferenceURL)
+        try Data("bam".utf8).write(to: bamURL)
+        try Data("bai".utf8).write(to: baiURL)
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [trimmedFASTQ],
+            referenceFASTAURL: stagedReferenceURL,
+            sourceReferenceBundleURL: referenceBundleURL,
+            outputDirectory: mappingURL,
+            sampleName: "SRR36291587",
+            threads: 4
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            sourceReferenceBundleURL: referenceBundleURL,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 10,
+            mappedReads: 9,
+            unmappedReads: 1,
+            wallClockSeconds: 3.5,
+            contigs: []
+        )
+        let mapperInvocation = try MappingProvenance.mapperInvocation(for: request)
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: mapperInvocation,
+            normalizationInvocations: [],
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            inputFiles: [
+                ProvenanceRecorder.fileRecord(url: trimmedFASTQ, format: .fastq, role: .input),
+                ProvenanceRecorder.fileRecord(url: stagedReferenceURL, format: .fasta, role: .reference)
+            ],
+            outputFiles: [
+                ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output),
+                ProvenanceRecorder.fileRecord(url: baiURL, role: .index)
+            ],
+            steps: [
+                StepExecution(
+                    toolName: "minimap2",
+                    toolVersion: "2.28",
+                    command: mapperInvocation.argv,
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: trimmedFASTQ, format: .fastq, role: .input),
+                        ProvenanceRecorder.fileRecord(url: stagedReferenceURL, format: .fasta, role: .reference)
+                    ],
+                    outputs: [ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output)],
+                    exitCode: 0,
+                    wallTime: 3.5
+                )
+            ],
+            exitStatus: 0
+        )
+        try provenance.save(to: mappingURL)
+
+        let resolved = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: mappingURL))
+        let exportURL = tempDir.appendingPathComponent("export-json", isDirectory: true)
+        let bundle = try ProvenanceExporter(signingProvider: nil).exportBundle(
+            resolved.envelope,
+            format: .json,
+            to: exportURL,
+            sourceSidecarURL: resolved.sidecarURL,
+            sourceRootURL: mappingURL,
+            exportArgv: ["lungfish", "provenance", "export", mappingURL.path, "--export-format", "json", "--output", exportURL.path]
+        )
+
+        let exported = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: try Data(contentsOf: bundle.primaryArtifactURL)
+        )
+        let exportedToolNames = exported.steps.map(\.toolName)
+        XCTAssertTrue(exportedToolNames.contains("ena-download"))
+        XCTAssertTrue(exportedToolNames.contains("seqkit"))
+        XCTAssertTrue(exportedToolNames.contains("fastp"))
+        XCTAssertTrue(exportedToolNames.contains("minimap2"))
+        XCTAssertTrue(exported.steps.contains { step in
+            step.inputs.contains { $0.path == "https://www.ncbi.nlm.nih.gov/nuccore/MN908947" }
+        })
+
+        let copiedArtifactNames = bundle.copiedSidecarURLs.map(\.lastPathComponent)
+        XCTAssertTrue(copiedArtifactNames.contains(MappingProvenance.filename))
+        XCTAssertGreaterThanOrEqual(
+            copiedArtifactNames.filter { $0.hasSuffix(".lungfish-provenance.json") }.count,
+            3
+        )
+
+        for format in ProvenanceExportFormat.allCases where format != .json {
+            let formatExportURL = tempDir.appendingPathComponent("export-\(format.cliToken)", isDirectory: true)
+            let formatBundle = try ProvenanceExporter(signingProvider: nil).exportBundle(
+                resolved.envelope,
+                format: format,
+                to: formatExportURL,
+                sourceSidecarURL: resolved.sidecarURL,
+                sourceRootURL: mappingURL,
+                exportArgv: ["lungfish", "provenance", "export", mappingURL.path, "--export-format", format.cliToken, "--output", formatExportURL.path]
+            )
+            let primaryText = try String(contentsOf: formatBundle.primaryArtifactURL, encoding: .utf8)
+            XCTAssertTrue(primaryText.contains("ena-download"), format.cliToken)
+            XCTAssertTrue(primaryText.contains("seqkit"), format.cliToken)
+            XCTAssertTrue(primaryText.contains("fastp"), format.cliToken)
+            XCTAssertTrue(primaryText.contains("minimap2"), format.cliToken)
+
+            let formatCopiedArtifactNames = formatBundle.copiedSidecarURLs.map(\.lastPathComponent)
+            XCTAssertTrue(formatCopiedArtifactNames.contains(MappingProvenance.filename), format.cliToken)
+            XCTAssertGreaterThanOrEqual(
+                formatCopiedArtifactNames.filter { $0.hasSuffix(".lungfish-provenance.json") }.count,
+                3,
+                format.cliToken
+            )
+        }
+    }
+
     func testLoadReturnsNilWhenSidecarMissing() {
         XCTAssertNil(MappingProvenance.load(from: tempDir))
     }
@@ -418,5 +623,51 @@ final class MappingProvenanceTests: XCTestCase {
         let url = tempDir.appendingPathComponent(name)
         try contents.write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    private func writeSyntheticEnvelope(
+        to directory: URL,
+        workflowName: String,
+        toolName: String,
+        argv: [String],
+        inputURL: URL? = nil,
+        inputPath: String? = nil,
+        outputURL: URL,
+        inputFormat: FileFormat,
+        outputFormat: FileFormat
+    ) throws {
+        let inputDescriptor: ProvenanceFileDescriptor
+        if let inputURL {
+            inputDescriptor = try ProvenanceFileDescriptor.file(url: inputURL, format: inputFormat, role: .input)
+        } else {
+            inputDescriptor = ProvenanceFileDescriptor(path: inputPath ?? "", format: inputFormat, role: .input)
+        }
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: outputFormat, role: .output)
+        let step = ProvenanceStep(
+            toolName: toolName,
+            toolVersion: "1.0.0",
+            argv: argv,
+            inputs: [inputDescriptor],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 1
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            workflowName: workflowName,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: toolName,
+            toolVersion: "1.0.0",
+            tool: ProvenanceToolIdentity(name: toolName, version: "1.0.0", kind: "cli"),
+            argv: argv,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: 1,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: directory)
     }
 }

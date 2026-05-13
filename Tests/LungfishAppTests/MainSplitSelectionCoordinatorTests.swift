@@ -297,6 +297,163 @@ final class MainSplitSelectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(delegate.selectedItems.isEmpty)
     }
 
+    func testBundleViewStateSidecarChangeDoesNotRefreshSelectedBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarViewStateRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        let viewStateURL = bundleURL.appendingPathComponent(BundleViewState.filename)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [], all: [viewStateURL])
+        )
+
+        XCTAssertTrue(delegate.refreshedItems.isEmpty)
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
+    func testBundleDirectoryMetadataChangeDoesNotRefreshSelectedBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarBundleDirectoryRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [bundleURL], all: [bundleURL])
+        )
+
+        XCTAssertTrue(delegate.refreshedItems.isEmpty)
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
+    func testBundleHiddenAtomicWriteDoesNotRefreshSelectedBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarBundleAtomicRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        let tempWriteURL = bundleURL.appendingPathComponent(".viewstate.json.tmp")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [tempWriteURL], all: [tempWriteURL])
+        )
+
+        XCTAssertTrue(delegate.refreshedItems.isEmpty)
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
+    func testFilesystemRescanDoesNotRefreshUnchangedSelectedBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarBundleRescanRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [], all: [])
+        )
+
+        XCTAssertTrue(delegate.refreshedItems.isEmpty)
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
+    func testFilesystemRootChangeDoesNotRefreshUnchangedSelectedBundle() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarBundleRootRefresh-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("Reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+        let delegate = SidebarSelectionSpy()
+        sidebar.selectionDelegate = delegate
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+        XCTAssertTrue(sidebar.selectItem(forURL: bundleURL))
+        delegate.selectedItems.removeAll()
+        delegate.refreshedItems.removeAll()
+
+        ProjectFilesystemRefreshCoordinator.shared.testingEmitChange(
+            projectURL: projectURL,
+            changedPaths: FileSystemWatcher.ChangedPaths(nonSidecar: [projectURL], all: [projectURL])
+        )
+
+        XCTAssertTrue(delegate.refreshedItems.isEmpty)
+        XCTAssertTrue(delegate.selectedItems.isEmpty)
+    }
+
     func testInspectorDocumentModeRequestAfterDownloadIncludesWindowScope() {
         let controller = MainSplitViewController()
         _ = controller.view

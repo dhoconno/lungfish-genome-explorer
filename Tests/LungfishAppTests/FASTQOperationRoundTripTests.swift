@@ -138,6 +138,58 @@ final class FASTQOperationRoundTripTests: XCTestCase {
         XCTAssertEqual(records.map(\.sequence), ["CGTT"])
     }
 
+    func testMaterializingFullGzippedPayloadPreservesReadableGzipPath() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FullGzipMaterialization")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceFASTQ = tempDir.appendingPathComponent("source.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceFASTQ,
+            readCount: 3,
+            readLength: 24,
+            idPrefix: "gzread"
+        )
+
+        let bundle = try FASTQOperationTestHelper.makeBundle(
+            named: "derived",
+            in: tempDir,
+            fastqFilename: "reads.fastq.gz"
+        )
+        try gzipFile(sourceFASTQ, to: bundle.fastqURL)
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: ".",
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: bundle.fastqURL.lastPathComponent,
+            payload: .full(fastqFilename: bundle.fastqURL.lastPathComponent),
+            lineage: [
+                FASTQDerivativeOperation(kind: .subsampleProportion, proportion: 1.0)
+            ],
+            operation: FASTQDerivativeOperation(kind: .subsampleProportion, proportion: 1.0),
+            cachedStatistics: .placeholder(readCount: 3, baseCount: 72),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundle.bundleURL)
+
+        let outDir = tempDir.appendingPathComponent("materialized", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let materializedURL = try await FASTQDerivativeService().materializeDatasetFASTQ(
+            fromBundle: bundle.bundleURL,
+            tempDirectory: outDir,
+            progress: nil
+        )
+
+        XCTAssertTrue(
+            materializedURL.lastPathComponent.hasSuffix(".fastq.gz"),
+            "Materialized gzip payload should keep a .fastq.gz suffix so FASTQ readers and tools treat it as compressed"
+        )
+        let records = try await FASTQOperationTestHelper.loadFASTQRecords(from: materializedURL)
+        XCTAssertEqual(records.map(\.identifier), ["gzread1", "gzread2", "gzread3"])
+    }
+
     func testTranslateOperationProducesMaterializedFASTAArtifact() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "TranslateArtifact")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -869,5 +921,27 @@ final class FASTQOperationRoundTripTests: XCTestCase {
         } else {
             XCTFail("Expected fullMixed payload")
         }
+    }
+
+    private func gzipFile(_ inputURL: URL, to outputURL: URL) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-c", inputURL.path]
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        try process.run()
+        let compressed = stdout.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = stderr.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0, !compressed.isEmpty else {
+            let detail = String(data: stderrData, encoding: .utf8) ?? "gzip failed"
+            throw XCTSkip("Unable to create gzip fixture: \(detail)")
+        }
+
+        try compressed.write(to: outputURL, options: .atomic)
     }
 }

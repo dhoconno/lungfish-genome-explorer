@@ -773,7 +773,7 @@ public class SidebarViewController: NSViewController {
                 self.notifySelectedItemsRefreshedIfNeeded(changedPaths: changedPaths.all)
             } else if changedPaths.nonSidecar.isEmpty && changedPaths.all.isEmpty {
                 // kFSEventStreamEventFlagMustScanSubDirs — full reload
-                self.reloadFromFilesystem()
+                self.reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             } else {
                 // Non-sidecar changes detected — incremental sidebar update
                 self.updateSidebar(changedPaths: changedPaths)
@@ -852,6 +852,10 @@ public class SidebarViewController: NSViewController {
     /// the current state of the filesystem. Called automatically by the
     /// FileSystemWatcher when files change.
     public func reloadFromFilesystem() {
+        reloadFromFilesystem(notifyUnchangedSelectionRefresh: true)
+    }
+
+    private func reloadFromFilesystem(notifyUnchangedSelectionRefresh: Bool) {
         logger.info("reloadFromFilesystem: CALLED - starting filesystem scan")
         guard let projectURL = projectURL else {
             logger.debug("reloadFromFilesystem: No project URL set")
@@ -903,7 +907,7 @@ public class SidebarViewController: NSViewController {
             } else {
                 handleSelectionChange(restoredItems, source: "reloadFromFilesystem")
             }
-        } else if !restoredItems.isEmpty {
+        } else if notifyUnchangedSelectionRefresh, !restoredItems.isEmpty {
             selectionDelegate?.sidebarDidRefreshSelectedItems(restoredItems)
         }
 
@@ -957,7 +961,7 @@ public class SidebarViewController: NSViewController {
         // If the root level itself changed or the Analyses folder is affected, fall back to full reload.
         if affectsRoot || affectedTopLevelNames.contains(AnalysesFolder.directoryName) {
             logger.info("updateSidebar: Root-level or Analyses change — falling back to full reload")
-            reloadFromFilesystem()
+            reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
             return
         }
 
@@ -970,7 +974,7 @@ public class SidebarViewController: NSViewController {
                 $0.url?.standardizedFileURL.path == topLevelURL.standardizedFileURL.path
             }) else {
                 logger.debug("updateSidebar: New top-level item '\(topLevelName)' — full reload")
-                reloadFromFilesystem()
+                reloadFromFilesystem(notifyUnchangedSelectionRefresh: false)
                 return
             }
 
@@ -993,13 +997,10 @@ public class SidebarViewController: NSViewController {
         guard !items.isEmpty else { return }
         let changedPaths = changedPaths
             .flatMap { selectedItemRefreshPaths(forChangedPath: $0) }
-            .map(\.path)
-        let selectedPaths = items.compactMap { $0.url?.standardizedFileURL.path }
-        guard selectedPaths.contains(where: { selectedPath in
-            changedPaths.contains { changedPath in
-                changedPath == selectedPath
-                    || changedPath.hasPrefix(selectedPath + "/")
-                    || selectedPath.hasPrefix(changedPath + "/")
+        guard items.contains(where: { item in
+            guard let selectedURL = item.url?.standardizedFileURL else { return false }
+            return changedPaths.contains { changedPath in
+                shouldRefreshSelectedItem(item, selectedURL: selectedURL, forChangedPath: changedPath)
             }
         }) else {
             return
@@ -1007,8 +1008,35 @@ public class SidebarViewController: NSViewController {
         selectionDelegate?.sidebarDidRefreshSelectedItems(items)
     }
 
+    private func shouldRefreshSelectedItem(
+        _ item: SidebarItem,
+        selectedURL: URL,
+        forChangedPath changedURL: URL
+    ) -> Bool {
+        let selectedPath = selectedURL.standardizedFileURL.path
+        let changedURL = changedURL.standardizedFileURL
+        let changedPath = changedURL.path
+
+        if item.type.isBundle {
+            if changedPath == selectedPath {
+                return false
+            }
+            if changedPath.hasPrefix(selectedPath + "/"), changedURL.lastPathComponent.hasPrefix(".") {
+                return false
+            }
+        }
+
+        return changedPath == selectedPath
+            || changedPath.hasPrefix(selectedPath + "/")
+            || selectedPath.hasPrefix(changedPath + "/")
+    }
+
     private func selectedItemRefreshPaths(forChangedPath url: URL) -> [URL] {
         let standardizedURL = url.standardizedFileURL
+        if standardizedURL.lastPathComponent == BundleViewState.filename {
+            return []
+        }
+
         let fastqMetadataSuffix = ".lungfish-meta.json"
         guard standardizedURL.lastPathComponent.hasSuffix(fastqMetadataSuffix) else {
             return [standardizedURL]
@@ -1164,6 +1192,9 @@ public class SidebarViewController: NSViewController {
                 if childIsDir.boolValue {
                     if FASTQBundle.isBundleURL(childURL), FASTQBundle.isProcessing(childURL) {
                         // Hide in-flight imports until ingestion + stats finalize.
+                        continue
+                    }
+                    if isFASTQOperationStagingDirectory(childURL) {
                         continue
                     }
                     // Skip the Analyses/ directory — it gets its own top-level group.
@@ -1391,6 +1422,9 @@ public class SidebarViewController: NSViewController {
                         if FASTQBundle.isBundleURL(childURL), FASTQBundle.isProcessing(childURL) {
                             continue
                         }
+                        if isFASTQOperationStagingDirectory(childURL) {
+                            continue
+                        }
                         // Skip metagenomics result directories that are already
                         // represented by batch group nodes (via collectTaxTriageResults,
                         // cross-reference sidecars, or similar collectors).
@@ -1528,6 +1562,12 @@ public class SidebarViewController: NSViewController {
         return false
     }
 
+    private func isFASTQOperationStagingDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return name.hasPrefix("cli-output-")
+            || name.hasPrefix("materialized-inputs-")
+    }
+
     /// Collects child `.lungfishfastq` bundles from a parent bundle's `demux/` directory.
     ///
     /// Scans the `demux/` subdirectory tree for `.lungfishfastq` bundles, skipping
@@ -1623,6 +1663,7 @@ public class SidebarViewController: NSViewController {
         }) {
             guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
             guard !OperationMarker.isInProgress(url) else { continue }
+            guard !isFASTQOperationStagingDirectory(url) else { continue }
 
             if let info = AnalysesFolder.analysisInfo(for: url) {
                 if let item = buildAnalysisItem(info: info) {

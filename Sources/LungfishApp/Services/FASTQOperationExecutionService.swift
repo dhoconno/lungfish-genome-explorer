@@ -163,6 +163,10 @@ struct FASTQOperationExecutionService {
                 outputURLs: outputURLs,
                 outputDirectory: outputDirectory
             )
+            cleanupTransientStagingDirectories(
+                [materializationDirectory],
+                preserving: [outputDirectory] + outputURLs
+            )
             return FASTQOperationExecutionResult(
                 resolvedRequest: resolvedRequest,
                 executedInvocations: invocations,
@@ -176,6 +180,10 @@ struct FASTQOperationExecutionService {
                 forResolvedRequest: resolvedRequest,
                 originalRequest: request,
                 outputDirectory: outputDirectory
+            )
+            cleanupTransientStagingDirectories(
+                [materializationDirectory, outputDirectory],
+                preserving: importedURLs
             )
             return FASTQOperationExecutionResult(
                 resolvedRequest: resolvedRequest,
@@ -210,6 +218,36 @@ struct FASTQOperationExecutionService {
             "cli-output-\(UUID().uuidString)",
             isDirectory: true
         )
+    }
+
+    private func cleanupTransientStagingDirectories(
+        _ directories: [URL],
+        preserving preservedURLs: [URL]
+    ) {
+        for directory in directories.map(\.standardizedFileURL) {
+            guard Self.isTransientFASTQOperationStagingDirectory(directory),
+                  !shouldPreserveTransientDirectory(directory, preserving: preservedURLs) else {
+                continue
+            }
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    private func shouldPreserveTransientDirectory(
+        _ directory: URL,
+        preserving preservedURLs: [URL]
+    ) -> Bool {
+        let directoryPath = directory.standardizedFileURL.path
+        return preservedURLs.map(\.standardizedFileURL.path).contains { preservedPath in
+            preservedPath == directoryPath
+                || preservedPath.hasPrefix(directoryPath + "/")
+                || directoryPath.hasPrefix(preservedPath + "/")
+        }
+    }
+
+    private static func isTransientFASTQOperationStagingDirectory(_ url: URL) -> Bool {
+        let name = url.lastPathComponent
+        return name.hasPrefix("cli-output-") || name.hasPrefix("materialized-inputs-")
     }
 
     private func makeExecutionPlans(
@@ -1610,13 +1648,94 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         operation: FASTQDerivativeOperation
     ) async throws {
         _ = originalRequest
-        _ = sourceInputURL
         _ = operation
+        var pathMap = [sourceURL.path: outputFASTQ.path]
+        if let finalInputURL = finalInputFileForMaterializedProvenance(sourceInputURL: sourceInputURL),
+           let sourceEnvelope = loadSourceProvenanceEnvelope(for: sourceURL) {
+            for materializedPath in materializedInputPaths(in: sourceEnvelope) {
+                pathMap[materializedPath] = finalInputURL.path
+            }
+        }
         _ = try ProvenanceRehydrator.rehydrateSelectedOutputs(
             sourceDirectory: sourceURL.deletingLastPathComponent(),
             finalDirectory: bundleURL,
-            pathMap: [sourceURL.path: outputFASTQ.path]
+            pathMap: pathMap
         )
+    }
+
+    private func loadSourceProvenanceEnvelope(for sourceURL: URL) -> ProvenanceEnvelope? {
+        ProvenanceRecorder.findProvenanceEnvelope(for: sourceURL)?.envelope
+            ?? ProvenanceRecorder.loadEnvelope(from: sourceURL.deletingLastPathComponent())
+    }
+
+    private func materializedInputPaths(in envelope: ProvenanceEnvelope) -> Set<String> {
+        let descriptors = envelope.files
+            + envelope.steps.flatMap(\.inputs)
+        return Set(
+            descriptors
+                .filter { $0.role == .input && isMaterializedInputPath($0.path) }
+                .map(\.path)
+        )
+    }
+
+    private func isMaterializedInputPath(_ path: String) -> Bool {
+        URL(fileURLWithPath: path).pathComponents.contains {
+            $0.hasPrefix("materialized-inputs-")
+        }
+    }
+
+    private func finalInputFileForMaterializedProvenance(sourceInputURL: URL?) -> URL? {
+        guard let sourceInputURL else { return nil }
+        let standardizedURL = sourceInputURL.standardizedFileURL
+
+        if FASTQBundle.isBundleURL(standardizedURL) {
+            return materializedPayloadFileForProvenance(in: standardizedURL)
+                ?? regularPrimarySequenceURL(in: standardizedURL)
+        }
+
+        if isRegularFile(standardizedURL),
+           FASTQBundle.isFASTQFileURL(standardizedURL) || SequenceFormat.from(url: standardizedURL) != nil {
+            return standardizedURL
+        }
+
+        if let bundleURL = enclosingFASTQBundleURL(for: standardizedURL) {
+            return materializedPayloadFileForProvenance(in: bundleURL)
+                ?? regularPrimarySequenceURL(in: bundleURL)
+        }
+
+        return nil
+    }
+
+    private func materializedPayloadFileForProvenance(in bundleURL: URL) -> URL? {
+        guard let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
+            return nil
+        }
+
+        let candidateURL: URL?
+        switch manifest.payload {
+        case .full(let filename), .fullFASTA(let filename):
+            candidateURL = bundleURL.appendingPathComponent(filename).standardizedFileURL
+        default:
+            candidateURL = nil
+        }
+
+        guard let candidateURL, isRegularFile(candidateURL) else {
+            return nil
+        }
+        return candidateURL
+    }
+
+    private func regularPrimarySequenceURL(in bundleURL: URL) -> URL? {
+        guard let primaryURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL)?.standardizedFileURL,
+              primaryURL.lastPathComponent != "preview.fastq",
+              isRegularFile(primaryURL) else {
+            return nil
+        }
+        return primaryURL
+    }
+
+    private func isRegularFile(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
     }
 
     private func fallbackProvenanceParameters(

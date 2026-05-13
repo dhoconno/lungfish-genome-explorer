@@ -183,6 +183,46 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertEqual(sidebar.selectedFileURL?.resolvingSymlinksInPath(), analysisURL.resolvingSymlinksInPath())
     }
 
+    func testSidebarIgnoresFASTQOperationStagingFoldersInAnalyses() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarStagingFolders-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let analysesDir = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        let cliOutputURL = analysesDir.appendingPathComponent("cli-output-1234", isDirectory: true)
+        let materializedURL = analysesDir.appendingPathComponent("materialized-inputs-1234", isDirectory: true)
+        let analysisURL = try AnalysesFolder.createAnalysisDirectory(
+            tool: "minimap2",
+            in: projectURL,
+            date: Date(timeIntervalSince1970: 1_776_000_000)
+        )
+        try FileManager.default.createDirectory(at: cliOutputURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: materializedURL, withIntermediateDirectories: true)
+        try "staged".write(
+            to: cliOutputURL.appendingPathComponent(".lungfish-provenance.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "staged".write(
+            to: materializedURL.appendingPathComponent("materialized.fastq.gz"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+
+        XCTAssertTrue(sidebar.selectItem(forURL: analysisURL))
+        XCTAssertFalse(sidebar.selectItem(forURL: cliOutputURL))
+        XCTAssertFalse(sidebar.selectItem(forURL: materializedURL))
+    }
+
     func testSelectItemRoutesMAFFTAnalysisBundleAsMultipleSequenceAlignment() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

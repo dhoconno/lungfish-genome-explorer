@@ -105,8 +105,10 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.rootFASTQMissing
         }
 
-        let outputExtension = (manifest.sequenceFormat ?? .fastq).fileExtension
-        let outputURL = tempDirectory.appendingPathComponent("materialized.\(outputExtension)")
+        let outputExtension = Self.materializedOutputExtension(for: manifest)
+        let outputURL = tempDirectory.appendingPathComponent(
+            "materialized-\(UUID().uuidString).\(outputExtension)"
+        )
         progress?("Materializing pointer dataset...")
 
         switch manifest.payload {
@@ -235,6 +237,29 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         return outputURL
+    }
+
+    private static func materializedOutputExtension(for manifest: FASTQDerivedBundleManifest) -> String {
+        switch manifest.payload {
+        case .full(let filename), .fullFASTA(let filename):
+            return sequenceFileExtensionPreservingCompression(from: filename)
+                ?? (manifest.sequenceFormat ?? .fastq).fileExtension
+        default:
+            return (manifest.sequenceFormat ?? .fastq).fileExtension
+        }
+    }
+
+    private static func sequenceFileExtensionPreservingCompression(from filename: String) -> String? {
+        let url = URL(fileURLWithPath: filename)
+        let extensionPart = url.pathExtension.lowercased()
+        guard !extensionPart.isEmpty else { return nil }
+
+        if extensionPart == "gz" {
+            let baseExtension = url.deletingPathExtension().pathExtension.lowercased()
+            return baseExtension.isEmpty ? extensionPart : "\(baseExtension).\(extensionPart)"
+        }
+
+        return extensionPart
     }
 
     // MARK: - Subset Materialization

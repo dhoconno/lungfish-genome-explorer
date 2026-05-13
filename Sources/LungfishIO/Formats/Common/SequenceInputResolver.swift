@@ -15,14 +15,29 @@ public enum SequenceInputResolver {
 
         if let bundleURL = enclosingFASTQBundleURL(for: standardizedURL) {
             if let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
-                if case .fullFASTA(let fastaFilename) = manifest.payload {
-                    let resolvedURL = bundleURL.appendingPathComponent(fastaFilename).standardizedFileURL
-                    return FileManager.default.fileExists(atPath: resolvedURL.path) ? resolvedURL : nil
+                if let materializedURL = materializedSequenceURL(for: manifest, in: bundleURL) {
+                    return materializedURL
                 }
 
-                let descriptor = VirtualFASTQDescriptor(bundleURL: bundleURL, manifest: manifest)
-                let resolvedURL = descriptor.resolvedRootFASTQURL
-                return FileManager.default.fileExists(atPath: resolvedURL.path) ? resolvedURL : nil
+                switch manifest.payload {
+                case .full, .fullFASTA, .fullPaired, .fullMixed:
+                    return nil
+                default:
+                    break
+                }
+
+                let rootBundleURL = FASTQBundle.resolveBundle(
+                    relativePath: manifest.rootBundleRelativePath,
+                    from: bundleURL
+                )
+                let resolvedURL = rootBundleURL
+                    .appendingPathComponent(manifest.rootFASTQFilename)
+                    .standardizedFileURL
+                if FileManager.default.fileExists(atPath: resolvedURL.path) {
+                    return resolvedURL
+                }
+
+                return nil
             }
 
             if let primaryFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) {
@@ -55,10 +70,15 @@ public enum SequenceInputResolver {
                 switch manifest.payload {
                 case .fullFASTA:
                     return .fasta
+                case .full, .fullPaired, .fullMixed:
+                    return .fastq
                 default:
-                    return SequenceFormat.from(
-                        url: VirtualFASTQDescriptor(bundleURL: bundleURL, manifest: manifest).resolvedRootFASTQURL
+                    let rootBundleURL = FASTQBundle.resolveBundle(
+                        relativePath: manifest.rootBundleRelativePath,
+                        from: bundleURL
                     )
+                    let rootURL = rootBundleURL.appendingPathComponent(manifest.rootFASTQFilename)
+                    return SequenceFormat.from(url: rootURL)
                 }
             }
 
@@ -75,6 +95,34 @@ public enum SequenceInputResolver {
         }
 
         return SequenceFormat.from(url: standardizedURL)
+    }
+
+    private static func materializedSequenceURL(
+        for manifest: FASTQDerivedBundleManifest,
+        in bundleURL: URL
+    ) -> URL? {
+        let candidateURL: URL?
+        switch manifest.payload {
+        case .full(let fastqFilename):
+            candidateURL = bundleURL.appendingPathComponent(fastqFilename).standardizedFileURL
+        case .fullFASTA(let fastaFilename):
+            candidateURL = bundleURL.appendingPathComponent(fastaFilename).standardizedFileURL
+        case .fullPaired(let r1Filename, _):
+            candidateURL = bundleURL.appendingPathComponent(r1Filename).standardizedFileURL
+        case .fullMixed(let classification):
+            candidateURL = classification.files
+                .map { bundleURL.appendingPathComponent($0.filename).standardizedFileURL }
+                .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
+        default:
+            candidateURL = nil
+        }
+
+        guard let candidateURL,
+              FileManager.default.fileExists(atPath: candidateURL.path) else {
+            return nil
+        }
+        return candidateURL
     }
 
     /// Returns the enclosing `.lungfishfastq` bundle for a candidate URL.

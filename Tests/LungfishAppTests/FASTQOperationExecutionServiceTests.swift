@@ -92,6 +92,52 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(FASTQBundle.isFASTQFileURL(importer.calls[0][0]))
     }
 
+    func testExecuteDerivativeRemovesTransientStagingDirectoriesAfterImport() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inputURL = tempDir.appendingPathComponent("input.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: inputURL, readCount: 3, readLength: 18)
+
+        let runner = SpyCommandRunner { invocation, _ in
+            guard
+                let outputIndex = invocation.arguments.firstIndex(of: "-o"),
+                invocation.arguments.indices.contains(outputIndex + 1)
+            else {
+                XCTFail("Expected -o output path in CLI invocation")
+                throw NSError(domain: "FASTQOperationExecutionServiceTests", code: 11)
+            }
+
+            let outputURL = URL(fileURLWithPath: invocation.arguments[outputIndex + 1])
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(to: outputURL, readCount: 2, readLength: 16)
+            return FASTQCLIExecutionResult(outputURLs: [])
+        }
+        let importer = SpyDirectImporter()
+        let importedBundle = tempDir.appendingPathComponent("filtered.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        importer.resultURLs = [importedBundle]
+        let service = FASTQOperationExecutionService(
+            commandRunner: runner,
+            directImporter: importer
+        )
+
+        _ = try await service.execute(
+            request: .derivative(
+                request: .lengthFilter(min: 10, max: 40),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            ),
+            workingDirectory: tempDir
+        )
+
+        let leftoverNames = try FileManager.default.contentsOfDirectory(atPath: tempDir.path)
+        XCTAssertFalse(leftoverNames.contains { $0.hasPrefix("cli-output-") })
+        XCTAssertFalse(leftoverNames.contains { $0.hasPrefix("materialized-inputs-") })
+    }
+
     func testExecuteDerivativeMaterializesMultiFileBundleIntoSingleCLIInput() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -959,6 +1005,73 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(provenance.name, "Deacon rRNA FASTQ filter")
         XCTAssertEqual(step.outputs.map(\.filename), [bundledFASTQ.lastPathComponent])
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: bundledFASTQ))
+    }
+
+    func testAppFASTQOutputBundleWriterRehydratesMaterializedInputToSourceBundlePayload() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportMaterializedInput")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: sourceBundle.fastqURL,
+            readCount: 4,
+            readLength: 20
+        )
+
+        let stagingDir = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let materializedDir = stagingDir.appendingPathComponent("materialized-inputs-test", isDirectory: true)
+        try FileManager.default.createDirectory(at: materializedDir, withIntermediateDirectories: true)
+
+        let materializedInput = materializedDir.appendingPathComponent("materialized-source.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: materializedInput,
+            readCount: 4,
+            readLength: 20
+        )
+        let stagedFASTQ = stagingDir.appendingPathComponent("source.trimmed.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: stagedFASTQ,
+            readCount: 3,
+            readLength: 18
+        )
+        try writeSyntheticProvenance(
+            to: stagingDir,
+            name: "Sequential FASTQ trim",
+            toolName: "fastp",
+            toolVersion: "1.3.2",
+            command: ["fastp", "-i", materializedInput.path, "-o", stagedFASTQ.path],
+            inputURL: materializedInput,
+            outputURL: stagedFASTQ,
+            parameters: ["operation": .string("adapter trim")]
+        )
+
+        let destinationBundle = tempDir.appendingPathComponent(
+            "source-trimmed.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let writer = AppFASTQOutputBundleWriter(ingestor: SpyFASTQOutputIngestor())
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil),
+            inputURLs: [sourceBundle.bundleURL],
+            outputMode: .perInput
+        )
+
+        let bundleURL = try await writer.importFASTQOutput(
+            sourceURL: stagedFASTQ,
+            bundleURL: destinationBundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: bundleURL))
+        let stepInput = try XCTUnwrap(envelope.steps.first?.inputs.first)
+        XCTAssertEqual(stepInput.path, sourceBundle.fastqURL.path)
+        XCTAssertEqual(stepInput.originPath, materializedInput.path)
+        XCTAssertEqual(stepInput.checksumSHA256, try ProvenanceFileHasher.sha256(of: sourceBundle.fastqURL))
+        XCTAssertFalse(
+            envelope.files.contains { $0.path.contains("materialized-inputs-test") },
+            "Final bundle provenance should not keep the temporary materialized input as the scientific input"
+        )
     }
 
     func testAppFASTQOutputBundleWriterPreservesMultiOutputCLIProvenanceOneBundleAtATime() async throws {

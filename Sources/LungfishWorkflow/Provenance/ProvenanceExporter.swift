@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 // MARK: - ProvenanceExportFormat
 
@@ -118,13 +119,19 @@ public struct ProvenanceExporter: Sendable {
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let run = envelope.legacyWorkflowRun()
+        let chainExpansion = expandProvenanceChain(
+            startingWith: envelope,
+            sourceSidecarURL: sourceSidecarURL,
+            sourceRootURL: sourceRootURL
+        )
+        let expandedEnvelope = chainExpansion.envelope
+        let run = expandedEnvelope.legacyWorkflowRun()
         let primaryArtifactURL: URL
         var generatedArtifactURLs: [URL] = []
         switch format {
         case .shell:
             primaryArtifactURL = outputDirectory.appendingPathComponent("run.sh")
-            try exportShell(envelope, fallbackRun: run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
+            try exportShell(expandedEnvelope, fallbackRun: run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
             try makeExecutable(primaryArtifactURL)
         case .python:
             primaryArtifactURL = outputDirectory.appendingPathComponent("reproduce.py")
@@ -163,7 +170,7 @@ public struct ProvenanceExporter: Sendable {
             try exportMethods(run).write(to: primaryArtifactURL, atomically: true, encoding: .utf8)
         case .json:
             primaryArtifactURL = outputDirectory.appendingPathComponent("provenance.json")
-            let data = try ProvenanceJSON.encoder.encode(envelope)
+            let data = try ProvenanceJSON.encoder.encode(expandedEnvelope)
             try data.write(to: primaryArtifactURL, options: .atomic)
         }
         generatedArtifactURLs.insert(primaryArtifactURL, at: 0)
@@ -175,7 +182,8 @@ public struct ProvenanceExporter: Sendable {
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: sourceRootURL,
             outputDirectory: outputDirectory,
-            provenanceDirectory: provenanceDirectory
+            provenanceDirectory: provenanceDirectory,
+            additionalSourceURLs: chainExpansion.sourceArtifactURLs
         )
         let exportSidecarURL = try writeExportProvenanceSidecar(
             format: format,
@@ -262,6 +270,259 @@ public struct ProvenanceExporter: Sendable {
     private struct CopiedSourceArtifact {
         let sourceURL: URL
         let destinationURL: URL
+    }
+
+    private struct ProvenanceChainExpansion {
+        let envelope: ProvenanceEnvelope
+        let sourceArtifactURLs: [URL]
+    }
+
+    private func expandProvenanceChain(
+        startingWith envelope: ProvenanceEnvelope,
+        sourceSidecarURL: URL?,
+        sourceRootURL: URL?
+    ) -> ProvenanceChainExpansion {
+        var orderedEnvelopes: [ProvenanceEnvelope] = []
+        var sourceArtifactURLs: [URL] = []
+        var visitedKeys = Set<String>()
+        var visitedReferenceBundles = Set<String>()
+
+        func recordArtifact(_ url: URL?) {
+            guard let url else { return }
+            sourceArtifactURLs.append(url.standardizedFileURL)
+            sourceArtifactURLs.append(contentsOf: pairedSigningArtifacts(for: url.standardizedFileURL))
+        }
+
+        func visitReferenceBundle(_ bundleURL: URL) {
+            let standardizedBundleURL = bundleURL.standardizedFileURL
+            guard visitedReferenceBundles.insert(standardizedBundleURL.path).inserted else { return }
+
+            let manifestURL = standardizedBundleURL.appendingPathComponent("manifest.json")
+            if FileManager.default.fileExists(atPath: manifestURL.path) {
+                sourceArtifactURLs.append(manifestURL)
+            }
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardizedBundleURL) {
+                visit(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL)
+                return
+            }
+            if let synthesized = synthesizedReferenceProvenanceEnvelope(for: standardizedBundleURL) {
+                visit(envelope: synthesized, sidecarURL: nil, syntheticKey: "reference:\(standardizedBundleURL.path)")
+            }
+        }
+
+        func visitDependency(_ url: URL) {
+            let standardizedURL = url.standardizedFileURL
+            if let resolved = ProvenanceRecorder.findProvenanceEnvelope(for: standardizedURL) {
+                visit(envelope: resolved.envelope, sidecarURL: resolved.sidecarURL)
+                return
+            }
+            if let referenceBundleURL = enclosingReferenceBundleURL(for: standardizedURL) {
+                visitReferenceBundle(referenceBundleURL)
+            }
+        }
+
+        func visit(envelope current: ProvenanceEnvelope, sidecarURL: URL?, syntheticKey: String? = nil) {
+            let key = syntheticKey
+                ?? sidecarURL?.standardizedFileURL.path
+                ?? "envelope:\(current.id.uuidString)"
+            guard visitedKeys.insert(key).inserted else { return }
+
+            recordArtifact(sidecarURL)
+
+            for dependencyURL in dependencyURLs(for: current, sourceRootURL: sourceRootURL) {
+                visitDependency(dependencyURL)
+            }
+
+            orderedEnvelopes.append(current)
+        }
+
+        visit(envelope: envelope, sidecarURL: sourceSidecarURL)
+
+        return ProvenanceChainExpansion(
+            envelope: mergeProvenanceChain(orderedEnvelopes, fallback: envelope),
+            sourceArtifactURLs: uniqueExistingURLs(sourceArtifactURLs)
+        )
+    }
+
+    private func dependencyURLs(for envelope: ProvenanceEnvelope, sourceRootURL: URL?) -> [URL] {
+        var urls: [URL] = []
+        let descriptors = envelope.files + envelope.steps.flatMap(\.inputs)
+        for descriptor in descriptors where descriptor.role == .input || descriptor.role == .reference {
+            guard descriptor.path.hasPrefix("/") else { continue }
+            urls.append(URL(fileURLWithPath: descriptor.path))
+        }
+
+        if let sourceRootURL,
+           isDirectory(sourceRootURL),
+           let mappingProvenance = MappingProvenance.load(from: sourceRootURL),
+           let sourceReferenceBundlePath = mappingProvenance.sourceReferenceBundlePath {
+            urls.append(URL(fileURLWithPath: sourceReferenceBundlePath))
+        }
+
+        return urls
+    }
+
+    private func mergeProvenanceChain(
+        _ envelopes: [ProvenanceEnvelope],
+        fallback: ProvenanceEnvelope
+    ) -> ProvenanceEnvelope {
+        guard envelopes.count > 1 else { return fallback }
+
+        let mergedFiles = uniqueFileDescriptors(envelopes.flatMap(\.files))
+        let mergedSteps = uniqueSteps(envelopes.flatMap(\.steps))
+
+        return ProvenanceEnvelope(
+            schemaVersion: fallback.schemaVersion,
+            id: fallback.id,
+            createdAt: envelopes.first?.createdAt ?? fallback.createdAt,
+            workflowName: fallback.workflowName,
+            workflowVersion: fallback.workflowVersion,
+            toolName: fallback.toolName,
+            toolVersion: fallback.toolVersion,
+            tool: fallback.tool,
+            argv: fallback.argv,
+            reproducibleCommand: fallback.reproducibleCommand,
+            options: fallback.options,
+            runtimeIdentity: fallback.runtimeIdentity,
+            files: mergedFiles,
+            output: fallback.output,
+            outputs: fallback.outputs,
+            steps: mergedSteps,
+            wallTimeSeconds: fallback.wallTimeSeconds,
+            exitStatus: fallback.exitStatus,
+            stderr: fallback.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+    }
+
+    private func uniqueFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue):\(descriptor.path)"
+            guard seen.insert(key).inserted else { continue }
+            result.append(descriptor)
+        }
+        return result
+    }
+
+    private func uniqueSteps(_ steps: [ProvenanceStep]) -> [ProvenanceStep] {
+        var seen = Set<UUID>()
+        var result: [ProvenanceStep] = []
+        for step in steps where seen.insert(step.id).inserted {
+            result.append(step)
+        }
+        return result
+    }
+
+    private func enclosingReferenceBundleURL(for url: URL) -> URL? {
+        var candidate = url.standardizedFileURL
+        var candidateIsDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: candidate.path, isDirectory: &candidateIsDirectory),
+           !candidateIsDirectory.boolValue {
+            candidate = candidate.deletingLastPathComponent()
+        }
+
+        var seen = Set<String>()
+        while true {
+            let path = candidate.path
+            guard !path.isEmpty, seen.insert(path).inserted else { return nil }
+            if candidate.pathExtension.lowercased() == "lungfishref", isDirectory(candidate) {
+                return candidate
+            }
+            let parent = candidate.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != path else { return nil }
+            candidate = parent
+        }
+    }
+
+    private func synthesizedReferenceProvenanceEnvelope(for bundleURL: URL) -> ProvenanceEnvelope? {
+        guard let manifest = try? BundleManifest.load(from: bundleURL) else { return nil }
+
+        let sourcePath = manifest.source.sourceURL?.absoluteString
+            ?? manifest.source.assemblyAccession
+            ?? manifest.identifier
+        let sourceDescriptor = ProvenanceFileDescriptor(
+            path: sourcePath,
+            format: .fasta,
+            role: .input
+        )
+
+        let outputDescriptors = referenceOutputDescriptors(for: bundleURL, manifest: manifest)
+        guard !outputDescriptors.isEmpty else { return nil }
+
+        let startedAt = manifest.source.downloadDate ?? manifest.createdDate
+        let argv = [
+            "lungfish",
+            "reference",
+            "download",
+            sourcePath,
+            "--output",
+            bundleURL.path
+        ]
+        let step = ProvenanceStep(
+            toolName: manifest.source.database ?? "reference download",
+            toolVersion: "unknown",
+            argv: argv,
+            inputs: [sourceDescriptor],
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: 0,
+            startedAt: startedAt,
+            completedAt: startedAt
+        )
+
+        return ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: "lungfish reference acquisition",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: manifest.source.database ?? "reference download",
+            toolVersion: "unknown",
+            tool: ProvenanceToolIdentity(
+                name: manifest.source.database ?? "reference download",
+                version: "unknown",
+                kind: "download"
+            ),
+            argv: argv,
+            options: ProvenanceOptions(
+                explicit: [
+                    "bundle": .file(bundleURL),
+                    "database": manifest.source.database.map(ParameterValue.string) ?? .null,
+                    "assembly": .string(manifest.source.assembly),
+                    "assemblyAccession": manifest.source.assemblyAccession.map(ParameterValue.string) ?? .null,
+                    "sourceURL": manifest.source.sourceURL.map { .string($0.absoluteString) } ?? .null
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: WorkflowRun.currentAppVersion,
+                operatingSystemVersion: WorkflowRun.currentHostOS
+            ),
+            files: [sourceDescriptor] + outputDescriptors,
+            output: outputDescriptors.first,
+            outputs: outputDescriptors,
+            steps: [step],
+            wallTimeSeconds: 0,
+            exitStatus: 0
+        )
+    }
+
+    private func referenceOutputDescriptors(
+        for bundleURL: URL,
+        manifest: BundleManifest
+    ) -> [ProvenanceFileDescriptor] {
+        var descriptors: [ProvenanceFileDescriptor] = []
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        if let descriptor = try? ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .output) {
+            descriptors.append(descriptor)
+        }
+        if let genomePath = manifest.genome?.path {
+            let genomeURL = bundleURL.appendingPathComponent(genomePath)
+            if let descriptor = try? ProvenanceFileDescriptor.file(url: genomeURL, format: .fasta, role: .output) {
+                descriptors.append(descriptor)
+            }
+        }
+        return descriptors
     }
 
     private func writeExportProvenanceSidecar(
@@ -353,7 +614,8 @@ public struct ProvenanceExporter: Sendable {
         sourceSidecarURL: URL?,
         sourceRootURL: URL?,
         outputDirectory: URL,
-        provenanceDirectory: URL
+        provenanceDirectory: URL,
+        additionalSourceURLs: [URL] = []
     ) throws -> [CopiedSourceArtifact] {
         let fileManager = FileManager.default
         let sourceDestinationRoot = provenanceDirectory.appendingPathComponent("source", isDirectory: true)
@@ -363,9 +625,9 @@ public struct ProvenanceExporter: Sendable {
             sourceSidecarURL: sourceSidecarURL,
             sourceRootURL: sourceRootURL,
             outputDirectory: outputDirectory
-        )
+        ) + additionalSourceURLs
 
-        return try sourceURLs.map { sourceURL in
+        return try uniqueExistingURLs(sourceURLs).map { sourceURL in
             let destinationURL = sourceArtifactDestination(
                 for: sourceURL,
                 sourceRootURL: sourceRootURL,
@@ -439,7 +701,15 @@ public struct ProvenanceExporter: Sendable {
            let relativePath = relativePath(for: sourceURL, relativeTo: sourceRootURL) {
             return sourceDestinationRoot.appendingPathComponent(relativePath)
         }
-        return sourceDestinationRoot.appendingPathComponent(sourceURL.lastPathComponent)
+        let components = sourceURL.standardizedFileURL.pathComponents.filter { $0 != "/" }
+        guard !components.isEmpty else {
+            return sourceDestinationRoot.appendingPathComponent(sourceURL.lastPathComponent)
+        }
+        return components.reduce(
+            sourceDestinationRoot.appendingPathComponent("external", isDirectory: true)
+        ) { partialURL, component in
+            partialURL.appendingPathComponent(component)
+        }
     }
 
     private func relativePath(for url: URL, relativeTo root: URL) -> String? {

@@ -258,6 +258,34 @@ final class FASTQDerivativesTests: XCTestCase {
         XCTAssertNil(FASTQBundle.trimPositionsURL(forDerivedBundle: bundleURL))
     }
 
+    func testSequenceInputResolverUsesFullDerivedPayloadInsteadOfVirtualRoot() throws {
+        let (tempDir, bundleURL) = try makeTempBundle()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let payloadURL = bundleURL.appendingPathComponent("reads.fastq.gz")
+        try Data("payload".utf8).write(to: payloadURL)
+
+        let op = FASTQDerivativeOperation(kind: .subsampleProportion, proportion: 0.1)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "subsampled-reads",
+            parentBundleRelativePath: "@/Imports/source.lungfishfastq",
+            rootBundleRelativePath: "@/Imports/source.lungfishfastq",
+            rootFASTQFilename: "source.fastq.gz",
+            payload: .full(fastqFilename: payloadURL.lastPathComponent),
+            lineage: [op],
+            operation: op,
+            cachedStatistics: .empty,
+            pairingMode: .interleaved,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        XCTAssertEqual(
+            SequenceInputResolver.resolvePrimarySequenceURL(for: bundleURL),
+            payloadURL.standardizedFileURL
+        )
+    }
+
     // MARK: - Trim Position File I/O
 
     func testTrimPositionFileRoundTrip() throws {
