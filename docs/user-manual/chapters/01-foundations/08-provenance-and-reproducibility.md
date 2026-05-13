@@ -11,23 +11,25 @@ entry_points:
   - "File > Export > Provenance (six formats)"
   - "Settings > General > Provenance Signing"
   - "CLI: lungfish provenance verify"
-shots: []
-planned_shots:
+shots:
   - id: file-export-provenance-menu
-    caption: "The File > Export > Provenance submenu showing all six export formats: Shell Script, Python Script, Nextflow Pipeline, Snakemake Workflow, Methods Section, and Full Provenance (JSON), with the divider separating the runnable-script group from the human-readable group."
+    file: ../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/file-export-provenance-menu.png
+    caption: "The File > Export > Provenance submenu with all six export formats: Shell Script, Python Script, Nextflow Pipeline, Snakemake Workflow, Methods Section, and Full Provenance (JSON). A divider separates the runnable-script group from the methods-and-JSON group."
   - id: sidecar-in-finder
-    caption: "A Finder window showing an output file (for example MN908947.3.fasta) and its companion .lungfish-provenance.json sidecar side by side, demonstrating that sidecars live next to the files they describe."
+    file: ../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/sidecar-in-finder.png
+    caption: "A Finder window showing an output file alongside its companion .lungfish-provenance.json sidecar. Sidecars live next to the files they describe."
   - id: provenance-signing-settings
-    caption: "The Settings > General > Provenance Signing section showing the Off / Local / Cosign Plan provider picker, the local signing key field, and the public key path field."
+    file: ../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/provenance-signing-settings.png
+    caption: "Settings > General > Provenance Signing showing the Off / Local / Cosign Plan provider picker, the local signing key field, and the public key path field."
   - id: classifier-provenance-disclosure
-    caption: "A classifier result view (Kraken2 or EsViritu) showing the inline Provenance disclosure that links back to the sidecar for the run. Caption note: this is a disclosure inline with the result, not a button in the Operations Panel."
+    file: ../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/classifier-provenance-disclosure.png
+    caption: "A classifier result view with the inline Provenance disclosure expanded. Provenance is surfaced next to each result rather than in the Operations Panel."
   - id: exported-folder-in-finder
-    caption: "A Finder window showing the contents of an exported Shell Script bundle: run.sh, an inputs/ directory, a provenance/ directory, and (when signing is enabled) the matching signature artifacts."
+    file: ../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/exported-folder-in-finder.png
+    caption: "An exported Shell Script bundle in Finder, showing run.sh alongside inputs/ and provenance/ subdirectories."
 illustrations:
   - id: provenance-graph-cartoon
     brief: "Schematic of a provenance graph: a downloaded reference FASTA (root), a downloaded FASTQ (root), a mapping step producing a BAM (depends on both), a primer-trim step producing a trimmed BAM, and a variant-calling step producing a VCF. Each step is a node; arrows show which sidecar's output feeds the next sidecar's input. Use Lungfish Creamsicle for sidecar nodes, Deep Ink for arrows, Peach to highlight the leaf node selected for export."
-  - id: cli-to-gui-path-reconciliation
-    brief: "Two-state diagram. Left: a staging temporary directory under /var/folders showing a CLI tool reading and writing files with temporary paths. Right: the same files after they have landed in the project bundle, now showing project-relative paths (Imports/foo.fastq.gz). An arrow labelled 'rehydrate' connects the two states, with a small callout indicating that the original staging path is preserved in the sidecar as originPath for audit."
 glossary_refs: [provenance, provenance-sidecar, methods-export, reproducibility, plugin-pack]
 features_refs: []
 fixtures_refs: []
@@ -49,13 +51,15 @@ By the end of this chapter you will be able to find the provenance sidecar for a
 
 A sidecar lives next to the file it describes, with the suffix `.lungfish-provenance.json` appended to the original filename. For a downloaded FASTA at `Downloads/MN908947.3.fasta`, the sidecar is `Downloads/MN908947.3.fasta.lungfish-provenance.json`.
 
-<!-- planned: sidecar-in-finder -->
+<!-- SHOT: sidecar-in-finder -->
+![A Finder window showing an output file next to its companion `.lungfish-provenance.json` sidecar. Sidecars live alongside the files they describe.](../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/sidecar-in-finder.png)
 
 For files inside a bundle (a `.lungfishref` reference bundle, a `.lungfishprimers` primer scheme, an assembly bundle), per-file sidecars are gathered into a `provenance/` subdirectory at the bundle root, with one JSON per output and a roll-up `bundle.lungfish-provenance.json` that lists every contained file in step order. Right-click the bundle in Finder and choose **Show Package Contents** to see the layout.
 
 Provenance is also surfaced in the GUI alongside each result. After a classifier run finishes (Kraken2, EsViritu, NAO-MGS, and the others), the result view shows an inline **Provenance** disclosure that opens the sidecar; the same pattern applies to variant calls and assemblies. The on-disk JSON is the source of truth; the inline disclosure is the fast path when you are already looking at a result. There is no Provenance button in the Operations Panel, because operations there are session events rather than persistent outputs.
 
-<!-- planned: classifier-provenance-disclosure -->
+<!-- SHOT: classifier-provenance-disclosure -->
+![A classifier result view with the inline Provenance disclosure expanded, showing run inputs, run settings, and links to the source sidecar. Provenance is surfaced next to each result rather than in the Operations Panel.](../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/classifier-provenance-disclosure.png)
 
 Some workflows write additional small sidecars with a different suffix for fast-path lookups. The primer-trim step is the example you will most often encounter: it writes both the canonical `<trimmed.bam>.lungfish-provenance.json` and a companion `<trimmed.bam>.primer-trim-provenance.json` that the variant-calling dialog reads to auto-confirm trimming without re-parsing the full canonical sidecar. The two files carry overlapping information; the canonical sidecar is always authoritative.
 
@@ -166,7 +170,7 @@ When LGE reads a sidecar later (for auto-confirm in dialogs, or for export), it 
 
 The on-disk sidecar carries both canonical and legacy aliases for two common entries: file digests appear as both `sha256` (canonical) and `checksumSHA256` (legacy), and file sizes appear as both `sizeBytes` (canonical) and `fileSize` (legacy). Both pairs always carry identical values in a freshly-written sidecar; older sidecars on disk may carry only the legacy pair, and LGE's reader accepts either. When you write a script against these files, prefer the canonical names.
 
-When a workflow runs through the CLI inside a temporary staging directory (a common pattern when the GUI runs a wizard), the underlying tool sees temporary paths like `/var/folders/.../staging/foo.fastq.gz`. LGE rewrites those paths to the final project-relative paths after the operation finishes, recomputes checksums against the final files, and preserves the original argv and reproducible command verbatim. The user-visible effect is that sidecars always show project-relative paths, never temporary system paths.
+LGE's GUI and CLI write the same sidecar format. Every action you can take in the GUI has an equivalent CLI command, and both surfaces produce sidecars that reference project-relative paths (never temporary system paths) regardless of how the workflow was launched. So a sidecar written by `lungfish variants call ...` from a terminal reads the same as one written by the variant-calling dialog.
 
 ## Export paths
 
@@ -174,7 +178,8 @@ Every LGE project carries a complete provenance graph: every output's sidecar pl
 
 ![Schematic of a small provenance graph showing roots, intermediate steps, and a highlighted leaf selected for export](../../assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.png)
 
-<!-- planned: file-export-provenance-menu -->
+<!-- SHOT: file-export-provenance-menu -->
+![The File > Export > Provenance submenu with all six export formats. The divider separates the runnable-script group (Shell, Python, Nextflow, Snakemake) from the human-readable group (Methods Section, Full Provenance JSON).](../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/file-export-provenance-menu.png)
 
 The menu is organised into two groups separated by a divider. The first group is the runnable scripts and pipelines, ordered from simplest to most structured; the second group is the human-readable methods paragraph and the complete provenance file.
 
@@ -201,7 +206,8 @@ Take the variant-calling step from the [variants chapter](../05-variants/01-call
 
 Select that VCF in the sidebar, then choose `File > Export > Provenance > Shell Script…`. LGE produces a folder (or `.zip` when you choose to compress) containing `run.sh`, an `inputs/` directory with the reference FASTA and the GFF copied in, and a `provenance/` directory with every sidecar from the project's start to the variant call. The script body looks like this:
 
-<!-- planned: exported-folder-in-finder -->
+<!-- SHOT: exported-folder-in-finder -->
+![An exported Shell Script bundle in Finder, with `run.sh` alongside the `inputs/` and `provenance/` subdirectories that ship with it.](../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/exported-folder-in-finder.png)
 
 ```bash
 #!/usr/bin/env bash
@@ -259,7 +265,8 @@ The Full Provenance (JSON) export produces `provenance.json`, the complete envel
 
 For audit workflows that need tamper evidence, LGE can write a signature artifact next to `.lungfish-provenance.json`. In the local deterministic Curve25519 signing provider used for offline labs and tests, a signed sidecar has two companion files: `.lungfish-provenance.json.signature.json` and `.lungfish-provenance.json.pub`. Verification recomputes the provenance SHA-256, checks the public key digest in the signature envelope, and fails clearly if the sidecar, signature, or public key is missing or if any bytes changed after signing.
 
-<!-- planned: provenance-signing-settings -->
+<!-- SHOT: provenance-signing-settings -->
+![Settings > General > Provenance Signing showing the Off / Local / Cosign Plan provider picker, the secure field for the local signing key, and the public key path field.](../../assets/screenshots/01-foundations/08-provenance-and-reproducibility/provenance-signing-settings.png)
 
 Configure signing at **Settings > General > Provenance Signing** (open Settings from the Lungfish menu or with `Cmd-,`). The picker offers three providers: **Off** (the default; no signature is written), **Local** (the local Curve25519 provider, with the private key stored on disk and the public key path configurable in the same panel), and **Cosign Plan** (the documented intended sigstore/cosign workflow for sites that already manage signing keys outside LGE). CLI and automation environments can set `LUNGFISH_PROVENANCE_SIGNING_KEY` or `LUNGFISH_PROVENANCE_SIGNING_KEY_FILE` instead of using the GUI; when either is present, the local provider attaches the signature artifact after writing the JSON sidecar.
 
