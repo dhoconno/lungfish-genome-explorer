@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lungfish Provenance Inspector Prototype</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f8;
+      --panel: #ffffff;
+      --panel-2: #f2f4f7;
+      --line: #d9dde3;
+      --line-strong: #c4cad2;
+      --text: #1f2328;
+      --muted: #626a73;
+      --faint: #818894;
+      --blue: #0a84ff;
+      --teal: #0f8f87;
+      --green: #27864d;
+      --amber: #a96d00;
+      --red: #b3261e;
+      --purple: #8d55b4;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 13px/1.35 var(--sans);
+      overflow: hidden;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .window {
+      display: grid;
+      grid-template-columns: 268px minmax(420px, 1fr) 362px;
+      height: 100vh;
+      width: 100vw;
+      background: var(--panel);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: #f4f6f9;
+      min-width: 0;
+      padding: 12px 12px 14px;
+      overflow: hidden;
+    }
+
+    .traffic {
+      display: flex;
+      gap: 8px;
+      height: 18px;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #febc2e; }
+    .dot.green { background: #28c840; }
+
+    .search {
+      display: block;
+      width: 100%;
+      height: 28px;
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 4px 10px;
+      background: #e4e8ee;
+      color: var(--text);
+      outline: none;
+    }
+
+    .tree {
+      margin-top: 14px;
+      overflow: auto;
+      height: calc(100vh - 74px);
+      padding-right: 2px;
+    }
+
+    .tree-section {
+      margin: 10px 0 3px;
+      color: #111;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .tree-row {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      align-items: center;
+      gap: 4px;
+      min-height: 28px;
+      padding: 3px 5px;
+      border-radius: 7px;
+      color: #1e242b;
+    }
+
+    .tree-row.active {
+      background: var(--blue);
+      color: white;
+    }
+
+    .tree-row small {
+      display: block;
+      color: inherit;
+      opacity: 0.68;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tree-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 5px;
+      display: grid;
+      place-items: center;
+      font-size: 10px;
+      font-weight: 700;
+      color: white;
+    }
+
+    .tree-icon.fastq { background: var(--green); }
+    .tree-icon.ref { background: #5f6bf0; }
+    .tree-icon.vcf { background: var(--purple); }
+    .tree-icon.analysis { background: #e07a2f; }
+
+    .workspace {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 56px 1fr 34px;
+      background: #fbfbfc;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 18px;
+      min-width: 0;
+    }
+
+    .toolbar h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toolbar .spacer {
+      flex: 1;
+    }
+
+    .toolbar-button {
+      height: 28px;
+      min-width: 28px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    .data-area {
+      padding: 12px 16px;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 10px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--panel);
+      min-height: 48px;
+      display: grid;
+      place-items: center;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--faint);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 15px;
+      margin-top: 1px;
+    }
+
+    .table {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    .table-head,
+    .table-row {
+      display: grid;
+      grid-template-columns: 1.3fr 0.7fr 0.7fr 0.55fr 0.55fr;
+      align-items: center;
+      gap: 10px;
+      min-width: 620px;
+    }
+
+    .table-head {
+      height: 30px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+      background: #fafbfc;
+    }
+
+    .table-body {
+      max-height: calc(100vh - 210px);
+      overflow: auto;
+    }
+
+    .table-row {
+      min-height: 28px;
+      padding: 0 12px;
+    }
+
+    .table-row:nth-child(even) {
+      background: #f2f3f5;
+    }
+
+    .taxon {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .marker {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--blue);
+      flex: none;
+    }
+
+    .bar {
+      height: 7px;
+      border-radius: 4px;
+      background: #d9e9ff;
+      overflow: hidden;
+    }
+
+    .bar > span {
+      display: block;
+      height: 100%;
+      background: #5aa2ff;
+    }
+
+    .status {
+      height: 34px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--faint);
+      font-size: 12px;
+    }
+
+    .inspector {
+      min-width: 0;
+      border-left: 1px solid var(--line);
+      background: var(--panel);
+      display: grid;
+      grid-template-rows: auto 1fr;
+      overflow: hidden;
+    }
+
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      padding: 10px 12px 9px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfbfc;
+    }
+
+    .tab {
+      min-height: 26px;
+      border: 0;
+      border-radius: 7px;
+      background: #e9ecf1;
+      color: #252a31;
+      padding: 4px 7px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .tab.active {
+      background: var(--blue);
+      color: white;
+      font-weight: 650;
+    }
+
+    .inspector-scroll {
+      overflow: auto;
+      padding: 12px;
+    }
+
+    .bundle-title {
+      margin: 0 0 2px;
+      font-size: 14px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .bundle-subtitle {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .badge-row,
+    .action-row,
+    .compact-row {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 21px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .badge.good {
+      border-color: #b6ddc1;
+      background: #edf8ef;
+      color: var(--green);
+    }
+
+    .badge.warn {
+      border-color: #ead28b;
+      background: #fff7dd;
+      color: var(--amber);
+    }
+
+    .badge.bad {
+      border-color: #e8b9b6;
+      background: #fff0ef;
+      color: var(--red);
+    }
+
+    .pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      flex: none;
+    }
+
+    .section {
+      margin-top: 13px;
+      padding-top: 12px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-title {
+      margin: 0 0 8px;
+      color: #2f3338;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr);
+      gap: 7px;
+      align-items: start;
+      margin: 5px 0;
+    }
+
+    .kv dt {
+      color: var(--muted);
+      text-align: right;
+      font-size: 11px;
+    }
+
+    .kv dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .mono {
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .action-button {
+      position: relative;
+      min-height: 25px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: linear-gradient(#fff, #eef1f4);
+      color: var(--text);
+      padding: 3px 9px;
+      white-space: nowrap;
+    }
+
+    .action-button.primary {
+      background: var(--blue);
+      border-color: #0071e0;
+      color: white;
+      font-weight: 650;
+    }
+
+    .action-button:focus,
+    .tab:focus,
+    .search:focus {
+      outline: 2px solid color-mix(in srgb, var(--blue) 50%, transparent);
+      outline-offset: 1px;
+    }
+
+    .export-menu {
+      position: relative;
+    }
+
+    .menu {
+      position: absolute;
+      z-index: 4;
+      right: 0;
+      top: 30px;
+      min-width: 196px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
+      padding: 5px;
+      display: none;
+    }
+
+    .menu.open {
+      display: block;
+    }
+
+    .menu button {
+      display: block;
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: 5px 7px;
+      border-radius: 5px;
+      color: var(--text);
+    }
+
+    .menu button:hover {
+      background: #eaf3ff;
+    }
+
+    .menu hr {
+      border: 0;
+      border-top: 1px solid var(--line);
+      margin: 5px 2px;
+    }
+
+    .control-strip {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .control-strip .search {
+      height: 27px;
+      background: #f0f2f5;
+      border-color: var(--line);
+      border-radius: 7px;
+      font-size: 12px;
+    }
+
+    .tiny {
+      min-height: 24px;
+      padding: 2px 7px;
+      font-size: 11px;
+    }
+
+    .outline {
+      margin-top: 8px;
+    }
+
+    details {
+      min-width: 0;
+    }
+
+    summary {
+      cursor: default;
+      list-style: none;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .node {
+      border-top: 1px solid var(--line);
+    }
+
+    .node:first-child {
+      border-top: 0;
+    }
+
+    .node-summary {
+      display: grid;
+      grid-template-columns: 14px minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+      padding: 8px 0;
+    }
+
+    .twisty {
+      width: 14px;
+      color: var(--muted);
+      font-size: 11px;
+      transform: rotate(0deg);
+      transition: transform 120ms ease;
+      text-align: center;
+    }
+
+    details[open] > summary .twisty {
+      transform: rotate(90deg);
+    }
+
+    .node-title {
+      min-width: 0;
+    }
+
+    .node-title strong {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .node-title span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .count {
+      color: var(--faint);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .step {
+      margin-left: 14px;
+      border-left: 2px solid #d7e0ea;
+      padding-left: 9px;
+    }
+
+    .step .node-summary {
+      padding: 6px 0;
+    }
+
+    .step-ok {
+      color: var(--green);
+    }
+
+    .step-warn {
+      color: var(--amber);
+    }
+
+    .detail-block {
+      margin: 0 0 9px 20px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfd;
+      overflow: hidden;
+    }
+
+    .detail-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding: 6px 8px;
+      background: #f4f6f9;
+    }
+
+    .detail-head strong {
+      font-size: 11px;
+    }
+
+    .command {
+      margin: 0;
+      padding: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #26313d;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      line-height: 1.36;
+    }
+
+    .file-list {
+      padding: 7px 8px 8px;
+      display: grid;
+      gap: 5px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: start;
+    }
+
+    .file-row code {
+      font-family: var(--mono);
+      font-size: 10.5px;
+      overflow-wrap: anywhere;
+    }
+
+    .file-row span {
+      color: var(--faint);
+      font-family: var(--mono);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .runtime {
+      padding: 7px 8px;
+    }
+
+    .runtime .kv {
+      grid-template-columns: 86px minmax(0, 1fr);
+      margin: 4px 0;
+    }
+
+    .warning {
+      border-left: 3px solid var(--amber);
+      background: #fff8e6;
+      padding: 7px 8px;
+      margin: 8px 0 0 20px;
+      border-radius: 5px;
+      color: #5c4213;
+      font-size: 11px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .toast {
+      position: fixed;
+      right: 378px;
+      bottom: 18px;
+      padding: 7px 11px;
+      border-radius: 8px;
+      background: #20252c;
+      color: white;
+      box-shadow: 0 6px 22px rgba(0, 0, 0, 0.22);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease;
+      font-size: 12px;
+    }
+
+    .toast.show {
+      opacity: 1;
+    }
+
+    @media (max-width: 980px) {
+      body {
+        overflow: auto;
+      }
+
+      .window {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      .sidebar,
+      .workspace {
+        display: none;
+      }
+
+      .inspector {
+        min-height: 100vh;
+        border-left: 0;
+      }
+
+      .toast {
+        right: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="window">
+    <aside class="sidebar" aria-label="Project sidebar">
+      <div class="traffic" aria-hidden="true">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+      </div>
+      <input class="search" aria-label="Search project data" placeholder="Search project data and analyses">
+      <div class="tree">
+        <div class="tree-section">Analyses</div>
+        <div class="tree-row active">
+          <span class="tree-icon analysis">ES</span>
+          <span>esviritu-batch-2026-05-13T07-29-10<small>1 sample · 64 detections</small></span>
+        </div>
+        <div class="tree-row">
+          <span class="tree-icon analysis">K2</span>
+          <span>kraken2-2026-04-29T10-34-13<small>Classification (Viral)</small></span>
+        </div>
+        <div class="tree-row">
+          <span class="tree-icon analysis">SP</span>
+          <span>spades-2026-05-11T17-37-31<small>Assembly</small></span>
+        </div>
+        <div class="tree-section">Imports</div>
+        <div class="tree-row">
+          <span class="tree-icon fastq">FQ</span>
+          <span>School030-20260105_S33_L004<small>FASTQ bundle</small></span>
+        </div>
+        <div class="tree-section">Reference Sequences</div>
+        <div class="tree-row">
+          <span class="tree-icon ref">RF</span>
+          <span>MN908947.3 SARS-CoV-2<small>Reference bundle</small></span>
+        </div>
+        <div class="tree-row">
+          <span class="tree-icon vcf">VC</span>
+          <span>SRR36291587.ivar.vcf.gz<small>Variant track</small></span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace" aria-label="Result viewer mock">
+      <div class="toolbar">
+        <h1>Lungfish Docs [1] - Lungfish Genome Explorer</h1>
+        <div class="spacer"></div>
+        <button class="toolbar-button" aria-label="Show sidebar">▣</button>
+        <button class="toolbar-button" aria-label="Show inspector">▥</button>
+      </div>
+      <div class="data-area">
+        <div class="metrics">
+          <div class="metric"><div><span>Batch</span><strong>EsViritu</strong></div></div>
+          <div class="metric"><div><span>Samples</span><strong>1</strong></div></div>
+          <div class="metric"><div><span>Detections</span><strong>64</strong></div></div>
+        </div>
+        <input class="search" aria-label="Filter viruses" placeholder="Filter viruses...">
+        <section class="table" aria-label="Detected viruses">
+          <div class="table-head">
+            <span>Virus Name</span><span>Family</span><span>Reads</span><span>RPKMF</span><span>Coverage</span>
+          </div>
+          <div class="table-body">
+            <div class="table-row"><span class="taxon"><i class="marker"></i>Human mastadenovirus F</span><span>Adenoviridae</span><span>1,090</span><span>4.1</span><div class="bar"><span style="width:96%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker" style="background:#cc1b5e"></i>WU Polyomavirus</span><span>Polyomaviridae</span><span>520</span><span>12.8</span><div class="bar"><span style="width:67%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker" style="background:#4a8ecf"></i>Human papillomavirus type 6b</span><span>Papillomaviridae</span><span>460</span><span>7.5</span><div class="bar"><span style="width:59%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker" style="background:#d9782c"></i>human gammaherpesvirus 4</span><span>Orthoherpesviridae</span><span>402</span><span>0.2</span><div class="bar"><span style="width:50%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker" style="background:#cc1b5e"></i>Human polyomavirus 6</span><span>Polyomaviridae</span><span>328</span><span>8.6</span><div class="bar"><span style="width:42%"></span></div></div>
+            <div class="table-row"><span class="taxon"><i class="marker" style="background:#d9782c"></i>Human betaherpesvirus 5</span><span>Orthoherpesviridae</span><span>288</span><span>0.2</span><div class="bar"><span style="width:36%"></span></div></div>
+          </div>
+        </section>
+      </div>
+      <div class="status">Select a result or bundle to view details</div>
+    </main>
+
+    <aside class="inspector" aria-label="Inspector" data-testid="provenance-root">
+      <nav class="tabs" aria-label="Inspector tabs">
+        <button class="tab">Summary</button>
+        <button class="tab">Samples</button>
+        <button class="tab active" aria-current="page" data-testid="inspector-tab-provenance">Provenance</button>
+        <button class="tab">Attachments</button>
+      </nav>
+      <div class="inspector-scroll">
+        <h2 class="bundle-title">esviritu-batch-2026-05-13T07-29-10</h2>
+        <p class="bundle-subtitle">provenance/bundle.lungfish-provenance.json</p>
+
+        <div class="badge-row" aria-label="Provenance status">
+          <span class="badge good"><span class="pulse"></span>Verified</span>
+          <span class="badge">schema v1</span>
+          <span class="badge warn">legacy input linked</span>
+        </div>
+
+        <section class="section" aria-label="Overview" data-testid="provenance-run-summary">
+          <h3 class="section-title">Overview</h3>
+          <dl>
+            <div class="kv"><dt>Workflow</dt><dd>metagenomics.esviritu.batch</dd></div>
+            <div class="kv"><dt>Created</dt><dd>May 13, 2026 at 7:31 AM</dd></div>
+            <div class="kv"><dt>Lineage</dt><dd>5 workflow groups, 24 recorded steps</dd></div>
+            <div class="kv"><dt>Output</dt><dd class="mono">Analyses/esviritu-batch-2026-05-13T07-29-10</dd></div>
+          </dl>
+          <div class="action-row">
+            <div class="export-menu">
+              <button class="action-button primary" id="exportButton" aria-haspopup="menu" aria-expanded="false" data-testid="provenance-export-menu">Export Provenance...</button>
+              <div class="menu" id="exportMenu" role="menu" data-testid="provenance-export-menu-options">
+                <button role="menuitem">Shell Script</button>
+                <button role="menuitem">Python Script</button>
+                <button role="menuitem">Nextflow Pipeline</button>
+                <button role="menuitem">Snakemake Workflow</button>
+                <hr>
+                <button role="menuitem">Methods Section</button>
+                <button role="menuitem">Full Provenance JSON</button>
+              </div>
+            </div>
+            <button class="action-button" id="copyLeaf">Copy Leaf Command</button>
+            <button class="action-button" data-testid="provenance-reveal-sidecar">Reveal JSON</button>
+          </div>
+        </section>
+
+        <section class="section" aria-label="Lineage" data-testid="provenance-step-list">
+          <div class="control-strip">
+            <input class="search" id="stepFilter" aria-label="Filter provenance" placeholder="Filter steps, files, tools...">
+            <button class="action-button tiny" id="expandAll">Expand</button>
+            <button class="action-button tiny" id="collapseAll">Collapse</button>
+          </div>
+          <div class="outline" id="outline"></div>
+        </section>
+
+        <section class="section" aria-label="Runtime" data-testid="provenance-runtime">
+          <h3 class="section-title">Runtime</h3>
+          <dl>
+            <div class="kv"><dt>Lungfish</dt><dd>0.4.0-alpha.14 (cef4f4cd)</dd></div>
+            <div class="kv"><dt>Host</dt><dd>macOS 26.4.1 (arm64)</dd></div>
+            <div class="kv"><dt>Plugin Pack</dt><dd>metagenomics@0.3.2</dd></div>
+            <div class="kv"><dt>Container</dt><dd class="mono">ghcr.io/lungfish/esviritu@sha256:79ab...6a1e</dd></div>
+          </dl>
+        </section>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">Copied</div>
+
+  <script>
+    const groups = [
+      {
+        title: "FASTQ Import",
+        subtitle: "School030-20260105_S33_L004.lungfishfastq",
+        count: "5 steps",
+        status: "good",
+        steps: [
+          step("Read ENA manifest", "enaDataGet", "1.7.3", "enaDataGet --format fastq --accessions ERR14233401 --output /tmp/lge/ena", ["ERR14233401.tsv"], ["School030_1.fastq.gz", "School030_2.fastq.gz"]),
+          step("Validate pairing", "lungfish-cli import fastq", "0.4.0-alpha.14", "lungfish import fastq --sample School030 --read1 School030_1.fastq.gz --read2 School030_2.fastq.gz --platform illumina --pairing paired", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["manifest.json"]),
+          step("Copy reads into bundle", "lungfish-cli import fastq", "0.4.0-alpha.14", "rsync -a School030_*.fastq.gz Imports/School030-20260105_S33_L004.lungfishfastq/reads/", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["reads/read1.fastq.gz", "reads/read2.fastq.gz"]),
+          step("Compress and index", "bgzip", "1.21", "bgzip -@ 8 reads/read1.fastq && bgzip -@ 8 reads/read2.fastq && samtools fqidx reads/read1.fastq.gz reads/read2.fastq.gz", ["reads/read1.fastq", "reads/read2.fastq"], ["reads/read1.fastq.gz", "reads/read1.fastq.gz.fai", "reads/read2.fastq.gz", "reads/read2.fastq.gz.fai"]),
+          step("Write FASTQ provenance", "lungfish provenance writer", "schema 1", "lungfish provenance write --bundle Imports/School030-20260105_S33_L004.lungfishfastq --schema 1", ["manifest.json"], [".lungfish-provenance.json"])
+        ]
+      },
+      {
+        title: "Classifier Preparation",
+        subtitle: "Reference database and sample partitioning",
+        count: "4 steps",
+        status: "warn",
+        steps: [
+          step("Resolve EsViritu database", "lungfish db registry", "0.4.0-alpha.14", "lungfish db resolve --kind esviritu --name viral-2026.04", ["metagenomics-databases.json"], ["viral-2026.04/esviritu-db.json"], true),
+          step("Check database digest", "sha256sum", "9.1", "sha256sum -c viral-2026.04/SHA256SUMS", ["viral-2026.04/SHA256SUMS"], ["digest-report.txt"]),
+          step("Build sample sheet", "lungfish esviritu plan", "0.4.0-alpha.14", "lungfish esviritu plan --sample School030 --reads reads/read1.fastq.gz reads/read2.fastq.gz --database viral-2026.04", ["read1.fastq.gz", "read2.fastq.gz", "esviritu-db.json"], ["samplesheet.tsv"]),
+          step("Materialize container input", "lungfish container runner", "0.4.0-alpha.14", "lungfish container prepare --image ghcr.io/lungfish/esviritu:2026.04 --samplesheet samplesheet.tsv", ["samplesheet.tsv"], ["container-inputs/"])
+        ]
+      },
+      {
+        title: "EsViritu Detection",
+        subtitle: "External viral classifier run",
+        count: "7 steps",
+        status: "good",
+        steps: [
+          step("Trim host adaptors", "fastp", "0.23.4", "fastp -i read1.fastq.gz -I read2.fastq.gz -o trimmed_1.fastq.gz -O trimmed_2.fastq.gz --thread 8 --json fastp.json", ["read1.fastq.gz", "read2.fastq.gz"], ["trimmed_1.fastq.gz", "trimmed_2.fastq.gz", "fastp.json"]),
+          step("Assemble contigs", "megahit", "1.2.9", "megahit -1 trimmed_1.fastq.gz -2 trimmed_2.fastq.gz -o assembly --num-cpu-threads 8", ["trimmed_1.fastq.gz", "trimmed_2.fastq.gz"], ["assembly/final.contigs.fa"]),
+          step("Align contigs to viral DB", "minimap2", "2.28", "minimap2 -x asm5 viral_reference.mmi assembly/final.contigs.fa > contigs.paf", ["viral_reference.mmi", "final.contigs.fa"], ["contigs.paf"]),
+          step("Classify reads", "kraken2", "2.1.3", "kraken2 --db viral-2026.04 --threads 8 --paired trimmed_1.fastq.gz trimmed_2.fastq.gz --report kraken.report --output kraken.out", ["trimmed_1.fastq.gz", "trimmed_2.fastq.gz"], ["kraken.report", "kraken.out"]),
+          step("Estimate abundance", "bracken", "2.9", "bracken -d viral-2026.04 -i kraken.report -o bracken.tsv -r 150 -l S", ["kraken.report"], ["bracken.tsv"]),
+          step("Summarize detections", "esviritu", "0.8.1", "esviritu summarize --contigs contigs.paf --abundance bracken.tsv --out detections.tsv", ["contigs.paf", "bracken.tsv"], ["detections.tsv", "coverage.bedgraph"]),
+          step("Persist result sidecars", "lungfish esviritu import", "0.4.0-alpha.14", "lungfish esviritu import --source work/esviritu --project Analyses --preserve-provenance", ["detections.tsv", "coverage.bedgraph"], ["esviritu-result.json", ".lungfish-provenance.json"])
+        ]
+      },
+      {
+        title: "Bundle Rehydration",
+        subtitle: "Temporary CLI output rewritten to final bundle paths",
+        count: "3 steps",
+        status: "good",
+        steps: [
+          step("Copy payloads to project", "Lungfish GUI import", "0.4.0-alpha.14", "copy --from /var/folders/staging/esviritu --to Analyses/esviritu-batch-2026-05-13T07-29-10", ["staging/esviritu-result.json", "staging/detections.tsv"], ["Analyses/esviritu-batch-2026-05-13T07-29-10/esviritu-result.json", "Analyses/esviritu-batch-2026-05-13T07-29-10/detections.tsv"]),
+          step("Rewrite output descriptors", "ProvenanceRehydrator", "schema 1", "rehydrate --origin /var/folders/staging/esviritu --final Analyses/esviritu-batch-2026-05-13T07-29-10", ["/var/folders/staging/esviritu/.lungfish-provenance.json"], ["provenance/bundle.lungfish-provenance.json"]),
+          step("Verify final checksums", "ProvenanceVerifier", "schema 1", "verify --bundle Analyses/esviritu-batch-2026-05-13T07-29-10 --checksums full", ["provenance/bundle.lungfish-provenance.json"], ["checksum-report.json"])
+        ]
+      },
+      {
+        title: "Provenance Export",
+        subtitle: "User exported the result for review",
+        count: "5 steps",
+        status: "good",
+        steps: [
+          step("Resolve selected sidecar", "lungfish provenance export", "0.4.0-alpha.14", "lungfish provenance export Analyses/esviritu-batch-2026-05-13T07-29-10 --format shell --output provenance-export", ["bundle.lungfish-provenance.json"], ["provenance-export/run.sh"]),
+          step("Expand upstream lineage", "ProvenanceExporter", "schema 1", "walk --from bundle.lungfish-provenance.json --include-upstream", ["bundle.lungfish-provenance.json", "Imports/School030/.lungfish-provenance.json"], ["provenance/provenance.json"]),
+          step("Copy source sidecars", "ProvenanceExporter", "schema 1", "copy-sidecars --output provenance-export/provenance", ["*.lungfish-provenance.json"], ["provenance/original-sidecars/"]),
+          step("Sign export artifacts", "LocalProvenanceSigningProvider", "1", "sign --key local-lab-key --artifact provenance-export/run.sh", ["run.sh"], ["run.sh.signature.json", "run.sh.pub"]),
+          step("Write export provenance", "lungfish provenance export", "0.4.0-alpha.14", "lungfish provenance write --workflow provenance.export.shell --output provenance-export/provenance/.lungfish-provenance.json", ["run.sh", "original-sidecars/"], ["provenance/.lungfish-provenance.json"])
+        ]
+      }
+    ];
+
+    function step(title, tool, version, command, inputs, outputs, warning) {
+      return { title, tool, version, command, inputs, outputs, warning: Boolean(warning) };
+    }
+
+    const outline = document.getElementById("outline");
+    const toast = document.getElementById("toast");
+
+    function render(filter = "") {
+      const needle = filter.trim().toLowerCase();
+      outline.innerHTML = "";
+      groups.forEach((group, groupIndex) => {
+        const matchedSteps = group.steps.filter((item) => {
+          if (!needle) return true;
+          return [group.title, group.subtitle, item.title, item.tool, item.version, item.command, ...item.inputs, ...item.outputs]
+            .join(" ")
+            .toLowerCase()
+            .includes(needle);
+        });
+        if (needle && matchedSteps.length === 0) return;
+
+        const groupNode = document.createElement("details");
+        groupNode.className = "node workflow-node";
+        groupNode.open = groupIndex < 3 || Boolean(needle);
+        groupNode.innerHTML = `
+          <summary class="node-summary">
+            <span class="twisty">▶</span>
+            <span class="node-title">
+              <strong>${escapeHTML(group.title)}</strong>
+              <span>${escapeHTML(group.subtitle)}</span>
+            </span>
+            <span class="count">${matchedSteps.length}/${group.steps.length}</span>
+          </summary>
+        `;
+        const container = document.createElement("div");
+        matchedSteps.forEach((item, stepIndex) => {
+          container.appendChild(renderStep(item, stepIndex + 1));
+        });
+        groupNode.appendChild(container);
+        outline.appendChild(groupNode);
+      });
+    }
+
+    function renderStep(item, order) {
+      const node = document.createElement("details");
+      const slug = slugify(item.title);
+      node.className = "node step";
+      node.open = false;
+      node.dataset.testid = `provenance-step-row-${slug}`;
+      const statusClass = item.warning ? "step-warn" : "step-ok";
+      const statusLabel = item.warning ? "warning" : "ok";
+      const warning = item.warning ? '<div class="warning" data-testid="provenance-warning-legacy-sidecar">Input provenance was preserved from an older sidecar and decoded through the compatibility reader.</div>' : '';
+      node.innerHTML = `
+        <summary class="node-summary" data-testid="provenance-step-disclosure-${slug}">
+          <span class="twisty">▶</span>
+          <span class="node-title">
+            <strong>${order}. ${escapeHTML(item.title)}</strong>
+            <span>${escapeHTML(item.tool)} ${escapeHTML(item.version)}</span>
+          </span>
+          <span class="count ${statusClass}">${statusLabel}</span>
+        </summary>
+        ${warning}
+        <div class="detail-block">
+          <div class="detail-head">
+            <strong>Invocation</strong>
+            <button class="action-button tiny copy-command" data-testid="provenance-copy-command-${slug}" data-command="${escapeAttr(item.command)}">Copy</button>
+          </div>
+          <pre class="command">${escapeHTML(item.command)}</pre>
+        </div>
+        <div class="detail-block">
+          <div class="detail-head"><strong>Inputs</strong><span class="count">${item.inputs.length}</span></div>
+          <div class="file-list">${item.inputs.map(fileRow).join("")}</div>
+        </div>
+        <div class="detail-block">
+          <div class="detail-head"><strong>Outputs</strong><span class="count">${item.outputs.length}</span></div>
+          <div class="file-list">${item.outputs.map(fileRow).join("")}</div>
+        </div>
+        <div class="detail-block">
+          <div class="detail-head"><strong>Outcome</strong><span class="badge good"><span class="pulse"></span>exit 0</span></div>
+          <div class="runtime">
+            <dl>
+              <div class="kv"><dt>Wall Time</dt><dd>${(8 + order * 1.7).toFixed(1)} s</dd></div>
+              <div class="kv"><dt>stderr</dt><dd>${item.warning ? "Compatibility warning recorded" : "No stderr captured"}</dd></div>
+            </dl>
+          </div>
+        </div>
+      `;
+      return node;
+    }
+
+    function fileRow(value) {
+      const size = value.endsWith("/") ? "directory" : `${(value.length * 1739 % 88000 + 4200).toLocaleString()} B`;
+      const digest = value.endsWith("/") ? "manifest" : "sha256:" + hashish(value);
+      return `<div class="file-row"><code>${escapeHTML(value)}</code><span title="${digest}">${size}</span></div>`;
+    }
+
+    function hashish(value) {
+      let hash = 0;
+      for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+      }
+      return Math.abs(hash).toString(16).padStart(8, "0") + "...";
+    }
+
+    function slugify(value) {
+      return String(value)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 44) || "step";
+    }
+
+    function escapeHTML(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHTML(value).replaceAll("\n", " ");
+    }
+
+    function flash(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.setTimeout(() => toast.classList.remove("show"), 1200);
+    }
+
+    document.getElementById("stepFilter").addEventListener("input", (event) => render(event.target.value));
+
+    document.getElementById("expandAll").addEventListener("click", () => {
+      document.querySelectorAll(".outline details").forEach((node) => { node.open = true; });
+    });
+
+    document.getElementById("collapseAll").addEventListener("click", () => {
+      document.querySelectorAll(".outline details").forEach((node) => { node.open = false; });
+    });
+
+    document.getElementById("exportButton").addEventListener("click", () => {
+      const menu = document.getElementById("exportMenu");
+      const isOpen = menu.classList.toggle("open");
+      document.getElementById("exportButton").setAttribute("aria-expanded", String(isOpen));
+    });
+
+    document.getElementById("exportMenu").addEventListener("click", (event) => {
+      if (event.target.matches("button")) {
+        document.getElementById("exportMenu").classList.remove("open");
+        document.getElementById("exportButton").setAttribute("aria-expanded", "false");
+        flash(`Prepared ${event.target.textContent}`);
+      }
+    });
+
+    document.getElementById("copyLeaf").addEventListener("click", async () => {
+      await copyText(groups.at(-1).steps[0].command);
+    });
+
+    document.addEventListener("click", async (event) => {
+      if (event.target.matches(".copy-command")) {
+        await copyText(event.target.getAttribute("data-command"));
+      } else if (!event.target.closest(".export-menu")) {
+        document.getElementById("exportMenu").classList.remove("open");
+        document.getElementById("exportButton").setAttribute("aria-expanded", "false");
+      }
+    });
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        flash("Command copied");
+      } catch {
+        flash("Copy unavailable");
+      }
+    }
+
+    render();
+  </script>
+</body>
+</html>
