@@ -883,7 +883,7 @@
         <section class="section" aria-label="Runtime" data-testid="provenance-runtime">
           <h3 class="section-title">Runtime</h3>
           <dl>
-            <div class="kv"><dt>Lungfish</dt><dd>0.4.0-alpha.14 (cef4f4cd)</dd></div>
+            <div class="kv"><dt>Lungfish</dt><dd>0.4.0-alpha.15 (cef4f4cd)</dd></div>
             <div class="kv"><dt>Host</dt><dd>macOS 26.4.1 (arm64)</dd></div>
             <div class="kv"><dt>Plugin Pack</dt><dd>metagenomics@0.3.2</dd></div>
             <div class="kv"><dt>Container</dt><dd class="mono">ghcr.io/lungfish/esviritu@sha256:79ab...6a1e</dd></div>
@@ -904,8 +904,8 @@
         status: "good",
         steps: [
           step("Read ENA manifest", "enaDataGet", "1.7.3", "enaDataGet --format fastq --accessions ERR14233401 --output /tmp/lge/ena", ["ERR14233401.tsv"], ["School030_1.fastq.gz", "School030_2.fastq.gz"]),
-          step("Validate pairing", "lungfish-cli import fastq", "0.4.0-alpha.14", "lungfish import fastq --sample School030 --read1 School030_1.fastq.gz --read2 School030_2.fastq.gz --platform illumina --pairing paired", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["manifest.json"]),
-          step("Copy reads into bundle", "lungfish-cli import fastq", "0.4.0-alpha.14", "rsync -a School030_*.fastq.gz Imports/School030-20260105_S33_L004.lungfishfastq/reads/", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["reads/read1.fastq.gz", "reads/read2.fastq.gz"]),
+          step("Validate pairing", "lungfish-cli import fastq", "0.4.0-alpha.15", "lungfish import fastq --sample School030 --read1 School030_1.fastq.gz --read2 School030_2.fastq.gz --platform illumina --pairing paired", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["manifest.json"]),
+          step("Copy reads into bundle", "lungfish-cli import fastq", "0.4.0-alpha.15", "rsync -a School030_*.fastq.gz Imports/School030-20260105_S33_L004.lungfishfastq/reads/", ["School030_1.fastq.gz", "School030_2.fastq.gz"], ["reads/read1.fastq.gz", "reads/read2.fastq.gz"]),
           step("Compress and index", "bgzip", "1.21", "bgzip -@ 8 reads/read1.fastq && bgzip -@ 8 reads/read2.fastq && samtools fqidx reads/read1.fastq.gz reads/read2.fastq.gz", ["reads/read1.fastq", "reads/read2.fastq"], ["reads/read1.fastq.gz", "reads/read1.fastq.gz.fai", "reads/read2.fastq.gz", "reads/read2.fastq.gz.fai"]),
           step("Write FASTQ provenance", "lungfish provenance writer", "schema 1", "lungfish provenance write --bundle Imports/School030-20260105_S33_L004.lungfishfastq --schema 1", ["manifest.json"], [".lungfish-provenance.json"])
         ]
@@ -916,10 +916,10 @@
         count: "4 steps",
         status: "warn",
         steps: [
-          step("Resolve EsViritu database", "lungfish db registry", "0.4.0-alpha.14", "lungfish db resolve --kind esviritu --name viral-2026.04", ["metagenomics-databases.json"], ["viral-2026.04/esviritu-db.json"], true),
+          step("Resolve EsViritu database", "lungfish db registry", "0.4.0-alpha.15", "lungfish db resolve --kind esviritu --name viral-2026.04", ["metagenomics-databases.json"], ["viral-2026.04/esviritu-db.json"], true),
           step("Check database digest", "sha256sum", "9.1", "sha256sum -c viral-2026.04/SHA256SUMS", ["viral-2026.04/SHA256SUMS"], ["digest-report.txt"]),
-          step("Build sample sheet", "lungfish esviritu plan", "0.4.0-alpha.14", "lungfish esviritu plan --sample School030 --reads reads/read1.fastq.gz reads/read2.fastq.gz --database viral-2026.04", ["read1.fastq.gz", "read2.fastq.gz", "esviritu-db.json"], ["samplesheet.tsv"]),
-          step("Materialize container input", "lungfish container runner", "0.4.0-alpha.14", "lungfish container prepare --image ghcr.io/lungfish/esviritu:2026.04 --samplesheet samplesheet.tsv", ["samplesheet.tsv"], ["container-inputs/"])
+          step("Build sample sheet", "lungfish esviritu plan", "0.4.0-alpha.15", "lungfish esviritu plan --sample School030 --reads reads/read1.fastq.gz reads/read2.fastq.gz --database viral-2026.04", ["read1.fastq.gz", "read2.fastq.gz", "esviritu-db.json"], ["samplesheet.tsv"]),
+          step("Materialize container input", "lungfish container runner", "0.4.0-alpha.15", "lungfish container prepare --image ghcr.io/lungfish/esviritu:2026.04 --samplesheet samplesheet.tsv", ["samplesheet.tsv"], ["container-inputs/"])
         ]
       },
       {
@@ -934,7 +934,7 @@
           step("Classify reads", "kraken2", "2.1.3", "kraken2 --db viral-2026.04 --threads 8 --paired trimmed_1.fastq.gz trimmed_2.fastq.gz --report kraken.report --output kraken.out", ["trimmed_1.fastq.gz", "trimmed_2.fastq.gz"], ["kraken.report", "kraken.out"]),
           step("Estimate abundance", "bracken", "2.9", "bracken -d viral-2026.04 -i kraken.report -o bracken.tsv -r 150 -l S", ["kraken.report"], ["bracken.tsv"]),
           step("Summarize detections", "esviritu", "0.8.1", "esviritu summarize --contigs contigs.paf --abundance bracken.tsv --out detections.tsv", ["contigs.paf", "bracken.tsv"], ["detections.tsv", "coverage.bedgraph"]),
-          step("Persist result sidecars", "lungfish esviritu import", "0.4.0-alpha.14", "lungfish esviritu import --source work/esviritu --project Analyses --preserve-provenance", ["detections.tsv", "coverage.bedgraph"], ["esviritu-result.json", ".lungfish-provenance.json"])
+          step("Persist result sidecars", "lungfish esviritu import", "0.4.0-alpha.15", "lungfish esviritu import --source work/esviritu --project Analyses --preserve-provenance", ["detections.tsv", "coverage.bedgraph"], ["esviritu-result.json", ".lungfish-provenance.json"])
         ]
       },
       {
@@ -943,7 +943,7 @@
         count: "3 steps",
         status: "good",
         steps: [
-          step("Copy payloads to project", "Lungfish GUI import", "0.4.0-alpha.14", "copy --from /var/folders/staging/esviritu --to Analyses/esviritu-batch-2026-05-13T07-29-10", ["staging/esviritu-result.json", "staging/detections.tsv"], ["Analyses/esviritu-batch-2026-05-13T07-29-10/esviritu-result.json", "Analyses/esviritu-batch-2026-05-13T07-29-10/detections.tsv"]),
+          step("Copy payloads to project", "Lungfish GUI import", "0.4.0-alpha.15", "copy --from /var/folders/staging/esviritu --to Analyses/esviritu-batch-2026-05-13T07-29-10", ["staging/esviritu-result.json", "staging/detections.tsv"], ["Analyses/esviritu-batch-2026-05-13T07-29-10/esviritu-result.json", "Analyses/esviritu-batch-2026-05-13T07-29-10/detections.tsv"]),
           step("Rewrite output descriptors", "ProvenanceRehydrator", "schema 1", "rehydrate --origin /var/folders/staging/esviritu --final Analyses/esviritu-batch-2026-05-13T07-29-10", ["/var/folders/staging/esviritu/.lungfish-provenance.json"], ["provenance/bundle.lungfish-provenance.json"]),
           step("Verify final checksums", "ProvenanceVerifier", "schema 1", "verify --bundle Analyses/esviritu-batch-2026-05-13T07-29-10 --checksums full", ["provenance/bundle.lungfish-provenance.json"], ["checksum-report.json"])
         ]
@@ -954,11 +954,11 @@
         count: "5 steps",
         status: "good",
         steps: [
-          step("Resolve selected sidecar", "lungfish provenance export", "0.4.0-alpha.14", "lungfish provenance export Analyses/esviritu-batch-2026-05-13T07-29-10 --format shell --output provenance-export", ["bundle.lungfish-provenance.json"], ["provenance-export/run.sh"]),
+          step("Resolve selected sidecar", "lungfish provenance export", "0.4.0-alpha.15", "lungfish provenance export Analyses/esviritu-batch-2026-05-13T07-29-10 --format shell --output provenance-export", ["bundle.lungfish-provenance.json"], ["provenance-export/run.sh"]),
           step("Expand upstream lineage", "ProvenanceExporter", "schema 1", "walk --from bundle.lungfish-provenance.json --include-upstream", ["bundle.lungfish-provenance.json", "Imports/School030/.lungfish-provenance.json"], ["provenance/provenance.json"]),
           step("Copy source sidecars", "ProvenanceExporter", "schema 1", "copy-sidecars --output provenance-export/provenance", ["*.lungfish-provenance.json"], ["provenance/original-sidecars/"]),
           step("Sign export artifacts", "LocalProvenanceSigningProvider", "1", "sign --key local-lab-key --artifact provenance-export/run.sh", ["run.sh"], ["run.sh.signature.json", "run.sh.pub"]),
-          step("Write export provenance", "lungfish provenance export", "0.4.0-alpha.14", "lungfish provenance write --workflow provenance.export.shell --output provenance-export/provenance/.lungfish-provenance.json", ["run.sh", "original-sidecars/"], ["provenance/.lungfish-provenance.json"])
+          step("Write export provenance", "lungfish provenance export", "0.4.0-alpha.15", "lungfish provenance write --workflow provenance.export.shell --output provenance-export/provenance/.lungfish-provenance.json", ["run.sh", "original-sidecars/"], ["provenance/.lungfish-provenance.json"])
         ]
       }
     ];

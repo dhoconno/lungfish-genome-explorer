@@ -75,7 +75,7 @@ A sidecar is a single JSON document at a stable `schemaVersion` (the format vers
   "id": "0F2A5B96-9A0D-4C28-A1B7-2E3F6B0C9D11",
   "createdAt": "2026-05-12T14:22:08Z",
   "workflowName": "variants.call.ivar",
-  "workflowVersion": "0.4.0-alpha.14",
+  "workflowVersion": "0.4.0-alpha.15",
   "toolName": "ivar",
   "toolVersion": "1.4.4",
   "tool": {
@@ -120,7 +120,7 @@ A sidecar is a single JSON document at a stable `schemaVersion` (the format vers
   ],
   "steps": [],
   "runtimeIdentity": {
-    "appVersion": "0.4.0-alpha.14",
+    "appVersion": "0.4.0-alpha.15",
     "executablePath": "/Users/me/.lungfish/conda/envs/ivar/bin/ivar",
     "processIdentifier": 48291,
     "operatingSystemVersion": "macOS-26.4.1-arm64-arm-64bit",
