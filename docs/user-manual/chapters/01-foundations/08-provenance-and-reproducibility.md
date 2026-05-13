@@ -166,7 +166,9 @@ When LGE reads a sidecar later (for auto-confirm in dialogs, or for export), it 
 
 The on-disk sidecar carries both canonical and legacy aliases for two common entries: file digests appear as both `sha256` (canonical) and `checksumSHA256` (legacy), and file sizes appear as both `sizeBytes` (canonical) and `fileSize` (legacy). Both pairs always carry identical values in a freshly-written sidecar; older sidecars on disk may carry only the legacy pair, and LGE's reader accepts either. When you write a script against these files, prefer the canonical names.
 
-When a workflow runs through the CLI inside a temporary staging directory (a common pattern when the GUI runs a wizard), the underlying tool sees temporary paths like `/var/folders/.../staging/foo.fastq.gz`. LGE rewrites those paths to the final project-relative paths after the operation finishes, recomputes checksums against the final files, and preserves the original argv and reproducible command verbatim. The user-visible effect is that sidecars always show project-relative paths, never temporary system paths.
+When a workflow runs through the CLI inside a temporary staging directory (a common pattern when the GUI runs a wizard), the underlying tool sees temporary paths like `/var/folders/.../staging/foo.fastq.gz`. LGE rewrites canonical input and output payload paths to the final project-relative paths after the operation finishes, recomputes checksums against the final files, and preserves the original argv and reproducible command verbatim. The sidecar may also keep the staging path in `originPath` as audit metadata, but the payload paths a user follows point at the final stored files in the project or bundle.
+
+![Two-state diagram showing CLI staging temporary paths rehydrated into project bundle paths while originPath is preserved for audit](../../assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.png)
 
 ## Export paths
 

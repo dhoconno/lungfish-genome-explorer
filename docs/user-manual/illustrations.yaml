@@ -149,6 +149,24 @@ chapters:
           check mark, Peach warning triangles, and Lungfish-normalized filter
           names.
 
+  01-foundations/08-provenance-and-reproducibility:
+    illustrations:
+      - id: provenance-graph-cartoon
+        target_dimensions: 1400x600
+        asset: assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.png
+        source: assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.svg
+        brief: >
+          Provenance graph showing reference FASTA and reads FASTQ roots
+          feeding mapping, primer-trim, and a VCF-producing variant-calling
+          leaf selected for export.
+      - id: cli-to-gui-path-reconciliation
+        target_dimensions: 1400x600
+        asset: assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.png
+        source: assets/illustrations-imagegen/01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.svg
+        brief: >
+          Two-state diagram showing CLI staging temporary paths rehydrated into
+          final project bundle paths while originPath is preserved for audit.
+
   02-sequences/01-importing-and-viewing:
     illustrations:
       - id: reference-bundle-anatomy
