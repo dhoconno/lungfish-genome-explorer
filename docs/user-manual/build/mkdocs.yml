@@ -70,7 +70,6 @@ nav:
     - The Lungfish Genome Explorer Project: chapters/01-foundations/06-the-lungfish-project.md
     - Plugin Packs: chapters/01-foundations/07-plugin-packs.md
     - Provenance and Reproducibility: chapters/01-foundations/08-provenance-and-reproducibility.md
-    - Shared Projects: chapters/01-foundations/09-shared-projects.md
 
   - Sequences:
     - Importing and Viewing: chapters/02-sequences/01-importing-and-viewing.md
@@ -136,6 +135,7 @@ nav:
     - Tool Versions: chapters/appendices/tool-versions.md
     - Running in CI: chapters/appendices/06-running-in-ci.md
     - Power User Notes: chapters/appendices/power-user-notes.md
+    - Shared Projects and Bundle Migration: chapters/appendices/shared-projects.md
     - Troubleshooting: chapters/appendices/troubleshooting.md
     - Bibliography: chapters/appendices/bibliography.md
     - Glossary: GLOSSARY.md

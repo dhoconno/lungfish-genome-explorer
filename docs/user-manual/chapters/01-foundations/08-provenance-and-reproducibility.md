@@ -80,7 +80,7 @@ The Provenance submenu offers six formats, grouped into a runnable-script group 
 
 Each export is a folder containing the chosen primary artifact (the script, the Snakefile, the Markdown, or the JSON) and a `provenance/` directory that carries the per-step records the export was built from. Send the whole folder to your collaborator (compress it first); the script will not run without the contents of `provenance/` and any reference files alongside it.
 
-If your collaborator is also running LGE, you do not have to export at all. A project is a folder on disk, so you can hand them the project folder directly (or share it on lab storage) and they will see the same sidebar, the same Inspector tabs, and the same run records you do. [Shared Projects](09-shared-projects.md) covers the conventions for that workflow.
+If your collaborator is also running LGE, you do not have to export at all. A project is a folder on disk, so you can hand them the project folder directly (or share it on lab storage) and they will see the same sidebar, the same Inspector tabs, and the same run records you do. For the conventions around handing a project to another LGE user (especially on shared lab storage where two people might open it at once), see [Shared Projects and Bundle Migration](../appendices/shared-projects.md) in the appendices.
 
 For a deeper look at the runnable-script and pipeline formats, see [Exporting workflows for collaborators](../../README.md) (coming in a later part of the manual).
 
@@ -99,4 +99,12 @@ For clinical-audit workflows that need tamper-evident records, LGE has a Provena
 
 ## Next
 
-Continue to [Shared Projects and Bundle Migration](09-shared-projects.md), the last Foundations chapter, for the conventions around handing a project to another LGE user and the CLI commands that coordinate locking and bundle migration on shared storage.
+Foundations is complete. Continue to one of the workflow parts:
+
+- [Sequences](../02-sequences/) for sequence import, viewing, and download workflows
+- [Reads (FASTQ)](../03-reads/) for read import, QC, trimming, and decontamination
+- [Alignments](../04-alignments/) for mapping, alignment review, and primer trimming
+- [Variants](../05-variants/) for variant calling and VCF interpretation
+- [Classification](../06-classification/) for taxonomic classification of reads
+
+The [Assembly](../07-assembly/) part covers de novo assembly workflows. For the advanced CLI commands that coordinate shared-storage workflows, see [Shared Projects and Bundle Migration](../appendices/shared-projects.md) in the appendices.

@@ -1,11 +1,11 @@
 ---
 title: Shared Projects and Bundle Migration
-chapter_id: 01-foundations/09-shared-projects
+chapter_id: appendices/shared-projects
 audience: power-user
 prereqs: [01-foundations/06-the-lungfish-project, 01-foundations/08-provenance-and-reproducibility]
 estimated_reading_min: 6
 task: Coordinate advanced multi-user project work and inspect bundle migration readiness from the command line.
-tags: [foundations, project, multi-user, locking, migration, provenance, cli]
+tags: [appendix, reference, power-user, project, multi-user, locking, migration, provenance, cli]
 tools: [lungfish project lock, lungfish project unlock, lungfish project migrate]
 entry_points:
   - "CLI: lungfish project lock"
@@ -119,14 +119,9 @@ Treat `.lungfish/project.lock` as the source of truth for advanced command-line 
 
 For routine GUI work, continue using the project normally. When the GUI opens a project with active or unknown lock metadata, it marks the window `Read Only`, shows a persistent project-lock banner, and blocks project-writing workflows so shared teams can rely on the same lock signal in both CLI and app sessions.
 
-## Next
+## See also
 
-Foundations is complete. Continue to one of the workflow parts:
-
-- [Sequences](../02-sequences/) for sequence import, viewing, and download workflows
-- [Reads (FASTQ)](../03-reads/) for read import, QC, trimming, and decontamination
-- [Alignments](../04-alignments/) for mapping, alignment review, and primer trimming
-- [Variants](../05-variants/) for variant calling and VCF interpretation
-- [Classification](../06-classification/) for taxonomic classification of reads
-
-The [Assembly](../07-assembly/) part covers de novo assembly workflows.
+- [The Lungfish Genome Explorer Project](../01-foundations/06-the-lungfish-project.md) for the project-folder layout these commands operate on.
+- [Provenance and Reproducibility](../01-foundations/08-provenance-and-reproducibility.md) for the run records that migrations preserve and that workflows attach to outputs.
+- [Power User Notes](power-user-notes.md) for the tool-internals and reproducibility caveats that pair with the workflows referenced here.
+- [CLI Reference](cli-reference.md) for the full set of `lungfish project ...` commands and their flags.

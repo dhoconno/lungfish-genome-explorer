@@ -21,7 +21,7 @@ Read these first if you are new to genomics or new to LGE. Each is 5-10 minutes.
 - [Alignment Files](chapters/01-foundations/04-alignment-files.md)
 - [Variants and VCF Files](chapters/01-foundations/05-variants-and-vcf.md)
 
-The remaining foundations chapters cover [The Lungfish Genome Explorer Project](chapters/01-foundations/06-the-lungfish-project.md), [Plugin Packs](chapters/01-foundations/07-plugin-packs.md), [Provenance and Reproducibility](chapters/01-foundations/08-provenance-and-reproducibility.md), and [Shared Projects and Bundle Migration](chapters/01-foundations/09-shared-projects.md).
+The remaining foundations chapters cover [The Lungfish Genome Explorer Project](chapters/01-foundations/06-the-lungfish-project.md), [Plugin Packs](chapters/01-foundations/07-plugin-packs.md), and [Provenance and Reproducibility](chapters/01-foundations/08-provenance-and-reproducibility.md). Advanced multi-user-storage and bundle-migration commands are covered in the [Shared Projects and Bundle Migration](chapters/appendices/shared-projects.md) appendix.
 
 ## Working with the app
 
