@@ -106,6 +106,32 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertNil(root.descendant(matching: MainWindowAccessibilityID.projectLockBanner))
     }
 
+    func testMainWindowContentWrapperKeepsSplitViewPinnedToLeadingEdgeWhenResized() throws {
+        let controller = MainWindowController()
+        defer { controller.close() }
+
+        let window = try XCTUnwrap(controller.window)
+        window.setFrame(NSRect(x: 0, y: 0, width: 1200, height: 800), display: false)
+        _ = window.contentViewController?.view
+        window.layoutIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        controller.mainSplitViewController.view.layoutSubtreeIfNeeded()
+
+        window.setFrame(NSRect(x: 0, y: 0, width: 1800, height: 800), display: false)
+        window.layoutIfNeeded()
+        window.contentView?.layoutSubtreeIfNeeded()
+        controller.mainSplitViewController.view.layoutSubtreeIfNeeded()
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let splitFrameInContent = controller.mainSplitViewController.view.convert(
+            controller.mainSplitViewController.view.bounds,
+            to: contentView
+        )
+
+        XCTAssertEqual(splitFrameInContent.minX, contentView.bounds.minX, accuracy: 1)
+        XCTAssertEqual(splitFrameInContent.width, contentView.bounds.width, accuracy: 1)
+    }
+
     func testRestoreCreatesTwoControllersForSameProjectSnapshots() throws {
         let delegate = AppDelegate()
         let temp = FileManager.default.temporaryDirectory

@@ -20,6 +20,7 @@ final class MainWindowContentViewController: NSViewController {
     }()
 
     private let bannerView = ProjectLockWarningBannerView()
+    private var bannerHorizontalConstraints: [NSLayoutConstraint] = []
 
     init(projectSession: ProjectSession, splitViewController: MainSplitViewController) {
         self.projectSession = projectSession
@@ -39,12 +40,16 @@ final class MainWindowContentViewController: NSViewController {
         addChild(splitViewController)
         splitViewController.view.translatesAutoresizingMaskIntoConstraints = false
         stackView.addArrangedSubview(splitViewController.view)
+        splitViewController.view.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        splitViewController.view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         NSLayoutConstraint.activate([
             stackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stackView.topAnchor.constraint(equalTo: view.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            splitViewController.view.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
+            splitViewController.view.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
         ])
 
         updateProjectLockWarningBanner()
@@ -62,11 +67,19 @@ final class MainWindowContentViewController: NSViewController {
         bannerView.update(with: presentation)
         if bannerView.superview == nil {
             stackView.insertArrangedSubview(bannerView, at: 0)
+            if bannerHorizontalConstraints.isEmpty {
+                bannerHorizontalConstraints = [
+                    bannerView.leadingAnchor.constraint(equalTo: stackView.leadingAnchor),
+                    bannerView.trailingAnchor.constraint(equalTo: stackView.trailingAnchor),
+                ]
+            }
+            NSLayoutConstraint.activate(bannerHorizontalConstraints)
         }
     }
 
     private func removeBannerIfNeeded() {
         guard bannerView.superview != nil else { return }
+        NSLayoutConstraint.deactivate(bannerHorizontalConstraints)
         stackView.removeArrangedSubview(bannerView)
         bannerView.removeFromSuperview()
     }
