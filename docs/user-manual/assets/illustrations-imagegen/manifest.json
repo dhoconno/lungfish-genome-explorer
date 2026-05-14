@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-05-10T13:30:41.184Z",
+  "generatedAt": "2026-05-13T23:26:09.880Z",
   "mode": "built-in image_gen source PNGs wrapped as self-contained SVG files",
-  "count": 24,
-  "note": "Some SVG dimensions intentionally preserve the accepted imagegen art aspect ratio where the fixed raster target would create large gutters.",
+  "count": 26,
+  "note": "Built-in image_gen source PNGs with repo-local PNG previews and self-contained SVG wrappers.",
   "illustrations": [
     {
       "chapter": "01-foundations/01-what-is-a-genome",
@@ -219,6 +219,24 @@
       "svgHeight": 600,
       "svg": "07-assembly/01-when-to-assemble/assembly-vs-mapping.svg",
       "sourcePng": "07-assembly/01-when-to-assemble/assembly-vs-mapping.source.png"
+    },
+    {
+      "chapter": "01-foundations/08-provenance-and-reproducibility",
+      "id": "provenance-graph-cartoon",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.svg",
+      "sourcePng": "01-foundations/08-provenance-and-reproducibility/provenance-graph-cartoon.source.png"
+    },
+    {
+      "chapter": "01-foundations/08-provenance-and-reproducibility",
+      "id": "cli-to-gui-path-reconciliation",
+      "targetDimensions": "1400x600",
+      "svgWidth": 1400,
+      "svgHeight": 600,
+      "svg": "01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.svg",
+      "sourcePng": "01-foundations/08-provenance-and-reproducibility/cli-to-gui-path-reconciliation.source.png"
     }
   ]
 }
