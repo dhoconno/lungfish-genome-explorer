@@ -21,6 +21,8 @@ public class MainWindowController: NSWindowController {
     /// The main split view controller
     public private(set) var mainSplitViewController: MainSplitViewController!
 
+    private var mainContentViewController: MainWindowContentViewController!
+
     /// Window-owned project/session state.
     public private(set) var projectSession: ProjectSession
 
@@ -141,7 +143,15 @@ public class MainWindowController: NSWindowController {
         guard let window = window else { return }
 
         mainSplitViewController = MainSplitViewController(projectSession: projectSession)
-        window.contentViewController = mainSplitViewController
+        mainContentViewController = MainWindowContentViewController(
+            projectSession: projectSession,
+            splitViewController: mainSplitViewController
+        )
+        let contentController = mainContentViewController
+        mainSplitViewController.onProjectOpenWarningStateChanged = { [weak contentController] state in
+            contentController?.updateProjectLockWarningBanner(with: state)
+        }
+        window.contentViewController = mainContentViewController
         mainSplitViewController.view.setAccessibilityElement(true)
         mainSplitViewController.view.setAccessibilityIdentifier(AccessibilityIdentifier.shell)
         mainSplitViewController.view.setAccessibilityLabel("Main window shell")

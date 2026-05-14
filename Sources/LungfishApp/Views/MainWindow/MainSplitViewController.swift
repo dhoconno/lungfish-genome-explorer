@@ -118,6 +118,8 @@ public class MainSplitViewController: NSSplitViewController {
     /// Window-owned project/session state.
     public private(set) var projectSession: ProjectSession
 
+    var onProjectOpenWarningStateChanged: ((ProjectOpenWarningState) -> Void)?
+
     // MARK: - Split View Items
 
     private var sidebarItem: NSSplitViewItem!
@@ -730,12 +732,17 @@ public class MainSplitViewController: NSSplitViewController {
             viewerController?.showNoSequenceSelected()
             logger.info("handleProjectOpened: Empty project, showing 'No sequence selected' state")
         }
+
+        let warningState = notification.userInfo?["openWarningState"] as? ProjectOpenWarningState
+            ?? DocumentManager.shared.activeProjectOpenWarningState
+        onProjectOpenWarningStateChanged?(warningState)
     }
 
     public func applyProjectSessionState(restoring snapshot: ProjectWindowSnapshot? = nil) {
         guard let project = projectSession.project else {
             sidebarController.closeProject()
             viewerController?.showNoSequenceSelected()
+            onProjectOpenWarningStateChanged?(projectSession.openWarningState)
             return
         }
 
@@ -749,6 +756,8 @@ public class MainSplitViewController: NSSplitViewController {
         } else {
             viewerController?.showNoSequenceSelected()
         }
+
+        onProjectOpenWarningStateChanged?(projectSession.openWarningState)
 
         guard let snapshot else { return }
         sidebarController.applyRestoredState(

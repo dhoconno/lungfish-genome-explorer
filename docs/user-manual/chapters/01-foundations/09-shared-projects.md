@@ -23,7 +23,7 @@ lead_approved: false
 
 A shared Lungfish Genome Explorer (LGE) [project](../../GLOSSARY.md#project) is still just a project folder. The difference is operational: more than one person or process can see the folder, usually through shared storage, a lab workstation, or a scripted batch workflow. That makes coordination visible. If one analyst is running a migration or a long manual repair while another analyst opens the same project, the second analyst needs a reliable signal before changing files.
 
-LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. GUI project-open warnings and read-only mode are follow-on work, but the metadata is already there for the GUI and for other automation to inspect.
+LGE now provides that signal through project-local lock records. The advanced CLI commands write a machine-readable file at `.lungfish/project.lock` inside the project. The GUI reads the same metadata on project open so teams get a consistent warning surface across CLI and app workflows.
 
 [Bundle](../../GLOSSARY.md#bundle) migration is also exposed through the same `project` command group. The current implementation is conservative: it scans bundles, reports the schema versions it can see, leaves bundles whose manifests are already current untouched, and refuses to rewrite unsupported legacy schemas until a real transformer exists.
 
@@ -117,7 +117,7 @@ The current no-op/report-only migration does not create new scientific outputs. 
 
 Treat `.lungfish/project.lock` as the source of truth for advanced command-line maintenance. Before running a script that edits a project, create a lock. Before opening a project that someone else is maintaining, inspect the lock record or ask the owner. After a script succeeds or fails, unlock the project as part of cleanup.
 
-For routine GUI work, continue using the project normally. The current GUI does not yet warn on project-open when the lock exists, so shared teams should agree on CLI lock use before relying on shared storage for concurrent edits.
+For routine GUI work, continue using the project normally. When the GUI opens a project with active or unknown lock metadata, it marks the window `Read Only`, shows a persistent project-lock banner, and blocks project-writing workflows so shared teams can rely on the same lock signal in both CLI and app sessions.
 
 ## Next
 

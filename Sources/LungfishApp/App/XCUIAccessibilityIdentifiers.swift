@@ -105,6 +105,12 @@ enum ImportCenterAccessibilityID {
     }
 }
 
+enum MainWindowAccessibilityID {
+    static let projectLockBanner = "main-window-project-lock-banner"
+    static let projectLockBannerTitle = "main-window-project-lock-banner-title"
+    static let projectLockBannerDetail = "main-window-project-lock-banner-detail"
+}
+
 enum MainMenuAccessibilityID {
     static let applicationMenu = "main-menu-application"
     static let fileMenu = "main-menu-file"
@@ -143,6 +149,7 @@ enum MainMenuAccessibilityID {
     static let gettingStarted = "help-menu-getting-started"
     static let vcfGuide = "help-menu-vcf-variants-guide"
     static let aiGuide = "help-menu-ai-assistant-guide"
+    static let onlineDocumentation = "help-menu-online-documentation"
     static let releaseNotes = "help-menu-release-notes"
     static let reportIssue = "help-menu-report-issue"
 }

@@ -44,14 +44,18 @@ final class AppShellAccessibilityTests: XCTestCase {
         let gettingStartedItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Getting Started" }))
         let vcfGuideItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "VCF Variants Guide" }))
         let aiGuideItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "AI Assistant Guide" }))
+        let documentationItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Documentation" }))
         let releaseNotesItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Release Notes" }))
         let reportIssueItem = try XCTUnwrap(helpMenu.items.first(where: { $0.title == "Report an Issue..." }))
         XCTAssertEqual(helpItem.identifier?.rawValue, "help-menu-lungfish-help")
         XCTAssertEqual(gettingStartedItem.identifier?.rawValue, "help-menu-getting-started")
         XCTAssertEqual(vcfGuideItem.identifier?.rawValue, "help-menu-vcf-variants-guide")
         XCTAssertEqual(aiGuideItem.identifier?.rawValue, "help-menu-ai-assistant-guide")
+        XCTAssertEqual(documentationItem.identifier?.rawValue, "help-menu-online-documentation")
+        XCTAssertEqual(documentationItem.action, #selector(AppDelegate.openOnlineDocumentation(_:)))
         XCTAssertEqual(releaseNotesItem.identifier?.rawValue, "help-menu-release-notes")
         XCTAssertEqual(reportIssueItem.identifier?.rawValue, "help-menu-report-issue")
+        XCTAssertEqual(reportIssueItem.action, #selector(AppDelegate.reportIssue(_:)))
     }
 
     func testProvenanceExportMenuItemsMatchSupportedFormats() throws {

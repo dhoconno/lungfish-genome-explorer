@@ -939,6 +939,12 @@ public final class MainMenu {
         helpMenu.addItem(.separator())
 
         helpMenu.addItem(
+            withTitle: "Documentation",
+            action: #selector(HelpMenuActions.openOnlineDocumentation(_:)),
+            keyEquivalent: ""
+        ).identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.onlineDocumentation)
+
+        helpMenu.addItem(
             withTitle: "Release Notes",
             action: #selector(HelpMenuActions.openReleaseNotes(_:)),
             keyEquivalent: ""
@@ -1196,6 +1202,7 @@ private final class WindowMenuDelegate: NSObject, NSMenuDelegate {
     func showGettingStarted(_ sender: Any?)
     func showVCFGuide(_ sender: Any?)
     func showAIGuide(_ sender: Any?)
+    func openOnlineDocumentation(_ sender: Any?)
     func openReleaseNotes(_ sender: Any?)
     func reportIssue(_ sender: Any?)
 }

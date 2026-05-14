@@ -36,6 +36,76 @@ final class MainWindowSessionRoutingTests: XCTestCase {
         XCTAssertEqual(second.projectSession.activeDocument?.name, "right")
     }
 
+    func testReadOnlyProjectSessionShowsProjectLockBanner() throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ReadOnlyBanner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let projectURL = temp.appendingPathComponent("Locked.lungfish", isDirectory: true)
+        let project = try DocumentManager.shared.createProject(at: projectURL, name: "Locked")
+        _ = try project.addSequence(try Sequence(name: "locked_seq", alphabet: .dna, bases: "GATTACA"))
+        try project.save()
+
+        try ProjectLockManager().writeLock(
+            ProjectLockRecord(
+                schemaVersion: 1,
+                toolName: "lungfish project lock",
+                appVersion: "lungfish-cli test",
+                projectPath: projectURL.standardizedFileURL.path,
+                mode: "exclusive",
+                user: "dho",
+                host: ProcessInfo.processInfo.hostName,
+                pid: Int(ProcessInfo.processInfo.processIdentifier),
+                processStartTime: "",
+                cwd: temp.path,
+                createdAt: "2026-05-14T01:03:00Z"
+            ),
+            to: ProjectLockManager.lockURL(for: projectURL)
+        )
+
+        let session = ProjectSession()
+        try session.openProject(at: projectURL)
+        let controller = MainWindowController(projectSession: session)
+        defer { controller.close() }
+
+        _ = controller.window?.contentViewController?.view
+        controller.mainSplitViewController.applyProjectSessionState()
+
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let banner = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBanner))
+        let title = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBannerTitle) as? NSTextField)
+        let detail = try XCTUnwrap(root.descendant(matching: MainWindowAccessibilityID.projectLockBannerDetail) as? NSTextField)
+
+        XCTAssertFalse(banner.isHidden)
+        XCTAssertEqual(title.stringValue, "Project opened read-only")
+        XCTAssertTrue(detail.stringValue.contains("exclusive"))
+        XCTAssertTrue(detail.stringValue.contains("active"))
+        XCTAssertTrue(detail.stringValue.contains("dho@\(ProcessInfo.processInfo.hostName)"))
+        XCTAssertTrue(detail.stringValue.contains("pid \(ProcessInfo.processInfo.processIdentifier)"))
+    }
+
+    func testUnlockedProjectSessionHidesProjectLockBanner() throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("UnlockedBanner-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let projectURL = temp.appendingPathComponent("Unlocked.lungfish", isDirectory: true)
+        _ = try DocumentManager.shared.createProject(at: projectURL, name: "Unlocked")
+
+        let session = ProjectSession()
+        try session.openProject(at: projectURL)
+        let controller = MainWindowController(projectSession: session)
+        defer { controller.close() }
+
+        _ = controller.window?.contentViewController?.view
+        controller.mainSplitViewController.applyProjectSessionState()
+
+        let root = try XCTUnwrap(controller.window?.contentView)
+        XCTAssertNil(root.descendant(matching: MainWindowAccessibilityID.projectLockBanner))
+    }
+
     func testRestoreCreatesTwoControllersForSameProjectSnapshots() throws {
         let delegate = AppDelegate()
         let temp = FileManager.default.temporaryDirectory
@@ -388,5 +458,19 @@ final class MainWindowSessionRoutingTests: XCTestCase {
 
         XCTAssertEqual(session.activeDocument?.url.standardizedFileURL, savedDocument.url.standardizedFileURL)
         XCTAssertEqual(session.activeDocument?.name, "second")
+    }
+}
+
+private extension NSView {
+    func descendant(matching identifier: String) -> NSView? {
+        if accessibilityIdentifier() == identifier {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.descendant(matching: identifier) {
+                return match
+            }
+        }
+        return nil
     }
 }

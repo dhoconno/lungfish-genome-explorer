@@ -9490,6 +9490,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         showHelpTopic("ai-assistant")
     }
 
+    @objc func openOnlineDocumentation(_ sender: Any?) {
+        if let url = URL(string: "https://lungfish-genome-explorer.readthedocs.io/en/latest/") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     @objc func openReleaseNotes(_ sender: Any?) {
         if let url = URL(string: "https://github.com/dhoconno/lungfish-genome-explorer/releases") {
             NSWorkspace.shared.open(url)
@@ -9497,9 +9503,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func reportIssue(_ sender: Any?) {
-        if let url = OperationFailureIssueReporter.blankIssueURL() {
+        if let url = OperationFailureIssueReporter.generalIssueURL(context: issueReportContext(sender: sender)) {
             GitHubIssueOpener.open(url)
         }
+    }
+
+    private func issueReportContext(sender: Any?) -> OperationFailureIssueContext {
+        let controller = activeMainWindowController(sender: sender)
+        let projectURL = controller?.projectSession.projectURL
+            ?? controller?.mainSplitViewController?.sidebarController?.currentProjectURL
+        let warningState = controller?.projectSession.openWarningState
+        let lockSummary: String?
+        if let warningState {
+            lockSummary = ProjectLockWarningPresentation(state: warningState)?.detail
+                ?? warningState.warningMessage
+        } else {
+            lockSummary = nil
+        }
+
+        return OperationFailureIssueContext(
+            environment: .current,
+            projectPath: projectURL?.standardizedFileURL.path,
+            isReadOnlyRecommended: controller?.projectSession.isReadOnlyRecommended ?? false,
+            lockSummary: lockSummary,
+            windowTitle: controller?.window?.title ?? NSApp.keyWindow?.title
+        )
     }
 
     private func seedOperationsPanelFailureForUITest() {

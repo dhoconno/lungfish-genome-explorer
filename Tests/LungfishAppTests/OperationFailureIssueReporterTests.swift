@@ -74,4 +74,47 @@ final class OperationFailureIssueReporterTests: XCTestCase {
         XCTAssertLessThanOrEqual(title.count, 120)
         XCTAssertTrue(title.hasPrefix("[Operation failure]: Very Long Operation"))
     }
+
+    func testGeneralIssueURLPrefillsEnvironmentAndProjectContext() throws {
+        let environment = OperationFailureIssueEnvironment(
+            appVersion: "9.8.7 (654)",
+            operatingSystem: "macOS 99.0",
+            hardware: "Mac99,1, 64 GB RAM"
+        )
+        let context = OperationFailureIssueContext(
+            environment: environment,
+            projectPath: "/Users/alice/projects/Locked Project.lungfish",
+            isReadOnlyRecommended: true,
+            lockSummary: "Project opened read-only because lungfish project lock has an active exclusive lock from dho@raven.local pid 47779.",
+            windowTitle: "Locked Project (Read Only) - Lungfish Genome Explorer"
+        )
+
+        let url = try XCTUnwrap(OperationFailureIssueReporter.generalIssueURL(
+            context: context,
+            homeDirectory: "/Users/alice"
+        ))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let query = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+            item.value.map { (item.name, $0) }
+        })
+
+        XCTAssertEqual(components.scheme, "https")
+        XCTAssertEqual(components.host, "github.com")
+        XCTAssertEqual(components.path, "/dhoconno/lungfish-genome-explorer/issues/new")
+        XCTAssertEqual(query["template"], "rough_report.md")
+        XCTAssertEqual(query["labels"], "triage")
+        XCTAssertEqual(query["title"], "[Bug]: ")
+
+        let body = try XCTUnwrap(query["body"])
+        XCTAssertTrue(body.contains("## What happened?"))
+        XCTAssertTrue(body.contains("## Steps to reproduce"))
+        XCTAssertTrue(body.contains("Lungfish Genome Explorer version: 9.8.7 (654)"))
+        XCTAssertTrue(body.contains("macOS version: macOS 99.0"))
+        XCTAssertTrue(body.contains("Mac model and memory: Mac99,1, 64 GB RAM"))
+        XCTAssertTrue(body.contains("Window title: Locked Project (Read Only) - Lungfish Genome Explorer"))
+        XCTAssertTrue(body.contains("Project path: ~/projects/Locked Project.lungfish"))
+        XCTAssertTrue(body.contains("Project read-only recommended: true"))
+        XCTAssertTrue(body.contains("active exclusive lock"))
+        XCTAssertFalse(body.contains("/Users/alice/projects"))
+    }
 }

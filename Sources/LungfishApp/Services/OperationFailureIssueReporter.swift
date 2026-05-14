@@ -44,6 +44,14 @@ struct OperationFailureIssueEnvironment: Equatable, Sendable {
     }
 }
 
+struct OperationFailureIssueContext: Equatable, Sendable {
+    var environment: OperationFailureIssueEnvironment
+    var projectPath: String?
+    var isReadOnlyRecommended: Bool
+    var lockSummary: String?
+    var windowTitle: String?
+}
+
 enum OperationFailureIssueReporter {
     static let repositoryIssuePath = "/dhoconno/lungfish-genome-explorer/issues/new"
     static let issueTitleLimit = 120
@@ -66,6 +74,16 @@ enum OperationFailureIssueReporter {
 
     static func blankIssueURL() -> URL? {
         newIssueURL(title: nil, body: nil)
+    }
+
+    static func generalIssueURL(
+        context: OperationFailureIssueContext,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> URL? {
+        newIssueURL(
+            title: "[Bug]: ",
+            body: generalIssueBody(context: context, homeDirectory: homeDirectory)
+        )
     }
 
     static func issueTitle(for item: OperationCenter.Item) -> String {
@@ -126,6 +144,51 @@ enum OperationFailureIssueReporter {
         ## Logs or screenshots
 
         Review the Operations panel output above before submitting. Remove private paths, PHI, credentials, API keys, and unpublished data.
+        """
+    }
+
+    private static func generalIssueBody(
+        context: OperationFailureIssueContext,
+        homeDirectory: String
+    ) -> String {
+        let projectPath = context.projectPath
+            .map { redact($0, homeDirectory: homeDirectory) }
+            ?? "No project open"
+        let windowTitle = context.windowTitle?.isEmpty == false
+            ? context.windowTitle!
+            : "No active main window"
+        let lockSummary = context.lockSummary?.isEmpty == false
+            ? context.lockSummary!
+            : "No project lock warning"
+
+        return """
+        ## What happened?
+
+        (Describe the bug or unexpected behavior.)
+
+        ## Steps to reproduce
+
+        1.
+        2.
+        3.
+
+        ## What did you expect?
+
+        (Describe the expected result.)
+
+        ## App and project context
+
+        - Lungfish Genome Explorer version: \(context.environment.appVersion)
+        - macOS version: \(context.environment.operatingSystem)
+        - Mac model and memory: \(context.environment.hardware)
+        - Window title: \(windowTitle)
+        - Project path: \(projectPath)
+        - Project read-only recommended: \(context.isReadOnlyRecommended)
+        - Project lock warning: \(lockSummary)
+
+        ## Logs or screenshots
+
+        Add screenshots, logs, or CLI commands if they help. Remove private paths, PHI, credentials, API keys, and unpublished data before submitting.
         """
     }
 
