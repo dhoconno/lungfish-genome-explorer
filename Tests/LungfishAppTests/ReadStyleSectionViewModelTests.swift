@@ -296,11 +296,13 @@ final class ReadStyleSectionViewModelTests: XCTestCase {
         vm.configureAlignmentFilterTracks([
             .init(id: "aln-a", name: "Sample A"),
         ])
+        vm.mappedReadsAnnotationOutputTrackID = "sample_a_reads"
         vm.mappedReadsAnnotationOutputTrackName = "Sample A mapped reads"
 
         let request = try vm.makeMappedReadsAnnotationLaunchRequest()
 
         XCTAssertEqual(request.sourceTrackID, "aln-a")
+        XCTAssertEqual(request.outputTrackID, "sample_a_reads")
         XCTAssertEqual(request.outputTrackName, "Sample A mapped reads")
         XCTAssertFalse(request.primaryOnly)
         XCTAssertFalse(request.includeSequence)

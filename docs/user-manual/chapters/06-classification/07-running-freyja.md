@@ -8,7 +8,7 @@ task: Build or run a Freyja lineage-demixing command plan for wastewater SARS-Co
 tags: [classification, freyja, wastewater, lineage, provenance]
 tools: [freyja]
 entry_points:
-  - "Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja"
+  - "Tools > Plugin Manager > wastewater-surveillance"
   - "CLI: lungfish freyja demix"
 shots: []
 illustrations: []
@@ -49,11 +49,10 @@ execute, but the lineage estimates are not meaningful.
 
 ## GUI path
 
-Open `Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja`. The menu
-entry opens the Freyja pack surface so you can install or verify the
-`wastewater-surveillance` pack before running a command plan from the CLI.
-When the pack is absent, Lungfish treats Freyja as gated rather than silently
-hiding it.
+Open `Tools > Plugin Manager` and select the `wastewater-surveillance` pack to
+install or verify Freyja before running a command plan from the CLI. Freyja is
+not listed under FASTQ/FASTA Operations because that menu is reserved for
+direct data operations.
 
 ## CLI path
 

@@ -1084,6 +1084,8 @@ extension AnnotationType {
         case .exon: return "Exon"
         case .intron: return "Intron"
         case .cds: return "CDS"
+        case .orf: return "ORF"
+        case .translation: return "Translation"
         case .utr5: return "5' UTR"
         case .utr3: return "3' UTR"
         case .tRNA: return "tRNA"

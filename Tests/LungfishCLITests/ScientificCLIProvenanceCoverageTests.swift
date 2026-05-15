@@ -78,6 +78,7 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertNil(convertEnvelope.options.explicit["resolvedDefaults"])
         XCTAssertEqual(convertEnvelope.options.defaults["toFormat"]?.stringValue, "fasta")
         XCTAssertEqual(convertEnvelope.options.resolvedDefaults["toFormat"]?.stringValue, "fasta")
+        XCTAssertTrue(convertEnvelope.argv.contains("--quiet"))
         let convertFileEnvelope = try loadFileSidecarEnvelope(for: convertedURL)
         XCTAssertEqual(convertFileEnvelope.output?.path, convertedURL.path)
         XCTAssertNotNil(ProvenanceRecorder.findProvenance(forFile: convertedURL))
@@ -349,6 +350,70 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
         XCTAssertEqual(try loadFileSidecarEnvelope(for: out2URL).outputs.map(\.path), [out2URL.path])
     }
 
+    func testConvertReferenceBundleWritesPayloadInputProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-convert-ref-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bundleURL = try makeTinyReferenceBundle(in: root, sequence: "ATGAAATAA")
+        let outputURL = root.appendingPathComponent("export.fa")
+        let command = try ConvertCommand.parse([
+            bundleURL.path,
+            "--to", outputURL.path,
+            "--to-format", "fasta",
+            "--include-annotations",
+            "--force",
+            "--quiet",
+        ])
+
+        try await command.run()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outputURL.path))
+        let envelope = try loadFileSidecarEnvelope(for: outputURL)
+        let inputPaths = Set(envelope.steps.flatMap(\.inputs).map(\.path))
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        let fastaURL = bundleURL.appendingPathComponent("genome/sequence.fa")
+        let faiURL = bundleURL.appendingPathComponent("genome/sequence.fa.fai")
+        XCTAssertTrue(inputPaths.contains(manifestURL.path))
+        XCTAssertTrue(inputPaths.contains(fastaURL.path))
+        XCTAssertTrue(inputPaths.contains(faiURL.path))
+        XCTAssertFalse(inputPaths.contains(bundleURL.path))
+        XCTAssertNotNil(envelope.steps.flatMap(\.inputs).first { $0.path == manifestURL.path }?.checksumSHA256)
+        XCTAssertEqual(envelope.output?.path, outputURL.path)
+        XCTAssertNotNil(envelope.output?.checksumSHA256)
+    }
+
+    func testConvertForceTruncatesExistingGFF3Output() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scientific-convert-force-gff-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bundleURL = try makeTinyReferenceBundle(in: root, sequence: "ATGAAATAA")
+        try addTinyAnnotationTrack(to: bundleURL)
+        let outputURL = root.appendingPathComponent("annotations.gff3")
+        try [
+            "##gff-version 3",
+            "chr1\told\tgene\t1\t9\t.\t+\t.\tID=old",
+            "STALE_TRAILING_CONTENT_SHOULD_NOT_SURVIVE"
+        ].joined(separator: "\n").appending("\n").write(to: outputURL, atomically: true, encoding: .utf8)
+
+        let command = try ConvertCommand.parse([
+            bundleURL.path,
+            "--to", outputURL.path,
+            "--to-format", "gff3",
+            "--include-annotations",
+            "--force",
+            "--quiet",
+        ])
+        try await command.run()
+
+        let output = try String(contentsOf: outputURL, encoding: .utf8)
+        XCTAssertTrue(output.contains("gene1"))
+        XCTAssertFalse(output.contains("STALE_TRAILING_CONTENT_SHOULD_NOT_SURVIVE"))
+    }
+
     func testFASTQSearchCommandsWriteNativeToolProvenanceSidecarsWithRealFixture() async throws {
         guard await NativeToolRunner.shared.isToolAvailable(.seqkit) else {
             throw XCTSkip("seqkit is not available in this test environment")
@@ -457,5 +522,69 @@ final class ScientificCLIProvenanceCoverageTests: XCTestCase {
             "Missing file-specific provenance sidecar at \(sidecarURL.path)"
         )
         return try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecarURL))
+    }
+
+    private func makeTinyReferenceBundle(
+        in root: URL,
+        chromosomeName: String = "chr1",
+        sequence: String
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent("tiny.lungfishref", isDirectory: true)
+        let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+
+        let fastaURL = genomeDir.appendingPathComponent("sequence.fa")
+        try ">\(chromosomeName)\n\(sequence)\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        let offset = ">\(chromosomeName)\n".utf8.count
+        try "\(chromosomeName)\t\(sequence.count)\t\(offset)\t\(sequence.count)\t\(sequence.count + 1)\n"
+            .write(
+                to: genomeDir.appendingPathComponent("sequence.fa.fai"),
+                atomically: true,
+                encoding: .utf8
+            )
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Tiny Reference",
+            identifier: "org.lungfish.tests.scientific-convert-ref",
+            source: SourceInfo(organism: "Test organism", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: Int64(sequence.count),
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: chromosomeName,
+                        length: Int64(sequence.count),
+                        offset: Int64(offset),
+                        lineBases: sequence.count,
+                        lineWidth: sequence.count + 1
+                    ),
+                ]
+            )
+        )
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func addTinyAnnotationTrack(to bundleURL: URL) throws {
+        let annotationsDir = bundleURL.appendingPathComponent("annotations", isDirectory: true)
+        try FileManager.default.createDirectory(at: annotationsDir, withIntermediateDirectories: true)
+        let bedURL = annotationsDir.appendingPathComponent("genes.bed")
+        let dbURL = annotationsDir.appendingPathComponent("genes.db")
+        try [
+            "chr1", "0", "9", "gene1", "0", "+", "0", "9", "0", "1", "9", "0", "gene", "ID=gene1;gene=gene1"
+        ].joined(separator: "\t").appending("\n").write(to: bedURL, atomically: true, encoding: .utf8)
+        let featureCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let updated = manifest.addingAnnotationTrack(AnnotationTrackInfo(
+            id: "genes",
+            name: "Genes",
+            path: "annotations/genes.bed",
+            databasePath: "annotations/genes.db",
+            annotationType: .gene,
+            featureCount: featureCount
+        ))
+        try updated.save(to: bundleURL)
     }
 }

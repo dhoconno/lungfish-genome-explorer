@@ -47,9 +47,17 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         }
 
         let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
-        let outputTrackID = normalizedTrackID(trackIDProvider(outputTrackName))
+        let outputTrackID: String
+        do {
+            outputTrackID = try resolveAnnotationOutputTrackID(
+                explicitID: request.outputTrackID,
+                generatedID: trackIDProvider(outputTrackName)
+            )
+        } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
+            throw MappedReadsAnnotationServiceError.invalidOutputTrackID(id)
+        }
         let existingTracks = bundle.manifest.annotations.filter {
-            $0.id == outputTrackID || $0.name == outputTrackName
+            annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
         }
         if !existingTracks.isEmpty && !request.replaceExisting {
             throw MappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
@@ -101,6 +109,11 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         let databaseURL = request.bundleURL
             .standardizedFileURL
             .appendingPathComponent(relativeDatabasePath)
+        if existingTracks.isEmpty,
+           !request.replaceExisting,
+           annotationArtifactExistsCaseInsensitive(databaseURL) {
+            throw MappedReadsAnnotationServiceError.outputTrackExists(outputTrackName)
+        }
 
         progressHandler?(0.78, "Writing annotation database...")
         if request.replaceExisting {
@@ -167,17 +180,6 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
         return trimmed.isEmpty ? "Mapped Reads" : trimmed
     }
 
-    private func normalizedTrackID(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedScalars = trimmed.unicodeScalars.map { scalar -> UnicodeScalar in
-            CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "-"
-                ? scalar
-                : "_"
-        }
-        let normalized = String(String.UnicodeScalarView(normalizedScalars))
-        return normalized.isEmpty ? "ann_\(String(UUID().uuidString.prefix(8)))" : normalized
-    }
-
     private func rawSAMFlag(in line: String) -> UInt16? {
         let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
         guard fields.count >= 2 else { return nil }
@@ -202,4 +204,47 @@ public final class MappedReadsAnnotationService: @unchecked Sendable {
             : bundleURL.appendingPathComponent(path)
         try? FileManager.default.removeItem(at: url)
     }
+}
+
+enum AnnotationOutputTrackIDResolutionError: Error, Equatable {
+    case invalid(String)
+}
+
+func resolveAnnotationOutputTrackID(explicitID: String?, generatedID: @autoclosure () -> String) throws -> String {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+    if let explicitID {
+        let trimmed = explicitID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+                throw AnnotationOutputTrackIDResolutionError.invalid(trimmed)
+            }
+            return trimmed
+        }
+    }
+
+    let generated = generatedID().trimmingCharacters(in: .whitespacesAndNewlines)
+    let normalizedScalars = generated.unicodeScalars.map { scalar -> UnicodeScalar in
+        allowed.contains(scalar) ? scalar : "_"
+    }
+    let normalized = String(String.UnicodeScalarView(normalizedScalars))
+    return normalized.isEmpty ? "ann_\(String(UUID().uuidString.prefix(8)))" : normalized
+}
+
+func annotationOutputTrackMatches(_ track: AnnotationTrackInfo, id: String, name: String) -> Bool {
+    track.id.caseInsensitiveCompare(id) == .orderedSame
+        || track.name.caseInsensitiveCompare(name) == .orderedSame
+}
+
+func annotationArtifactExistsCaseInsensitive(_ url: URL) -> Bool {
+    let fileManager = FileManager.default
+    if fileManager.fileExists(atPath: url.path) { return true }
+    guard let entries = try? fileManager.contentsOfDirectory(
+        at: url.deletingLastPathComponent(),
+        includingPropertiesForKeys: nil,
+        options: [.skipsHiddenFiles]
+    ) else {
+        return false
+    }
+    let desiredName = url.lastPathComponent.lowercased()
+    return entries.contains { $0.lastPathComponent.lowercased() == desiredName }
 }

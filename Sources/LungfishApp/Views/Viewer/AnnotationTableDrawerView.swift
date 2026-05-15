@@ -162,6 +162,8 @@ protocol AnnotationTableDrawerDelegate: AnyObject {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleVariantRenderKeys keys: Set<String>?)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleAnnotationRenderKeys keys: Set<String>?)
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateAnnotationTrackDisplayState state: AnnotationTrackDisplayState)
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotations annotations: [AnnotationSearchIndex.SearchResult])
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotationTrack trackID: String, trackName: String)
     func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat)
     func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView)
     func annotationDrawer(
@@ -180,6 +182,10 @@ extension AnnotationTableDrawerDelegate {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateVisibleAnnotationRenderKeys keys: Set<String>?) {}
 
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateAnnotationTrackDisplayState state: AnnotationTrackDisplayState) {}
+
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotations annotations: [AnnotationSearchIndex.SearchResult]) {}
+
+    func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotationTrack trackID: String, trackName: String) {}
 
     func annotationDrawer(
         _ drawer: AnnotationTableDrawerView,
@@ -636,6 +642,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     // Annotation column identifiers (internal for extension access)
     static let nameColumn = NSUserInterfaceItemIdentifier("NameColumn")
+    static let trackIdColumn = NSUserInterfaceItemIdentifier("TrackIdColumn")
+    static let trackNameColumn = NSUserInterfaceItemIdentifier("TrackNameColumn")
     static let typeColumn = NSUserInterfaceItemIdentifier("TypeColumn")
     static let chromosomeColumn = NSUserInterfaceItemIdentifier("ChromosomeColumn")
     static let startColumn = NSUserInterfaceItemIdentifier("StartColumn")
@@ -1534,7 +1542,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         annotationFilterField.isHidden = activeTab != .annotations
         annotationViewportFilterButton.isHidden = activeTab != .annotations
         annotationViewportFilterButton.state = annotationViewportFilterEnabled ? .on : .off
-        annotationTracksButton.isHidden = activeTab != .annotations || annotationTrackOrder.count <= 1
+        annotationTracksButton.isHidden = activeTab != .annotations || annotationTrackOrder.isEmpty
         variantFilterField.isHidden = true  // Always hidden; Query Builder writes to variantFilterText directly
         sampleFilterField.isHidden = true  // Samples use Query Builder; free-text field hidden to reduce toolbar density
         addSampleFieldButton.isHidden = !showSamples
@@ -1744,6 +1752,8 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     /// Column definitions for the annotation tab.
     private static let annotationColumnDefs: [(NSUserInterfaceItemIdentifier, String, CGFloat, CGFloat, String)] = [
         (nameColumn, "Name", 180, 80, "name"),
+        (trackNameColumn, "Track Name", 140, 80, "track_name"),
+        (trackIdColumn, "Track ID", 130, 70, "track_id"),
         (typeColumn, "Type", 80, 50, "type"),
         (chromosomeColumn, "Chromosome", 120, 60, "chromosome"),
         (startColumn, "Start", 100, 60, "start"),
@@ -2185,7 +2195,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(
             from: index.queryAnnotationsOnly(limit: Self.maxDisplayCount)
         )
+        let previousTrackDisplayState = annotationTrackDisplayState
+        for handle in index.annotationDatabaseHandles {
+            if let name = index.annotationTrackName(for: handle.trackId) {
+                annotationTrackDisplayNames[handle.trackId] = name
+            }
+        }
         syncAnnotationTracks(from: index.annotationDatabaseHandles.map(\.trackId))
+        if annotationTrackDisplayState != previousTrackDisplayState {
+            emitAnnotationTrackDisplayStateIfNeeded()
+        }
         variantTrackDatabaseURLs = index.variantDatabaseHandles.map(\.db.databaseURL)
         variantInfoPresetValues = []
         variantPresetLoadState = .idle
@@ -2281,7 +2300,16 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         availableAnnotationTypes = typeSet.sorted()
         visibleAnnotationTypes = typeSet
         annotationAttributeColumnKeys = Self.orderedAnnotationAttributeKeys(from: results)
+        let previousTrackDisplayState = annotationTrackDisplayState
+        for result in results {
+            if let trackName = result.trackName, !trackName.isEmpty {
+                annotationTrackDisplayNames[result.trackId] = trackName
+            }
+        }
         syncAnnotationTracks(from: results.map(\.trackId))
+        if annotationTrackDisplayState != previousTrackDisplayState {
+            emitAnnotationTrackDisplayStateIfNeeded()
+        }
         configureColumnsForTab(.annotations)
 
         rebuildChipButtons()
@@ -3391,26 +3419,39 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     }
 
     private func syncAnnotationTracks(from trackIDs: [String]) {
+        let previousState = annotationTrackDisplayState
         var seen: Set<String> = []
         let discovered = trackIDs.filter { trackID in
             guard !trackID.isEmpty, !seen.contains(trackID) else { return false }
             seen.insert(trackID)
             return true
         }
-        guard !discovered.isEmpty else { return }
+        guard !discovered.isEmpty else {
+            let changed = !annotationTrackOrder.isEmpty
+                || !hiddenAnnotationTrackIDs.isEmpty
+                || !annotationTrackDisplayNames.isEmpty
+            annotationTrackOrder = []
+            hiddenAnnotationTrackIDs = []
+            annotationTrackDisplayNames = [:]
+            updateSearchFieldVisibility()
+            if changed {
+                emitAnnotationTrackDisplayStateIfNeeded()
+            }
+            return
+        }
 
         let discoveredSet = Set(discovered)
         var nextOrder = annotationTrackOrder.filter { discoveredSet.contains($0) }
         let orderedSet = Set(nextOrder)
         nextOrder.append(contentsOf: discovered.filter { !orderedSet.contains($0) })
 
-        let changed = nextOrder != annotationTrackOrder
-            || !hiddenAnnotationTrackIDs.isSubset(of: discoveredSet)
         annotationTrackOrder = nextOrder
         hiddenAnnotationTrackIDs = hiddenAnnotationTrackIDs.intersection(discoveredSet)
+        annotationTrackDisplayNames = annotationTrackDisplayNames.filter { discoveredSet.contains($0.key) }
         for trackID in discovered where annotationTrackDisplayNames[trackID] == nil {
             annotationTrackDisplayNames[trackID] = trackID
         }
+        let changed = annotationTrackDisplayState != previousState
 
         updateSearchFieldVisibility()
         if changed {
@@ -3492,6 +3533,18 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
                 moveDownItem.isEnabled = annotationTrackOrder.last != trackID
                 submenu.addItem(moveDownItem)
 
+                submenu.addItem(.separator())
+
+                let deleteItem = NSMenuItem(
+                    title: "Delete Track\u{2026}",
+                    action: #selector(deleteAnnotationTrackFromMenu(_:)),
+                    keyEquivalent: ""
+                )
+                deleteItem.target = self
+                deleteItem.representedObject = trackID
+                deleteItem.isEnabled = allowsAnnotationEditing
+                submenu.addItem(deleteItem)
+
                 item.submenu = submenu
                 menu.addItem(item)
             }
@@ -3512,6 +3565,15 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
     @objc private func moveAnnotationTrackDown(_ sender: NSMenuItem) {
         guard let trackID = sender.representedObject as? String else { return }
         moveAnnotationTrack(trackId: trackID, direction: .down)
+    }
+
+    @objc private func deleteAnnotationTrackFromMenu(_ sender: NSMenuItem) {
+        guard let trackID = sender.representedObject as? String else { return }
+        delegate?.annotationDrawer(
+            self,
+            didRequestDeleteAnnotationTrack: trackID,
+            trackName: annotationTrackDisplayNames[trackID] ?? trackID
+        )
     }
 
     private struct AnnotationFilterQuery {
@@ -4026,6 +4088,20 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
 
     func debugGetVariantQueryExecutionCount() -> Int {
         debugVariantQueryExecutionCount
+    }
+
+    var debugSelectedAnnotationNames: [String] {
+        tableView.selectedRowIndexes.compactMap { index in
+            guard index >= 0, index < displayedAnnotations.count else { return nil }
+            return displayedAnnotations[index].name
+        }
+    }
+
+    var debugSelectedAnnotationStarts: [Int] {
+        tableView.selectedRowIndexes.compactMap { index in
+            guard index >= 0, index < displayedAnnotations.count else { return nil }
+            return displayedAnnotations[index].start
+        }
     }
     #endif
 
@@ -4730,6 +4806,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
             // Annotation columns
             case "name", "variant_id":
                 result = a.name.localizedCaseInsensitiveCompare(b.name)
+            case "track_id":
+                result = a.trackId.localizedCaseInsensitiveCompare(b.trackId)
+            case "track_name":
+                result = annotationTrackName(for: a).localizedCaseInsensitiveCompare(annotationTrackName(for: b))
             case "type", "variant_type":
                 result = a.type.localizedCaseInsensitiveCompare(b.type)
             case "chromosome":
@@ -4850,6 +4930,11 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         case Self.nameColumn:
             tf.stringValue = annotation.name
             tf.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+        case Self.trackNameColumn:
+            tf.stringValue = annotationTrackName(for: annotation)
+        case Self.trackIdColumn:
+            tf.stringValue = annotation.trackId
+            tf.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
         case Self.typeColumn:
             tf.stringValue = annotation.type
             tf.font = .systemFont(ofSize: 11)
@@ -5161,6 +5246,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         switch identifier {
         case Self.nameColumn, Self.variantIdColumn:
             return annotation.name
+        case Self.trackNameColumn:
+            return annotationTrackName(for: annotation)
+        case Self.trackIdColumn:
+            return annotation.trackId
         case Self.typeColumn, Self.variantTypeColumn:
             return annotation.type
         case Self.chromosomeColumn, Self.variantChromColumn:
@@ -5249,6 +5338,69 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         tableView.scrollRowToVisible(index)
         return true
+    }
+
+    /// Selects and scrolls to the row that represents a viewport annotation.
+    @discardableResult
+    func selectAnnotation(matching annotation: SequenceAnnotation) -> Bool {
+        if activeTab != .annotations {
+            switchToTab(.annotations)
+        }
+        guard let index = displayedAnnotations.firstIndex(where: { Self.matches(annotation: annotation, result: $0) }) else {
+            return false
+        }
+        isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
+        tableView.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+        tableView.scrollRowToVisible(index)
+        return true
+    }
+
+    func clearAnnotationSelection() {
+        guard activeTab == .annotations else { return }
+        isSuppressingDelegateCallbacks = true
+        defer { isSuppressingDelegateCallbacks = false }
+        tableView.deselectAll(nil)
+    }
+
+    private static func matches(annotation: SequenceAnnotation, result: AnnotationSearchIndex.SearchResult) -> Bool {
+        guard annotation.name == result.name,
+              annotation.start == result.start,
+              annotation.end == result.end,
+              chromosomeMatches(annotation.chromosome, result.chromosome),
+              annotationTypeMatches(annotation.type, result.type) else {
+            return false
+        }
+        if let trackID = annotation.qualifier("annotation_db_track_id") ?? annotation.qualifier("variant_track_id"),
+           !trackID.isEmpty {
+            return trackID == result.trackId
+        }
+        return true
+    }
+
+    private static func annotationTypeMatches(_ annotationType: AnnotationType, _ resultType: String) -> Bool {
+        if annotationType.rawValue.caseInsensitiveCompare(resultType) == .orderedSame {
+            return true
+        }
+        return AnnotationType.from(rawString: resultType) == annotationType
+    }
+
+    private static func chromosomeMatches(_ annotationChromosome: String?, _ resultChromosome: String) -> Bool {
+        guard let annotationChromosome, !annotationChromosome.isEmpty else {
+            return true
+        }
+        if annotationChromosome == resultChromosome {
+            return true
+        }
+        return canonicalChromosomeToken(annotationChromosome) == canonicalChromosomeToken(resultChromosome)
+    }
+
+    private static func canonicalChromosomeToken(_ value: String) -> String {
+        let lowered = value.lowercased()
+        guard let dotIndex = lowered.firstIndex(of: ".") else {
+            return lowered
+        }
+        return String(lowered[..<dotIndex])
     }
 
     @discardableResult
@@ -5748,24 +5900,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let fallback = sender.representedObject as? AnnotationSearchIndex.SearchResult
         let selected = selectedAnnotationResults(fallback: fallback)
         guard !selected.isEmpty else { return }
-        let rowIDsByTrack = Dictionary(grouping: selected, by: \.trackId).mapValues { rows in
-            rows.compactMap(\.annotationRowId)
-        }.filter { !$0.value.isEmpty }
-
-        let deleted: Int
-        if let searchIndex, !rowIDsByTrack.isEmpty {
-            deleted = searchIndex.deleteAnnotations(rowIDsByTrack: rowIDsByTrack)
-        } else {
-            let ids = Set(selected.map(\.id))
-            let before = displayedAnnotations.count
-            displayedAnnotations.removeAll { ids.contains($0.id) }
-            deleted = before - displayedAnnotations.count
-        }
-        guard deleted > 0 else {
-            NSSound.beep()
-            return
-        }
-        updateDisplayedAnnotations()
+        delegate?.annotationDrawer(self, didRequestDeleteAnnotations: selected)
     }
 
     @objc private func selectRelatedGeneFeaturesAction(_ sender: NSMenuItem) {
@@ -6100,11 +6235,19 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         editItem.isEnabled = allowsAnnotationEditing && selectedCount == 1 && annotation.annotationRowId != nil
         menu.addItem(editItem)
 
-        let deleteTitle = selectedCount > 1 ? "Delete \(selectedCount) Selected Annotations" : "Delete Annotation"
+        let editableAnnotations = selectedAnnotations.filter { $0.annotationRowId != nil }
+        let editableTrackIDs = Set(editableAnnotations.map(\.trackId))
+        let deleteCount = editableAnnotations.count
+        let deleteTitle = deleteCount > 1 ? "Delete \(deleteCount) Selected Annotations\u{2026}" : "Delete Annotation\u{2026}"
         let deleteItem = NSMenuItem(title: deleteTitle, action: #selector(deleteSelectedAnnotationsAction(_:)), keyEquivalent: "")
         deleteItem.target = self
         deleteItem.representedObject = annotation
-        deleteItem.isEnabled = allowsAnnotationEditing
+        deleteItem.isEnabled = allowsAnnotationEditing && deleteCount > 0 && editableTrackIDs.count == 1
+        if deleteCount == 0 {
+            deleteItem.toolTip = "Only SQLite-backed annotation rows can be deleted."
+        } else if editableTrackIDs.count > 1 {
+            deleteItem.toolTip = "Delete annotations from one annotation track at a time."
+        }
         menu.addItem(deleteItem)
 
         let relatedItem = NSMenuItem(title: "Select Related Gene Features", action: #selector(selectRelatedGeneFeaturesAction(_:)), keyEquivalent: "")
@@ -6222,6 +6365,8 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func annotationFilterKey(forColumnIdentifier columnId: String) -> String? {
         switch columnId {
         case Self.nameColumn.rawValue: return "name"
+        case Self.trackIdColumn.rawValue: return "track_id"
+        case Self.trackNameColumn.rawValue: return "track_name"
         case Self.typeColumn.rawValue: return "type"
         case Self.chromosomeColumn.rawValue: return "chromosome"
         case Self.startColumn.rawValue: return "start"
@@ -6870,6 +7015,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         switch key {
         case "name":
             return row.name
+        case "track_id":
+            return row.trackId
+        case "track_name":
+            return annotationTrackName(for: row)
         case "type":
             return row.type
         case "chromosome":
@@ -6902,6 +7051,10 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             }
             return false
         }
+    }
+
+    private func annotationTrackName(for row: AnnotationSearchIndex.SearchResult) -> String {
+        row.trackName ?? annotationTrackDisplayNames[row.trackId] ?? row.trackId
     }
 
     private func annotationColumnMatches(actual: String, op: String, expected: String, key: String) -> Bool {
@@ -6943,6 +7096,11 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     private func setAnnotationBaseResults(_ rows: [AnnotationSearchIndex.SearchResult]) {
         baseDisplayedAnnotationRows = rows
         displayedAnnotations = applyAnnotationColumnFilters(to: rows)
+        for row in rows {
+            if let trackName = row.trackName, !trackName.isEmpty {
+                annotationTrackDisplayNames[row.trackId] = trackName
+            }
+        }
         let availableTrackIDs = searchIndex?.annotationDatabaseHandles.map(\.trackId) ?? []
         syncAnnotationTracks(from: availableTrackIDs.isEmpty ? rows.map(\.trackId) : availableTrackIDs)
     }

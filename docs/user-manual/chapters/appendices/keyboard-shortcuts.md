@@ -66,10 +66,10 @@ Move the viewport to a coordinate or named feature. Both work in any sequence-aw
 
 | Action | Shortcut |
 |---|---|
-| Go to Position | Cmd-L |
+| Go to Location | Cmd-L |
 | Go to Gene | Cmd-Shift-G |
 
-`Go to Position` accepts numeric coordinates or `chr:start-end` style ranges. `Go to Gene` matches gene names from the active GFF or GenBank annotation.
+`Go to Location` accepts numeric coordinates or `chr:start-end` style ranges. `Go to Gene` matches gene names from the active GFF or GenBank annotation.
 
 ## Sequence operations
 
@@ -82,7 +82,7 @@ Act on the region currently visible in the sequence viewport. Lungfish writes ou
 | Translate | Cmd-Shift-T |
 | Reverse Complement | Cmd-Shift-R |
 
-`Translate` opens a side-by-side amino acid track for the visible nucleotide range. `Reverse Complement` flips the displayed strand without modifying source files.
+`Translate` and `Reverse Complement` open the standard FASTQ/FASTA Operations dialog for the selected range. If no range is selected, the active visible sequence is used.
 
 ## Editing
 

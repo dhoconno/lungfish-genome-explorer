@@ -5,6 +5,7 @@
 import AppKit
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import os.log
 
 /// Logger for annotation drawer operations
@@ -89,6 +90,13 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             toggleAnnotationDrawer()
         } else if let index = annotationSearchIndex, !index.isBuilding {
             annotationDrawerView?.setSearchIndex(index)
+        }
+    }
+
+    func selectAnnotationInDrawer(_ annotation: SequenceAnnotation) {
+        guard let drawer = annotationDrawerView else { return }
+        if !drawer.selectAnnotation(matching: annotation) {
+            drawer.clearAnnotationSelection()
         }
     }
 
@@ -343,6 +351,240 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
     func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateAnnotationTrackDisplayState state: AnnotationTrackDisplayState) {
         viewerView.setAnnotationTrackDisplayState(state)
         viewerView.setNeedsDisplay(viewerView.bounds)
+    }
+
+    func annotationDrawer(
+        _ drawer: AnnotationTableDrawerView,
+        didRequestDeleteAnnotations annotations: [AnnotationSearchIndex.SearchResult]
+    ) {
+        let editable = annotations.filter { $0.annotationRowId != nil }
+        guard !editable.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        guard Set(editable.map(\.trackId)).count == 1 else {
+            let alert = NSAlert()
+            alert.messageText = "Choose One Annotation Track"
+            alert.informativeText = "Delete annotations from one annotation track at a time."
+            alert.alertStyle = .warning
+            if let window = view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                alert.runModal()
+            }
+            return
+        }
+        guard let bundleURL = currentBundleURL ?? viewerView.currentReferenceBundle?.url else {
+            NSSound.beep()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = editable.count == 1 ? "Delete Annotation?" : "Delete Annotations?"
+        let itemCount = editable.count == 1 ? "1 annotation" : "\(editable.count) annotations"
+        alert.informativeText = "This will permanently remove \(itemCount) from the reference bundle. Empty annotation tracks will also be removed."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: editable.count == 1 ? "Delete Annotation" : "Delete Annotations")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            DispatchQueue.main.async { MainActor.assumeIsolated {
+                self?.runAnnotationRowDeletion(bundleURL: bundleURL, annotations: editable)
+            }}
+        }
+    }
+
+    private func runAnnotationRowDeletion(
+        bundleURL: URL,
+        annotations: [AnnotationSearchIndex.SearchResult]
+    ) {
+        let rowIDsByTrack = Dictionary(grouping: annotations, by: \.trackId).mapValues { rows in
+            rows.compactMap(\.annotationRowId).sorted()
+        }.filter { !$0.value.isEmpty }
+        guard !rowIDsByTrack.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        guard rowIDsByTrack.count == 1,
+              let group = rowIDsByTrack.first else {
+            let alert = NSAlert()
+            alert.messageText = "Choose One Annotation Track"
+            alert.informativeText = "Delete annotations from one annotation track at a time."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            let alert = NSAlert()
+            alert.messageText = "Bundle Busy"
+            alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting annotations."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        func makeArguments(trackID: String, rowIDs: [Int64]) -> [String] {
+            var values = [
+                "sequence",
+                "delete-annotations",
+                bundleURL.path,
+                "--track-id",
+                trackID,
+            ]
+            for rowID in rowIDs {
+                values.append("--row-id")
+                values.append(String(rowID))
+            }
+            values.append("--quiet")
+            return values
+        }
+
+        let arguments = makeArguments(trackID: group.key, rowIDs: group.value)
+        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let deletedCount = group.value.count
+        let opID = OperationCenter.shared.start(
+            title: deletedCount == 1 ? "Delete Annotation" : "Delete Annotations",
+            detail: "Deleting \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")...",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
+            cliCommand: command
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let output = try LungfishCLIRunner.run(arguments: arguments)
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                    }
+                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                    }
+                }}
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Deleted \(deletedCount) annotation\(deletedCount == 1 ? "" : "s")"
+                    )
+                    do {
+                        try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+                    } catch {
+                        self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                    }
+                }}
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Delete Annotations failed",
+                        errorMessage: error.localizedDescription
+                    )
+                    self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotations Failed")
+                }}
+            }
+        }
+    }
+
+    func annotationDrawer(
+        _ drawer: AnnotationTableDrawerView,
+        didRequestDeleteAnnotationTrack trackID: String,
+        trackName: String
+    ) {
+        guard let bundleURL = currentBundleURL ?? viewerView.currentReferenceBundle?.url else {
+            NSSound.beep()
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete Annotation Track?"
+        alert.informativeText = "This will permanently remove the annotation track \"\(trackName)\" and its stored annotations from the reference bundle."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete Track")
+        alert.addButton(withTitle: "Cancel")
+
+        guard let window = view.window else { return }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.runAnnotationTrackDeletion(bundleURL: bundleURL, trackID: trackID, trackName: trackName)
+                }
+            }
+        }
+    }
+
+    private func runAnnotationTrackDeletion(bundleURL: URL, trackID: String, trackName: String) {
+        guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
+            let alert = NSAlert()
+            alert.messageText = "Bundle Busy"
+            alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting an annotation track."
+            alert.alertStyle = .warning
+            alert.runModal()
+            return
+        }
+
+        let arguments = [
+            "sequence",
+            "delete-annotation-track",
+            bundleURL.path,
+            "--track-id",
+            trackID,
+            "--quiet",
+        ]
+        let command = (["lungfish-cli"] + arguments).map(shellEscape).joined(separator: " ")
+        let opID = OperationCenter.shared.start(
+            title: "Delete Annotation Track",
+            detail: "Deleting \(trackName)...",
+            operationType: .bundleBuild,
+            targetBundleURL: bundleURL,
+            cliCommand: command
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let output = try LungfishCLIRunner.run(arguments: arguments)
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                    }
+                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                    }
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Deleted annotation track \(trackName)"
+                    )
+                    do {
+                        try self?.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+                    } catch {
+                        self?.presentAnnotationTrackDeletionFailure(error, title: "Reload Failed")
+                    }
+                }}
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "Delete Annotation Track failed",
+                        errorMessage: error.localizedDescription
+                    )
+                    self?.presentAnnotationTrackDeletionFailure(error, title: "Delete Annotation Track Failed")
+                }}
+            }
+        }
+    }
+
+    private func presentAnnotationTrackDeletionFailure(_ error: Error, title: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .critical
+        if let window = view.window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     public func annotationDrawer(

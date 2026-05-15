@@ -14,6 +14,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
 
     private final class DrawerDelegateSpy: AnnotationTableDrawerDelegate {
         var extractedAnnotations: [SequenceAnnotation] = []
+        var deletedAnnotations: [AnnotationSearchIndex.SearchResult] = []
         var selectedRegion: AnnotationTableDrawerSelectionRegion?
         var visibleAnnotationRenderKeys: Set<String>?
         var annotationTrackDisplayStates: [AnnotationTrackDisplayState] = []
@@ -33,6 +34,9 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         }
         func annotationDrawer(_ drawer: AnnotationTableDrawerView, didUpdateAnnotationTrackDisplayState state: AnnotationTrackDisplayState) {
             annotationTrackDisplayStates.append(state)
+        }
+        func annotationDrawer(_ drawer: AnnotationTableDrawerView, didRequestDeleteAnnotations annotations: [AnnotationSearchIndex.SearchResult]) {
+            deletedAnnotations = annotations
         }
         func annotationDrawerDidDragDivider(_ drawer: AnnotationTableDrawerView, deltaY: CGFloat) {}
         func annotationDrawerDidFinishDraggingDivider(_ drawer: AnnotationTableDrawerView) {}
@@ -202,6 +206,39 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertEqual(spy.annotationTrackDisplayStates.last?.order, ["track-b", "track-a"])
     }
 
+    func testAnnotationTrackDisplayNameChangesEmitDisplayState() {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        let spy = DrawerDelegateSpy()
+        drawer.delegate = spy
+        drawer.setAnnotations([
+            AnnotationSearchIndex.SearchResult(
+                name: "alpha",
+                chromosome: "chr1",
+                start: 10,
+                end: 30,
+                trackId: "track-a",
+                trackName: "Old Name",
+                type: "gene",
+                annotationRowId: 1
+            )
+        ])
+        drawer.setAnnotations([
+            AnnotationSearchIndex.SearchResult(
+                name: "alpha",
+                chromosome: "chr1",
+                start: 10,
+                end: 30,
+                trackId: "track-a",
+                trackName: "New Name",
+                type: "gene",
+                annotationRowId: 1
+            )
+        ])
+
+        XCTAssertEqual(drawer.debugAnnotationTrackDisplayState.displayNames["track-a"], "New Name")
+        XCTAssertEqual(spy.annotationTrackDisplayStates.last?.displayNames["track-a"], "New Name")
+    }
+
     func testViewportAnnotationPackingKeepsTracksInDisplayOrder() {
         let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
         viewer.setAnnotationTrackDisplayState(
@@ -238,6 +275,66 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let trackRows = viewer.debugPackedAnnotationTrackIDs(annotations, frame: frame)
 
         XCTAssertEqual(trackRows, ["track-b", "track-a"])
+    }
+
+    func testSameBundleReloadPreservesViewportAnnotationRowFilter() throws {
+        let viewer = SequenceViewerView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        let bundleURL = tempDir.appendingPathComponent("reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Reference",
+            identifier: "test.reference",
+            source: SourceInfo(organism: "Test", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa",
+                indexPath: "genome/sequence.fa.fai",
+                totalLength: 1_000,
+                chromosomes: [
+                    ChromosomeInfo(
+                        name: "chr1",
+                        length: 1_000,
+                        offset: 0,
+                        lineBases: 1_000,
+                        lineWidth: 1_001
+                    )
+                ]
+            )
+        )
+        let bundle = ReferenceBundle(url: bundleURL, manifest: manifest)
+        let frame = ReferenceFrame(chromosome: "chr1", start: 0, end: 1_000, pixelWidth: 800, sequenceLength: 1_000)
+        let annotations = [
+            SequenceAnnotation(
+                type: .gene,
+                name: "source-gene",
+                chromosome: "chr1",
+                start: 10,
+                end: 300,
+                qualifiers: [
+                    "annotation_db_track_id": AnnotationQualifier("source"),
+                    "annotation_db_row_id": AnnotationQualifier("1"),
+                ]
+            ),
+            SequenceAnnotation(
+                type: .orf,
+                name: "green-or f",
+                chromosome: "chr1",
+                start: 400,
+                end: 700,
+                qualifiers: [
+                    "annotation_db_track_id": AnnotationQualifier("orfs"),
+                    "annotation_db_row_id": AnnotationQualifier("2"),
+                ]
+            ),
+        ]
+
+        viewer.setReferenceBundle(bundle)
+        viewer.setLocalAnnotationRenderFilterKeys(["orfs:2"])
+        XCTAssertEqual(viewer.debugBundleDisplayAnnotationNames(annotations, frame: frame), ["green-or f"])
+
+        viewer.setReferenceBundle(bundle)
+
+        XCTAssertEqual(viewer.debugBundleDisplayAnnotationNames(annotations, frame: frame), ["green-or f"])
     }
 
     // MARK: - lookupTranslation Tests
@@ -535,10 +632,66 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         XCTAssertNotNil(extractItem)
         XCTAssertEqual(delegate.extractedAnnotations.map(\.name), ["gene-a", "gene-b"])
 
-        let deleteItem = invokeMenuItem(titled: "Delete 2 Selected Annotations", on: drawer)
+        let deleteItem = invokeMenuItem(titled: "Delete 2 Selected Annotations\u{2026}", on: drawer)
         XCTAssertNotNil(deleteItem)
-        XCTAssertFalse(drawer.selectAnnotation(named: "gene-a"))
-        XCTAssertFalse(drawer.selectAnnotation(named: "gene-b"))
+        XCTAssertEqual(delegate.deletedAnnotations.map(\.name), ["gene-a", "gene-b"])
+        XCTAssertTrue(drawer.selectAnnotation(named: "gene-a"))
+        XCTAssertTrue(drawer.selectAnnotation(named: "gene-b"))
+    }
+
+    func testAnnotationContextMenuDisablesDeleteForRowsWithoutDatabaseRowIDs() throws {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.setAnnotations([
+            AnnotationSearchIndex.SearchResult(
+                name: "summary-row",
+                chromosome: "chr1",
+                start: 10,
+                end: 30,
+                trackId: "summary",
+                type: "gene"
+            )
+        ])
+        XCTAssertTrue(drawer.selectAnnotation(named: "summary-row"))
+
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+
+        let deleteItem = findMenuItem(titled: "Delete Annotation\u{2026}", in: menu)
+        XCTAssertNotNil(deleteItem)
+        XCTAssertFalse(deleteItem?.isEnabled ?? true)
+    }
+
+    func testAnnotationContextMenuRequiresSingleTrackForRowDeletion() throws {
+        let drawer = AnnotationTableDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
+        drawer.setAnnotations([
+            AnnotationSearchIndex.SearchResult(
+                name: "a",
+                chromosome: "chr1",
+                start: 10,
+                end: 30,
+                trackId: "track-a",
+                type: "gene",
+                annotationRowId: 1
+            ),
+            AnnotationSearchIndex.SearchResult(
+                name: "b",
+                chromosome: "chr1",
+                start: 40,
+                end: 60,
+                trackId: "track-b",
+                type: "gene",
+                annotationRowId: 2
+            )
+        ])
+        XCTAssertEqual(drawer.selectAnnotations(named: ["a", "b"]), 2)
+
+        let menu = NSMenu()
+        drawer.menuNeedsUpdate(menu)
+
+        let deleteItem = findMenuItem(titled: "Delete 2 Selected Annotations\u{2026}", in: menu)
+        XCTAssertNotNil(deleteItem)
+        XCTAssertFalse(deleteItem?.isEnabled ?? true)
+        XCTAssertEqual(deleteItem?.toolTip, "Delete annotations from one annotation track at a time.")
     }
 
     func testAnnotationViewportFilterDoesNotEmitRowKeysUntilEnabled() throws {
@@ -594,7 +747,7 @@ final class AnnotationTableContextMenuTests: XCTestCase {
         let editItem = findMenuItem(titled: "Edit Annotation\u{2026}", in: menu)
         XCTAssertNotNil(editItem)
         XCTAssertTrue(editItem?.isEnabled ?? false)
-        XCTAssertNotNil(findMenuItem(titled: "Delete Annotation", in: menu))
+        XCTAssertNotNil(findMenuItem(titled: "Delete Annotation\u{2026}", in: menu))
     }
 
     func testSelectRelatedGeneFeaturesConnectsGeneExonAndCDSRows() throws {

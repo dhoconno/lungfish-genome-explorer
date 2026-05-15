@@ -681,6 +681,14 @@ public class ReferenceBundleViewportController: NSViewController {
         embeddedViewerController.localSequenceAnnotationDraftContext
     }
 
+    func currentSequenceAnnotationOperationContext() -> SequenceAnnotationDraftContext? {
+        embeddedViewerController.currentSequenceAnnotationOperationContext()
+    }
+
+    var activeSequenceViewerController: ViewerViewController {
+        embeddedViewerController
+    }
+
     func notifySequenceSelectionStateIfAvailable() {
         onSequenceSelectionStateChanged?(embeddedViewerController.currentSequenceRegionSelectionState())
     }
@@ -1027,6 +1035,9 @@ extension ReferenceBundleViewportController {
     }
     var testFilteredAlignmentServiceTarget: AlignmentFilterTarget? {
         filteredAlignmentServiceTarget
+    }
+    var testCurrentSequenceAnnotationOperationContext: SequenceAnnotationDraftContext? {
+        currentSequenceAnnotationOperationContext()
     }
 
     func testSelectContig(named name: String) {

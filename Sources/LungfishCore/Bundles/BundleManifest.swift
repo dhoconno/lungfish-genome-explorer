@@ -683,6 +683,10 @@ public enum AnnotationTrackType: String, Codable, Sendable {
     case exon
     /// CDS (coding sequence) annotations.
     case cds
+    /// Open reading frame annotations.
+    case orf
+    /// Six-frame translation annotations.
+    case translation
     /// Regulatory elements.
     case regulatory
     /// Repeat elements.
@@ -1103,6 +1107,27 @@ extension BundleManifest {
             source: source,
             genome: genome,
             annotations: annotations.filter { $0.id != id },
+            variants: variants,
+            tracks: tracks,
+            alignments: alignments,
+            metadata: metadata,
+            browserSummary: nil
+        )
+    }
+
+    /// Returns a new manifest with an existing annotation track replaced.
+    public func replacingAnnotationTrack(_ replacement: AnnotationTrackInfo) -> BundleManifest {
+        BundleManifest(
+            formatVersion: formatVersion,
+            name: name,
+            identifier: identifier,
+            description: description,
+            originBundlePath: originBundlePath,
+            createdDate: createdDate,
+            modifiedDate: Date(),
+            source: source,
+            genome: genome,
+            annotations: annotations.map { $0.id == replacement.id ? replacement : $0 },
             variants: variants,
             tracks: tracks,
             alignments: alignments,

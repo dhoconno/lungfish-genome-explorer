@@ -184,6 +184,10 @@ public final class OperationCenter: ObservableObject {
             }
         }
 
+        public var isCancellable: Bool {
+            onCancel != nil
+        }
+
         // MARK: - Byte-level progress tracking
 
         /// Total expected bytes for this operation (if known ahead of time).
@@ -462,6 +466,7 @@ public final class OperationCenter: ObservableObject {
 
     public func complete(id: UUID, detail: String, finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
@@ -487,6 +492,7 @@ public final class OperationCenter: ObservableObject {
     /// fragile callback chains through sheet controllers that get deallocated.
     public func complete(id: UUID, detail: String, bundleURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
@@ -520,6 +526,7 @@ public final class OperationCenter: ObservableObject {
     /// bundles that should be imported into the sidebar.
     public func complete(id: UUID, detail: String, outputURLs: [URL], finishedAt: Date = Date()) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].state = .completed
         items[index].progress = 1
         items[index].detail = detail
@@ -552,6 +559,7 @@ public final class OperationCenter: ObservableObject {
         finishedAt: Date = Date()
     ) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].state = .failed
         items[index].detail = detail
         items[index].errorMessage = errorMessage
@@ -566,8 +574,8 @@ public final class OperationCenter: ObservableObject {
     public func cancel(id: UUID) {
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running else { return }
-        let onCancel = items[index].onCancel
-        onCancel?()
+        guard let onCancel = items[index].onCancel else { return }
+        onCancel()
 
         guard let index = items.firstIndex(where: { $0.id == id }),
               items[index].state == .running else { return }

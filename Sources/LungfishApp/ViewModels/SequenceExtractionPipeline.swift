@@ -64,6 +64,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
     public func buildBundle(
         from result: LungfishCore.ExtractionResult,
         outputDirectory: URL,
+        sourceBundleURL: URL? = nil,
         sourceBundleName: String? = nil,
         desiredBundleName: String? = nil,
         sourceBundleChromosomes: [ChromosomeInfo] = [],
@@ -74,6 +75,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> URL {
         let fileManager = FileManager.default
+        let startedAt = Date()
 
         progressHandler?(0.05, "Checking tools...")
         try await BundleBuildHelpers.validateTools(using: toolRunner)
@@ -134,11 +136,18 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         try fileManager.createDirectory(at: genomeDir, withIntermediateDirectories: true)
 
         // Move files into bundle
-        try fileManager.moveItem(at: compressedFASTA, to: genomeDir.appendingPathComponent("sequence.fa.gz"))
-        try fileManager.moveItem(at: faiURL, to: genomeDir.appendingPathComponent("sequence.fa.gz.fai"))
+        let bundleFASTAURL = genomeDir.appendingPathComponent("sequence.fa.gz")
+        let bundleFAIURL = genomeDir.appendingPathComponent("sequence.fa.gz.fai")
+        let bundleGZIURL = genomeDir.appendingPathComponent("sequence.fa.gz.gzi")
+        try fileManager.moveItem(at: compressedFASTA, to: bundleFASTAURL)
+        try fileManager.moveItem(at: faiURL, to: bundleFAIURL)
         let hasGzi = fileManager.fileExists(atPath: gziURL.path)
         if hasGzi {
-            try fileManager.moveItem(at: gziURL, to: genomeDir.appendingPathComponent("sequence.fa.gz.gzi"))
+            try fileManager.moveItem(at: gziURL, to: bundleGZIURL)
+        }
+        var provenanceOutputURLs = [bundleFASTAURL, bundleFAIURL]
+        if hasGzi {
+            provenanceOutputURLs.append(bundleGZIURL)
         }
 
         // Extract annotations from source bundle
@@ -206,6 +215,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
                     let dbURL = annotationsDir.appendingPathComponent(dbFilename)
                     let dbRecordCount = try AnnotationDatabase.createFromBED(bedURL: bedURL, outputURL: dbURL)
                     guard dbRecordCount > 0 else { continue }
+                    provenanceOutputURLs.append(dbURL)
 
                     let relativePath = "annotations/\(dbFilename)"
                     annotationTracks.append(AnnotationTrackInfo(
@@ -260,6 +270,7 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
                         try? fileManager.removeItem(at: dbURL)
                         continue
                     }
+                    provenanceOutputURLs.append(dbURL)
 
                     let relativePath = "variants/\(dbFilename)"
                     variantTracks.append(VariantTrackInfo(
@@ -324,10 +335,293 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         )
 
         try manifest.save(to: bundleURL)
+        let manifestURL = bundleURL.appendingPathComponent("manifest.json")
+        provenanceOutputURLs.append(manifestURL)
+
+        progressHandler?(0.96, "Writing provenance...")
+        let completedAt = Date()
+        do {
+            try Self.writeProvenance(
+                result: result,
+                bundleURL: bundleURL,
+                sourceBundleURL: sourceBundleURL,
+                sourceBundleName: sourceBundleName,
+                desiredBundleName: desiredBundleName,
+                sourceAnnotationTracks: sourceAnnotationTracks,
+                sourceVariantTracks: sourceVariantTracks,
+                sampleFilter: sampleFilter,
+                isConcatenated: isConcatenated,
+                outputURLs: provenanceOutputURLs,
+                startedAt: startedAt,
+                completedAt: completedAt
+            )
+        } catch {
+            try? fileManager.removeItem(at: bundleURL)
+            throw error
+        }
 
         progressHandler?(1.0, "Bundle ready: \(bundleURL.lastPathComponent)")
         extractionLogger.info("buildBundle: Bundle complete at \(bundleURL.path, privacy: .public)")
         return bundleURL
+    }
+
+    private static func writeProvenance(
+        result: LungfishCore.ExtractionResult,
+        bundleURL: URL,
+        sourceBundleURL: URL?,
+        sourceBundleName: String?,
+        desiredBundleName: String?,
+        sourceAnnotationTracks: [SourceAnnotationTrack],
+        sourceVariantTracks: [SourceVariantTrack],
+        sampleFilter: Set<String>?,
+        isConcatenated: Bool,
+        outputURLs: [URL],
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let argv = extractionProvenanceArguments(
+            result: result,
+            bundleURL: bundleURL,
+            sourceBundleURL: sourceBundleURL,
+            sourceBundleName: sourceBundleName,
+            desiredBundleName: desiredBundleName,
+            sampleFilter: sampleFilter,
+            isConcatenated: isConcatenated
+        )
+        let inputDescriptors = try provenanceInputDescriptors(
+            sourceBundleURL: sourceBundleURL,
+            sourceAnnotationTracks: sourceAnnotationTracks,
+            sourceVariantTracks: sourceVariantTracks
+        )
+        let outputDescriptors = try outputURLs.map {
+            try ProvenanceFileDescriptor.file(
+                url: $0,
+                format: provenanceFormat(for: $0),
+                role: provenanceOutputRole(for: $0)
+            )
+        }
+        let step = ProvenanceStep(
+            toolName: "lungfish gui sequence extraction",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            stderr: nil,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "lungfish gui sequence extraction",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "lungfish gui sequence extraction",
+            toolVersion: WorkflowRun.currentAppVersion
+        )
+        .argv(argv)
+        .reproducibleCommand(argv.map(shellEscape).joined(separator: " "))
+        .options(
+            explicit: extractionExplicitOptions(
+                result: result,
+                sourceBundleURL: sourceBundleURL,
+                sourceBundleName: sourceBundleName,
+                desiredBundleName: desiredBundleName,
+                sampleFilter: sampleFilter,
+                isConcatenated: isConcatenated
+            ),
+            defaults: [
+                "reverse_complement": .boolean(false),
+                "concatenate_exons": .boolean(false),
+                "sample_filter": .array([]),
+            ],
+            resolved: extractionResolvedOptions(
+                result: result,
+                bundleURL: bundleURL,
+                sourceBundleURL: sourceBundleURL,
+                sourceBundleName: sourceBundleName,
+                desiredBundleName: desiredBundleName,
+                sampleFilter: sampleFilter,
+                isConcatenated: isConcatenated
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(step)
+        .complete(exitStatus: 0, stderr: nil, startedAt: startedAt, endedAt: completedAt)
+
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private static func extractionProvenanceArguments(
+        result: LungfishCore.ExtractionResult,
+        bundleURL: URL,
+        sourceBundleURL: URL?,
+        sourceBundleName: String?,
+        desiredBundleName: String?,
+        sampleFilter: Set<String>?,
+        isConcatenated: Bool
+    ) -> [String] {
+        var argv = [
+            "lungfish-gui",
+            "sequence",
+            "extract-bundle",
+        ]
+        if let sourceBundleURL {
+            argv += ["--source-bundle", sourceBundleURL.path]
+        }
+        if let sourceBundleName, !sourceBundleName.isEmpty {
+            argv += ["--source-name", sourceBundleName]
+        }
+        argv += [
+            "--chromosome", result.chromosome,
+            "--start", String(result.effectiveStart),
+            "--end", String(result.effectiveEnd),
+        ]
+        if result.isReverseComplement {
+            argv.append("--reverse-complement")
+        }
+        if isConcatenated {
+            argv.append("--concatenate-exons")
+        }
+        if let desiredBundleName, !desiredBundleName.isEmpty {
+            argv += ["--name", desiredBundleName]
+        }
+        if let sampleFilter, !sampleFilter.isEmpty {
+            argv += ["--samples", sampleFilter.sorted().joined(separator: ",")]
+        }
+        argv += ["--output", bundleURL.path]
+        return argv
+    }
+
+    private static func extractionExplicitOptions(
+        result: LungfishCore.ExtractionResult,
+        sourceBundleURL: URL?,
+        sourceBundleName: String?,
+        desiredBundleName: String?,
+        sampleFilter: Set<String>?,
+        isConcatenated: Bool
+    ) -> [String: ParameterValue] {
+        [
+            "operation": .string("sequence-extraction"),
+            "source_name": .string(result.sourceName),
+            "source_bundle": sourceBundleURL.map(ParameterValue.file) ?? .null,
+            "source_bundle_name": sourceBundleName.map(ParameterValue.string) ?? .null,
+            "bundle_name": desiredBundleName.map(ParameterValue.string) ?? .string(result.sourceName),
+            "reverse_complement": .boolean(result.isReverseComplement),
+            "concatenate_exons": .boolean(isConcatenated),
+            "sample_filter": .array((sampleFilter ?? []).sorted().map { .string($0) }),
+        ]
+    }
+
+    private static func extractionResolvedOptions(
+        result: LungfishCore.ExtractionResult,
+        bundleURL: URL,
+        sourceBundleURL: URL?,
+        sourceBundleName: String?,
+        desiredBundleName: String?,
+        sampleFilter: Set<String>?,
+        isConcatenated: Bool
+    ) -> [String: ParameterValue] {
+        [
+            "operation": .string("sequence-extraction"),
+            "source_name": .string(result.sourceName),
+            "source_bundle": sourceBundleURL.map(ParameterValue.file) ?? .null,
+            "source_bundle_name": sourceBundleName.map(ParameterValue.string) ?? .null,
+            "bundle_name": desiredBundleName.map(ParameterValue.string) ?? .string(result.sourceName),
+            "output_bundle": .file(bundleURL),
+            "chromosome": .string(result.chromosome),
+            "start": .integer(result.effectiveStart),
+            "end": .integer(result.effectiveEnd),
+            "coordinate_system": .string("0-based half-open"),
+            "reverse_complement": .boolean(result.isReverseComplement),
+            "concatenate_exons": .boolean(isConcatenated),
+            "sample_filter": .array((sampleFilter ?? []).sorted().map { .string($0) }),
+        ]
+    }
+
+    private static func provenanceInputDescriptors(
+        sourceBundleURL: URL?,
+        sourceAnnotationTracks: [SourceAnnotationTrack],
+        sourceVariantTracks: [SourceVariantTrack]
+    ) throws -> [ProvenanceFileDescriptor] {
+        var inputURLs: [URL] = []
+        if let sourceBundleURL {
+            inputURLs.append(contentsOf: sourceBundleInputURLs(sourceBundleURL))
+        }
+        inputURLs.append(contentsOf: sourceAnnotationTracks.map(\.databaseURL))
+        inputURLs.append(contentsOf: sourceVariantTracks.map(\.databaseURL))
+
+        var seen = Set<String>()
+        var descriptors: [ProvenanceFileDescriptor] = []
+        for url in inputURLs {
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path) else { continue }
+            guard seen.insert(standardized.path).inserted else { continue }
+            descriptors.append(try ProvenanceFileDescriptor.file(
+                url: standardized,
+                format: provenanceFormat(for: standardized),
+                role: provenanceInputRole(for: standardized)
+            ))
+        }
+        return descriptors
+    }
+
+    private static func sourceBundleInputURLs(_ sourceBundleURL: URL) -> [URL] {
+        var urls = [sourceBundleURL.appendingPathComponent("manifest.json")]
+        guard let manifest = try? BundleManifest.load(from: sourceBundleURL),
+              let genome = manifest.genome else {
+            return urls
+        }
+        urls.append(sourceBundleURL.appendingPathComponent(genome.path))
+        urls.append(sourceBundleURL.appendingPathComponent(genome.indexPath))
+        if let gzipIndexPath = genome.gzipIndexPath {
+            urls.append(sourceBundleURL.appendingPathComponent(gzipIndexPath))
+        }
+        return urls
+    }
+
+    private static func provenanceInputRole(for url: URL) -> FileRole {
+        switch url.pathExtension.lowercased() {
+        case "fai", "gzi":
+            return .index
+        default:
+            return .input
+        }
+    }
+
+    private static func provenanceOutputRole(for url: URL) -> FileRole {
+        switch url.pathExtension.lowercased() {
+        case "fai", "gzi":
+            return .index
+        default:
+            return .output
+        }
+    }
+
+    private static func provenanceFormat(for url: URL) -> FileFormat {
+        let filename = url.lastPathComponent.lowercased()
+        switch url.pathExtension.lowercased() {
+        case "bed":
+            return .bed
+        case "json":
+            return .json
+        case "fai", "gzi", "txt":
+            return .text
+        case "fa", "fasta", "fna", "ffn", "faa", "fas":
+            return .fasta
+        case "gz" where filename.hasSuffix(".fa.gz")
+            || filename.hasSuffix(".fasta.gz")
+            || filename.hasSuffix(".fna.gz")
+            || filename.hasSuffix(".ffn.gz")
+            || filename.hasSuffix(".faa.gz")
+            || filename.hasSuffix(".fas.gz"):
+            return .fasta
+        case "db":
+            return .unknown
+        default:
+            return .unknown
+        }
     }
 
     /// Resolves variant-track chromosome aliases for extraction.

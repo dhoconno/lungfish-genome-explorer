@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 @MainActor
 final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
@@ -58,6 +59,99 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
         XCTAssertEqual(manifest.annotations.count, 1)
         XCTAssertEqual(manifest.annotations.first?.databasePath, "annotations/m1.db")
         XCTAssertEqual(result.featureCount, 1)
+    }
+
+    func testAttachesAnnotationTrackWithUserProvidedTrackIDAndName() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let bedURL = tempRoot.appendingPathComponent("source_annotations.bed")
+        try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+
+        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedURL,
+            bundleURL: bundleURL,
+            trackID: "curated_orfs",
+            trackName: "Curated ORFs"
+        )
+
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let track = try XCTUnwrap(manifest.annotations.first)
+        XCTAssertEqual(track.id, "curated_orfs")
+        XCTAssertEqual(track.name, "Curated ORFs")
+        XCTAssertEqual(track.databasePath, "annotations/curated_orfs.db")
+        XCTAssertEqual(result.track.id, "curated_orfs")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("annotations/curated_orfs.db").path
+        ))
+
+        let provenanceURL = bundleURL
+            .appendingPathComponent("annotations/curated_orfs-import-provenance.json")
+        let provenance = try String(contentsOf: provenanceURL, encoding: .utf8)
+        XCTAssertTrue(provenance.contains("\"trackID\" : \"curated_orfs\""))
+        XCTAssertTrue(provenance.contains("\"trackName\" : \"Curated ORFs\""))
+    }
+
+    func testAnnotationImportRehydratesSourceCLIProvenanceToFinalDatabasePayload() async throws {
+        let bundleURL = try makeBundle(named: "M1")
+        let inputURL = tempRoot.appendingPathComponent("source-input.txt")
+        try "source\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        let bedURL = tempRoot.appendingPathComponent("cli_annotations.bed")
+        try "chr1\t1\t12\tgeneA\t0\t+\n".write(to: bedURL, atomically: true, encoding: .utf8)
+        let sourceSidecarURL = ProvenanceRecorder.fileSidecarURL(for: bedURL)
+        let startedAt = Date()
+        let completedAt = startedAt.addingTimeInterval(1)
+        let sourceStep = try ProvenanceStep(
+            toolName: "lungfish-cli annotation export",
+            toolVersion: "test",
+            argv: ["lungfish-cli", "test-export", bedURL.path],
+            inputs: [
+                ProvenanceFileDescriptor.file(url: inputURL, format: .text, role: .input)
+            ],
+            outputs: [
+                ProvenanceFileDescriptor.file(url: bedURL, format: .bed, role: .output)
+            ],
+            exitStatus: 0,
+            wallTimeSeconds: 1,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let sourceEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI BED export",
+            workflowVersion: "test",
+            toolName: "lungfish-cli annotation export",
+            toolVersion: "test"
+        )
+        .argv(["lungfish-cli", "test-export", bedURL.path])
+        .options(explicit: ["format": .string("bed")], defaults: [:], resolved: ["format": .string("bed")])
+        .runtime(ProvenanceRuntimeIdentity())
+        .step(sourceStep)
+        .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
+        try ProvenanceWriter(signingProvider: nil).write(sourceEnvelope, toSidecar: sourceSidecarURL)
+
+        let result = try await ReferenceBundleAnnotationImportService().attachAnnotationTrack(
+            sourceURL: bedURL,
+            bundleURL: bundleURL,
+            trackID: "cli_import",
+            trackName: "CLI Import"
+        )
+
+        let dbURL = bundleURL.appendingPathComponent("annotations/cli_import.db")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dbURL.path))
+        XCTAssertEqual(result.featureCount, 1)
+
+        let dbSidecarURL = bundleURL.appendingPathComponent("provenance/annotations/cli_import.db.lungfish-provenance.json")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: dbSidecarURL))
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish-cli annotation export" })
+        XCTAssertTrue(envelope.steps.contains { $0.toolName == "lungfish annotation track import" })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == dbURL.path })
+        let rehydratedOutput = envelope.steps
+            .first { $0.toolName == "lungfish-cli annotation export" }?
+            .outputs
+            .first { $0.path == dbURL.path }
+        XCTAssertEqual(rehydratedOutput?.originPath, bedURL.path)
+        XCTAssertEqual(rehydratedOutput?.sourceProvenancePath, sourceSidecarURL.path)
+        let importStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "lungfish annotation track import" })
+        XCTAssertTrue(importStep.inputs.contains { $0.path == bedURL.path })
+        XCTAssertTrue(importStep.outputs.contains { $0.path == dbURL.path })
     }
 
     func testAttachesCustomGFFTypeAndWritesProvenance() async throws {

@@ -67,13 +67,28 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
         )
 
         let outputTrackName = normalizedOutputTrackName(request.outputTrackName)
-        let outputTrackID = normalizedTrackID(trackIDProvider(outputTrackName))
+        let outputTrackID: String
+        do {
+            outputTrackID = try resolveAnnotationOutputTrackID(
+                explicitID: request.outputTrackID,
+                generatedID: trackIDProvider(outputTrackName)
+            )
+        } catch AnnotationOutputTrackIDResolutionError.invalid(let id) {
+            throw CDSBestAnnotationServiceError.invalidOutputTrackID(id)
+        }
         let relativeDatabasePath = "annotations/\(outputTrackID).db"
         let databaseURL = outputBundleURL.appendingPathComponent(relativeDatabasePath)
 
         var manifest = try BundleManifest.load(from: outputBundleURL)
-        let existingTracks = manifest.annotations.filter { $0.id == outputTrackID || $0.name == outputTrackName }
+        let existingTracks = manifest.annotations.filter {
+            annotationOutputTrackMatches($0, id: outputTrackID, name: outputTrackName)
+        }
         if !existingTracks.isEmpty && !request.replaceExisting {
+            throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
+        }
+        if existingTracks.isEmpty,
+           !request.replaceExisting,
+           annotationArtifactExistsCaseInsensitive(databaseURL) {
             throw CDSBestAnnotationServiceError.outputTrackExists(outputTrackName)
         }
         if request.replaceExisting {
@@ -553,17 +568,6 @@ public final class CDSBestAnnotationService: @unchecked Sendable {
     private func normalizedOutputTrackName(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "CDS Best Matches" : trimmed
-    }
-
-    private func normalizedTrackID(_ value: String) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedScalars = trimmed.unicodeScalars.map { scalar -> UnicodeScalar in
-            CharacterSet.alphanumerics.contains(scalar) || scalar == "_" || scalar == "-"
-                ? scalar
-                : "_"
-        }
-        let normalized = String(String.UnicodeScalarView(normalizedScalars))
-        return normalized.isEmpty ? "ann_\(String(UUID().uuidString.prefix(8)))" : normalized
     }
 
     private func rawSAMFlag(in line: String) -> UInt16? {

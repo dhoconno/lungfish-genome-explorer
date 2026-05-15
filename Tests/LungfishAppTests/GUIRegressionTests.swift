@@ -41,10 +41,8 @@ final class GUIRegressionTests: XCTestCase {
             "Mapping…",
             "Assembly…",
             "Classification…",
-            "Lineage Demixing",
-            "",
-            "Reverse Complement Selection",
-            "Translate Selection…",
+            "Reverse Complement\u{2026}",
+            "Translate…",
         ])
 
         let toolTitles = toolsMenu.items.map(\.title)
@@ -622,14 +620,15 @@ final class OperationsPanelTests: XCTestCase {
             "Operations should have more than 2 possible states")
     }
 
-    func testOperationsMenuRunningRowsAreStatusItems() throws {
+    func testOperationsMenuRunningRowsCancelTheRepresentedOperation() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
         let operationID = OperationCenter.shared.start(
             title: "Reference download",
             detail: "Downloading",
-            operationType: .download
+            operationType: .download,
+            onCancel: {}
         )
         defer {
             OperationCenter.shared.cancel(id: operationID)
@@ -642,10 +641,52 @@ final class OperationsPanelTests: XCTestCase {
         OperationsMenuDelegate.shared.menuNeedsUpdate(operationsMenu)
 
         let statusItem = try XCTUnwrap(operationsMenu.items.first)
-        XCTAssertEqual(statusItem.title, "Reference download (0%)")
+        XCTAssertEqual(statusItem.title, "Cancel Reference download… (0%)")
+        XCTAssertEqual(statusItem.action, #selector(OperationsMenuActions.cancelOperation(_:)))
+        XCTAssertTrue(statusItem.isEnabled)
+        XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
+    }
+
+    func testOperationsMenuRunningRowsWithoutCancelCallbacksAreStatusItems() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let operationID = OperationCenter.shared.start(
+            title: "Find ORFs",
+            detail: "Running",
+            operationType: .bundleBuild
+        )
+        defer {
+            OperationCenter.shared.fail(id: operationID, detail: "cleanup")
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let mainMenu = MainMenu.createMainMenu()
+        let operationsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Operations" }?.submenu)
+
+        OperationsMenuDelegate.shared.menuNeedsUpdate(operationsMenu)
+
+        let statusItem = try XCTUnwrap(operationsMenu.items.first)
+        XCTAssertEqual(statusItem.title, "Find ORFs (0%)")
         XCTAssertNil(statusItem.action)
         XCTAssertFalse(statusItem.isEnabled)
-        XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
+    }
+
+    func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() {
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
+        let operationID = OperationCenter.shared.start(
+            title: "Reference download",
+            detail: "Downloading",
+            operationType: .download,
+            onCancel: {}
+        )
+        OperationCenter.shared.cancel(id: operationID)
+
+        OperationCenter.shared.complete(id: operationID, detail: "Complete after cancellation")
+
+        XCTAssertEqual(OperationCenter.shared.items.first { $0.id == operationID }?.state, .cancelled)
+        OperationCenter.shared.clearCompleted()
     }
 
     func testOperationsPanelHasOutputFileExpansionSection() throws {

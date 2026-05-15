@@ -150,7 +150,9 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         annotationHeight = try container.decode(Double.self, forKey: .annotationHeight)
         annotationSpacing = try container.decode(Double.self, forKey: .annotationSpacing)
         showAnnotations = try container.decode(Bool.self, forKey: .showAnnotations)
-        visibleAnnotationTypes = try container.decodeIfPresent(Set<AnnotationType>.self, forKey: .visibleAnnotationTypes)
+        visibleAnnotationTypes = Self.migrateVisibleAnnotationTypes(
+            try container.decodeIfPresent(Set<AnnotationType>.self, forKey: .visibleAnnotationTypes)
+        )
         annotationFilterText = try container.decodeIfPresent(String.self, forKey: .annotationFilterText) ?? ""
         showVariants = try container.decode(Bool.self, forKey: .showVariants)
         visibleVariantTypes = try container.decodeIfPresent(Set<String>.self, forKey: .visibleVariantTypes)
@@ -161,6 +163,19 @@ public struct BundleViewState: Codable, Sendable, Equatable {
         lastChromosome = try container.decodeIfPresent(String.self, forKey: .lastChromosome)
         lastOrigin = try container.decodeIfPresent(Double.self, forKey: .lastOrigin)
         lastScale = try container.decodeIfPresent(Double.self, forKey: .lastScale)
+    }
+
+    private static func migrateVisibleAnnotationTypes(_ types: Set<AnnotationType>?) -> Set<AnnotationType>? {
+        guard var types else { return nil }
+
+        let legacyAllVisibleBeforeSequenceAnnotations = Set(AnnotationType.allCases)
+            .subtracting([.orf, .translation])
+        if legacyAllVisibleBeforeSequenceAnnotations.isSubset(of: types) {
+            types.insert(.orf)
+            types.insert(.translation)
+        }
+
+        return types
     }
 }
 

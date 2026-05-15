@@ -59,6 +59,42 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         }
     }
 
+    public func reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: URL) throws {
+        let previousFrame = referenceFrame
+        let context = try loadBundleDisplayContext(at: bundleURL)
+        try displayBundleSequence(
+            preferredSequenceName: previousFrame?.chromosome,
+            context: context,
+            installChromosomeNavigator: false,
+            restoreViewState: false
+        )
+
+        if let previousFrame,
+           let chromosome = context.provider.chromosomeInfo(named: previousFrame.chromosome) {
+            let chromosomeLength = Int(chromosome.length)
+            let start = max(0, min(previousFrame.start, Double(max(0, chromosomeLength - 1))))
+            let end = max(start + 1, min(previousFrame.end, Double(max(1, chromosomeLength))))
+            referenceFrame = ReferenceFrame(
+                chromosome: chromosome.name,
+                start: start,
+                end: end,
+                pixelWidth: max(previousFrame.pixelWidth, max(800, Int(viewerView.bounds.width))),
+                sequenceLength: chromosomeLength
+            )
+            enhancedRulerView.referenceFrame = referenceFrame
+        }
+
+        let index = AnnotationSearchIndex()
+        index.buildIndex(bundle: context.bundle, chromosomes: context.chromosomes)
+        annotationSearchIndex = index
+        annotationDrawerView?.setSearchIndex(index)
+        viewerView.invalidateAnnotationTile()
+        viewerView.setNeedsDisplay(viewerView.bounds)
+        enhancedRulerView.setNeedsDisplay(enhancedRulerView.bounds)
+        headerView.setNeedsDisplay(headerView.bounds)
+        updateStatusBar()
+    }
+
     private func loadBundleDisplayContext(at url: URL) throws -> BundleDisplayContext {
         bundleLogger.info("displayBundle: Opening bundle at '\(url.lastPathComponent, privacy: .public)'")
 

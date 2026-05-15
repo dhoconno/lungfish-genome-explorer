@@ -217,14 +217,14 @@ final class PluginRegistryTests: XCTestCase {
         XCTAssertGreaterThan(registry.allPlugins.count, 0, "Should load at least one built-in plugin")
     }
 
-    /// The expected number of built-in plugins is 6 (per source code).
-    func testBuiltInPluginCountIsSix() {
+    /// The expected number of active built-in plugins excludes deferred restriction-site search.
+    func testBuiltInPluginCountExcludesDeferredRestrictionSiteSearch() {
         let registry = PluginRegistry.shared
         registry.loadBuiltInPlugins()
         XCTAssertEqual(
-            registry.allPlugins.count, 6,
-            "Expected 6 built-in plugins: ReverseComplement, Translation, "
-            + "SequenceStatistics, PatternSearch, ORFFinder, RestrictionSiteFinder"
+            registry.allPlugins.count, 5,
+            "Expected 5 active built-in plugins: ReverseComplement, Translation, "
+            + "SequenceStatistics, PatternSearch, ORFFinder"
         )
     }
 
@@ -301,7 +301,7 @@ final class PluginRegistryTests: XCTestCase {
         )
     }
 
-    /// annotationTools category should be active (has ORFFinder, RestrictionSiteFinder).
+    /// annotationTools category should be active (has ORFFinder; restriction-site search is deferred).
     func testAnnotationToolsCategoryIsActive() {
         let registry = PluginRegistry.shared
         registry.loadBuiltInPlugins()
@@ -337,7 +337,7 @@ final class PluginRegistryTests: XCTestCase {
         XCTAssertNotNil(translatePlugin, "Translation operation plugin should be found")
     }
 
-    /// annotationPlugins should contain ORFFinder and RestrictionSiteFinder.
+    /// annotationPlugins should contain ORFFinder, while deferred restriction-site search stays hidden.
     func testAnnotationPluginsArrayPopulated() {
         let registry = PluginRegistry.shared
         registry.loadBuiltInPlugins()
@@ -346,7 +346,7 @@ final class PluginRegistryTests: XCTestCase {
         let orfPlugin = registry.annotationPlugin(withId: "com.lungfish.orf-finder")
         XCTAssertNotNil(orfPlugin, "ORFFinder annotation plugin should be found")
         let restrictionPlugin = registry.annotationPlugin(withId: "com.lungfish.restriction-finder")
-        XCTAssertNotNil(restrictionPlugin, "RestrictionSiteFinder annotation plugin should be found")
+        XCTAssertNil(restrictionPlugin, "RestrictionSiteFinder must remain deferred until it has a CLI-backed workflow")
     }
 
     // MARK: - Unregister

@@ -83,6 +83,17 @@ struct BAMCommand: AsyncParsableCommand {
     }
 }
 
+private func trimmedOptionalTrackID(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+private func isPortableAnnotationTrackID(_ value: String) -> Bool {
+    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+    return !value.isEmpty && value.unicodeScalars.allSatisfy { allowed.contains($0) }
+}
+
 extension BAMCommand {
     struct AnnotateSubcommand: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
@@ -112,6 +123,9 @@ extension BAMCommand {
 
         @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
         var outputTrackName: String
+
+        @Option(name: .customLong("output-track-id"), help: "Annotation track ID. Defaults to a generated portable ID.")
+        var outputTrackID: String?
 
         @Flag(name: .customLong("primary-only"), help: "Skip secondary and supplementary alignments")
         var primaryOnly: Bool = false
@@ -146,6 +160,10 @@ extension BAMCommand {
             }
             if trimmedValue(outputTrackName).isEmpty {
                 throw ValidationError("--output-track-name must not be empty.")
+            }
+            if let outputTrackID = normalizedOutputTrackID(),
+               !isPortableAnnotationTrackID(outputTrackID) {
+                throw ValidationError("--output-track-id may only contain letters, numbers, underscores, and hyphens.")
             }
         }
 
@@ -260,6 +278,7 @@ extension BAMCommand {
                 bundleURL: URL(fileURLWithPath: trimmedValue(bundlePath)),
                 sourceTrackID: trimmedValue(alignmentTrackID),
                 outputTrackName: normalizedOutputTrackName(),
+                outputTrackID: normalizedOutputTrackID(),
                 primaryOnly: primaryOnly,
                 includeSequence: includeSequence,
                 includeQualities: includeQualities,
@@ -269,6 +288,10 @@ extension BAMCommand {
 
         private func normalizedOutputTrackName() -> String {
             trimmedValue(outputTrackName)
+        }
+
+        private func normalizedOutputTrackID() -> String? {
+            trimmedOptionalTrackID(outputTrackID)
         }
 
         private func trimmedValue(_ value: String) -> String {
@@ -377,6 +400,9 @@ extension BAMCommand {
         @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
         var outputTrackName: String
 
+        @Option(name: .customLong("output-track-id"), help: "Annotation track ID. Defaults to a generated portable ID.")
+        var outputTrackID: String?
+
         @Flag(name: .customLong("primary-only"), help: "Skip secondary and supplementary alignments")
         var primaryOnly: Bool = false
 
@@ -407,6 +433,10 @@ extension BAMCommand {
             }
             if trimmedValue(outputTrackName).isEmpty {
                 throw ValidationError("--output-track-name must not be empty.")
+            }
+            if let outputTrackID = normalizedOutputTrackID(),
+               !isPortableAnnotationTrackID(outputTrackID) {
+                throw ValidationError("--output-track-id may only contain letters, numbers, underscores, and hyphens.")
             }
         }
 
@@ -522,6 +552,7 @@ extension BAMCommand {
                 mappingResultURL: URL(fileURLWithPath: trimmedValue(mappingResultPath)),
                 outputBundleURL: URL(fileURLWithPath: trimmedValue(outputBundlePath)),
                 outputTrackName: normalizedOutputTrackName(),
+                outputTrackID: normalizedOutputTrackID(),
                 primaryOnly: primaryOnly,
                 replaceExisting: replaceExisting
             )
@@ -529,6 +560,10 @@ extension BAMCommand {
 
         private func normalizedOutputTrackName() -> String {
             trimmedValue(outputTrackName)
+        }
+
+        private func normalizedOutputTrackID() -> String? {
+            trimmedOptionalTrackID(outputTrackID)
         }
 
         private func trimmedValue(_ value: String) -> String {
@@ -636,6 +671,9 @@ extension BAMCommand {
         @Option(name: .customLong("output-track-name"), help: "Display name for the annotation track")
         var outputTrackName: String
 
+        @Option(name: .customLong("output-track-id"), help: "Annotation track ID. Defaults to a generated portable ID.")
+        var outputTrackID: String?
+
         @Flag(name: .customLong("include-secondary"), help: "Use secondary alignments as candidate duplicated loci")
         var includeSecondary: Bool = false
 
@@ -672,6 +710,10 @@ extension BAMCommand {
             }
             if trimmedValue(outputTrackName).isEmpty {
                 throw ValidationError("--output-track-name must not be empty.")
+            }
+            if let outputTrackID = normalizedOutputTrackID(),
+               !isPortableAnnotationTrackID(outputTrackID) {
+                throw ValidationError("--output-track-id may only contain letters, numbers, underscores, and hyphens.")
             }
             if !(0...1).contains(minimumQueryCoverage) {
                 throw ValidationError("--min-query-cover must be between 0 and 1.")
@@ -794,6 +836,7 @@ extension BAMCommand {
                 mappingResultURL: URL(fileURLWithPath: trimmedValue(mappingResultPath)),
                 outputBundleURL: URL(fileURLWithPath: trimmedValue(outputBundlePath)),
                 outputTrackName: normalizedOutputTrackName(),
+                outputTrackID: normalizedOutputTrackID(),
                 includeSecondary: includeSecondary,
                 includeSupplementary: includeSupplementary,
                 minimumQueryCoverage: minimumQueryCoverage,
@@ -803,6 +846,10 @@ extension BAMCommand {
 
         private func normalizedOutputTrackName() -> String {
             trimmedValue(outputTrackName)
+        }
+
+        private func normalizedOutputTrackID() -> String? {
+            trimmedOptionalTrackID(outputTrackID)
         }
 
         private func trimmedValue(_ value: String) -> String {

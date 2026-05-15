@@ -11,7 +11,6 @@ entry_points:
   - "Sequence > Extract Visible Region (Cmd-Shift-E)"
   - "Sequence > Copy Visible Region as FASTA (Cmd-Shift-C)"
   - "Sequence > Find ORFs"
-  - "Sequence > Find Restriction Sites"
 shots: []
 planned_shots:
   - id: extract-region-dialog
@@ -26,9 +25,9 @@ lead_approved: false
 
 ## What it is
 
-Working with a reference genome often means working with one piece of it. You may want to clone the spike gene, design a primer in a 200-base window, or scan a contig for every open reading frame above 100 codons. Lungfish handles all three from the `Sequence` menu of an open sequence viewport.
+Working with a reference genome often means working with one piece of it. You may want to clone the spike gene, design a primer in a 200-base window, or scan a contig for every open reading frame above 100 codons. Lungfish handles these from the `Sequence` menu of an open sequence viewport.
 
-The operations split into two groups. The first group produces output: extract a visible range as a new reference bundle, or copy a visible range to the clipboard as FASTA. The second group annotates the active sequence in place: find ORFs, find restriction sites, reverse-complement the view, or translate a coding range. None of these run as background operations. They complete synchronously, in the same window, on the sequence you can see.
+The operations split into two groups. The first group produces output: extract a visible range as a new reference bundle, copy a visible range to the clipboard as FASTA, reverse-complement a selected range, or translate it through the standard FASTQ/FASTA Operations dialog. The second group annotates the active reference bundle in place: Find ORFs adds an ORF track with translated products and provenance.
 
 These are single-sequence operations. They do not align two sequences against each other and they do not build a multiple-sequence alignment. For those workflows see the [MSAs and Trees](04-msa-and-trees.md) chapter.
 
@@ -36,7 +35,7 @@ So what should you do with this? Treat the `Sequence` menu as your bench-side to
 
 ## What you will learn
 
-By the end of this chapter you will be able to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs and restriction sites and add them as annotation tracks, and use the resulting tracks to navigate the sequence.
+By the end of this chapter you will be able to select a region of a sequence, extract it as a new bundle, copy a region as FASTA for pasting elsewhere, find ORFs with translated products, and use the resulting tracks to navigate the sequence.
 
 ## The operations at a glance
 
@@ -45,9 +44,8 @@ By the end of this chapter you will be able to select a region of a sequence, ex
 | Extract Visible Region | `Sequence > Extract Visible Region` | `Cmd-Shift-E` | New `.lungfishref` bundle |
 | Copy Visible Region as FASTA | `Sequence > Copy Visible Region as FASTA` | `Cmd-Shift-C` | Clipboard text |
 | Find ORFs | `Sequence > Find ORFs` | none | ORF annotation track |
-| Find Restriction Sites | `Sequence > Find Restriction Sites` | none | Restriction-site track |
-| Reverse Complement | `Sequence > Reverse Complement` | `Cmd-Shift-R` | Toggles view orientation |
-| Translate | `Sequence > Translate` | `Cmd-Shift-T` | Amino-acid translation overlay |
+| Reverse Complement | `Sequence > Reverse Complement` | `Cmd-Shift-R` | FASTA operation output |
+| Translate | `Sequence > Translate` | `Cmd-Shift-T` | FASTA operation output |
 
 `Cmd-Shift-C` overrides the standard macOS Copy because the active window is a sequence viewport. To copy a row of text from a list view elsewhere in the project, click that view first.
 
@@ -71,29 +69,29 @@ Use this when you need the sequence as text in another application: a primer-des
 
 1. Select the range as in step 2 above.
 2. Choose `Sequence > Copy Visible Region as FASTA`, or press `Cmd-Shift-C`.
-3. Paste anywhere. The clipboard now holds a FASTA record whose header names the source bundle and the extracted coordinates and whose body is the selected bases on the displayed strand.
+3. Paste anywhere. The clipboard now holds a FASTA record whose header names the source bundle and the extracted coordinates and whose body is the selected bases.
 
-If the viewport is currently showing the reverse complement (see below), the copied bases are the reverse-complement bases. The header records this so you do not lose track of orientation when the text reaches a tool that does not understand strand.
+For reverse-complement or protein output, use the `Reverse Complement` or `Translate` menu items. Those open the standard FASTQ/FASTA Operations dialog and write CLI-backed derived outputs with provenance.
+
+## Procedure: reverse-complement or translate a region
+
+Use this when the selected bases should become a new derived sequence artifact rather than clipboard text.
+
+1. Select a range, or make the sequence viewport active to use the whole active sequence.
+2. Choose `Sequence > Reverse Complement` or `Sequence > Translate`.
+3. Confirm the preselected tool and output settings in the FASTQ/FASTA Operations dialog, then click `Run`.
+
+Lungfish materializes the selected bases as a temporary FASTA input and runs the corresponding `lungfish-cli fastq` operation. The generated output is imported through the same provenance-preserving FASTQ/FASTA operation path used by the Tools menu.
 
 ## Procedure: find ORFs
 
 Use this when you want to see every protein-coding window above a length cutoff, for example before primer design in an unannotated contig or when triaging a metagenomic assembly.
 
 1. Make the sequence viewport active.
-2. Choose `Sequence > Find ORFs`. A small dialog asks for a minimum codon length (default 100) and which frames to scan (default all six).
-3. Click `Find`. Lungfish scans the sequence, adds an `ORFs` annotation track to the bundle, and highlights every ORF that meets the cutoff.
+2. Choose `Sequence > Find ORFs`. The dialog asks for reading frames, codon table, output track, minimum nucleotide length, and whether partial ORFs or alternative starts should be included.
+3. Click `Run`. Lungfish calls `lungfish-cli sequence annotate-orfs`, adds a new ORF annotation track to the bundle, and records provenance for the generated BED, database, and updated manifest.
 
 The ORF track behaves like any annotation track. Click an ORF to jump to its coordinates. Right-click to copy its range, extract it, or translate it. The track persists with the bundle until you remove it.
-
-## Procedure: find restriction sites
-
-Use this when planning a cloning step, designing a diagnostic digest, or checking whether a candidate primer falls inside a restriction site.
-
-1. Make the sequence viewport active.
-2. Choose `Sequence > Find Restriction Sites`. The dialog lists the common Type II enzymes that ship with Lungfish (`EcoRI`, `BamHI`, `HindIII`, `NotI`, `XhoI` among others). Tick the enzymes to scan for.
-3. Click `Find`. Lungfish adds a `Restriction sites` track with one feature per cut site, labelled by enzyme.
-
-A site appearing many times across the bundle is a poor cloning choice. A site appearing once, ideally in a multiple-cloning region, is a good one.
 
 ## Worked example: extract the spike gene from MN908947.3
 
@@ -115,16 +113,16 @@ You want a 22-base forward primer beginning around position 21,600 of the spike 
 3. Press `Cmd-Shift-C`. The 22 bases plus a FASTA header are now on the clipboard.
 4. Paste into your primer-design tool. The header reads something like `>MN908947.3-spike:38-59 source=MN908947.3:21600-21621 strand=+`, which keeps the coordinate trail intact.
 
-If you also want to check the same window on the reverse strand, press `Cmd-Shift-R` first to flip the view, then `Cmd-Shift-C`. The pasted record now contains the reverse-complement bases and a header that says `strand=-`.
+If you also want to check the same window on the reverse strand, select the same range and choose `Sequence > Reverse Complement`. Run the preselected FASTQ/FASTA operation and use the generated reverse-complement output.
 
 ## Worked example: find ORFs in a metagenomic contig
 
 You have a SPAdes contig from an assembly and you want every ORF of at least 100 codons.
 
 1. Open the assembly bundle and select the contig of interest.
-2. Choose `Sequence > Find ORFs`. Set the minimum length to `100` codons and leave all six frames ticked. Click `Find`.
-3. Lungfish adds an `ORFs` track with one feature per qualifying ORF. The Inspector shows total count, the longest ORF, and a per-frame breakdown.
-4. Click any ORF to jump to it. Right-click and choose `Extract` to pull a single ORF out as a new bundle, or `Translate` to read it in amino-acid space.
+2. Choose `Sequence > Find ORFs`. Set the minimum length to `300` nucleotides and leave all six frames selected. Click `Run`.
+3. Lungfish adds an `ORFs` track with one feature per qualifying ORF. Each ORF stores its translated amino-acid sequence in the annotation attributes.
+4. Click any ORF to jump to it. Use `Sequence > Extract Visible Region` to pull a visible ORF range out as a new bundle, or expand the ORF annotation to inspect its translation.
 
 This is a triage view, not a gene call. ORF length is a weak proxy for "real gene". For a curated annotation, use a tool such as Prodigal or Prokka outside Lungfish and import the resulting GFF3 as an annotation.
 

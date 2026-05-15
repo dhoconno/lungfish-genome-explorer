@@ -58,8 +58,30 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         XCTAssertTrue(commands[0].contains("lungfish convert"))
         XCTAssertTrue(commands[0].contains("--to-format genbank"))
         XCTAssertTrue(commands[0].contains("--include-annotations"))
+        XCTAssertTrue(commands[0].contains("--force"))
         XCTAssertTrue(commands[1].contains("Beta Name.lungfishref"))
         XCTAssertTrue(commands[1].contains("Beta Name.gb"))
+    }
+
+    func testReferenceBundleSequenceExportCLIArgumentsUseConvertForceAndQuiet() {
+        let bundle = URL(fileURLWithPath: "/tmp/project/Alpha.lungfishref", isDirectory: true)
+        let output = URL(fileURLWithPath: "/tmp/Exports/Alpha.fa")
+
+        let arguments = AppDelegate.referenceBundleSequenceExportCLIArguments(
+            bundleURL: bundle,
+            outputURL: output,
+            format: .fasta
+        )
+
+        XCTAssertEqual(arguments, [
+            "convert",
+            bundle.path,
+            "--to", output.path,
+            "--to-format", "fasta",
+            "--include-annotations",
+            "--force",
+            "--quiet",
+        ])
     }
 
     func testBatchSequenceExportCLICommandsOmitUnsupportedCompressionWrapper() {

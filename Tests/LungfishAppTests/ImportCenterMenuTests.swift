@@ -163,30 +163,26 @@ final class ImportCenterMenuTests: XCTestCase {
         )
 
         let reverseComplement = try XCTUnwrap(
-            operationsMenu.items.first(where: { $0.title == "Reverse Complement Selection" })
+            operationsMenu.items.first(where: { $0.title == "Reverse Complement\u{2026}" })
         )
         let translate = try XCTUnwrap(
-            operationsMenu.items.first(where: { $0.title == "Translate Selection…" })
+            operationsMenu.items.first(where: { $0.title == "Translate\u{2026}" })
         )
 
         XCTAssertEqual(reverseComplement.action, #selector(AppDelegate.reverseComplement(_:)))
         XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
     }
 
-    func testFASTQFASTAOperationsMenuIncludesLineageDemixingFreyjaEntry() throws {
+    func testFASTQFASTAOperationsMenuOmitsPluginManagementShortcuts() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
         let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
         let operationsMenu = try XCTUnwrap(
             toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
         )
-        let lineageMenu = try XCTUnwrap(
-            operationsMenu.items.first(where: { $0.title == "Lineage Demixing" })?.submenu
-        )
-        let freyja = try XCTUnwrap(lineageMenu.items.first(where: { $0.title == "Freyja…" }))
 
-        XCTAssertEqual(freyja.identifier?.rawValue, MainMenuAccessibilityID.freyjaDemix)
-        XCTAssertEqual(freyja.action, #selector(ToolsMenuActions.showFreyjaDemix(_:)))
+        XCTAssertNil(operationsMenu.items.first(where: { $0.title == "Lineage Demixing" }))
+        XCTAssertNil(operationsMenu.items.first(where: { $0.title == "Install/Configure Freyja…" }))
     }
 
     func testImportCenterCatalogUsesExplicitImportCategoriesInsteadOfProjectFiles() throws {

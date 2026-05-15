@@ -51,6 +51,30 @@ final class ReferenceBundleViewportControllerTests: XCTestCase {
         XCTAssertEqual(vc.testSelectedSequenceName, "chr2")
     }
 
+    func testDirectReferenceBundleSequenceOperationContextUsesSelectedEmbeddedSequence() throws {
+        let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
+            name: "Reference",
+            chromosomes: [
+                .init(name: "chr1", length: 100),
+                .init(name: "chr2", length: 200),
+            ],
+            includeAlignment: false,
+            includeVariant: false
+        )
+        let manifest = try BundleManifest.load(from: bundleURL)
+        let vc = ReferenceBundleViewportController()
+        _ = vc.view
+
+        try vc.configureForTesting(input: .directBundle(bundleURL: bundleURL, manifest: manifest))
+        vc.testSelectSequence(named: "chr2")
+
+        let context = try XCTUnwrap(vc.testCurrentSequenceAnnotationOperationContext)
+        XCTAssertEqual(context.bundleURL, bundleURL.standardizedFileURL)
+        XCTAssertEqual(context.chromosome, "chr2")
+        XCTAssertEqual(context.range, 0..<200)
+        XCTAssertEqual(context.sequenceLength, 200)
+    }
+
     func testFilteringSequenceRowsSelectsFirstVisibleSequenceAndClearsWhenEmpty() throws {
         let bundleURL = try ReferenceViewportFixture.makeReferenceBundle(
             name: "Reference",

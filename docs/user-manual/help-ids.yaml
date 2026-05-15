@@ -552,7 +552,7 @@ menu.Sequence.GoToPosition:
   chapter: 02-sequences/01-importing-and-viewing
   anchor: navigation
   scope: menu
-  description: Sequence > Go to Position (Cmd-L)
+  description: Sequence > Go to Location (Cmd-L)
 
 menu.Sequence.GoToGene:
   chapter: 02-sequences/01-importing-and-viewing
@@ -589,12 +589,6 @@ menu.Sequence.FindORFs:
   anchor: procedure-find-orfs
   scope: menu
   description: Sequence > Find ORFs
-
-menu.Sequence.FindRestrictionSites:
-  chapter: 02-sequences/03-extracting-and-comparing
-  anchor: procedure-find-restriction-sites
-  scope: menu
-  description: Sequence > Find Restriction Sites
 
 menu.Help.UserManual:
   chapter: index

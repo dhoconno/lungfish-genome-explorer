@@ -1930,13 +1930,26 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         ) else { return }
 
         let preferredBundleURL = originSplit.viewerController.currentBundleURL
-        chooseReferenceBundleForAnnotation(
+        ReferenceBundleAnnotationImportConfigurationPresenter.present(
             projectURL: projectURL,
             preferredBundleURL: preferredBundleURL,
+            sourceURL: urls[0],
             presentingWindow: originController.window
-        ) { [weak self] bundleURL in
-            guard let self, let bundleURL else { return }
-            self.performAnnotationTrackImports(annotationURLs: urls, bundleURL: bundleURL)
+        ) { [weak self] configuration in
+            guard let self, let configuration else { return }
+            if urls.count == 1 {
+                Task { @MainActor [weak self] in
+                    await self?.performSingleAnnotationTrackImport(
+                        annotationURL: urls[0],
+                        configuration: configuration
+                    )
+                }
+            } else {
+                self.performAnnotationTrackImports(
+                    annotationURLs: urls,
+                    bundleURL: configuration.bundleURL
+                )
+            }
         }
     }
 
@@ -2348,67 +2361,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    private func chooseReferenceBundleForAnnotation(
-        projectURL: URL,
-        preferredBundleURL: URL?,
-        presentingWindow: NSWindow? = nil,
-        completion: @escaping (URL?) -> Void
-    ) {
-        let choices: [ReferenceBundleChoice]
-        do {
-            choices = try ReferenceBundleAnnotationImportService.discoverReferenceBundles(in: projectURL)
-        } catch {
-            showAlert(title: "Annotation Import Failed", message: error.localizedDescription)
-            completion(nil)
-            return
-        }
-
-        guard !choices.isEmpty else {
-            showAlert(title: "No Reference Bundles", message: "Import a FASTA/reference bundle before importing annotation tracks.")
-            completion(nil)
-            return
-        }
-        if choices.count == 1 {
-            completion(choices[0].url)
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Choose Reference Bundle"
-        alert.informativeText = "Select the FASTA/reference bundle to receive this annotation track."
-        alert.addButton(withTitle: "Import")
-        alert.addButton(withTitle: "Cancel")
-
-        let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 28), pullsDown: false)
-        for choice in choices {
-            popup.addItem(withTitle: choice.displayPath)
-            popup.lastItem?.representedObject = choice.url
-        }
-        if let preferredBundleURL,
-           let index = choices.firstIndex(where: { $0.url.standardizedFileURL == preferredBundleURL.standardizedFileURL }) {
-            popup.selectItem(at: index)
-        }
-        alert.accessoryView = popup
-
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn else {
-                completion(nil)
-                return
-            }
-            completion(popup.selectedItem?.representedObject as? URL)
-        }
-
-        if let window = presentingWindow ?? mainWindowController?.window {
-            alert.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(alert.runModal())
-        }
-    }
-
-    private func performAnnotationTrackImport(annotationURL: URL, bundleURL: URL) {
-        performAnnotationTrackImports(annotationURLs: [annotationURL], bundleURL: bundleURL)
-    }
-
     private func performAnnotationTrackImports(annotationURLs: [URL], bundleURL: URL) {
         guard !annotationURLs.isEmpty else { return }
 
@@ -2419,7 +2371,33 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    private func performSingleAnnotationTrackImport(
+        annotationURL: URL,
+        configuration: ReferenceBundleAnnotationImportConfiguration
+    ) async {
+        await performSingleAnnotationTrackImport(
+            annotationURL: annotationURL,
+            bundleURL: configuration.bundleURL,
+            trackID: configuration.trackID,
+            trackName: configuration.trackName
+        )
+    }
+
     private func performSingleAnnotationTrackImport(annotationURL: URL, bundleURL: URL) async {
+        await performSingleAnnotationTrackImport(
+            annotationURL: annotationURL,
+            bundleURL: bundleURL,
+            trackID: nil,
+            trackName: nil
+        )
+    }
+
+    private func performSingleAnnotationTrackImport(
+        annotationURL: URL,
+        bundleURL: URL,
+        trackID: String?,
+        trackName: String?
+    ) async {
         let routeContext = currentOperationRouteContext()
         guard canWriteProjectOutputs(
             projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
@@ -2436,7 +2414,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         do {
             let result = try await ReferenceBundleAnnotationImportService()
-                .attachAnnotationTrack(sourceURL: annotationURL, bundleURL: bundleURL)
+                .attachAnnotationTrack(
+                    sourceURL: annotationURL,
+                    bundleURL: bundleURL,
+                    trackID: trackID,
+                    trackName: trackName
+                )
             OperationCenter.shared.complete(
                 id: opID,
                 detail: "Imported \(result.featureCount) annotations"
@@ -4231,15 +4214,37 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     ) -> String? {
         guard let inputURL else { return nil }
         guard compression == .none else { return nil }
-        var args = [
+        if inputURL.pathExtension.lowercased() == "lungfishref" {
+            let args = Array(referenceBundleSequenceExportCLIArguments(
+                bundleURL: inputURL,
+                outputURL: outputURL,
+                format: format
+            ).dropFirst())
+            return OperationCenter.buildCLICommand(subcommand: "convert", args: args)
+        }
+        let args = [
             inputURL.path,
             "--to", outputURL.path,
-            "--to-format", format.cliFormat
+            "--to-format", format.cliFormat,
+            "--force"
         ]
-        if inputURL.pathExtension.lowercased() == "lungfishref" {
-            args.append("--include-annotations")
-        }
         return OperationCenter.buildCLICommand(subcommand: "convert", args: args)
+    }
+
+    nonisolated static func referenceBundleSequenceExportCLIArguments(
+        bundleURL: URL,
+        outputURL: URL,
+        format: SequenceExportFormat
+    ) -> [String] {
+        [
+            "convert",
+            bundleURL.path,
+            "--to", outputURL.path,
+            "--to-format", format.cliFormat,
+            "--include-annotations",
+            "--force",
+            "--quiet",
+        ]
     }
 
     nonisolated private func performReferenceBundleSequenceExport(
@@ -4253,6 +4258,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         guard let genome = manifest.genome, !genome.chromosomes.isEmpty else {
             throw NSError(domain: "com.lungfish.browser", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "No genome sequence in bundle \(bundleURL.lastPathComponent)"])
+        }
+
+        if compression == .none {
+            try FileManager.default.createDirectory(
+                at: outputURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let cliOutput = try LungfishCLIRunner.run(arguments: Self.referenceBundleSequenceExportCLIArguments(
+                bundleURL: bundleURL,
+                outputURL: outputURL,
+                format: format
+            ))
+            if !cliOutput.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                debugLog("performReferenceBundleSequenceExport: CLI stderr: \(cliOutput.stderr)")
+            }
+            return genome.chromosomes.count
         }
 
         let writeURL: URL
@@ -5191,12 +5212,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Copy visible region requires an active viewer.
         if menuItem.action == #selector(copySelectionFASTA(_:)) {
-            return activeMainWindowController()?.mainSplitViewController?.viewerController?.viewerView != nil
+            return activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController
+                .viewerView != nil
         }
 
         // Extract can bootstrap from the currently visible region.
         if menuItem.action == #selector(extractSelection(_:)) {
-            let hasViewer = activeMainWindowController()?.mainSplitViewController?.viewerController?.viewerView != nil
+            let hasViewer = activeMainWindowController()?
+                .mainSplitViewController?
+                .viewerController?
+                .activeSequenceViewerController
+                .viewerView != nil
             return hasViewer
         }
 
@@ -5243,7 +5272,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - SequenceMenuActions
 
     @objc func reverseComplement(_ sender: Any?) {
-        guard let viewerView = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?
+            .mainSplitViewController?
+            .viewerController?
+            .activeSequenceViewerController
+            .viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Reverse Complement.")
             return
         }
@@ -5251,7 +5284,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func translate(_ sender: Any?) {
-        guard let viewerView = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?
+            .mainSplitViewController?
+            .viewerController?
+            .activeSequenceViewerController
+            .viewerView else {
             showAlert(title: "No Viewer", message: "Open a sequence to use Translate.")
             return
         }
@@ -5261,10 +5298,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func goToPosition(_ sender: Any?) {
         // Ensure we have a viewer controller
-        guard let viewerController = activeMainWindowController(sender: sender)?.mainSplitViewController?.viewerController else {
+        guard let originController = activeMainWindowController(sender: sender),
+              let rootViewerController = originController.mainSplitViewController?.viewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer is available.")
             return
         }
+        let viewerController = rootViewerController.activeSequenceViewerController
 
         // Ensure a sequence is loaded
         guard viewerController.referenceFrame != nil else {
@@ -5274,7 +5313,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         // Show go-to-position dialog
         let alert = NSAlert()
-        alert.messageText = "Go to Position"
+        alert.messageText = "Go to Location"
         alert.informativeText = "Enter a genomic position or region.\n\nSupported formats:\n  1000 (position)\n  chr1:1000 (chromosome:position)\n  chr1:1000-2000 (range with hyphen)\n  chr1:1000..2000 (range with dots)"
         alert.addButton(withTitle: "Go")
         alert.addButton(withTitle: "Cancel")
@@ -5286,7 +5325,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Make the text field first responder
         alert.window.initialFirstResponder = textField
 
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        guard let window = originController.window ?? NSApp.keyWindow else { return }
         Task {
             let response = await alert.beginSheetModal(for: window)
             if response == .alertFirstButtonReturn {
@@ -5308,10 +5347,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func goToGene(_ sender: Any?) {
         // Ensure we have a viewer controller with annotations loaded
-        guard let viewerController = mainWindowController?.mainSplitViewController?.viewerController else {
+        guard let originController = activeMainWindowController(sender: sender),
+              let rootViewerController = originController.mainSplitViewController?.viewerController else {
             showAlert(title: "No Viewer", message: "No sequence viewer is available.")
             return
         }
+        let viewerController = rootViewerController.activeSequenceViewerController
 
         guard viewerController.referenceFrame != nil else {
             showAlert(title: "No Sequence", message: "Please load a sequence before searching for genes.")
@@ -5337,7 +5378,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         // Make the text field first responder
         alert.window.initialFirstResponder = textField
 
-        guard let window = mainWindowController?.window ?? NSApp.keyWindow else { return }
+        guard let window = originController.window ?? NSApp.keyWindow else { return }
         Task {
             let response = await alert.beginSheetModal(for: window)
             if response == .alertFirstButtonReturn {
@@ -5348,13 +5389,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     return
                 }
 
-                let results = searchIndex.search(query: query, limit: 1)
-                guard let match = results.first else {
+                let results = searchIndex.search(query: query, limit: 50)
+                guard let match = preferredGeneSearchResult(
+                    from: results,
+                    query: query,
+                    currentChromosome: viewerController.referenceFrame?.chromosome
+                        ?? viewerController.viewerView.activeSequence?.name
+                        ?? viewerController.viewerView.sequence?.name
+                ) else {
                     showAlert(title: "Gene Not Found", message: "No annotation matching \"\(query)\" was found in the current dataset.")
                     return
                 }
 
-                let success = viewerController.navigateToPosition(
+                let success = navigateSequenceViewer(
+                    viewerController,
                     chromosome: match.chromosome,
                     start: match.start,
                     end: match.end
@@ -5369,7 +5417,81 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    /// Parses genomic position input and navigates the viewer.
+    func preferredGeneSearchResult(
+        from results: [AnnotationSearchIndex.SearchResult],
+        query: String,
+        currentChromosome: String?
+    ) -> AnnotationSearchIndex.SearchResult? {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let exactMatches = results.filter { result in
+            isExactGeneSearchMatch(result, query: trimmedQuery)
+        }
+        if let match = bestGeneSearchResult(from: exactMatches, currentChromosome: currentChromosome) {
+            return match
+        }
+        if let match = bestGeneSearchResult(from: results, currentChromosome: currentChromosome) {
+            return match
+        }
+        return results.first
+    }
+
+    private func bestGeneSearchResult(
+        from results: [AnnotationSearchIndex.SearchResult],
+        currentChromosome: String?
+    ) -> AnnotationSearchIndex.SearchResult? {
+        if let currentChromosome,
+           let currentGeneMatch = results.first(where: {
+               !$0.isVariant
+                   && $0.type.caseInsensitiveCompare("gene") == .orderedSame
+                   && chromosomesMatchForSequenceMenu($0.chromosome, currentChromosome)
+           }) {
+            return currentGeneMatch
+        }
+        if let geneMatch = results.first(where: {
+            !$0.isVariant && $0.type.caseInsensitiveCompare("gene") == .orderedSame
+        }) {
+            return geneMatch
+        }
+        if let currentChromosome,
+           let currentMatch = results.first(where: {
+               !$0.isVariant && chromosomesMatchForSequenceMenu($0.chromosome, currentChromosome)
+           }) {
+            return currentMatch
+        }
+        return results.first { !$0.isVariant } ?? results.first
+    }
+
+    private func isExactGeneSearchMatch(
+        _ result: AnnotationSearchIndex.SearchResult,
+        query: String
+    ) -> Bool {
+        guard !query.isEmpty else { return false }
+        let candidates = [
+            result.name,
+            result.attributes?["gene"],
+            result.attributes?["gene_name"],
+            result.attributes?["gene_id"],
+            result.attributes?["Name"],
+        ].compactMap { $0 }
+        return candidates.contains { $0.caseInsensitiveCompare(query) == .orderedSame }
+    }
+
+    private func chromosomesMatchForSequenceMenu(_ lhs: String, _ rhs: String) -> Bool {
+        lhs == rhs || canonicalSequenceMenuChromosomeName(lhs) == canonicalSequenceMenuChromosomeName(rhs)
+    }
+
+    private func canonicalSequenceMenuChromosomeName(_ name: String) -> String {
+        var value = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if value.hasPrefix("chr") {
+            value = String(value.dropFirst(3))
+        }
+        if let dot = value.firstIndex(of: ".") {
+            value = String(value[..<dot])
+        }
+        return value
+    }
+
+    /// Parses genomic location input and navigates the viewer.
     ///
     /// Supported formats:
     /// - "1000" - single position
@@ -5489,7 +5611,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let zeroBasedEnd: Int? = endPosition.map { max(zeroBasedStart + 1, $0) }
 
         // Navigate using the helper method
-        let success = viewerController.navigateToPosition(
+        let success = navigateSequenceViewer(
+            viewerController,
             chromosome: chromosome,
             start: zeroBasedStart,
             end: zeroBasedEnd
@@ -5503,8 +5626,64 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
+    private func navigateSequenceViewer(
+        _ viewerController: ViewerViewController,
+        chromosome: String?,
+        start: Int,
+        end: Int?
+    ) -> Bool {
+        let targetChromosome = chromosome
+            ?? viewerController.referenceFrame?.chromosome
+            ?? viewerController.currentBundleDataProvider?.chromosomes.first?.name
+
+        if let targetChromosome,
+           let chromosomeInfo = viewerController.currentBundleDataProvider?.chromosomeInfo(named: targetChromosome) {
+            let chromosomeLength = Int(chromosomeInfo.length)
+            guard start >= 0 && start < chromosomeLength else { return false }
+
+            let rangeStart: Int
+            let rangeEnd: Int
+            if let end {
+                guard end > start && end <= chromosomeLength else { return false }
+                rangeStart = start
+                rangeEnd = end
+            } else {
+                let defaultWindow = min(1000, chromosomeLength)
+                let halfWindow = defaultWindow / 2
+                var windowStart = max(0, start - halfWindow)
+                var windowEnd = min(chromosomeLength, start + halfWindow)
+                if windowStart == 0 {
+                    windowEnd = min(chromosomeLength, defaultWindow)
+                }
+                if windowEnd == chromosomeLength {
+                    windowStart = max(0, chromosomeLength - defaultWindow)
+                }
+                rangeStart = windowStart
+                rangeEnd = max(windowStart + 1, windowEnd)
+            }
+
+            viewerController.navigateToChromosomeAndPosition(
+                chromosome: chromosomeInfo.name,
+                chromosomeLength: chromosomeLength,
+                start: rangeStart,
+                end: rangeEnd
+            )
+            return true
+        }
+
+        return viewerController.navigateToPosition(
+            chromosome: chromosome,
+            start: start,
+            end: end
+        )
+    }
+
     @objc func copySelectionFASTA(_ sender: Any?) {
-        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?
+            .mainSplitViewController?
+            .viewerController?
+            .activeSequenceViewerController
+            .viewerView else {
             NSSound.beep()
             return
         }
@@ -5512,7 +5691,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @objc func extractSelection(_ sender: Any?) {
-        guard let viewerView = mainWindowController?.mainSplitViewController?.viewerController?.viewerView else {
+        guard let viewerView = activeMainWindowController(sender: sender)?
+            .mainSplitViewController?
+            .viewerController?
+            .activeSequenceViewerController
+            .viewerView else {
             NSSound.beep()
             return
         }
@@ -5707,12 +5890,197 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
     }
 
-    @objc func findORFs(_ sender: Any?) {
-        showNotImplementedAlert("ORF Finder")
+    private func presentFindORFsOperation(sender: Any?) {
+        guard let originController = activeMainWindowController(sender: sender),
+              let rootViewerController = originController.mainSplitViewController?.viewerController else {
+            showAlert(title: "No Viewer", message: "Open a reference sequence bundle before running Find ORFs.")
+            return
+        }
+        let viewerController = rootViewerController.activeSequenceViewerController
+
+        guard let context = viewerController.currentSequenceAnnotationOperationContext(),
+              let bundleURL = context.bundleURL else {
+            showAlert(
+                title: "No Reference Bundle",
+                message: "Find ORFs writes a new annotation track and requires an active `.lungfishref` bundle.",
+                presentingWindow: originController.window
+            )
+            return
+        }
+        guard OperationCenter.shared.canStartOperation(on: context.bundleURL) else {
+            let active = OperationCenter.shared.activeLockHolder(for: context.bundleURL)
+            let detail = active.map { "\($0.title) is already running on this bundle." }
+                ?? "Another operation is already running on this bundle."
+            showAlert(
+                title: "Bundle Busy",
+                message: detail,
+                presentingWindow: originController.window
+            )
+            return
+        }
+
+        let routeContext = currentOperationRouteContext(for: originController)
+        guard canWriteProjectOutputs(
+            projectURL: ProjectTempDirectory.findProjectRoot(bundleURL),
+            windowStateScope: routeContext?.windowStateScopeID.map(WindowStateScope.init(id:)),
+            workflowName: SequenceAnnotationOperationKind.orf.displayName,
+            presentingWindow: originController.window
+        ) else { return }
+
+        let sequenceName = sequenceAnnotationOperationSequenceName(
+            for: context,
+            viewerController: viewerController
+        )
+        let range = context.range
+        let defaultTrackName = "\(sequenceName) ORFs"
+        let defaultTrackID = defaultSequenceAnnotationTrackID(
+            prefix: "orfs",
+            chromosome: sequenceName
+        )
+
+        guard let window = originController.window ?? NSApp.keyWindow else { return }
+        let state = SequenceORFOperationDialogState(
+            bundleURL: bundleURL,
+            sequenceName: sequenceName,
+            range: range,
+            defaultTrackName: defaultTrackName,
+            defaultTrackID: defaultTrackID
+        )
+        SequenceORFOperationDialogPresenter.present(
+            from: window,
+            state: state,
+            onRun: { [weak self, weak viewerController] request in
+                guard let self, let viewerController else { return }
+                self.runSequenceAnnotationOperation(
+                    request,
+                    viewerController: viewerController,
+                    routeContext: routeContext
+                )
+            },
+            onCancel: nil
+        )
     }
 
-    @objc func findRestrictionSites(_ sender: Any?) {
-        showNotImplementedAlert("Restriction Site Finder")
+    func sequenceAnnotationOperationSequenceName(
+        for context: SequenceAnnotationDraftContext,
+        viewerController: ViewerViewController
+    ) -> String {
+        if let chromosomeName = viewerController.currentBundleDataProvider?
+            .chromosomeInfo(named: context.chromosome)?
+            .name {
+            return chromosomeName
+        }
+        if let chromosomeName = viewerController.viewerView.currentReferenceBundle?
+            .chromosome(named: context.chromosome)?
+            .name {
+            return chromosomeName
+        }
+        return context.chromosome
+    }
+
+    private func defaultSequenceAnnotationTrackID(prefix: String, chromosome: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
+        let raw = "\(prefix)_\(chromosome)"
+        let mapped = raw.unicodeScalars.map { scalar -> String in
+            allowed.contains(scalar) ? String(Character(scalar)).lowercased() : "_"
+        }
+        return mapped.joined().trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+    }
+
+    private func runSequenceAnnotationOperation(
+        _ request: SequenceAnnotationOperationRequest,
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext?
+    ) {
+        guard OperationCenter.shared.canStartOperation(on: request.bundleURL) else {
+            showAlert(
+                title: "Bundle Busy",
+                message: "Another operation is already modifying this reference bundle. Wait for it to finish before running \(request.operation.displayName).",
+                presentingWindow: targetMainWindowController(routeContext: routeContext)?.window
+                    ?? viewerController.view.window
+            )
+            return
+        }
+
+        let opID = OperationCenter.shared.start(
+            title: request.operation.displayName,
+            detail: "Running \(request.operation.displayName)...",
+            operationType: .bundleBuild,
+            targetBundleURL: request.bundleURL,
+            cliCommand: SequenceAnnotationOperationRunner.displayCommand(for: request),
+            routeContext: routeContext
+        )
+
+        Task.detached { [weak self] in
+            do {
+                let output = try SequenceAnnotationOperationRunner.run(request)
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
+                    }
+                    if !output.stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        OperationCenter.shared.log(id: opID, level: .warning, message: output.stderr)
+                    }
+                    OperationCenter.shared.complete(
+                        id: opID,
+                        detail: "Created annotation track in \(request.bundleURL.lastPathComponent)"
+                    )
+                    self?.refreshReferenceBundleAfterSequenceAnnotation(
+                        bundleURL: request.bundleURL,
+                        viewerController: viewerController,
+                        routeContext: routeContext
+                    )
+                }}
+            } catch {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.fail(
+                        id: opID,
+                        detail: "\(request.operation.displayName) failed",
+                        errorMessage: error.localizedDescription
+                    )
+                    self?.showAlert(
+                        title: "\(request.operation.displayName) Failed",
+                        message: error.localizedDescription,
+                        presentingWindow: self?.targetMainWindowController(routeContext: routeContext)?.window
+                            ?? viewerController.view.window
+                    )
+                }}
+            }
+        }
+    }
+
+    private func refreshReferenceBundleAfterSequenceAnnotation(
+        bundleURL: URL,
+        viewerController: ViewerViewController,
+        routeContext: OperationRouteContext?
+    ) {
+        let targetController = targetMainWindowController(routeContext: routeContext)
+        let targetViewerController = targetController?.mainSplitViewController?.viewerController ?? viewerController
+        if let sidebarController = targetController?.mainSplitViewController?.sidebarController {
+            sidebarController.reloadFromFilesystem()
+            _ = sidebarController.selectItem(forURL: bundleURL)
+        }
+
+        do {
+            let activeSequenceViewer = targetViewerController.activeSequenceViewerController
+            let activeSequenceMatches = (activeSequenceViewer.currentBundleURL ?? activeSequenceViewer.viewerView.currentReferenceBundle?.url)?
+                .standardizedFileURL == bundleURL.standardizedFileURL
+            if activeSequenceMatches {
+                try activeSequenceViewer.reloadReferenceBundleAfterAnnotationTrackMutation(bundleURL: bundleURL)
+            } else if let referenceViewport = targetViewerController.referenceBundleViewportController,
+               referenceViewport.currentInput?.renderedBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try referenceViewport.reloadViewerBundleForInspectorChanges()
+                targetController?.mainSplitViewController?.wireDirectReferenceViewportInspectorUpdates()
+            } else if targetViewerController.currentBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL {
+                try targetViewerController.displayBundle(at: bundleURL)
+            }
+        } catch {
+            showAlert(title: "Reload Failed", message: error.localizedDescription, presentingWindow: targetController?.window)
+        }
+    }
+
+    @objc func findORFs(_ sender: Any?) {
+        presentFindORFsOperation(sender: sender)
     }
 
     // MARK: - ToolsMenuActions

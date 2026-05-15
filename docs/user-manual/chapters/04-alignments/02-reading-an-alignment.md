@@ -81,7 +81,7 @@ reference attached as a track. If you do not, follow
    short bars mean thin coverage, and gaps mean a region the reads did not
    reach. Hover any bar to see the exact depth.
 
-3. **Jump to a position.** Press Cmd-L to open the Go to Position prompt,
+3. **Jump to a position.** Press Cmd-L to open the Go to Location prompt,
    type `21618`, and press Return. The viewport recentres on that
    coordinate. You can also click any column on the coverage histogram to
    jump directly to that position.

@@ -61,16 +61,17 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: input)
         }
 
-        // Check output file
-        if FileManager.default.fileExists(atPath: outputFile) && !force {
-            throw CLIError.outputWriteFailed(
-                path: outputFile,
-                reason: "File already exists. Use --force to overwrite."
-            )
-        }
-
         let inputURL = URL(fileURLWithPath: input)
         let outputURL = URL(fileURLWithPath: outputFile)
+        if FileManager.default.fileExists(atPath: outputFile) {
+            guard force else {
+                throw CLIError.outputWriteFailed(
+                    path: outputFile,
+                    reason: "File already exists. Use --force to overwrite."
+                )
+            }
+            try FileManager.default.removeItem(at: outputURL)
+        }
 
         // Show progress
         if !globalOptions.quiet {
@@ -172,6 +173,11 @@ struct ConvertCommand: AsyncParsableCommand {
             throw CLIError.unsupportedFormat(format: toFormat)
         }
         let completedAt = Date()
+        let provenanceInputs = try Self.provenanceInputFiles(
+            inputURL: inputURL,
+            inputFormat: ext,
+            includeAnnotations: includeAnnotations
+        )
 
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish convert",
@@ -203,9 +209,7 @@ struct ConvertCommand: AsyncParsableCommand {
             toolName: "lungfish convert",
             toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
             command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
-            inputs: [
-                ProvenanceRecorder.fileRecord(url: inputURL, role: .input)
-            ],
+            inputs: provenanceInputs,
             outputs: [
                 ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
             ],
@@ -257,7 +261,48 @@ struct ConvertCommand: AsyncParsableCommand {
         if force {
             command.append("--force")
         }
+        if globalOptions.quiet {
+            command.append("--quiet")
+        }
         return command
+    }
+
+    private static func provenanceInputFiles(
+        inputURL: URL,
+        inputFormat: String,
+        includeAnnotations: Bool
+    ) throws -> [FileRecord] {
+        guard inputFormat == "lungfishref" else {
+            return [ProvenanceRecorder.fileRecord(url: inputURL, role: .input)]
+        }
+
+        let manifest = try BundleManifest.load(from: inputURL)
+        var urls: [(URL, FileRole)] = [
+            (inputURL.appendingPathComponent("manifest.json"), .input)
+        ]
+
+        if let genome = manifest.genome {
+            urls.append((inputURL.appendingPathComponent(genome.path), .input))
+            urls.append((inputURL.appendingPathComponent(genome.indexPath), .index))
+            if let gzipIndexPath = genome.gzipIndexPath {
+                urls.append((inputURL.appendingPathComponent(gzipIndexPath), .index))
+            }
+        }
+
+        if includeAnnotations {
+            for track in manifest.annotations {
+                guard let dbPath = track.databasePath else { continue }
+                urls.append((inputURL.appendingPathComponent(dbPath), .input))
+            }
+        }
+
+        var seen = Set<String>()
+        return urls.compactMap { url, role -> FileRecord? in
+            let standardizedURL = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardizedURL.path) else { return nil }
+            guard seen.insert(standardizedURL.path).inserted else { return nil }
+            return ProvenanceRecorder.fileRecord(url: standardizedURL, role: role)
+        }
     }
 
     private static func readReferenceBundle(

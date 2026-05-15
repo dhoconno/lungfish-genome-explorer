@@ -44,4 +44,15 @@ final class BundleViewStateTests: XCTestCase {
         XCTAssertEqual(decoded.variantFilterText, "")
         XCTAssertNil(decoded.sampleDisplayState)
     }
+
+    func testLegacyAllVisibleAnnotationTypesIncludeNewORFTypes() throws {
+        let legacyAllVisibleTypes = Set(AnnotationType.allCases).subtracting([.orf, .translation])
+        let legacyState = BundleViewState(visibleAnnotationTypes: legacyAllVisibleTypes)
+        let data = try JSONEncoder().encode(legacyState)
+
+        let decoded = try JSONDecoder().decode(BundleViewState.self, from: data)
+
+        XCTAssertTrue(decoded.visibleAnnotationTypes?.contains(.orf) ?? false)
+        XCTAssertTrue(decoded.visibleAnnotationTypes?.contains(.translation) ?? false)
+    }
 }

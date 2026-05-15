@@ -120,8 +120,9 @@ limits.
 `lungfish-cli conda packs` now includes the active
 `wastewater-surveillance` pack with Freyja. `lungfish freyja demix` writes a
 dry-run command plan and provenance sidecar by default, with `--execute`
-available when the pack is installed. The Tools menu includes
-FASTQ/FASTA Operations > Lineage Demixing > Freyja.
+available when the pack is installed. Freyja pack installation and
+verification are handled through Plugin Manager rather than the FASTQ/FASTA
+Operations menu.
 
 ### docs-014 — Read groups in mapping
 

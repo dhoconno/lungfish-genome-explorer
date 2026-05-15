@@ -9,6 +9,7 @@ public struct MappedReadsAnnotationRequest: Sendable, Equatable {
     public let bundleURL: URL
     public let sourceTrackID: String
     public let outputTrackName: String
+    public let outputTrackID: String?
     public let primaryOnly: Bool
     public let includeSequence: Bool
     public let includeQualities: Bool
@@ -18,6 +19,7 @@ public struct MappedReadsAnnotationRequest: Sendable, Equatable {
         bundleURL: URL,
         sourceTrackID: String,
         outputTrackName: String,
+        outputTrackID: String? = nil,
         primaryOnly: Bool = false,
         includeSequence: Bool = false,
         includeQualities: Bool = false,
@@ -26,6 +28,7 @@ public struct MappedReadsAnnotationRequest: Sendable, Equatable {
         self.bundleURL = bundleURL
         self.sourceTrackID = sourceTrackID
         self.outputTrackName = outputTrackName
+        self.outputTrackID = outputTrackID
         self.primaryOnly = primaryOnly
         self.includeSequence = includeSequence
         self.includeQualities = includeQualities
@@ -103,6 +106,7 @@ public struct BestMappedReadsAnnotationRequest: Sendable, Equatable {
     public let mappingResultURL: URL
     public let outputBundleURL: URL
     public let outputTrackName: String
+    public let outputTrackID: String?
     public let primaryOnly: Bool
     public let replaceExisting: Bool
 
@@ -111,6 +115,7 @@ public struct BestMappedReadsAnnotationRequest: Sendable, Equatable {
         mappingResultURL: URL,
         outputBundleURL: URL,
         outputTrackName: String,
+        outputTrackID: String? = nil,
         primaryOnly: Bool = true,
         replaceExisting: Bool = false
     ) {
@@ -118,6 +123,7 @@ public struct BestMappedReadsAnnotationRequest: Sendable, Equatable {
         self.mappingResultURL = mappingResultURL
         self.outputBundleURL = outputBundleURL
         self.outputTrackName = outputTrackName
+        self.outputTrackID = outputTrackID
         self.primaryOnly = primaryOnly
         self.replaceExisting = replaceExisting
     }
@@ -165,6 +171,7 @@ public struct CDSBestAnnotationRequest: Sendable, Equatable {
     public let mappingResultURL: URL
     public let outputBundleURL: URL
     public let outputTrackName: String
+    public let outputTrackID: String?
     public let includeSecondary: Bool
     public let includeSupplementary: Bool
     public let minimumQueryCoverage: Double
@@ -175,6 +182,7 @@ public struct CDSBestAnnotationRequest: Sendable, Equatable {
         mappingResultURL: URL,
         outputBundleURL: URL,
         outputTrackName: String,
+        outputTrackID: String? = nil,
         includeSecondary: Bool = true,
         includeSupplementary: Bool = false,
         minimumQueryCoverage: Double = 0.5,
@@ -184,6 +192,7 @@ public struct CDSBestAnnotationRequest: Sendable, Equatable {
         self.mappingResultURL = mappingResultURL
         self.outputBundleURL = outputBundleURL
         self.outputTrackName = outputTrackName
+        self.outputTrackID = outputTrackID
         self.includeSecondary = includeSecondary
         self.includeSupplementary = includeSupplementary
         self.minimumQueryCoverage = minimumQueryCoverage
@@ -241,6 +250,7 @@ public enum MappedReadsAnnotationServiceError: Error, LocalizedError, Sendable, 
     case samtoolsFailed(String)
     case invalidSAMLine(String)
     case manifestWriteFailed(String)
+    case invalidOutputTrackID(String)
 
     public var errorDescription: String? {
         switch self {
@@ -256,6 +266,8 @@ public enum MappedReadsAnnotationServiceError: Error, LocalizedError, Sendable, 
             return "Could not parse SAM alignment line: \(line)"
         case .manifestWriteFailed(let message):
             return "Failed to update bundle manifest: \(message)"
+        case .invalidOutputTrackID(let id):
+            return "Invalid annotation track ID '\(id)'. Use only letters, numbers, underscores, and hyphens."
         }
     }
 }
@@ -270,6 +282,7 @@ public enum BestMappedReadsAnnotationServiceError: Error, LocalizedError, Sendab
     case outputTrackExists(String)
     case bundleCopyFailed(String)
     case manifestWriteFailed(String)
+    case invalidOutputTrackID(String)
 
     public var errorDescription: String? {
         switch self {
@@ -291,6 +304,8 @@ public enum BestMappedReadsAnnotationServiceError: Error, LocalizedError, Sendab
             return "Failed to create output bundle: \(message)"
         case .manifestWriteFailed(let message):
             return "Failed to update output bundle manifest: \(message)"
+        case .invalidOutputTrackID(let id):
+            return "Invalid annotation track ID '\(id)'. Use only letters, numbers, underscores, and hyphens."
         }
     }
 }
@@ -305,6 +320,7 @@ public enum CDSBestAnnotationServiceError: Error, LocalizedError, Sendable, Equa
     case outputTrackExists(String)
     case bundleCopyFailed(String)
     case manifestWriteFailed(String)
+    case invalidOutputTrackID(String)
 
     public var errorDescription: String? {
         switch self {
@@ -326,6 +342,8 @@ public enum CDSBestAnnotationServiceError: Error, LocalizedError, Sendable, Equa
             return "Failed to create output bundle: \(message)"
         case .manifestWriteFailed(let message):
             return "Failed to update output bundle manifest: \(message)"
+        case .invalidOutputTrackID(let id):
+            return "Invalid annotation track ID '\(id)'. Use only letters, numbers, underscores, and hyphens."
         }
     }
 }

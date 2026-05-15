@@ -219,6 +219,8 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
     case exon
     case intron
     case cds = "CDS"
+    case orf = "ORF"
+    case translation
     case utr5 = "5'UTR"
     case utr3 = "3'UTR"
 
@@ -295,6 +297,8 @@ public enum AnnotationType: String, Codable, Sendable, CaseIterable {
         case .mRNA: return AnnotationColor(red: 0.2, green: 0.5, blue: 0.9)       // Darker blue
         case .transcript: return AnnotationColor(red: 0.4, green: 0.4, blue: 0.7) // Muted indigo
         case .cds: return AnnotationColor(red: 0.8, green: 0.4, blue: 0.2)        // Orange
+        case .orf: return AnnotationColor(red: 0.1, green: 0.55, blue: 0.25)       // Deep green
+        case .translation: return AnnotationColor(red: 0.65, green: 0.25, blue: 0.75) // Violet
         case .exon: return AnnotationColor(red: 0.6, green: 0.6, blue: 0.2)       // Yellow-green
         case .intron: return AnnotationColor(red: 0.6, green: 0.5, blue: 0.4)     // Tan
         case .utr5, .utr3: return AnnotationColor(red: 0.7, green: 0.3, blue: 0.3) // Muted red
@@ -359,6 +363,8 @@ extension AnnotationType {
         case "exon": return .exon
         case "intron": return .intron
         case "cds", "coding_sequence": return .cds
+        case "orf": return .orf
+        case "translation": return .translation
         case "5'utr", "five_prime_utr": return .utr5
         case "3'utr", "three_prime_utr": return .utr3
         case "trna": return .tRNA

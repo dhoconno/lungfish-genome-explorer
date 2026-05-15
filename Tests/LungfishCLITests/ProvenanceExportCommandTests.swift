@@ -243,7 +243,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
           "createdAt": "2026-05-12T18:41:18Z",
           "workflowName": "multiple-sequence-alignment-mafft",
           "toolName": "lungfish align mafft",
-          "toolVersion": "0.4.0-alpha.15",
+          "toolVersion": "0.4.0-alpha.16",
           "argv": ["lungfish", "align", "mafft", "input.fasta", "--output", "\(bundleURL.path)"],
           "reproducibleCommand": "lungfish align mafft input.fasta --output '\(bundleURL.path)'",
           "runtimeIdentity": {
@@ -319,7 +319,7 @@ final class ProvenanceExportCommandTests: XCTestCase {
           "schemaVersion": 1,
           "workflowName": "phylogenetic-tree-infer-iqtree",
           "toolName": "lungfish tree infer iqtree",
-          "toolVersion": "0.4.0-alpha.15",
+          "toolVersion": "0.4.0-alpha.16",
           "argv": ["lungfish", "tree", "infer", "iqtree", "Aligned.lungfishmsa", "--output", "\(bundleURL.path)"],
           "command": "lungfish tree infer iqtree Aligned.lungfishmsa --output '\(bundleURL.path)'",
           "runtimeIdentity": {

@@ -558,13 +558,13 @@ public final class MainMenu {
 
         // Sequence operations
         seqMenu.addItem(
-            withTitle: "Reverse Complement",
+            withTitle: "Reverse Complement\u{2026}",
             action: #selector(SequenceMenuActions.reverseComplement(_:)),
             keyEquivalent: "r"
         ).keyEquivalentModifierMask = [.command, .shift]
 
         seqMenu.addItem(
-            withTitle: "Translate...",
+            withTitle: "Translate\u{2026}",
             action: #selector(SequenceMenuActions.translate(_:)),
             keyEquivalent: "t"
         ).keyEquivalentModifierMask = [.command, .shift]
@@ -573,14 +573,14 @@ public final class MainMenu {
 
         // Navigation operations (Command-L to avoid conflict with Find Next Command-G)
         seqMenu.addItem(
-            withTitle: "Go to Position...",
+            withTitle: "Go to Location\u{2026}",
             action: #selector(SequenceMenuActions.goToPosition(_:)),
             keyEquivalent: "l"
         )
 
         // Go to Gene (Cmd-Shift-G) - search annotations by gene name
         let goToGeneItem = seqMenu.addItem(
-            withTitle: "Go to Gene...",
+            withTitle: "Go to Gene\u{2026}",
             action: #selector(SequenceMenuActions.goToGene(_:)),
             keyEquivalent: "g"
         )
@@ -607,20 +607,14 @@ public final class MainMenu {
 
         // Annotation operations
         seqMenu.addItem(
-            withTitle: "Add Annotation...",
+            withTitle: "Add Annotation\u{2026}",
             action: #selector(SequenceMenuActions.addAnnotation(_:)),
             keyEquivalent: ""
         )
 
         seqMenu.addItem(
-            withTitle: "Find ORFs...",
+            withTitle: "Find ORFs\u{2026}",
             action: #selector(SequenceMenuActions.findORFs(_:)),
-            keyEquivalent: ""
-        )
-
-        seqMenu.addItem(
-            withTitle: "Find Restriction Sites...",
-            action: #selector(SequenceMenuActions.findRestrictionSites(_:)),
             keyEquivalent: ""
         )
 
@@ -687,24 +681,13 @@ public final class MainMenu {
             action: #selector(ToolsMenuActions.showFASTQClassificationOperations(_:)),
             keyEquivalent: ""
         )
-        let lineageDemixingItem = NSMenuItem(title: "Lineage Demixing", action: nil, keyEquivalent: "")
-        let lineageDemixingMenu = NSMenu(title: "Lineage Demixing")
-        let freyjaItem = lineageDemixingMenu.addItem(
-            withTitle: "Freyja\u{2026}",
-            action: #selector(ToolsMenuActions.showFreyjaDemix(_:)),
-            keyEquivalent: ""
-        )
-        freyjaItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.freyjaDemix)
-        lineageDemixingItem.submenu = lineageDemixingMenu
-        fastqOperationsMenu.addItem(lineageDemixingItem)
-        fastqOperationsMenu.addItem(.separator())
         fastqOperationsMenu.addItem(
-            withTitle: "Reverse Complement Selection",
+            withTitle: "Reverse Complement\u{2026}",
             action: #selector(SequenceMenuActions.reverseComplement(_:)),
             keyEquivalent: ""
         )
         fastqOperationsMenu.addItem(
-            withTitle: "Translate Selection\u{2026}",
+            withTitle: "Translate\u{2026}",
             action: #selector(SequenceMenuActions.translate(_:)),
             keyEquivalent: ""
         )
@@ -1074,7 +1057,6 @@ enum ProvenanceExportMenuModel {
     func extractSelection(_ sender: Any?)
     func addAnnotation(_ sender: Any?)
     func findORFs(_ sender: Any?)
-    func findRestrictionSites(_ sender: Any?)
 }
 
 /// Tools menu action handlers.
@@ -1169,16 +1151,17 @@ final class OperationsMenuDelegate: NSObject, NSMenuDelegate {
                 progressText = ""
             }
 
-            let title = "\(op.title)\(progressText)"
+            let canCancel = op.state == .running && op.isCancellable
+            let title = canCancel ? "Cancel \(op.title)\u{2026}\(progressText)" : "\(op.title)\(progressText)"
             let menuItem = NSMenuItem(
                 title: title,
-                action: nil,
+                action: canCancel ? #selector(OperationsMenuActions.cancelOperation(_:)) : nil,
                 keyEquivalent: ""
             )
             menuItem.image = NSImage(systemSymbolName: statusSymbol, accessibilityDescription: statusAccessibility)
             menuItem.tag = Self.dynamicTagBase + index + 1
             menuItem.representedObject = op.id
-            menuItem.isEnabled = false
+            menuItem.isEnabled = canCancel
             menuItem.toolTip = op.detail
             menu.insertItem(menuItem, at: index)
         }

@@ -294,7 +294,11 @@ public final class AnnotationDatabase: @unchecked Sendable {
     public func query(nameFilter: String = "", types: Set<String> = [], limit: Int = 5000) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
 
-        var sql = "SELECT rowid, name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
+        var sql = """
+        SELECT rowid, name, type, chromosome, start, end, strand, attributes,
+               block_count, block_sizes, block_starts, gene_name
+        FROM annotations
+        """
         var conditions: [String] = []
         var bindings: [String] = []
 
@@ -338,12 +342,18 @@ public final class AnnotationDatabase: @unchecked Sendable {
             let end = Int(sqlite3_column_int64(stmt, 5))
             let strand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
             let attributes = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            let geneName = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+            let blockCount = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 8)) : nil
+            let blockSizes = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
+            let blockStarts = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+            let geneName = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
 
             results.append(AnnotationDatabaseRecord(
                 rowID: rowID, name: name, type: type, chromosome: chrom,
                 start: start, end: end, strand: strand,
                 attributes: attributes,
+                blockCount: blockCount,
+                blockSizes: blockSizes,
+                blockStarts: blockStarts,
                 geneName: geneName
             ))
         }
@@ -363,7 +373,11 @@ public final class AnnotationDatabase: @unchecked Sendable {
     ) -> [AnnotationDatabaseRecord] {
         guard let db else { return [] }
 
-        var sql = "SELECT rowid, name, type, chromosome, start, end, strand, attributes, gene_name FROM annotations"
+        var sql = """
+        SELECT rowid, name, type, chromosome, start, end, strand, attributes,
+               block_count, block_sizes, block_starts, gene_name
+        FROM annotations
+        """
         let queryParts = annotationTableQueryParts(
             nameFilter: nameFilter,
             types: types,
@@ -400,12 +414,18 @@ public final class AnnotationDatabase: @unchecked Sendable {
             let end = Int(sqlite3_column_int64(stmt, 5))
             let strand = sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? "."
             let attributes = sqlite3_column_text(stmt, 7).map { String(cString: $0) }
-            let geneName = sqlite3_column_text(stmt, 8).map { String(cString: $0) }
+            let blockCount = sqlite3_column_type(stmt, 8) != SQLITE_NULL ? Int(sqlite3_column_int64(stmt, 8)) : nil
+            let blockSizes = sqlite3_column_text(stmt, 9).map { String(cString: $0) }
+            let blockStarts = sqlite3_column_text(stmt, 10).map { String(cString: $0) }
+            let geneName = sqlite3_column_text(stmt, 11).map { String(cString: $0) }
 
             results.append(AnnotationDatabaseRecord(
                 rowID: rowID, name: name, type: type, chromosome: chrom,
                 start: start, end: end, strand: strand,
                 attributes: attributes,
+                blockCount: blockCount,
+                blockSizes: blockSizes,
+                blockStarts: blockStarts,
                 geneName: geneName
             ))
         }

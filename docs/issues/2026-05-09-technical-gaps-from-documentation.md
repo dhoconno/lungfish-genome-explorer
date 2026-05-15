@@ -214,12 +214,12 @@ This entry stays in the table for traceability with severity P1 (matching docs-0
 
 **The user-facing behavior:** NAO-MGS handles wastewater classification at the metagenome level. Freyja handles lineage demixing within a single wastewater sample (estimating the relative abundance of SARS-CoV-2 lineages). They solve different problems and Lungfish only wraps one.
 
-**Status 2026-05-10:** Addressed as a command-plan/run surface. The active `wastewater-surveillance` pack lists Freyja, `lungfish freyja demix` writes command-plan and provenance output by default and can execute when installed, and the Tools menu links users to the Freyja pack surface under Lineage Demixing.
+**Status 2026-05-15:** Addressed as a command-plan/run surface. The active `wastewater-surveillance` pack lists Freyja, `lungfish freyja demix` writes command-plan and provenance output by default and can execute when installed. The FASTQ/FASTA Operations menu no longer links to Freyja because that menu is reserved for direct data operations; install or verify the pack from Plugin Manager.
 
 **Acceptance criteria:**
 
 - [x] A Freyja plugin pack ships with the classification or surveillance pack family
-- [x] A `Tools > FASTQ/FASTA Operations > Lineage Demixing > Freyja` menu item exists
+- [x] Plugin Manager exposes the `wastewater-surveillance` pack for Freyja installation and verification
 - [x] A new chapter `06-classification/07-running-freyja` covers the workflow
 - [x] The "what Lungfish does not target" note in `06-classification/01` updates to remove Freyja from the not-yet list
 

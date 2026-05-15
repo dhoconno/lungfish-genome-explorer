@@ -134,7 +134,7 @@ background-app intrusion:
 | `empty-project-window.png` | Newly opened project window with sidebar (Reference Sequences / reference / variants), empty viewport, Bundle inspector showing No Bundle Loaded |
 | `sidebar-folder-conventions.png` | Project sidebar close-up showing Reference Sequences > reference / variants hierarchy |
 | `tools-menu.png` | Tools menu open: FASTQ/FASTA Operations, Call Variants, Search Online Databases, Plugin Manager — verifies docs-040c (no Workflow Builder entry) |
-| `tools-fastq-fasta-submenu.png` | Tools > FASTQ/FASTA Operations submenu: QC & Reporting, Demultiplexing, Trimming & Filtering, Decontamination, Read Processing, Search & Subsetting, Multiple Sequence Alignment, Mapping, Assembly, Classification, Reverse Complement Selection, Translate Selection |
+| `tools-fastq-fasta-submenu.png` | Tools > FASTQ/FASTA Operations submenu: QC & Reporting, Demultiplexing, Trimming & Filtering, Decontamination, Read Processing, Search & Subsetting, Multiple Sequence Alignment, Mapping, Assembly, Classification, Reverse Complement, Translate |
 | `tools-search-online-databases-submenu.png` | Tools > Search Online Databases submenu: Search NCBI, Search SRA, Search Pathoplexus — verifies docs-006 |
 | `plugin-manager-window.png` | Plugin Manager > Packs tab: Required Setup (Third-Party Tools, 17 of 17 ready, ~2.6 GB) plus offline pack export/install command, Optional Tools > Read Mapping (minimap2, BWA-MEM2, Bowtie2) |
 | `reference-bundle-loaded.png` | NC_045512 bundle loaded with annotation chips: 5'UTR, 3'UTR, CDS, gene, **mat_peptide**, stem_loop — verifies docs-001 mat_peptide preservation |

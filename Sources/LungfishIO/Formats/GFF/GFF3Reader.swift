@@ -771,6 +771,8 @@ public final class GFF3Writer {
         case .exon: return "exon"
         case .intron: return "intron"
         case .cds: return "CDS"
+        case .orf: return "ORF"
+        case .translation: return "translation"
         case .utr5: return "five_prime_UTR"
         case .utr3: return "three_prime_UTR"
         case .promoter: return "promoter"

@@ -159,7 +159,7 @@ Finder, and move-to-trash actions.
 ## Navigating the sequence
 
 Three actions cover most navigation, all reached from the **Sequence**
-menu in the menu bar. **Sequence > Go to Position** opens a coordinate
+menu in the menu bar. **Sequence > Go to Location** opens a coordinate
 field; type a number, press Return, and the viewport centres on that
 base. A range like `21563-25384` zooms to fit. **Sequence > Go to Gene**
 opens a fuzzy-matched picker over the annotation names; on the

@@ -3,6 +3,35 @@
 This file tracks implementation work that was explicitly deferred so it can be
 resumed later without re-discovering the context.
 
+## 2026-05-15: Sequence restriction-site search
+
+- Status: Deferred and intentionally removed from the Sequence menu for now.
+- Why it was deferred:
+  - The Sequence menu now requires scientific data-producing operations to be
+    backed by `lungfish-cli`.
+  - Restriction-site searching did not have a CLI-backed workflow that writes a
+    final annotation track plus bundle-level provenance.
+
+### Current state
+
+- `Sequence > Find Restriction Sites...` is not exposed.
+- Any existing plugin or preview-only restriction-site code should remain
+  internal until it is converted into a reproducible CLI workflow.
+
+### What the future implementation needs
+
+1. Add a `lungfish-cli` command that searches selected/current reference
+   sequence regions for enzyme motifs.
+2. Write results as a new annotation track inside the final `.lungfishref`
+   bundle.
+3. Record provenance for the final manifest, annotation database, and any
+   human-readable track artifact, including enzyme list, motif database version,
+   selected sequence/range, command argv, checksums, file sizes, exit status,
+   and wall time.
+4. Add a standard app operation dialog that only invokes the CLI command.
+5. Add artifact-first tests using real reference bundles and direct database
+   inspection before re-enabling the menu item.
+
 ## 2026-04-17: Import Center dataset-level metadata import
 
 - Status: Deferred and intentionally removed from Import Center for now.

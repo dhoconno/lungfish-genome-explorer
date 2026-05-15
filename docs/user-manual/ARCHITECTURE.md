@@ -190,8 +190,8 @@ foundation prereqs in frontmatter.
 
 - **02-sequences/01-importing-and-viewing** — drag-drop a FASTA or GenBank
   file; the sequence viewport; the annotation drawer; navigating by gene
-  and by position; reverse-complement; translate; Find ORFs; Find
-  Restriction Sites.
+  and by location; reverse-complement; translate; Find ORFs with stored
+  translation products.
   Prereqs: F01, F06. Audience: bench-scientist.
 
 - **02-sequences/02-downloading-from-ncbi** — Tools > Search Online

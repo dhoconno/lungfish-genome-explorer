@@ -72,6 +72,32 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertEqual(commands, [["view", "-h", fixture.sourceBAMURL.path]])
     }
 
+    func testConvertMappedReadsHonorsExplicitOutputTrackID() async throws {
+        let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
+        let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
+        read-1\t0\tchr1\t101\t60\t4M\t*\t0\t0\tACGT\tABCD\tNM:i:0
+        """)
+        let service = MappedReadsAnnotationService(
+            samtoolsRunner: runner,
+            trackIDProvider: { _ in "generated-id" }
+        )
+
+        let result = try await service.convertMappedReads(
+            request: MappedReadsAnnotationRequest(
+                bundleURL: fixture.bundleURL,
+                sourceTrackID: fixture.sourceTrackID,
+                outputTrackName: "Mapped Reads",
+                outputTrackID: "mapped_reads_user"
+            )
+        )
+
+        XCTAssertEqual(result.annotationTrackInfo.id, "mapped_reads_user")
+        XCTAssertEqual(result.annotationTrackInfo.databasePath, "annotations/mapped_reads_user.db")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: fixture.bundleURL.appendingPathComponent("annotations/mapped_reads_user.db").path
+        ))
+    }
+
     func testConvertMappedReadsIncludesSequenceAndQualitiesWhenRequested() async throws {
         let fixture = try MappedReadsAnnotationFixture.make(rootURL: tempDir)
         let runner = RecordingMappedReadsSamtoolsRunner(stdout: """
@@ -191,12 +217,13 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
                 mappingResultURL: mappingDirectory,
                 outputBundleURL: outputBundleURL,
                 outputTrackName: "miSeq MHC",
+                outputTrackID: "miseq_mhc_user",
                 primaryOnly: true
             )
         )
 
         XCTAssertEqual(result.outputBundleURL, outputBundleURL)
-        XCTAssertEqual(result.annotationTrackInfo.id, "ann-best")
+        XCTAssertEqual(result.annotationTrackInfo.id, "miseq_mhc_user")
         XCTAssertEqual(result.convertedRecordCount, 2)
         XCTAssertEqual(result.selectedRecordCount, 2)
         XCTAssertEqual(result.candidateRecordCount, 3)
@@ -208,7 +235,7 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
         XCTAssertEqual(manifest.annotations.first?.name, "miSeq MHC")
 
         let database = try AnnotationDatabase(
-            url: outputBundleURL.appendingPathComponent("annotations/ann-best.db")
+            url: outputBundleURL.appendingPathComponent("annotations/miseq_mhc_user.db")
         )
         let records = database.queryByRegion(chromosome: "chr1", start: 0, end: 300)
         XCTAssertEqual(records.map(\.name).sorted(), ["best-overlap", "next-interval"])
@@ -266,6 +293,7 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
                 mappingResultURL: mappingDirectory,
                 outputBundleURL: outputBundleURL,
                 outputTrackName: "IPD CDS best",
+                outputTrackID: "ipd_cds_user",
                 minimumQueryCoverage: 0.95
             )
         )
@@ -277,8 +305,9 @@ final class MappedReadsAnnotationServiceTests: XCTestCase {
 
         let manifest = try BundleManifest.load(from: outputBundleURL)
         XCTAssertEqual(manifest.annotations.first?.name, "IPD CDS best")
+        XCTAssertEqual(manifest.annotations.first?.id, "ipd_cds_user")
         let database = try AnnotationDatabase(
-            url: outputBundleURL.appendingPathComponent("annotations/ann-cds-best.db")
+            url: outputBundleURL.appendingPathComponent("annotations/ipd_cds_user.db")
         )
         let records = database.queryByRegion(chromosome: "chr1", start: 0, end: 900, limit: 100)
         XCTAssertEqual(records.filter { $0.type == "gene" }.compactMap(\.geneName).sorted(), ["best-allele", "next-locus"])

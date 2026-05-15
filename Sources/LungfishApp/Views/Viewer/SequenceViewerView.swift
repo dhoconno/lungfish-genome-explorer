@@ -416,7 +416,7 @@ public class SequenceViewerView: NSView {
     /// Pre-computed CDS translation result (set when user clicks "Translate" on a CDS annotation).
     var activeTranslationResult: TranslationResult?
 
-    /// Cached per-annotation CDS translations for auto-CDS display in expanded mode.
+    /// Cached per-annotation translations for expanded annotation rows.
     /// Keyed by annotation UUID. Invalidated on chromosome/sequence change.
     var cachedCDSTranslations: [UUID: TranslationResult] = [:]
 
@@ -1562,6 +1562,75 @@ public class SequenceViewerView: NSView {
 
     // MARK: - Translation Track Control
 
+    static func storedAnnotationTranslationResult(for annotation: SequenceAnnotation) -> TranslationResult? {
+        guard annotation.type == .orf || annotation.type == .translation,
+              let rawProtein = annotation.qualifier("translation")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawProtein.isEmpty else {
+            return nil
+        }
+
+        let tableID = annotation.qualifier("genetic_code_table").flatMap(Int.init)
+        let codonTable = tableID.flatMap(CodonTable.table(id:)) ?? .standard
+        let codingCoordinates = codingCoordinateOrder(for: annotation)
+        let protein = rawProtein
+        var aminoAcidPositions: [AminoAcidPosition] = []
+
+        for (aaIndex, aminoAcid) in protein.enumerated() {
+            let codonCoordinates = Array(codingCoordinates.dropFirst(aaIndex * 3).prefix(3))
+            guard !codonCoordinates.isEmpty else { break }
+            aminoAcidPositions.append(
+                AminoAcidPosition(
+                    index: aaIndex,
+                    aminoAcid: aminoAcid,
+                    codon: String(repeating: "N", count: codonCoordinates.count),
+                    genomicRanges: genomicRanges(forCodingCoordinates: codonCoordinates),
+                    isStart: aaIndex == 0 && aminoAcid == "M",
+                    isStop: aminoAcid == "*"
+                )
+            )
+        }
+
+        guard !aminoAcidPositions.isEmpty else { return nil }
+        return TranslationResult(
+            protein: protein,
+            codingSequence: String(repeating: "N", count: min(codingCoordinates.count, protein.count * 3)),
+            aminoAcidPositions: aminoAcidPositions,
+            codonTable: codonTable,
+            phaseOffset: annotation.intervals.first?.phase ?? 0
+        )
+    }
+
+    private static func codingCoordinateOrder(for annotation: SequenceAnnotation) -> [Int] {
+        if annotation.strand == .reverse {
+            return annotation.intervals
+                .sorted { $0.start > $1.start }
+                .flatMap { interval in Array((interval.start..<interval.end).reversed()) }
+        }
+
+        return annotation.intervals
+            .sorted { $0.start < $1.start }
+            .flatMap { interval in Array(interval.start..<interval.end) }
+    }
+
+    private static func genomicRanges(forCodingCoordinates coordinates: [Int]) -> [GenomicRange] {
+        let sorted = coordinates.sorted()
+        guard var rangeStart = sorted.first else { return [] }
+        var previous = rangeStart
+        var ranges: [GenomicRange] = []
+
+        for coordinate in sorted.dropFirst() {
+            if coordinate == previous + 1 {
+                previous = coordinate
+            } else {
+                ranges.append(GenomicRange(start: rangeStart, end: previous + 1))
+                rangeStart = coordinate
+                previous = coordinate
+            }
+        }
+        ranges.append(GenomicRange(start: rangeStart, end: previous + 1))
+        return ranges
+    }
+
     /// Shows a CDS translation track for the given annotation.
     ///
     /// Computes the translation using `TranslationEngine.translateCDS()` with the
@@ -1673,6 +1742,15 @@ public class SequenceViewerView: NSView {
     func setReferenceBundle(_ bundle: ReferenceBundle) {
         logger.info("SequenceViewerView.setReferenceBundle: Setting bundle '\(bundle.name, privacy: .public)'")
 
+        let previousBundleURL = currentReferenceBundle?.url.standardizedFileURL
+        let nextBundleURL = bundle.url.standardizedFileURL
+        let shouldPreserveLocalRenderFilters = previousBundleURL == nextBundleURL
+        let previousLocalAnnotationRenderFilterKeys = localAnnotationRenderFilterKeys
+        let previousLocalVariantRenderFilterKeys = localVariantRenderFilterKeys
+
+        annotationFetchGeneration += 1
+        variantFetchGeneration += 1
+
         // Store the bundle reference
         self.currentReferenceBundle = bundle
 
@@ -1689,8 +1767,8 @@ public class SequenceViewerView: NSView {
         self.cachedVariantRegion = nil
         self.cachedCDSTranslations = [:]
         self.cachedCDSCodingContexts = [:]
-        self.localAnnotationRenderFilterKeys = nil
-        self.localVariantRenderFilterKeys = nil
+        self.localAnnotationRenderFilterKeys = shouldPreserveLocalRenderFilters ? previousLocalAnnotationRenderFilterKeys : nil
+        self.localVariantRenderFilterKeys = shouldPreserveLocalRenderFilters ? previousLocalVariantRenderFilterKeys : nil
         self.invalidateFilteredVariantCache()
         self.isFetchingBundleData = false
         self.isFetchingAnnotations = false
@@ -2626,6 +2704,10 @@ public class SequenceViewerView: NSView {
                     logger.info("fetchAnnotationsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.annotationFetchGeneration))")
                     return
                 }
+                guard viewer.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else {
+                    logger.info("fetchAnnotationsAsync: Discarding stale result for replaced reference bundle")
+                    return
+                }
                 let elapsed = viewer.annotationFetchStartTime.map { Date().timeIntervalSince($0) } ?? 0
                 viewer.cachedBundleAnnotations = allAnnotations
                 viewer.cachedAnnotationRegion = expandedRegion
@@ -2968,6 +3050,10 @@ public class SequenceViewerView: NSView {
                 }
                 guard thisGeneration == viewer.variantFetchGeneration else {
                     logger.info("fetchVariantsAsync: Discarding stale result gen=\(thisGeneration) (current=\(viewer.variantFetchGeneration))")
+                    return
+                }
+                guard viewer.currentReferenceBundle?.url.standardizedFileURL == bundle.url.standardizedFileURL else {
+                    logger.info("fetchVariantsAsync: Discarding stale result for replaced reference bundle")
                     return
                 }
                 let elapsed = Date().timeIntervalSince(fetchStart)
@@ -4446,11 +4532,12 @@ public class SequenceViewerView: NSView {
         let (rows, overflow) = packAnnotationsLayered(annotations, frame: frame)
         let rowCount = rows.count
 
-        // Determine if auto-CDS translation should be rendered beneath CDS annotations.
-        let autoCDS = frame.scale < showLettersThreshold
+        // Determine if embedded annotation translations should be rendered beneath feature rows.
+        let canRenderEmbeddedTranslations = frame.scale < showLettersThreshold
+            && !showTranslationTrack  // don't double-render with manual translation
+        let autoCDS = canRenderEmbeddedTranslations
             && cachedBundleSequence != nil
             && cachedSequenceRegion != nil
-            && !showTranslationTrack  // don't double-render with manual translation
 
         // Build sequence provider from cached data (no I/O in draw loop)
         let sequenceProvider: ((Int, Int) -> String?)?
@@ -4470,23 +4557,21 @@ public class SequenceViewerView: NSView {
             sequenceProvider = nil
         }
 
-        let cdsTrackH = TranslationTrackRenderer.cdsTrackHeight() + 2
+        let embeddedTranslationTrackH = TranslationTrackRenderer.cdsTrackHeight() + 2
 
-        // First pass: determine which rows contain CDS annotations needing translation sub-tracks.
-        // Compute per-row Y offsets with accumulated CDS translation space.
+        // First pass: determine which rows contain annotations needing translation sub-tracks.
+        // Compute per-row Y offsets with accumulated translation space.
         var rowYOffsets = [CGFloat](repeating: 0, count: rows.count)
         var cumulativeExtra: CGFloat = 0
         for (rowIndex, row) in rows.enumerated() {
             rowYOffsets[rowIndex] = annotationTrackY + CGFloat(rowIndex) * (annotationHeight + annotationRowSpacing) + cumulativeExtra
-            if autoCDS {
-                let hasCDS = row.contains { $0.type == .cds }
-                if hasCDS {
-                    cumulativeExtra += cdsTrackH
-                }
+            if canRenderEmbeddedTranslations,
+               row.contains(where: { embeddedAnnotationTranslationAvailable(for: $0, sequenceProvider: sequenceProvider) }) {
+                cumulativeExtra += embeddedTranslationTrackH
             }
         }
 
-        // Second pass: draw annotations and CDS translations.
+        // Second pass: draw annotations and embedded translations.
         for (rowIndex, row) in rows.enumerated() {
             let y = rowYOffsets[rowIndex]
 
@@ -4585,24 +4670,16 @@ public class SequenceViewerView: NSView {
                     drawAnnotationSelectionHighlight(rect: boundingRect, context: context)
                 }
 
-                // Draw CDS translation beneath CDS annotations in auto mode
-                if autoCDS, annot.type == .cds, let provider = sequenceProvider {
-                    if cachedCDSTranslations[annot.id] == nil {
-                        cachedCDSTranslations[annot.id] = TranslationEngine.translateCDS(
-                            annotation: annot,
-                            sequenceProvider: provider
-                        )
-                    }
-                    if let result = cachedCDSTranslations[annot.id] {
-                        TranslationTrackRenderer.drawCDSTranslation(
-                            result: result,
-                            frame: frame,
-                            context: context,
-                            yOffset: y + annotationHeight + 1,
-                            colorScheme: translationColorScheme,
-                            showStopCodons: translationShowStopCodons
-                        )
-                    }
+                if canRenderEmbeddedTranslations,
+                   let result = embeddedAnnotationTranslationResult(for: annot, sequenceProvider: sequenceProvider) {
+                    TranslationTrackRenderer.drawCDSTranslation(
+                        result: result,
+                        frame: frame,
+                        context: context,
+                        yOffset: y + annotationHeight + 1,
+                        colorScheme: translationColorScheme,
+                        showStopCodons: translationShowStopCodons
+                    )
                 }
             }
         }
@@ -4617,6 +4694,40 @@ public class SequenceViewerView: NSView {
             drawOverflowIndicator(rowCount: rows.count, height: annotationHeight + annotationRowSpacing,
                                   overflow: overflow, frame: frame, context: context)
         }
+    }
+
+    private func embeddedAnnotationTranslationAvailable(
+        for annotation: SequenceAnnotation,
+        sequenceProvider: ((Int, Int) -> String?)?
+    ) -> Bool {
+        if annotation.type == .cds {
+            return sequenceProvider != nil
+        }
+        return Self.storedAnnotationTranslationResult(for: annotation) != nil
+    }
+
+    private func embeddedAnnotationTranslationResult(
+        for annotation: SequenceAnnotation,
+        sequenceProvider: ((Int, Int) -> String?)?
+    ) -> TranslationResult? {
+        if let cached = cachedCDSTranslations[annotation.id] {
+            return cached
+        }
+
+        let result: TranslationResult?
+        if annotation.type == .cds, let sequenceProvider {
+            result = TranslationEngine.translateCDS(
+                annotation: annotation,
+                sequenceProvider: sequenceProvider
+            )
+        } else {
+            result = Self.storedAnnotationTranslationResult(for: annotation)
+        }
+
+        if let result {
+            cachedCDSTranslations[annotation.id] = result
+        }
+        return result
     }
 
     // MARK: - Pixel-Based Row Packing
@@ -6176,6 +6287,7 @@ public class SequenceViewerView: NSView {
             if let annotation = bundleAnnotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
+                viewController?.selectAnnotationInDrawer(annotation)
                 isSelecting = false
                 setNeedsDisplay(bounds)
                 updateSelectionStatus()
@@ -6190,6 +6302,7 @@ public class SequenceViewerView: NSView {
                 if let annotation = annotationAtPoint(location, forSequence: stackedInfo, frame: frame) {
                     selectedAnnotation = annotation
                     postAnnotationSelectedNotification(annotation)
+                    viewController?.selectAnnotationInDrawer(annotation)
                     isSelecting = false
                     setNeedsDisplay(bounds)
                     updateSelectionStatus()
@@ -6205,6 +6318,7 @@ public class SequenceViewerView: NSView {
             if let annotation = annotationAtPoint(location) {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
+                viewController?.selectAnnotationInDrawer(annotation)
                 isSelecting = false
                 setNeedsDisplay(bounds)
                 updateSelectionStatus()
@@ -6332,6 +6446,7 @@ public class SequenceViewerView: NSView {
             if selectedAnnotation?.id != annotation.id {
                 selectedAnnotation = annotation
                 postAnnotationSelectedNotification(annotation)
+                viewController?.selectAnnotationInDrawer(annotation)
                 setNeedsDisplay(bounds)
             }
             // Show annotation context menu
@@ -6948,33 +7063,114 @@ public class SequenceViewerView: NSView {
         logger.info("Reverse complement: copied \(end - start) bases to clipboard")
     }
 
+    struct FASTAOperationInput {
+        let records: [String]
+        let suggestedName: String
+    }
+
+    enum FASTAOperationInputError: LocalizedError {
+        case noSequence
+        case emptyRange
+
+        var errorDescription: String? {
+            switch self {
+            case .noSequence:
+                return "No sequence is available for this operation."
+            case .emptyRange:
+                return "Select a non-empty sequence range before running this operation."
+            }
+        }
+    }
+
     /// Opens the generic FASTQ/FASTA Operations dialog for the current sequence selection.
     func runSelectedSequenceFASTAOperation(toolID: FASTQOperationToolID) {
-        guard let seq = sequence,
-              let range = selectionRange else {
-            NSSound.beep()
-            return
+        do {
+            let input = try selectedFASTAOperationInput()
+            viewController?.presentFASTAOperationDialog(
+                records: input.records,
+                suggestedName: input.suggestedName,
+                initialCategory: toolID.categoryID,
+                initialToolID: toolID
+            )
+        } catch {
+            presentFASTAOperationInputError(error)
         }
-        let start = max(0, range.lowerBound)
-        let end = min(seq.length, range.upperBound)
-        guard start < end else {
-            NSSound.beep()
-            return
+    }
+
+    func selectedFASTAOperationInput() throws -> FASTAOperationInput {
+        if let seq = activeSequence ?? sequence {
+            let range = selectedOrVisibleSequenceRange(sequenceLength: seq.length)
+            let start = max(0, range.lowerBound)
+            let end = min(seq.length, range.upperBound)
+            guard start < end else {
+                throw FASTAOperationInputError.emptyRange
+            }
+
+            let sequenceName = selectedSequenceName(start: start, end: end)
+            let fasta = formatFASTA(name: sequenceName, sequence: seq[start..<end])
+            return FASTAOperationInput(records: [fasta], suggestedName: sequenceName)
         }
 
-        let sequenceName = selectedSequenceName(start: start, end: end)
-        let fasta = formatFASTA(name: sequenceName, sequence: seq[start..<end])
-        viewController?.presentFASTAOperationDialog(
-            records: [fasta],
-            suggestedName: sequenceName,
-            initialCategory: toolID.categoryID,
-            initialToolID: toolID
+        guard let bundle = currentReferenceBundle,
+              let frame = viewController?.referenceFrame,
+              let chromosome = viewController?.currentBundleDataProvider?.chromosomeInfo(named: frame.chromosome)
+                ?? bundle.chromosome(named: frame.chromosome) else {
+            throw FASTAOperationInputError.noSequence
+        }
+        let sequenceLength = Int(chromosome.length)
+        let range = selectedOrVisibleSequenceRange(sequenceLength: sequenceLength)
+        let start = max(0, range.lowerBound)
+        let end = min(sequenceLength, range.upperBound)
+        guard start < end else {
+            throw FASTAOperationInputError.emptyRange
+        }
+
+        let bases = try bundle.fetchSequenceSync(
+            region: GenomicRegion(chromosome: chromosome.name, start: start, end: end)
         )
+        let sequenceName = selectedSequenceName(chromosome: chromosome.name, start: start, end: end)
+        let fasta = formatFASTA(name: sequenceName, sequence: bases)
+        return FASTAOperationInput(records: [fasta], suggestedName: sequenceName)
+    }
+
+    private func selectedOrVisibleSequenceRange(sequenceLength: Int) -> Range<Int> {
+        if let range = selectionRange, !range.isEmpty {
+            return range
+        }
+        if let frame = viewController?.referenceFrame {
+            let lower = min(max(0, Int(frame.start)), sequenceLength)
+            let upper = min(max(lower, Int(ceil(frame.end))), sequenceLength)
+            if lower < upper {
+                return lower..<upper
+            }
+        }
+        return 0..<sequenceLength
+    }
+
+    private func presentFASTAOperationInputError(_ error: Error) {
+        NSSound.beep()
+        guard let window else {
+            logger.warning("Unable to prepare FASTA operation input: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Sequence Operation Unavailable"
+        alert.informativeText = error.localizedDescription
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: window)
+    }
+
+    private func selectedSequenceName(chromosome: String, start: Int, end: Int) -> String {
+        "\(chromosome)_\(start + 1)_\(end)"
     }
 
     private func selectedSequenceName(start: Int, end: Int) -> String {
-        let chromosome = viewController?.referenceFrame?.chromosome ?? sequence?.name ?? "selection"
-        return "\(chromosome)_\(start + 1)_\(end)"
+        let chromosome = activeSequence?.name
+            ?? viewController?.referenceFrame?.chromosome
+            ?? sequence?.name
+            ?? "selection"
+        return selectedSequenceName(chromosome: chromosome, start: start, end: end)
     }
 
     private func formatFASTA(name: String, sequence: String) -> String {

@@ -24,11 +24,6 @@ private let pluginLogger = Logger(subsystem: "com.lungfish.plugin", category: "P
 /// // Get all analysis plugins
 /// let analysisPlugins = registry.analysisPlugins
 ///
-/// // Find a specific plugin
-/// if let restriction = registry.plugin(withId: "com.lungfish.restriction-finder") {
-///     // Use the plugin
-/// }
-///
 /// // Get plugins for a category
 /// let tools = registry.plugins(in: .sequenceAnalysis)
 /// ```
@@ -236,7 +231,6 @@ public final class PluginRegistry: ObservableObject {
 
             // Annotation Generators
             try register(ORFFinderPlugin())
-            try register(RestrictionSiteFinderPlugin())
 
         } catch {
             pluginLogger.error("Failed to load built-in plugin: \(error)")

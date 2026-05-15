@@ -451,6 +451,7 @@ extension SequenceViewerView {
 
         let capturedResult = result
         let capturedOutputDir = outputDir
+        let capturedSourceBundleURL = currentReferenceBundle?.url
         let capturedSourceBundleName = sourceBundleName
         let capturedSourceBundleChromosomes = sourceBundleChromosomes
         let capturedBundleName = bundleName
@@ -469,6 +470,7 @@ extension SequenceViewerView {
                 let bundleURL = try await pipeline.buildBundle(
                     from: capturedResult,
                     outputDirectory: capturedOutputDir,
+                    sourceBundleURL: capturedSourceBundleURL,
                     sourceBundleName: capturedSourceBundleName,
                     desiredBundleName: capturedBundleName,
                     sourceBundleChromosomes: capturedSourceBundleChromosomes,

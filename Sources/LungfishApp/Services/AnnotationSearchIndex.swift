@@ -28,6 +28,7 @@ public final class AnnotationSearchIndex {
         public let start: Int
         public let end: Int
         public let trackId: String
+        public let trackName: String?
         public let type: String
         public let strand: String
 
@@ -51,7 +52,7 @@ public final class AnnotationSearchIndex {
         public var isVariant: Bool { ref != nil }
 
         public init(id: UUID = UUID(), name: String, chromosome: String, start: Int, end: Int,
-                    trackId: String, type: String = "gene", strand: String = ".",
+                    trackId: String, trackName: String? = nil, type: String = "gene", strand: String = ".",
                     ref: String? = nil, alt: String? = nil, quality: Double? = nil,
                     filter: String? = nil, sampleCount: Int? = nil, variantRowId: Int64? = nil,
                     infoDict: [String: String]? = nil, sourceFile: String? = nil,
@@ -62,6 +63,7 @@ public final class AnnotationSearchIndex {
             self.start = start
             self.end = end
             self.trackId = trackId
+            self.trackName = trackName
             self.type = type
             self.strand = strand
             self.ref = ref
@@ -84,6 +86,9 @@ public final class AnnotationSearchIndex {
 
     /// SQLite annotation database handles (preferred mode).
     private var annotationDatabases: [(trackId: String, db: AnnotationDatabase)] = []
+
+    /// Human-readable display name per annotation track (from AnnotationTrackInfo.name).
+    private var annotationTrackNames: [String: String] = [:]
 
     /// Primary annotation database handle retained for backward compatibility.
     private var database: AnnotationDatabase?
@@ -108,6 +113,9 @@ public final class AnnotationSearchIndex {
 
     /// Public accessor for annotation database handles (for background gene-region queries).
     public var annotationDatabaseHandles: [(trackId: String, db: AnnotationDatabase)] { annotationDatabases }
+
+    /// Returns the human-readable display name for an annotation track.
+    public func annotationTrackName(for trackId: String) -> String? { annotationTrackNames[trackId] }
 
     /// Returns the human-readable display name for a variant track.
     public func variantTrackName(for trackId: String) -> String? { variantTrackNames[trackId] }
@@ -215,6 +223,7 @@ public final class AnnotationSearchIndex {
             let db = try AnnotationDatabase(url: dbURL)
             database = db
             databaseTrackId = trackId
+            annotationTrackNames = [trackId: bundle.annotationTrack(id: trackId)?.name ?? trackId]
             bundleIdentifier = bundle.manifest.identifier
             bundleGenomeTotalLength = bundle.manifest.genome?.totalLength ?? 0
             bundlePloidyHint = inferPloidyHint(from: bundle.manifest)
@@ -270,6 +279,7 @@ public final class AnnotationSearchIndex {
     public func buildIndex(bundle: ReferenceBundle, chromosomes: [ChromosomeInfo]) {
         _ = chromosomes
         annotationDatabases.removeAll()
+        annotationTrackNames.removeAll()
         database = nil
         databaseTrackId = ""
         bundleIdentifier = bundle.manifest.identifier
@@ -285,6 +295,7 @@ public final class AnnotationSearchIndex {
                 do {
                     let db = try AnnotationDatabase(url: dbURL)
                     annotationDatabases.append((trackId: trackId, db: db))
+                    annotationTrackNames[trackId] = trackInfo.name
                 } catch {
                     searchLogger.warning("AnnotationSearchIndex: Failed to open annotation database '\(trackId, privacy: .public)': \(error.localizedDescription)")
                 }
@@ -383,8 +394,10 @@ public final class AnnotationSearchIndex {
         limit: Int = 5000
     ) -> [SearchResult]? {
         guard !annotationDatabases.isEmpty else { return nil }
+        let dbColumnFilters = columnFilters.filter { !Self.isAnnotationTrackColumnFilter($0.key) }
         var results: [SearchResult] = []
         for handle in annotationDatabases {
+            guard annotationTrackMatchesFilters(trackId: handle.trackId, filters: columnFilters) else { continue }
             let remaining = limit - results.count
             guard remaining > 0 else { break }
             let records = handle.db.queryForTable(
@@ -394,7 +407,7 @@ public final class AnnotationSearchIndex {
                 regionStart: regionStart,
                 regionEnd: regionEnd,
                 strand: strand,
-                columnFilters: columnFilters,
+                columnFilters: dbColumnFilters,
                 limit: remaining
             )
             results.append(contentsOf: records.map { record in
@@ -637,20 +650,25 @@ public final class AnnotationSearchIndex {
         strand: String? = nil,
         columnFilters: [AnnotationDatabase.ColumnFilterClause] = []
     ) -> Int {
+        let dbColumnFilters = columnFilters.filter { !Self.isAnnotationTrackColumnFilter($0.key) }
         if !annotationDatabases.isEmpty {
             return annotationDatabases.reduce(0) { partial, handle in
-                partial + handle.db.queryCountForTable(
+                guard annotationTrackMatchesFilters(trackId: handle.trackId, filters: columnFilters) else {
+                    return partial
+                }
+                return partial + handle.db.queryCountForTable(
                     nameFilter: nameFilter,
                     types: types,
                     chromosome: chromosome,
                     regionStart: regionStart,
                     regionEnd: regionEnd,
                     strand: strand,
-                    columnFilters: columnFilters
+                    columnFilters: dbColumnFilters
                 )
             }
         }
         guard let db = database else { return 0 }
+        guard annotationTrackMatchesFilters(trackId: databaseTrackId, filters: columnFilters) else { return 0 }
         return db.queryCountForTable(
             nameFilter: nameFilter,
             types: types,
@@ -658,7 +676,7 @@ public final class AnnotationSearchIndex {
             regionStart: regionStart,
             regionEnd: regionEnd,
             strand: strand,
-            columnFilters: columnFilters
+            columnFilters: dbColumnFilters
         )
     }
 
@@ -979,6 +997,7 @@ public final class AnnotationSearchIndex {
         entries = []
         database = nil
         annotationDatabases = []
+        annotationTrackNames = [:]
         variantDatabases = []
         variantTrackNames = [:]
         variantTrackChromosomes = [:]
@@ -1029,11 +1048,61 @@ public final class AnnotationSearchIndex {
             start: record.start,
             end: record.end,
             trackId: trackId,
+            trackName: annotationTrackNames[trackId],
             type: record.type,
             strand: record.strand,
             attributes: parsedAttributes,
             annotationRowId: record.rowID
         )
+    }
+
+    private static func isAnnotationTrackColumnFilter(_ key: String) -> Bool {
+        key == "track_id" || key == "track_name"
+    }
+
+    private func annotationTrackMatchesFilters(
+        trackId: String,
+        filters: [AnnotationDatabase.ColumnFilterClause]
+    ) -> Bool {
+        filters.allSatisfy { filter in
+            switch filter.key {
+            case "track_id":
+                return Self.trackColumnMatches(actual: trackId, op: filter.op, expected: filter.value)
+            case "track_name":
+                return Self.trackColumnMatches(
+                    actual: annotationTrackNames[trackId] ?? trackId,
+                    op: filter.op,
+                    expected: filter.value
+                )
+            default:
+                return true
+            }
+        }
+    }
+
+    private static func trackColumnMatches(actual: String, op: String, expected: String) -> Bool {
+        let normalizedActual = actual.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedExpected = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch op {
+        case "=":
+            if normalizedExpected.isEmpty { return normalizedActual.isEmpty }
+            return normalizedActual.caseInsensitiveCompare(normalizedExpected) == .orderedSame
+        case "!=":
+            if normalizedExpected.isEmpty { return !normalizedActual.isEmpty }
+            return normalizedActual.caseInsensitiveCompare(normalizedExpected) != .orderedSame
+        case "!~":
+            if normalizedExpected.isEmpty { return true }
+            return !normalizedActual.localizedCaseInsensitiveContains(normalizedExpected)
+        case "^=":
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.lowercased().hasPrefix(normalizedExpected.lowercased())
+        case "$=":
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.lowercased().hasSuffix(normalizedExpected.lowercased())
+        default:
+            if normalizedExpected.isEmpty { return true }
+            return normalizedActual.localizedCaseInsensitiveContains(normalizedExpected)
+        }
     }
 
     /// Returns chromosome names to try for variant queries in this track.

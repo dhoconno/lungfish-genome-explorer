@@ -9,6 +9,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
             "annotate",
             "--bundle", "/tmp/Test.lungfishref",
             "--alignment-track", "aln-1",
+            "--output-track-id", "mapped_reads_custom",
             "--output-track-name", "Mapped Reads",
             "--primary-only",
             "--include-sequence",
@@ -21,6 +22,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
             runAnnotate: { request in
                 XCTAssertEqual(request.bundleURL, URL(fileURLWithPath: "/tmp/Test.lungfishref"))
                 XCTAssertEqual(request.sourceTrackID, "aln-1")
+                XCTAssertEqual(request.outputTrackID, "mapped_reads_custom")
                 XCTAssertEqual(request.outputTrackName, "Mapped Reads")
                 XCTAssertTrue(request.primaryOnly)
                 XCTAssertTrue(request.includeSequence)
@@ -117,6 +119,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
             "--bundle", "/tmp/Input.lungfishref",
             "--mapping-result", "/tmp/mapping",
             "--output-bundle", "/tmp/Output.lungfishref",
+            "--output-track-id", "miseq_mhc_custom",
             "--output-track-name", "miSeq MHC",
             "--primary-only",
             "--replace",
@@ -128,6 +131,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
                 XCTAssertEqual(request.sourceBundleURL, URL(fileURLWithPath: "/tmp/Input.lungfishref"))
                 XCTAssertEqual(request.mappingResultURL, URL(fileURLWithPath: "/tmp/mapping"))
                 XCTAssertEqual(request.outputBundleURL, URL(fileURLWithPath: "/tmp/Output.lungfishref"))
+                XCTAssertEqual(request.outputTrackID, "miseq_mhc_custom")
                 XCTAssertEqual(request.outputTrackName, "miSeq MHC")
                 XCTAssertTrue(request.primaryOnly)
                 XCTAssertTrue(request.replaceExisting)
@@ -178,6 +182,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
             "--bundle", "/tmp/Input.lungfishref",
             "--mapping-result", "/tmp/cds-mapping",
             "--output-bundle", "/tmp/Output.lungfishref",
+            "--output-track-id", "ipd_cds_custom",
             "--output-track-name", "IPD CDS",
             "--include-secondary",
             "--min-query-cover", "0.95",
@@ -190,6 +195,7 @@ final class BAMAnnotateCommandTests: XCTestCase {
                 XCTAssertEqual(request.sourceBundleURL, URL(fileURLWithPath: "/tmp/Input.lungfishref"))
                 XCTAssertEqual(request.mappingResultURL, URL(fileURLWithPath: "/tmp/cds-mapping"))
                 XCTAssertEqual(request.outputBundleURL, URL(fileURLWithPath: "/tmp/Output.lungfishref"))
+                XCTAssertEqual(request.outputTrackID, "ipd_cds_custom")
                 XCTAssertEqual(request.outputTrackName, "IPD CDS")
                 XCTAssertTrue(request.includeSecondary)
                 XCTAssertFalse(request.includeSupplementary)
