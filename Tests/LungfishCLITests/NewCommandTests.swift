@@ -682,11 +682,12 @@ final class SubcommandRegistrationTests: XCTestCase {
     /// Verifies total subcommand count after additions.
     func testTotalSubcommandCount() throws {
         let config = LungfishCLI.configuration
-        // 40 subcommands: version, convert, analyze, translate, search, universal-search, extract, fastq,
-        // workflow, run-headless, fetch, bundle, project, provision-tools, conda, blast, esviritu,
-        // taxtriage, align, msa, tree, assemble, orient, map, import, import-fastq, ops, provenance,
-        // bam, variants, gatk, nao-mgs, freyja, nvd, cz-id, metadata, build-db, markdup, primers, debug.
-        XCTAssertEqual(config.subcommands.count, 40)
+        // 41 subcommands: version, convert, analyze, translate, sequence, search, universal-search,
+        // extract, fastq, workflow, run-headless, fetch, bundle, project, provision-tools, conda,
+        // blast, esviritu, taxtriage, align, msa, tree, assemble, orient, map, import, import-fastq,
+        // ops, provenance, bam, variants, gatk, nao-mgs, freyja, nvd, cz-id, metadata, build-db,
+        // markdup, primers, debug.
+        XCTAssertEqual(config.subcommands.count, 41)
     }
 
     /// Verifies analyze subcommand count.
