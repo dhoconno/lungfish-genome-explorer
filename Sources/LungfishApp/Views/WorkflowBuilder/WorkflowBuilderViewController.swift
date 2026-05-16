@@ -654,8 +654,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window, completionHandler: handle)
         } else {
-            // runModal-legacy-allowed because this no-window utility prompt must synchronously return the typed workflow name.
-            handle(alert.runModal())
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to name this workflow."]),
+                title: "Failed to Name Workflow"
+            )
         }
     }
 
@@ -703,11 +705,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 self?.startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
             }
         } else {
-            // runModal-legacy-allowed because this fallback has no presenter window and must read the accessory selection before dispatch.
-            let response = alert.runModal()
-            guard response == .alertFirstButtonReturn,
-                  let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
-            startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to bind workflow inputs before running."]),
+                title: "Failed to Run Workflow"
+            )
         }
     }
 

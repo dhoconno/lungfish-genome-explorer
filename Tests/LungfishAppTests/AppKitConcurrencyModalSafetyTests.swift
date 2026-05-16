@@ -18,7 +18,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/Viewer/PhylogeneticTreeViewController.swift": 1,
             "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift": 1,
             "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift": 5,
-            "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift": 2,
         ]
         var actualLegacyRunModalCounts: [String: Int] = [:]
         var violations: [String] = []
