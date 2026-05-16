@@ -1023,6 +1023,20 @@ private struct LaunchActionTile: View {
 
 // MARK: - Setup Cards
 
+struct RequiredSetupCardPresentation: Equatable {
+    let isReady: Bool
+    let statusTitle: String
+    let primaryActionTitle: String?
+    let showsAlternateStorageAction: Bool
+
+    init(status: PluginPackStatus) {
+        isReady = status.state == .ready
+        statusTitle = isReady ? "Ready" : "Needs Attention"
+        primaryActionTitle = isReady ? nil : (status.shouldReinstall ? "Reinstall" : "Install")
+        showsAlternateStorageAction = !isReady
+    }
+}
+
 private struct RequiredSetupCard: View {
     let status: PluginPackStatus
     let isInstalling: Bool
@@ -1035,12 +1049,12 @@ private struct RequiredSetupCard: View {
     let onChooseAlternateStorage: () -> Void
     let isStorageChooserEnabled: Bool
 
-    private var isReady: Bool {
-        status.state == .ready
+    private var presentation: RequiredSetupCardPresentation {
+        RequiredSetupCardPresentation(status: status)
     }
 
-    private var actionTitle: String {
-        status.shouldReinstall ? "Reinstall" : "Install"
+    private var isReady: Bool {
+        presentation.isReady
     }
 
     private var statusColor: Color {
@@ -1067,13 +1081,13 @@ private struct RequiredSetupCard: View {
                 Spacer()
 
                 StatusPill(
-                    title: isReady ? "Ready" : "Needs Attention",
+                    title: presentation.statusTitle,
                     color: statusColor
                 )
             }
 
             HStack(spacing: 12) {
-                if !isReady {
+                if let actionTitle = presentation.primaryActionTitle {
                     Button(actionTitle) {
                         onInstall()
                     }
@@ -1095,7 +1109,7 @@ private struct RequiredSetupCard: View {
                 .tint(.lungfishCreamsicleFallback)
             }
 
-            if !isReady {
+            if presentation.showsAlternateStorageAction {
                 Button("Need more space? Choose another storage location…") {
                     onChooseAlternateStorage()
                 }

@@ -113,13 +113,21 @@ struct NvdImportSheet: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            headerSection
-
-            Divider()
-
-            ScrollView {
+        ImportSheet(
+            title: "NVD Import",
+            subtitle: "Novel Virus Diagnostics",
+            accessoryText: datasetDisplayName,
+            size: ImportSheetSize(width: 500, height: 450),
+            statusText: selectedPath == nil ? "No directory selected" : nil,
+            isPrimaryEnabled: canRun,
+            onCancel: { onCancel?() },
+            onPrimary: performImport,
+            icon: {
+                Image(nsImage: TextBadgeIcon.image(text: "NVD", size: NSSize(width: 24, height: 24)))
+                    .resizable()
+                    .frame(width: 24, height: 24)
+            },
+            content: {
                 VStack(alignment: .leading, spacing: 16) {
                     // Results directory location
                     locationSection
@@ -129,44 +137,8 @@ struct NvdImportSheet: View {
                     // Preview
                     previewSection
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
             }
-
-            Divider()
-
-            // Action buttons
-            actionButtons
-        }
-        .frame(width: 500, height: 450)
-    }
-
-    // MARK: - Header
-
-    private var headerSection: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: TextBadgeIcon.image(text: "NVD", size: NSSize(width: 24, height: 24)))
-                .resizable()
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("NVD Import")
-                    .font(.headline)
-                Text("Novel Virus Diagnostics")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if !datasetDisplayName.isEmpty {
-                Text(datasetDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        )
     }
 
     // MARK: - Location
@@ -274,34 +246,6 @@ struct NvdImportSheet: View {
             Text(value)
                 .font(.system(size: 12, design: .monospaced))
         }
-    }
-
-    // MARK: - Action Buttons
-
-    private var actionButtons: some View {
-        HStack {
-            if selectedPath == nil {
-                Text("No directory selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button("Cancel") {
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                performImport()
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRun)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Actions

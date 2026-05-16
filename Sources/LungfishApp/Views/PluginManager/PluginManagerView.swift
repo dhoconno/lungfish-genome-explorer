@@ -503,6 +503,34 @@ private struct PacksTabView: View {
 
 // MARK: - Pack Card
 
+enum PackCardPrimaryAction: Equatable {
+    case none
+    case install(title: String)
+    case removeAll
+}
+
+struct PackCardPresentation: Equatable {
+    let installedCount: Int
+    let isReady: Bool
+    let primaryAction: PackCardPrimaryAction
+
+    init(status: PluginPackStatus, isInstalling: Bool, canRemove: Bool) {
+        installedCount = status.toolStatuses.filter(\.isReady).count
+        isReady = status.state == .ready
+
+        if isInstalling {
+            primaryAction = .none
+        } else if isReady {
+            primaryAction = status.pack.isRequiredBeforeLaunch ? .none : (canRemove ? .removeAll : .none)
+        } else {
+            let title = status.shouldReinstall
+                ? "Reinstall"
+                : (status.pack.isRequiredBeforeLaunch ? "Install" : "Install All")
+            primaryAction = .install(title: title)
+        }
+    }
+}
+
 /// A card view for a single plugin pack.
 private struct PackCard: View {
 
@@ -518,18 +546,22 @@ private struct PackCard: View {
         status.pack
     }
 
+    private var presentation: PackCardPresentation {
+        PackCardPresentation(
+            status: status,
+            isInstalling: isInstalling,
+            canRemove: onRemoveAll != nil
+        )
+    }
+
     /// How many of this pack's tools are ready to use.
     private var installedCount: Int {
-        status.toolStatuses.filter(\.isReady).count
+        presentation.installedCount
     }
 
     /// Whether this pack is currently ready to use.
     private var isReady: Bool {
-        status.state == .ready
-    }
-
-    private var installActionTitle: String {
-        status.shouldReinstall ? "Reinstall" : (pack.isRequiredBeforeLaunch ? "Install" : "Install All")
+        presentation.isReady
     }
 
     var body: some View {
@@ -573,26 +605,26 @@ private struct PackCard: View {
                         }
                     }
                     .frame(width: 140)
-                } else if pack.isRequiredBeforeLaunch {
-                    Button {
-                        onInstallAll()
-                    } label: { Text(installActionTitle) }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
-                } else if isReady, let onRemoveAll {
-                    Button(role: .destructive) {
-                        onRemoveAll()
-                    } label: { Text("Remove All") }
-                    .controlSize(.small)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                 } else {
-                    Button {
-                        onInstallAll()
-                    } label: { Text(installActionTitle) }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
+                    switch presentation.primaryAction {
+                    case .none:
+                        EmptyView()
+                    case .install(let title):
+                        Button {
+                            onInstallAll()
+                        } label: { Text(title) }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
+                    case .removeAll:
+                        if let onRemoveAll {
+                            Button(role: .destructive) {
+                                onRemoveAll()
+                            } label: { Text("Remove All") }
+                            .controlSize(.small)
+                            .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 14)

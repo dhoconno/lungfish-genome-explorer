@@ -329,14 +329,36 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(source.contains(".disabled(!viewModel.canConfirmStorageSelection)"))
     }
 
-    func testWelcomeReadyRequiredSetupHidesPrimaryInstallAction() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+    func testRequiredSetupPresentationHidesPrimaryInstallWhenReady() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
         )
 
-        XCTAssertTrue(source.contains("if !isReady {\n                    Button(actionTitle)"))
+        let presentation = RequiredSetupCardPresentation(status: status)
+
+        XCTAssertTrue(presentation.isReady)
+        XCTAssertEqual(presentation.statusTitle, "Ready")
+        XCTAssertNil(presentation.primaryActionTitle)
+        XCTAssertFalse(presentation.showsAlternateStorageAction)
+    }
+
+    func testRequiredSetupPresentationShowsInstallWhenSetupIsMissing() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let presentation = RequiredSetupCardPresentation(status: status)
+
+        XCTAssertFalse(presentation.isReady)
+        XCTAssertEqual(presentation.statusTitle, "Needs Attention")
+        XCTAssertEqual(presentation.primaryActionTitle, "Install")
+        XCTAssertTrue(presentation.showsAlternateStorageAction)
     }
 
     func testWelcomeViewSourceUsesWarmPaletteAndNoVerticalFixedSize() throws {

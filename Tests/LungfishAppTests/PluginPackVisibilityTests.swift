@@ -220,6 +220,65 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(viewModel.focusedPackID, "metagenomics")
     }
 
+    func testReadyRequiredSetupPackDoesNotExposePrimaryInstallAction() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let presentation = PackCardPresentation(
+            status: status,
+            isInstalling: false,
+            canRemove: false
+        )
+
+        XCTAssertEqual(presentation.primaryAction, .none)
+    }
+
+    func testRequiredSetupPackNeedingInstallExposesInstallAction() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let presentation = PackCardPresentation(
+            status: status,
+            isInstalling: false,
+            canRemove: false
+        )
+
+        XCTAssertEqual(presentation.primaryAction, .install(title: "Install"))
+    }
+
+    func testReadyOptionalPackExposesRemoveActionWhenAvailable() {
+        let pack = PluginPack(
+            id: "optional-ready-pack",
+            name: "Optional Ready Pack",
+            description: "Ready optional pack",
+            sfSymbol: "shippingbox",
+            packages: [],
+            category: "Testing"
+        )
+        let status = PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let presentation = PackCardPresentation(
+            status: status,
+            isInstalling: false,
+            canRemove: true
+        )
+
+        XCTAssertEqual(presentation.primaryAction, .removeAll)
+    }
+
     func testInstalledTabSeparatesHashNamedOrphanEnvironments() {
         let viewModel = PluginManagerViewModel(
             packStatusProvider: StubPluginManagerPackStatusProvider(statuses: []),
