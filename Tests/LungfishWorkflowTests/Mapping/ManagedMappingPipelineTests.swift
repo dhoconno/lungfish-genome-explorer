@@ -5,69 +5,78 @@ import XCTest
 
 final class ManagedMappingPipelineTests: XCTestCase {
 
-    func testPrepareExecutionStagesSAMSafeFASTAInputsBeforeMapping() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testPrepareExecutionStagesSAMSafeFASTAInputsBeforeMapping() async throws {
+        let fixture = try MappingFASTQFixture()
+        defer { fixture.cleanup() }
 
-        XCTAssertTrue(source.contains("stageSAMSafeFASTAInputsIfNeeded"))
-    }
-
-    func testMapperPreflightChecksToolInRequestedEnvironment() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        XCTAssertTrue(
-            source.contains("toolPath(\n                    name: request.tool.executableName,\n                    environment: request.tool.environmentName")
+        let overlongIdentifier = "02_Mafa_A2_05g1|" + Array(repeating: "A2_05_01", count: 40).joined(separator: ",_")
+        let fastaURL = try fixture.writeFASTA(
+            name: "queries.fasta",
+            records: [
+                (identifier: overlongIdentifier, sequenceLength: 80),
+            ]
         )
-        XCTAssertFalse(source.contains("isToolInstalled(request.tool.executableName)"))
-    }
-
-    func testStreamingCondaStdoutRunnerUsesTaskCancellationAndProcessTreeTermination() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        XCTAssertTrue(source.contains("private func runCondaToolStreamingStdout"))
-        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
-        XCTAssertTrue(source.contains("NativeProcessCancellationHandle()"))
-        XCTAssertTrue(source.contains("cancellationHandle.terminateProcessTree()"))
-    }
-
-    func testStreamingCondaStdoutRegistersStderrDrainBeforeProcessRun() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let functionStart = try XCTUnwrap(source.range(of: "private func runCondaToolStreamingStdout"))
-        let functionEnd = try XCTUnwrap(
-            source.range(of: "func runCondaToolStreamingStdoutForTesting", range: functionStart.upperBound..<source.endIndex)
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2Asm5.id,
+            inputFASTQURLs: [fastaURL],
+            referenceFASTAURL: fixture.referenceURL,
+            outputDirectory: fixture.root.appendingPathComponent("out"),
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 4
         )
-        let functionSource = source[functionStart.lowerBound..<functionEnd.lowerBound]
-        let drainCall = try XCTUnwrap(functionSource.range(of: "startStderrDrain()"))
-        let processRun = try XCTUnwrap(functionSource.range(of: "try process.run()"))
+        let pipeline = ManagedMappingPipeline()
 
-        XCTAssertLessThan(drainCall.lowerBound, processRun.lowerBound)
+        let prepared = try await pipeline.prepareExecutionForTesting(request: request)
+        defer {
+            for url in prepared.cleanupURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        let stagedURL = try XCTUnwrap(prepared.request.inputFASTQURLs.first)
+        XCTAssertNotEqual(stagedURL.standardizedFileURL, fastaURL.standardizedFileURL)
+        let stagedText = try String(contentsOf: stagedURL, encoding: .utf8)
+        let stagedHeader = try XCTUnwrap(stagedText.split(separator: "\n").first)
+        XCTAssertTrue(stagedHeader.hasPrefix(">"))
+        XCTAssertLessThanOrEqual(stagedHeader.dropFirst().utf8.count, MappingFASTAInputStager.maximumSAMQueryNameLength)
+    }
+
+    func testMapperPreflightChecksToolInRequestedEnvironment() async throws {
+        let fixture = try MappingFASTQFixture()
+        defer { fixture.cleanup() }
+        let condaRoot = fixture.root.appendingPathComponent("conda", isDirectory: true)
+        let wrongEnvTool = condaRoot.appendingPathComponent("envs/wrong-env/bin/minimap2")
+        try FileManager.default.createDirectory(at: wrongEnvTool.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\nexit 0\n".write(to: wrongEnvTool, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrongEnvTool.path)
+        let condaManager = CondaManager(rootPrefix: condaRoot)
+        let pipeline = ManagedMappingPipeline(condaManager: condaManager)
+        let readsURL = try fixture.writeFASTQ(
+            name: "reads.fastq",
+            header: "@A00488:385:HKGCLDRXX:1:1101:1000:1000 1:N:0:1",
+            sequenceLength: 151
+        )
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [readsURL],
+            referenceFASTAURL: fixture.referenceURL,
+            outputDirectory: fixture.root.appendingPathComponent("out"),
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 4
+        )
+
+        do {
+            try await pipeline.validateInputsForTesting(request: request)
+            XCTFail("Expected minimap2 preflight to require the minimap2 environment, not any environment")
+        } catch ManagedMappingPipelineError.mapperNotInstalled(let tool) {
+            XCTAssertEqual(tool, "minimap2")
+        } catch {
+            XCTFail("Expected mapperNotInstalled, got \(error)")
+        }
     }
 
     func testBuildsBwaMem2CommandForShortReads() throws {

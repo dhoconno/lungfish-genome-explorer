@@ -130,6 +130,9 @@ public actor TaxTriagePipeline {
     /// The process manager used to spawn the Nextflow process.
     private let processManager: ProcessManager
 
+    /// The conda manager used to locate and launch managed Nextflow.
+    private let condaManager: CondaManager
+
     private let homeDirectoryProvider: @Sendable () -> URL
 
     /// Creates a TaxTriage pipeline.
@@ -137,11 +140,13 @@ public actor TaxTriagePipeline {
     /// - Parameter processManager: Process manager for spawning processes (default: shared).
     public init(
         processManager: ProcessManager = .shared,
+        condaManager: CondaManager = .shared,
         homeDirectoryProvider: @escaping @Sendable () -> URL = {
             FileManager.default.homeDirectoryForCurrentUser
         }
     ) {
         self.processManager = processManager
+        self.condaManager = condaManager
         self.homeDirectoryProvider = homeDirectoryProvider
     }
 
@@ -161,7 +166,7 @@ public actor TaxTriagePipeline {
         // Detect version if available
         var nextflowVersion: String?
         if let nextflowPath {
-            await CondaManager.shared.repairManagedLaunchers(environment: "nextflow")
+            await condaManager.repairManagedLaunchers(environment: "nextflow")
             let tempDir = FileManager.default.temporaryDirectory
             if let result = try? await processManager.runAndWait(
                 executable: nextflowPath,
@@ -308,7 +313,6 @@ public actor TaxTriagePipeline {
         patchNextflowScript(at: nextflowPath)
 
         // Run Nextflow via micromamba to ensure the conda environment is activated
-        let condaManager = CondaManager.shared
         await condaManager.repairManagedLaunchers(environment: "nextflow")
         let micromambaPath = await condaManager.micromambaPath
 
@@ -1147,11 +1151,11 @@ public actor TaxTriagePipeline {
     func buildLaunchEnvironment(useNextflowConda: Bool) async -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["NXF_ANSI_LOG"] = "false"
-        let condaRoot = CondaManager.shared.rootPrefix
+        let condaRoot = condaManager.rootPrefix
         environment["MAMBA_ROOT_PREFIX"] = condaRoot.path
 
         if useNextflowConda {
-            let condaConfig = await CondaManager.shared.nextflowCondaConfig()
+            let condaConfig = await condaManager.nextflowCondaConfig()
             for (key, value) in condaConfig {
                 environment[key] = value
             }
@@ -1214,7 +1218,7 @@ public actor TaxTriagePipeline {
         let configURL = directory.appendingPathComponent("lungfish.nextflow.config")
         let configString: String
         if useNextflowConda {
-            configString = await CondaManager.shared.nextflowCondaConfigString()
+            configString = await condaManager.nextflowCondaConfigString()
         } else {
             configString = ""
         }

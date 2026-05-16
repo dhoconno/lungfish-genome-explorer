@@ -66,6 +66,13 @@ private struct PreparedMappingExecution: Sendable {
     let cleanupURLs: [URL]
 }
 
+struct PreparedMappingExecutionForTesting: Sendable {
+    let request: MappingRunRequest
+    let referenceURL: URL
+    let indexPrefixURL: URL
+    let cleanupURLs: [URL]
+}
+
 public final class ManagedMappingPipeline: @unchecked Sendable {
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
 
@@ -316,6 +323,24 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             unmappedReads: max(0, totalReads - mappedReads),
             steps: steps
         )
+    }
+
+    func prepareExecutionForTesting(request: MappingRunRequest) async throws -> PreparedMappingExecutionForTesting {
+        let prepared = try await prepareExecution(for: request)
+        return PreparedMappingExecutionForTesting(
+            request: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL,
+            indexPrefixURL: prepared.referenceLocator.indexPrefixURL,
+            cleanupURLs: prepared.cleanupURLs
+        )
+    }
+
+    func validateInputsForTesting(request: MappingRunRequest) async throws {
+        try await validateInputs(for: request)
+    }
+
+    func mappingInputMaterializationStepsForTesting(request: MappingRunRequest) throws -> [StepExecution] {
+        try mappingInputMaterializationSteps(for: request)
     }
 
     static func validateCompatibility(for request: MappingRunRequest) throws {

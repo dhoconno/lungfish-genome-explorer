@@ -16,7 +16,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 // MARK: - Top-Level CLI Structure
 
@@ -2101,20 +2101,21 @@ final class AssembleCommandRegressionTests: XCTestCase {
         }
     }
 
-    func testSourceIncludesManagedAssemblyLaunchAliases() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishCLI/Commands/AssembleCommand.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testManagedAssemblyLaunchAliasesParseToCommandOptions() throws {
+        let command = try AssembleCommand.parse([
+            "reads.fastq.gz",
+            "--assembler", "megahit",
+            "--read-type", "illumina-short-reads",
+            "--name", "alias-demo",
+            "--output", "/tmp/alias-demo-output",
+            "--profile", "meta-sensitive",
+        ])
 
-        XCTAssertTrue(source.contains(#"customLong("assembler")"#))
-        XCTAssertTrue(source.contains(#"customLong("read-type")"#))
-        XCTAssertTrue(source.contains(#"customLong("project-name")"#))
-        XCTAssertTrue(source.contains(#"customLong("output")"#))
-        XCTAssertTrue(source.contains(#"customLong("profile")"#))
-        XCTAssertTrue(source.contains("ManagedAssemblyPipeline"))
+        XCTAssertEqual(command.assembler, "megahit")
+        XCTAssertEqual(command.readType, "illumina-short-reads")
+        XCTAssertEqual(command.projectName, "alias-demo")
+        XCTAssertEqual(command.outputDir, "/tmp/alias-demo-output")
+        XCTAssertEqual(command.profile, "meta-sensitive")
     }
 }
 
@@ -2462,16 +2463,50 @@ final class MapCommandRegressionTests: XCTestCase {
     }
 
     func testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-materialization-step-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        XCTAssertFalse(source.contains(#""map", "materialize-inputs""#))
-        XCTAssertTrue(source.contains("CLISequenceInputMaterialization.materializationCommand"))
-        XCTAssertTrue(source.contains(#"toolName: "lungfish fastq materialize""#))
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let referenceURL = tempDir.appendingPathComponent("reference.fa")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        try ">chr1\nACGTACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [materializedURL],
+            originalInputFASTQURLs: [fixture.derivedBundleURL],
+            inputMaterializationStartedAt: Date(timeIntervalSince1970: 10),
+            inputMaterializationEndedAt: Date(timeIntervalSince1970: 13),
+            referenceFASTAURL: referenceURL,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 2
+        )
+        let pipeline = ManagedMappingPipeline()
+
+        let steps = try pipeline.mappingInputMaterializationStepsForTesting(request: request)
+
+        let step = try XCTUnwrap(steps.first)
+        let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
+            originalURL: fixture.derivedBundleURL,
+            executionURL: materializedURL
+        )
+        XCTAssertEqual(steps.count, 1)
+        XCTAssertEqual(step.toolName, "lungfish fastq materialize")
+        XCTAssertEqual(step.command, expectedCommand)
+        XCTAssertEqual(step.durableReplayArgv, expectedCommand)
+        XCTAssertFalse(step.command.contains("materialize-inputs"))
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertEqual(step.wallTime, 3)
+        XCTAssertTrue(step.inputs.contains { $0.path == fixture.derivedBundleURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(step.outputs.contains { $0.path == materializedURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
     }
 }
 
