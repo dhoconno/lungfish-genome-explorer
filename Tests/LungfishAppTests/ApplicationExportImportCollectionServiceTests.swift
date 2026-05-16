@@ -57,6 +57,75 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertEqual(provenance.parameters["applicationExportKind"]?.stringValue, "clc-workbench-export")
         XCTAssertTrue(provenance.steps.contains { $0.toolName == "Application Export Import" })
+        XCTAssertEqual(
+            provenance.steps.first?.command,
+            [
+                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                "--project", projectURL.path,
+            ]
+        )
+        XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--collection"))
+        XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--application-export-source"))
+
+        let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
+        let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(bundleProvenance.workflowName, "CLC Workbench Import")
+        XCTAssertEqual(bundleProvenance.argv, provenance.steps.first?.command)
+        XCTAssertEqual(bundleProvenance.options.explicit["applicationExportKind"]?.stringValue, "clc-workbench-export")
+        XCTAssertEqual(bundleProvenance.options.explicit["project"]?.fileValue, projectURL)
+        XCTAssertEqual(bundleProvenance.options.explicit["collection"]?.fileValue, result.collectionURL)
+        XCTAssertEqual(bundleProvenance.options.explicit["preserveRawSource"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.explicit["effectivePreserveRawSource"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.explicit["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.explicit["preserveUnsupportedArtifacts"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.explicit["effectivePreserveUnsupportedArtifacts"]?.booleanValue, true)
+        XCTAssertTrue(bundleProvenance.options.explicit["collectionName"]?.isNull == true)
+        XCTAssertEqual(bundleProvenance.options.defaults["collectionName"], .null)
+        XCTAssertEqual(bundleProvenance.options.defaults["preserveRawSource"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.defaults["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.defaults["preserveUnsupportedArtifacts"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["applicationExportKind"]?.stringValue, "clc-workbench-export")
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["project"]?.fileValue, projectURL)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["collection"]?.fileValue, result.collectionURL)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["preserveRawSource"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["effectivePreserveRawSource"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["preserveUnsupportedArtifacts"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["effectivePreserveUnsupportedArtifacts"]?.booleanValue, true)
+        XCTAssertTrue(bundleProvenance.options.resolvedDefaults["collectionName"]?.isNull == true)
+        XCTAssertEqual(bundleProvenance.durableReplayArgv, provenance.steps.first?.command)
+    }
+
+    func testCollectionProvenanceCommandRecordsCollectionNameWithRealCLIFlag() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let archiveURL = try makeApplicationExportArchive(root: root, name: "Example.zip")
+
+        let result = try await makeService().importApplicationExport(
+            sourceURL: archiveURL,
+            projectURL: projectURL,
+            kind: .clcWorkbench,
+            options: ApplicationExportImportOptions(collectionName: "Reviewed Batch")
+        )
+
+        let provenanceData = try Data(contentsOf: result.provenanceURL)
+        let provenanceDecoder = JSONDecoder()
+        provenanceDecoder.dateDecodingStrategy = .iso8601
+        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        XCTAssertEqual(
+            provenance.steps.first?.command,
+            [
+                "lungfish", "import", "application-export", "clc-workbench", archiveURL.path,
+                "--project", projectURL.path,
+                "--collection-name", "Reviewed Batch",
+            ]
+        )
+
+        let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
+        let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(bundleProvenance.options.explicit["collectionName"]?.stringValue, "Reviewed Batch")
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["collectionName"]?.stringValue, "Reviewed Batch")
     }
 
     func testImportRoutesStandaloneReferencesAndPreservesOtherFiles() async throws {
@@ -71,6 +140,11 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
                 await capture.record(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName)
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
                 try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try writeMinimalReferenceBundleProvenance(
+                    bundleURL: bundle,
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory
+                )
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
             }
         )
@@ -96,6 +170,36 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
             includingPropertiesForKeys: nil
         )) ?? []
         XCTAssertFalse(tempChildren.contains { $0.lastPathComponent.hasPrefix("application-export-import-") })
+    }
+
+    func testImportRejectsReferenceBundleWithoutProvenanceSidecar() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let archiveURL = try makeApplicationExportArchive(root: root, name: "Example.zip")
+        let service = ApplicationExportImportCollectionService(
+            scanner: ApplicationExportScanner(),
+            referenceImporter: { _, outputDirectory, preferredName in
+                let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
+            }
+        )
+
+        do {
+            _ = try await service.importApplicationExport(
+                sourceURL: archiveURL,
+                projectURL: projectURL,
+                kind: .clcWorkbench,
+                options: .default
+            )
+            XCTFail("Import should fail when the created reference bundle has no provenance sidecar")
+        } catch let error as ReferenceBundleImportProvenanceError {
+            guard case .missingSidecar(let bundleURL) = error else {
+                return XCTFail("Unexpected provenance error: \(error)")
+            }
+            XCTAssertEqual(bundleURL.pathExtension, "lungfishref")
+        }
     }
 
     func testAlignmentTreeImportRoutesNativeBundlesAndSkipsBinaryArtifacts() async throws {
@@ -164,6 +268,11 @@ final class ApplicationExportImportCollectionServiceTests: XCTestCase {
                     to: bundle.appendingPathComponent("manifest.txt"),
                     atomically: true,
                     encoding: .utf8
+                )
+                try writeMinimalReferenceBundleProvenance(
+                    bundleURL: bundle,
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory
                 )
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
             }
@@ -251,4 +360,39 @@ private actor ReferenceImportCapture {
     func record(sourceURL: URL, outputDirectory: URL, preferredName: String) {
         storage.append(Call(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName))
     }
+}
+
+private func writeMinimalReferenceBundleProvenance(
+    bundleURL: URL,
+    sourceURL: URL,
+    outputDirectory: URL
+) throws {
+    let command = [
+        "lungfish", "import", "fasta", sourceURL.path,
+        "--output-dir", outputDirectory.path,
+    ]
+    let input = ProvenanceRecorder.fileRecord(url: sourceURL, role: .input)
+    let output = ProvenanceRecorder.fileRecord(url: bundleURL, role: .output)
+    let step = StepExecution(
+        toolName: "ReferenceBundleImportService",
+        toolVersion: "test",
+        command: command,
+        inputs: [input],
+        outputs: [output],
+        exitCode: 0,
+        wallTime: 0.1,
+        endTime: Date()
+    )
+    let run = WorkflowRun(
+        name: "NativeBundleBuilder.build",
+        status: .completed,
+        steps: [step],
+        parameters: [
+            "source_url": .file(sourceURL),
+            "input_files": .array([.file(sourceURL)]),
+            "output_directory": .file(outputDirectory),
+            "bundle_path": .file(bundleURL),
+        ]
+    )
+    try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: bundleURL)
 }

@@ -20,7 +20,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         scanner: ApplicationExportScanner = ApplicationExportScanner(),
         archiveTool: GeneiousArchiveTool = GeneiousArchiveTool(),
         referenceImporter: @escaping ApplicationExportReferenceImporter = { sourceURL, outputDirectory, preferredName in
-            try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+            try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: sourceURL,
                 outputDirectory: outputDirectory,
                 preferredBundleName: preferredName
@@ -89,6 +89,26 @@ public struct ApplicationExportImportCollectionService: Sendable {
             tempRunURL: tempRunURL
         )
         defer { materialized.cleanup() }
+        let replayCommand = Self.replayCommand(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            kind: kind,
+            options: options
+        )
+        let referenceImportProvenanceContext = ReferenceBundleImportProvenanceContext(
+            workflowName: "\(kind.displayName) Import",
+            replayCommand: replayCommand,
+            options: Self.provenanceOptions(
+                sourceURL: sourceURL,
+                projectURL: projectURL,
+                collectionURL: collectionURL,
+                options: options,
+                effectivePreserveRawSource: effectivePreserveRawSource,
+                effectivePreserveUnsupportedArtifacts: effectivePreserveUnsupportedArtifacts,
+                applicationKind: kind,
+                sourceKind: scannedInventory.sourceKind
+            )
+        )
 
         var nativeBundleURLs: [URL] = []
         var preservedArtifactURLs: [URL] = []
@@ -107,6 +127,12 @@ public struct ApplicationExportImportCollectionService: Sendable {
                     URL(fileURLWithPath: item.sourceRelativePath).deletingPathExtension().lastPathComponent
                 )
                 let result = try await referenceImporter(sourceFileURL, bundlesURL, preferredName)
+                try ReferenceBundleImportProvenanceRehydrator.rehydrateSidecar(
+                    bundleURL: result.bundleURL,
+                    durableSourceURL: sourceURL,
+                    sourceRelativePath: item.sourceRelativePath,
+                    context: referenceImportProvenanceContext
+                )
                 nativeBundleURLs.append(result.bundleURL)
                 destination = relativePath(from: collectionURL, to: result.bundleURL)
             } else if item.kind == .multipleSequenceAlignment {
@@ -377,15 +403,17 @@ public struct ApplicationExportImportCollectionService: Sendable {
         let rawSourceRecords = rawSourceOutputs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
         let artifactRecords = preservedArtifactURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
         let bundleRecords = nativeBundleURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
+        let replayCommand = Self.replayCommand(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            kind: applicationKind,
+            options: options
+        )
 
         let scanStep = StepExecution(
             toolName: "Application Export Import",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: [
-                "lungfish", "import", "application-export", applicationKind.cliArgument, sourceURL.path,
-                "--project", projectURL.path,
-                "--collection", collectionURL.path,
-            ],
+            command: replayCommand,
             inputs: [sourceRecord],
             outputs: [inventoryRecord, reportRecord],
             exitCode: 0,
@@ -407,7 +435,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         } else {
             preserveToolName = "Application Export Import"
             preserveToolVersion = WorkflowRun.currentAppVersion
-            preserveCommand = ["copy", sourceURL.path, collectionURL.path]
+            preserveCommand = replayCommand
         }
         let preserveStep = StepExecution(
             toolName: preserveToolName,
@@ -425,11 +453,7 @@ public struct ApplicationExportImportCollectionService: Sendable {
         let referenceStep = StepExecution(
             toolName: "Application Export Native Bundle Import",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: [
-                "lungfish", "import", "application-export", applicationKind.cliArgument,
-                "--application-export-source", sourceURL.path,
-                "--output-dir", collectionURL.appendingPathComponent("LGE Bundles", isDirectory: true).path,
-            ],
+            command: replayCommand,
             inputs: [sourceRecord],
             outputs: bundleRecords + [provenanceRecord],
             exitCode: 0,
@@ -445,21 +469,80 @@ public struct ApplicationExportImportCollectionService: Sendable {
             endTime: completedAt,
             status: .completed,
             steps: [scanStep, preserveStep, referenceStep],
-            parameters: [
-                "applicationExportKind": .string(applicationKind.cardID),
-                "source": .file(sourceURL),
-                "project": .file(projectURL),
-                "collection": .file(collectionURL),
-                "sourceKind": .string(sourceKind.rawValue),
-                "preserveRawSource": .boolean(options.preserveRawSource),
-                "effectivePreserveRawSource": .boolean(effectivePreserveRawSource),
-                "importStandaloneReferences": .boolean(options.importStandaloneReferences),
-                "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
-                "effectivePreserveUnsupportedArtifacts": .boolean(effectivePreserveUnsupportedArtifacts),
-                "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
-                "temporaryDirectory": .file(tempRunURL),
-            ]
+            parameters: Self.provenanceOptions(
+                sourceURL: sourceURL,
+                projectURL: projectURL,
+                collectionURL: collectionURL,
+                options: options,
+                effectivePreserveRawSource: effectivePreserveRawSource,
+                effectivePreserveUnsupportedArtifacts: effectivePreserveUnsupportedArtifacts,
+                applicationKind: applicationKind,
+                sourceKind: sourceKind
+            ).explicit
         )
+    }
+
+    private static func provenanceOptions(
+        sourceURL: URL,
+        projectURL: URL,
+        collectionURL: URL,
+        options: ApplicationExportImportOptions,
+        effectivePreserveRawSource: Bool,
+        effectivePreserveUnsupportedArtifacts: Bool,
+        applicationKind: ApplicationExportKind,
+        sourceKind: ApplicationExportImportSourceKind
+    ) -> ProvenanceOptions {
+        let resolved: [String: ParameterValue] = [
+            "applicationExportKind": .string(applicationKind.cardID),
+            "source": .file(sourceURL),
+            "project": .file(projectURL),
+            "collection": .file(collectionURL),
+            "sourceKind": .string(sourceKind.rawValue),
+            "preserveRawSource": .boolean(options.preserveRawSource),
+            "effectivePreserveRawSource": .boolean(effectivePreserveRawSource),
+            "importStandaloneReferences": .boolean(options.importStandaloneReferences),
+            "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
+            "effectivePreserveUnsupportedArtifacts": .boolean(effectivePreserveUnsupportedArtifacts),
+            "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
+        ]
+        return ProvenanceOptions(
+            explicit: resolved,
+            defaults: [
+                "collectionName": .null,
+                "preserveRawSource": .boolean(true),
+                "effectivePreserveRawSource": .boolean(!applicationKind.importsNativeBundlesOnly),
+                "importStandaloneReferences": .boolean(true),
+                "preserveUnsupportedArtifacts": .boolean(true),
+                "effectivePreserveUnsupportedArtifacts": .boolean(!applicationKind.importsNativeBundlesOnly),
+            ],
+            resolvedDefaults: resolved
+        )
+    }
+
+    private static func replayCommand(
+        sourceURL: URL,
+        projectURL: URL,
+        kind: ApplicationExportKind,
+        options: ApplicationExportImportOptions
+    ) -> [String] {
+        var command = [
+            "lungfish", "import", "application-export", kind.cliArgument, sourceURL.path,
+            "--project", projectURL.path,
+        ]
+        if let collectionName = options.collectionName,
+           !collectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            command.append(contentsOf: ["--collection-name", collectionName])
+        }
+        if !options.preserveRawSource {
+            command.append("--no-preserve-raw-source")
+        }
+        if !options.importStandaloneReferences {
+            command.append("--no-import-references")
+        }
+        if !options.preserveUnsupportedArtifacts {
+            command.append("--no-preserve-unsupported")
+        }
+        return command
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

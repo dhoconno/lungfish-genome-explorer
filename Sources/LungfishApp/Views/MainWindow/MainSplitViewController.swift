@@ -1055,7 +1055,7 @@ public class MainSplitViewController: NSSplitViewController {
                     routeContext: operationRouteContext
                 )
 
-                let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: url,
                     outputDirectory: refsDir
                 ) { progress, message in

@@ -73,7 +73,7 @@ extension ImportCommand {
             }
         }
 
-        @MainActor private static func importReferenceViaSharedService(
+        private static func importReferenceViaSharedService(
             sourceURL: URL,
             outputDirectory: URL,
             preferredName: String
@@ -159,7 +159,7 @@ extension ImportCommand {
             }
         }
 
-        @MainActor private static func importReferenceViaSharedService(
+        private static func importReferenceViaSharedService(
             sourceURL: URL,
             outputDirectory: URL,
             preferredName: String

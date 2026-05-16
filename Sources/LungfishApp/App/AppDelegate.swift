@@ -2126,7 +2126,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         Task.detached { [weak self] in
             do {
-                let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: url,
                     outputDirectory: refsDir
                 ) { progress, message in

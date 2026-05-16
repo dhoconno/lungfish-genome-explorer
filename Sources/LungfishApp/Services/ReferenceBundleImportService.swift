@@ -38,10 +38,6 @@ public enum ReferenceBundleImportError: Error, LocalizedError {
     case unsupportedFormat(URL)
     case noSequencesFound(URL)
     case decompressionFailed(String)
-    case helperExecutableNotFound
-    case helperLaunchFailed(String)
-    case helperFailed(String)
-    case helperProtocolError(String)
 
     public var errorDescription: String? {
         switch self {
@@ -53,14 +49,6 @@ public enum ReferenceBundleImportError: Error, LocalizedError {
             return "No sequences were found in \(url.lastPathComponent)"
         case .decompressionFailed(let message):
             return "Failed to decompress input: \(message)"
-        case .helperExecutableNotFound:
-            return "Could not locate application executable for reference import helper"
-        case .helperLaunchFailed(let message):
-            return "Failed to launch reference import helper: \(message)"
-        case .helperFailed(let message):
-            return "Reference import helper failed: \(message)"
-        case .helperProtocolError(let message):
-            return "Reference import helper protocol error: \(message)"
         }
     }
 }
@@ -69,8 +57,8 @@ public enum ReferenceBundleImportError: Error, LocalizedError {
 ///
 /// This service is used by both sidebar drag/drop import and Import Center
 /// to ensure identical bundle output structure.
-public final class ReferenceBundleImportService {
-    @MainActor public static let shared = ReferenceBundleImportService()
+public final class ReferenceBundleImportService: @unchecked Sendable {
+    public static let shared = ReferenceBundleImportService()
 
     private init() {}
 
@@ -132,25 +120,8 @@ public final class ReferenceBundleImportService {
         classify(url) == .standaloneReferenceSequence
     }
 
-    /// Launches the app executable in helper mode so GUI imports follow a CLI-like command path.
-    public static func importAsReferenceBundleViaCLI(
-        sourceURL: URL,
-        outputDirectory: URL,
-        preferredBundleName: String? = nil,
-        progressHandler: (@Sendable (Double, String) -> Void)? = nil
-    ) async throws -> ReferenceBundleImportResult {
-        try await Task.detached(priority: .userInitiated) {
-            try runReferenceImportViaHelper(
-                sourceURL: sourceURL,
-                outputDirectory: outputDirectory,
-                preferredBundleName: preferredBundleName,
-                progressHandler: progressHandler
-            )
-        }.value
-    }
-
     /// Imports a supported standalone sequence source into `outputDirectory` as a `.lungfishref` bundle.
-    @MainActor public func importAsReferenceBundle(
+    public func importAsReferenceBundle(
         sourceURL: URL,
         outputDirectory: URL,
         preferredBundleName: String? = nil,
@@ -193,7 +164,7 @@ public final class ReferenceBundleImportService {
             compressFASTA: true
         )
 
-        let builder = NativeBundleBuilder()
+        let builder = await NativeBundleBuilder()
 
         let bundleURL = try await builder.build(configuration: configuration) { _, progress, message in
             progressHandler?(progress, message)
@@ -204,175 +175,6 @@ public final class ReferenceBundleImportService {
         )
 
         return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: bundleName)
-    }
-
-    // MARK: - Helper IPC
-
-    private struct HelperEvent: Decodable {
-        let event: String
-        let progress: Double?
-        let message: String?
-        let bundlePath: String?
-        let bundleName: String?
-        let error: String?
-    }
-
-    private struct HelperParseState: Sendable {
-        var stdoutBuffer = Data()
-        var helperError: String?
-        var bundlePath: String?
-        var bundleName: String?
-    }
-
-    private static func runReferenceImportViaHelper(
-        sourceURL: URL,
-        outputDirectory: URL,
-        preferredBundleName: String?,
-        progressHandler: (@Sendable (Double, String) -> Void)?
-    ) throws -> ReferenceBundleImportResult {
-        guard let executablePath = CommandLine.arguments.first, !executablePath.isEmpty else {
-            throw ReferenceBundleImportError.helperExecutableNotFound
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executablePath)
-
-        var arguments = [
-            "--reference-import-helper",
-            "--input-file", sourceURL.path,
-            "--output-dir", outputDirectory.path,
-        ]
-        if let preferredBundleName,
-           !preferredBundleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            arguments.append(contentsOf: ["--name", preferredBundleName])
-        }
-        process.arguments = arguments
-
-        let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
-        process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
-
-        let parseState = OSAllocatedUnfairLock(initialState: HelperParseState())
-        let stderrState = OSAllocatedUnfairLock(initialState: Data())
-
-        let handleEventLine: @Sendable (Data) -> Void = { line in
-            guard !line.isEmpty else { return }
-
-            guard let event = try? JSONDecoder().decode(HelperEvent.self, from: line) else {
-                if let text = String(data: line, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !text.isEmpty {
-                    parseState.withLock { state in
-                        if state.helperError == nil {
-                            state.helperError = text
-                        }
-                    }
-                }
-                return
-            }
-
-            switch event.event {
-            case "progress", "started":
-                if let progress = event.progress {
-                    let message = event.message ?? "Importing reference..."
-                    progressHandler?(max(0.0, min(1.0, progress)), message)
-                }
-            case "done":
-                parseState.withLock { state in
-                    state.bundlePath = event.bundlePath
-                    state.bundleName = event.bundleName
-                }
-            case "error":
-                parseState.withLock { state in
-                    state.helperError = event.error ?? event.message ?? "Reference import helper failed"
-                }
-            default:
-                break
-            }
-        }
-
-        let consumeStdoutData: @Sendable (Data) -> Void = { data in
-            guard !data.isEmpty else { return }
-            let lines = parseState.withLock { state -> [Data] in
-                var parsed: [Data] = []
-                state.stdoutBuffer.append(data)
-                while let newlineIndex = state.stdoutBuffer.firstIndex(of: 0x0A) {
-                    let line = Data(state.stdoutBuffer.prefix(upTo: newlineIndex))
-                    state.stdoutBuffer.removeSubrange(...newlineIndex)
-                    parsed.append(line)
-                }
-                return parsed
-            }
-            for line in lines {
-                handleEventLine(line)
-            }
-        }
-
-        let stdoutHandle = stdoutPipe.fileHandleForReading
-        let stderrHandle = stderrPipe.fileHandleForReading
-
-        stdoutHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            consumeStdoutData(data)
-        }
-        stderrHandle.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            stderrState.withLock { $0.append(data) }
-        }
-
-        do {
-            try process.run()
-        } catch {
-            stdoutHandle.readabilityHandler = nil
-            stderrHandle.readabilityHandler = nil
-            throw ReferenceBundleImportError.helperLaunchFailed(error.localizedDescription)
-        }
-
-        process.waitUntilExit()
-
-        stdoutHandle.readabilityHandler = nil
-        stderrHandle.readabilityHandler = nil
-        consumeStdoutData(stdoutHandle.readDataToEndOfFile())
-
-        if let trailing = parseState.withLock({ state -> Data? in
-            guard !state.stdoutBuffer.isEmpty else { return nil }
-            defer { state.stdoutBuffer.removeAll(keepingCapacity: false) }
-            return state.stdoutBuffer
-        }) {
-            handleEventLine(trailing)
-        }
-
-        if process.terminationStatus != 0 {
-            let helperError = parseState.withLock { $0.helperError }
-            let stderrMessage = stderrState.withLock { data -> String in
-                String(data: data, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            }
-            let fallback = "Helper exited with status \(process.terminationStatus)"
-            let message = helperError ?? (stderrMessage.isEmpty ? fallback : stderrMessage)
-            throw ReferenceBundleImportError.helperFailed(message)
-        }
-
-        let parsed = parseState.withLock { state -> (String?, String?) in
-            (state.bundlePath, state.bundleName)
-        }
-
-        guard let bundlePath = parsed.0,
-              !bundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw ReferenceBundleImportError.helperProtocolError("Missing bundle path in helper response")
-        }
-
-        let bundleURL = URL(fileURLWithPath: bundlePath)
-        guard FileManager.default.fileExists(atPath: bundleURL.path) else {
-            throw ReferenceBundleImportError.helperProtocolError(
-                "Helper reported bundle path that does not exist: \(bundlePath)"
-            )
-        }
-
-        let inferredName = parsed.1 ?? bundleURL.deletingPathExtension().lastPathComponent
-        return ReferenceBundleImportResult(bundleURL: bundleURL, bundleName: inferredName)
     }
 
     // MARK: - Internal Helpers
@@ -388,7 +190,7 @@ public final class ReferenceBundleImportService {
         case genbank
     }
 
-    @MainActor private func prepareBuildInputs(
+    private func prepareBuildInputs(
         sourceURL: URL,
         bundleName: String,
         tempDirectory: URL
@@ -412,7 +214,7 @@ public final class ReferenceBundleImportService {
         }
     }
 
-    @MainActor private func prepareFastaInputs(
+    private func prepareFastaInputs(
         sourceURL: URL,
         bundleName: String,
         tempDirectory: URL
@@ -442,7 +244,7 @@ public final class ReferenceBundleImportService {
         )
     }
 
-    @MainActor private func prepareGenBankInputs(
+    private func prepareGenBankInputs(
         sourceURL: URL,
         bundleName: String,
         tempDirectory: URL
@@ -502,7 +304,7 @@ public final class ReferenceBundleImportService {
         )
     }
 
-    @MainActor private func makeUniqueBundleName(base: String, in directory: URL) -> String {
+    private func makeUniqueBundleName(base: String, in directory: URL) -> String {
         var candidate = base
         var counter = 2
 
@@ -514,14 +316,14 @@ public final class ReferenceBundleImportService {
         return candidate
     }
 
-    @MainActor private func bundleURL(forBundleName bundleName: String, in directory: URL) -> URL {
+    private func bundleURL(forBundleName bundleName: String, in directory: URL) -> URL {
         let safeName = bundleName
             .replacingOccurrences(of: " ", with: "_")
             .replacingOccurrences(of: "/", with: "-")
         return directory.appendingPathComponent("\(safeName).lungfishref", isDirectory: true)
     }
 
-    @MainActor private func defaultBundleName(for sourceURL: URL) -> String {
+    private func defaultBundleName(for sourceURL: URL) -> String {
         var stripped = sourceURL
         while !stripped.pathExtension.isEmpty {
             stripped = stripped.deletingPathExtension()
@@ -530,7 +332,7 @@ public final class ReferenceBundleImportService {
         return base.isEmpty ? "Imported Reference" : base
     }
 
-    @MainActor private func sanitizedBaseName(_ raw: String) -> String {
+    private func sanitizedBaseName(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return "Imported Reference" }
         return trimmed
@@ -538,7 +340,7 @@ public final class ReferenceBundleImportService {
             .replacingOccurrences(of: ":", with: "-")
     }
 
-    @MainActor private func decompressInput(sourceURL: URL, outputURL: URL) throws {
+    private func decompressInput(sourceURL: URL, outputURL: URL) throws {
         let fileManager = FileManager.default
         if fileManager.fileExists(atPath: outputURL.path) {
             try? fileManager.removeItem(at: outputURL)

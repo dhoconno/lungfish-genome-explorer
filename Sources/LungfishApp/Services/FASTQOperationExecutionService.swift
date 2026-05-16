@@ -1485,7 +1485,7 @@ private struct AppReferenceBundleWrapper: ReferenceBundleWrapping {
         outputDirectory: URL,
         preferredBundleName: String?
     ) async throws -> URL {
-        let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+        let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
             sourceURL: sourceURL,
             outputDirectory: outputDirectory,
             preferredBundleName: preferredBundleName

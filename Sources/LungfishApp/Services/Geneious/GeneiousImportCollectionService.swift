@@ -19,7 +19,7 @@ public struct GeneiousImportCollectionService: Sendable {
         scanner: GeneiousImportScanner = GeneiousImportScanner(),
         archiveTool: GeneiousArchiveTool = GeneiousArchiveTool(),
         referenceImporter: @escaping GeneiousReferenceImporter = { sourceURL, outputDirectory, preferredName in
-            try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+            try await ReferenceBundleImportService.shared.importAsReferenceBundle(
                 sourceURL: sourceURL,
                 outputDirectory: outputDirectory,
                 preferredBundleName: preferredName
@@ -88,6 +88,19 @@ public struct GeneiousImportCollectionService: Sendable {
         )
         defer { materialized.cleanup() }
 
+        let replayCommand = Self.replayCommand(sourceURL: sourceURL, projectURL: projectURL, options: options)
+        let referenceImportProvenanceContext = ReferenceBundleImportProvenanceContext(
+            workflowName: "Geneious Import",
+            replayCommand: replayCommand,
+            options: Self.provenanceOptions(
+                sourceURL: sourceURL,
+                projectURL: projectURL,
+                collectionURL: collectionURL,
+                options: options,
+                sourceKind: scannedInventory.sourceKind
+            )
+        )
+
         let stagingURL = tempRunURL.appendingPathComponent("staging", isDirectory: true)
         try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
 
@@ -129,6 +142,12 @@ public struct GeneiousImportCollectionService: Sendable {
                     bundleURL: result.bundleURL,
                     sourceURL: sourceURL
                 )
+                try ReferenceBundleImportProvenanceRehydrator.rehydrateSidecar(
+                    bundleURL: result.bundleURL,
+                    durableSourceURL: sourceURL,
+                    sourceRelativePath: sequenceSet.documentRelativePath,
+                    context: referenceImportProvenanceContext
+                )
                 nativeBundleURLs.append(result.bundleURL)
                 let destination = relativePath(from: collectionURL, to: result.bundleURL)
                 decodedDestinations[sequenceSet.documentRelativePath] = destination
@@ -166,6 +185,12 @@ public struct GeneiousImportCollectionService: Sendable {
                 try rehydrateGeneiousBundleManifest(
                     bundleURL: result.bundleURL,
                     sourceURL: sourceURL
+                )
+                try ReferenceBundleImportProvenanceRehydrator.rehydrateSidecar(
+                    bundleURL: result.bundleURL,
+                    durableSourceURL: sourceURL,
+                    sourceRelativePath: item.sourceRelativePath,
+                    context: referenceImportProvenanceContext
                 )
                 nativeBundleURLs.append(result.bundleURL)
                 destination = relativePath(from: collectionURL, to: result.bundleURL)
@@ -590,15 +615,12 @@ public struct GeneiousImportCollectionService: Sendable {
         let artifactRecords = preservedArtifactURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
         let decodedFASTARecords = decodedFASTAURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fasta, role: .output) }
         let bundleRecords = nativeBundleURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .unknown, role: .output) }
+        let replayCommand = Self.replayCommand(sourceURL: sourceURL, projectURL: projectURL, options: options)
 
         let scanStep = StepExecution(
             toolName: "Geneious Import",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: [
-                "lungfish", "import", "geneious", sourceURL.path,
-                "--project", projectURL.path,
-                "--collection", collectionURL.path,
-            ],
+            command: replayCommand,
             inputs: [sourceRecord],
             outputs: [inventoryRecord, reportRecord],
             exitCode: 0,
@@ -620,7 +642,7 @@ public struct GeneiousImportCollectionService: Sendable {
         } else {
             preserveToolName = "Geneious Import"
             preserveToolVersion = WorkflowRun.currentAppVersion
-            preserveCommand = ["stage", sourceURL.path, tempRunURL.path]
+            preserveCommand = replayCommand
         }
         let preserveStep = StepExecution(
             toolName: preserveToolName,
@@ -638,11 +660,7 @@ public struct GeneiousImportCollectionService: Sendable {
         let referenceStep = StepExecution(
             toolName: "ReferenceBundleImportService",
             toolVersion: WorkflowRun.currentAppVersion,
-            command: [
-                "lungfish", "import", "fasta",
-                "--geneious-source", sourceURL.path,
-                "--output-dir", collectionURL.appendingPathComponent("LGE Bundles", isDirectory: true).path,
-            ],
+            command: replayCommand,
             inputs: [sourceRecord],
             outputs: bundleRecords + [provenanceRecord],
             exitCode: 0,
@@ -658,18 +676,68 @@ public struct GeneiousImportCollectionService: Sendable {
             endTime: completedAt,
             status: .completed,
             steps: [scanStep, preserveStep, referenceStep],
-            parameters: [
-                "source": .file(sourceURL),
-                "project": .file(projectURL),
-                "collection": .file(collectionURL),
-                "sourceKind": .string(sourceKind.rawValue),
-                "preserveRawSource": .boolean(options.preserveRawSource),
-                "importStandaloneReferences": .boolean(options.importStandaloneReferences),
-                "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
-                "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
-                "temporaryDirectory": .file(tempRunURL),
-            ]
+            parameters: Self.provenanceOptions(
+                sourceURL: sourceURL,
+                projectURL: projectURL,
+                collectionURL: collectionURL,
+                options: options,
+                sourceKind: sourceKind
+            ).explicit
         )
+    }
+
+    private static func provenanceOptions(
+        sourceURL: URL,
+        projectURL: URL,
+        collectionURL: URL,
+        options: GeneiousImportOptions,
+        sourceKind: GeneiousImportSourceKind
+    ) -> ProvenanceOptions {
+        let resolved: [String: ParameterValue] = [
+            "source": .file(sourceURL),
+            "project": .file(projectURL),
+            "collection": .file(collectionURL),
+            "sourceKind": .string(sourceKind.rawValue),
+            "preserveRawSource": .boolean(options.preserveRawSource),
+            "importStandaloneReferences": .boolean(options.importStandaloneReferences),
+            "preserveUnsupportedArtifacts": .boolean(options.preserveUnsupportedArtifacts),
+            "collectionName": options.collectionName.map(ParameterValue.string) ?? .null,
+        ]
+        return ProvenanceOptions(
+            explicit: resolved,
+            defaults: [
+                "collectionName": .null,
+                "preserveRawSource": .boolean(false),
+                "importStandaloneReferences": .boolean(true),
+                "preserveUnsupportedArtifacts": .boolean(false),
+            ],
+            resolvedDefaults: resolved
+        )
+    }
+
+    private static func replayCommand(
+        sourceURL: URL,
+        projectURL: URL,
+        options: GeneiousImportOptions
+    ) -> [String] {
+        var command = [
+            "lungfish", "import", "geneious", sourceURL.path,
+            "--project", projectURL.path,
+        ]
+        if let collectionName = options.collectionName,
+           !collectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            command.append(contentsOf: ["--collection-name", collectionName])
+        }
+        if options.preserveRawSource {
+            command.append("--preserve-raw-source")
+        }
+        if !options.importStandaloneReferences {
+            command.append("--no-import-references")
+        }
+        if options.preserveUnsupportedArtifacts {
+            command.append("--preserve-unsupported")
+        }
+        return command
     }
 
     private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {

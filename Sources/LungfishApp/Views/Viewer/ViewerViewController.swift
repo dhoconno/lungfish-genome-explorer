@@ -1980,7 +1980,7 @@ public class ViewerViewController: NSViewController {
 
         Task.detached {
             do {
-                let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: sourceURL,
                     outputDirectory: refsDir
                 ) { progress, message in
