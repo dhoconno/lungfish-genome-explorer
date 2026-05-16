@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Manage FASTQ sample metadata
 struct MetadataCommand: AsyncParsableCommand {
@@ -169,10 +170,13 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundlePath)
         guard FileManager.default.fileExists(atPath: bundlePath) else {
             throw CLIError.inputFileNotFound(path: bundlePath)
         }
+        let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+        let inputRecords = MetadataProvenanceSupport.preMutationRecords(for: metadataURL)
 
         // Load existing metadata or create new
         let sampleName = bundleURL.deletingPathExtension().lastPathComponent
@@ -189,6 +193,16 @@ struct MetadataSetSubcommand: AsyncParsableCommand {
         // Save back
         let legacyCSV = meta.toLegacyCSV()
         try FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
+
+        try await MetadataProvenanceSupport.recordMetadataSet(
+            bundleURL: bundleURL,
+            field: field,
+            value: value,
+            globalOptions: globalOptions,
+            inputs: inputRecords,
+            outputURL: metadataURL,
+            startedAt: startedAt
+        )
 
         if globalOptions.outputFormat == .text && !globalOptions.quiet {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -238,6 +252,7 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let folderURL = URL(fileURLWithPath: folderPath)
         let csvURL = URL(fileURLWithPath: csvPath)
 
@@ -260,6 +275,15 @@ struct MetadataImportSubcommand: AsyncParsableCommand {
         } else {
             try FASTQFolderMetadata.save(folderMeta, to: folderURL)
         }
+
+        try await MetadataProvenanceSupport.recordMetadataImport(
+            folderURL: folderURL,
+            csvURL: csvURL,
+            folderMeta: folderMeta,
+            syncBundles: syncBundles,
+            globalOptions: globalOptions,
+            startedAt: startedAt
+        )
 
         if globalOptions.outputFormat == .text && !globalOptions.quiet {
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
@@ -440,5 +464,226 @@ struct MetadataExportBioSampleSubcommand: AsyncParsableCommand {
 
         let tsv = NCBIBioSampleExporter.export(samples: orderedSamples, package: bioPackage)
         print(tsv, terminator: "")
+    }
+}
+
+// MARK: - Metadata Provenance
+
+private enum MetadataProvenanceSupport {
+    static func preMutationRecords(for url: URL) -> [FileRecord] {
+        if FileManager.default.fileExists(atPath: url.path) {
+            return [ProvenanceRecorder.fileRecord(url: url, format: .text, role: .input)]
+        }
+        return []
+    }
+
+    static func recordMetadataSet(
+        bundleURL: URL,
+        field: String,
+        value: String,
+        globalOptions: GlobalOptions,
+        inputs: [FileRecord],
+        outputURL: URL,
+        startedAt: Date
+    ) async throws {
+        let command = [
+            "lungfish", "metadata", "set",
+            bundleURL.path,
+            "--field", field,
+            "--value", value
+        ] + globalOptionArguments(globalOptions)
+        let explicit: [String: ParameterValue] = [
+            "bundlePath": .file(bundleURL),
+            "field": .string(field),
+            "value": .string(value)
+        ].merging(globalExplicitOptions(globalOptions)) { current, _ in current }
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish metadata set",
+            parameters: explicit,
+            defaults: globalDefaultOptions(),
+            resolved: resolvedOptions(explicit: explicit, globalOptions: globalOptions),
+            toolName: "lungfish metadata set",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: inputs,
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: outputURL, format: .text, role: .output)
+            ],
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: bundleURL
+        )
+    }
+
+    static func recordMetadataImport(
+        folderURL: URL,
+        csvURL: URL,
+        folderMeta: FASTQFolderMetadata,
+        syncBundles: Bool,
+        globalOptions: GlobalOptions,
+        startedAt: Date
+    ) async throws {
+        let command = [
+            "lungfish", "metadata", "import",
+            folderURL.path,
+            csvURL.path
+        ] + (syncBundles ? ["--sync-bundles"] : []) + globalOptionArguments(globalOptions)
+        let explicit: [String: ParameterValue] = [
+            "folderPath": .file(folderURL),
+            "csvPath": .file(csvURL),
+            "syncBundles": .boolean(syncBundles)
+        ].merging(globalExplicitOptions(globalOptions)) { current, _ in current }
+        var defaults = globalDefaultOptions()
+        defaults["syncBundles"] = .boolean(false)
+        let outputs = metadataImportOutputRecords(
+            folderURL: folderURL,
+            folderMeta: folderMeta,
+            syncBundles: syncBundles
+        )
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish metadata import",
+            parameters: explicit,
+            defaults: defaults,
+            resolved: resolvedOptions(explicit: explicit, defaults: defaults, globalOptions: globalOptions),
+            toolName: "lungfish metadata import",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: csvURL, format: .text, role: .input)
+            ],
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: folderURL
+        )
+    }
+
+    private static func metadataImportOutputRecords(
+        folderURL: URL,
+        folderMeta: FASTQFolderMetadata,
+        syncBundles: Bool
+    ) -> [FileRecord] {
+        var outputURLs = [FASTQFolderMetadata.metadataURL(in: folderURL)]
+        if syncBundles {
+            outputURLs += folderMeta.sampleOrder.compactMap { sampleName in
+                let bundleName = sampleName.hasSuffix(".lungfishfastq")
+                    ? sampleName
+                    : "\(sampleName).lungfishfastq"
+                let bundleURL = folderURL.appendingPathComponent(bundleName)
+                let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+                guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+                    return nil
+                }
+                return metadataURL
+            }
+        }
+        return outputURLs.map {
+            ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .output)
+        }
+    }
+
+    private static func globalOptionArguments(_ options: GlobalOptions) -> [String] {
+        var arguments: [String] = []
+        if options.outputFormat != .text {
+            arguments += ["--format", options.outputFormat.rawValue]
+        }
+        if options.quiet {
+            arguments.append("--quiet")
+        }
+        if options.verbosity > 0 {
+            arguments += Array(repeating: "--verbose", count: options.verbosity)
+        }
+        if options.showProgress {
+            arguments.append("--progress")
+        }
+        if options.noProgress {
+            arguments.append("--no-progress")
+        }
+        if options.debug {
+            arguments.append("--debug")
+        }
+        if let logFile = options.logFile {
+            arguments += ["--log-file", logFile]
+        }
+        if options.noColor {
+            arguments.append("--no-color")
+        }
+        if let threads = options.threads {
+            arguments += ["--threads", String(threads)]
+        }
+        return arguments
+    }
+
+    private static func globalExplicitOptions(_ options: GlobalOptions) -> [String: ParameterValue] {
+        var explicit: [String: ParameterValue] = [:]
+        if options.outputFormat != .text {
+            explicit["format"] = .string(options.outputFormat.rawValue)
+        }
+        if options.quiet {
+            explicit["quiet"] = .boolean(true)
+        }
+        if options.verbosity > 0 {
+            explicit["verbosity"] = .integer(options.verbosity)
+        }
+        if options.showProgress {
+            explicit["progress"] = .boolean(true)
+        }
+        if options.noProgress {
+            explicit["noProgress"] = .boolean(true)
+        }
+        if options.debug {
+            explicit["debug"] = .boolean(true)
+        }
+        if let logFile = options.logFile {
+            explicit["logFile"] = .file(URL(fileURLWithPath: logFile))
+        }
+        if options.noColor {
+            explicit["noColor"] = .boolean(true)
+        }
+        if let threads = options.threads {
+            explicit["threads"] = .integer(threads)
+        }
+        return explicit
+    }
+
+    private static func globalDefaultOptions() -> [String: ParameterValue] {
+        [
+            "format": .string(OutputFormat.text.rawValue),
+            "quiet": .boolean(false),
+            "verbosity": .integer(0),
+            "progress": .boolean(false),
+            "noProgress": .boolean(false),
+            "debug": .boolean(false),
+            "logFile": .null,
+            "noColor": .boolean(false),
+            "threads": .null
+        ]
+    }
+
+    private static func resolvedOptions(
+        explicit: [String: ParameterValue],
+        defaults: [String: ParameterValue] = globalDefaultOptions(),
+        globalOptions: GlobalOptions
+    ) -> [String: ParameterValue] {
+        var resolved = defaults
+        resolved.merge(explicit) { _, explicit in explicit }
+        resolved["format"] = .string(globalOptions.outputFormat.rawValue)
+        resolved["quiet"] = .boolean(globalOptions.quiet)
+        resolved["verbosity"] = .integer(globalOptions.verbosity)
+        resolved["progress"] = .boolean(globalOptions.showProgress)
+        resolved["noProgress"] = .boolean(globalOptions.noProgress)
+        resolved["debug"] = .boolean(globalOptions.debug)
+        resolved["logFile"] = globalOptions.logFile.map { .file(URL(fileURLWithPath: $0)) } ?? .null
+        resolved["noColor"] = .boolean(globalOptions.noColor)
+        resolved["threads"] = globalOptions.threads.map(ParameterValue.integer) ?? .integer(globalOptions.effectiveThreads)
+        resolved["useColors"] = .boolean(globalOptions.useColors)
+        resolved["shouldShowProgress"] = .boolean(globalOptions.shouldShowProgress)
+        return resolved
     }
 }
