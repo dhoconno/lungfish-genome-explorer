@@ -112,7 +112,7 @@ struct AssemblyWizardSheet: View {
         // Treat that displayed choice as the current manual choice when
         // auto-detection is inconclusive so the outer run gating stays aligned
         // with what the user sees.
-        _hasConfirmedManualReadType = State(initialValue: true)
+        _hasConfirmedManualReadType = State(initialValue: Self.initialManualReadTypeConfirmationState())
     }
 
     private var availableMemoryGB: Int {

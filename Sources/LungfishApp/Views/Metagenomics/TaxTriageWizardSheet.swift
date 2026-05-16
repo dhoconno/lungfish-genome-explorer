@@ -260,8 +260,6 @@ struct TaxTriageWizardSheet: View {
             // Advanced settings
             advancedSettings
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
     }
 
     // MARK: - Validation Message
