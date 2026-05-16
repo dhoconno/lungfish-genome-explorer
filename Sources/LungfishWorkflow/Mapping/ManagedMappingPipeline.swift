@@ -936,7 +936,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
         var materializationInputs: [ProvenanceFileDescriptor] = []
         var materializationOutputs: [ProvenanceFileDescriptor] = []
-        var materializedOriginals: [URL] = []
+        var materializationCommands: [[String]] = []
 
         for (index, originalURL) in originalInputURLs.enumerated() {
             guard request.inputFASTQURLs.indices.contains(index) else { continue }
@@ -946,12 +946,17 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 continue
             }
 
-            materializedOriginals.append(originalURL.standardizedFileURL)
             materializationInputs.append(
                 contentsOf: try CLISequenceInputMaterialization.originalInputDescriptors(for: originalURL)
             )
             materializationOutputs.append(
                 try CLISequenceInputMaterialization.executionInputDescriptor(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            )
+            materializationCommands.append(
+                CLISequenceInputMaterialization.materializationCommand(
                     originalURL: originalURL,
                     executionURL: executionURL
                 )
@@ -965,11 +970,15 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let startTime = request.inputMaterializationStartedAt ?? Date()
         let endTime = request.inputMaterializationEndedAt ?? startTime
         let wallTime = max(0, endTime.timeIntervalSince(startTime))
+        let command = materializationCommands.count == 1
+            ? materializationCommands[0]
+            : ["/bin/sh", "-lc", materializationCommands.map { $0.map(shellEscape).joined(separator: " ") }.joined(separator: " && ")]
         return [
             StepExecution(
-                toolName: "lungfish.map.input-materialization",
+                toolName: "lungfish fastq materialize",
                 toolVersion: WorkflowRun.currentAppVersion,
-                command: ["lungfish", "map", "materialize-inputs"] + materializedOriginals.map(\.path),
+                command: command,
+                durableReplayArgv: command,
                 inputs: deduplicatedInputRecords(materializationInputs.map { fileRecord(from: $0) }),
                 outputs: deduplicatedInputRecords(materializationOutputs.map { fileRecord(from: $0) }),
                 exitCode: 0,

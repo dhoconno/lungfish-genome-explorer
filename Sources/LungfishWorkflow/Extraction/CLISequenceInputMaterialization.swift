@@ -68,6 +68,11 @@ public struct CLISequenceInputMaterializationResult: Sendable, Equatable {
 
 /// Detects virtual FASTQ bundles that CLI tools must materialize before running.
 public enum CLISequenceInputMaterialization {
+    private enum PreflightInput {
+        case materialized(bundleURL: URL)
+        case resolved(resolvedURL: URL)
+    }
+
     public static func bundleRequiringMaterialization(for inputURL: URL) -> URL? {
         guard let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: inputURL.standardizedFileURL),
               let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL),
@@ -103,39 +108,58 @@ public enum CLISequenceInputMaterialization {
         operationName: String,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> CLISequenceInputMaterializationResult {
-        var resolvedURLs: [URL] = []
-        var materializedPairs: [CLISequenceInputMaterializationPair] = []
-        var materializationStartedAt: Date?
-        var materializationEndedAt: Date?
-
-        for inputURL in inputURLs {
+        let preflightInputs = try inputURLs.map { inputURL -> PreflightInput in
             let originalURL = inputURL.standardizedFileURL
             if let unsupportedMessage = unsupportedSequenceInputMessage(for: originalURL, operationName: operationName) {
                 throw CLISequenceInputMaterializationError.unsupportedSequenceInput(unsupportedMessage)
             }
 
             if let bundleURL = bundleRequiringMaterialization(for: originalURL) {
-                if materializationStartedAt == nil {
-                    materializationStartedAt = Date()
-                }
-                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
-                let materializedURL = try await materializer.materialize(
-                    bundleURL: bundleURL,
-                    tempDirectory: tempDirectory,
-                    progress: progress
-                ).standardizedFileURL
-                materializationEndedAt = Date()
-                resolvedURLs.append(materializedURL)
-                materializedPairs.append(
-                    CLISequenceInputMaterializationPair(originalURL: bundleURL, executionURL: materializedURL)
-                )
-                continue
+                return .materialized(bundleURL: bundleURL)
             }
 
             guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: originalURL) else {
                 throw CLISequenceInputMaterializationError.unreadableSequenceInput(originalURL.path)
             }
-            resolvedURLs.append(resolvedURL.standardizedFileURL)
+            return .resolved(resolvedURL: resolvedURL.standardizedFileURL)
+        }
+
+        var resolvedURLs: [URL] = []
+        var materializedPairs: [CLISequenceInputMaterializationPair] = []
+        var materializationStartedAt: Date?
+        var materializationEndedAt: Date?
+        let fileManager = FileManager.default
+        let preexistingTempEntries = (try? fileManager.contentsOfDirectory(atPath: tempDirectory.path)).map(Set.init)
+
+        do {
+            for input in preflightInputs {
+                switch input {
+                case .materialized(let bundleURL):
+                    if materializationStartedAt == nil {
+                        materializationStartedAt = Date()
+                    }
+                    try fileManager.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+                    let materializedURL = try await materializer.materialize(
+                        bundleURL: bundleURL,
+                        tempDirectory: tempDirectory,
+                        progress: progress
+                    ).standardizedFileURL
+                    materializationEndedAt = Date()
+                    resolvedURLs.append(materializedURL)
+                    materializedPairs.append(
+                        CLISequenceInputMaterializationPair(originalURL: bundleURL, executionURL: materializedURL)
+                    )
+                case .resolved(let resolvedURL):
+                    resolvedURLs.append(resolvedURL)
+                }
+            }
+        } catch {
+            cleanupNewMaterializationOutputs(
+                in: tempDirectory,
+                preexistingEntries: preexistingTempEntries,
+                materializedPairs: materializedPairs
+            )
+            throw error
         }
 
         return CLISequenceInputMaterializationResult(
@@ -145,6 +169,177 @@ public enum CLISequenceInputMaterialization {
             materializationStartedAt: materializationStartedAt,
             materializationEndedAt: materializationEndedAt
         )
+    }
+
+    public static func materializedInputPairs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [CLISequenceInputMaterializationPair] {
+        executionInputURLs.enumerated().compactMap { index, executionURL in
+            let originalURL = originalInputURLs.indices.contains(index)
+                ? originalInputURLs[index].standardizedFileURL
+                : executionURL.standardizedFileURL
+            let executionURL = executionURL.standardizedFileURL
+            guard originalURL != executionURL,
+                  let bundleURL = bundleRequiringMaterialization(for: originalURL) else {
+                return nil
+            }
+            return CLISequenceInputMaterializationPair(
+                originalURL: bundleURL,
+                executionURL: executionURL
+            )
+        }
+    }
+
+    public static func materializationCommand(originalURL: URL, executionURL: URL) -> [String] {
+        let bundleURL = bundleRequiringMaterialization(for: originalURL) ?? originalURL.standardizedFileURL
+        return [
+            "lungfish",
+            "fastq",
+            "materialize",
+            bundleURL.standardizedFileURL.path,
+            "--output",
+            executionURL.standardizedFileURL.path,
+        ]
+    }
+
+    public static func durableReplayArgv(
+        argv: [String],
+        originalInputArguments: [String] = [],
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [String]? {
+        var replacements: [String: String] = [:]
+        for (index, executionURL) in executionInputURLs.enumerated() {
+            let originalURL = originalInputURLs.indices.contains(index)
+                ? originalInputURLs[index].standardizedFileURL
+                : executionURL.standardizedFileURL
+            let executionURL = executionURL.standardizedFileURL
+            guard originalURL != executionURL,
+                  let bundleURL = bundleRequiringMaterialization(for: originalURL) else {
+                continue
+            }
+            let durablePath = executionURL.path
+            var candidates = Set([
+                originalURL.path,
+                originalURL.standardizedFileURL.path,
+                bundleURL.path,
+                bundleURL.standardizedFileURL.path,
+            ])
+            if originalInputArguments.indices.contains(index) {
+                let rawArgument = originalInputArguments[index]
+                candidates.insert(rawArgument)
+                candidates.insert(URL(fileURLWithPath: rawArgument).path)
+                candidates.insert(URL(fileURLWithPath: rawArgument).standardizedFileURL.path)
+            }
+            for candidate in candidates where !candidate.isEmpty {
+                replacements[candidate] = durablePath
+            }
+        }
+
+        guard !replacements.isEmpty else {
+            return nil
+        }
+
+        let replayArgv = argv.map { replacements[$0] ?? $0 }
+        return replayArgv == argv ? nil : replayArgv
+    }
+
+    public static func materializationProvenanceSteps(
+        workflowVersion: String,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        startedAt: Date,
+        endedAt: Date
+    ) throws -> [ProvenanceStep] {
+        let pairs = materializedInputPairs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        let stepWallTime = max(0, endedAt.timeIntervalSince(startedAt))
+        return try pairs.map { pair in
+            let command = materializationCommand(
+                originalURL: pair.originalURL,
+                executionURL: pair.executionURL
+            )
+            return ProvenanceStep(
+                toolName: "lungfish fastq materialize",
+                toolVersion: ProvenanceVersion.required(workflowVersion),
+                argv: command,
+                durableReplayArgv: command,
+                reproducibleCommand: command.map(shellEscape).joined(separator: " "),
+                inputs: try originalInputDescriptors(for: pair.originalURL),
+                outputs: [
+                    try executionInputDescriptor(
+                        originalURL: pair.originalURL,
+                        executionURL: pair.executionURL
+                    )
+                ],
+                exitStatus: 0,
+                wallTimeSeconds: stepWallTime,
+                startedAt: startedAt,
+                completedAt: endedAt
+            )
+        }
+    }
+
+    @discardableResult
+    public static func writeMaterializationProvenance(
+        workflowName: String,
+        workflowVersion: String,
+        argv: [String],
+        durableReplayArgv: [String]?,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        outputDirectory: URL,
+        operationName: String,
+        startedAt: Date,
+        endedAt: Date,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL? {
+        let pairs = materializedInputPairs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        guard !pairs.isEmpty else {
+            return nil
+        }
+
+        let explicitOptions: [String: ParameterValue] = [
+            "operation": .string(operationName),
+            "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
+            "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
+            "outputDirectory": .file(outputDirectory.standardizedFileURL),
+        ]
+
+        var builder = ProvenanceRunBuilder(
+            workflowName: workflowName,
+            workflowVersion: workflowVersion,
+            toolName: "lungfish fastq materialize",
+            toolVersion: workflowVersion
+        )
+        .argv(argv)
+        .durableReplayArgv(durableReplayArgv)
+        .reproducibleCommand((durableReplayArgv ?? argv).map(shellEscape).joined(separator: " "))
+        .options(explicit: explicitOptions, defaults: [:], resolved: explicitOptions)
+        .runtime(ProvenanceRuntimeIdentity(appVersion: workflowVersion))
+
+        for step in try materializationProvenanceSteps(
+            workflowVersion: workflowVersion,
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: startedAt,
+            endedAt: endedAt
+        ) {
+            builder = builder.step(step)
+        }
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return try writer.write(envelope, to: outputDirectory)
     }
 
     public static func originalInputDescriptors(for inputURL: URL) throws -> [ProvenanceFileDescriptor] {
@@ -307,5 +502,27 @@ public enum CLISequenceInputMaterialization {
             result.append(record)
         }
         return result
+    }
+
+    private static func cleanupNewMaterializationOutputs(
+        in tempDirectory: URL,
+        preexistingEntries: Set<String>?,
+        materializedPairs: [CLISequenceInputMaterializationPair]
+    ) {
+        let fileManager = FileManager.default
+        for pair in materializedPairs {
+            try? fileManager.removeItem(at: pair.executionURL)
+        }
+
+        guard let preexistingEntries else {
+            try? fileManager.removeItem(at: tempDirectory)
+            return
+        }
+        guard let currentEntries = try? fileManager.contentsOfDirectory(atPath: tempDirectory.path) else {
+            return
+        }
+        for entry in currentEntries where !preexistingEntries.contains(entry) {
+            try? fileManager.removeItem(at: tempDirectory.appendingPathComponent(entry))
+        }
     }
 }

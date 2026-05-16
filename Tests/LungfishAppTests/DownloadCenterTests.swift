@@ -721,6 +721,16 @@ final class DownloadCenterTests: XCTestCase {
                       "Paths with spaces should be shell-quoted: \(cmd)")
     }
 
+    func testBuildCLICommandSplitsNestedSubcommands() {
+        let cmd = OperationCenter.buildCLICommand(
+            subcommand: "fastq import-ont",
+            args: ["/data/run", "--output", "/tmp/project"]
+        )
+
+        XCTAssertEqual(cmd, "lungfish fastq import-ont /data/run --output /tmp/project")
+        XCTAssertFalse(cmd.contains("'fastq import-ont'"))
+    }
+
     // MARK: - Log Entries
 
     func testLogEntriesAppendedToItem() {

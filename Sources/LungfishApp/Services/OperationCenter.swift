@@ -299,11 +299,14 @@ public final class OperationCenter: ObservableObject {
     /// wrapped in single quotes with internal single quotes escaped.
     ///
     /// - Parameters:
-    ///   - subcommand: The lungfish subcommand (e.g. `"fetch"`, `"classify"`).
+    ///   - subcommand: The lungfish subcommand path (e.g. `"fetch"`, `"classify"`, `"fastq import-ont"`).
     ///   - args: Positional and flag arguments.
     /// - Returns: A copy-pasteable shell command string.
     public nonisolated static func buildCLICommand(subcommand: String, args: [String]) -> String {
-        let allParts = ["lungfish", subcommand] + args
+        let subcommandParts = subcommand
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        let allParts = ["lungfish"] + subcommandParts + args
         let quoted = allParts.map { shellEscape($0) }
         return quoted.joined(separator: " ")
     }

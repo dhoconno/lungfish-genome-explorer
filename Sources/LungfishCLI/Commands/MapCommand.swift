@@ -118,6 +118,9 @@ struct MapCommand: AsyncParsableCommand {
         if pairedEnd && inputURLs.count != 2 {
             throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
         }
+        if minMapQ < 0 {
+            throw CLIError.validationFailed(errors: ["--min-mapq must be greater than or equal to 0."])
+        }
 
         let outputDirectory: URL
         if let outputDir {
@@ -127,31 +130,6 @@ struct MapCommand: AsyncParsableCommand {
             outputDirectory = inputURLs.first!.deletingLastPathComponent()
                 .appendingPathComponent("mapping-\(runToken)")
         }
-
-        let resolvedInputs: CLISequenceInputMaterializationResult
-        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
-        do {
-            resolvedInputs = try await Self.resolveExecutionInputs(
-                for: inputURLs,
-                tempDirectory: materializationDirectory,
-                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
-                progress: { message in
-                    if !globalOptions.quiet {
-                        print(formatter.info(message))
-                    }
-                }
-            )
-        } catch let error as CLISequenceInputMaterializationError {
-            switch error {
-            case .unreadableSequenceInput(let path):
-                throw CLIError.formatDetectionFailed(path: path)
-            case .unsupportedSequenceInput(let message):
-                throw CLIError.workflowFailed(reason: message)
-            }
-        } catch {
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
-        }
-        let executionInputURLs = resolvedInputs.inputURLs
 
         let referenceInputURL = URL(fileURLWithPath: reference)
         guard FileManager.default.fileExists(atPath: referenceInputURL.path) else {
@@ -192,6 +170,59 @@ struct MapCommand: AsyncParsableCommand {
         } catch {
             print(formatter.error(error.localizedDescription))
             throw ExitCode.failure
+        }
+
+        let resolvedInputs: CLISequenceInputMaterializationResult
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+        do {
+            resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+        } catch let error as CLISequenceInputMaterializationError {
+            switch error {
+            case .unreadableSequenceInput(let path):
+                throw CLIError.formatDetectionFailed(path: path)
+            case .unsupportedSequenceInput(let message):
+                throw CLIError.workflowFailed(reason: message)
+            }
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let executionInputURLs = resolvedInputs.inputURLs
+        if resolvedInputs.didMaterialize {
+            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? Date()
+            let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
+            do {
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenance(
+                    workflowName: "lungfish.map.input-materialization",
+                    workflowVersion: LungfishCLI.configuration.version,
+                    argv: CommandLine.arguments,
+                    durableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
+                        argv: CommandLine.arguments,
+                        originalInputArguments: fastqFiles,
+                        originalInputURLs: inputURLs,
+                        executionInputURLs: executionInputURLs
+                    ),
+                    originalInputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs,
+                    outputDirectory: outputDirectory,
+                    operationName: "mapping",
+                    startedAt: materializationStartedAt,
+                    endedAt: materializationEndedAt
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(
+                    path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                    reason: error.localizedDescription
+                )
+            }
         }
 
         let request = MappingRunRequest(

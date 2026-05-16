@@ -269,6 +269,72 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
     }
 
+    func testClassifyMaterializationPreflightsAllInputsBeforeWritingOutputs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-preflight-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let materializer = RecordingCLISequenceMaterializer(materializedURL: materializedURL)
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [fixture.derivedBundleURL, tempDir.appendingPathComponent("missing.txt")],
+                tempDirectory: materializedURL.deletingLastPathComponent(),
+                materializer: materializer
+            )
+            XCTFail("Expected unreadable second input to fail before materialization starts")
+        } catch {
+            XCTAssertTrue(materializer.bundleURLs.isEmpty)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: materializedURL.path))
+        }
+    }
+
+    func testMaterializationCleanupRemovesOutputsWhenLaterMaterializationFails() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let first = try makeVirtualDerivedFASTQFixture(under: tempDir.appendingPathComponent("first", isDirectory: true))
+        let second = try makeVirtualDerivedFASTQFixture(under: tempDir.appendingPathComponent("second", isDirectory: true))
+        let materializationDirectory = tempDir.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        let materializer = FailingSecondCLISequenceMaterializer()
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [first.derivedBundleURL, second.derivedBundleURL],
+                tempDirectory: materializationDirectory,
+                materializer: materializer
+            )
+            XCTFail("Expected second materialization to fail")
+        } catch {
+            let remaining = (try? FileManager.default.contentsOfDirectory(atPath: materializationDirectory.path)) ?? []
+            XCTAssertTrue(remaining.isEmpty, "Failed materialization should not leave unprovenanced FASTQ outputs: \(remaining)")
+        }
+    }
+
+    func testDurableReplayArgvRewritesRelativeVirtualInputArgument() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-relative-replay-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let replayArgv = CLISequenceInputMaterialization.durableReplayArgv(
+            argv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            originalInputArguments: ["derived.lungfishfastq"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL]
+        )
+
+        XCTAssertEqual(replayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+    }
+
     func testClassifyProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("classify-virtual-provenance-\(UUID().uuidString)", isDirectory: true)
@@ -345,7 +411,11 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish.classify.input-materialization" }
+            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+        )
+        XCTAssertEqual(
+            materializationStep.argv,
+            ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
         )
         XCTAssertTrue(materializationStep.inputs.contains { $0.path == fixture.derivedBundleURL.path })
         XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
@@ -2280,6 +2350,19 @@ final class MapCommandRegressionTests: XCTestCase {
         XCTAssertTrue(envelope.files.contains { $0.path == materializedURL.path })
         XCTAssertEqual(envelope.durableReplayArgv, mapperInvocation.durableReplayArgv)
     }
+
+    func testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains(#""map", "materialize-inputs""#))
+        XCTAssertTrue(source.contains("CLISequenceInputMaterialization.materializationCommand"))
+        XCTAssertTrue(source.contains(#"toolName: "lungfish fastq materialize""#))
+    }
 }
 
 // MARK: - ImportCommand
@@ -2649,5 +2732,24 @@ private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializ
     ) async throws -> URL {
         bundleURLs.append(bundleURL.standardizedFileURL)
         return materializedURL
+    }
+}
+
+private final class FailingSecondCLISequenceMaterializer: CLISequenceInputMaterializing {
+    private var invocationCount = 0
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        invocationCount += 1
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let outputURL = tempDirectory.appendingPathComponent("materialized-\(invocationCount).fastq")
+        try "@read\(invocationCount)\nACGT\n+\nIIII\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        if invocationCount == 2 {
+            throw CLISequenceInputMaterializationError.unsupportedSequenceInput("fixture failure")
+        }
+        return outputURL
     }
 }

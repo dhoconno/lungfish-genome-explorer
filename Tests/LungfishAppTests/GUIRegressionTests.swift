@@ -88,6 +88,10 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains(#"subcommand: "fastq import-ont""#))
         XCTAssertFalse(source.contains("CLI command not yet available"))
         XCTAssertFalse(source.contains("lungfish import ont"))
+        XCTAssertFalse(
+            OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: [])
+                .contains("'fastq import-ont'")
+        )
     }
 
     private func repositoryRoot() -> URL {

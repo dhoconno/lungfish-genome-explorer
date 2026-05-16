@@ -482,14 +482,10 @@ final class ClassifierExtractionInvariantTests: XCTestCase {
             destination: .file(placeholder)
         )
 
-        // Tokenize the CLI string. Our mini-tokenizer honors single-quoted
-        // segments, which is important because `OperationCenter.buildCLICommand`
-        // passes the subcommand literal "extract reads" through `shellEscape`,
-        // which wraps it in single quotes (space is not a shell-safe char).
-        // So the tokenized form is ["lungfish", "extract reads", "--by-classifier", …]
-        // — only 2 prefix tokens to drop, not 3.
+        // Tokenize the CLI string. Nested subcommands are emitted as separate
+        // shell tokens, so the prefix is ["lungfish", "extract", "reads"].
         var tokens = Self.tokenizeCLIString(cliString)
-        tokens = Array(tokens.dropFirst(2))
+        tokens = Array(tokens.dropFirst(3))
 
         // Replace the `-o <placeholder>` with our real target.
         let cliOut = FileManager.default.temporaryDirectory.appendingPathComponent("cli-\(UUID().uuidString).fastq")

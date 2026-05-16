@@ -121,6 +121,10 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
         }
 
+        if pairedEnd && inputURLs.count != 2 {
+            throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
+        }
+
         // Resolve output directory before materialization so virtual FASTQ
         // payloads are durable and captured in final-location provenance.
         let outputDirectory: URL
@@ -131,24 +135,6 @@ struct ClassifyCommand: AsyncParsableCommand {
                 .appendingPathComponent("classification-\(databaseName.lowercased())")
         }
 
-        let resolvedInputs: CLISequenceInputMaterializationResult
-        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
-        do {
-            resolvedInputs = try await Self.resolveExecutionInputs(
-                for: inputURLs,
-                tempDirectory: materializationDirectory,
-                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
-                progress: { message in
-                    if !globalOptions.quiet {
-                        print(formatter.info(message))
-                    }
-                }
-            )
-        } catch {
-            throw CLIError.workflowFailed(reason: error.localizedDescription)
-        }
-        let executionInputURLs = resolvedInputs.inputURLs
-
         let inputFormat: SequenceFormat
         do {
             inputFormat = try Self.inferInputFormat(from: inputURLs)
@@ -156,8 +142,13 @@ struct ClassifyCommand: AsyncParsableCommand {
             print(formatter.error(error.localizedDescription))
             throw ExitCode.failure
         }
+        if let confidence, confidence < 0.0 || confidence > 1.0 {
+            print(formatter.error("Confidence must be between 0.0 and 1.0, got \(confidence)"))
+            throw ExitCode.failure
+        }
 
-        // Resolve database from registry.
+        // Resolve database and parse user options before materializing virtual
+        // inputs so validation errors do not create scientific payloads.
         let registry = MetagenomicsDatabaseRegistry.shared
         guard let dbInfo = try await registry.database(named: databaseName) else {
             print(formatter.error("Database '\(databaseName)' not found in registry"))
@@ -177,6 +168,61 @@ struct ClassifyCommand: AsyncParsableCommand {
             throw ExitCode.failure
         }
 
+        let parsedExtraArguments: [String]
+        do {
+            parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw ExitCode.failure
+        }
+
+        let resolvedInputs: CLISequenceInputMaterializationResult
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        do {
+            resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let executionInputURLs = resolvedInputs.inputURLs
+        let durableReplayArguments = CLISequenceInputMaterialization.durableReplayArgv(
+            argv: CommandLine.arguments,
+            originalInputArguments: fastqFiles,
+            originalInputURLs: inputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        if resolvedInputs.didMaterialize {
+            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? startedAt
+            let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
+            do {
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenance(
+                    workflowName: "lungfish.classify.input-materialization",
+                    workflowVersion: LungfishCLI.configuration.version,
+                    argv: CommandLine.arguments,
+                    durableReplayArgv: durableReplayArguments,
+                    originalInputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs,
+                    outputDirectory: outputDirectory,
+                    operationName: "classification",
+                    startedAt: materializationStartedAt,
+                    endedAt: materializationEndedAt
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(
+                    path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                    reason: error.localizedDescription
+                )
+            }
+        }
+
         // Build config from preset, then apply overrides.
         let effectiveThreads = globalOptions.threads ?? 4
         var config = ClassificationConfig.fromPreset(
@@ -190,7 +236,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             memoryMapping: memoryMapping,
             quickMode: quickMode,
             outputDirectory: outputDirectory,
-            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+            extraArguments: parsedExtraArguments
         )
 
         // Apply explicit overrides if provided.
@@ -251,11 +297,7 @@ struct ClassifyCommand: AsyncParsableCommand {
                 originalInputURLs: inputURLs,
                 executionInputURLs: executionInputURLs,
                 argv: CommandLine.arguments,
-                durableReplayArgv: Self.durableReplayArgv(
-                    argv: CommandLine.arguments,
-                    originalInputURLs: inputURLs,
-                    executionInputURLs: executionInputURLs
-                ),
+                durableReplayArgv: durableReplayArguments,
                 profile: profile,
                 brackenReadLength: brackenReadLength,
                 brackenLevel: brackenLevel,
@@ -367,19 +409,13 @@ struct ClassifyCommand: AsyncParsableCommand {
                 executionURL: executionURL
             )
         }
-        let materializedPairs = inputPairs.filter { originalURL, executionURL in
-            CLISequenceInputMaterialization.requiresMaterialization(originalURL)
-                && originalURL.standardizedFileURL != executionURL.standardizedFileURL
-        }
-        let materializedExecutionDescriptors = try materializedPairs.map { originalURL, executionURL in
-            try CLISequenceInputMaterialization.executionInputDescriptor(
-                originalURL: originalURL,
-                executionURL: executionURL
-            )
-        }
-        let materializationInputDescriptors = try materializedPairs.flatMap { originalURL, _ in
-            try CLISequenceInputMaterialization.originalInputDescriptors(for: originalURL)
-        }
+        let materializationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
+            workflowVersion: LungfishCLI.configuration.version,
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: materializationStartedAt ?? startedAt,
+            endedAt: materializationEndedAt ?? (materializationStartedAt ?? startedAt)
+        )
         let outputDescriptors = try classificationOutputDescriptors(for: result)
 
         var builder = ProvenanceRunBuilder(
@@ -418,23 +454,8 @@ struct ClassifyCommand: AsyncParsableCommand {
             )
         )
 
-        if !materializedExecutionDescriptors.isEmpty {
-            let stepStartedAt = materializationStartedAt ?? startedAt
-            let stepCompletedAt = materializationEndedAt ?? stepStartedAt
-            builder = builder.step(
-                ProvenanceStep(
-                    toolName: "lungfish.classify.input-materialization",
-                    toolVersion: LungfishCLI.configuration.version,
-                    argv: argv,
-                    reproducibleCommand: (durableReplayArgv ?? argv).map(shellEscape).joined(separator: " "),
-                    inputs: materializationInputDescriptors,
-                    outputs: materializedExecutionDescriptors,
-                    exitStatus: 0,
-                    wallTimeSeconds: stepCompletedAt.timeIntervalSince(stepStartedAt),
-                    startedAt: stepStartedAt,
-                    completedAt: stepCompletedAt
-                )
-            )
+        for materializationStep in materializationSteps {
+            builder = builder.step(materializationStep)
         }
 
         let krakenArgv = ["kraken2"] + config.kraken2Arguments()
@@ -481,25 +502,6 @@ struct ClassifyCommand: AsyncParsableCommand {
             let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
             return (originalURL, executionURL)
         }
-    }
-
-    private static func durableReplayArgv(
-        argv: [String],
-        originalInputURLs: [URL],
-        executionInputURLs: [URL]
-    ) -> [String]? {
-        var replayArgv = argv
-        for (originalURL, executionURL) in zipOriginalAndExecutionInputs(
-            originalInputURLs: originalInputURLs,
-            executionInputURLs: executionInputURLs
-        ) where originalURL.standardizedFileURL != executionURL.standardizedFileURL {
-            replayArgv = replayArgv.map { argument in
-                argument == originalURL.path || argument == originalURL.standardizedFileURL.path
-                    ? executionURL.standardizedFileURL.path
-                    : argument
-            }
-        }
-        return replayArgv == argv ? nil : replayArgv
     }
 
     private static func classificationDefaultOptions() -> [String: ParameterValue] {

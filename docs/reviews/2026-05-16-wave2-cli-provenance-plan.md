@@ -49,6 +49,8 @@ error: fatalError
 6. Updated `ManagedMappingPipeline` so mapper steps record the actual execution inputs, top-level mapping provenance records original bundle/root payload plus materialized execution payload and reference, and a `lungfish.map.input-materialization` step is emitted when map consumed a materialized virtual bundle.
 7. Added an app-level source regression that guards `AppDelegate.runMinimap2Mapping` provenance wiring: it resolves execution files, preserves durable provenance inputs/records, then swaps in resolved execution inputs for the pipeline.
 8. Updated GUI ONT import operation text to the real `lungfish fastq import-ont` command and added a regression guard against the stale "CLI command not yet available" text.
+9. Reviewer follow-up moved classify/map validation ahead of virtual FASTQ materialization where possible, writes materialization-only provenance immediately after durable payload creation, cleans partial materialization outputs on failure, rewrites relative virtual input argv for durable replay, and records materialization steps with the real `lungfish fastq materialize <bundle> --output <payload>` command.
+10. Reviewer follow-up fixed nested GUI CLI command rendering so `OperationCenter.buildCLICommand(subcommand: "fastq import-ont", ...)` displays copy-pasteable `lungfish fastq import-ont ...` instead of shell-quoting the nested subcommand as one token.
 
 ## Verification
 
@@ -67,6 +69,14 @@ Current results:
 - App/GUI focused filter is green: 2 tests, 0 failures.
 - Existing minimap2 virtual replay sidecar guard is green: 1 test, 0 failures.
 - `swift build --product lungfish-cli` passed.
+- `git diff --check` passed.
+
+Reviewer follow-up results:
+
+- `swift test --filter 'ClassifyCommandMaterializationRegressionTests|MapCommandRegressionTests/testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand|MapCommandRegressionTests/testMapProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput'` passed: 7 tests, 0 failures.
+- `swift test --filter 'DownloadCenterTests/testBuildCLICommand|GUIRegressionTests/testONTImportOperationShowsAvailableCLICommand|ClassifierExtractionInvariantTests'` passed: 27 tests, 1 skipped, 0 failures.
+- `swift build --product lungfish-cli` passed.
+- `swift build --target LungfishApp` passed.
 - `git diff --check` passed.
 
 ## Residual Risk
