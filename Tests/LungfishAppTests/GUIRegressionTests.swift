@@ -78,16 +78,23 @@ final class GUIRegressionTests: XCTestCase {
     }
 
     func testONTImportOperationShowsAvailableCLICommand() throws {
-        let source = try String(
+        let mainSplitSource = try String(
             contentsOf: repositoryRoot()
                 .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
             encoding: .utf8
         )
+        let coordinatorSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift"),
+            encoding: .utf8
+        )
 
-        XCTAssertTrue(source.contains("OperationCenter.buildCLICommand("))
-        XCTAssertTrue(source.contains(#"subcommand: "fastq import-ont""#))
-        XCTAssertFalse(source.contains("CLI command not yet available"))
-        XCTAssertFalse(source.contains("lungfish import ont"))
+        XCTAssertTrue(mainSplitSource.contains("ONTImportOperationCoordinator(operationCenter: .shared)"))
+        XCTAssertTrue(mainSplitSource.contains("coordinator.importDirectory("))
+        XCTAssertTrue(coordinatorSource.contains("OperationCenter.buildCLICommand("))
+        XCTAssertTrue(coordinatorSource.contains(#"subcommand: "fastq import-ont""#))
+        XCTAssertFalse(coordinatorSource.contains("CLI command not yet available"))
+        XCTAssertFalse(coordinatorSource.contains("lungfish import ont"))
         XCTAssertFalse(
             OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: [])
                 .contains("'fastq import-ont'")
@@ -578,7 +585,9 @@ final class UnifiedWizardTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Text(\"TaxTriage\")"))
+        XCTAssertTrue(source.contains("let title = \"TaxTriage\""))
+        XCTAssertTrue(source.contains("WizardSheet("))
+        XCTAssertTrue(source.contains("title: standalonePresentation.title"))
         XCTAssertFalse(source.contains("TaxTriage Metagenomic Triage"))
         XCTAssertFalse(source.contains("Comprehensive taxonomic classification pipeline"))
     }
