@@ -44,6 +44,33 @@ final class DeadWorkflowSurfaceTests: XCTestCase {
         )
     }
 
+    func testDeprecatedWorkflowConstraintAndRegistryFilesStayPruned() {
+        let root = repositoryRoot()
+        let builtInTools = "BuiltIn" + "Tools.swift"
+        let inputSignature = "Input" + "Signature.swift"
+        let toolDefinition = "Tool" + "Definition.swift"
+        let nfCoreRegistry = "NFCore" + "Registry.swift"
+        let nfCorePipeline = "NFCore" + "Pipeline.swift"
+        let removedWorkflowSurfacePaths = [
+            "Sources/LungfishWorkflow/Constraints/\(builtInTools)",
+            "Sources/LungfishWorkflow/Constraints/\(inputSignature)",
+            "Sources/LungfishWorkflow/Constraints/\(toolDefinition)",
+            "Sources/LungfishWorkflow/Constraints/ValidationResult.swift",
+            "Sources/LungfishWorkflow/nf-core/\(nfCoreRegistry)",
+            "Sources/LungfishWorkflow/nf-core/\(nfCorePipeline)",
+        ]
+
+        let restoredPaths = removedWorkflowSurfacePaths.filter { path in
+            FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path)
+        }
+
+        XCTAssertTrue(
+            restoredPaths.isEmpty,
+            "Deprecated workflow constraint and dynamic nf-core registry files must remain absent:\n"
+                + restoredPaths.joined(separator: "\n")
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
