@@ -44,9 +44,9 @@ LungfishWorkflow/
 │   ├── NextflowSchemaParser.swift    # PRIMARY OWNER
 │   └── NFCoreIntegration.swift       # PRIMARY OWNER
 ├── Snakemake/
-│   ├── SnakemakeRunner.swift         # PRIMARY OWNER
-│   ├── SnakemakeConfig.swift         # PRIMARY OWNER
-│   └── SnakemakeParser.swift         # PRIMARY OWNER
+│   ├── Engines/SnakemakeRunner.swift        # PRIMARY OWNER
+│   ├── Builder/SnakemakeExporter.swift      # PRIMARY OWNER
+│   └── Schema/SnakemakeConfigParser.swift   # PRIMARY OWNER
 ├── Container/
 │   ├── ContainerRuntime.swift        # PRIMARY OWNER
 │   ├── DockerManager.swift           # PRIMARY OWNER
@@ -57,11 +57,10 @@ LungfishWorkflow/
 │   └── OutputImporter.swift          # PRIMARY OWNER
 LungfishApp/
 ├── Views/
-│   ├── Workflow/
-│   │   ├── WorkflowRunnerView.swift  # PRIMARY OWNER
-│   │   ├── ParameterFormView.swift   # PRIMARY OWNER
-│   │   ├── WorkflowProgressView.swift # PRIMARY OWNER
-│   │   └── NFCoreBrowserView.swift   # PRIMARY OWNER
+│   ├── WorkflowBuilder/
+│   │   ├── WorkflowBuilderViewController.swift # PRIMARY OWNER
+│   │   ├── WorkflowNodeInspectorView.swift     # PRIMARY OWNER
+│   │   └── WorkflowBuilderOperationDialogBridge.swift # PRIMARY OWNER
 ```
 
 ### Interfaces with Other Roles
@@ -491,74 +490,8 @@ public actor ContainerManager {
 }
 ```
 
-### Parameter Form Generator
-```swift
-public struct ParameterFormView: View {
-    public let schema: NextflowSchema
-    @Binding public var values: [String: Any]
-
-    public var body: some View {
-        Form {
-            ForEach(schema.definitions.sorted(by: { $0.key < $1.key }), id: \.key) { groupName, group in
-                Section(header: Text(group.title ?? groupName)) {
-                    if let description = group.description {
-                        Text(description)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    ForEach(group.properties.sorted(by: { $0.key < $1.key }), id: \.key) { paramName, param in
-                        parameterField(name: paramName, param: param)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func parameterField(name: String, param: SchemaParameter) -> some View {
-        switch param.type {
-        case "string":
-            if let enumValues = param.enum {
-                Picker(param.title ?? name, selection: binding(for: name, default: param.default ?? "")) {
-                    ForEach(enumValues, id: \.self) { value in
-                        Text(value).tag(value)
-                    }
-                }
-            } else {
-                TextField(param.title ?? name, text: binding(for: name, default: param.default ?? ""))
-            }
-
-        case "integer":
-            TextField(
-                param.title ?? name,
-                value: binding(for: name, default: param.default ?? 0),
-                format: .number
-            )
-
-        case "number":
-            TextField(
-                param.title ?? name,
-                value: binding(for: name, default: param.default ?? 0.0),
-                format: .number
-            )
-
-        case "boolean":
-            Toggle(param.title ?? name, isOn: binding(for: name, default: param.default ?? false))
-
-        default:
-            TextField(param.title ?? name, text: binding(for: name, default: ""))
-        }
-    }
-
-    private func binding<T>(for key: String, default defaultValue: T) -> Binding<T> {
-        Binding(
-            get: { values[key] as? T ?? defaultValue },
-            set: { values[key] = $0 }
-        )
-    }
-}
-```
+### Workflow Builder Parameter Editing
+Active workflow-builder parameter editing is owned by `WorkflowNodeInspectorView`, with tool-dialog parity handled through `WorkflowBuilderOperationDialogBridge`.
 
 ### nf-core Integration
 ```swift

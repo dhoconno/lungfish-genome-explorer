@@ -252,7 +252,7 @@ The program should produce shippable increments. A milestone is not complete whe
 - `Sources/LungfishWorkflow/WorkflowRunner.swift`
 - `Sources/LungfishWorkflow/WorkflowDefinition.swift`
 - `Sources/LungfishApp/Views/WorkflowBuilder/`
-- `Sources/LungfishApp/Views/Workflow/`
+- `Sources/LungfishApp/Services/WorkflowBuilderRunService.swift`
 - `Sources/LungfishCLI/Commands/WorkflowCommand.swift`
 - `Sources/LungfishWorkflow/Ingestion/FASTQBatchImporter.swift`
 - `Sources/LungfishApp/Views/ImportCenter/`

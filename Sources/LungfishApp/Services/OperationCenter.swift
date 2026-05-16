@@ -93,9 +93,7 @@ public struct OperationRetryMetadata: Sendable, Identifiable, Codable, Equatable
 
 /// Log level for operation log entries.
 ///
-/// Separate from ``LogLevel`` in WorkflowExecutionView to avoid coupling
-/// the operation tracking system to the workflow UI module. The levels
-/// mirror standard syslog severity tiers.
+/// The levels mirror standard syslog severity tiers.
 public enum OperationLogLevel: String, Sendable, Codable {
     case debug
     case info
