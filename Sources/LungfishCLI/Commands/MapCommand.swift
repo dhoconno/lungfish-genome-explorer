@@ -200,11 +200,11 @@ struct MapCommand: AsyncParsableCommand {
             let materializationStartedAt = resolvedInputs.materializationStartedAt ?? Date()
             let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
             do {
-                _ = try CLISequenceInputMaterialization.writeMaterializationProvenance(
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
                     workflowName: "lungfish.map.input-materialization",
                     workflowVersion: LungfishCLI.configuration.version,
-                    argv: CommandLine.arguments,
-                    durableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
+                    parentArgv: CommandLine.arguments,
+                    parentDurableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
                         argv: CommandLine.arguments,
                         originalInputArguments: fastqFiles,
                         originalInputURLs: inputURLs,

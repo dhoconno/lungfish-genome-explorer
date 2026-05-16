@@ -203,11 +203,11 @@ struct ClassifyCommand: AsyncParsableCommand {
             let materializationStartedAt = resolvedInputs.materializationStartedAt ?? startedAt
             let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
             do {
-                _ = try CLISequenceInputMaterialization.writeMaterializationProvenance(
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
                     workflowName: "lungfish.classify.input-materialization",
                     workflowVersion: LungfishCLI.configuration.version,
-                    argv: CommandLine.arguments,
-                    durableReplayArgv: durableReplayArguments,
+                    parentArgv: CommandLine.arguments,
+                    parentDurableReplayArgv: durableReplayArguments,
                     originalInputURLs: inputURLs,
                     executionInputURLs: executionInputURLs,
                     outputDirectory: outputDirectory,

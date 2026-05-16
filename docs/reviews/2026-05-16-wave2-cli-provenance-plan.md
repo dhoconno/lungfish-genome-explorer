@@ -51,6 +51,7 @@ error: fatalError
 8. Updated GUI ONT import operation text to the real `lungfish fastq import-ont` command and added a regression guard against the stale "CLI command not yet available" text.
 9. Reviewer follow-up moved classify/map validation ahead of virtual FASTQ materialization where possible, writes materialization-only provenance immediately after durable payload creation, cleans partial materialization outputs on failure, rewrites relative virtual input argv for durable replay, and records materialization steps with the real `lungfish fastq materialize <bundle> --output <payload>` command.
 10. Reviewer follow-up fixed nested GUI CLI command rendering so `OperationCenter.buildCLICommand(subcommand: "fastq import-ont", ...)` displays copy-pasteable `lungfish fastq import-ont ...` instead of shell-quoting the nested subcommand as one token.
+11. Second reviewer follow-up makes materialization-only sidecars replay materialization as the top-level argv, preserves the parent classify/map argv in options, removes materialized payloads if the immediate provenance write fails, preserves pre-existing non-directory paths during failed cleanup, and writes final canonical `.lungfish-provenance.json` for successful managed mapping so directory provenance resolves to the BAM result rather than the provisional materialization sidecar.
 
 ## Verification
 
@@ -78,6 +79,13 @@ Reviewer follow-up results:
 - `swift build --product lungfish-cli` passed.
 - `swift build --target LungfishApp` passed.
 - `git diff --check` passed.
+
+Second reviewer follow-up results:
+
+- `swift test --filter 'ClassifyCommandMaterializationRegressionTests|MapCommandRegressionTests/testMapProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput|MapCommandRegressionTests/testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand'` passed: 10 tests, 0 failures.
+- `swift test --filter 'MapCommandRegressionTests|DownloadCenterTests/testBuildCLICommandSplitsNestedSubcommands|GUIRegressionTests/testONTImportOperationShowsAvailableCLICommand'` passed: 13 tests, 0 failures.
+- `swift build --target LungfishWorkflow` passed.
+- `swift build --product lungfish-cli` passed.
 
 ## Residual Risk
 

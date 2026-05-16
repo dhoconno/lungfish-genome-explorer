@@ -316,6 +316,29 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         }
     }
 
+    func testMaterializationCleanupPreservesPreexistingNonDirectoryPath() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-file-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let blockingURL = tempDir.appendingPathComponent(".lungfish-classify-inputs")
+        try "preexisting".write(to: blockingURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [fixture.derivedBundleURL],
+                tempDirectory: blockingURL,
+                materializer: RecordingCLISequenceMaterializer(
+                    materializedURL: blockingURL.appendingPathComponent("materialized.fastq")
+                )
+            )
+            XCTFail("Expected directory creation to fail when materialization path is a file")
+        } catch {
+            XCTAssertEqual(try String(contentsOf: blockingURL, encoding: .utf8), "preexisting")
+        }
+    }
+
     func testDurableReplayArgvRewritesRelativeVirtualInputArgument() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("classify-relative-replay-\(UUID().uuidString)", isDirectory: true)
@@ -333,6 +356,74 @@ final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
         )
 
         XCTAssertEqual(replayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+    }
+
+    func testMaterializationOnlyProvenanceUsesReplayableTopLevelCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-provenance-command-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let sidecarURL = try XCTUnwrap(CLISequenceInputMaterialization.writeMaterializationProvenance(
+            workflowName: "lungfish.classify.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: tempDir,
+            operationName: "classification",
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11),
+            writer: ProvenanceWriter(signingProvider: nil)
+        ))
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        let expected = ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+        XCTAssertEqual(envelope.argv, expected)
+        XCTAssertEqual(envelope.durableReplayArgv, expected)
+        XCTAssertEqual(envelope.steps.first?.argv, expected)
+        XCTAssertEqual(envelope.options.explicit["parentArgv"], .array([
+            .string("lungfish"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
+        ]))
+    }
+
+    func testMaterializationProvenanceWriteFailureCleansMaterializedPayload() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-provenance-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let blockedOutputDirectory = tempDir.appendingPathComponent("blocked-output")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: blockedOutputDirectory, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
+            workflowName: "lungfish.classify.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: blockedOutputDirectory,
+            operationName: "classification",
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11),
+            writer: ProvenanceWriter(signingProvider: nil)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: materializedURL.path))
     }
 
     func testClassifyProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
@@ -2277,6 +2368,19 @@ final class MapCommandRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
         try ">chr1\nACGTACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+        try CLISequenceInputMaterialization.writeMaterializationProvenance(
+            workflowName: "lungfish.map.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
+            parentDurableReplayArgv: ["lungfish", "map", materializedURL.path, "--reference", referenceURL.path],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: tempDir,
+            operationName: "mapping",
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
 
         let request = MappingRunRequest(
             tool: .minimap2,
@@ -2331,6 +2435,7 @@ final class MapCommandRegressionTests: XCTestCase {
             exitStatus: 0
         )
         try provenance.save(to: tempDir)
+        try provenance.saveCanonicalEnvelope(to: tempDir, writer: ProvenanceWriter(signingProvider: nil))
 
         let loaded = try XCTUnwrap(MappingProvenance.load(from: tempDir))
         XCTAssertTrue(loaded.inputFiles.contains {
@@ -2349,6 +2454,11 @@ final class MapCommandRegressionTests: XCTestCase {
         XCTAssertTrue(envelope.files.contains { $0.path == fixture.derivedBundleURL.path })
         XCTAssertTrue(envelope.files.contains { $0.path == materializedURL.path })
         XCTAssertEqual(envelope.durableReplayArgv, mapperInvocation.durableReplayArgv)
+        let resolved = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: tempDir))
+        XCTAssertEqual(resolved.sidecarURL.lastPathComponent, ProvenanceWriter.provenanceFilename)
+        XCTAssertEqual(resolved.envelope.workflowName, "lungfish map")
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == bamURL.path })
+        XCTAssertFalse(resolved.envelope.outputs.contains { $0.path == materializedURL.path })
     }
 
     func testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand() throws {

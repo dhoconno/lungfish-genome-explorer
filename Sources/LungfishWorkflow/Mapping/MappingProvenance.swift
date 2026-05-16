@@ -284,6 +284,14 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         )
     }
 
+    @discardableResult
+    public func saveCanonicalEnvelope(
+        to directory: URL,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL {
+        try writer.write(canonicalEnvelope(sourceDirectory: directory), to: directory)
+    }
+
     public static func load(from directory: URL) -> MappingProvenance? {
         let url = directory.appendingPathComponent(Self.filename)
         guard let data = try? Data(contentsOf: url) else { return nil }

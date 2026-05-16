@@ -204,6 +204,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             stderr: combinedStderr(steps.map(\.stderr))
         )
         try provenance.save(to: prepared.request.outputDirectory)
+        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
         progress?(1.0, "Mapping complete.")
         return result
     }

@@ -129,7 +129,14 @@ public enum CLISequenceInputMaterialization {
         var materializationStartedAt: Date?
         var materializationEndedAt: Date?
         let fileManager = FileManager.default
-        let preexistingTempEntries = (try? fileManager.contentsOfDirectory(atPath: tempDirectory.path)).map(Set.init)
+        var tempDirectoryWasDirectory = ObjCBool(false)
+        let tempDirectoryExisted = fileManager.fileExists(
+            atPath: tempDirectory.path,
+            isDirectory: &tempDirectoryWasDirectory
+        )
+        let preexistingTempEntries = tempDirectoryExisted && tempDirectoryWasDirectory.boolValue
+            ? (try? fileManager.contentsOfDirectory(atPath: tempDirectory.path)).map(Set.init)
+            : nil
 
         do {
             for input in preflightInputs {
@@ -156,6 +163,7 @@ public enum CLISequenceInputMaterialization {
         } catch {
             cleanupNewMaterializationOutputs(
                 in: tempDirectory,
+                preexistingPathExisted: tempDirectoryExisted,
                 preexistingEntries: preexistingTempEntries,
                 materializedPairs: materializedPairs
             )
@@ -284,11 +292,48 @@ public enum CLISequenceInputMaterialization {
     }
 
     @discardableResult
+    public static func writeMaterializationProvenanceOrCleanup(
+        workflowName: String,
+        workflowVersion: String,
+        parentArgv: [String],
+        parentDurableReplayArgv: [String]?,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        outputDirectory: URL,
+        operationName: String,
+        startedAt: Date,
+        endedAt: Date,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL? {
+        do {
+            return try writeMaterializationProvenance(
+                workflowName: workflowName,
+                workflowVersion: workflowVersion,
+                parentArgv: parentArgv,
+                parentDurableReplayArgv: parentDurableReplayArgv,
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs,
+                outputDirectory: outputDirectory,
+                operationName: operationName,
+                startedAt: startedAt,
+                endedAt: endedAt,
+                writer: writer
+            )
+        } catch {
+            cleanupMaterializedOutputs(
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs
+            )
+            throw error
+        }
+    }
+
+    @discardableResult
     public static func writeMaterializationProvenance(
         workflowName: String,
         workflowVersion: String,
-        argv: [String],
-        durableReplayArgv: [String]?,
+        parentArgv: [String],
+        parentDurableReplayArgv: [String]?,
         originalInputURLs: [URL],
         executionInputURLs: [URL],
         outputDirectory: URL,
@@ -305,8 +350,20 @@ public enum CLISequenceInputMaterialization {
             return nil
         }
 
+        let steps = try materializationProvenanceSteps(
+            workflowVersion: workflowVersion,
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        let topLevelArgv = topLevelMaterializationArgv(from: steps)
         let explicitOptions: [String: ParameterValue] = [
             "operation": .string(operationName),
+            "parentArgv": .array(parentArgv.map(ParameterValue.string)),
+            "parentDurableReplayArgv": parentDurableReplayArgv.map {
+                .array($0.map(ParameterValue.string))
+            } ?? .null,
             "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
             "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
             "outputDirectory": .file(outputDirectory.standardizedFileURL),
@@ -318,19 +375,13 @@ public enum CLISequenceInputMaterialization {
             toolName: "lungfish fastq materialize",
             toolVersion: workflowVersion
         )
-        .argv(argv)
-        .durableReplayArgv(durableReplayArgv)
-        .reproducibleCommand((durableReplayArgv ?? argv).map(shellEscape).joined(separator: " "))
+        .argv(topLevelArgv)
+        .durableReplayArgv(topLevelArgv)
+        .reproducibleCommand(topLevelArgv.map(shellEscape).joined(separator: " "))
         .options(explicit: explicitOptions, defaults: [:], resolved: explicitOptions)
         .runtime(ProvenanceRuntimeIdentity(appVersion: workflowVersion))
 
-        for step in try materializationProvenanceSteps(
-            workflowVersion: workflowVersion,
-            originalInputURLs: originalInputURLs,
-            executionInputURLs: executionInputURLs,
-            startedAt: startedAt,
-            endedAt: endedAt
-        ) {
+        for step in steps {
             builder = builder.step(step)
         }
 
@@ -340,6 +391,24 @@ public enum CLISequenceInputMaterialization {
             endedAt: endedAt
         )
         return try writer.write(envelope, to: outputDirectory)
+    }
+
+    public static func cleanupMaterializedOutputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) {
+        let fileManager = FileManager.default
+        let pairs = materializedInputPairs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        for pair in pairs {
+            try? fileManager.removeItem(at: pair.executionURL)
+            let parentDirectory = pair.executionURL.deletingLastPathComponent()
+            if (try? fileManager.contentsOfDirectory(atPath: parentDirectory.path).isEmpty) == true {
+                try? fileManager.removeItem(at: parentDirectory)
+            }
+        }
     }
 
     public static func originalInputDescriptors(for inputURL: URL) throws -> [ProvenanceFileDescriptor] {
@@ -506,6 +575,7 @@ public enum CLISequenceInputMaterialization {
 
     private static func cleanupNewMaterializationOutputs(
         in tempDirectory: URL,
+        preexistingPathExisted: Bool,
         preexistingEntries: Set<String>?,
         materializedPairs: [CLISequenceInputMaterializationPair]
     ) {
@@ -515,7 +585,9 @@ public enum CLISequenceInputMaterialization {
         }
 
         guard let preexistingEntries else {
-            try? fileManager.removeItem(at: tempDirectory)
+            if !preexistingPathExisted {
+                try? fileManager.removeItem(at: tempDirectory)
+            }
             return
         }
         guard let currentEntries = try? fileManager.contentsOfDirectory(atPath: tempDirectory.path) else {
@@ -524,5 +596,17 @@ public enum CLISequenceInputMaterialization {
         for entry in currentEntries where !preexistingEntries.contains(entry) {
             try? fileManager.removeItem(at: tempDirectory.appendingPathComponent(entry))
         }
+    }
+
+    private static func topLevelMaterializationArgv(from steps: [ProvenanceStep]) -> [String] {
+        let commands = steps.map(\.argv)
+        guard commands.count > 1 else {
+            return commands.first ?? []
+        }
+        return [
+            "/bin/sh",
+            "-lc",
+            commands.map { $0.map(shellEscape).joined(separator: " ") }.joined(separator: " && "),
+        ]
     }
 }
