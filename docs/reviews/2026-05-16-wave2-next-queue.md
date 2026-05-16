@@ -211,6 +211,13 @@ finishes early and can take a non-conflicting branch.
   CLI/App dependency removal. Revisit after the reference import service moves
   below `LungfishApp`, because that lowers coupling in
   `FASTQOperationExecutionService`.
+- `P1-plugins-pack-install-no-atomicity`: rollback and cache invalidation are
+  implemented, but fingerprint-mismatch status reads can still return a stale
+  cached status while scheduling a background refresh. Change mismatch handling
+  to await a refreshed status when the visible UI needs truth.
+- `P1-runtime-plugin-pack-orphan-env-hashes-leaked`: orphan environment display
+  now exists, but the classifier only catches bare 32-hex names. Add coverage
+  for and classify the live-observed `env-<32 hex>` pattern too.
 - OperationCenter's original `DownloadCenter.swift` placement issue is closed:
   `DownloadCenter.swift` is a compatibility typealias and `OperationCenter.swift`
   owns the implementation. Any future work should be a model-boundary extraction,
