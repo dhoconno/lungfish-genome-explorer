@@ -173,6 +173,40 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(translate.action, #selector(AppDelegate.translate(_:)))
     }
 
+    func testFASTQFASTAOperationsMenuKeepsEllipsesOnDialogOpeningLeafCommands() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu()
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let operationsMenu = try XCTUnwrap(
+            toolsMenu.items.first(where: { $0.title == "FASTQ/FASTA Operations" })?.submenu
+        )
+
+        let expectedLeafCommands: [(title: String, action: Selector)] = [
+            ("QC & Reporting\u{2026}", #selector(ToolsMenuActions.showFASTQQCReportingOperations(_:))),
+            ("Demultiplexing\u{2026}", #selector(ToolsMenuActions.showFASTQDemultiplexingOperations(_:))),
+            ("Trimming & Filtering\u{2026}", #selector(ToolsMenuActions.showFASTQTrimmingFilteringOperations(_:))),
+            ("Decontamination\u{2026}", #selector(ToolsMenuActions.showFASTQDecontaminationOperations(_:))),
+            ("Read Processing\u{2026}", #selector(ToolsMenuActions.showFASTQReadProcessingOperations(_:))),
+            ("Search & Subsetting\u{2026}", #selector(ToolsMenuActions.showFASTQSearchSubsettingOperations(_:))),
+            ("Multiple Sequence Alignment\u{2026}", #selector(ToolsMenuActions.showFASTQAlignmentOperations(_:))),
+            ("Mapping\u{2026}", #selector(ToolsMenuActions.showFASTQMappingOperations(_:))),
+            ("Assembly\u{2026}", #selector(ToolsMenuActions.showFASTQAssemblyOperations(_:))),
+            ("Classification\u{2026}", #selector(ToolsMenuActions.showFASTQClassificationOperations(_:))),
+        ]
+        let leafItems = Array(operationsMenu.items.prefix(expectedLeafCommands.count))
+
+        XCTAssertEqual(leafItems.map(\.title), expectedLeafCommands.map(\.title))
+        for (item, expected) in zip(leafItems, expectedLeafCommands) {
+            XCTAssertEqual(item.action, expected.action, item.title)
+            XCTAssertNil(item.submenu, item.title)
+        }
+
+        XCTAssertEqual(operationsMenu.items.dropFirst(expectedLeafCommands.count).map(\.title), [
+            "Reverse Complement\u{2026}",
+            "Translate\u{2026}",
+        ])
+    }
+
     func testFASTQFASTAOperationsMenuOmitsPluginManagementShortcuts() throws {
         let _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
