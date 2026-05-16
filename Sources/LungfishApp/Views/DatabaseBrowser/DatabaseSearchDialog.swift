@@ -33,58 +33,26 @@ private struct DatabaseSearchDialogShell<Detail: View>: View {
     @ObservedObject var viewModel: DatabaseBrowserViewModel
     @ViewBuilder let detail: () -> Detail
 
+    private var presentation: DatabaseSearchDialogPresentation {
+        DatabaseSearchDialogPresentation(state: state)
+    }
+
     var body: some View {
         DatasetOperationsDialog(
-            title: state.dialogTitle,
-            subtitle: state.dialogSubtitle,
-            datasetLabel: state.contextLabel,
-            tools: state.sidebarItems,
-            selectedToolID: state.selectedToolID,
-            statusText: statusText,
-            isRunEnabled: isPrimaryActionEnabled,
-            primaryActionTitle: primaryActionTitle,
-            accessibilityNamespace: "database-search",
+            title: presentation.title,
+            subtitle: presentation.subtitle,
+            datasetLabel: presentation.datasetLabel,
+            tools: presentation.tools,
+            selectedToolID: presentation.selectedToolID,
+            statusText: presentation.statusText,
+            isRunEnabled: presentation.isRunEnabled,
+            primaryActionTitle: presentation.primaryActionTitle,
+            accessibilityNamespace: presentation.accessibilityNamespace,
             onSelectTool: state.selectDestination(named:),
             onCancel: state.cancel,
             onRun: state.performPrimaryAction
         ) {
             detail()
         }
-    }
-
-    private var primaryActionTitle: String {
-        viewModel.selectedRecords.isEmpty ? "Search" : "Download Selected"
-    }
-
-    private var isPrimaryActionEnabled: Bool {
-        guard !viewModel.isShowingPathoplexusConsent else {
-            return false
-        }
-
-        if viewModel.selectedRecords.isEmpty {
-            return viewModel.isSearchTextValid && !viewModel.isSearching && !viewModel.isDownloading
-        }
-
-        return !viewModel.isDownloading && !viewModel.isSearching
-    }
-
-    private var statusText: String {
-        if viewModel.isShowingPathoplexusConsent {
-            return "Review the Pathoplexus access notice to continue."
-        }
-        if let errorMessage = viewModel.errorMessage, !errorMessage.isEmpty {
-            return errorMessage
-        }
-        if viewModel.isDownloading {
-            return "Downloading..."
-        }
-        let selectionCount = viewModel.selectedRecords.count
-        if selectionCount > 0 {
-            return selectionCount == 1 ? "1 selected" : "\(selectionCount) selected"
-        }
-        if let statusMessage = viewModel.statusMessage {
-            return statusMessage
-        }
-        return "Ready"
     }
 }
