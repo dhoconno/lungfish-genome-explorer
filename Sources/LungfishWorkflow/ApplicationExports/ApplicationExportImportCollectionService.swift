@@ -1,6 +1,5 @@
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 public typealias ApplicationExportImportProgress = @Sendable (Double, String) -> Void
 public typealias ApplicationExportReferenceImporter = @Sendable (URL, URL, String) async throws -> ReferenceBundleImportResult

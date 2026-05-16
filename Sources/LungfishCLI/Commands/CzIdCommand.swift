@@ -4,7 +4,7 @@
 
 import ArgumentParser
 import Foundation
-import LungfishApp
+import LungfishWorkflow
 
 /// Import and inspect CZ-ID hosted metagenomics taxon reports.
 struct CzIdCommand: AsyncParsableCommand {

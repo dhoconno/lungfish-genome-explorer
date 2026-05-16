@@ -5,6 +5,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import LungfishWorkflow
 
 struct CzIdImportSheet: View {
     let projectURL: URL?

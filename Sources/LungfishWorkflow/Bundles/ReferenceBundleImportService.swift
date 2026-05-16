@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 private let referenceImportLogger = Logger(subsystem: LogSubsystem.app, category: "ReferenceBundleImport")
@@ -30,6 +29,11 @@ public struct ReferenceBundleImportResult: Sendable {
     public let bundleURL: URL
     /// Effective bundle display name used during creation.
     public let bundleName: String
+
+    public init(bundleURL: URL, bundleName: String) {
+        self.bundleURL = bundleURL
+        self.bundleName = bundleName
+    }
 }
 
 /// Errors thrown by `ReferenceBundleImportService`.

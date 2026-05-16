@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import UniformTypeIdentifiers
 import LungfishCore
+import LungfishWorkflow
 import os.log
 import Observation
 

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishWorkflow
 
 public struct CzIdProjectImportResult: Sendable {
     public let bundleURL: URL

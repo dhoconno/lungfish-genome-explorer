@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 private let applicationExportImportLogger = Logger(

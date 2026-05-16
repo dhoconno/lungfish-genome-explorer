@@ -1,6 +1,7 @@
 import XCTest
 @testable import LungfishApp
 import LungfishIO
+import LungfishWorkflow
 
 @MainActor
 final class SidebarViewControllerSelectionTests: XCTestCase {

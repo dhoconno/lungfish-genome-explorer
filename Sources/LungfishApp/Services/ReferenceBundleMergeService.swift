@@ -1,5 +1,6 @@
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 enum ReferenceBundleMergeServiceError: LocalizedError {
     case requiresAtLeastTwoBundles

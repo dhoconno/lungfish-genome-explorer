@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishWorkflow
 
 /// Helper-mode entrypoint used by the GUI process to import standalone
 /// reference sequence files as `.lungfishref` bundles in a subprocess.

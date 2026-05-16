@@ -1,7 +1,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 public typealias GeneiousImportProgress = @Sendable (Double, String) -> Void
 public typealias GeneiousReferenceImporter = @Sendable (URL, URL, String) async throws -> ReferenceBundleImportResult

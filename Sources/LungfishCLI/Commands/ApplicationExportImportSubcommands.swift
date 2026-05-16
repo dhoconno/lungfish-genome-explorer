@@ -1,6 +1,6 @@
 import ArgumentParser
 import Foundation
-import LungfishApp
+import LungfishWorkflow
 
 extension ImportCommand {
     struct GeneiousSubcommand: AsyncParsableCommand {

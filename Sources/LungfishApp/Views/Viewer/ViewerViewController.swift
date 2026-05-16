@@ -6,6 +6,7 @@ import AppKit
 import SwiftUI
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 import UniformTypeIdentifiers
 import Quartz  // For QLPreviewView
 import PDFKit  // For PDF rendering (more reliable than QLPreviewView for PDFs)

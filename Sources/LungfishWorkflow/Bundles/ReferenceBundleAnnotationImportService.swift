@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 import os.log
 
 private let annotationImportLogger = Logger(subsystem: LogSubsystem.app, category: "ReferenceAnnotationImport")
@@ -21,6 +20,12 @@ public struct ReferenceBundleAnnotationImportResult: Sendable, Equatable {
     public let bundleURL: URL
     public let track: AnnotationTrackInfo
     public let featureCount: Int
+
+    public init(bundleURL: URL, track: AnnotationTrackInfo, featureCount: Int) {
+        self.bundleURL = bundleURL
+        self.track = track
+        self.featureCount = featureCount
+    }
 }
 
 public enum ReferenceBundleAnnotationImportError: Error, LocalizedError {

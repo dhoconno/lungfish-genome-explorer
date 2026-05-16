@@ -179,7 +179,6 @@ let package = Package(
         .executableTarget(
             name: "LungfishCLI",
             dependencies: [
-                "LungfishApp",
                 "LungfishCore",
                 "LungfishIO",
                 "LungfishWorkflow",

@@ -4,6 +4,7 @@
 
 import AppKit
 import Foundation
+import LungfishWorkflow
 
 struct ReferenceBundleAnnotationImportConfiguration: Sendable, Equatable {
     let bundleURL: URL

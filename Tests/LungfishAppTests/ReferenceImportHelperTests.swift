@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import LungfishWorkflow
 @testable import LungfishApp
 
 private final class ProgressRecorder: @unchecked Sendable {

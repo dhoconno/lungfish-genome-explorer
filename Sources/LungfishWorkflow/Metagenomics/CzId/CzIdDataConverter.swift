@@ -4,7 +4,6 @@
 
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 public enum CzIdDataConverter {
     public static let schemaVersion = "cz-id-taxon-report-v1"
@@ -424,6 +423,26 @@ public struct CzIdImportManifest: Codable, Sendable, Equatable {
     public let nrDatabaseVersion: String?
     public let sourceFiles: [URL]
     public let rowCount: Int
+
+    public init(
+        schemaVersion: String,
+        sampleName: String,
+        projectId: String?,
+        pipelineVersion: String?,
+        ntDatabaseVersion: String?,
+        nrDatabaseVersion: String?,
+        sourceFiles: [URL],
+        rowCount: Int
+    ) {
+        self.schemaVersion = schemaVersion
+        self.sampleName = sampleName
+        self.projectId = projectId
+        self.pipelineVersion = pipelineVersion
+        self.ntDatabaseVersion = ntDatabaseVersion
+        self.nrDatabaseVersion = nrDatabaseVersion
+        self.sourceFiles = sourceFiles
+        self.rowCount = rowCount
+    }
 }
 
 public enum CzIdDataConverterError: Error, LocalizedError, Sendable, Equatable {

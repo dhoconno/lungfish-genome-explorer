@@ -10,7 +10,7 @@ public struct CzIdImportPreview: Sendable, Equatable {
         case extractedFolder
         case zipArchive
 
-        var displayName: String {
+        public var displayName: String {
             switch self {
             case .taxonReportFile: return "Taxon report file"
             case .extractedFolder: return "Extracted folder"

@@ -1,6 +1,5 @@
 import Foundation
 import LungfishIO
-import LungfishWorkflow
 
 public struct ApplicationExportScanner: Sendable {
     private let archiveTool: GeneiousArchiveTool
