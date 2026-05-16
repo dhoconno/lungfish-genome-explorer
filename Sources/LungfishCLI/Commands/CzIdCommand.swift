@@ -42,7 +42,7 @@ struct CzIdCommand: AsyncParsableCommand {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let importResult = try await CzIdImportPreview.withResolvedReport(from: inputURL) { resolved in
@@ -102,7 +102,7 @@ struct CzIdCommand: AsyncParsableCommand {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let parsed = try CzIdDataConverter.parseTaxonReport(at: inputURL)

@@ -140,11 +140,11 @@ struct ClassifyCommand: AsyncParsableCommand {
             inputFormat = try Self.inferInputFormat(from: inputURLs)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         if let confidence, confidence < 0.0 || confidence > 1.0 {
             print(formatter.error("Confidence must be between 0.0 and 1.0, got \(confidence)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Resolve database and parse user options before materializing virtual
@@ -157,7 +157,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             for db in available where db.isDownloaded {
                 print("  \(db.name) [\(db.status.rawValue)]")
             }
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         guard let dbPath = dbInfo.path, dbInfo.status == .ready else {
@@ -165,7 +165,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             if !dbInfo.isDownloaded {
                 print(formatter.info("Download it first: the database has not been installed"))
             }
-            throw ExitCode.failure
+            throw CLIExitCode.dependency.exitCode
         }
 
         let parsedExtraArguments: [String]
@@ -173,7 +173,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let resolvedInputs: CLISequenceInputMaterializationResult

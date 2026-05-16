@@ -112,7 +112,7 @@ extension DbCommand {
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
                 print(formatter.info("Use 'lungfish conda db list' to see available databases"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let installedDate = db.installedAt ?? db.lastUpdated
@@ -167,7 +167,7 @@ extension DbCommand {
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
                 print(formatter.info("Use 'lungfish conda db list' to see available databases"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if db.status == .ready {
@@ -220,7 +220,7 @@ extension DbCommand {
 
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if deleteFiles, let path = db.path {

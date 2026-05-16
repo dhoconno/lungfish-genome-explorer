@@ -99,18 +99,18 @@ extension ImportCommand {
 
             guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Metadata file not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             guard fileManager.fileExists(atPath: bundleURL.path) else {
                 print(formatter.error("Bundle directory not found: \(bundlePath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let manifest = try BundleManifest.load(from: bundleURL)
             guard !manifest.variants.isEmpty else {
                 print(formatter.error("This bundle has no variant tracks to apply metadata to."))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let format: MetadataFormat
@@ -121,7 +121,7 @@ extension ImportCommand {
                 format = .tsv
             default:
                 print(formatter.error("Unsupported metadata format: .\(inputURL.pathExtension). Use .csv, .tsv, or .txt"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             var totalUpdated = 0
@@ -137,7 +137,7 @@ extension ImportCommand {
 
             guard updatedTracks > 0 else {
                 print(formatter.error("No writable variant databases were found in the bundle."))
-                throw ExitCode.failure
+                throw CLIExitCode.outputError.exitCode
             }
 
             if globalOptions.outputFormat == .json {
@@ -192,7 +192,7 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input file not found: \(inputFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Validate format from extension.
@@ -203,7 +203,7 @@ extension ImportCommand {
             let ext = formatURL.pathExtension.lowercased()
             guard ["bam", "cram", "sam"].contains(ext) else {
                 print(formatter.error("Unsupported alignment format: .\(ext). Expected .bam, .cram, or .sam"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
@@ -396,7 +396,7 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input file not found: \(inputFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Validate format from extension.
@@ -407,7 +407,7 @@ extension ImportCommand {
             let ext = formatURL.pathExtension.lowercased()
             guard ["vcf", "bcf"].contains(ext) else {
                 print(formatter.error("Unsupported variant format: .\(ext). Expected .vcf, .vcf.gz, or .bcf"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
@@ -426,7 +426,7 @@ extension ImportCommand {
                 summary = try await reader.summarize(from: inputURL)
             } catch {
                 print(formatter.error("Failed to parse VCF: \(error.localizedDescription)"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             // Create output directory and copy file.
@@ -555,13 +555,13 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input file not found: \(inputFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let ext = normalizedExtension(for: inputURL)
             guard Self.fastaExtensions.contains(ext) || Self.genbankExtensions.contains(ext) else {
                 print(formatter.error("Unsupported reference format: .\(ext)"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
@@ -894,13 +894,13 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: kreportURL.path) else {
                 print(formatter.error("Kreport file not found: \(kreportFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if let outputPath = outputFile {
                 guard FileManager.default.fileExists(atPath: outputPath) else {
                     print(formatter.error("Output file not found: \(outputPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
@@ -914,12 +914,12 @@ extension ImportCommand {
                 let kreportData = try Data(contentsOf: kreportURL)
                 guard let kreportContent = String(data: kreportData, encoding: .utf8) else {
                     print(formatter.error("Cannot read kreport file as text"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.formatError.exitCode
                 }
                 parsed = parseKreport(kreportContent)
             } catch {
                 print(formatter.error("Failed to parse kreport: \(error.localizedDescription)"))
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
 
             let imported: Kraken2ImportResult
@@ -932,7 +932,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1009,7 +1009,7 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input path not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
@@ -1026,7 +1026,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1078,7 +1078,7 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input path not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let outputDirectory = resolveOutputDirectory(outputDir)
@@ -1095,7 +1095,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1165,7 +1165,7 @@ extension ImportCommand {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let outputDirectory: URL
@@ -1189,7 +1189,7 @@ extension ImportCommand {
                 }
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
 
             print(formatter.header("NAO-MGS Import"))
@@ -1241,14 +1241,14 @@ extension ImportCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input directory not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Locate blast_concatenated.csv(.gz)
             let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
             guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
                 print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let labkeyContents = try FileManager.default.contentsOfDirectory(
@@ -1257,7 +1257,7 @@ extension ImportCommand {
             )
             guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
                 print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -1537,13 +1537,13 @@ private func formatBases(_ bases: Int64) -> String {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard fm.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Metadata file not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let bundleURL = URL(fileURLWithPath: bundlePath)
             guard fm.fileExists(atPath: bundleURL.path) else {
                 print(formatter.error("Bundle directory not found: \(bundlePath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let csvData = try Data(contentsOf: inputURL)
@@ -1599,7 +1599,7 @@ private func formatBases(_ bases: Int64) -> String {
                 if !scanResult.candidates.isEmpty {
                     print("Candidate columns: \(scanResult.candidates.map(\.name).joined(separator: ", "))")
                 }
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let store = SampleMetadataStore(

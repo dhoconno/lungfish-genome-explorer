@@ -61,6 +61,71 @@ final class CLIExitCodeProcessTests: XCTestCase {
         assertSingleErrorLine(in: result.stderr, diagnostic: "Unsupported format")
     }
 
+    func testImportBamMissingInputExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing.bam")
+
+        let result = try runCLI(["import", "bam", missingInput.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Input file not found"))
+    }
+
+    func testImportVariantsParseFailureExitsWithFormatError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let input = tempDir.appendingPathComponent("broken.vcf")
+        try "not a vcf\n".write(to: input, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(["import", "vcf", input.path, "--quiet"])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.formatError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Failed to parse VCF"))
+    }
+
+    func testOrientInvalidWordLengthExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reads = tempDir.appendingPathComponent("reads.fastq")
+        let reference = tempDir.appendingPathComponent("reference.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">ref\nACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "orient",
+            reads.path,
+            "--reference", reference.path,
+            "--word-length", "2",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Word length must be between 3 and 15"))
+    }
+
+    func testCzIdSummaryMissingInputExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing-tax-report.tsv")
+
+        let result = try runCLI(["cz-id", "summary", missingInput.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Input not found"))
+    }
+
     func testArgumentParserErrorsKeepUsageExitCodeAndFormatting() throws {
         let result = try runCLI(["--bad-option"])
 
@@ -112,6 +177,10 @@ final class CLIExitCodeProcessTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    private func combinedOutput(_ result: (exitCode: Int32, stdout: String, stderr: String)) -> String {
+        result.stdout + result.stderr
     }
 }
 

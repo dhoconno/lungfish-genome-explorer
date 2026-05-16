@@ -39,31 +39,31 @@ extension ImportCommand {
 
             guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("CZ-ID input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             var isDirectory: ObjCBool = false
             guard fileManager.fileExists(atPath: projectURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 print(formatter.error("Project directory not found: \(projectURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let trimmedSampleName = sampleName.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedSampleName.isEmpty else {
                 print(formatter.error("--sample-name cannot be empty"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let metadataURL = metadataPath.map(URL.init(fileURLWithPath:))
             if let metadataURL, !fileManager.fileExists(atPath: metadataURL.path) {
                 print(formatter.error("Metadata sidecar not found: \(metadataURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let nonHostFastqURL = nonHostFastqPath.map(URL.init(fileURLWithPath:))
             if let nonHostFastqURL, !fileManager.fileExists(atPath: nonHostFastqURL.path) {
                 print(formatter.error("Non-host FASTQ not found: \(nonHostFastqURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let classificationsURL = projectURL.appendingPathComponent("Classifications", isDirectory: true)
@@ -73,7 +73,7 @@ extension ImportCommand {
             )
             guard !fileManager.fileExists(atPath: bundleURL.path) else {
                 print(formatter.error("Classification bundle already exists: \(bundleURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.outputError.exitCode
             }
 
             try fileManager.createDirectory(at: classificationsURL, withIntermediateDirectories: true)

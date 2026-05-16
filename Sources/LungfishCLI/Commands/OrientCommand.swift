@@ -76,23 +76,23 @@ struct OrientCommand: AsyncParsableCommand {
         let inputURL = URL(fileURLWithPath: fastqFile)
         guard FileManager.default.fileExists(atPath: inputURL.path) else {
             print(formatter.error("Input file not found: \(inputURL.path)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let referenceURL = URL(fileURLWithPath: reference)
         guard FileManager.default.fileExists(atPath: referenceURL.path) else {
             print(formatter.error("Reference file not found: \(referenceURL.path)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Validate parameters
         guard (3...15).contains(wordLength) else {
             print(formatter.error("Word length must be between 3 and 15"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         guard ["dust", "none"].contains(mask) else {
             print(formatter.error("Mask must be 'dust' or 'none'"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let effectiveThreads = globalOptions.threads ?? 0
