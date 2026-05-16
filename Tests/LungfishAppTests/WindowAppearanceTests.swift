@@ -241,7 +241,6 @@ final class WindowAppearanceTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
             encoding: .utf8
         )
-
         XCTAssertFalse(classificationSource.contains("Image(systemName: \"k.circle\")"))
         XCTAssertFalse(esvirituSource.contains("Image(systemName: \"e.circle\")"))
         XCTAssertFalse(taxtriageSource.contains("Image(systemName: \"t.circle\")"))
@@ -283,6 +282,11 @@ final class WindowAppearanceTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
             encoding: .utf8
         )
+        let dialogSheetSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Shared/DialogSheets.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(classificationSource.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(esvirituSource.contains("embeddedInOperationsDialog"))
@@ -291,14 +295,21 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(esvirituSource.contains("if !embeddedInOperationsDialog"))
         XCTAssertTrue(taxtriageSource.contains("if !embeddedInOperationsDialog"))
         XCTAssertTrue(classificationSource.contains(#"Button("Cancel")"#))
-        XCTAssertTrue(esvirituSource.contains(#"Button("Cancel")"#))
         XCTAssertTrue(taxtriageSource.contains(#"Button("Cancel")"#))
         XCTAssertTrue(classificationSource.contains(#"Button("Run")"#))
-        XCTAssertTrue(esvirituSource.contains(#"Button("Run")"#))
         XCTAssertTrue(taxtriageSource.contains(#"Button("Run")"#))
         XCTAssertTrue(classificationSource.contains(".frame(width: 520, height: 520)"))
-        XCTAssertTrue(esvirituSource.contains(".frame(width: 520, height: 500)"))
         XCTAssertTrue(taxtriageSource.contains(".frame(width: 520, height: 520)"))
+
+        XCTAssertTrue(esvirituSource.contains("WizardSheet("))
+        XCTAssertTrue(esvirituSource.contains("size: WizardSheetSize(width: 520, height: 500)"))
+        XCTAssertTrue(esvirituSource.contains("onCancel: { onCancel?() }"))
+        XCTAssertTrue(esvirituSource.contains("onPrimary: performRun"))
+        XCTAssertTrue(dialogSheetSource.contains(#"cancelTitle: String = "Cancel""#))
+        XCTAssertTrue(dialogSheetSource.contains(#"primaryTitle: String = "Run""#))
+        XCTAssertTrue(dialogSheetSource.contains(".keyboardShortcut(.cancelAction)"))
+        XCTAssertTrue(dialogSheetSource.contains(".keyboardShortcut(.defaultAction)"))
+        XCTAssertTrue(dialogSheetSource.contains(".frame(width: width, height: height)"))
     }
 
     func testEmbeddedClassificationPanelUsesScrollView() throws {
