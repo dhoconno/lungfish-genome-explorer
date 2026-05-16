@@ -544,7 +544,7 @@ private enum MetadataProvenanceSupport {
             syncBundles: syncBundles
         )
 
-        try await CLIProvenanceSupport.recordSingleStepRun(
+        let envelope = try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish metadata import",
             parameters: explicit,
             defaults: defaults,
@@ -562,6 +562,13 @@ private enum MetadataProvenanceSupport {
             status: .completed,
             outputDirectory: folderURL
         )
+        if syncBundles {
+            try writeSyncedBundleRootProvenance(
+                envelope: envelope,
+                folderURL: folderURL,
+                folderMeta: folderMeta
+            )
+        }
     }
 
     private static func metadataImportOutputRecords(
@@ -585,6 +592,29 @@ private enum MetadataProvenanceSupport {
         }
         return outputURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: .text, role: .output)
+        }
+    }
+
+    private static func writeSyncedBundleRootProvenance(
+        envelope: ProvenanceEnvelope,
+        folderURL: URL,
+        folderMeta: FASTQFolderMetadata
+    ) throws {
+        let writer = ProvenanceWriter()
+        for sampleName in folderMeta.sampleOrder {
+            let bundleName = sampleName.hasSuffix(".lungfishfastq")
+                ? sampleName
+                : "\(sampleName).lungfishfastq"
+            let bundleURL = folderURL.appendingPathComponent(bundleName)
+            let metadataURL = FASTQBundleCSVMetadata.metadataURL(in: bundleURL)
+            guard FileManager.default.fileExists(atPath: metadataURL.path) else {
+                continue
+            }
+
+            let payload = ProvenanceFileDescriptor(
+                fileRecord: ProvenanceRecorder.fileRecord(url: metadataURL, format: .text, role: .output)
+            )
+            try writer.write(envelope.focusedOnOutput(payload), to: bundleURL)
         }
     }
 

@@ -332,6 +332,18 @@ final class MetadataCommandFunctionalTests: XCTestCase {
             XCTAssertEqual(fileEnvelope.output?.checksumSHA256?.count, 64)
             XCTAssertGreaterThan(fileEnvelope.output?.fileSize ?? 0, 0)
         }
+
+        for (bundleURL, metadataURL) in [(bundleA, metadataAURL), (bundleB, metadataBURL)] {
+            let bundleEnvelope = try readEnvelope(
+                bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            )
+            XCTAssertEqual(bundleEnvelope.workflowName, "lungfish metadata import")
+            XCTAssertEqual(bundleEnvelope.output?.path, metadataURL.path)
+            XCTAssertEqual(bundleEnvelope.outputs.map(\.path), [metadataURL.path])
+            XCTAssertEqual(bundleEnvelope.output?.checksumSHA256?.count, 64)
+            XCTAssertGreaterThan(bundleEnvelope.output?.fileSize ?? 0, 0)
+            assertNoStagingOnlyOutputs(bundleEnvelope)
+        }
     }
 
     func testSetFieldOnNonexistentBundleFails() async throws {

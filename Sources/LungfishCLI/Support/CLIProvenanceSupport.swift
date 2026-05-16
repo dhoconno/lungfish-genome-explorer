@@ -38,6 +38,7 @@ enum CLIProvenanceSupport {
         return fallback
     }
 
+    @discardableResult
     static func recordSingleStepRun(
         name: String,
         parameters: [String: ParameterValue],
@@ -56,7 +57,7 @@ enum CLIProvenanceSupport {
         status: RunStatus,
         outputDirectory: URL,
         writeFileSidecars: Bool = true
-    ) async throws {
+    ) async throws -> ProvenanceEnvelope {
         _ = peakMemoryBytes
         _ = status
 
@@ -97,7 +98,7 @@ enum CLIProvenanceSupport {
         let writer = ProvenanceWriter()
         try writer.write(envelope, to: outputDirectory)
 
-        guard writeFileSidecars else { return }
+        guard writeFileSidecars else { return envelope }
         for output in outputs {
             let outputURL = URL(fileURLWithPath: output.path)
             var isDirectory: ObjCBool = false
@@ -112,5 +113,6 @@ enum CLIProvenanceSupport {
             let focusedEnvelope = envelope.focusedOnOutput(ProvenanceFileDescriptor(fileRecord: output))
             try writer.write(focusedEnvelope, toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL))
         }
+        return envelope
     }
 }
