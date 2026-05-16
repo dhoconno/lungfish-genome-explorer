@@ -102,6 +102,19 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.logEntries.map(\.message), ["Parsing reads", "Writing bundle"])
     }
 
+    func testUpdateDoesNotAppendVolatileProgressDetailsToLogHistory() {
+        let id = center.start(title: "Test", detail: "Starting...")
+        center.log(id: id, level: .info, message: "Import started")
+
+        center.update(id: id, progress: 0.1, detail: "Processed 10,000 variants · ETA 8m")
+        center.update(id: id, progress: 0.2, detail: "Processed 20,000 variants · ETA 6m")
+
+        let item = center.items.first
+        XCTAssertEqual(item?.detail, "Processed 20,000 variants · ETA 6m")
+        XCTAssertEqual(item?.progress ?? -1, 0.2, accuracy: 0.001)
+        XCTAssertEqual(item?.logEntries.map(\.message), ["Import started"])
+    }
+
     // MARK: - Complete
 
     func testCompleteSetsStateAndFinishedAt() {

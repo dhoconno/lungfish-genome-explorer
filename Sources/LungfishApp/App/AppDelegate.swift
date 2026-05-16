@@ -2883,7 +2883,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
                                 let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                 scheduleOnMainRunLoop {
-                                    OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                    OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
                             }
                         )
@@ -2901,7 +2901,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             )
@@ -2924,7 +2924,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             )
@@ -2945,7 +2945,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -2968,7 +2968,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -3022,7 +3022,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -3684,7 +3684,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                         let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                         scheduleOnMainRunLoop {
-                            OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
+                            OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
                         }
                     }
                 )

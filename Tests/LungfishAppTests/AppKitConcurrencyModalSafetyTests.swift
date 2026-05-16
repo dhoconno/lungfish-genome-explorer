@@ -109,6 +109,41 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testAppDelegateVolatileImportProgressDoesNotUseUpdateWithLog() throws {
+        let root = repositoryRoot()
+        let path = "Sources/LungfishApp/App/AppDelegate.swift"
+        let url = root.appendingPathComponent(path)
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let lines = source.components(separatedBy: .newlines)
+        let volatileMarkers = [
+            "Self.runVCFImportViaHelper(",
+            "Self.runVCFResumeViaHelper(",
+            "BAMImportHelperClient.importViaCLI(",
+        ]
+        var violations: [String] = []
+
+        for marker in volatileMarkers {
+            let markerLines = lines.indices.filter { lines[$0].contains(marker) }
+            guard !markerLines.isEmpty else {
+                XCTFail("Missing volatile import marker \(marker)")
+                continue
+            }
+            for markerLine in markerLines {
+                let upperBound = min(lines.endIndex, markerLine + 35)
+                let context = lines[markerLine..<upperBound].joined(separator: "\n")
+                if context.contains("updateWithLog") {
+                    violations.append("\(path):\(markerLine + 1) \(marker)")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Volatile VCF/BAM progress handlers must update visible progress without appending every ETA/progress detail to OperationCenter history:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
