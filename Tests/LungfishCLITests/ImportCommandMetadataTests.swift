@@ -74,7 +74,7 @@ final class ImportCommandMetadataTests: XCTestCase {
             try await command.run()
             XCTFail("Expected VCFv3 import to fail")
         } catch let exitCode as ExitCode {
-            XCTAssertEqual(exitCode, .failure)
+            XCTAssertEqual(exitCode, CLIExitCode.formatError.exitCode)
         }
 
         XCTAssertFalse(
