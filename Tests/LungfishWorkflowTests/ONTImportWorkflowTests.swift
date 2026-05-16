@@ -136,6 +136,71 @@ final class ONTImportWorkflowTests: XCTestCase {
         ))
     }
 
+    func testImporterFailureRollsBackPreviouslyCreatedBundles() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let invalidBarcodeURL = sourceURL.appendingPathComponent("barcode02", isDirectory: true)
+        try FileManager.default.createDirectory(at: invalidBarcodeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: invalidBarcodeURL.appendingPathComponent("chunk_0.fastq", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow()
+
+        do {
+            _ = try await workflow.importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+            XCTFail("Expected importer failure")
+        } catch {
+            XCTAssertFalse(error is ONTImportWorkflow.ImportError)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode02.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent(DemultiplexManifest.filename).path
+        ))
+    }
+
+    func testPreflightRefusesExistingBundleWithoutDeletingIt() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let existingBundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        let sentinelURL = existingBundleURL.appendingPathComponent("sentinel.txt")
+        try "do not delete".write(to: sentinelURL, atomically: true, encoding: .utf8)
+        let workflow = ONTImportWorkflow()
+
+        do {
+            _ = try await workflow.importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+            XCTFail("Expected output conflict")
+        } catch let error as ONTImportWorkflow.ImportError {
+            guard case .outputAlreadyExists(let paths) = error else {
+                return XCTFail("Expected outputAlreadyExists, got \(error)")
+            }
+            XCTAssertEqual(paths, [existingBundleURL.path])
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
+    }
+
     private func makeContext(sourceURL: URL, outputURL: URL) -> ONTImportWorkflow.CommandContext {
         let argv = [
             "lungfish", "fastq", "import-ont",

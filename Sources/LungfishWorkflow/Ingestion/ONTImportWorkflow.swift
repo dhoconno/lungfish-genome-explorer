@@ -11,6 +11,17 @@ public struct ONTImportWorkflow: Sendable {
         case gui
     }
 
+    public enum ImportError: Error, LocalizedError, Sendable, Equatable {
+        case outputAlreadyExists([String])
+
+        public var errorDescription: String? {
+            switch self {
+            case .outputAlreadyExists(let paths):
+                return "ONT import output already exists: \(paths.joined(separator: ", "))"
+            }
+        }
+    }
+
     public struct CommandContext: Sendable {
         public let caller: CallerKind
         public let workflowName: String
@@ -78,6 +89,15 @@ public struct ONTImportWorkflow: Sendable {
     private let importer: ONTDirectoryImporter
     private let provenanceWriter: ProvenanceWriterClosure
 
+    private struct RollbackPlan {
+        let outputDirectory: URL
+        let outputDirectoryExisted: Bool
+        let bundleURLs: [URL]
+        let preexistingOutputPaths: Set<String>
+        let manifestURL: URL
+        let provenanceURL: URL
+    }
+
     public init(
         importer: ONTDirectoryImporter = ONTDirectoryImporter(),
         provenanceWriter: @escaping ProvenanceWriterClosure = { envelope, directory in
@@ -102,8 +122,23 @@ public struct ONTImportWorkflow: Sendable {
             .flatMap(\.chunkFiles)
             .map(canonicalURL)
             .sorted { $0.path < $1.path }
+        let plannedBundleURLs = expectedBundleURLs(
+            outputDirectory: config.outputDirectory,
+            barcodeDirectories: importedBarcodeDirectories
+        )
+        let rollbackPlan = makeRollbackPlan(
+            outputDirectory: config.outputDirectory,
+            plannedBundleURLs: plannedBundleURLs
+        )
+        try preflightOutputs(rollbackPlan)
 
-        let importResult = try await importer.importDirectory(config: config, progress: progress)
+        let importResult: ONTImportResult
+        do {
+            importResult = try await importer.importDirectory(config: config, progress: progress)
+        } catch {
+            rollback(rollbackPlan)
+            throw error
+        }
         let completedAt = Date()
 
         do {
@@ -144,7 +179,7 @@ public struct ONTImportWorkflow: Sendable {
                 provenanceURLs: provenanceURLs
             )
         } catch {
-            rollback(importResult: importResult, outputDirectory: config.outputDirectory)
+            rollback(rollbackPlan, additionalBundleURLs: importResult.bundleURLs)
             throw error
         }
     }
@@ -226,6 +261,18 @@ public struct ONTImportWorkflow: Sendable {
         return urls.sorted { $0.path < $1.path }
     }
 
+    private func expectedBundleURLs(
+        outputDirectory: URL,
+        barcodeDirectories: [ONTBarcodeDirectory]
+    ) -> [URL] {
+        barcodeDirectories.map { barcodeDirectory in
+            outputDirectory.appendingPathComponent(
+                "\(barcodeDirectory.barcodeName).\(FASTQBundle.directoryExtension)",
+                isDirectory: true
+            )
+        }
+    }
+
     private func concreteFiles(in directory: URL) throws -> [URL] {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
@@ -268,12 +315,60 @@ public struct ONTImportWorkflow: Sendable {
         return .unknown
     }
 
-    private func rollback(importResult: ONTImportResult, outputDirectory: URL) {
+    private func makeRollbackPlan(outputDirectory: URL, plannedBundleURLs: [URL]) -> RollbackPlan {
         let fm = FileManager.default
-        for bundleURL in importResult.bundleURLs {
+        let manifestURL = outputDirectory.appendingPathComponent(DemultiplexManifest.filename)
+        let provenanceURL = outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let outputDirectoryExisted = fm.fileExists(atPath: outputDirectory.path)
+        var preexistingOutputPaths = Set<String>()
+        for url in plannedBundleURLs + [manifestURL, provenanceURL] where fm.fileExists(atPath: url.path) {
+            preexistingOutputPaths.insert(outputPathKey(url))
+        }
+
+        return RollbackPlan(
+            outputDirectory: outputDirectory,
+            outputDirectoryExisted: outputDirectoryExisted,
+            bundleURLs: plannedBundleURLs,
+            preexistingOutputPaths: preexistingOutputPaths,
+            manifestURL: manifestURL,
+            provenanceURL: provenanceURL
+        )
+    }
+
+    private func preflightOutputs(_ plan: RollbackPlan) throws {
+        let conflicts = (plan.bundleURLs + [plan.manifestURL, plan.provenanceURL])
+            .filter { plan.preexistingOutputPaths.contains(outputPathKey($0)) }
+            .map { $0.path }
+            .sorted()
+        guard conflicts.isEmpty else {
+            throw ImportError.outputAlreadyExists(conflicts)
+        }
+    }
+
+    private func rollback(
+        _ plan: RollbackPlan,
+        additionalBundleURLs: [URL] = []
+    ) {
+        let fm = FileManager.default
+        let bundleURLs = (plan.bundleURLs + additionalBundleURLs).reduce(into: [String: URL]()) { result, url in
+            result[outputPathKey(url)] = url
+        }
+
+        for (path, bundleURL) in bundleURLs where !plan.preexistingOutputPaths.contains(path) {
             try? fm.removeItem(at: bundleURL)
         }
-        try? fm.removeItem(at: outputDirectory.appendingPathComponent(DemultiplexManifest.filename))
-        try? fm.removeItem(at: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        for url in [plan.manifestURL, plan.provenanceURL] where !plan.preexistingOutputPaths.contains(outputPathKey(url)) {
+            try? fm.removeItem(at: url)
+        }
+
+        if !plan.outputDirectoryExisted,
+           let contents = try? fm.contentsOfDirectory(atPath: plan.outputDirectory.path),
+           contents.isEmpty {
+            try? fm.removeItem(at: plan.outputDirectory)
+        }
+    }
+
+    private func outputPathKey(_ url: URL) -> String {
+        url.standardizedFileURL.path
     }
 }
