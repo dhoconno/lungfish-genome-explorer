@@ -909,18 +909,18 @@ extension ImportCommand {
             print(formatter.header("Kraken2 Import"))
             print("")
 
-            let parsed: KreportSummary
+            let kreportData: Data
             do {
-                let kreportData = try Data(contentsOf: kreportURL)
-                guard let kreportContent = String(data: kreportData, encoding: .utf8) else {
-                    print(formatter.error("Cannot read kreport file as text"))
-                    throw CLIExitCode.formatError.exitCode
-                }
-                parsed = parseKreport(kreportContent)
+                kreportData = try Data(contentsOf: kreportURL)
             } catch {
                 print(formatter.error("Failed to parse kreport: \(error.localizedDescription)"))
                 throw CLIExitCode.formatError.exitCode
             }
+            guard let kreportContent = String(data: kreportData, encoding: .utf8) else {
+                print(formatter.error("Cannot read kreport file as text"))
+                throw CLIExitCode.formatError.exitCode
+            }
+            let parsed = parseKreport(kreportContent)
 
             let imported: Kraken2ImportResult
             do {
@@ -932,7 +932,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.workflowError.exitCode
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1026,7 +1026,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.workflowError.exitCode
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1095,7 +1095,7 @@ extension ImportCommand {
                 )
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.workflowError.exitCode
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
 
             print(formatter.keyValueTable([
@@ -1189,7 +1189,7 @@ extension ImportCommand {
                 }
             } catch {
                 print(formatter.error(error.localizedDescription))
-                throw CLIExitCode.workflowError.exitCode
+                throw metagenomicsImportExitCode(for: error).exitCode
             }
 
             print(formatter.header("NAO-MGS Import"))
@@ -1357,6 +1357,33 @@ extension ImportCommand {
                 print(formatter.success("NVD import complete: \(bundleName)"))
             }
         }
+    }
+}
+
+// MARK: - Metagenomics Import Error Mapping
+
+private func metagenomicsImportExitCode(for error: Error) -> CLIExitCode {
+    if let importError = error as? MetagenomicsImportError {
+        return metagenomicsImportExitCode(for: importError)
+    }
+    if error is CancellationError {
+        return .cancelled
+    }
+    return .workflowError
+}
+
+private func metagenomicsImportExitCode(for error: MetagenomicsImportError) -> CLIExitCode {
+    switch error {
+    case .inputNotFound:
+        return .inputError
+    case .parseFailed:
+        return .formatError
+    case .outputDirectoryCreationFailed, .copyFailed:
+        return .outputError
+    case .toolUnavailable:
+        return .dependency
+    case .importAborted(_, let underlying):
+        return metagenomicsImportExitCode(for: underlying)
     }
 }
 

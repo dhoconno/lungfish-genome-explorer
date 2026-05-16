@@ -90,6 +90,39 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertTrue(combinedOutput(result).contains("Failed to parse VCF"))
     }
 
+    func testImportKraken2MalformedReadableReportExitsWithFormatError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let kreport = tempDir.appendingPathComponent("broken.kreport")
+        let outputDir = tempDir.appendingPathComponent("imports", isDirectory: true)
+        try "not a kraken2 report\n".write(to: kreport, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(["import", "kraken2", kreport.path, "--output-dir", outputDir.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.formatError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Failed to parse"))
+    }
+
+    func testImportKraken2NonUTF8ReportDoesNotEmbedExitCodeDiagnostic() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let kreport = tempDir.appendingPathComponent("non-utf8.kreport")
+        try Data([0xff, 0xfe, 0xfd]).write(to: kreport)
+
+        let result = try runCLI(["import", "kraken2", kreport.path])
+        let output = combinedOutput(result)
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.formatError.rawValue)
+        XCTAssertTrue(output.contains("Cannot read kreport file as text"))
+        XCTAssertFalse(output.contains("ArgumentParser.ExitCode"))
+    }
+
     func testOrientInvalidWordLengthExitsWithInputError() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
