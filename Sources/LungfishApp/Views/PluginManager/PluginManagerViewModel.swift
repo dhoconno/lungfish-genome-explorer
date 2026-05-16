@@ -44,6 +44,31 @@ private final class StorageLocationChangeObserver {
     }
 }
 
+private struct RecommendedDatabaseSelection: Equatable {
+    let name: String
+    let tool: String
+    let collection: DatabaseCollection?
+    let recommendedRAM: Int64
+
+    init(_ database: MetagenomicsDatabaseInfo) {
+        self.name = database.name
+        self.tool = database.tool
+        self.collection = database.collection
+        self.recommendedRAM = database.recommendedRAM
+    }
+
+    func matches(_ database: MetagenomicsDatabaseInfo) -> Bool {
+        hasSameCatalogIdentity(as: database)
+            && database.recommendedRAM == recommendedRAM
+    }
+
+    func hasSameCatalogIdentity(as database: MetagenomicsDatabaseInfo) -> Bool {
+        database.name == name
+            && database.tool == tool
+            && database.collection == collection
+    }
+}
+
 struct OfflinePackCommandGuidance: Equatable {
     let exportCommand: String
     let installCommand: String
@@ -196,6 +221,9 @@ final class PluginManagerViewModel {
     /// Name of the recommended database based on system RAM.
     var recommendedDatabaseName: String = ""
 
+    /// Registry-selected recommendation source used by the header and row badge.
+    private var recommendedDatabaseSelection: RecommendedDatabaseSelection?
+
     /// System RAM in bytes, for display and recommendation logic.
     let systemRAMBytes: UInt64 = ProcessInfo.processInfo.physicalMemory
 
@@ -205,6 +233,12 @@ final class PluginManagerViewModel {
             .filter { $0.status == .ready }
             .compactMap(\.sizeOnDisk)
             .reduce(0, +)
+    }
+
+    /// Returns whether a database should carry the same recommendation badge
+    /// named in the Databases tab header.
+    func isRecommendedDatabase(_ database: MetagenomicsDatabaseInfo) -> Bool {
+        recommendedDatabaseSelection?.matches(database) ?? false
     }
 
     /// The shared managed storage root shown in the Databases footer.
@@ -447,16 +481,41 @@ final class PluginManagerViewModel {
 
     // MARK: - Databases Tab Actions
 
+    /// Applies the registry-selected recommendation source to the displayed
+    /// database list so the header and row badge compare against the same policy.
+    func applyDatabaseRecommendation(
+        databases allDatabases: [MetagenomicsDatabaseInfo],
+        recommended: MetagenomicsDatabaseInfo?
+    ) {
+        guard let recommended else {
+            databases = allDatabases
+            recommendedDatabaseName = ""
+            recommendedDatabaseSelection = nil
+            return
+        }
+
+        let recommendation = RecommendedDatabaseSelection(recommended)
+        recommendedDatabaseName = recommended.name
+        recommendedDatabaseSelection = recommendation
+        databases = allDatabases.map { database in
+            guard recommendation.hasSameCatalogIdentity(as: database) else {
+                return database
+            }
+            var normalized = database
+            normalized.recommendedRAM = recommended.recommendedRAM
+            return normalized
+        }
+    }
+
     /// Refreshes the database catalog from the registry.
     func refreshDatabases() {
         Task {
             do {
                 let registry = MetagenomicsDatabaseRegistry.shared
                 let allDBs = try await registry.availableDatabases()
-                databases = allDBs
 
                 let recommended = try await registry.recommendedDatabase(ramBytes: systemRAMBytes)
-                recommendedDatabaseName = recommended?.name ?? ""
+                applyDatabaseRecommendation(databases: allDBs, recommended: recommended)
 
                 logger.info(
                     "Loaded \(allDBs.count, privacy: .public) databases, recommended: \(self.recommendedDatabaseName, privacy: .public)"

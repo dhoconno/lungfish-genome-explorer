@@ -868,7 +868,7 @@ struct DatabasesTabView: View {
                     ForEach(section.databases) { db in
                         DatabaseRow(
                             database: db,
-                            isRecommended: db.name == viewModel.recommendedDatabaseName,
+                            isRecommended: viewModel.isRecommendedDatabase(db),
                             isDownloading: viewModel.downloadingDatabases.contains(db.name),
                             isRemoving: viewModel.removingDatabases.contains(db.name),
                             progress: viewModel.downloadProgress[db.name],
