@@ -8,6 +8,8 @@ import XCTest
 
 final class GenBankReaderComprehensiveTests: XCTestCase {
 
+    private let rawLocationQualifierKey = "_lf_raw_genbank_location"
+
     // MARK: - Test File Parsing
 
     /// Tests comprehensive parsing of test_annotated.gb
@@ -364,4 +366,60 @@ final class GenBankReaderComprehensiveTests: XCTestCase {
         }
         XCTAssertEqual(overlap.count, 0, "Annotations should not overlap between sequences")
     }
+
+    func testComplementJoinKeepsFeatureReverseStrand() async throws {
+        let record = try await parseSingleFeatureRecord(location: "complement(join(10..20,30..40))")
+        let gene = try XCTUnwrap(record.annotations.first { $0.type == .gene })
+
+        XCTAssertEqual(gene.strand, .reverse)
+        XCTAssertEqual(gene.intervals.map(\.start), [9, 29])
+        XCTAssertEqual(gene.intervals.map(\.end), [20, 40])
+    }
+
+    func testJoinWithNestedComplementPreservesIntervalStrands() async throws {
+        let record = try await parseSingleFeatureRecord(location: "join(complement(10..20),30..40)")
+        let gene = try XCTUnwrap(record.annotations.first { $0.type == .gene })
+
+        XCTAssertEqual(gene.strand, .unknown, "Mixed nested strands must not be collapsed to a feature-level forward strand")
+        XCTAssertEqual(gene.intervals.map(\.start), [9, 29])
+        XCTAssertEqual(gene.intervals.map(\.end), [20, 40])
+        XCTAssertEqual(gene.intervals[0].strand, .reverse)
+        XCTAssertEqual(gene.intervals[1].strand, .forward)
+    }
+
+    func testRawGenBankLocationQualifierIsPreserved() async throws {
+        let rawLocation = "join(complement(10..20),30..40)"
+        let record = try await parseSingleFeatureRecord(location: rawLocation)
+        let gene = try XCTUnwrap(record.annotations.first { $0.type == .gene })
+
+        XCTAssertEqual(gene.qualifier(rawLocationQualifierKey), rawLocation)
+    }
+
+    private func parseSingleFeatureRecord(location: String) async throws -> GenBankRecord {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("location-fidelity-\(UUID().uuidString).gb")
+        let content = """
+        LOCUS       LOCFID                  60 bp    DNA     linear   UNK 01-JAN-2024
+        DEFINITION  Location fidelity fixture.
+        ACCESSION   LOCFID
+        VERSION     LOCFID.1
+        FEATURES             Location/Qualifiers
+             source          1..60
+                             /organism="synthetic construct"
+             gene            \(location)
+                             /gene="strandMix"
+        ORIGIN
+                1 atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc atgcatgcat gcatgcatgc
+        //
+        """
+
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let reader = try GenBankReader(url: testFile)
+        let records = try await reader.readAll()
+        XCTAssertEqual(records.count, 1)
+        return try XCTUnwrap(records.first)
+    }
+
 }

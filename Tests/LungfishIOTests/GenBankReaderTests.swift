@@ -8,6 +8,53 @@ import XCTest
 
 final class GenBankReaderTests: XCTestCase {
 
+    func testParseFileSyncDoesNotReadEntireFileIntoMemory() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishIO/Formats/GenBank/GenBankReader.swift")
+
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let parseFileSyncBody = try XCTUnwrap(source.slice(from: "private func parseFileSync", to: "private func parseRecord"))
+
+        XCTAssertFalse(parseFileSyncBody.contains("readToEnd()"), "parseFileSync must stream records instead of reading the whole file")
+        XCTAssertFalse(parseFileSyncBody.contains("components(separatedBy: .newlines)"), "parseFileSync must not split the whole file into all lines")
+    }
+
+    func testRecordsStreamsGeneratedMultiRecordFile() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let testFile = tempDir.appendingPathComponent("generated-multi-record-\(UUID().uuidString).gb")
+        let recordCount = 128
+        let content = (1...recordCount).map { index in
+            """
+            LOCUS       STREAM\(String(format: "%04d", index))              12 bp    DNA     linear   UNK 01-JAN-2024
+            DEFINITION  Generated streaming record \(index).
+            ACCESSION   STREAM\(String(format: "%04d", index))
+            VERSION     STREAM\(String(format: "%04d", index)).1
+            FEATURES             Location/Qualifiers
+                 source          1..12
+                                 /organism="synthetic construct"
+            ORIGIN
+                    1 atgcatgcatgc
+            //
+            """
+        }.joined(separator: "\n")
+
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: testFile) }
+
+        let reader = try GenBankReader(url: testFile)
+        var streamedNames: [String] = []
+        for try await record in reader.records() {
+            streamedNames.append(record.locus.name)
+        }
+
+        XCTAssertEqual(streamedNames.count, recordCount)
+        XCTAssertEqual(streamedNames.first, "STREAM0001")
+        XCTAssertEqual(streamedNames.last, "STREAM0128")
+    }
+
     /// Tests reading a real GenBank file downloaded from NCBI
     func testReadKF015279() async throws {
         // This test file should exist in test-data/
@@ -111,5 +158,15 @@ final class GenBankReaderTests: XCTestCase {
         XCTAssertEqual(record.locus.length, 100)
         XCTAssertEqual(record.accession, "TEST001")
         XCTAssertEqual(record.sequence.length, 100)
+    }
+}
+
+private extension String {
+    func slice(from startMarker: String, to endMarker: String) -> String? {
+        guard let startRange = range(of: startMarker),
+              let endRange = range(of: endMarker, range: startRange.upperBound..<endIndex) else {
+            return nil
+        }
+        return String(self[startRange.lowerBound..<endRange.lowerBound])
     }
 }

@@ -187,12 +187,20 @@ public struct AnnotationInterval: Codable, Sendable, Comparable {
     /// Optional phase for CDS features (0, 1, or 2)
     public var phase: Int?
 
+    /// Optional strand for this interval when a feature has mixed nested location strands.
+    public var strand: Strand?
+
     public init(start: Int, end: Int, phase: Int? = nil) {
+        self.init(start: start, end: end, phase: phase, strand: nil)
+    }
+
+    public init(start: Int, end: Int, phase: Int? = nil, strand: Strand?) {
         precondition(start >= 0, "Start must be non-negative")
         precondition(end >= start, "End must be >= start")
         self.start = start
         self.end = end
         self.phase = phase
+        self.strand = strand
     }
 
     /// Length of this interval
