@@ -102,7 +102,11 @@ public enum FASTQIngestionService {
         let title = "FASTQ Ingestion: \(baseName)"
 
         // Register the operation FIRST so we have a stable ID to pass to the detached task.
-        let cliCmd = "# lungfish import fastq \(url.path) (CLI command not yet available \u{2014} use GUI)"
+        let cliCmd = inPlaceIngestionCommandPreview(
+            url: url,
+            pairingMode: pairingMode,
+            pairedFile: pairedFile
+        )
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing...",
@@ -143,7 +147,10 @@ public enum FASTQIngestionService {
     ) {
         let title = "FASTQ Import: \(bundleName)"
 
-        let cliCmd = "# lungfish import fastq \(sourceURL.path) (CLI command not yet available \u{2014} use GUI)"
+        let cliCmd = cliImportCommandPreview(
+            sourceURL: sourceURL,
+            projectDirectory: projectDirectory
+        )
         let opID = OperationCenter.shared.start(
             title: title,
             detail: "Preparing import workspace\u{2026}",
@@ -476,6 +483,38 @@ public enum FASTQIngestionService {
         )
     }
 
+    nonisolated static func cliImportCommandPreview(
+        sourceURL: URL,
+        projectDirectory: URL
+    ) -> String {
+        let pair = FASTQFilePair(r1: sourceURL, r2: nil)
+        return cliImportCommandPreview(
+            pair: pair,
+            projectDirectory: projectDirectory,
+            importConfig: defaultCLIImportConfiguration(
+                pair: pair,
+                pairingMode: .singleEnd
+            )
+        )
+    }
+
+    nonisolated static func inPlaceIngestionCommandPreview(
+        url: URL,
+        pairingMode: FASTQIngestionConfig.PairingMode = .singleEnd,
+        pairedFile: URL? = nil
+    ) -> String {
+        let r2 = pairingMode == .pairedEnd ? pairedFile : nil
+        let pair = FASTQFilePair(r1: url, r2: r2)
+        return cliImportCommandPreview(
+            pair: pair,
+            projectDirectory: url.deletingLastPathComponent(),
+            importConfig: defaultCLIImportConfiguration(
+                pair: pair,
+                pairingMode: pairingMode
+            )
+        )
+    }
+
     nonisolated static func cliImportArguments(
         pair: FASTQFilePair,
         projectDirectory: URL,
@@ -490,6 +529,25 @@ public enum FASTQIngestionService {
             qualityBinning: importConfig.qualityBinning.rawValue,
             optimizeStorage: !importConfig.skipClumpify,
             compressionLevel: importConfig.compressionLevel?.rawValue ?? "balanced"
+        )
+    }
+
+    nonisolated private static func defaultCLIImportConfiguration(
+        pair: FASTQFilePair,
+        pairingMode: FASTQIngestionConfig.PairingMode
+    ) -> FASTQImportConfiguration {
+        FASTQImportConfiguration(
+            inputFiles: [pair.r1] + (pair.r2.map { [$0] } ?? []),
+            detectedPlatform: .illumina,
+            confirmedPlatform: .illumina,
+            pairingMode: pairingMode,
+            qualityBinning: .illumina4,
+            skipClumpify: false,
+            deleteOriginals: false,
+            postImportRecipe: nil,
+            resolvedPlaceholders: [:],
+            recipeName: nil,
+            compressionLevel: .balanced
         )
     }
 

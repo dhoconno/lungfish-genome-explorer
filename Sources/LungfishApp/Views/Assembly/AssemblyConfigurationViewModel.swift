@@ -108,35 +108,14 @@ public enum AssemblyRunner {
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        var args = request.inputURLs.map(\.path)
-        if request.pairedEnd {
-            args.append("--paired")
-        }
-        args += [
-            "--assembler", request.tool.rawValue,
-            "--read-type", request.readType.cliArgument,
-            "--project-name", request.projectName,
-            "--threads", "\(request.threads)",
-        ]
-        if let memoryGB = request.memoryGB {
-            args += ["--memory-gb", "\(memoryGB)"]
-        }
-        if let minContigLength = request.effectiveMinContigLength {
-            args += ["--min-contig-length", "\(minContigLength)"]
-        }
-        if let profile = request.selectedProfileID {
-            args += ["--profile", profile]
-        }
-        if !request.extraArguments.isEmpty {
-            args += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
-        }
-        args += ["--output", executionRequest.outputDirectory.path]
-
         let opID = OperationCenter.shared.start(
             title: "\(request.tool.displayName) Assembly: \(projectName)",
             detail: "Initializing...",
             operationType: .assembly,
-            cliCommand: "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args),
+            cliCommand: cliCommandPreview(
+                request: request,
+                outputDirectory: executionRequest.outputDirectory
+            ),
             routeContext: routeContext
         )
 
@@ -180,15 +159,7 @@ public enum AssemblyRunner {
 
         logger.info("Starting SPAdes assembly: mode=\(config.mode.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        let cliCmd: String = {
-            var args: [String] = []
-            for r in config.forwardReads { args += ["--pe1-1", r.path] }
-            for r in config.reverseReads { args += ["--pe1-2", r.path] }
-            for r in config.unpairedReads { args += ["-s", r.path] }
-            args += ["-o", config.outputDirectory.path]
-            return "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args)
-                + " (CLI command not yet available)"
-        }()
+        let cliCmd = cliCommandPreview(config: config)
 
         let opID = OperationCenter.shared.start(
             title: "SPAdes Assembly: \(projectName)",
@@ -228,6 +199,64 @@ public enum AssemblyRunner {
             customArgs: request.extraArguments.filter { $0 != "--only-assembler" && $0 != "--careful" },
             outputDirectory: request.outputDirectory,
             projectName: request.projectName
+        )
+    }
+
+    nonisolated static func cliCommandPreview(config: SPAdesAssemblyConfig) -> String {
+        cliCommandPreview(
+            request: assemblyRunRequest(from: config),
+            outputDirectory: config.outputDirectory
+        )
+    }
+
+    nonisolated static func cliCommandPreview(
+        request: AssemblyRunRequest,
+        outputDirectory: URL? = nil
+    ) -> String {
+        guard let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .assemble(request: request, outputMode: .groupedResult),
+            outputTargetPath: (outputDirectory ?? request.outputDirectory).path
+        ) else {
+            return OperationCenter.buildCLICommand(subcommand: "assemble", args: [])
+        }
+
+        return OperationCenter.buildCLICommand(
+            subcommand: invocation.subcommand,
+            args: invocation.arguments
+        )
+    }
+
+    nonisolated private static func assemblyRunRequest(from config: SPAdesAssemblyConfig) -> AssemblyRunRequest {
+        var extraArguments: [String] = []
+        if config.skipErrorCorrection {
+            extraArguments.append("--only-assembler")
+        }
+        if config.careful {
+            extraArguments.append("--careful")
+        }
+        if let kmerSizes = config.kmerSizes, !kmerSizes.isEmpty {
+            extraArguments += ["-k", kmerSizes.map(String.init).joined(separator: ",")]
+        }
+        if let covCutoff = config.covCutoff, !covCutoff.isEmpty {
+            extraArguments += ["--cov-cutoff", covCutoff]
+        }
+        if let phredOffset = config.phredOffset {
+            extraArguments += ["--phred-offset", "\(phredOffset)"]
+        }
+        extraArguments += config.customArgs
+
+        return AssemblyRunRequest(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            inputURLs: config.forwardReads + config.reverseReads + config.unpairedReads,
+            projectName: config.projectName,
+            outputDirectory: config.outputDirectory,
+            pairedEnd: !config.forwardReads.isEmpty || !config.reverseReads.isEmpty,
+            threads: config.threads,
+            memoryGB: config.memoryGB,
+            minContigLength: config.minContigLength,
+            selectedProfileID: config.mode.rawValue,
+            extraArguments: extraArguments
         )
     }
 
