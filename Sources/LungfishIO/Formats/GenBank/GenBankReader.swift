@@ -99,22 +99,142 @@ public final class GenBankReader: Sendable {
 
     /// Returns an async stream of GenBank records.
     ///
-    /// This is memory-efficient for large files as it yields records
-    /// one at a time.
+    /// This is memory-efficient for large files as it parses one record for
+    /// each iterator request instead of letting a producer task run ahead.
     ///
     /// - Returns: An async stream of records
     public func records() -> AsyncThrowingStream<GenBankRecord, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    try self.parseFileSync { record in
-                        continuation.yield(record)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+        do {
+            let scanner = try makeRecordScanner()
+            return AsyncThrowingStream(unfolding: {
+                if Task.isCancelled {
+                    scanner.close()
+                    return nil
+                }
+                return try scanner.nextRecord()
+            })
+        } catch {
+            return AsyncThrowingStream(unfolding: {
+                throw error
+            })
+        }
+    }
+
+    private func makeRecordScanner() throws -> GenBankRecordScanner {
+        try GenBankRecordScanner(url: url) { [self] lines in
+            let (record, _) = try parseRecord(lines: lines, startIndex: 0)
+            return record
+        }
+    }
+
+    private final class GenBankRecordScanner: @unchecked Sendable {
+        private static let lineFeed = UInt8(ascii: "\n")
+        private static let carriageReturn = UInt8(ascii: "\r")
+        private static let chunkSize = 64 * 1024
+
+        private let handle: FileHandle
+        private let parseRecord: ([String]) throws -> GenBankRecord?
+        private var pending = Data()
+        private var recordLines: [String] = []
+        private var reachedEndOfFile = false
+        private var closed = false
+        private var previousDelimiterWasCR = false
+
+        init(url: URL, parseRecord: @escaping ([String]) throws -> GenBankRecord?) throws {
+            self.handle = try FileHandle(forReadingFrom: url)
+            self.parseRecord = parseRecord
+            self.recordLines.reserveCapacity(512)
+        }
+
+        deinit {
+            close()
+        }
+
+        func close() {
+            guard !closed else { return }
+            try? handle.close()
+            closed = true
+        }
+
+        func nextRecord() throws -> GenBankRecord? {
+            while let line = try nextLine() {
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                if recordLines.isEmpty && trimmedLine.isEmpty {
+                    continue
+                }
+
+                recordLines.append(line)
+                if trimmedLine == "//", let record = try emitCurrentRecord() {
+                    return record
                 }
             }
+
+            close()
+            guard !recordLines.isEmpty else {
+                return nil
+            }
+            return try emitCurrentRecord()
+        }
+
+        private func nextLine() throws -> String? {
+            while true {
+                if let line = try consumePendingLine() {
+                    return line
+                }
+
+                guard !reachedEndOfFile else {
+                    return nil
+                }
+
+                guard let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty else {
+                    reachedEndOfFile = true
+                    if pending.isEmpty {
+                        return nil
+                    }
+                    let finalLine = try decodeLine(pending)
+                    pending.removeAll(keepingCapacity: true)
+                    return finalLine
+                }
+
+                pending.append(chunk)
+            }
+        }
+
+        private func consumePendingLine() throws -> String? {
+            while let delimiterIndex = pending.firstIndex(where: { byte in
+                byte == Self.lineFeed || byte == Self.carriageReturn
+            }) {
+                let delimiter = pending[delimiterIndex]
+                let lineData = pending[..<delimiterIndex]
+                if previousDelimiterWasCR, delimiter == Self.lineFeed, lineData.isEmpty {
+                    previousDelimiterWasCR = false
+                    pending.removeSubrange(...delimiterIndex)
+                    continue
+                }
+
+                previousDelimiterWasCR = delimiter == Self.carriageReturn
+                pending.removeSubrange(...delimiterIndex)
+                return try decodeLine(Data(lineData))
+            }
+            return nil
+        }
+
+        private func decodeLine(_ data: Data) throws -> String {
+            var lineData = data
+            if lineData.last == Self.carriageReturn {
+                lineData.removeLast()
+            }
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                throw GenBankError.invalidEncoding
+            }
+            return line
+        }
+
+        private func emitCurrentRecord() throws -> GenBankRecord? {
+            defer {
+                recordLines.removeAll(keepingCapacity: true)
+            }
+            return try parseRecord(recordLines)
         }
     }
 
@@ -125,67 +245,9 @@ public final class GenBankReader: Sendable {
     private func parseFileSync(
         onRecord: (GenBankRecord) -> Void
     ) throws {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-
-        let newline = UInt8(ascii: "\n")
-        let chunkSize = 64 * 1024
-        var pending = Data()
-        var recordLines: [String] = []
-        recordLines.reserveCapacity(512)
-
-        func decodeLine(_ data: Data) throws -> String {
-            var lineData = data
-            if lineData.last == UInt8(ascii: "\r") {
-                lineData.removeLast()
-            }
-            guard let line = String(data: lineData, encoding: .utf8) else {
-                throw GenBankError.invalidEncoding
-            }
-            return line
-        }
-
-        func emitCurrentRecord() throws {
-            let (record, _) = try parseRecord(lines: recordLines, startIndex: 0)
-            if let record {
-                onRecord(record)
-            }
-            recordLines.removeAll(keepingCapacity: true)
-        }
-
-        func processLine(_ line: String) throws {
-            let trimmedLine = line.trimmingCharacters(in: .whitespaces)
-            if recordLines.isEmpty && trimmedLine.isEmpty {
-                return
-            }
-
-            recordLines.append(line)
-            if trimmedLine == "//" {
-                try emitCurrentRecord()
-            }
-        }
-
-        while true {
-            guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else {
-                break
-            }
-            pending.append(chunk)
-
-            while let newlineIndex = pending.firstIndex(of: newline) {
-                let lineData = pending[..<newlineIndex]
-                let line = try decodeLine(Data(lineData))
-                try processLine(line)
-                pending.removeSubrange(...newlineIndex)
-            }
-        }
-
-        if !pending.isEmpty {
-            let line = try decodeLine(pending)
-            try processLine(line)
-        }
-
-        if !recordLines.isEmpty {
-            try emitCurrentRecord()
+        let scanner = try makeRecordScanner()
+        while let record = try scanner.nextRecord() {
+            onRecord(record)
         }
     }
 

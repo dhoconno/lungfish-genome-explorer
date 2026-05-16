@@ -8,7 +8,17 @@ import XCTest
 
 final class GenBankReaderTests: XCTestCase {
 
-    func testParseFileSyncDoesNotReadEntireFileIntoMemory() throws {
+    private func writeTemporaryGenBank(_ content: String) throws -> URL {
+        let testFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("genbank-reader-\(UUID().uuidString).gb")
+        try content.write(to: testFile, atomically: true, encoding: .utf8)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: testFile)
+        }
+        return testFile
+    }
+
+    func testStreamingImplementationDoesNotReadAheadOrMaterializeWholeFile() throws {
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -17,9 +27,12 @@ final class GenBankReaderTests: XCTestCase {
 
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
         let parseFileSyncBody = try XCTUnwrap(source.slice(from: "private func parseFileSync", to: "private func parseRecord"))
+        let recordsBody = try XCTUnwrap(source.slice(from: "public func records()", to: "private func makeRecordScanner"))
 
         XCTAssertFalse(parseFileSyncBody.contains("readToEnd()"), "parseFileSync must stream records instead of reading the whole file")
         XCTAssertFalse(parseFileSyncBody.contains("components(separatedBy: .newlines)"), "parseFileSync must not split the whole file into all lines")
+        XCTAssertTrue(recordsBody.contains("AsyncThrowingStream(unfolding:"))
+        XCTAssertFalse(recordsBody.contains("Task {"), "records() must not launch an eager producer task that can run ahead of the consumer")
     }
 
     func testRecordsStreamsGeneratedMultiRecordFile() async throws {
@@ -53,6 +66,49 @@ final class GenBankReaderTests: XCTestCase {
         XCTAssertEqual(streamedNames.count, recordCount)
         XCTAssertEqual(streamedNames.first, "STREAM0001")
         XCTAssertEqual(streamedNames.last, "STREAM0128")
+    }
+
+    func testReadAllSyncHandlesCRLFAndCROnlyRecordBoundaries() throws {
+        let records = [
+            minimalRecord(name: "CRLF001", accession: "CRLF001"),
+            minimalRecord(name: "CRONLY1", accession: "CRONLY1")
+        ]
+
+        for separator in ["\r\n", "\r"] {
+            let testFile = try writeTemporaryGenBank(records.joined(separator: separator))
+            let reader = try GenBankReader(url: testFile)
+            let parsed = try reader.readAllSync()
+
+            XCTAssertEqual(parsed.map(\.locus.name), ["CRLF001", "CRONLY1"])
+            XCTAssertEqual(parsed.map(\.sequence.length), [12, 12])
+        }
+    }
+
+    func testReadAllSyncHandlesChunkBoundaryWithinLongFeatureLine() throws {
+        let longNote = String(repeating: "streaming-boundary-", count: 4_200)
+        let content = """
+        LOCUS       LONG001                 12 bp    DNA     linear   UNK 01-JAN-2024
+        DEFINITION  Long feature line crosses the reader chunk boundary.
+        ACCESSION   LONG001
+        VERSION     LONG001.1
+        FEATURES             Location/Qualifiers
+             source          1..12
+                             /organism="synthetic construct"
+             gene            1..12
+                             /note="\(longNote)"
+        ORIGIN
+                1 atgcatgcatgc
+        //
+        \(minimalRecord(name: "NEXT001", accession: "NEXT001"))
+        """
+        let testFile = try writeTemporaryGenBank(content)
+
+        let reader = try GenBankReader(url: testFile)
+        let parsed = try reader.readAllSync()
+
+        XCTAssertEqual(parsed.map(\.locus.name), ["LONG001", "NEXT001"])
+        let gene = try XCTUnwrap(parsed[0].annotations.first { $0.type == .gene })
+        XCTAssertEqual(gene.note, longNote)
     }
 
     /// Tests reading a real GenBank file downloaded from NCBI
@@ -158,6 +214,21 @@ final class GenBankReaderTests: XCTestCase {
         XCTAssertEqual(record.locus.length, 100)
         XCTAssertEqual(record.accession, "TEST001")
         XCTAssertEqual(record.sequence.length, 100)
+    }
+
+    private func minimalRecord(name: String, accession: String) -> String {
+        """
+        LOCUS       \(name)                 12 bp    DNA     linear   UNK 01-JAN-2024
+        DEFINITION  Minimal generated sequence.
+        ACCESSION   \(accession)
+        VERSION     \(accession).1
+        FEATURES             Location/Qualifiers
+             source          1..12
+                             /organism="synthetic construct"
+        ORIGIN
+                1 atgcatgcatgc
+        //
+        """
     }
 }
 
