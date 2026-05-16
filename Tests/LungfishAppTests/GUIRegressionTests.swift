@@ -715,47 +715,186 @@ final class OperationsPanelTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
     }
 
-    func testOperationsPanelHasOutputFileExpansionSection() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+    func testOperationsPanelDisplaysOutputFileExpansionSection() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
 
-        XCTAssertTrue(source.contains("ops-expansion-outputs"))
-        XCTAssertTrue(source.contains("item.outputURLs"))
-        XCTAssertTrue(source.contains("Output Files"))
+        let outputURL = URL(fileURLWithPath: "/tmp/lungfish-operations/export/report.tsv")
+        let operationID = OperationCenter.shared.start(
+            title: "Export report",
+            detail: "Writing report",
+            operationType: .export
+        )
+        OperationCenter.shared.complete(
+            id: operationID,
+            detail: "Export complete",
+            outputURLs: [outputURL]
+        )
+
+        let controller = try makeOperationsPanelController()
+        defer {
+            controller.close()
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let rowView = try expandOperationRow(operationID, in: controller)
+        let outputSection = try XCTUnwrap(
+            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-outputs")
+        )
+        XCTAssertTrue(outputSection.containsText("Output Files"))
+
+        let outputField = try XCTUnwrap(
+            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-files") as? NSTextField
+        )
+        XCTAssertEqual(outputField.stringValue, outputURL.path)
+
+        let revealButton = try XCTUnwrap(
+            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-reveal-button") as? NSButton
+        )
+        XCTAssertEqual(revealButton.title, "Reveal")
+        XCTAssertFalse(revealButton.isHidden)
     }
 
     func testOperationsPanelUsesNormalWindowLayering() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+        _ = NSApplication.shared
+        let controller = OperationsPanelController()
+        defer { controller.close() }
 
-        XCTAssertTrue(source.contains("NSWindow("))
-        XCTAssertFalse(source.contains("NSPanel("))
-        XCTAssertFalse(source.contains(".utilityWindow"))
-        XCTAssertFalse(source.contains(".nonactivatingPanel"))
-        XCTAssertFalse(source.contains("isFloatingPanel = true"))
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertFalse(window is NSPanel)
+        XCTAssertEqual(window.title, "Operations")
+        XCTAssertEqual(window.level, .normal)
+        XCTAssertTrue(window.styleMask.contains(.titled))
+        XCTAssertTrue(window.styleMask.contains(.closable))
+        XCTAssertTrue(window.styleMask.contains(.miniaturizable))
+        XCTAssertTrue(window.styleMask.contains(.resizable))
+        XCTAssertFalse(window.styleMask.contains(.utilityWindow))
+        XCTAssertFalse(window.styleMask.contains(.nonactivatingPanel))
     }
 
-    func testOperationsPanelExposesLocalLogViewingActions() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+    func testOperationsPanelDisplaysLocalLogViewingActions() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
 
-        XCTAssertTrue(source.contains("View Log"))
-        XCTAssertTrue(source.contains("Reveal in Finder"))
-        XCTAssertTrue(source.contains("operations-log-view-button"))
-        XCTAssertTrue(source.contains("operations-log-reveal-button"))
-        XCTAssertTrue(source.contains("viewLogFromButton"))
-        XCTAssertTrue(source.contains("revealLogFromButton"))
-        XCTAssertTrue(source.contains("OperationLogDocument.write"))
+        let operationID = OperationCenter.shared.start(
+            title: "Classify reads",
+            detail: "Running classifier",
+            operationType: .classification
+        )
+        OperationCenter.shared.log(
+            id: operationID,
+            level: .info,
+            message: "Kraken2 classifier started"
+        )
+
+        let controller = try makeOperationsPanelController()
+        defer {
+            controller.close()
+            OperationCenter.shared.cancel(id: operationID)
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let rowView = try expandOperationRow(operationID, in: controller)
+        let logSection = try XCTUnwrap(
+            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-log")
+        )
+        XCTAssertTrue(logSection.containsText("Log"))
+        XCTAssertTrue(logSection.containsText("Kraken2 classifier started"))
+
+        let viewButton = try XCTUnwrap(
+            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-view-button") as? NSButton
+        )
+        XCTAssertEqual(viewButton.title, "View Log")
+        XCTAssertTrue(viewButton.isEnabled)
+        XCTAssertNotNil(viewButton.target)
+        XCTAssertNotNil(viewButton.action)
+
+        let revealButton = try XCTUnwrap(
+            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-reveal-button") as? NSButton
+        )
+        XCTAssertEqual(revealButton.title, "Reveal in Finder")
+        XCTAssertTrue(revealButton.isEnabled)
+        XCTAssertNotNil(revealButton.target)
+        XCTAssertNotNil(revealButton.action)
     }
 
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+    private func makeOperationsPanelController() throws -> OperationsPanelController {
+        let controller = OperationsPanelController()
+        let window = try XCTUnwrap(controller.window)
+        _ = window.contentViewController?.view
+        drainOperationsPanelRunLoop(window)
+        return controller
+    }
+
+    private func expandOperationRow(_ operationID: UUID, in controller: OperationsPanelController) throws -> NSView {
+        let window = try XCTUnwrap(controller.window)
+        let tableView = try XCTUnwrap(window.contentView?.firstSubview(of: NSTableView.self))
+        drainOperationsPanelRunLoop(window)
+        tableView.reloadData()
+        tableView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(tableView.numberOfRows, 1)
+        let collapsedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        collapsedRow.layoutSubtreeIfNeeded()
+        let toggle = try XCTUnwrap(
+            collapsedRow.firstSubview(withAccessibilityIdentifier: "operations-detail-toggle-\(operationID.uuidString)") as? NSButton
+        )
+
+        toggle.performClick(nil)
+        drainOperationsPanelRunLoop(window)
+        tableView.reloadData()
+        tableView.layoutSubtreeIfNeeded()
+
+        let expandedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        expandedRow.layoutSubtreeIfNeeded()
+        return expandedRow
+    }
+
+    private func drainOperationsPanelRunLoop(_ window: NSWindow) {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+}
+
+private extension NSView {
+    func firstSubview<T: NSView>(of type: T.Type) -> T? {
+        if let match = self as? T {
+            return match
+        }
+        for subview in subviews {
+            if let match = subview.firstSubview(of: type) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
+        if accessibilityIdentifier() == identifier {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func containsText(_ text: String) -> Bool {
+        if let textField = self as? NSTextField, textField.stringValue.contains(text) {
+            return true
+        }
+        if let textView = self as? NSTextView, textView.string.contains(text) {
+            return true
+        }
+        if let button = self as? NSButton, button.title.contains(text) {
+            return true
+        }
+        return subviews.contains { $0.containsText(text) }
     }
 }
 
