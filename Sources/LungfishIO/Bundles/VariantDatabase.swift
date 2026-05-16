@@ -5831,6 +5831,10 @@ public final class VariantDatabase: @unchecked Sendable {
             return VariantType.reference.rawValue
         }
 
+        guard !isNonSequenceAlt(firstAlt) else {
+            return VariantType.complex.rawValue
+        }
+
         if ref.count == 1 && firstAlt.count == 1 {
             return VariantType.snp.rawValue
         } else if ref.count > firstAlt.count {
@@ -5853,6 +5857,10 @@ public final class VariantDatabase: @unchecked Sendable {
             return VariantType.reference.rawValue
         }
 
+        guard !isNonSequenceAlt(firstAlt) else {
+            return VariantType.complex.rawValue
+        }
+
         if ref.count == 1 && firstAlt.count == 1 {
             return VariantType.snp.rawValue
         } else if ref.count > firstAlt.count {
@@ -5864,6 +5872,12 @@ public final class VariantDatabase: @unchecked Sendable {
         } else {
             return VariantType.complex.rawValue
         }
+    }
+
+    private static func isNonSequenceAlt<S: StringProtocol>(_ alt: S) -> Bool {
+        (alt.count == 1 && alt.first == "*") ||
+            (alt.count > 2 && alt.first == "<" && alt.last == ">") ||
+            alt.contains { $0 == "[" || $0 == "]" }
     }
 
     /// Parses a VCF ##INFO=<ID=X,Number=Y,Type=Z,Description="..."> header line.

@@ -363,6 +363,45 @@ final class FASTAIndexRegressionTests: XCTestCase {
         XCTAssertEqual(index.length(of: "seq1"), 4)
     }
 
+    func testBuildIndexPreservesOffsetsForCRLFAndFinalLineWithoutNewline() throws {
+        let fastaBytes = Data(
+            ">chr1 description\r\nACGT\r\nTGCA\r\n>chr2\tother\nNNNN".utf8
+        )
+        let fastaURL = tempDir.appendingPathComponent("mixed-newlines.fasta")
+        try fastaBytes.write(to: fastaURL)
+
+        let index = try FASTAIndexBuilder.build(for: fastaURL)
+
+        let chr1 = try XCTUnwrap(index.entry(for: "chr1"))
+        XCTAssertEqual(chr1.length, 8)
+        XCTAssertEqual(chr1.offset, 19)
+        XCTAssertEqual(chr1.lineBases, 4)
+        XCTAssertEqual(chr1.lineWidth, 6)
+
+        let chr2 = try XCTUnwrap(index.entry(for: "chr2"))
+        XCTAssertEqual(chr2.length, 4)
+        XCTAssertEqual(chr2.offset, 43)
+        XCTAssertEqual(chr2.lineBases, 4)
+        XCTAssertEqual(chr2.lineWidth, 4)
+    }
+
+    func testBuildIndexDoesNotCallReadToEnd() throws {
+        let testFileURL = URL(fileURLWithPath: #filePath)
+        let packageRoot = testFileURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishIO/Index/FASTAIndex.swift")
+
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(
+            source.contains("readToEnd()"),
+            "FASTAIndexBuilder.build(for:) must stream bytes instead of loading the full FASTA"
+        )
+    }
+
     func testBuildAndWriteEmptyFASTAProducesEmptyIndex() throws {
         let fastaURL = tempDir.appendingPathComponent("empty.fasta")
         try "".write(to: fastaURL, atomically: true, encoding: .utf8)

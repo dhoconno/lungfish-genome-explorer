@@ -298,11 +298,6 @@ public struct FASTAIndexBuilder {
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
-        let data = try handle.readToEnd() ?? Data()
-        guard let content = String(data: data, encoding: .utf8) else {
-            throw FASTAError.invalidEncoding
-        }
-
         var entries: [FASTAIndex.Entry] = []
         var currentName: String?
         var currentOffset: Int?
@@ -311,60 +306,82 @@ public struct FASTAIndexBuilder {
         var currentLineWidth: Int?
         var bytePosition = 0
 
-        let lines = content.split(separator: "\n", omittingEmptySubsequences: false)
-        for (_, line) in lines.enumerated() {
-            let lineLength = line.utf8.count
-            let lineWithNewline = lineLength + 1  // +1 for newline
+        func appendCurrentEntry() {
+            if let name = currentName,
+               let offset = currentOffset,
+               let lineBases = currentLineBases,
+               let lineWidth = currentLineWidth {
+                entries.append(FASTAIndex.Entry(
+                    name: name,
+                    length: currentLength,
+                    offset: offset,
+                    lineBases: lineBases,
+                    lineWidth: lineWidth
+                ))
+            }
+        }
 
-            if line.hasPrefix(">") {
-                // Save previous entry if exists
-                if let name = currentName,
-                   let offset = currentOffset,
-                   let lineBases = currentLineBases,
-                   let lineWidth = currentLineWidth {
-                    entries.append(FASTAIndex.Entry(
-                        name: name,
-                        length: currentLength,
-                        offset: offset,
-                        lineBases: lineBases,
-                        lineWidth: lineWidth
-                    ))
+        func processLine(_ rawLine: [UInt8], startOffset: Int, newlineWidth: Int) throws {
+            var line = rawLine
+            if line.last == 13 {
+                line.removeLast()
+            }
+
+            guard !line.isEmpty else { return }
+
+            if line.first == 62 { // ">"
+                appendCurrentEntry()
+                let headerBytes = line.dropFirst()
+                guard let headerLine = String(bytes: headerBytes, encoding: .utf8) else {
+                    throw FASTAError.invalidEncoding
                 }
-
-                // Start new sequence
-                let headerLine = String(line.dropFirst())
                 currentName = parseIndexHeaderName(headerLine)
                 currentOffset = nil
                 currentLength = 0
                 currentLineBases = nil
                 currentLineWidth = nil
-
-            } else if currentName != nil && !line.isEmpty {
-                // Sequence line
-                if currentOffset == nil {
-                    currentOffset = bytePosition
-                    currentLineBases = lineLength
-                    currentLineWidth = lineWithNewline
-                }
-                currentLength += lineLength
+                return
             }
 
-            bytePosition += lineWithNewline
+            guard currentName != nil else { return }
+
+            if currentOffset == nil {
+                currentOffset = startOffset
+                currentLineBases = line.count
+                currentLineWidth = line.count + newlineWidth
+            }
+            currentLength += line.count
         }
 
-        // Don't forget the last entry
-        if let name = currentName,
-           let offset = currentOffset,
-           let lineBases = currentLineBases,
-           let lineWidth = currentLineWidth {
-            entries.append(FASTAIndex.Entry(
-                name: name,
-                length: currentLength,
-                offset: offset,
-                lineBases: lineBases,
-                lineWidth: lineWidth
-            ))
+        let chunkSize = 64 * 1024
+        var lineBuffer: [UInt8] = []
+        lineBuffer.reserveCapacity(1024)
+        var lineStartOffset = 0
+
+        while true {
+            let chunk = handle.readData(ofLength: chunkSize)
+            if chunk.isEmpty {
+                break
+            }
+
+            for byte in chunk {
+                bytePosition += 1
+                if byte == 10 {
+                    let newlineWidth = lineBuffer.last == 13 ? 2 : 1
+                    try processLine(lineBuffer, startOffset: lineStartOffset, newlineWidth: newlineWidth)
+                    lineBuffer.removeAll(keepingCapacity: true)
+                    lineStartOffset = bytePosition
+                } else {
+                    lineBuffer.append(byte)
+                }
+            }
         }
+
+        if !lineBuffer.isEmpty {
+            try processLine(lineBuffer, startOffset: lineStartOffset, newlineWidth: 0)
+        }
+
+        appendCurrentEntry()
 
         return FASTAIndex(entries: entries)
     }

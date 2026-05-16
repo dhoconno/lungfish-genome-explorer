@@ -276,16 +276,16 @@ public final class ProjectUniversalSearchIndex {
         }
 
         for term in query.textTerms where !term.isEmpty {
-            whereClauses.append("LOWER(e.search_text) LIKE ?")
-            bindings.append("%\(term)%")
+            whereClauses.append("LOWER(e.search_text) LIKE ? ESCAPE '\\'")
+            bindings.append(Self.likeContainsPattern(for: term))
         }
 
         for filter in query.attributeFilters {
             switch filter.match {
             case .contains:
-                whereClauses.append("EXISTS (SELECT 1 FROM us_attributes a WHERE a.entity_id = e.id AND a.key = ? AND LOWER(a.value) LIKE ?)")
+                whereClauses.append("EXISTS (SELECT 1 FROM us_attributes a WHERE a.entity_id = e.id AND a.key = ? AND LOWER(a.value) LIKE ? ESCAPE '\\')")
                 bindings.append(filter.key)
-                bindings.append("%\(filter.value)%")
+                bindings.append(Self.likeContainsPattern(for: filter.value))
             case .exact:
                 whereClauses.append("EXISTS (SELECT 1 FROM us_attributes a WHERE a.entity_id = e.id AND a.key = ? AND LOWER(a.value) = ?)")
                 bindings.append(filter.key)
@@ -2066,8 +2066,8 @@ public final class ProjectUniversalSearchIndex {
         try execute("BEGIN IMMEDIATE TRANSACTION")
         do {
             try execute(
-                "DELETE FROM us_entities WHERE rel_path LIKE ? || '%'",
-                parameters: [prefix]
+                "DELETE FROM us_entities WHERE rel_path LIKE ? ESCAPE '\\'",
+                parameters: [Self.likePrefixPattern(for: prefix)]
             )
             let changes = sqlite3_changes(db)
             try execute("COMMIT")
@@ -2099,8 +2099,8 @@ public final class ProjectUniversalSearchIndex {
             // Delete existing entries first (clean upsert)
             let relPath = relativePath(for: url)
             try execute(
-                "DELETE FROM us_entities WHERE rel_path LIKE ? || '%'",
-                parameters: [relPath]
+                "DELETE FROM us_entities WHERE rel_path LIKE ? ESCAPE '\\'",
+                parameters: [Self.likePrefixPattern(for: relPath)]
             )
 
             if isDir.boolValue {
@@ -2355,6 +2355,26 @@ public final class ProjectUniversalSearchIndex {
 
     private func pathCompare(_ lhs: URL, _ rhs: URL) -> Bool {
         lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
+    }
+
+    private static func likeContainsPattern(for literal: String) -> String {
+        "%\(escapeLikeLiteral(literal))%"
+    }
+
+    private static func likePrefixPattern(for literal: String) -> String {
+        "\(escapeLikeLiteral(literal))%"
+    }
+
+    private static func escapeLikeLiteral(_ literal: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(literal.count)
+        for character in literal {
+            if character == "\\" || character == "%" || character == "_" {
+                escaped.append("\\")
+            }
+            escaped.append(character)
+        }
+        return escaped
     }
 
     private func entityRow(
