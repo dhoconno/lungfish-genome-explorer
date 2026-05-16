@@ -1588,79 +1588,44 @@ public class MainSplitViewController: NSSplitViewController {
         includeUnclassified: Bool,
         viewerController: ViewerViewController, requestID: String?
     ) {
-        let config = ONTImportConfig(
-            sourceDirectory: sourceURL,
-            outputDirectory: projectURL,
-            includeUnclassified: includeUnclassified
-        )
-
         viewerController.showProgress("Importing ONT directory\u{2026}")
+        let coordinator = ONTImportOperationCoordinator(operationCenter: .shared)
+        let routeContext = operationRouteContext
 
-        var ontCliArgs = [
-            sourceURL.path,
-            "--output",
-            projectURL.path,
-        ]
-        if includeUnclassified {
-            ontCliArgs.append("--include-unclassified")
-        }
-        let ontCliCmd = OperationCenter.buildCLICommand(
-            subcommand: "fastq import-ont",
-            args: ontCliArgs
-        )
-        let opID = OperationCenter.shared.start(
-            title: "ONT Import: \(sourceURL.lastPathComponent)",
-            detail: "Detecting layout\u{2026}",
-            operationType: .ingestion,
-            cliCommand: ontCliCmd,
-            routeContext: operationRouteContext
-        )
-
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
-                let importer = ONTDirectoryImporter()
-                let result = try await importer.importDirectory(config: config) { fraction, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        }
-                    }
-                }
+                let workflowResult = try await coordinator.importDirectory(
+                    sourceURL: sourceURL,
+                    projectURL: projectURL,
+                    includeUnclassified: includeUnclassified,
+                    routeContext: routeContext
+                )
+                let result = workflowResult.importResult
 
                 let detail = "\(result.bundleURLs.count) barcode bundles, \(result.totalReadCount) reads"
                 logger.info("importONTDirectoryInBackground: \(detail)")
 
-                DispatchQueue.main.async { [weak self, weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: result.bundleURLs)
-                        self?.sidebarController.reloadFromFilesystem()
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                viewerController?.hideProgress()
+                self?.sidebarController.reloadFromFilesystem()
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
 
-                        // Display the first bundle
-                        if let firstBundle = result.bundleURLs.first {
-                            self?.displayGenomicsFile(url: firstBundle)
-                        }
-                    }
+                // Display the first bundle
+                if let firstBundle = result.bundleURLs.first {
+                    self?.displayGenomicsFile(url: firstBundle)
                 }
             } catch {
                 logger.error("importONTDirectoryInBackground: \(error)")
-                DispatchQueue.main.async { [weak self, weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: "\(error)")
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                viewerController?.hideProgress()
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
 
-                        let alert = NSAlert()
-                        alert.messageText = "ONT Import Failed"
-                        alert.informativeText = "\(error)"
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
-                        if let window = self?.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
+                let alert = NSAlert()
+                alert.messageText = "ONT Import Failed"
+                alert.informativeText = "\(error)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
+                if let window = self?.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window) { _ in }
                 }
             }
         }

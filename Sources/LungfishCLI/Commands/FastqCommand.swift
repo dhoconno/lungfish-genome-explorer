@@ -2158,49 +2158,47 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             includeUnclassified: includeUnclassified
         )
 
-        let startedAt = Date()
-        let result = try await importer.importDirectory(config: config) { fraction, message in
+        let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
+        let argv = ["lungfish", "fastq"] + cliArguments
+        let workflow = ONTImportWorkflow()
+        let workflowResult = try await workflow.importDirectory(
+            config: config,
+            context: ONTImportWorkflow.CommandContext(
+                caller: .cli,
+                workflowName: "lungfish fastq import-ont",
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: "lungfish fastq import-ont",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                durableReplayArgv: argv,
+                reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "includeUnclassified": .boolean(includeUnclassified),
+                    "concurrency": .integer(concurrency)
+                ],
+                defaultOptions: [
+                    "includeUnclassified": .boolean(false),
+                    "concurrency": .integer(4),
+                    "useVirtualConcatenation": .boolean(true)
+                ],
+                resolvedOptions: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "includeUnclassified": .boolean(includeUnclassified),
+                    "concurrency": .integer(concurrency),
+                    "useVirtualConcatenation": .boolean(true),
+                    "caller": .string("cli"),
+                    "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
+                    "chunkCount": .integer(layout.totalChunkCount)
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity()
+            )
+        ) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
-        var cliArguments = ["import-ont", inputURL.path, "--output", output]
-        if includeUnclassified {
-            cliArguments.append("--include-unclassified")
-        }
-        if concurrency != 4 {
-            cliArguments += ["--concurrency", String(concurrency)]
-        }
-        let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
-        let outputPayloads = result.bundleURLs.compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
-        let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
-            + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
-        let chunkURLs = layout.barcodeDirectories.flatMap(\.chunkFiles)
-        let parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
-            "output": .file(outputURL),
-            "includeUnclassified": .boolean(includeUnclassified),
-            "concurrency": .integer(concurrency),
-            "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
-            "chunkCount": .integer(layout.totalChunkCount)
-        ]
-        try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish fastq import-ont",
-            parameters: parameters,
-            defaults: [
-                "includeUnclassified": .boolean(false),
-                "concurrency": .integer(4)
-            ],
-            toolName: "lungfish fastq import-ont",
-            toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
-            inputs: chunkURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
-            outputs: outputRecords,
-            exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
-            stderr: nil,
-            status: .completed,
-            outputDirectory: outputURL
-        )
+        let result = workflowResult.importResult
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- ONT Import Summary ---\n".utf8))
@@ -2221,5 +2219,16 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         for barcode in result.manifest.barcodes {
             FileHandle.standardError.write(Data("  \(barcode.barcodeID): \(barcode.readCount) reads\n".utf8))
         }
+    }
+
+    private func cliArguments(inputURL: URL, outputURL: URL) -> [String] {
+        var cliArguments = ["import-ont", inputURL.path, "--output", outputURL.path]
+        if includeUnclassified {
+            cliArguments.append("--include-unclassified")
+        }
+        if concurrency != 4 {
+            cliArguments += ["--concurrency", String(concurrency)]
+        }
+        return cliArguments
     }
 }
