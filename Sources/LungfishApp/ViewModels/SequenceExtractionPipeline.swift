@@ -77,6 +77,73 @@ public final class SequenceExtractionPipeline: @unchecked Sendable {
         let fileManager = FileManager.default
         let startedAt = Date()
 
+        if sourceAnnotationTracks.isEmpty,
+           sourceVariantTracks.isEmpty,
+           sampleFilter == nil,
+           !isConcatenated {
+            let bundleBaseName: String
+            if let desiredBundleName, !desiredBundleName.isEmpty {
+                bundleBaseName = BundleBuildHelpers.sanitizedFilename(desiredBundleName)
+            } else {
+                let seqName = BundleBuildHelpers.sanitizedFilename(result.sourceName)
+                bundleBaseName = seqName.isEmpty ? "extracted_sequence" : seqName
+            }
+            let outputBundleURL = BundleBuildHelpers.makeUniqueBundleURL(
+                baseName: bundleBaseName,
+                in: outputDirectory
+            )
+            let argv = Self.extractionProvenanceArguments(
+                result: result,
+                bundleURL: outputBundleURL,
+                sourceBundleURL: sourceBundleURL,
+                sourceBundleName: sourceBundleName,
+                desiredBundleName: desiredBundleName,
+                sampleFilter: sampleFilter,
+                isConcatenated: isConcatenated
+            )
+            let context = SequenceExtractionBundleCommandContext(
+                workflowName: "lungfish gui sequence extraction",
+                toolName: "lungfish gui sequence extraction",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                explicitOptions: Self.extractionExplicitOptions(
+                    result: result,
+                    sourceBundleURL: sourceBundleURL,
+                    sourceBundleName: sourceBundleName,
+                    desiredBundleName: desiredBundleName,
+                    sampleFilter: sampleFilter,
+                    isConcatenated: isConcatenated
+                ),
+                defaultOptions: [
+                    "reverse_complement": .boolean(false),
+                    "concatenate_exons": .boolean(false),
+                    "sample_filter": .array([]),
+                ],
+                resolvedOptions: Self.extractionResolvedOptions(
+                    result: result,
+                    bundleURL: outputBundleURL,
+                    sourceBundleURL: sourceBundleURL,
+                    sourceBundleName: sourceBundleName,
+                    desiredBundleName: desiredBundleName,
+                    sampleFilter: sampleFilter,
+                    isConcatenated: isConcatenated
+                ),
+                inputURLs: []
+            )
+            return try await SequenceExtractionBundleBuilder().buildBundle(
+                request: SequenceExtractionBundleBuildRequest(
+                    result: result,
+                    outputDirectory: outputDirectory,
+                    outputBundleURL: outputBundleURL,
+                    sourceBundleURL: sourceBundleURL,
+                    sourceBundleName: sourceBundleName,
+                    desiredBundleName: desiredBundleName,
+                    commandContext: context
+                ),
+                progressHandler: progressHandler
+            )
+        }
+
         progressHandler?(0.05, "Checking tools...")
         try await BundleBuildHelpers.validateTools(using: toolRunner)
 
