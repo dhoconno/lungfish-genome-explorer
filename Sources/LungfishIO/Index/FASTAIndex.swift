@@ -215,8 +215,7 @@ public final class IndexedFASTAReader: Sendable {
             throw FASTAError.invalidEncoding
         }
 
-        // Remove newlines from the sequence
-        let sequence = rawSequence.replacingOccurrences(of: "\n", with: "")
+        let sequence = Self.sequenceText(fromIndexedWindow: rawSequence)
         let clampedLength = min(region.length, sequence.count)
 
         return String(sequence.prefix(clampedLength))
@@ -278,11 +277,14 @@ public final class IndexedFASTAReader: Sendable {
             throw FASTAError.invalidEncoding
         }
 
-        // Remove newlines from the sequence
-        let sequence = rawSequence.replacingOccurrences(of: "\n", with: "")
+        let sequence = Self.sequenceText(fromIndexedWindow: rawSequence)
         let clampedLength = min(region.length, sequence.count)
 
         return String(sequence.prefix(clampedLength))
+    }
+
+    private static func sequenceText(fromIndexedWindow rawSequence: String) -> String {
+        String(String.UnicodeScalarView(rawSequence.unicodeScalars.filter { $0.value != 10 && $0.value != 13 }))
     }
 }
 

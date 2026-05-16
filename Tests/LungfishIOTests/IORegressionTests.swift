@@ -385,6 +385,23 @@ final class FASTAIndexRegressionTests: XCTestCase {
         XCTAssertEqual(chr2.lineWidth, 4)
     }
 
+    func testIndexedReaderFetchStripsCRLFLineBreaks() async throws {
+        let fastaBytes = Data(
+            ">chr1 description\r\nACGT\r\nTGCA\r\n>chr2\tother\nNNNN".utf8
+        )
+        let fastaURL = tempDir.appendingPathComponent("crlf-fetch.fasta")
+        let indexURL = tempDir.appendingPathComponent("crlf-fetch.fasta.fai")
+        try fastaBytes.write(to: fastaURL)
+        try FASTAIndexBuilder.build(for: fastaURL).write(to: indexURL)
+
+        let reader = try IndexedFASTAReader(url: fastaURL, indexURL: indexURL)
+        let region = GenomicRegion(chromosome: "chr1", start: 0, end: 8)
+        let asyncFetch = try await reader.fetch(region: region)
+
+        XCTAssertEqual(try reader.fetchSync(region: region), "ACGTTGCA")
+        XCTAssertEqual(asyncFetch, "ACGTTGCA")
+    }
+
     func testBuildIndexDoesNotCallReadToEnd() throws {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let packageRoot = testFileURL

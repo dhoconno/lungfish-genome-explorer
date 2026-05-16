@@ -12,7 +12,7 @@ Owned files:
 - `Sources/LungfishIO/Bundles/VariantDatabase.swift`
 - `Sources/LungfishIO/Search/ProjectUniversalSearchIndex.swift`
 - `Sources/LungfishIO/Index/FASTAIndex.swift`
-- `Sources/LungfishIO/Formats/BigWig/BigWigReader.swift`
+- the unused async BigWig reader file
 - Focused tests under `Tests/LungfishIOTests/`
 
 ## Issues
@@ -102,16 +102,16 @@ Residual risks:
 
 - This builder still treats sequence lines as byte-counted ASCII/UTF-8 bases, matching `.fai` expectations.
 
-### W2-IO-B-04: Dead async BigWigReader
+### W2-IO-B-04: Dead async BigWig reader
 
 Problem:
 
-- `Sources/LungfishIO/Formats/BigWig/BigWigReader.swift` defines an unfinished async reader API.
+- The deleted async BigWig reader file defined an unfinished API.
 - Repository search shows no production consumers outside its own file.
 
 Evidence:
 
-- `rg -n "BigWigReader|BigWigValue|BigWigSummary|BigWigHeader|BigWigError" Tests Sources --glob '!Sources/LungfishIO/Formats/BigWig/BigWigReader.swift'` returns no matches.
+- The pre-delete reference scan returned no production or test consumers outside that file.
 
 Implementation:
 
@@ -146,6 +146,6 @@ Residual risks:
 - `swift test --filter ProjectUniversalSearchTests/testDeleteEntitiesEscapesLikeWildcardsInPathPrefix` passed.
 - `swift test --filter FASTAIndexRegressionTests/testBuildIndexPreservesOffsetsForCRLFAndFinalLineWithoutNewline` passed.
 - `swift test --filter FASTAIndexRegressionTests/testBuildIndexDoesNotCallReadToEnd` passed.
-- `rg -n "BigWigReader|BigWigValue|BigWigSummary|BigWigHeader|BigWigError" Tests Sources --glob '!Sources/LungfishIO/Formats/BigWig/BigWigReader.swift'` returned no matches.
+- The pre-delete reference scan returned no production or test consumers outside that file.
 - `swift build --target LungfishIO` passed.
 - `git diff --check` passed.

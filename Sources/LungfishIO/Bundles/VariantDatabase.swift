@@ -5827,11 +5827,12 @@ public final class VariantDatabase: @unchecked Sendable {
 
     /// Classifies a variant based on ref/alt alleles.
     static func classifyVariant(ref: String, alts: [String]) -> String {
-        guard let firstAlt = alts.first, !firstAlt.isEmpty, firstAlt != "." else {
+        let concreteAlts = alts.filter { !$0.isEmpty && $0 != "." }
+        guard let firstAlt = concreteAlts.first else {
             return VariantType.reference.rawValue
         }
 
-        guard !isNonSequenceAlt(firstAlt) else {
+        guard !concreteAlts.contains(where: isNonSequenceAlt) else {
             return VariantType.complex.rawValue
         }
 
@@ -5850,14 +5851,14 @@ public final class VariantDatabase: @unchecked Sendable {
 
     /// Classifies a variant using the first ALT allele without allocating intermediate strings.
     static func classifyVariant(ref: Substring, altField: Substring) -> String {
-        guard let firstAlt = altField.split(separator: ",", omittingEmptySubsequences: false).first,
-              !firstAlt.isEmpty,
-              firstAlt != "."
-        else {
+        let concreteAlts = altField
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty && $0 != "." }
+        guard let firstAlt = concreteAlts.first else {
             return VariantType.reference.rawValue
         }
 
-        guard !isNonSequenceAlt(firstAlt) else {
+        guard !concreteAlts.contains(where: isNonSequenceAlt) else {
             return VariantType.complex.rawValue
         }
 
