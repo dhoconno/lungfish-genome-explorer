@@ -288,39 +288,31 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.tooltipDelay, 1.0)
     }
 
-    // MARK: - Annotation Color Helpers
+    // MARK: - Annotation Color Hex Helpers
 
     @MainActor
-    func testAnnotationColorFromHex() {
-        let color = AppSettings.color(from: "#FF0000")
-        guard let rgb = color.usingColorSpace(.sRGB) else {
-            XCTFail("Could not convert to sRGB")
-            return
-        }
-        XCTAssertEqual(rgb.redComponent, 1.0, accuracy: 0.01)
-        XCTAssertEqual(rgb.greenComponent, 0.0, accuracy: 0.01)
-        XCTAssertEqual(rgb.blueComponent, 0.0, accuracy: 0.01)
+    func testAnnotationHexColorFromHex() {
+        let color = AppSettings.hexColor(from: "#FF0000")
+
+        XCTAssertEqual(color.hexString, "#FF0000")
+        XCTAssertEqual(color.red, 1.0, accuracy: 0.01)
+        XCTAssertEqual(color.green, 0.0, accuracy: 0.01)
+        XCTAssertEqual(color.blue, 0.0, accuracy: 0.01)
     }
 
     @MainActor
-    func testHexStringFromColor() {
-        let color = NSColor(srgbRed: 0.2, green: 0.6, blue: 0.2, alpha: 1.0)
-        let hex = AppSettings.hexString(from: color)
-        XCTAssertEqual(hex, "#339933")
+    func testInvalidAnnotationHexColorFallsBackToGray() {
+        let color = AppSettings.hexColor(from: "not-a-color")
+
+        XCTAssertEqual(color.hexString, "#808080")
     }
 
     @MainActor
-    func testAnnotationColorForType() {
+    func testAnnotationColorHexForType() {
         let settings = AppSettings.shared
-        let geneColor = settings.annotationColor(for: .gene)
-        guard let rgb = geneColor.usingColorSpace(.sRGB) else {
-            XCTFail("Could not convert to sRGB")
-            return
-        }
-        // Default gene color is #339933
-        XCTAssertEqual(rgb.redComponent, 0.2, accuracy: 0.01)
-        XCTAssertEqual(rgb.greenComponent, 0.6, accuracy: 0.01)
-        XCTAssertEqual(rgb.blueComponent, 0.2, accuracy: 0.01)
+
+        XCTAssertEqual(settings.annotationColorHex(for: .gene), "#339933")
+        XCTAssertEqual(settings.annotationHexColor(for: .gene).hexString, "#339933")
     }
 
     @MainActor

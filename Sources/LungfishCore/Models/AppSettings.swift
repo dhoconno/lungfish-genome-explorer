@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import AppKit
 import os.log
 
 private let settingsLogger = Logger(subsystem: LogSubsystem.core, category: "AppSettings")
@@ -619,36 +618,20 @@ public final class AppSettings: Sendable {
 
     // MARK: - Color Helpers
 
-    /// Returns an NSColor for the given annotation type, using the user's configured hex color.
-    public func annotationColor(for type: AnnotationType) -> NSColor {
+    /// Returns the configured hex string for the given annotation type.
+    public func annotationColorHex(for type: AnnotationType) -> String {
         let key = type.rawValue
-        guard let hex = annotationTypeColorHexes[key] else {
-            return NSColor.gray
-        }
-        return Self.color(from: hex)
+        return annotationTypeColorHexes[key] ?? HexColor.fallbackGray.hexString
     }
 
-    /// Converts a hex string (e.g. "#339933") to an NSColor.
-    public static func color(from hexString: String) -> NSColor {
-        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if hex.hasPrefix("#") { hex = String(hex.dropFirst()) }
-        if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
-        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return .gray }
-        return NSColor(
-            srgbRed: CGFloat((value >> 16) & 0xFF) / 255.0,
-            green: CGFloat((value >> 8) & 0xFF) / 255.0,
-            blue: CGFloat(value & 0xFF) / 255.0,
-            alpha: 1.0
-        )
+    /// Returns the configured color value for the given annotation type.
+    public func annotationHexColor(for type: AnnotationType) -> HexColor {
+        Self.hexColor(from: annotationColorHex(for: type))
     }
 
-    /// Converts an NSColor to a hex string (e.g. "#339933").
-    public static func hexString(from color: NSColor) -> String {
-        guard let rgb = color.usingColorSpace(.sRGB) else { return "#808080" }
-        let r = Int(round(rgb.redComponent * 255))
-        let g = Int(round(rgb.greenComponent * 255))
-        let b = Int(round(rgb.blueComponent * 255))
-        return String(format: "#%02X%02X%02X", r, g, b)
+    /// Converts a hex string (e.g. "#339933") to a color value.
+    public nonisolated static func hexColor(from hexString: String) -> HexColor {
+        (try? HexColor(hex: hexString)) ?? .fallbackGray
     }
 
     // MARK: - Secret-backed NCBI Settings
