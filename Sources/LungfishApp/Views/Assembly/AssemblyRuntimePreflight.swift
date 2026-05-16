@@ -10,7 +10,7 @@ import LungfishWorkflow
 enum AssemblyRuntimePreflight {
     enum PresentationMode: Equatable {
         case sheet
-        case legacySynchronousFallback
+        case applicationErrorPresentation
     }
 
     static func warningTitle(for tool: AssemblyTool) -> String {
@@ -64,16 +64,23 @@ enum AssemblyRuntimePreflight {
         if presentationMode(hasWindow: window != nil) == .sheet, let window {
             alert.beginSheetModal(for: window)
         } else {
-            // runModal-legacy-allowed because preflight can be invoked before a presenter window exists.
-            alert.runModal()
+            NSApp.presentError(PreflightWarning(title: alert.messageText, message: alert.informativeText))
         }
     }
 
     static func presentationMode(hasWindow: Bool) -> PresentationMode {
-        hasWindow ? .sheet : .legacySynchronousFallback
+        hasWindow ? .sheet : .applicationErrorPresentation
     }
 
     static func presentationModeForTest(hasWindow: Bool) -> PresentationMode {
         presentationMode(hasWindow: hasWindow)
+    }
+
+    private struct PreflightWarning: LocalizedError {
+        let title: String
+        let message: String
+
+        var errorDescription: String? { title }
+        var recoverySuggestion: String? { message }
     }
 }

@@ -68,14 +68,14 @@ final class AppKitModalPresenterSemanticsTests: XCTestCase {
         XCTAssertNil(observedConfigurations[0])
     }
 
-    func testAssemblyRuntimePreflightClassifiesSheetAndLegacyFallbackPresentationModes() {
+    func testAssemblyRuntimePreflightClassifiesSheetAndApplicationErrorPresentationModes() {
         XCTAssertEqual(
             AssemblyRuntimePreflight.presentationModeForTest(hasWindow: true),
             .sheet
         )
         XCTAssertEqual(
             AssemblyRuntimePreflight.presentationModeForTest(hasWindow: false),
-            .legacySynchronousFallback
+            .applicationErrorPresentation
         )
     }
 
