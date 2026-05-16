@@ -9,22 +9,50 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let root = repositoryRoot()
         let sourcesRoot = root.appendingPathComponent("Sources", isDirectory: true)
         let swiftFiles = try swiftSourceFiles(under: sourcesRoot)
+        let allowedLegacyRunModalCounts: [String: Int] = [
+            "Sources/LungfishApp/App/AppDelegate.swift": 1,
+            "Sources/LungfishApp/Services/ReferenceBundleAnnotationImportConfigurationPresenter.swift": 1,
+            "Sources/LungfishApp/Views/Assembly/AssemblyRuntimePreflight.swift": 1,
+            "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift": 1,
+            "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift": 1,
+            "Sources/LungfishApp/Views/Results/Assembly/AssemblyResultViewController.swift": 1,
+            "Sources/LungfishApp/Views/Viewer/PhylogeneticTreeViewController.swift": 1,
+            "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift": 1,
+            "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift": 5,
+            "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift": 2,
+        ]
+        var actualLegacyRunModalCounts: [String: Int] = [:]
         var violations: [String] = []
 
         for file in swiftFiles {
             let source = try String(contentsOf: file, encoding: .utf8)
             let lines = source.components(separatedBy: .newlines)
+            let path = relativePath(file, root: root)
             for index in lines.indices where lines[index].contains(".runModal(") {
+                actualLegacyRunModalCounts[path, default: 0] += 1
+                guard allowedLegacyRunModalCounts[path] != nil else {
+                    violations.append("\(path):\(index + 1) is not in the allowed legacy runModal inventory")
+                    continue
+                }
                 let context = nearbyCommentContext(lines: lines, index: index)
                 guard context.contains("runModal-legacy-allowed") else {
-                    violations.append(relativePath(file, root: root) + ":\(index + 1)")
+                    violations.append("\(path):\(index + 1)")
                     continue
                 }
                 XCTAssertTrue(
                     context.contains("because"),
-                    "\(relativePath(file, root: root)):\(index + 1) runModal legacy exception must explain why"
+                    "\(path):\(index + 1) runModal legacy exception must explain why"
                 )
             }
+        }
+
+        for (path, expectedCount) in allowedLegacyRunModalCounts.sorted(by: { $0.key < $1.key }) {
+            let actualCount = actualLegacyRunModalCounts[path, default: 0]
+            XCTAssertEqual(
+                actualCount,
+                expectedCount,
+                "\(path) legacy runModal inventory changed; update this test with a concrete reason or convert the flow to a sheet"
+            )
         }
 
         XCTAssertTrue(
@@ -38,9 +66,16 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let root = repositoryRoot()
         let scannedPaths = [
             "Sources/LungfishApp/App/AppDelegate.swift",
+            "Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift",
             "Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewModel.swift",
+            "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift",
+            "Sources/LungfishApp/Views/Settings/AIServicesSettingsTab.swift",
+            "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
             "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
+        ]
+        let mainActorRunForbiddenPaths: Set<String> = [
+            "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
         ]
         var violations: [String] = []
 
@@ -49,6 +84,9 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             let source = try String(contentsOf: url, encoding: .utf8)
             if source.contains("Task { @MainActor") {
                 violations.append("\(path): contains Task { @MainActor")
+            }
+            if mainActorRunForbiddenPaths.contains(path), source.contains("await MainActor.run") {
+                violations.append("\(path): contains await MainActor.run")
             }
             let lines = source.components(separatedBy: .newlines)
             for index in lines.indices where lines[index].contains("Task.detached") {

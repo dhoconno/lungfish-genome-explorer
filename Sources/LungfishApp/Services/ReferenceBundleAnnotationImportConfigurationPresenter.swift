@@ -105,17 +105,11 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         alert.accessoryView = stack
 
         let finish: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn,
-                  let bundleURL = popup.selectedItem?.representedObject as? URL else {
-                completion(nil)
-                return
-            }
-            let trackID = trackIDField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let trackName = trackNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            completion(ReferenceBundleAnnotationImportConfiguration(
-                bundleURL: bundleURL,
-                trackID: trackID.isEmpty ? nil : trackID,
-                trackName: trackName.isEmpty ? nil : trackName
+            completion(makeConfiguration(
+                response: response,
+                selectedBundleURL: popup.selectedItem?.representedObject as? URL,
+                trackID: trackIDField.stringValue,
+                trackName: trackNameField.stringValue
             ))
         }
 
@@ -125,5 +119,38 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
             // runModal-legacy-allowed because this utility has no presenter window and must synchronously collect accessory fields.
             finish(alert.runModal())
         }
+    }
+
+    static func makeConfiguration(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String
+    ) -> ReferenceBundleAnnotationImportConfiguration? {
+        guard response == .alertFirstButtonReturn,
+              let selectedBundleURL else {
+            return nil
+        }
+        let trimmedTrackID = trackID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTrackName = trackName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ReferenceBundleAnnotationImportConfiguration(
+            bundleURL: selectedBundleURL,
+            trackID: trimmedTrackID.isEmpty ? nil : trimmedTrackID,
+            trackName: trimmedTrackName.isEmpty ? nil : trimmedTrackName
+        )
+    }
+
+    static func configurationForTest(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String
+    ) -> ReferenceBundleAnnotationImportConfiguration? {
+        makeConfiguration(
+            response: response,
+            selectedBundleURL: selectedBundleURL,
+            trackID: trackID,
+            trackName: trackName
+        )
     }
 }

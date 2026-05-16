@@ -2086,7 +2086,7 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
 
             let sidebarItems = await BAMVariantCallingCatalog().sidebarItems()
@@ -2422,7 +2422,7 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
 
             let builtIn = BuiltInPrimerSchemeService.listBuiltInSchemes()

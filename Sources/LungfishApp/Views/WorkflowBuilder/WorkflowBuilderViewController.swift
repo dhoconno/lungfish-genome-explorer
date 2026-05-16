@@ -641,8 +641,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
         let handle: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
-            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else {
+            guard let name = Self.workflowNamePromptResult(
+                response: response,
+                rawName: field.stringValue
+            ) else {
                 NSSound.beep()
                 return
             }
@@ -707,6 +709,22 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                   let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
             startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
         }
+    }
+
+    static func workflowNamePromptResult(
+        response: NSApplication.ModalResponse,
+        rawName: String
+    ) -> String? {
+        guard response == .alertFirstButtonReturn else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    static func workflowNamePromptResultForTest(
+        response: NSApplication.ModalResponse,
+        rawName: String
+    ) -> String? {
+        workflowNamePromptResult(response: response, rawName: rawName)
     }
 
     private func startWorkflowRun(sampleURL: URL, projectURL: URL) {

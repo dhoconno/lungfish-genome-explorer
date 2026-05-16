@@ -334,8 +334,10 @@ private final class ViralReconWorkflowProcessCancellation: @unchecked Sendable {
     }
 
     func cancel() {
-        Task { @MainActor in
-            self.runner.cancel()
+        DispatchQueue.main.async { [self] in
+            MainActor.assumeIsolated {
+                runner.cancel()
+            }
         }
     }
 }
@@ -566,8 +568,10 @@ private final class ProcessOutputCollector: @unchecked Sendable {
         lock.withLock {
             streamedOutput = true
         }
-        Task { @MainActor in
-            outputHandler(output)
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                outputHandler(output)
+            }
         }
     }
 
