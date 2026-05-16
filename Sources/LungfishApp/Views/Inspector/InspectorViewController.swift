@@ -3015,57 +3015,57 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .warning
         confirm.addButton(withTitle: "Mark Duplicates")
         confirm.addButton(withTitle: "Cancel")
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let window = self.view.window ?? NSApp.keyWindow else { return }
-            let confirmResponse = await confirm.beginSheetModal(for: window)
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+        confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
             guard confirmResponse == .alertFirstButtonReturn else { return }
-            guard let split = self.parent as? MainSplitViewController else { return }
+            MainActor.assumeIsolated {
+                guard let self, let split = self.parent as? MainSplitViewController else { return }
 
-            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-            split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
+                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+                split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
 
-            Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
+                Task(priority: .userInitiated) { [weak self] in
+                    do {
+                        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
 
-                        do {
-                            try split.viewerController.displayBundle(at: result.bundleURL)
-                            // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
-                            self.viewModel.readStyleSectionViewModel.showDuplicates = false
-                            self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
-                            self.presentSimpleAlert(
-                                title: "Duplicate Marking Complete",
-                                message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks are now loaded."
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: "Reload Failed",
-                                message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                            )
+                                do {
+                                    try split.viewerController.displayBundle(at: result.bundleURL)
+                                    // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
+                                    self.viewModel.readStyleSectionViewModel.showDuplicates = false
+                                    self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
+                                    self.presentSimpleAlert(
+                                        title: "Duplicate Marking Complete",
+                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks are now loaded."
+                                    )
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: "Reload Failed",
+                                        message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                self.presentSimpleAlert(
+                                    title: "Duplicate Marking Failed",
+                                    message: error.localizedDescription
+                                )
+                            }
                         }
                     }
                 }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Duplicate Marking Failed",
-                            message: error.localizedDescription
-                        )
-                    }
-                }
             }
-        }
         }
     }
 
@@ -3086,55 +3086,55 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .informational
         confirm.addButton(withTitle: "Create Bundle")
         confirm.addButton(withTitle: "Cancel")
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let window = self.view.window ?? NSApp.keyWindow else { return }
-            let confirmResponse = await confirm.beginSheetModal(for: window)
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+        confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
             guard confirmResponse == .alertFirstButtonReturn else { return }
-            guard let split = self.parent as? MainSplitViewController else { return }
+            MainActor.assumeIsolated {
+                guard let self, let split = self.parent as? MainSplitViewController else { return }
 
-            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-            split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
+                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+                split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
 
-            Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
+                Task(priority: .userInitiated) { [weak self] in
+                    do {
+                        let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        split.sidebarController.reloadFromFilesystem()
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                split.sidebarController.reloadFromFilesystem()
 
-                        do {
-                            try split.viewerController.displayBundle(at: result.bundleURL)
-                            self.presentSimpleAlert(
-                                title: "Deduplicated Bundle Created",
-                                message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). New bundle: \(result.bundleURL.lastPathComponent)"
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: "Open New Bundle Failed",
-                                message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
-                            )
+                                do {
+                                    try split.viewerController.displayBundle(at: result.bundleURL)
+                                    self.presentSimpleAlert(
+                                        title: "Deduplicated Bundle Created",
+                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). New bundle: \(result.bundleURL.lastPathComponent)"
+                                    )
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: "Open New Bundle Failed",
+                                        message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                self.presentSimpleAlert(
+                                    title: "Deduplicated Bundle Failed",
+                                    message: error.localizedDescription
+                                )
+                            }
                         }
                     }
                 }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Deduplicated Bundle Failed",
-                            message: error.localizedDescription
-                        )
-                    }
-                }
             }
-        }
         }
     }
 

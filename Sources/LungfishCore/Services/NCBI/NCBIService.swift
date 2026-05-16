@@ -994,6 +994,12 @@ public actor NCBIService: DatabaseService {
         to destination: URL,
         progressHandler: @escaping @Sendable (Int64, Int64?) -> Void
     ) async throws -> URL {
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw DatabaseServiceError.cancelled
+        }
+
         // Use continuation-based approach instead of async session.download(for:delegate:)
         // because the async API doesn't reliably forward didWriteData progress callbacks
         // to the session delegate.
@@ -1017,6 +1023,12 @@ public actor NCBIService: DatabaseService {
             }
         } onCancel: {
             taskBox.cancel()
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw DatabaseServiceError.cancelled
         }
 
         // Move to destination
@@ -2534,14 +2546,28 @@ final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, 
 }
 
 private final class URLSessionDownloadTaskBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+    private struct State {
+        var task: URLSessionDownloadTask?
+        var cancelled = false
+    }
+
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
 
     func store(_ task: URLSessionDownloadTask) {
-        lock.withLock { $0 = task }
+        let shouldCancel = lock.withLock { state in
+            state.task = task
+            return state.cancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
     }
 
     func cancel() {
-        let task = lock.withLock { $0 }
+        let task = lock.withLock { state in
+            state.cancelled = true
+            return state.task
+        }
         task?.cancel()
     }
 }

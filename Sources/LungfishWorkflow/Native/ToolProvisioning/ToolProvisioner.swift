@@ -157,6 +157,12 @@ public actor BaseToolProvisioner {
         to destination: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw ToolProvisioningError.cancelled
+        }
+
         logger.info("Downloading \(url.absoluteString) to \(destination.path)")
 
         let delegate = ToolDownloadProgressDelegate(
@@ -180,6 +186,12 @@ public actor BaseToolProvisioner {
             }
         } onCancel: {
             taskBox.cancel()
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw ToolProvisioningError.cancelled
         }
 
         let fileManager = FileManager.default
@@ -501,14 +513,28 @@ private final class ToolDownloadProgressDelegate: NSObject, URLSessionDownloadDe
 }
 
 private final class URLSessionDownloadTaskBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+    private struct State {
+        var task: URLSessionDownloadTask?
+        var cancelled = false
+    }
+
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
 
     func store(_ task: URLSessionDownloadTask) {
-        lock.withLock { $0 = task }
+        let shouldCancel = lock.withLock { state in
+            state.task = task
+            return state.cancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
     }
 
     func cancel() {
-        let task = lock.withLock { $0 }
+        let task = lock.withLock { state in
+            state.cancelled = true
+            return state.task
+        }
         task?.cancel()
     }
 }

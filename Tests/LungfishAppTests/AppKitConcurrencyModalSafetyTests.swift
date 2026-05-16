@@ -79,6 +79,36 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         )
     }
 
+    func testProductionSheetsAvoidMainActorTaskAwaitPattern() throws {
+        let root = repositoryRoot()
+        let appRoot = root.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
+        let swiftFiles = try swiftSourceFiles(under: appRoot)
+        var violations: [String] = []
+
+        for file in swiftFiles {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            let lines = source.components(separatedBy: .newlines)
+            for index in lines.indices {
+                let trimmed = lines[index].trimmingCharacters(in: .whitespaces)
+                guard trimmed.contains("Task { @MainActor"), !trimmed.hasPrefix("//") else {
+                    continue
+                }
+
+                let upperBound = min(lines.endIndex, index + 20)
+                let context = lines[index..<upperBound].joined(separator: "\n")
+                if context.contains("await"), context.contains("beginSheetModal") {
+                    violations.append(relativePath(file, root: root) + ":\(index + 1)")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Sheet callbacks must use completion-handler sheets instead of Task { @MainActor ... await beginSheetModal }:\n"
+                + violations.joined(separator: "\n")
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

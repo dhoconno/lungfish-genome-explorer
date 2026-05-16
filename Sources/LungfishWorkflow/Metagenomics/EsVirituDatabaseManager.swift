@@ -402,6 +402,12 @@ public actor EsVirituDatabaseManager {
         expectedSize: Int64,
         progress: @Sendable @escaping (Double) -> Void
     ) async throws -> URL {
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw EsVirituDatabaseError.downloadCancelled
+        }
+
         let taskBox = URLSessionDownloadTaskBox()
         let delegate = DownloadProgressDelegate(
             destination: destination,
@@ -583,14 +589,28 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
 }
 
 private final class URLSessionDownloadTaskBox: @unchecked Sendable {
-    private let lock = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+    private struct State {
+        var task: URLSessionDownloadTask?
+        var cancelled = false
+    }
+
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
 
     func store(_ task: URLSessionDownloadTask) {
-        lock.withLock { $0 = task }
+        let shouldCancel = lock.withLock { state in
+            state.task = task
+            return state.cancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
     }
 
     func cancel() {
-        let task = lock.withLock { $0 }
+        let task = lock.withLock { state in
+            state.cancelled = true
+            return state.task
+        }
         task?.cancel()
     }
 }

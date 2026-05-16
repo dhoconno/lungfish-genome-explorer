@@ -1602,11 +1602,12 @@ public final class WelcomeWindowController: NSWindowController {
             alert.addButton(withTitle: "Cancel")
 
             if let window = self.window {
-                Task { @MainActor [weak self] in
-                    let response = await alert.beginSheetModal(for: window)
+                alert.beginSheetModal(for: window) { [weak self] response in
                     if response == .alertFirstButtonReturn {
                         // Set as working directory without creating a full project
-                        self?.setWorkingDirectory(url)
+                        MainActor.assumeIsolated {
+                            self?.setWorkingDirectory(url)
+                        }
                     }
                 }
             }

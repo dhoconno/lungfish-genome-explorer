@@ -1563,14 +1563,15 @@ public class MainSplitViewController: NSSplitViewController {
             alert.addButton(withTitle: "Include Unclassified")
             alert.addButton(withTitle: "Barcoded Only")
             alert.applyLungfishBranding()
-            Task { @MainActor [weak self] in
-                let response = await alert.beginSheetModal(for: window)
+            alert.beginSheetModal(for: window) { [weak self] response in
                 let includeUnclassified = response == .alertFirstButtonReturn
-                self?.performONTImport(
-                    sourceURL: sourceURL, projectURL: projectURL,
-                    includeUnclassified: includeUnclassified,
-                    viewerController: viewerController, requestID: requestID
-                )
+                MainActor.assumeIsolated {
+                    self?.performONTImport(
+                        sourceURL: sourceURL, projectURL: projectURL,
+                        includeUnclassified: includeUnclassified,
+                        viewerController: viewerController, requestID: requestID
+                    )
+                }
             }
         } else {
             performONTImport(
@@ -4668,10 +4669,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         alert.alertStyle = .informational
 
         guard let window = self.view.window ?? NSApp.keyWindow else { return }
-        Task { @MainActor [weak self] in
-            let response = await alert.beginSheetModal(for: window)
+        alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            self?.performDownloadReferenceForVCF(inferredRef, assembly: assembly)
+            MainActor.assumeIsolated {
+                self?.performDownloadReferenceForVCF(inferredRef, assembly: assembly)
+            }
         }
     }
 

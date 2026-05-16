@@ -17,6 +17,10 @@ final class NCBIDownloadCancellationSourceTests: XCTestCase {
         XCTAssertTrue(source.contains(".cancel()"))
         XCTAssertTrue(source.contains("ContinuationDownloadDelegate"))
         XCTAssertTrue(source.contains("resumeOnce"))
+        XCTAssertTrue(source.contains("try Task.checkCancellation()"))
+        XCTAssertTrue(source.contains("var cancelled = false"))
+        XCTAssertTrue(source.contains("state.cancelled = true"))
+        XCTAssertTrue(source.contains("return state.cancelled"))
     }
 
     private func repositoryRoot() -> URL {
