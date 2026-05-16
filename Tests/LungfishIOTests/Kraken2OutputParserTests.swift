@@ -86,17 +86,44 @@ final class Kraken2OutputParserTests: XCTestCase {
         XCTAssertEqual(seen, ["read1", "read2", "read3"])
     }
 
-    func testParseURLDelegatesToStreamingWithoutDataContentsOf() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishIO/Formats/Kraken/Kraken2OutputParser.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-        let body = try XCTUnwrap(source.staticFunctionBody(named: "parse", firstParameter: "url"))
+    func testParseRecordsURLMatchesTextParsingForCRLFAndCROnlyLineEndings() throws {
+        let lines = [
+            "C\tread1\t9606\t150\t9606:150",
+            "U\tread2\t0\t150\t0:150",
+            "C\tread3\t562\t200\t562:200"
+        ]
 
-        XCTAssertFalse(body.contains("Data(contentsOf:"))
-        XCTAssertTrue(body.contains("parseRecords(url:"))
+        for separator in ["\r\n", "\r"] {
+            let text = lines.joined(separator: separator)
+            let url = try writeTemporaryKrakenOutput(text)
+            let textRecords = try Kraken2OutputParser.parse(text: text)
+            var streamedRecords: [Kraken2ReadClassification] = []
+
+            let count = try Kraken2OutputParser.parseRecords(url: url) { record in
+                streamedRecords.append(record)
+            }
+
+            XCTAssertEqual(count, textRecords.count)
+            XCTAssertEqual(streamedRecords.map(\.readId), textRecords.map(\.readId))
+            XCTAssertEqual(streamedRecords.map(\.taxId), textRecords.map(\.taxId))
+        }
+    }
+
+    func testParseRecordsURLHandlesChunkBoundaryAndUnterminatedFinalLine() throws {
+        let longReadID = String(repeating: "r", count: 70_000)
+        let url = try writeTemporaryKrakenOutput("""
+        C\t\(longReadID)\t9606\t150\t9606:150
+        U\tlast\t0\t50\t0:50
+        """)
+
+        var records: [Kraken2ReadClassification] = []
+        let count = try Kraken2OutputParser.parseRecords(url: url) { record in
+            records.append(record)
+        }
+
+        XCTAssertEqual(count, 2)
+        XCTAssertEqual(records.map(\.readId), [longReadID, "last"])
+        XCTAssertEqual(records.map(\.taxId), [9606, 0])
     }
 
     // MARK: - Paired-End Reads
@@ -295,35 +322,5 @@ final class Kraken2OutputParserTests: XCTestCase {
         )
         XCTAssertNotNil(fileErr.errorDescription)
         XCTAssertTrue(fileErr.errorDescription!.contains("test.output"))
-    }
-}
-
-private extension String {
-    func staticFunctionBody(named name: String, firstParameter: String) -> String? {
-        let publicSignature = "public static func \(name)(\(firstParameter):"
-        let internalSignature = "static func \(name)(\(firstParameter):"
-        guard let signatureRange = range(of: publicSignature) ?? range(of: internalSignature),
-              let openingBrace = self[signatureRange.lowerBound...].firstIndex(of: "{") else {
-            return nil
-        }
-
-        var depth = 0
-        var index = openingBrace
-        while index < endIndex {
-            switch self[index] {
-            case "{":
-                depth += 1
-            case "}":
-                depth -= 1
-                if depth == 0 {
-                    return String(self[self.index(after: openingBrace)..<index])
-                }
-            default:
-                break
-            }
-            index = self.index(after: index)
-        }
-
-        return nil
     }
 }

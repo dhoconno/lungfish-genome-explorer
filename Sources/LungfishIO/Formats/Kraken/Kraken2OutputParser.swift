@@ -139,6 +139,7 @@ public enum Kraken2OutputParser {
         var buffer = Data()
         var parsedCount = 0
         var lineNumber = 0
+        var previousDelimiterWasCR = false
 
         func processLine(_ lineData: Data) throws {
             lineNumber += 1
@@ -150,6 +151,9 @@ public enum Kraken2OutputParser {
             }
 
             guard let line = String(data: normalized, encoding: .utf8) else {
+                logger.warning(
+                    "Skipping non-UTF8 Kraken2 output line \(lineNumber, privacy: .public)"
+                )
                 return
             }
             let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -176,9 +180,16 @@ public enum Kraken2OutputParser {
             }
 
             buffer.append(chunk)
-            while let newlineIndex = buffer.firstIndex(of: 10) {
+            while let newlineIndex = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
+                let delimiter = buffer[newlineIndex]
                 let lineData = buffer[..<newlineIndex]
+                if previousDelimiterWasCR, delimiter == 10, lineData.isEmpty {
+                    previousDelimiterWasCR = false
+                    buffer.removeSubrange(...newlineIndex)
+                    continue
+                }
                 try processLine(Data(lineData))
+                previousDelimiterWasCR = delimiter == 13
                 buffer.removeSubrange(...newlineIndex)
             }
         }
