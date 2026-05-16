@@ -79,9 +79,13 @@ public class ProgressOverlayView: NSView {
         // Set new timeout as safety net
         let timeoutInterval = timeout ?? defaultTimeout
         timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutInterval, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.stopAnimating()
-            self.isHidden = true
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self = self else { return }
+                    self.stopAnimating()
+                    self.isHidden = true
+                }
+            }
         }
     }
 

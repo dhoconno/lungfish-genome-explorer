@@ -2982,7 +2982,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
-        actionBar.onBlastVerify = { [weak self] in
+        actionBar.onBlastVerify = {
             // TaxTriage BLAST is triggered via the table context menu per-organism;
             // the action bar button is intentionally a no-op placeholder
         }

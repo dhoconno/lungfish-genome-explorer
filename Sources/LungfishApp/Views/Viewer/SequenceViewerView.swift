@@ -2619,7 +2619,7 @@ public class SequenceViewerView: NSView {
     ///
     /// Uses `MainActor.assumeIsolated` inside the CFRunLoop block to guarantee
     /// the compiler knows we're on the main actor (GCD main queue is always drained).
-    private static func enqueueMainRunLoop(_ block: @escaping @MainActor () -> Void) {
+    nonisolated private static func enqueueMainRunLoop(_ block: @escaping @MainActor () -> Void) {
         if Thread.isMainThread {
             MainActor.assumeIsolated { block() }
             return
@@ -7397,11 +7397,15 @@ public class SequenceViewerView: NSView {
 
             scrollRedrawTimer?.invalidate()
             scrollRedrawTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: false) { [weak self] _ in
-                guard let self else { return }
-                self.setNeedsDisplay(self.bounds)
-                self.viewController?.enhancedRulerView.setNeedsDisplay(self.viewController?.enhancedRulerView.bounds ?? .zero)
-                self.viewController?.updateStatusBar()
-                self.viewController?.scheduleViewStateSave()
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.setNeedsDisplay(self.bounds)
+                        self.viewController?.enhancedRulerView.setNeedsDisplay(self.viewController?.enhancedRulerView.bounds ?? .zero)
+                        self.viewController?.updateStatusBar()
+                        self.viewController?.scheduleViewStateSave()
+                    }
+                }
             }
         }
     }

@@ -390,8 +390,8 @@ public actor BigBedReader {
         }
         
         // Read R-tree parameters
-        let blockSize = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }
-        let itemCount = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self) }
+        _ = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 4, as: UInt32.self) }  // blockSize
+        _ = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 8, as: UInt64.self) }  // itemCount
         _ = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 16, as: UInt32.self) }  // startChromIx
         _ = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 20, as: UInt32.self) }  // startBase
         _ = rTreeHeader.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: 24, as: UInt32.self) }  // endChromIx

@@ -243,7 +243,7 @@ extension BlastCommand {
                 extraArgs: extraArgs,
                 maxConcurrentSubmissions: maxConcurrent
             )
-            _ = try request.blastURLAPIExtraParameters
+            _ = request.blastURLAPIExtraParameters
 
             let result = try await BlastService.shared.verify(
                 request: request

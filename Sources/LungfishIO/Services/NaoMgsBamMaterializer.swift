@@ -218,7 +218,7 @@ public enum NaoMgsBamMaterializer {
         var accStmt: OpaquePointer?
         let accSQL = "SELECT DISTINCT accession FROM accession_summaries WHERE sample = ?"
         if sqlite3_prepare_v2(db, accSQL, -1, &accStmt, nil) == SQLITE_OK {
-            sample.withCString { cStr in
+            _ = sample.withCString { cStr in
                 sqlite3_bind_text(accStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
             }
             while sqlite3_step(accStmt) == SQLITE_ROW {
@@ -237,7 +237,7 @@ public enum NaoMgsBamMaterializer {
                 throw NSError(domain: "NaoMgsBamMaterializer", code: 3,
                               userInfo: [NSLocalizedDescriptionKey: "Could not prepare accession query"])
             }
-            sample.withCString { cStr in
+            _ = sample.withCString { cStr in
                 sqlite3_bind_text(fallbackStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
             }
             while sqlite3_step(fallbackStmt) == SQLITE_ROW {
@@ -260,6 +260,7 @@ public enum NaoMgsBamMaterializer {
             header += "@SQ\tSN:\(accession)\tLN:\(length)\n"
         }
         header += "@PG\tID:lungfish-naomgs-materializer\tPN:lungfish\tVN:1.0\n"
+        let headerText = header
 
         // 3. Start samtools pipeline BEFORE reading rows -- stream directly into it
         let cmd = """
@@ -287,7 +288,15 @@ public enum NaoMgsBamMaterializer {
         final class ErrorBox: @unchecked Sendable {
             var value: Error?
         }
+        final class DatabaseBox: @unchecked Sendable {
+            let value: OpaquePointer?
+
+            init(_ value: OpaquePointer?) {
+                self.value = value
+            }
+        }
         let writeError = ErrorBox()
+        let database = DatabaseBox(db)
         let writeGroup = DispatchGroup()
         writeGroup.enter()
         DispatchQueue.global(qos: .userInitiated).async {
@@ -314,7 +323,7 @@ public enum NaoMgsBamMaterializer {
                 }
             }
 
-            if let headerData = header.data(using: .utf8) {
+            if let headerData = headerText.data(using: .utf8) {
                 guard writeAll(headerData) else {
                     writeError.value = NSError(domain: "NaoMgsBamMaterializer", code: 7,
                                                userInfo: [NSLocalizedDescriptionKey: "Broken pipe writing SAM header"])
@@ -322,6 +331,7 @@ public enum NaoMgsBamMaterializer {
                 }
             }
 
+            let db = database.value
             let hasPairedColumns = virusHitsHasPairedColumns(db: db)
             var rowStmt: OpaquePointer?
             let rowSQL: String
@@ -346,7 +356,7 @@ public enum NaoMgsBamMaterializer {
                 return
             }
             defer { sqlite3_finalize(rowStmt) }
-            sample.withCString { cStr in
+            _ = sample.withCString { cStr in
                 sqlite3_bind_text(rowStmt, 1, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
             }
 

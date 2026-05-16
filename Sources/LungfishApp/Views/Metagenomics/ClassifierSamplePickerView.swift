@@ -133,7 +133,7 @@ struct ClassifierSamplePickerView: View {
     }
 
     /// Computes the longest common prefix across all sample names, breaking at word boundaries.
-    static func commonPrefix(of names: [String]) -> String {
+    nonisolated static func commonPrefix(of names: [String]) -> String {
         guard let first = names.first, names.count > 1 else { return "" }
         var prefix = first
         for name in names.dropFirst() {

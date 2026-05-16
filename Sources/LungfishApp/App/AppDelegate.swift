@@ -1057,7 +1057,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 #if DEBUG
         // In debug builds, scan for escaped temp dirs every 5 minutes.
         Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
-            self?.debugScanForEscapedTempDirs()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.debugScanForEscapedTempDirs()
+                }
+            }
         }
 #endif
     }
@@ -6525,7 +6529,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext
         )
 
-        let task = Task.detached { [weak self] in
+        let task = Task.detached {
             do {
                 // Step 1: Parse the blast_concatenated.csv(.gz)
                 DispatchQueue.main.async {
@@ -7030,7 +7034,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         OperationCenter.shared.log(id: opID, level: .info, message: message)
                     }}
                 }
-                nonisolated(unsafe) let capturedConfig = config
+                let capturedConfig = config
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.complete(
                         id: opID,
@@ -7931,7 +7935,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     appDelegateLogger.warning("runClassification: Failed to save result sidecar - \(error.localizedDescription, privacy: .public)")
                 }
 
-                nonisolated(unsafe) let capturedConfig = config
+                let capturedConfig = config
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
@@ -8211,9 +8215,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     appDelegateLogger.warning("runEsViritu: Failed to write root provenance - \(error.localizedDescription, privacy: .public)")
                 }
 
-                nonisolated(unsafe) let capturedResult = ioResult
-                nonisolated(unsafe) let capturedConfig = config
-                nonisolated(unsafe) let capturedDBBuildError = dbBuildErrorDescription
+                let capturedResult = ioResult
+                let capturedConfig = config
+                let capturedDBBuildError = dbBuildErrorDescription
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()
@@ -8507,7 +8511,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
 
-            nonisolated(unsafe) let capturedDBBuildError = dbBuildErrorDescription
+            let capturedDBBuildError = dbBuildErrorDescription
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
@@ -8826,7 +8830,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
             }
 
-            nonisolated(unsafe) let capturedDBBuildError = dbBuildErrorDescription
+            let capturedDBBuildError = dbBuildErrorDescription
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     viewerController.hideProgress()
@@ -9014,9 +9018,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     resultDirectory: result.outputDirectory
                 )
 
-                nonisolated(unsafe) let capturedResult = result
-                nonisolated(unsafe) let capturedConfig = config
-                nonisolated(unsafe) let capturedDBBuildError = dbBuildErrorDescription
+                let capturedResult = result
+                let capturedConfig = config
+                let capturedDBBuildError = dbBuildErrorDescription
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         viewerController.hideProgress()

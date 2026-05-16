@@ -206,7 +206,7 @@ struct RunHeadlessSubcommand: AsyncParsableCommand {
     var workflow: String
 
     func run() async throws {
-        var command = try RunSubcommand.parse([workflow, "--quiet"])
+        let command = try RunSubcommand.parse([workflow, "--quiet"])
         try await command.run()
     }
 }

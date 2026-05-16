@@ -121,7 +121,7 @@ extension ViewerViewController {
                         }
                     )
 
-                    nonisolated(unsafe) let capturedURLs = outputURLs
+                    let capturedURLs = outputURLs
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
                             let count = capturedURLs.count
@@ -162,7 +162,7 @@ extension ViewerViewController {
 
         controller.onBlastVerification = { [weak controller] node, readCount in
             let blastRunID = controller?.beginBlastVerification(for: node)
-            nonisolated(unsafe) let weakController = controller
+            let weakController = controller
             let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
                 "--kreport", capturedOutputURL.path,
                 "--taxid", "\(node.taxId)",
@@ -176,9 +176,9 @@ extension ViewerViewController {
 
             let taxId = node.taxId
             let taxonName = node.name
-            nonisolated(unsafe) let inputFiles = capturedInputFiles
-            nonisolated(unsafe) let classificationOutput = capturedOutputURL
-            nonisolated(unsafe) let tree = capturedTree
+            let inputFiles = capturedInputFiles
+            let classificationOutput = capturedOutputURL
+            let tree = capturedTree
 
             let task = Task.detached {
                 do {
@@ -262,7 +262,7 @@ extension ViewerViewController {
                         }
                     )
 
-                    nonisolated(unsafe) let capturedResult = blastResult
+                    let capturedResult = blastResult
                     scheduleTaxonomyOnMainRunLoop {
                         MainActor.assumeIsolated {
                             OperationCenter.shared.complete(
@@ -369,7 +369,7 @@ extension ViewerViewController {
                 return
             }
 
-            nonisolated(unsafe) let weakController = controller
+            let weakController = controller
             let blastCliCmd = OperationCenter.buildCLICommand(subcommand: "blast verify", args: [
                 "--kreport", sampleResult.outputURL.path,
                 "--taxid", "\(node.taxId)",
@@ -383,9 +383,9 @@ extension ViewerViewController {
 
             let taxId = node.taxId
             let taxonName = node.name
-            nonisolated(unsafe) let inputFiles = sampleResult.config.inputFiles
-            nonisolated(unsafe) let classificationOutput = sampleResult.outputURL
-            nonisolated(unsafe) let tree = sampleResult.tree
+            let inputFiles = sampleResult.config.inputFiles
+            let classificationOutput = sampleResult.outputURL
+            let tree = sampleResult.tree
 
             let task = Task.detached {
                 do {

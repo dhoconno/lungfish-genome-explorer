@@ -599,7 +599,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
 
         let task = Task { [self] in
             let statuses = await computeVisibleStatuses(forGeneration: generation)
-            await clearVisibleStatusesRefreshTask(forGeneration: generation)
+            clearVisibleStatusesRefreshTask(forGeneration: generation)
             return statuses
         }
         inFlightVisibleStatuses = (generation, task)
@@ -617,8 +617,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         let task = Task { [self] in
             let status = await computeStatus(for: pack)
             let fingerprint = await currentFingerprint(for: pack)
-            await storePackStatus(status, fingerprint: fingerprint, forGeneration: generation)
-            await clearPackStatusRefreshTask(forPackID: pack.id, generation: generation)
+            storePackStatus(status, fingerprint: fingerprint, forGeneration: generation)
+            clearPackStatusRefreshTask(forPackID: pack.id, generation: generation)
             return status
         }
 

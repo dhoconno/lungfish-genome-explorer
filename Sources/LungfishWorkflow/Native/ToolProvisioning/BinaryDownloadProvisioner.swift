@@ -186,7 +186,7 @@ public actor BinaryDownloadProvisioner: ToolProvisioner {
 
                 // Verify checksum if provided
                 if let checksums = download.checksums,
-                   let expected = checksums[downloadArch] {
+                   checksums[downloadArch] != nil {
                     // For multi-executable downloads, checksums would need to be per-executable
                     // This is a simplified version
                     logger.debug("Checksum verification skipped for \(executable)")

@@ -262,7 +262,7 @@ struct ContainerSubcommand: AsyncParsableCommand {
                     print(formatter.info("Pulling image (this may take a while)..."))
                     let image = try await runtime.pullImage(reference: fullReference)
                     print(formatter.success("Successfully pulled image: \(image.reference)"))
-                    print(formatter.dim("  Digest: \(image.digest)"))
+                    print(formatter.dim("  Digest: \(image.digest ?? "unknown")"))
                 } catch {
                     print(formatter.error("Pull test failed: \(error.localizedDescription)"))
                     fputs("DEBUG: \(error)\n", stderr)

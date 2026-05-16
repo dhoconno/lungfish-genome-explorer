@@ -275,7 +275,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Update summary bar with cached counts
         let totalHits = manifest.hitCount
-        let taxonCount = rows.count
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
 
@@ -332,7 +331,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Update action bar
         let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
-        let taxonCount = displayedRows.count
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
 
@@ -809,7 +807,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        guard let database else {
+        guard database != nil else {
             let emptyLabel = NSTextField(labelWithString: "No database available.")
             emptyLabel.font = .systemFont(ofSize: 11)
             emptyLabel.textColor = .secondaryLabelColor

@@ -14,7 +14,7 @@ private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destruct
 
 /// Binds a Swift String to a SQLite prepared statement at the given parameter index.
 private func evBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
-    text.withCString { cStr in
+    _ = text.withCString { cStr in
         sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
     }
 }

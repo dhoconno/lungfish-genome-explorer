@@ -428,7 +428,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             ExpansionSectionID.errorBox,
         ]
         cell.subviews
-            .filter { expansionIDs.contains($0.accessibilityIdentifier() ?? "") }
+            .filter { expansionIDs.contains($0.accessibilityIdentifier()) }
             .forEach { $0.removeFromSuperview() }
     }
 

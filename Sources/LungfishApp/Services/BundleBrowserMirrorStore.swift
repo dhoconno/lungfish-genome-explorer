@@ -139,13 +139,13 @@ final class BundleBrowserMirrorStore {
     }
 
     private func bindText(_ value: String, at index: Int32, into statement: OpaquePointer?) {
-        value.withCString { text in
+        _ = value.withCString { text in
             sqlite3_bind_text(statement, index, text, -1, SQLITE_TRANSIENT)
         }
     }
 
     private func bindBlob(_ data: Data, at index: Int32, into statement: OpaquePointer?) {
-        data.withUnsafeBytes { bytes in
+        _ = data.withUnsafeBytes { bytes in
             sqlite3_bind_blob(statement, index, bytes.baseAddress, Int32(data.count), SQLITE_TRANSIENT)
         }
     }

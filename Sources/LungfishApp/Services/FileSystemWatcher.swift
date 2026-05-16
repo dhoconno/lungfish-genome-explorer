@@ -111,7 +111,7 @@ public final class FileSystemWatcher {
         }
 
         eventStream = stream
-        FSEventStreamScheduleWithRunLoop(stream, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.main)
         FSEventStreamStart(stream)
 
         logger.info("startWatching: FSEvents stream started successfully")
