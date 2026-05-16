@@ -5,10 +5,9 @@
 import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
-@testable import LungfishUI
 
 /// Cross-module integration tests that exercise real data flow between
-/// LungfishCore, LungfishIO, and LungfishUI.
+/// LungfishCore and LungfishIO.
 ///
 /// These tests create real temporary files on disk and verify that data
 /// produced by one module is correctly consumed by another.
@@ -304,175 +303,7 @@ final class CrossModuleTests: XCTestCase {
         XCTAssertFalse(annotations[0].overlaps(start: 600, end: 700))
     }
 
-    // MARK: - 2. Core -> UI Integration Tests
-
-    /// Creates a `Sequence` from Core, wraps it in a `SequenceTrack` from UI,
-    /// and verifies track properties are properly initialized.
-    func testSequenceTrackCreation() throws {
-        let sequence = try LungfishCore.Sequence(
-            name: "chr1",
-            alphabet: .dna,
-            bases: String(repeating: "ATCG", count: 250)  // 1000 bp
-        )
-
-        let track = SequenceTrack(name: "Reference Sequence", sequence: sequence)
-
-        XCTAssertEqual(track.name, "Reference Sequence")
-        XCTAssertNotNil(track.currentSequence)
-        XCTAssertEqual(track.currentSequence!.name, "chr1")
-        XCTAssertEqual(track.currentSequence!.length, 1000)
-        XCTAssertTrue(track.isVisible)
-        XCTAssertFalse(track.showComplementStrand)
-
-        // Verify the track can accept a new sequence
-        let seq2 = try LungfishCore.Sequence(
-            name: "chr2",
-            alphabet: .dna,
-            bases: String(repeating: "GCTA", count: 100)
-        )
-        track.setSequence(seq2)
-        XCTAssertEqual(track.currentSequence!.name, "chr2")
-        XCTAssertEqual(track.currentSequence!.length, 400)
-    }
-
-    /// Creates a `ReferenceFrame` matching the length of a parsed sequence
-    /// and verifies coordinate conversion between genomic and screen space.
-    func testReferenceFrameForSequence() throws {
-        let sequence = try LungfishCore.Sequence(
-            name: "chr17",
-            alphabet: .dna,
-            bases: String(repeating: "ATCG", count: 500)  // 2000 bp
-        )
-
-        let frame = ReferenceFrame(
-            chromosome: sequence.name,
-            chromosomeLength: sequence.length,
-            widthInPixels: 1000
-        )
-
-        // At full zoom-out: 2000 bp in 1000 pixels = 2 bp/pixel
-        XCTAssertEqual(frame.chromosome, "chr17")
-        XCTAssertEqual(frame.chromosomeLength, 2000)
-        XCTAssertEqual(frame.scale, 2.0, accuracy: 0.001)
-        XCTAssertEqual(frame.origin, 0)
-        XCTAssertEqual(frame.end, 2000, accuracy: 0.001)
-
-        // Test coordinate conversion: position 1000 should be at pixel 500
-        let screenX = frame.screenPosition(for: 1000)
-        XCTAssertEqual(screenX, 500.0, accuracy: 0.001)
-
-        // And back
-        let genomicPos = frame.genomicPosition(for: 500)
-        XCTAssertEqual(genomicPos, 1000.0, accuracy: 0.001)
-
-        // Jump to a sub-region
-        frame.jumpTo(start: 500, end: 1500)
-        XCTAssertEqual(frame.origin, 500, accuracy: 0.001)
-        XCTAssertEqual(frame.end, 1500, accuracy: 0.001)
-        // 1000 bp in 1000 pixels = 1 bp/pixel
-        XCTAssertEqual(frame.scale, 1.0, accuracy: 0.001)
-    }
-
-    /// Creates a `TileCache`, stores and retrieves sequence tile data,
-    /// verifying the LRU eviction and statistics.
-    func testTileCacheWithRealData() async throws {
-        let cache = TileCache<SequenceTileContent>(capacity: 5)
-        let trackId = UUID()
-
-        // Insert tiles
-        for i in 0..<5 {
-            let content = SequenceTileContent(
-                sequence: String(repeating: "ATCG", count: 25),
-                gcContent: Float(i) * 0.1 + 0.3,
-                dominantBase: ["A", "T", "C", "G", "A"][i]
-            )
-            let key = TileKey(trackId: trackId, chromosome: "chr1", tileIndex: i, zoom: 5)
-            let tile = Tile(key: key, startBP: i * 100, endBP: (i + 1) * 100, content: content)
-            await cache.set(tile, for: key)
-        }
-
-        // Verify cache contains all tiles
-        let stats = await cache.statistics()
-        XCTAssertEqual(stats.currentSize, 5)
-
-        // Retrieve a tile and verify content
-        let key2 = TileKey(trackId: trackId, chromosome: "chr1", tileIndex: 2, zoom: 5)
-        let retrieved = await cache.get(key2)
-        XCTAssertNotNil(retrieved)
-        XCTAssertEqual(retrieved!.startBP, 200)
-        XCTAssertEqual(retrieved!.endBP, 300)
-        XCTAssertEqual(retrieved!.content.sequence.count, 100)
-
-        // Verify LRU eviction: add one more tile, tile 0 should be evicted
-        // (tile 2 was just accessed so it moves to end)
-        let newContent = SequenceTileContent(
-            sequence: String(repeating: "NNNN", count: 25),
-            gcContent: 0.0,
-            dominantBase: "N"
-        )
-        let newKey = TileKey(trackId: trackId, chromosome: "chr1", tileIndex: 5, zoom: 5)
-        let newTile = Tile(key: newKey, startBP: 500, endBP: 600, content: newContent)
-        await cache.set(newTile, for: newKey)
-
-        let statsAfter = await cache.statistics()
-        XCTAssertEqual(statsAfter.currentSize, 5)
-        XCTAssertGreaterThanOrEqual(statsAfter.evictions, 1)
-
-        // Tile 5 (newly added) should be present
-        let tile5 = await cache.get(newKey)
-        XCTAssertNotNil(tile5)
-
-        // Clear cache
-        await cache.clear()
-        let clearedStats = await cache.statistics()
-        XCTAssertEqual(clearedStats.currentSize, 0)
-    }
-
-    /// Loads GFF3 annotations and creates a `FeatureTrack` from UI,
-    /// verifying the track can hold and report the annotations.
-    func testAnnotationTrackFromGFF3() async throws {
-        let gff3Content = """
-        ##gff-version 3
-        chr1\t.\tgene\t1\t1000\t.\t+\t.\tID=g1;Name=GeneA
-        chr1\t.\texon\t1\t300\t.\t+\t.\tID=e1;Parent=g1;Name=exonA1
-        chr1\t.\texon\t700\t1000\t.\t+\t.\tID=e2;Parent=g1;Name=exonA2
-        chr1\t.\tgene\t2000\t3000\t.\t-\t.\tID=g2;Name=GeneB
-        """
-        let gff3URL = tempDirectory.appendingPathComponent("annotations.gff3")
-        try gff3Content.write(to: gff3URL, atomically: true, encoding: .utf8)
-
-        let reader = GFF3Reader()
-        let annotations = try await reader.readAsAnnotations(from: gff3URL)
-        XCTAssertEqual(annotations.count, 4)
-
-        // Create a FeatureTrack with these annotations
-        let featureTrack = FeatureTrack(
-            name: "Gene Annotations",
-            annotations: annotations,
-            height: 80
-        )
-
-        XCTAssertEqual(featureTrack.name, "Gene Annotations")
-        XCTAssertEqual(featureTrack.height, 80)
-        XCTAssertTrue(featureTrack.isVisible)
-
-        // The track should have a tooltip for a position inside GeneA
-        // First load the track data for a reference frame
-        let frame = ReferenceFrame(
-            chromosome: "chr1",
-            chromosomeLength: 5000,
-            widthInPixels: 1000
-        )
-        try await featureTrack.load(for: frame)
-
-        // Verify tooltip at position inside GeneA (0-based: 0..1000)
-        let tooltip = featureTrack.tooltipText(at: 500, y: 40)
-        XCTAssertNotNil(tooltip)
-        XCTAssertTrue(tooltip!.contains("GeneA") || tooltip!.contains("exon"),
-                       "Tooltip should reference GeneA or one of its exons")
-    }
-
-    // MARK: - 3. Round-Trip File Conversion Tests
+    // MARK: - 2. Round-Trip File Conversion Tests
 
     /// Writes sequences to FASTA, reads them back, and verifies the content
     /// matches the original.
@@ -706,7 +537,7 @@ final class CrossModuleTests: XCTestCase {
         }
     }
 
-    // MARK: - 4. Multi-Format Loading Tests
+    // MARK: - 3. Multi-Format Loading Tests
 
     /// Creates a directory with multiple genomic file formats, uses the
     /// `FormatRegistry` to detect each file's type, and verifies that the
@@ -817,13 +648,12 @@ final class CrossModuleTests: XCTestCase {
             }
         }
 
-        // Build a FeatureTrack for chr1 annotations
+        // Verify annotations can be grouped by chromosome for downstream consumers.
         let chr1Annotations = annotations.filter { $0.chromosome == "chr1" }
-        let track = FeatureTrack(name: "chr1 Genes", annotations: chr1Annotations)
-        XCTAssertEqual(track.name, "chr1 Genes")
+        XCTAssertEqual(chr1Annotations.count, 2)
     }
 
-    // MARK: - 5. Reference Bundle Integration
+    // MARK: - 4. Reference Bundle Integration
 
     /// Creates a `BundleManifest`, saves it to JSON, reloads it, and verifies
     /// that all fields including nested structures survive the round-trip.

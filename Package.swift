@@ -29,16 +29,6 @@ let package = Package(
             name: "LungfishIO",
             targets: ["LungfishIO"]
         ),
-        // UI rendering and track system
-        .library(
-            name: "LungfishUI",
-            targets: ["LungfishUI"]
-        ),
-        // Plugin system
-        .library(
-            name: "LungfishPlugin",
-            targets: ["LungfishPlugin"]
-        ),
         // Workflow integration (Nextflow/Snakemake)
         .library(
             name: "LungfishWorkflow",
@@ -117,35 +107,6 @@ let package = Package(
             ]
         ),
 
-        // MARK: - LungfishUI
-        .target(
-            name: "LungfishUI",
-            dependencies: [
-                "LungfishCore",
-                "LungfishIO",
-            ],
-            path: "Sources/LungfishUI"
-        ),
-        .testTarget(
-            name: "LungfishUITests",
-            dependencies: ["LungfishUI"],
-            path: "Tests/LungfishUITests"
-        ),
-
-        // MARK: - LungfishPlugin
-        .target(
-            name: "LungfishPlugin",
-            dependencies: [
-                "LungfishCore",
-            ],
-            path: "Sources/LungfishPlugin"
-        ),
-        .testTarget(
-            name: "LungfishPluginTests",
-            dependencies: ["LungfishPlugin", "LungfishCore"],
-            path: "Tests/LungfishPluginTests"
-        ),
-
         // MARK: - LungfishWorkflow
         .target(
             name: "LungfishWorkflow",
@@ -181,7 +142,6 @@ let package = Package(
             dependencies: [
                 "LungfishCore",
                 "LungfishIO",
-                "LungfishUI",
                 "LungfishWorkflow",
             ],
             path: "Sources/LungfishApp",
@@ -239,7 +199,6 @@ let package = Package(
             dependencies: [
                 "LungfishCore",
                 "LungfishIO",
-                "LungfishUI",
                 "LungfishWorkflow",
                 "LungfishCLI",
                 "LungfishApp",
