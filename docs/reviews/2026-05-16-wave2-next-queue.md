@@ -192,6 +192,30 @@ worktree and the reviewer must re-check the fix.
 3. Slice B can be developed in parallel but final `otool` verification is most
    meaningful after Slice A is merged.
 
+## Deferred Queue From Independent Triage
+
+These items remain open but should follow the four slices above unless a worker
+finishes early and can take a non-conflicting branch.
+
+- `P2-io-genbank-loads-whole-file-and-nested-complement-loses-strand`:
+  `GenBankReader` still reads entire files and nested `complement(...)` inside
+  `join/order` does not preserve per-segment strand. Split this into a parser
+  memory-pressure slice and a feature-location/strand-model slice if needed.
+- `P2-io-kraken2-output-parser-loads-whole-file`: the per-read Kraken2 parser
+  still loads the whole file into memory. Add a streaming API/callback and keep
+  the existing in-memory parser as a convenience wrapper if useful.
+- `P2-tests-fragile-source-string-contains-assertions`: many source-string
+  policy tests remain. Keep genuine source-contract tests, but convert routing,
+  menu, and dialog tests to behavior-level assertions in smaller groups.
+- `P1-architecture-fat-fastq-services`: still open, but it does not block the
+  CLI/App dependency removal. Revisit after the reference import service moves
+  below `LungfishApp`, because that lowers coupling in
+  `FASTQOperationExecutionService`.
+- OperationCenter's original `DownloadCenter.swift` placement issue is closed:
+  `DownloadCenter.swift` is a compatibility typealias and `OperationCenter.swift`
+  owns the implementation. Any future work should be a model-boundary extraction,
+  not a repeat of the original issue.
+
 Final integration verification:
 
 - `swift build --product lungfish-cli`
