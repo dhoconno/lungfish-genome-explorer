@@ -111,32 +111,55 @@ struct MapCommand: AsyncParsableCommand {
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for url in inputURLs {
             guard FileManager.default.fileExists(atPath: url.path) else {
-                print(formatter.error("Input file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIError.inputFileNotFound(path: url.path)
             }
-        }
-        let executionInputURLs: [URL]
-        do {
-            executionInputURLs = try Self.resolveExecutionInputURLs(for: inputURLs)
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
         }
 
         if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
-            throw ExitCode.failure
+            throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
         }
+
+        let outputDirectory: URL
+        if let outputDir {
+            outputDirectory = URL(fileURLWithPath: outputDir)
+        } else {
+            let runToken = String(UUID().uuidString.prefix(8))
+            outputDirectory = inputURLs.first!.deletingLastPathComponent()
+                .appendingPathComponent("mapping-\(runToken)")
+        }
+
+        let resolvedInputs: CLISequenceInputMaterializationResult
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+        do {
+            resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+        } catch let error as CLISequenceInputMaterializationError {
+            switch error {
+            case .unreadableSequenceInput(let path):
+                throw CLIError.formatDetectionFailed(path: path)
+            case .unsupportedSequenceInput(let message):
+                throw CLIError.workflowFailed(reason: message)
+            }
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let executionInputURLs = resolvedInputs.inputURLs
 
         let referenceInputURL = URL(fileURLWithPath: reference)
         guard FileManager.default.fileExists(atPath: referenceInputURL.path) else {
-            print(formatter.error("Reference file not found: \(referenceInputURL.path)"))
-            throw ExitCode.failure
+            throw CLIError.inputFileNotFound(path: referenceInputURL.path)
         }
         guard let referenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: referenceInputURL),
               SequenceInputResolver.inputSequenceFormat(for: referenceInputURL) == .fasta else {
-            print(formatter.error(MapInputResolutionError.unreadableSequenceInput(referenceInputURL.path).localizedDescription))
-            throw ExitCode.failure
+            throw CLIError.formatDetectionFailed(path: referenceInputURL.path)
         }
 
         guard let selectedTool = MappingTool(rawValue: mapper) else {
@@ -151,15 +174,6 @@ struct MapCommand: AsyncParsableCommand {
         } catch {
             print(formatter.error(error.localizedDescription))
             throw ExitCode.failure
-        }
-
-        let outputDirectory: URL
-        if let outputDir {
-            outputDirectory = URL(fileURLWithPath: outputDir)
-        } else {
-            let runToken = String(UUID().uuidString.prefix(8))
-            outputDirectory = inputURLs.first!.deletingLastPathComponent()
-                .appendingPathComponent("mapping-\(runToken)")
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
@@ -184,6 +198,9 @@ struct MapCommand: AsyncParsableCommand {
             tool: selectedTool,
             modeID: selectedMode.id,
             inputFASTQURLs: executionInputURLs,
+            originalInputFASTQURLs: inputURLs.map(\.standardizedFileURL),
+            inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
+            inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
             referenceFASTAURL: referenceURL,
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
@@ -220,11 +237,16 @@ struct MapCommand: AsyncParsableCommand {
         print("")
 
         let pipeline = ManagedMappingPipeline()
-        let result = try await pipeline.run(request: request) { _, message in
-            if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
-                fflush(stdout)
+        let result: MappingResult
+        do {
+            result = try await pipeline.run(request: request) { _, message in
+                if !globalOptions.quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                    fflush(stdout)
+                }
             }
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
         }
 
         print("")
@@ -263,6 +285,21 @@ struct MapCommand: AsyncParsableCommand {
             }
             return resolvedURL.standardizedFileURL
         }
+    }
+
+    static func resolveExecutionInputs(
+        for inputURLs: [URL],
+        tempDirectory: URL,
+        materializer: CLISequenceInputMaterializing,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> CLISequenceInputMaterializationResult {
+        try await CLISequenceInputMaterialization.resolveExecutionInputs(
+            for: inputURLs,
+            tempDirectory: tempDirectory,
+            materializer: materializer,
+            operationName: "mapping",
+            progress: progress
+        )
     }
 
     private func resolveMode(tool: MappingTool, preset: String?) throws -> MappingMode {

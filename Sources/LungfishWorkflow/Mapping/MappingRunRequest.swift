@@ -71,6 +71,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     public let tool: MappingTool
     public let modeID: String
     public let inputFASTQURLs: [URL]
+    public let originalInputFASTQURLs: [URL]?
+    public let inputMaterializationStartedAt: Date?
+    public let inputMaterializationEndedAt: Date?
     public let referenceFASTAURL: URL
     public let sourceReferenceBundleURL: URL?
     public let projectURL: URL?
@@ -88,6 +91,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         tool: MappingTool,
         modeID: String,
         inputFASTQURLs: [URL],
+        originalInputFASTQURLs: [URL]? = nil,
+        inputMaterializationStartedAt: Date? = nil,
+        inputMaterializationEndedAt: Date? = nil,
         referenceFASTAURL: URL,
         sourceReferenceBundleURL: URL? = nil,
         projectURL: URL? = nil,
@@ -104,6 +110,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.tool = tool
         self.modeID = modeID
         self.inputFASTQURLs = inputFASTQURLs
+        self.originalInputFASTQURLs = originalInputFASTQURLs
+        self.inputMaterializationStartedAt = inputMaterializationStartedAt
+        self.inputMaterializationEndedAt = inputMaterializationEndedAt
         self.referenceFASTAURL = referenceFASTAURL
         self.sourceReferenceBundleURL = sourceReferenceBundleURL
         self.projectURL = projectURL
@@ -123,6 +132,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             tool: tool,
             modeID: modeID,
             inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
             referenceFASTAURL: referenceFASTAURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: projectURL,
@@ -143,6 +155,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             tool: tool,
             modeID: modeID,
             inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
             referenceFASTAURL: referenceFASTAURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: projectURL,
@@ -163,6 +178,9 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             tool: tool,
             modeID: modeID,
             inputFASTQURLs: inputFASTQURLs,
+            originalInputFASTQURLs: originalInputFASTQURLs,
+            inputMaterializationStartedAt: inputMaterializationStartedAt,
+            inputMaterializationEndedAt: inputMaterializationEndedAt,
             referenceFASTAURL: referenceFASTAURL,
             sourceReferenceBundleURL: sourceReferenceBundleURL,
             projectURL: projectURL,

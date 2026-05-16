@@ -1594,7 +1594,18 @@ public class MainSplitViewController: NSSplitViewController {
 
         viewerController.showProgress("Importing ONT directory\u{2026}")
 
-        let ontCliCmd = "# lungfish import ont \(sourceURL.path) (CLI command not yet available \u{2014} use GUI)"
+        var ontCliArgs = [
+            sourceURL.path,
+            "--output",
+            projectURL.path,
+        ]
+        if includeUnclassified {
+            ontCliArgs.append("--include-unclassified")
+        }
+        let ontCliCmd = OperationCenter.buildCLICommand(
+            subcommand: "fastq import-ont",
+            args: ontCliArgs
+        )
         let opID = OperationCenter.shared.start(
             title: "ONT Import: \(sourceURL.lastPathComponent)",
             detail: "Detecting layout\u{2026}",

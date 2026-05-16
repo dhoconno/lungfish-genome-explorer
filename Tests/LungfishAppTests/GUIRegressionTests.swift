@@ -77,6 +77,19 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("private enum OperationKind"))
     }
 
+    func testONTImportOperationShowsAvailableCLICommand() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("OperationCenter.buildCLICommand("))
+        XCTAssertTrue(source.contains(#"subcommand: "fastq import-ont""#))
+        XCTAssertFalse(source.contains("CLI command not yet available"))
+        XCTAssertFalse(source.contains("lungfish import ont"))
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

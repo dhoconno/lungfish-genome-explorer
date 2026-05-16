@@ -118,10 +118,14 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         let rawAlignmentURL = MappingCommandBuilder.rawAlignmentURL(for: prepared.request)
         progress?(0.1, "Running \(prepared.request.tool.displayName)...")
+        let mapperInputRecords = mapperExecutionInputRecords(
+            for: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL
+        )
         let mapperStep = try await executeMappingCommand(
             command,
             outputURL: rawAlignmentURL,
-            inputRecords: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            inputRecords: mapperInputRecords,
             mapperVersion: mapperVersion,
             progress: progress
         )
@@ -166,13 +170,20 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             ProvenanceRecorder.fileRecord(url: result.baiURL, role: .index),
             ProvenanceRecorder.fileRecord(url: mappingResultURL, format: .json, role: .output)
         ]
-        let steps = indexSteps + [mapperStep] + normalized.steps
+        let inputFiles = try mappingInputRecords(
+            for: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL
+        )
+        let mapperArgv = [command.executable] + command.arguments
+        let materializationSteps = try mappingInputMaterializationSteps(for: prepared.request)
+        let steps = materializationSteps + indexSteps + [mapperStep] + normalized.steps
         let provenance = MappingProvenance.build(
             request: prepared.request,
             result: result,
             mapperInvocation: MappingCommandInvocation(
                 label: prepared.request.tool.displayName,
-                argv: [command.executable] + command.arguments
+                argv: mapperArgv,
+                durableReplayArgv: mapperDurableReplayArgv(for: prepared.request, argv: mapperArgv)
             ),
             normalizationInvocations: MappingProvenance.normalizationInvocations(
                 rawAlignmentURL: rawAlignmentURL,
@@ -185,7 +196,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             ),
             mapperVersion: mapperVersion,
             samtoolsVersion: samtoolsVersion,
-            inputFiles: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            inputFiles: inputFiles,
             outputFiles: outputFiles,
             runtimeIdentity: mappingRuntimeIdentity(for: command),
             steps: steps,
@@ -901,13 +912,101 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         ["micromamba", "run", "-n", environment, name] + arguments
     }
 
-    private func mappingInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
+    private func mappingInputRecords(for request: MappingRunRequest, referenceURL: URL) throws -> [FileRecord] {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        let sequenceInputs = try CLISequenceInputMaterialization.inputRecordsPreservingLineage(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: request.inputFASTQURLs
+        )
+        return deduplicatedInputRecords(sequenceInputs + [
+            ProvenanceRecorder.fileRecord(url: referenceURL, format: fileFormat(for: referenceURL), role: .reference)
+        ])
+    }
+
+    private func mapperExecutionInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
         let sequenceInputs = request.inputFASTQURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .input)
         }
         return sequenceInputs + [
             ProvenanceRecorder.fileRecord(url: referenceURL, format: fileFormat(for: referenceURL), role: .reference)
         ]
+    }
+
+    private func mappingInputMaterializationSteps(for request: MappingRunRequest) throws -> [StepExecution] {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        var materializationInputs: [ProvenanceFileDescriptor] = []
+        var materializationOutputs: [ProvenanceFileDescriptor] = []
+        var materializedOriginals: [URL] = []
+
+        for (index, originalURL) in originalInputURLs.enumerated() {
+            guard request.inputFASTQURLs.indices.contains(index) else { continue }
+            let executionURL = request.inputFASTQURLs[index]
+            guard originalURL.standardizedFileURL != executionURL.standardizedFileURL,
+                  CLISequenceInputMaterialization.requiresMaterialization(originalURL) else {
+                continue
+            }
+
+            materializedOriginals.append(originalURL.standardizedFileURL)
+            materializationInputs.append(
+                contentsOf: try CLISequenceInputMaterialization.originalInputDescriptors(for: originalURL)
+            )
+            materializationOutputs.append(
+                try CLISequenceInputMaterialization.executionInputDescriptor(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            )
+        }
+
+        guard !materializationOutputs.isEmpty else {
+            return []
+        }
+
+        let startTime = request.inputMaterializationStartedAt ?? Date()
+        let endTime = request.inputMaterializationEndedAt ?? startTime
+        let wallTime = max(0, endTime.timeIntervalSince(startTime))
+        return [
+            StepExecution(
+                toolName: "lungfish.map.input-materialization",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: ["lungfish", "map", "materialize-inputs"] + materializedOriginals.map(\.path),
+                inputs: deduplicatedInputRecords(materializationInputs.map { fileRecord(from: $0) }),
+                outputs: deduplicatedInputRecords(materializationOutputs.map { fileRecord(from: $0) }),
+                exitCode: 0,
+                wallTime: wallTime,
+                startTime: startTime,
+                endTime: endTime
+            )
+        ]
+    }
+
+    private func mapperDurableReplayArgv(for request: MappingRunRequest, argv: [String]) -> [String]? {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        let hasDurableMaterializedInput = originalInputURLs.enumerated().contains { index, originalURL in
+            guard request.inputFASTQURLs.indices.contains(index) else { return false }
+            return originalURL.standardizedFileURL != request.inputFASTQURLs[index].standardizedFileURL
+                && CLISequenceInputMaterialization.requiresMaterialization(originalURL)
+        }
+        return hasDurableMaterializedInput ? argv : nil
+    }
+
+    private func fileRecord(from descriptor: ProvenanceFileDescriptor) -> FileRecord {
+        FileRecord(
+            path: descriptor.path,
+            sha256: descriptor.checksumSHA256,
+            sizeBytes: descriptor.fileSize,
+            format: descriptor.format,
+            role: descriptor.role
+        )
+    }
+
+    private func deduplicatedInputRecords(_ records: [FileRecord]) -> [FileRecord] {
+        var seen = Set<String>()
+        var result: [FileRecord] = []
+        for record in records where seen.insert("\(record.role.rawValue)\u{0}\(record.path)").inserted {
+            result.append(record)
+        }
+        return result
     }
 
     private func mappingRuntimeIdentity(for command: ManagedMappingCommand) -> [String: String] {

@@ -131,6 +131,22 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(source.contains("self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)"))
     }
 
+    func testRunMinimap2MappingKeepsDurableVirtualInputProvenanceBeforeResolvedExecutionInputs() throws {
+        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+        let methodStart = try XCTUnwrap(source.range(of: "    private func runMinimap2Mapping("))
+        let methodEnd = try XCTUnwrap(
+            source.range(of: "    func importCzIdResultFromURL", range: methodStart.upperBound..<source.endIndex)
+        )
+        let methodSource = String(source[methodStart.lowerBound..<methodEnd.lowerBound])
+
+        XCTAssertTrue(methodSource.contains("let resolvedFiles = try await self?.resolveInputFiles("))
+        XCTAssertTrue(methodSource.contains("resolvedConfig.provenanceInputFiles = config.provenanceInputFiles"))
+        XCTAssertTrue(methodSource.contains("?? Self.durableSequenceInputsForProvenance(config.inputFiles)"))
+        XCTAssertTrue(methodSource.contains("resolvedConfig.provenanceInputFileRecords = config.provenanceInputFileRecords"))
+        XCTAssertTrue(methodSource.contains("?? Self.durableSequenceInputRecordsForProvenance(config.inputFiles)"))
+        XCTAssertTrue(methodSource.contains("resolvedConfig.inputFiles = resolvedFiles"))
+    }
+
     func testFASTQOperationsDialogRoutesDerivativeLaunchesThroughMainSplitExecutionPath() throws {
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
 
