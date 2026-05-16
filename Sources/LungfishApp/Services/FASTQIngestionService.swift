@@ -170,8 +170,8 @@ public enum FASTQIngestionService {
     /// Runs the ingestion pipeline off the main actor.
     ///
     /// Must be `nonisolated` — the cooperative executor does not reliably schedule
-    /// `@MainActor` methods called from `Task.detached`.  We hop to `MainActor.run`
-    /// only for the few OperationCenter mutations that need it.
+    /// `@MainActor` methods called from `Task.detached`. OperationCenter mutations
+    /// use the main queue with `MainActor.assumeIsolated`.
     nonisolated private static func runIngestion(
         config: FASTQIngestionConfig,
         operationID opID: UUID,
@@ -179,7 +179,7 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.update(
+                OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
@@ -196,7 +196,7 @@ public enum FASTQIngestionService {
             let result = try await pipeline.run(config: config) { fraction, message in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        OperationCenter.shared.update(
+                        OperationCenter.shared.updateWithLog(
                             id: opID,
                             progress: fraction,
                             detail: message
@@ -357,7 +357,7 @@ public enum FASTQIngestionService {
     ) async {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
-                OperationCenter.shared.update(
+                OperationCenter.shared.updateWithLog(
                     id: opID,
                     progress: 0,
                     detail: "Waiting for available import slot\u{2026}"
@@ -1009,7 +1009,7 @@ public enum FASTQIngestionService {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: resolvedProgress, detail: detail)
+                            OperationCenter.shared.updateWithLog(id: opID, progress: resolvedProgress, detail: detail)
                         }
                     }
                 }

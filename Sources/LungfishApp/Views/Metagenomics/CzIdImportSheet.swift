@@ -246,9 +246,11 @@ struct CzIdImportSheet: View {
         ]
         panel.allowsOtherFileTypes = true
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        selectedPath = url
-        scan(url)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            selectedPath = url
+            scan(url)
+        }
     }
 
     private func scan(_ url: URL) {

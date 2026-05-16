@@ -5598,18 +5598,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         alert.addButton(withTitle: "Cancel")
         alert.accessoryView = form.view
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard performAnnotationCreation(
-            name: form.nameField.stringValue,
-            type: form.typeField.stringValue,
-            chromosome: form.chromosomeField.stringValue,
-            startValue: form.startField.stringValue,
-            endValue: form.endField.stringValue,
-            strand: form.strandField.stringValue,
-            attributes: form.attributesField.stringValue
-        ) else {
+        guard let window = self.window else {
             NSSound.beep()
             return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard self?.performAnnotationCreation(
+                name: form.nameField.stringValue,
+                type: form.typeField.stringValue,
+                chromosome: form.chromosomeField.stringValue,
+                startValue: form.startField.stringValue,
+                endValue: form.endField.stringValue,
+                strand: form.strandField.stringValue,
+                attributes: form.attributesField.stringValue
+            ) == true else {
+                NSSound.beep()
+                return
+            }
         }
     }
 
@@ -5629,7 +5635,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let form = makeAnnotationEditForm(for: result, currentRecord: currentRecord)
         alert.accessoryView = form.view
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let window = self.window else {
+            NSSound.beep()
+            return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.performAnnotationEdit(result: result, rowID: rowID, form: form)
+        }
+    }
+
+    private func performAnnotationEdit(
+        result: AnnotationSearchIndex.SearchResult,
+        rowID: Int64,
+        form: AnnotationEditForm
+    ) {
         let name = form.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let type = form.typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let chromosome = form.chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5643,6 +5663,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let attributes = form.attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
+        guard let searchIndex else {
+            NSSound.beep()
+            return
+        }
         guard searchIndex.updateAnnotation(
             trackId: result.trackId,
             rowID: rowID,

@@ -79,6 +79,14 @@ private func scheduleOnMainRunLoop(_ block: @escaping @MainActor @Sendable () ->
     CFRunLoopWakeUp(CFRunLoopGetMain())
 }
 
+private func performOnMainRunLoop<T: Sendable>(_ block: @escaping @MainActor @Sendable () -> T) async -> T {
+    await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+        scheduleOnMainRunLoop {
+            continuation.resume(returning: block())
+        }
+    }
+}
+
 /// Result of loading file data on a background thread using GCD sync pattern.
 /// This struct contains only Sendable data that can be safely passed between threads.
 /// Note: This is separate from DocumentLoader.FileLoadResult which uses async/await.
@@ -634,6 +642,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         if let window = presentingWindow ?? controller?.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because canWriteProjectOutputs is a synchronous Bool gate used before file writes.
             alert.runModal()
         }
         return false
@@ -1403,7 +1412,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let viewerController = controller.mainSplitViewController?.viewerController
 
         if type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle {
-            Task { @MainActor in
+            Task {
                 viewerController?.showProgress("Loading \(url.lastPathComponent)...")
                 do {
                     switch type {
@@ -1430,7 +1439,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return true
         }
 
-        Task { @MainActor in
+        Task {
             // Show progress indicator
             viewerController?.showProgress("Loading \(url.lastPathComponent)...")
 
@@ -1461,7 +1470,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     // MARK: - Menu Actions
 
     @IBAction func newDocument(_ sender: Any?) {
-        Task { @MainActor in
+        Task {
             let savePanel = NSSavePanel()
             savePanel.title = "Create New Project"
             savePanel.message = "Choose a location for your new Lungfish project"
@@ -1682,7 +1691,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 let completedURL = completion.userInfo?["url"] as? URL
                 let wasSuccessful = (completion.userInfo?["success"] as? Bool) == true
 
-                Task { @MainActor in
+                scheduleOnMainRunLoop {
                     guard let update = tracker.registerCompletion(
                         requestID: completionRequestID,
                         completedURL: completedURL,
@@ -1709,7 +1718,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             alert.addButton(withTitle: "OK")
                             alert.applyLungfishBranding()
                             if let window = controller?.window ?? NSApp.keyWindow {
-                                await alert.beginSheetModal(for: window)
+                                alert.beginSheetModal(for: window)
                             }
                         }
                     }
@@ -1938,7 +1947,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         ) { [weak self] configuration in
             guard let self, let configuration else { return }
             if urls.count == 1 {
-                Task { @MainActor [weak self] in
+                Task { [weak self] in
                     await self?.performSingleAnnotationTrackImport(
                         annotationURL: urls[0],
                         configuration: configuration
@@ -2364,7 +2373,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private func performAnnotationTrackImports(annotationURLs: [URL], bundleURL: URL) {
         guard !annotationURLs.isEmpty else { return }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             for annotationURL in annotationURLs {
                 await self?.performSingleAnnotationTrackImport(annotationURL: annotationURL, bundleURL: bundleURL)
             }
@@ -2874,7 +2883,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                 let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: startedAt)
                                 let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                 scheduleOnMainRunLoop {
-                                    OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                    OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                                 }
                             }
                         )
@@ -2892,7 +2901,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             )
@@ -2915,7 +2924,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                                     let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: resumeStartedAt)
                                     let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                                     scheduleOnMainRunLoop {
-                                        OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                        OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                                     }
                                 }
                             )
@@ -2936,7 +2945,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -2959,7 +2968,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -3013,7 +3022,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                             let etaText = Self.estimatedRemainingText(progress: progress, startedAt: materializeStartedAt)
                             let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                             scheduleOnMainRunLoop {
-                                OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                                OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                             }
                         }
                     )
@@ -3675,7 +3684,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         let etaText = Self.estimatedRemainingText(progress: clampedProgress, startedAt: importStartedAt)
                         let displayMessage = etaText.isEmpty ? message : "\(message) • \(etaText)"
                         scheduleOnMainRunLoop {
-                            OperationCenter.shared.update(id: opID, progress: clampedProgress, detail: displayMessage)
+                            OperationCenter.shared.updateWithLog(id: opID, progress: clampedProgress, detail: displayMessage)
                         }
                     }
                 )
@@ -3844,7 +3853,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
             let task = Task.detached { [weak self] in
                 do {
-                    await MainActor.run {
+                    await performOnMainRunLoop {
                         OperationCenter.shared.log(id: opID, level: .info, message: "Writing \(format.displayName) export to \(outputURL.path)")
                     }
                     let count = try await self?.performSequenceExport(
@@ -3977,7 +3986,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     for (index, bundleURL) in bundleURLs.enumerated() {
                         try Task.checkCancellation()
                         guard let outputURL = targets[bundleURL] else { continue }
-                        await MainActor.run {
+                        await performOnMainRunLoop {
                             let detail = "Exporting \(index + 1) of \(bundleURLs.count): \(bundleURL.deletingPathExtension().lastPathComponent)"
                             OperationCenter.shared.update(
                                 id: opID,
@@ -6547,7 +6556,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     if lineCount % 5000 == 0 {
                         DispatchQueue.main.async {
                             MainActor.assumeIsolated {
-                                OperationCenter.shared.update(
+                                OperationCenter.shared.updateWithLog(
                                     id: opID,
                                     progress: 0.1 + min(0.3, Double(lineCount) / 100_000.0 * 0.3),
                                     detail: "Parsing CSV... \(lineCount) rows"
@@ -6746,7 +6755,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     // Populate blast_hits.unique_reads via samtools view -c -F 0x404 per (sample, sseqid)
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: 0.76, detail: "Counting unique reads...")
+                            OperationCenter.shared.updateWithLog(id: opID, progress: 0.76, detail: "Counting unique reads...")
                         }
                     }
 
@@ -7103,7 +7112,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         sampleName,
                     ]
                 )
-                opID = await MainActor.run {
+                opID = await performOnMainRunLoop {
                     OperationCenter.shared.start(
                         title: "CZ-ID Import",
                         detail: "Converting \(preview.reportFileName)...",
@@ -7113,8 +7122,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }
 
                 if let opID {
-                    await MainActor.run {
-                        OperationCenter.shared.update(
+                    await performOnMainRunLoop {
+                        OperationCenter.shared.updateWithLog(
                             id: opID,
                             progress: 0.35,
                             detail: "Converting \(preview.reportFileName)..."
@@ -7128,8 +7137,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     sampleName: sampleName
                 )
 
-                await MainActor.run {
-                    guard let opID else { return }
+                let completedOpID = opID
+                await performOnMainRunLoop {
+                    guard let opID = completedOpID else { return }
                     OperationCenter.shared.complete(
                         id: opID,
                         detail: "Imported \(imported.sampleName)",
@@ -7146,7 +7156,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     try? FileManager.default.removeItem(at: bundleURL)
                 }
                 if let opID {
-                    await MainActor.run {
+                    await performOnMainRunLoop {
                         OperationCenter.shared.fail(id: opID, detail: "Cancelled")
                     }
                 }
@@ -7155,8 +7165,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     try? FileManager.default.removeItem(at: bundleURL)
                 }
                 let detail = error.localizedDescription
-                await MainActor.run {
-                    if let opID {
+                let failedOpID = opID
+                await performOnMainRunLoop {
+                    if let opID = failedOpID {
                         OperationCenter.shared.fail(id: opID, detail: detail)
                     }
                     self?.showAlert(

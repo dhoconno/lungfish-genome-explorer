@@ -747,8 +747,11 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
             }
             if let window = view.window {
                 panel.beginSheetModal(for: window, completionHandler: completion)
-            } else if panel.runModal() == .OK {
-                completion(.OK)
+            } else {
+                // runModal-legacy-allowed because exported-tree save can be triggered after the view loses its presenter window.
+                if panel.runModal() == .OK {
+                    completion(.OK)
+                }
             }
         } catch {
             NSSound.beep()

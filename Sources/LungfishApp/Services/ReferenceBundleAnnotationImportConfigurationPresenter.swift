@@ -121,6 +121,7 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         if let presentingWindow {
             alert.beginSheetModal(for: presentingWindow, completionHandler: finish)
         } else {
+            // runModal-legacy-allowed because this utility has no presenter window and must synchronously collect accessory fields.
             finish(alert.runModal())
         }
     }

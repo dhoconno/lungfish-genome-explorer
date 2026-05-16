@@ -229,7 +229,7 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
@@ -244,7 +244,7 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
+                                    OperationCenter.shared.updateWithLog(
                                         id: opID,
                                         progress: fraction,
                                         detail: message
@@ -428,7 +428,7 @@ extension ViewerViewController {
 
                     DispatchQueue.main.async {
                         MainActor.assumeIsolated {
-                            OperationCenter.shared.update(
+                            OperationCenter.shared.updateWithLog(
                                 id: opID,
                                 progress: 0.1,
                                 detail: "Submitting \(request.sequences.count) reads to NCBI BLAST\u{2026}"
@@ -442,7 +442,7 @@ extension ViewerViewController {
                         progress: { fraction, message in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
-                                    OperationCenter.shared.update(
+                                    OperationCenter.shared.updateWithLog(
                                         id: opID,
                                         progress: fraction,
                                         detail: message

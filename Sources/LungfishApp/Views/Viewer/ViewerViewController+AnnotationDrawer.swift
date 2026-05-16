@@ -370,6 +370,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             if let window = view.window {
                 alert.beginSheetModal(for: window)
             } else {
+                // runModal-legacy-allowed because this warning can be raised after annotation drawer teardown.
                 alert.runModal()
             }
             return
@@ -414,7 +415,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Choose One Annotation Track"
             alert.informativeText = "Delete annotations from one annotation track at a time."
             alert.alertStyle = .warning
-            alert.runModal()
+            if let window = view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                // runModal-legacy-allowed because deletion validation is a synchronous guard after sheet dismissal.
+                alert.runModal()
+            }
             return
         }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
@@ -422,7 +428,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Bundle Busy"
             alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting annotations."
             alert.alertStyle = .warning
-            alert.runModal()
+            if let window = view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                // runModal-legacy-allowed because deletion validation is a synchronous guard after sheet dismissal.
+                alert.runModal()
+            }
             return
         }
 
@@ -523,7 +534,12 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Bundle Busy"
             alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting an annotation track."
             alert.alertStyle = .warning
-            alert.runModal()
+            if let window = view.window {
+                alert.beginSheetModal(for: window)
+            } else {
+                // runModal-legacy-allowed because track deletion validation is a synchronous guard after sheet dismissal.
+                alert.runModal()
+            }
             return
         }
 
@@ -585,6 +601,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         if let window = view.window {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because mutation failure can arrive after the annotation drawer window closes.
             alert.runModal()
         }
     }

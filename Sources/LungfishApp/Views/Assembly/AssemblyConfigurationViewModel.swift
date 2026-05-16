@@ -13,6 +13,17 @@ import LungfishCore
 /// Logger for assembly runner operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunner")
 
+private func performAssemblyOperationCenterUpdate(_ block: @escaping @MainActor @Sendable () -> Void) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                block()
+                continuation.resume()
+            }
+        }
+    }
+}
+
 // MARK: - AssemblyRunner
 
 /// Runs an assembly as a background operation tracked by ``OperationCenter``.
@@ -38,7 +49,7 @@ public enum AssemblyRunner {
     /// Task 4 routes the shared UI through ``AssemblyRunRequest`` even while
     /// the standalone execution backend is being generalized.
     public static func run(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
-        Task { @MainActor in
+        Task {
             if let warning = await AssemblyRuntimePreflight.warningMessage(for: request) {
                 AssemblyRuntimePreflight.presentWarning(
                     message: warning,
@@ -342,7 +353,7 @@ public enum AssemblyRunner {
         operationID opID: UUID
     ) async {
         do {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
             }
@@ -374,7 +385,7 @@ public enum AssemblyRunner {
                 }
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
@@ -412,7 +423,7 @@ public enum AssemblyRunner {
                 }
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 if result.outcome == .completedWithNoContigs {
                     OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
                 } else {
@@ -434,7 +445,7 @@ public enum AssemblyRunner {
                 isSuccess: true
             )
         } catch {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
             }
@@ -511,7 +522,7 @@ public enum AssemblyRunner {
     ) async {
         do {
             // Materialize virtual FASTQ bundles (subset/trim/demux produce only preview.fastq)
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Resolving input files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Checking for virtual FASTQ materialization")
             }
@@ -588,7 +599,7 @@ public enum AssemblyRunner {
 
             let runtime = try await AppleContainerRuntime()
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Container runtime initialized")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Container runtime initialized")
             }
@@ -615,7 +626,7 @@ public enum AssemblyRunner {
             try? SPAdesAssemblyPipeline.saveConfig(config, to: spadesOutputDir)
 
             // Clean intermediate files
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.94, detail: "Cleaning intermediate files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Cleaning intermediate files")
             }
@@ -625,7 +636,7 @@ public enum AssemblyRunner {
                 logger.info("Freed \(freedStr) of intermediate files")
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
@@ -657,7 +668,7 @@ public enum AssemblyRunner {
             }
             let normalizedResult = AssemblyResult.fromLegacy(result)
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 if normalizedResult.outcome == .completedWithNoContigs {
                     OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])
                 } else {
@@ -680,13 +691,13 @@ public enum AssemblyRunner {
             )
 
         } catch is CancellationError {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
             }
         } catch {
             let errorMessage = "\(error)"
             logger.error("Assembly failed: \(error)")
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: errorMessage)
             }
 

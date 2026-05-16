@@ -40,14 +40,14 @@ struct PrimerSchemeImportView: View {
                         url: bedURL,
                         placeholder: "Required — primer coordinates."
                     ) {
-                        pickFile(types: ["bed"]).map { bedURL = $0 }
+                        pickFile(types: ["bed"]) { bedURL = $0 }
                     }
                     filePickerRow(
                         title: "FASTA (optional)",
                         url: fastaURL,
                         placeholder: "Optional — primer sequences."
                     ) {
-                        pickFile(types: ["fa", "fasta", "fna"]).map { fastaURL = $0 }
+                        pickFile(types: ["fa", "fasta", "fna"]) { fastaURL = $0 }
                     }
                 }
 
@@ -136,12 +136,15 @@ struct PrimerSchemeImportView: View {
         }
     }
 
-    private func pickFile(types: [String]) -> URL? {
+    private func pickFile(types: [String], completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = types.compactMap { UTType(filenameExtension: $0) }
-        return panel.runModal() == .OK ? panel.url : nil
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            completion(url)
+        }
     }
 }

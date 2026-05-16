@@ -844,6 +844,7 @@ public class MainSplitViewController: NSSplitViewController {
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because canWriteProjectOutputs is a synchronous Bool gate used before file writes.
             alert.runModal()
         }
         return false

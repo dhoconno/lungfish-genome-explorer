@@ -1858,6 +1858,7 @@ public class InspectorViewController: NSViewController {
                 completion(response == .alertFirstButtonReturn)
             }
         } else {
+            // runModal-legacy-allowed because this no-window fallback must synchronously answer a confirmation callback.
             completion(alert.runModal() == .alertFirstButtonReturn)
         }
     }

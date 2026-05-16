@@ -192,7 +192,7 @@ actor CLITreeInferenceRunner {
             consumeStderr(chunk)
         }
 
-        await MainActor.run {
+        await performCLIOperationCenterUpdate {
             OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
@@ -250,7 +250,7 @@ actor CLITreeInferenceRunner {
         }
 
         let bundleURL = URL(fileURLWithPath: outputPath, isDirectory: true)
-        await MainActor.run {
+        await performCLIOperationCenterUpdate {
             OperationCenter.shared.complete(
                 id: opID,
                 detail: "Tree inference complete",

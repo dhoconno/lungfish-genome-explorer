@@ -556,6 +556,7 @@ public final class AssemblyResultViewController: NSViewController {
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because this failure alert can be shown after its result window has closed.
             alert.runModal()
         }
     }

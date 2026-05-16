@@ -1874,6 +1874,7 @@ public class ViewerViewController: NSViewController {
         if let window = view.window {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because this alert can be raised while the viewer is detached from a window.
             alert.runModal()
         }
     }

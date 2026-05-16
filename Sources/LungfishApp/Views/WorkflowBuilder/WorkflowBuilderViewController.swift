@@ -198,7 +198,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Creates a new empty workflow.
     public func newWorkflow() {
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
             if self.hasUnsavedChanges {
                 guard let window = self.view.window ?? NSApp.keyWindow else { return }
@@ -566,10 +566,41 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func deleteSelectedWorkflowInLibrary() {
         guard canWriteProjectOutputs(workflowName: "Workflow deletion") else { return }
-        do {
-            try deleteSelectedWorkflowInLibrary(confirm: true)
-        } catch {
-            presentLibraryError(error, title: "Failed to Delete Workflow")
+        guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
+            presentLibraryError(
+                CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to delete."]),
+                title: "Failed to Delete Workflow"
+            )
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete Workflow?"
+        alert.informativeText = "This removes \(selectedURL.lastPathComponent) from the project workflow library."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        let performDelete: () -> Void = { [weak self] in
+            guard let self else { return }
+            do {
+                try self.deleteSelectedWorkflowInLibrary(confirm: false)
+            } catch {
+                self.presentLibraryError(error, title: "Failed to Delete Workflow")
+            }
+        }
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { response in
+                guard response == .alertFirstButtonReturn else { return }
+                performDelete()
+            }
+        } else {
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to confirm workflow deletion."]),
+                title: "Failed to Delete Workflow"
+            )
         }
     }
 
@@ -578,16 +609,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to delete."])
         }
-        if confirm {
-            let alert = NSAlert()
-            alert.messageText = "Delete Workflow?"
-            alert.informativeText = "This removes \(selectedURL.lastPathComponent) from the project workflow library."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Delete")
-            alert.addButton(withTitle: "Cancel")
-            alert.buttons.first?.hasDestructiveAction = true
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
+        guard !confirm else { throw CocoaError(.userCancelled) }
 
         let deletingCurrentWorkflow = workflowURL?.standardizedFileURL.path == selectedURL.standardizedFileURL.path
         try WorkflowLibraryStore.deleteWorkflow(at: selectedURL)
@@ -630,6 +652,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window, completionHandler: handle)
         } else {
+            // runModal-legacy-allowed because this no-window utility prompt must synchronously return the typed workflow name.
             handle(alert.runModal())
         }
     }
@@ -678,6 +701,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 self?.startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
             }
         } else {
+            // runModal-legacy-allowed because this fallback has no presenter window and must read the accessory selection before dispatch.
             let response = alert.runModal()
             guard response == .alertFirstButtonReturn,
                   let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
@@ -686,7 +710,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
     }
 
     private func startWorkflowRun(sampleURL: URL, projectURL: URL) {
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
             do {
                 try self.requireWritableProject(workflowName: "Workflow run")
@@ -791,7 +815,8 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            alert.window.center()
+            alert.window.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -965,15 +990,22 @@ extension WorkflowBuilderViewController: NSWindowDelegate {
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
 
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            saveWorkflow()
-            return !hasUnsavedChanges
-        case .alertSecondButtonReturn:
-            return true
-        default:
-            return false
+        alert.beginSheetModal(for: sender) { [weak self, weak sender] response in
+            guard let self, let sender else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.saveWorkflow()
+                if !self.hasUnsavedChanges {
+                    sender.close()
+                }
+            case .alertSecondButtonReturn:
+                self.hasUnsavedChanges = false
+                sender.close()
+            default:
+                break
+            }
         }
+        return false
     }
 }
 

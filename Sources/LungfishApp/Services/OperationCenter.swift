@@ -371,6 +371,30 @@ public final class OperationCenter: ObservableObject {
         items[index].detail = detail
     }
 
+    /// Updates visible progress and records the same status in operation history.
+    ///
+    /// Progress callbacks can fire many times with identical text, so adjacent
+    /// duplicate messages are suppressed by default.
+    public func updateWithLog(
+        id: UUID,
+        progress: Double,
+        detail: String,
+        level: OperationLogLevel = .info,
+        deduplicateAdjacent: Bool = true
+    ) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        items[index].progress = max(0, min(1, progress))
+        items[index].detail = detail
+
+        if deduplicateAdjacent,
+           items[index].logEntries.last?.message == detail,
+           items[index].logEntries.last?.level == level {
+            return
+        }
+        let entry = OperationLogEntry(level: level, message: detail)
+        items[index].logEntries.append(entry)
+    }
+
     /// Updates resource usage observed for an operation.
     public func updateResourceStats(id: UUID, peakMemoryBytes: UInt64? = nil) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }

@@ -1005,14 +1005,19 @@ public actor NCBIService: DatabaseService {
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
 
         let request = URLRequest(url: fileInfo.url)
+        let taskBox = URLSessionDownloadTaskBox()
+        defer { session.invalidateAndCancel() }
 
-        let tempURL: URL = try await withCheckedThrowingContinuation { continuation in
-            delegate.setContinuation(continuation)
-            let task = session.downloadTask(with: request)
-            task.resume()
+        let tempURL: URL = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.setContinuation(continuation)
+                let task = session.downloadTask(with: request)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: {
+            taskBox.cancel()
         }
-
-        session.invalidateAndCancel()
 
         // Move to destination
         let fileManager = FileManager.default
@@ -2443,7 +2448,8 @@ public struct VirusLocation: Codable, Sendable {
 final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let totalBytes: Int64?
     private let progressHandler: @Sendable (Int64, Int64?) -> Void
-    private var continuation: CheckedContinuation<URL, Error>?
+    private let continuationLock = OSAllocatedUnfairLock<CheckedContinuation<URL, Error>?>(initialState: nil)
+    private let resumeLock = OSAllocatedUnfairLock(initialState: false)
 
     init(totalBytes: Int64?, progressHandler: @escaping @Sendable (Int64, Int64?) -> Void) {
         self.totalBytes = totalBytes
@@ -2451,7 +2457,7 @@ final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, 
     }
 
     func setContinuation(_ continuation: CheckedContinuation<URL, Error>) {
-        self.continuation = continuation
+        continuationLock.withLock { $0 = continuation }
     }
 
     func urlSession(
@@ -2477,22 +2483,19 @@ final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, 
         do {
             try FileManager.default.copyItem(at: location, to: tempCopy)
         } catch {
-            continuation?.resume(throwing: error)
-            continuation = nil
+            resumeOnce(.failure(error))
             return
         }
 
         guard let response = downloadTask.response as? HTTPURLResponse,
               response.statusCode == 200 else {
-            continuation?.resume(throwing: DatabaseServiceError.networkError(
+            resumeOnce(.failure(DatabaseServiceError.networkError(
                 underlying: "Bad server response: \((downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1)"
-            ))
-            continuation = nil
+            )))
             return
         }
 
-        continuation?.resume(returning: tempCopy)
-        continuation = nil
+        resumeOnce(.success(tempCopy))
     }
 
     func urlSession(
@@ -2501,8 +2504,44 @@ final class ContinuationDownloadDelegate: NSObject, URLSessionDownloadDelegate, 
         didCompleteWithError error: (any Error)?
     ) {
         if let error {
-            continuation?.resume(throwing: error)
-            continuation = nil
+            if (error as? URLError)?.code == .cancelled {
+                resumeOnce(.failure(DatabaseServiceError.cancelled))
+            } else {
+                resumeOnce(.failure(error))
+            }
         }
+    }
+
+    private func resumeOnce(_ result: Result<URL, Error>) {
+        let shouldResume = resumeLock.withLock { resumed in
+            if resumed { return false }
+            resumed = true
+            return true
+        }
+        guard shouldResume else { return }
+        guard let continuation = continuationLock.withLock({ continuation -> CheckedContinuation<URL, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }) else { return }
+
+        switch result {
+        case .success(let url):
+            continuation.resume(returning: url)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private final class URLSessionDownloadTaskBox: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+
+    func store(_ task: URLSessionDownloadTask) {
+        lock.withLock { $0 = task }
+    }
+
+    func cancel() {
+        let task = lock.withLock { $0 }
+        task?.cancel()
     }
 }

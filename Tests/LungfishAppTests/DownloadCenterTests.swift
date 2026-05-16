@@ -89,6 +89,19 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(center.items.first?.detail, "Starting...")
     }
 
+    func testUpdateWithLogDeduplicatesAdjacentProgressMessages() {
+        let id = center.start(title: "Test", detail: "Starting...")
+
+        center.updateWithLog(id: id, progress: 0.1, detail: "Parsing reads")
+        center.updateWithLog(id: id, progress: 0.2, detail: "Parsing reads")
+        center.updateWithLog(id: id, progress: 0.3, detail: "Writing bundle")
+
+        let item = center.items.first
+        XCTAssertEqual(item?.detail, "Writing bundle")
+        XCTAssertEqual(item?.progress ?? -1, 0.3, accuracy: 0.001)
+        XCTAssertEqual(item?.logEntries.map(\.message), ["Parsing reads", "Writing bundle"])
+    }
+
     // MARK: - Complete
 
     func testCompleteSetsStateAndFinishedAt() {

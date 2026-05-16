@@ -59,6 +59,7 @@ enum AssemblyRuntimePreflight {
         if let window {
             alert.beginSheetModal(for: window)
         } else {
+            // runModal-legacy-allowed because preflight can be invoked before a presenter window exists.
             alert.runModal()
         }
     }

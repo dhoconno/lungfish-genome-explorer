@@ -402,22 +402,29 @@ public actor EsVirituDatabaseManager {
         expectedSize: Int64,
         progress: @Sendable @escaping (Double) -> Void
     ) async throws -> URL {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            let delegate = DownloadProgressDelegate(
-                destination: destination,
-                expectedSize: expectedSize,
-                progress: progress,
-                continuation: continuation
-            )
+        let taskBox = URLSessionDownloadTaskBox()
+        let delegate = DownloadProgressDelegate(
+            destination: destination,
+            expectedSize: expectedSize,
+            progress: progress
+        )
 
-            let session = URLSession(
-                configuration: .default,
-                delegate: delegate,
-                delegateQueue: nil
-            )
+        let session = URLSession(
+            configuration: .default,
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        defer { session.invalidateAndCancel() }
 
-            let task = session.downloadTask(with: url)
-            task.resume()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                delegate.setContinuation(continuation)
+                let task = session.downloadTask(with: url)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: {
+            taskBox.cancel()
         }
     }
 
@@ -490,19 +497,21 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
     private let destination: URL
     private let expectedSize: Int64
     private let progress: @Sendable (Double) -> Void
-    private let continuation: CheckedContinuation<URL, Error>
-    private var resumed = false
+    private let continuationLock = OSAllocatedUnfairLock<CheckedContinuation<URL, Error>?>(initialState: nil)
+    private let resumeLock = OSAllocatedUnfairLock(initialState: false)
 
     init(
         destination: URL,
         expectedSize: Int64,
-        progress: @Sendable @escaping (Double) -> Void,
-        continuation: CheckedContinuation<URL, Error>
+        progress: @Sendable @escaping (Double) -> Void
     ) {
         self.destination = destination
         self.expectedSize = expectedSize
         self.progress = progress
-        self.continuation = continuation
+    }
+
+    func setContinuation(_ continuation: CheckedContinuation<URL, Error>) {
+        continuationLock.withLock { $0 = continuation }
     }
 
     func urlSession(
@@ -532,9 +541,7 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
             }
             try fm.copyItem(at: location, to: destination)
         } catch {
-            guard !resumed else { return }
-            resumed = true
-            continuation.resume(throwing: EsVirituDatabaseError.downloadFailed(error.localizedDescription))
+            resumeOnce(.failure(EsVirituDatabaseError.downloadFailed(error.localizedDescription)))
         }
     }
 
@@ -543,13 +550,47 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        guard !resumed else { return }
-        resumed = true
-
         if let error {
-            continuation.resume(throwing: EsVirituDatabaseError.downloadFailed(error.localizedDescription))
+            if (error as? URLError)?.code == .cancelled {
+                resumeOnce(.failure(EsVirituDatabaseError.downloadCancelled))
+            } else {
+                resumeOnce(.failure(EsVirituDatabaseError.downloadFailed(error.localizedDescription)))
+            }
         } else {
-            continuation.resume(returning: destination)
+            resumeOnce(.success(destination))
         }
+    }
+
+    private func resumeOnce(_ result: Result<URL, Error>) {
+        let shouldResume = resumeLock.withLock { resumed in
+            if resumed { return false }
+            resumed = true
+            return true
+        }
+        guard shouldResume else { return }
+        guard let continuation = continuationLock.withLock({ continuation -> CheckedContinuation<URL, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }) else { return }
+
+        switch result {
+        case .success(let url):
+            continuation.resume(returning: url)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private final class URLSessionDownloadTaskBox: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock<URLSessionDownloadTask?>(initialState: nil)
+
+    func store(_ task: URLSessionDownloadTask) {
+        lock.withLock { $0 = task }
+    }
+
+    func cancel() {
+        let task = lock.withLock { $0 }
+        task?.cancel()
     }
 }
