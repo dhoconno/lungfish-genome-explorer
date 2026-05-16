@@ -11,7 +11,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let swiftFiles = try swiftSourceFiles(under: sourcesRoot)
         let maximumLegacyRunModalCounts: [String: Int] = [
             "Sources/LungfishApp/App/AppDelegate.swift": 1,
-            "Sources/LungfishApp/Services/ReferenceBundleAnnotationImportConfigurationPresenter.swift": 1,
             "Sources/LungfishApp/Views/Assembly/AssemblyRuntimePreflight.swift": 1,
             "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift": 1,
             "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift": 1,

@@ -51,6 +51,23 @@ final class AppKitModalPresenterSemanticsTests: XCTestCase {
         )
     }
 
+    func testReferenceAnnotationPresenterCompletesNilOnceForMissingPresentationWindowResponse() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/project/ref.lungfishref")
+        var observedConfigurations: [ReferenceBundleAnnotationImportConfiguration?] = []
+
+        ReferenceBundleAnnotationImportConfigurationPresenter.completeForTest(
+            response: ReferenceBundleAnnotationImportConfigurationPresenter.missingPresentationWindowResponseForTest(),
+            selectedBundleURL: bundleURL,
+            trackID: "gene_track",
+            trackName: "Genes"
+        ) { configuration in
+            observedConfigurations.append(configuration)
+        }
+
+        XCTAssertEqual(observedConfigurations.count, 1)
+        XCTAssertNil(observedConfigurations[0])
+    }
+
     func testAssemblyRuntimePreflightClassifiesSheetAndLegacyFallbackPresentationModes() {
         XCTAssertEqual(
             AssemblyRuntimePreflight.presentationModeForTest(hasWindow: true),
