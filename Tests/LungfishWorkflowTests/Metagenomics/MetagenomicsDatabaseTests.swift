@@ -761,35 +761,52 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
     func testRecommendedDatabaseFor8GBRAM() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb8: UInt64 = 8 * 1_073_741_824
-        let db = try await registry.recommendedDatabase(ramBytes: gb8)
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb8)
+        let db = try XCTUnwrap(recommended)
         XCTAssertEqual(db.name, "Standard-8")
     }
 
     func testRecommendedDatabaseFor16GBRAM() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb16: UInt64 = 16 * 1_073_741_824
-        let db = try await registry.recommendedDatabase(ramBytes: gb16)
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb16)
+        let db = try XCTUnwrap(recommended)
         XCTAssertEqual(db.name, "Standard-16")
     }
 
     func testRecommendedDatabaseFor32GBRAM() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb32: UInt64 = 32 * 1_073_741_824
-        let db = try await registry.recommendedDatabase(ramBytes: gb32)
-        XCTAssertEqual(db.name, "Standard")
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb32)
+        let db = try XCTUnwrap(recommended)
+        XCTAssertEqual(db.name, "Standard-16")
+        XCTAssertLessThanOrEqual(UInt64(db.recommendedRAM), gb32)
+    }
+
+    func testRecommendedDatabaseFor48GBRAMDoesNotExceedSystemRAM() async throws {
+        let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
+        let gb48: UInt64 = 48 * 1_073_741_824
+
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb48)
+        let db = try XCTUnwrap(recommended)
+
+        XCTAssertEqual(db.name, "Standard-16")
+        XCTAssertLessThanOrEqual(UInt64(db.recommendedRAM), gb48)
     }
 
     func testRecommendedDatabaseFor72GBRAM() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb72: UInt64 = 72 * 1_073_741_824
-        let db = try await registry.recommendedDatabase(ramBytes: gb72)
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb72)
+        let db = try XCTUnwrap(recommended)
         XCTAssertEqual(db.name, "PlusPF")
     }
 
     func testRecommendedDatabaseFor128GBRAM() async throws {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb128: UInt64 = 128 * 1_073_741_824
-        let db = try await registry.recommendedDatabase(ramBytes: gb128)
+        let recommended = try await registry.recommendedDatabase(ramBytes: gb128)
+        let db = try XCTUnwrap(recommended)
         XCTAssertEqual(db.name, "PlusPF")
     }
 
@@ -797,19 +814,25 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         let registry = MetagenomicsDatabaseRegistry(baseDirectory: tempDir)
         let gb4: UInt64 = 4 * 1_073_741_824
         let db = try await registry.recommendedDatabase(ramBytes: gb4)
-        XCTAssertEqual(db.name, "Standard-8")
+        XCTAssertNil(db)
     }
 
     func testRecommendedCollectionStatic() {
+        let gb4: UInt64 = 4 * 1_073_741_824
         let gb8: UInt64 = 8 * 1_073_741_824
         let gb16: UInt64 = 16 * 1_073_741_824
         let gb32: UInt64 = 32 * 1_073_741_824
+        let gb48: UInt64 = 48 * 1_073_741_824
+        let gb67: UInt64 = 67 * 1_073_741_824
         let gb72: UInt64 = 72 * 1_073_741_824
         let gb96: UInt64 = 96 * 1_073_741_824
 
+        XCTAssertNil(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb4))
         XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb8), .standard8)
         XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb16), .standard16)
-        XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb32), .standard)
+        XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb32), .standard16)
+        XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb48), .standard16)
+        XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb67), .standard)
         XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb72), .plusPF)
         XCTAssertEqual(MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: gb96), .plusPF)
     }

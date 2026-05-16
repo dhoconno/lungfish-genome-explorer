@@ -7,14 +7,20 @@ import Foundation
 public struct MappingCommandInvocation: Sendable, Codable, Equatable {
     public let label: String
     public let argv: [String]
+    public let durableReplayArgv: [String]?
 
-    public init(label: String, argv: [String]) {
+    public init(label: String, argv: [String], durableReplayArgv: [String]? = nil) {
         self.label = label
         self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
     }
 
     public var commandLine: String {
         argv.map(shellEscape).joined(separator: " ")
+    }
+
+    public var durableReplayCommandLine: String {
+        (durableReplayArgv ?? argv).map(shellEscape).joined(separator: " ")
     }
 }
 
@@ -520,6 +526,8 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
             toolVersion: ProvenanceVersion.required(mapperVersion),
             tool: ProvenanceToolIdentity(name: mapper.rawValue, version: ProvenanceVersion.required(mapperVersion), kind: "cli"),
             argv: mapperInvocation.argv,
+            durableReplayArgv: mapperInvocation.durableReplayArgv,
+            reproducibleCommand: mapperInvocation.durableReplayCommandLine,
             options: ProvenanceOptions(explicit: canonicalParameters()),
             runtimeIdentity: ProvenanceRuntimeIdentity(
                 appVersion: WorkflowRun.currentAppVersion,
@@ -662,13 +670,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
         recordedAt: Date
     ) -> [StepExecution] {
         if !steps.isEmpty {
-            var retainedSteps = steps
-            guard !outputs.isEmpty else { return retainedSteps }
-            let finalStepIndex = retainedSteps.index(before: retainedSteps.endIndex)
-            var seenOutputs = Set(retainedSteps[finalStepIndex].outputs.map(\.path))
-            let missingOutputs = outputs.filter { seenOutputs.insert($0.path).inserted }
-            retainedSteps[finalStepIndex].outputs.append(contentsOf: missingOutputs)
-            return retainedSteps
+            return steps
         }
 
         let invocations = commandInvocations
@@ -679,7 +681,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                     toolVersion: ProvenanceVersion.required(mapperVersion),
                     command: mapperInvocation.argv,
                     inputs: inputs,
-                    outputs: outputs,
+                    outputs: stepOwnedOutputs(from: outputs, for: mapperInvocation),
                     exitCode: exitStatus,
                     wallTime: wallClockSeconds,
                     stderr: stderr,
@@ -697,7 +699,7 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 toolVersion: toolVersion(for: invocation),
                 command: invocation.argv,
                 inputs: isFirst ? inputs : [],
-                outputs: isLast ? outputs : [],
+                outputs: stepOwnedOutputs(from: outputs, for: invocation),
                 exitCode: isLast ? exitStatus : 0,
                 wallTime: isLast ? wallClockSeconds : nil,
                 stderr: isLast ? stderr : nil,
@@ -705,6 +707,75 @@ public struct MappingProvenance: Sendable, Codable, Equatable {
                 endTime: isLast ? recordedAt : nil
             )
         }
+    }
+
+    private func stepOwnedOutputs(
+        from outputs: [FileRecord],
+        for invocation: MappingCommandInvocation
+    ) -> [FileRecord] {
+        guard !outputs.isEmpty else { return [] }
+        let ownedPaths = explicitOutputArgumentPaths(in: invocation.argv)
+            .union(samtoolsIndexOutputPaths(in: invocation.argv))
+        guard !ownedPaths.isEmpty else { return [] }
+
+        var seen = Set<String>()
+        return outputs.filter { output in
+            let path = standardizedPath(output.path)
+            return ownedPaths.contains(path) && seen.insert(path).inserted
+        }
+    }
+
+    private func explicitOutputArgumentPaths(in argv: [String]) -> Set<String> {
+        var paths = Set<String>()
+        var index = argv.startIndex
+        while index < argv.endIndex {
+            let argument = argv[index]
+            if ["-o", "--output"].contains(argument),
+               argv.index(after: index) < argv.endIndex {
+                paths.insert(standardizedPath(argv[argv.index(after: index)]))
+                index = argv.index(index, offsetBy: 2)
+                continue
+            }
+            if argument.hasPrefix("--output=") {
+                paths.insert(standardizedPath(String(argument.dropFirst("--output=".count))))
+            }
+            index = argv.index(after: index)
+        }
+        return paths
+    }
+
+    private func samtoolsIndexOutputPaths(in argv: [String]) -> Set<String> {
+        guard let indexCommandIndex = argv.firstIndex(of: "index"),
+              argv[..<indexCommandIndex].contains("samtools") else {
+            return []
+        }
+
+        var positional: [String] = []
+        var index = argv.index(after: indexCommandIndex)
+        while index < argv.endIndex {
+            let argument = argv[index]
+            if ["-@", "-m"].contains(argument),
+               argv.index(after: index) < argv.endIndex {
+                index = argv.index(index, offsetBy: 2)
+                continue
+            }
+            if argument.hasPrefix("-") {
+                index = argv.index(after: index)
+                continue
+            }
+            positional.append(argument)
+            index = argv.index(after: index)
+        }
+
+        if positional.count >= 2 {
+            return [standardizedPath(positional[1])]
+        }
+        guard let bamPath = positional.first else { return [] }
+        return [standardizedPath(bamPath + ".bai")]
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 
     private func canonicalParameters() -> [String: ParameterValue] {

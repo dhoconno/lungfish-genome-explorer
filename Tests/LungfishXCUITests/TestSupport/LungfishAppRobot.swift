@@ -37,7 +37,7 @@ struct LungfishAppRobot {
         XCTAssertTrue(toolsMenu.waitForExistence(timeout: 5), file: file, line: line)
         toolsMenu.click()
 
-        let searchDatabasesMenu = app.menuItems["Search Online Databases..."]
+        let searchDatabasesMenu = app.menuItems["Search Online Databases"]
         XCTAssertTrue(searchDatabasesMenu.waitForExistence(timeout: 5), file: file, line: line)
         searchDatabasesMenu.click()
 

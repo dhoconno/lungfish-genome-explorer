@@ -52,6 +52,19 @@ final class GTFReaderTests: XCTestCase {
         XCTAssertEqual(features.count, 6)
     }
 
+    func testReadAllFeaturesFromGzippedGTF() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gtf.gz")
+        try GzipTestHelper.writeGzip(sampleGTF, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+        let features = try await reader.readAllFeatures()
+
+        XCTAssertEqual(features.count, 6)
+        XCTAssertEqual(features[0].geneID, "ENSG00000223972")
+    }
+
     func testReadAllAnnotationsFromFixture() async throws {
         let url = try sampleGTFURL()
         let reader = GTFReader(url: url)
@@ -69,6 +82,19 @@ final class GTFReaderTests: XCTestCase {
         let annotations = try reader.readAllSync()
 
         XCTAssertEqual(annotations.count, 6)
+    }
+
+    func testReadAllSyncSupportsGzippedGTF() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gtf.gz")
+        try GzipTestHelper.writeGzip(sampleGTF, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+        let annotations = try reader.readAllSync()
+
+        XCTAssertEqual(annotations.count, 6)
+        XCTAssertEqual(annotations[0].name, "DDX11L1")
     }
 
     // MARK: - Gene Attribute Tests

@@ -230,11 +230,11 @@ final class DatabasesTabTests: XCTestCase {
         )
         XCTAssertEqual(rec16GB, .standard16, "16 GB RAM should recommend Standard-16")
 
-        // 32 GB RAM -> Standard
+        // 32 GB RAM -> Standard-16
         let rec32GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 32 * 1_073_741_824
         )
-        XCTAssertEqual(rec32GB, .standard, "32 GB RAM should recommend Standard")
+        XCTAssertEqual(rec32GB, .standard16, "32 GB RAM should recommend Standard-16")
 
         // 72 GB RAM -> PlusPF
         let rec72GB = MetagenomicsDatabaseRegistry.recommendedCollection(

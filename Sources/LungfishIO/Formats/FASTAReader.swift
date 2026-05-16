@@ -132,42 +132,8 @@ public final class FASTAReader: Sendable {
     public func readHeadersSync() throws -> [(name: String, description: String?)] {
         var headers: [(String, String?)] = []
 
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-
-        let bufferSize = 256 * 1024
-        var remainder = ""
-
-        while true {
-            guard let chunk = try handle.read(upToCount: bufferSize) else { break }
-            if chunk.isEmpty { break }
-
-            guard let text = String(data: chunk, encoding: .utf8) else {
-                throw FASTAError.invalidEncoding
-            }
-
-            let combined = remainder + text
-            var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-
-            if !combined.hasSuffix("\n") && !lines.isEmpty {
-                remainder = lines.removeLast()
-            } else {
-                remainder = ""
-            }
-
-            for line in lines {
-                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.hasPrefix(">") {
-                    let headerLine = String(trimmed.dropFirst())
-                    let (name, desc) = parseHeader(headerLine)
-                    headers.append((name, desc))
-                }
-            }
-        }
-
-        // Handle remainder
-        if !remainder.isEmpty {
-            let trimmed = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
+        try forEachLineSync { line in
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix(">") {
                 let headerLine = String(trimmed.dropFirst())
                 let (name, desc) = parseHeader(headerLine)
@@ -180,24 +146,15 @@ public final class FASTAReader: Sendable {
 
     // MARK: - Private Implementation
 
-    /// Core synchronous parsing implementation. Both ``readAll(alphabet:)`` and
-    /// ``readAllSync(alphabet:)`` delegate to this method.
-    ///
-    /// Uses buffered line-by-line reading instead of loading the entire file into memory,
-    /// allowing it to handle genome-scale FASTA files (multi-GB) without OOM.
-    /// Sequence bases are accumulated in an array of chunks and joined once per sequence
-    /// to avoid O(n²) string concatenation.
-    private func parseFileSync(
-        alphabet: SequenceAlphabet?,
-        onSequence: (Sequence) -> Void
-    ) throws {
+    private func forEachLineSync(_ body: (String) throws -> Void) throws {
+        if isCompressed {
+            let stream = try GzipInputStream(url: url)
+            try stream.forEachLine(body)
+            return
+        }
+
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
-
-        var currentName: String?
-        var currentDescription: String?
-        var baseChunks: [String] = []
-        var lineNumber = 0
 
         // Read in 256KB chunks for efficiency — much better than readToEnd() for large files,
         // and much better than byte-by-byte for small files.
@@ -212,12 +169,9 @@ public final class FASTAReader: Sendable {
                 throw FASTAError.invalidEncoding
             }
 
-            // Prepend any leftover from the previous chunk, normalize CR-LF to LF
             let combined = (remainder + text).replacingOccurrences(of: "\r\n", with: "\n")
-            // Split into lines; the last element may be an incomplete line
             var lines = combined.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
-            // If the chunk didn't end with a newline, the last element is incomplete
             if !combined.hasSuffix("\n") && !lines.isEmpty {
                 remainder = lines.removeLast()
             } else {
@@ -225,63 +179,60 @@ public final class FASTAReader: Sendable {
             }
 
             for line in lines {
-                lineNumber += 1
-                // Strip CR for Windows line endings
-                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-
-                if trimmedLine.isEmpty {
-                    continue
-                }
-
-                if trimmedLine.hasPrefix(">") {
-                    // Save previous sequence if exists
-                    if let name = currentName, !baseChunks.isEmpty {
-                        let seq = try createSequence(
-                            name: name,
-                            description: currentDescription,
-                            bases: baseChunks.joined(),
-                            alphabet: alphabet,
-                            lineNumber: lineNumber
-                        )
-                        onSequence(seq)
-                    }
-
-                    // Parse new header
-                    let headerLine = String(trimmedLine.dropFirst())
-                    (currentName, currentDescription) = parseHeader(headerLine)
-                    baseChunks = []
-
-                } else if currentName != nil {
-                    // Accumulate sequence data as chunks (avoids O(n²) string concat)
-                    baseChunks.append(trimmedLine)
-                } else {
-                    throw FASTAError.sequenceBeforeHeader(line: lineNumber)
-                }
+                try body(line)
             }
         }
 
-        // Process any remaining text after the last chunk
         if !remainder.isEmpty {
+            try body(remainder)
+        }
+    }
+
+    /// Core synchronous parsing implementation. Both ``readAll(alphabet:)`` and
+    /// ``readAllSync(alphabet:)`` delegate to this method.
+    ///
+    /// Uses buffered line-by-line reading instead of loading the entire file into memory,
+    /// allowing it to handle genome-scale FASTA files (multi-GB) without OOM.
+    /// Sequence bases are accumulated in an array of chunks and joined once per sequence
+    /// to avoid O(n²) string concatenation.
+    private func parseFileSync(
+        alphabet: SequenceAlphabet?,
+        onSequence: (Sequence) -> Void
+    ) throws {
+        var currentName: String?
+        var currentDescription: String?
+        var baseChunks: [String] = []
+        var lineNumber = 0
+
+        try forEachLineSync { line in
             lineNumber += 1
-            let trimmedLine = remainder.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedLine.isEmpty {
-                if trimmedLine.hasPrefix(">") {
-                    if let name = currentName, !baseChunks.isEmpty {
-                        let seq = try createSequence(
-                            name: name,
-                            description: currentDescription,
-                            bases: baseChunks.joined(),
-                            alphabet: alphabet,
-                            lineNumber: lineNumber
-                        )
-                        onSequence(seq)
-                    }
-                    let headerLine = String(trimmedLine.dropFirst())
-                    (currentName, currentDescription) = parseHeader(headerLine)
-                    baseChunks = []
-                } else if currentName != nil {
-                    baseChunks.append(trimmedLine)
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if trimmedLine.isEmpty {
+                return
+            }
+
+            if trimmedLine.hasPrefix(">") {
+                if let name = currentName, !baseChunks.isEmpty {
+                    let seq = try createSequence(
+                        name: name,
+                        description: currentDescription,
+                        bases: baseChunks.joined(),
+                        alphabet: alphabet,
+                        lineNumber: lineNumber
+                    )
+                    onSequence(seq)
                 }
+
+                let headerLine = String(trimmedLine.dropFirst())
+                (currentName, currentDescription) = parseHeader(headerLine)
+                baseChunks = []
+
+            } else if currentName != nil {
+                // Accumulate sequence data as chunks (avoids O(n²) string concat)
+                baseChunks.append(trimmedLine)
+            } else {
+                throw FASTAError.sequenceBeforeHeader(line: lineNumber)
             }
         }
 
@@ -299,10 +250,21 @@ public final class FASTAReader: Sendable {
     }
 
     private func parseHeader(_ header: String) -> (name: String, description: String?) {
-        let parts = header.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-        let name = String(parts.first ?? "")
-        let description = parts.count > 1 ? String(parts[1]) : nil
-        return (name, description)
+        let trimmedHeader = header.trimmingCharacters(in: .whitespaces)
+        guard let separator = trimmedHeader.firstIndex(where: isHeaderWhitespace) else {
+            return (trimmedHeader, nil)
+        }
+
+        let name = String(trimmedHeader[..<separator])
+        guard let descriptionStart = trimmedHeader[separator...].firstIndex(where: { !isHeaderWhitespace($0) }) else {
+            return (name, nil)
+        }
+
+        return (name, String(trimmedHeader[descriptionStart...]))
+    }
+
+    private func isHeaderWhitespace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
     }
 
     private func createSequence(

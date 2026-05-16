@@ -108,6 +108,27 @@ final class FASTQReaderTests: XCTestCase {
         XCTAssertNil(records[0].description)
     }
 
+    func testHeaderSplitsIdentifierOnTabWhitespace() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let tempFile = tempDir.appendingPathComponent("test_tab_header.fastq")
+
+        let content = """
+            @READ001\tinstrument run
+            ATCGATCG
+            +
+            IIIIIIII
+            """
+
+        try content.write(to: tempFile, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        let reader = FASTQReader()
+        let records = try await reader.readAll(from: tempFile)
+
+        XCTAssertEqual(records[0].identifier, "READ001")
+        XCTAssertEqual(records[0].description, "instrument run")
+    }
+
     // MARK: - Quality Score Tests
 
     func testQualityScoresDecodedCorrectly() async throws {
@@ -526,6 +547,10 @@ final class GzipInputStreamTests: XCTestCase {
         Bundle.module.url(forResource: "test_reads.fastq", withExtension: "gz", subdirectory: "Resources")!
     }
 
+    private enum CallbackError: Error {
+        case stop
+    }
+
     func testGzipStreamLines() async throws {
         let stream = try GzipInputStream(url: gzipURL)
 
@@ -585,6 +610,108 @@ final class GzipInputStreamTests: XCTestCase {
                 XCTFail("Expected fileNotFound error, got \(error)")
             }
         }
+    }
+
+    func testLinesDoesNotYieldSpuriousEmptyLineWhenChunkEndsAtNewline() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let gzipURL = tempDir.appendingPathComponent("chunk_boundary_\(UUID().uuidString).txt.gz")
+        let longLine = String(repeating: "A", count: 1_048_575)
+        try GzipTestHelper.writeGzip("\(longLine)\ntail\n", to: gzipURL)
+        defer { try? FileManager.default.removeItem(at: gzipURL) }
+
+        let stream = try GzipInputStream(url: gzipURL)
+        var lines: [String] = []
+        for try await line in stream.lines() {
+            lines.append(line)
+        }
+
+        XCTAssertEqual(lines.count, 2)
+        XCTAssertEqual(lines[0].count, longLine.count)
+        XCTAssertEqual(lines[1], "tail")
+    }
+
+    func testLinesPreservesTrueEmptyLines() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let gzipURL = tempDir.appendingPathComponent("true_empty_lines_\(UUID().uuidString).txt.gz")
+        try GzipTestHelper.writeGzip("alpha\n\nbeta\n", to: gzipURL)
+        defer { try? FileManager.default.removeItem(at: gzipURL) }
+
+        let stream = try GzipInputStream(url: gzipURL)
+        var lines: [String] = []
+        for try await line in stream.lines() {
+            lines.append(line)
+        }
+
+        XCTAssertEqual(lines, ["alpha", "", "beta"])
+    }
+
+    func testForEachLineCleansUpGzipProcessWhenCallbackThrows() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let gzipURL = tempDir.appendingPathComponent("callback_cleanup_\(UUID().uuidString).txt.gz")
+        let content = String(repeating: "A\n", count: 500_000)
+        try GzipTestHelper.writeGzip(content, to: gzipURL)
+        defer {
+            GzipTestHelper.terminateGzipProcesses(matching: gzipURL.path)
+            try? FileManager.default.removeItem(at: gzipURL)
+        }
+
+        let stream = try GzipInputStream(url: gzipURL)
+
+        XCTAssertThrowsError(
+            try stream.forEachLine { _ in
+                throw CallbackError.stop
+            }
+        ) { error in
+            XCTAssertTrue(error is CallbackError)
+        }
+
+        let runningProcessCount = try GzipTestHelper.runningGzipProcessCount(matching: gzipURL.path)
+        XCTAssertEqual(runningProcessCount, 0)
+    }
+
+    func testLinesAutoDecompressingCancelsGzipProducerWhenConsumerStopsEarly() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let gzipURL = tempDir.appendingPathComponent("early_termination_\(UUID().uuidString).txt.gz")
+        let content = String(repeating: "A\n", count: 500_000)
+        try GzipTestHelper.writeGzip(content, to: gzipURL)
+        defer {
+            GzipTestHelper.terminateGzipProcesses(matching: gzipURL.path)
+            try? FileManager.default.removeItem(at: gzipURL)
+        }
+
+        var seenLines = 0
+        for try await line in gzipURL.linesAutoDecompressing() {
+            XCTAssertEqual(line, "A")
+            seenLines += 1
+            break
+        }
+
+        XCTAssertEqual(seenLines, 1)
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let runningProcessCount = try GzipTestHelper.runningGzipProcessCount(matching: gzipURL.path)
+        XCTAssertEqual(runningProcessCount, 0)
+    }
+
+    func testForEachLineHandlesManyShortLinesWithinChunkWithoutQuadraticCompaction() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+        let gzipURL = tempDir.appendingPathComponent("many_short_lines_\(UUID().uuidString).txt.gz")
+        let lineCount = 525_000
+        let content = String(repeating: "A\n", count: lineCount)
+        try GzipTestHelper.writeGzip(content, to: gzipURL)
+        defer { try? FileManager.default.removeItem(at: gzipURL) }
+
+        let stream = try GzipInputStream(url: gzipURL)
+        let start = Date()
+        var observedLineCount = 0
+
+        try stream.forEachLine { line in
+            XCTAssertEqual(line, "A")
+            observedLineCount += 1
+        }
+
+        XCTAssertEqual(observedLineCount, lineCount)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 2.0)
     }
 }
 

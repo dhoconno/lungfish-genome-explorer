@@ -22,19 +22,21 @@ public enum NaoMgsBamMaterializer {
     /// Materializes BAM files for every sample in a NAO-MGS result directory.
     ///
     /// Idempotent: skips samples whose BAM already exists and is already markdup'd.
-    /// After generation, runs MarkdupService.markdup() on each BAM.
+    /// By default, after generation, runs MarkdupService.markdup() on each BAM.
     ///
     /// - Parameters:
     ///   - dbPath: Path to the NAO-MGS SQLite database.
     ///   - resultURL: Result directory (BAMs written to `<resultURL>/bams/`).
     ///   - samtoolsPath: Path to samtools binary.
     ///   - force: Regenerate BAMs even if they already exist.
+    ///   - markDuplicates: Whether to run the legacy materializer markdup/index pass.
     /// - Returns: URLs of generated (or existing) BAM files.
     public static func materializeAll(
         dbPath: String,
         resultURL: URL,
         samtoolsPath: String,
-        force: Bool = false
+        force: Bool = false,
+        markDuplicates: Bool = true
     ) throws -> [URL] {
         let fm = FileManager.default
         let bamsDir = resultURL.appendingPathComponent("bams")
@@ -58,9 +60,11 @@ public enum NaoMgsBamMaterializer {
             let bamURL = bamsDir.appendingPathComponent("\(sample).bam")
 
             if !force && fm.fileExists(atPath: bamURL.path) {
-                // Already generated; ensure markdup has been run and index exists
-                _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
-                ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                // Already generated; callers may defer markdup to a shared pipeline.
+                if markDuplicates {
+                    _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                    ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                }
                 generated.append(bamURL)
                 continue
             }
@@ -71,9 +75,12 @@ public enum NaoMgsBamMaterializer {
                     sample: sample,
                     refLengths: allRefLengths,
                     bamURL: bamURL,
-                    samtoolsPath: samtoolsPath
+                    samtoolsPath: samtoolsPath,
+                    createIndex: markDuplicates
                 )
-                _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                if markDuplicates {
+                    _ = try? MarkdupService.markdup(bamURL: bamURL, samtoolsPath: samtoolsPath)
+                }
                 generated.append(bamURL)
                 logger.info("Materialized NAO-MGS BAM for sample \(sample, privacy: .public)")
             } catch {
@@ -202,7 +209,8 @@ public enum NaoMgsBamMaterializer {
         sample: String,
         refLengths: [String: Int],
         bamURL: URL,
-        samtoolsPath: String
+        samtoolsPath: String,
+        createIndex: Bool
     ) throws {
         // 1. Collect accessions used by this sample to build @SQ header lines.
         //    Uses pre-computed accession_summaries (fast) instead of scanning virus_hits.
@@ -472,8 +480,10 @@ public enum NaoMgsBamMaterializer {
                           userInfo: [NSLocalizedDescriptionKey: "samtools pipeline failed: \(stderr)"])
         }
 
-        // 5. Index the output BAM (best-effort -- BAM is still usable without index)
-        ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+        // 5. Index the output BAM when this materializer owns the downstream markdup/index pass.
+        if createIndex {
+            ensureIndex(bamURL: bamURL, samtoolsPath: samtoolsPath)
+        }
     }
 
     /// Ensures a BAM index (.bai) exists, creating one if needed.

@@ -439,7 +439,7 @@ final class DownloadCenterTests: XCTestCase {
 
     // MARK: - Cancel
 
-    func testCancelInvokesCallbackAndMarksCancelled() {
+    func testCancelInvokesCallbackAndMarksCancelled() async throws {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let id = center.start(
             title: "Import",
@@ -450,14 +450,32 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancel(id: id)
 
-        XCTAssertTrue(cancelFlag.withLock { $0 })
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.state, .cancelled)
         XCTAssertEqual(item?.detail, "Cancelled by user")
         XCTAssertEqual(item?.displayStateLabel, "Cancelled")
+        try await waitUntil(timeout: 2) {
+            cancelFlag.withLock { $0 }
+        }
     }
 
-    func testCancelReleaseBundleLock() {
+    func testCancelReleasesBundleLockWhenCallbackExists() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            onCancel: {}
+        )
+
+        center.cancel(id: id)
+
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
+    }
+
+    func testCancelWithoutCallbackMarksCancelledAndReleasesBundleLock() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
         let id = center.start(
             title: "Import",
@@ -469,6 +487,8 @@ final class DownloadCenterTests: XCTestCase {
         center.cancel(id: id)
 
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
+        XCTAssertNil(center.activeLockHolder(for: bundleURL))
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
     }
 
     func testCancelIgnoresCompletedItem() {
@@ -487,7 +507,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.state, .completed)
     }
 
-    func testCancelAllCancelsAllRunning() {
+    func testCancelAllCancelsAllRunning() async throws {
         let flag1 = OSAllocatedUnfairLock(initialState: false)
         let flag2 = OSAllocatedUnfairLock(initialState: false)
         _ = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
@@ -495,9 +515,32 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancelAll()
 
-        XCTAssertTrue(flag1.withLock { $0 })
-        XCTAssertTrue(flag2.withLock { $0 })
         XCTAssertEqual(center.activeCount, 0)
+        try await waitUntil(timeout: 2) {
+            flag1.withLock { $0 } && flag2.withLock { $0 }
+        }
+    }
+
+    func testCancelAllMarksRowsCancelledBeforeSlowCallbacksReturn() async throws {
+        let callbackCount = OSAllocatedUnfairLock(initialState: 0)
+        for index in 0..<3 {
+            _ = center.start(title: "Slow \(index)", detail: "", onCancel: {
+                Thread.sleep(forTimeInterval: 0.5)
+                callbackCount.withLock { $0 += 1 }
+            })
+        }
+
+        let start = Date()
+        center.cancelAll()
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 0.2, "cancelAll should not wait for each operation's teardown callback")
+        XCTAssertEqual(center.activeCount, 0)
+        XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelled })
+
+        try await waitUntil(timeout: 2) {
+            callbackCount.withLock { $0 } == 3
+        }
     }
 
     // MARK: - OperationCenter Typealias
@@ -505,6 +548,20 @@ final class DownloadCenterTests: XCTestCase {
     func testDownloadCenterTypealiasWorks() {
         let dc: DownloadCenter = center
         XCTAssertEqual(dc.activeCount, 0)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: @escaping @Sendable () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for condition")
     }
 
     // MARK: - All Operation Types

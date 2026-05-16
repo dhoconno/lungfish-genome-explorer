@@ -79,87 +79,91 @@ public final class GzipInputStream: Sendable {
     ///
     /// - Returns: AsyncThrowingStream of String lines
     public func lines() -> AsyncThrowingStream<String, Error> {
-        let fileURL = self.url
         return AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
-                    try GzipInputStream.validateGzipHeader(at: fileURL)
-
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
-                    process.arguments = ["-dc", fileURL.path]
-
-                    let stdoutPipe = Pipe()
-                    let stderrPipe = Pipe()
-                    process.standardOutput = stdoutPipe
-                    process.standardError = stderrPipe
-
-                    try process.run()
-
-                    let handle = stdoutPipe.fileHandleForReading
-                    let chunkSize = 1_048_576 // 1 MB
-                    var partial = Data() // Leftover bytes from previous chunk (incomplete line)
-
-                    while true {
-                        let chunk = handle.readData(ofLength: chunkSize)
-                        if chunk.isEmpty { break }
-
-                        partial.append(chunk)
-
-                        // Find the last newline in the accumulated buffer.
-                        // Everything before it can be split into complete lines.
-                        // Everything after it is a partial line carried forward.
-                        guard let lastNewline = partial.lastIndex(of: UInt8(ascii: "\n")) else {
-                            // No newline yet — accumulate more data
-                            continue
+                    try self.forEachLine { line in
+                        if case .terminated = continuation.yield(line) {
+                            throw CancellationError()
                         }
-
-                        let completeRange = partial[partial.startIndex...lastNewline]
-                        guard let text = String(data: Data(completeRange), encoding: .utf8) else {
-                            throw GzipError.decompressionFailed("Invalid UTF-8 encoding in chunk")
-                        }
-
-                        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-                        for line in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
-                            continuation.yield(String(line))
-                        }
-
-                        // Keep the remainder after the last newline
-                        let afterNewline = partial.index(after: lastNewline)
-                        if afterNewline < partial.endIndex {
-                            partial = Data(partial[afterNewline...])
-                        } else {
-                            partial = Data()
-                        }
+                        try Task.checkCancellation()
                     }
-
-                    // Yield any remaining partial line
-                    if !partial.isEmpty {
-                        guard let text = String(data: partial, encoding: .utf8) else {
-                            throw GzipError.decompressionFailed("Invalid UTF-8 encoding in final chunk")
-                        }
-                        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-                        if !normalized.isEmpty {
-                            continuation.yield(normalized)
-                        }
-                    }
-
-                    process.waitUntilExit()
-
-                    if process.terminationStatus != 0 {
-                        let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                        let stderrText = String(data: stderrData, encoding: .utf8)?
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        throw GzipError.decompressionFailed(
-                            stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
-                        )
-                    }
-
+                    continuation.finish()
+                } catch is CancellationError {
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
+            }
+        }
+    }
+
+    /// Synchronously iterates over decompressed lines.
+    ///
+    /// This shares the same line semantics as ``lines()`` while allowing
+    /// synchronous parsers to transparently handle `.gz` files.
+    func forEachLine(_ body: (String) throws -> Void) throws {
+        try Self.validateGzipHeader(at: url)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+        process.arguments = ["-dc", url.path]
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        let stdoutHandle = stdoutPipe.fileHandleForReading
+        let stderrHandle = stderrPipe.fileHandleForReading
+        var processStarted = false
+        var processWaited = false
+
+        defer {
+            if processStarted {
+                if process.isRunning {
+                    process.terminate()
+                }
+                if !processWaited {
+                    process.waitUntilExit()
+                }
+            }
+            try? stdoutHandle.close()
+            try? stderrHandle.close()
+        }
+
+        try process.run()
+        processStarted = true
+
+        let chunkSize = 1_048_576 // 1 MB
+        var partial = Data() // Leftover bytes from previous chunk (incomplete line)
+
+        while true {
+            try Task.checkCancellation()
+
+            let chunk = stdoutHandle.readData(ofLength: chunkSize)
+            if chunk.isEmpty { break }
+
+            partial.append(chunk)
+            try Self.emitCompleteLines(from: &partial, body)
+        }
+
+        try Task.checkCancellation()
+        try Self.emitFinalLine(from: partial, body)
+
+        process.waitUntilExit()
+        processWaited = true
+
+        if process.terminationStatus != 0 {
+            let stderrData = stderrHandle.readDataToEndOfFile()
+            let stderrText = String(data: stderrData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            throw GzipError.decompressionFailed(
+                stderrText?.isEmpty == false ? stderrText! : "gzip exited with code \(process.terminationStatus)"
+            )
         }
     }
 
@@ -168,6 +172,14 @@ public final class GzipInputStream: Sendable {
     /// - Returns: Decompressed file content
     /// - Throws: `GzipError` if decompression fails
     public func readAll() async throws -> String {
+        try readAllSync()
+    }
+
+    /// Decompresses the entire file and returns the content as a string.
+    ///
+    /// - Returns: Decompressed file content
+    /// - Throws: `GzipError` if decompression fails
+    public func readAllSync() throws -> String {
         let decompressedData = try decompressWithSystemGzip()
 
         guard let content = String(data: decompressedData, encoding: .utf8) else {
@@ -175,6 +187,59 @@ public final class GzipInputStream: Sendable {
         }
 
         return content
+    }
+
+    private static func emitCompleteLines(
+        from buffer: inout Data,
+        _ body: (String) throws -> Void
+    ) throws {
+        let newline = UInt8(ascii: "\n")
+        let carriageReturn = UInt8(ascii: "\r")
+        var lineStart = buffer.startIndex
+        var searchStart = buffer.startIndex
+
+        while searchStart < buffer.endIndex,
+              let newlineIndex = buffer[searchStart...].firstIndex(of: newline) {
+            var lineEnd = newlineIndex
+            if lineEnd > lineStart {
+                let previousIndex = buffer.index(before: lineEnd)
+                if buffer[previousIndex] == carriageReturn {
+                    lineEnd = previousIndex
+                }
+            }
+
+            guard let line = String(bytes: buffer[lineStart..<lineEnd], encoding: .utf8) else {
+                throw GzipError.decompressionFailed("Invalid UTF-8 encoding in chunk")
+            }
+            try body(line)
+
+            lineStart = buffer.index(after: newlineIndex)
+            searchStart = lineStart
+        }
+
+        if lineStart > buffer.startIndex {
+            buffer.removeSubrange(buffer.startIndex..<lineStart)
+        }
+    }
+
+    private static func emitFinalLine(
+        from buffer: Data,
+        _ body: (String) throws -> Void
+    ) throws {
+        guard !buffer.isEmpty else { return }
+
+        var lineEnd = buffer.endIndex
+        if lineEnd > buffer.startIndex {
+            let previousIndex = buffer.index(before: lineEnd)
+            if buffer[previousIndex] == UInt8(ascii: "\r") {
+                lineEnd = previousIndex
+            }
+        }
+
+        guard let line = String(bytes: buffer[buffer.startIndex..<lineEnd], encoding: .utf8) else {
+            throw GzipError.decompressionFailed("Invalid UTF-8 encoding in final chunk")
+        }
+        try body(line)
     }
 
     /// Validates that a file has a valid gzip header (magic bytes).
@@ -260,15 +325,23 @@ extension URL {
         } else {
             // Use standard URL.lines for uncompressed files
             return AsyncThrowingStream { continuation in
-                Task {
+                let task = Task {
                     do {
                         for try await line in self.lines {
-                            continuation.yield(line)
+                            if case .terminated = continuation.yield(line) {
+                                throw CancellationError()
+                            }
+                            try Task.checkCancellation()
                         }
+                        continuation.finish()
+                    } catch is CancellationError {
                         continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
                     }
+                }
+                continuation.onTermination = { @Sendable _ in
+                    task.cancel()
                 }
             }
         }
@@ -283,17 +356,25 @@ extension URL {
     /// - Returns: AsyncThrowingStream yielding lines from all files sequentially.
     public static func multiFileLinesAutoDecompressing(_ urls: [URL]) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     for url in urls {
                         for try await line in url.linesAutoDecompressing() {
-                            continuation.yield(line)
+                            if case .terminated = continuation.yield(line) {
+                                throw CancellationError()
+                            }
+                            try Task.checkCancellation()
                         }
                     }
+                    continuation.finish()
+                } catch is CancellationError {
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }

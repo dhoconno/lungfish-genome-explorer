@@ -9,7 +9,7 @@ final class AssemblyConfigurationViewModelSourceTests: XCTestCase {
         )
         let operationCenterSource = try String(
             contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Services/DownloadCenter.swift"),
+                .appendingPathComponent("Sources/LungfishApp/Services/OperationCenter.swift"),
             encoding: .utf8
         )
 

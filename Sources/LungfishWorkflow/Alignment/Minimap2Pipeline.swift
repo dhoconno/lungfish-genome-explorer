@@ -106,6 +106,12 @@ public struct Minimap2Config: Sendable {
     /// Input FASTQ files (1 for single-end, 2 for paired-end).
     public var inputFiles: [URL]
 
+    /// Durable scientific input paths to record in provenance when execution uses temporary materialized files.
+    public var provenanceInputFiles: [URL]?
+
+    /// Durable checksum-bearing input records to use in provenance when they differ from user-visible input paths.
+    public var provenanceInputFileRecords: [FileRecord]?
+
     /// Reference FASTA file to align against.
     public let referenceURL: URL
 
@@ -161,9 +167,13 @@ public struct Minimap2Config: Sendable {
         isPairedEnd: Bool = true,
         outputDirectory: URL,
         sampleName: String,
-        advancedArguments: [String] = []
+        advancedArguments: [String] = [],
+        provenanceInputFiles: [URL]? = nil,
+        provenanceInputFileRecords: [FileRecord]? = nil
     ) {
         self.inputFiles = inputFiles
+        self.provenanceInputFiles = provenanceInputFiles
+        self.provenanceInputFileRecords = provenanceInputFileRecords
         self.referenceURL = referenceURL
         self.preset = preset
         self.threads = threads
@@ -445,6 +455,13 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         guard let minimap2Env = await condaManager.environmentContaining(tool: "minimap2") else {
             throw Minimap2PipelineError.minimap2NotInstalled
         }
+        let mapperVersion = await detectToolVersion(
+            toolName: "minimap2",
+            environment: minimap2Env,
+            condaManager: condaManager
+        )
+        let samtoolsVersion = await runner.getToolVersion(.samtools) ?? "unknown"
+        let micromambaExecutablePath = await condaManager.micromambaPath.path
 
         // -- Prepare output directory -----------------------------------------
 
@@ -460,42 +477,32 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         let baiFile = config.outputDirectory.appendingPathComponent(
             "\(config.sampleName).sorted.bam.bai"
         )
+        let replayInputs = try durableReplayInputMaterialization(for: config)
 
         // -- Build minimap2 arguments -----------------------------------------
 
-        var minimap2Args: [String] = [
-            "-a",  // Output SAM format
-            "-x", config.preset.rawValue,
-            "-t", String(config.threads),
-        ]
-
-        // Read group header -- samtools and downstream tools use this
-        let platform: String
-        switch config.preset {
-        case .mapONT:
-            platform = "ONT"
-        case .mapHiFi, .mapPB:
-            platform = "PACBIO"
-        default:
-            platform = "ILLUMINA"
-        }
-        minimap2Args.append(contentsOf: [
-            "-R", "@RG\\tID:\(config.sampleName)\\tSM:\(config.sampleName)\\tPL:\(platform)",
-        ])
-
-        // Secondary alignment filter
-        if !config.includeSecondary {
-            minimap2Args.append("--secondary=no")
-        }
-
-        minimap2Args += config.advancedArguments
-        minimap2Args += ["-o", unsortedSAM.path]
-
-        // Reference and input files (positional args at the end)
-        minimap2Args.append(config.referenceURL.path)
-        for inputFile in config.inputFiles {
-            minimap2Args.append(inputFile.path)
-        }
+        let minimap2Args = buildMinimap2Arguments(
+            config: config,
+            inputFiles: config.inputFiles,
+            unsortedSAM: unsortedSAM
+        )
+        let provenanceMinimap2Arguments = buildMinimap2Arguments(
+            config: config,
+            inputFiles: replayInputs.inputFiles,
+            unsortedSAM: unsortedSAM
+        )
+        let minimap2Command = condaCommand(
+            name: "minimap2",
+            arguments: minimap2Args,
+            environment: minimap2Env,
+            micromambaExecutablePath: micromambaExecutablePath
+        )
+        let durableMinimap2Command = condaCommand(
+            name: "minimap2",
+            arguments: provenanceMinimap2Arguments,
+            environment: minimap2Env,
+            micromambaExecutablePath: micromambaExecutablePath
+        )
 
         // -- Step 1: Align with minimap2 --------------------------------------
 
@@ -508,15 +515,97 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         }.reduce(0, +)
         let alignTimeout = max(7200, TimeInterval(totalInputBytes / 10_000_000))
 
-        let minimap2Result = try await condaManager.runTool(
-            name: "minimap2",
-            arguments: minimap2Args,
-            environment: minimap2Env,
-            workingDirectory: config.outputDirectory,
-            timeout: alignTimeout
+        let mappingInputs = mappingInputRecords(for: config, replayInputRecords: replayInputs.fileRecords)
+        let minimap2Start = Date()
+        let minimap2Result: (stdout: String, stderr: String, exitCode: Int32)
+        do {
+            minimap2Result = try await condaManager.runTool(
+                name: "minimap2",
+                arguments: minimap2Args,
+                environment: minimap2Env,
+                workingDirectory: config.outputDirectory,
+                timeout: alignTimeout
+            )
+        } catch {
+            let minimap2End = Date()
+            let failureMessage = toolFailureMessage(error)
+            let minimap2Step = StepExecution(
+                toolName: "minimap2",
+                toolVersion: condaToolVersionString(
+                    mapperVersion,
+                    environment: minimap2Env,
+                    executableName: "minimap2"
+                ),
+                command: minimap2Command,
+                durableReplayArgv: durableMinimap2Command,
+                inputs: mappingInputs,
+                outputs: [],
+                exitCode: -1,
+                wallTime: minimap2End.timeIntervalSince(minimap2Start),
+                stderr: failureMessage,
+                startTime: minimap2Start,
+                endTime: minimap2End
+            )
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step],
+                exitStatus: -1
+            )
+            try? fm.removeItem(at: unsortedSAM)
+            throw Minimap2PipelineError.alignmentFailed(failureMessage)
+        }
+        let minimap2End = Date()
+        let rawSAMRecord = outputRecordIfPresent(url: unsortedSAM, format: .sam, role: .output)
+            ?? ProvenanceRecorder.fileRecord(url: unsortedSAM, format: .sam, role: .output)
+        var minimap2Step = StepExecution(
+            toolName: "minimap2",
+            toolVersion: condaToolVersionString(
+                mapperVersion,
+                environment: minimap2Env,
+                executableName: "minimap2"
+            ),
+            command: minimap2Command,
+            durableReplayArgv: durableMinimap2Command,
+            inputs: mappingInputs,
+            outputs: outputRecordsIfPresent(url: unsortedSAM, format: .sam, role: .output),
+            exitCode: minimap2Result.exitCode,
+            wallTime: minimap2End.timeIntervalSince(minimap2Start),
+            stderr: nonEmpty(minimap2Result.stderr),
+            startTime: minimap2Start,
+            endTime: minimap2End
         )
 
         guard minimap2Result.exitCode == 0 else {
+            minimap2Step.outputs = []
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step],
+                exitStatus: minimap2Result.exitCode
+            )
             // Clean up partial SAM
             try? fm.removeItem(at: unsortedSAM)
             throw Minimap2PipelineError.alignmentFailed(minimap2Result.stderr)
@@ -530,19 +619,87 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         // Use half the threads for sorting (I/O bound)
         let sortThreads = max(1, config.threads / 2)
 
-        let sortResult = try await runner.run(
-            .samtools,
-            arguments: [
-                "sort",
-                "-@", String(sortThreads),
-                "-o", sortedBAM.path,
-                unsortedSAM.path,
-            ],
-            workingDirectory: config.outputDirectory,
-            timeout: max(3600, TimeInterval(totalInputBytes / 5_000_000))
+        let sortArguments = [
+            "sort",
+            "-@", String(sortThreads),
+            "-o", sortedBAM.path,
+            unsortedSAM.path,
+        ]
+        let sortStart = Date()
+        let sortResult: NativeToolResult
+        do {
+            sortResult = try await runner.run(
+                .samtools,
+                arguments: sortArguments,
+                workingDirectory: config.outputDirectory,
+                timeout: max(3600, TimeInterval(totalInputBytes / 5_000_000))
+            )
+        } catch {
+            let sortEnd = Date()
+            let failureMessage = toolFailureMessage(error)
+            let sortStep = StepExecution(
+                toolName: NativeTool.samtools.executableName,
+                toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+                command: [NativeTool.samtools.executableName] + sortArguments,
+                inputs: [rawSAMRecord],
+                outputs: outputRecordsIfPresent(url: sortedBAM, format: .bam, role: .output),
+                exitCode: -1,
+                wallTime: sortEnd.timeIntervalSince(sortStart),
+                stderr: failureMessage,
+                startTime: sortStart,
+                endTime: sortEnd
+            )
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep],
+                exitStatus: -1
+            )
+            throw Minimap2PipelineError.sortFailed(failureMessage)
+        }
+        let sortEnd = Date()
+        let sortStep = StepExecution(
+            toolName: NativeTool.samtools.executableName,
+            toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+            command: sortResult.arguments.isEmpty ? [NativeTool.samtools.executableName] + sortArguments : sortResult.arguments,
+            inputs: [rawSAMRecord],
+            outputs: outputRecordsIfPresent(url: sortedBAM, format: .bam, role: .output),
+            exitCode: sortResult.exitCode,
+            wallTime: sortEnd.timeIntervalSince(sortStart),
+            stderr: nonEmpty(sortResult.stderr),
+            startTime: sortStart,
+            endTime: sortEnd
         )
 
         guard sortResult.isSuccess else {
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep],
+                exitStatus: sortResult.exitCode
+            )
             throw Minimap2PipelineError.sortFailed(sortResult.stderr)
         }
 
@@ -554,14 +711,82 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         progress(0.80, "Indexing BAM...")
         logger.info("Building BAM index")
 
-        let indexResult = try await runner.run(
-            .samtools,
-            arguments: ["index", sortedBAM.path],
-            workingDirectory: config.outputDirectory,
-            timeout: 600
+        let indexArguments = ["index", sortedBAM.path]
+        let indexStart = Date()
+        let indexResult: NativeToolResult
+        do {
+            indexResult = try await runner.run(
+                .samtools,
+                arguments: indexArguments,
+                workingDirectory: config.outputDirectory,
+                timeout: 600
+            )
+        } catch {
+            let indexEnd = Date()
+            let failureMessage = toolFailureMessage(error)
+            let indexStep = StepExecution(
+                toolName: NativeTool.samtools.executableName,
+                toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+                command: [NativeTool.samtools.executableName] + indexArguments,
+                inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
+                outputs: outputRecordsIfPresent(url: baiFile, role: .index),
+                exitCode: -1,
+                wallTime: indexEnd.timeIntervalSince(indexStart),
+                stderr: failureMessage,
+                startTime: indexStart,
+                endTime: indexEnd
+            )
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep, indexStep],
+                exitStatus: -1
+            )
+            throw Minimap2PipelineError.indexFailed(failureMessage)
+        }
+        let indexEnd = Date()
+        let indexStep = StepExecution(
+            toolName: NativeTool.samtools.executableName,
+            toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+            command: indexResult.arguments.isEmpty ? [NativeTool.samtools.executableName] + indexArguments : indexResult.arguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
+            outputs: outputRecordsIfPresent(url: baiFile, role: .index),
+            exitCode: indexResult.exitCode,
+            wallTime: indexEnd.timeIntervalSince(indexStart),
+            stderr: nonEmpty(indexResult.stderr),
+            startTime: indexStart,
+            endTime: indexEnd
         )
 
         guard indexResult.isSuccess else {
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep, indexStep],
+                exitStatus: indexResult.exitCode
+            )
             throw Minimap2PipelineError.indexFailed(indexResult.stderr)
         }
 
@@ -569,12 +794,84 @@ public final class Minimap2Pipeline: @unchecked Sendable {
 
         progress(0.90, "Collecting alignment statistics...")
 
-        let statsResult = try await runner.run(
-            .samtools,
-            arguments: ["flagstat", sortedBAM.path],
-            workingDirectory: config.outputDirectory,
-            timeout: 300
+        let statsArguments = ["flagstat", sortedBAM.path]
+        let statsStart = Date()
+        let statsResult: NativeToolResult
+        do {
+            statsResult = try await runner.run(
+                .samtools,
+                arguments: statsArguments,
+                workingDirectory: config.outputDirectory,
+                timeout: 300
+            )
+        } catch {
+            let statsEnd = Date()
+            let failureMessage = toolFailureMessage(error)
+            let statsStep = StepExecution(
+                toolName: NativeTool.samtools.executableName,
+                toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+                command: [NativeTool.samtools.executableName] + statsArguments,
+                inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
+                outputs: [],
+                exitCode: -1,
+                wallTime: statsEnd.timeIntervalSince(statsStart),
+                stderr: failureMessage,
+                startTime: statsStart,
+                endTime: statsEnd
+            )
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep, indexStep, statsStep],
+                exitStatus: -1
+            )
+            throw Minimap2PipelineError.statsFailed(failureMessage)
+        }
+        let statsEnd = Date()
+        let statsStep = StepExecution(
+            toolName: NativeTool.samtools.executableName,
+            toolVersion: nativeToolVersionString(samtoolsVersion, tool: .samtools),
+            command: statsResult.arguments.isEmpty ? [NativeTool.samtools.executableName] + statsArguments : statsResult.arguments,
+            inputs: [ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .input)],
+            outputs: [],
+            exitCode: statsResult.exitCode,
+            wallTime: statsEnd.timeIntervalSince(statsStart),
+            stderr: nonEmpty(statsResult.stderr),
+            startTime: statsStart,
+            endTime: statsEnd
         )
+
+        guard statsResult.isSuccess else {
+            try writeMappingProvenance(
+                config: config,
+                result: failureResult(
+                    bamURL: sortedBAM,
+                    baiURL: baiFile,
+                    startedAt: startTime
+                ),
+                minimap2Environment: minimap2Env,
+                minimap2Arguments: minimap2Args,
+                provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+                micromambaExecutablePath: micromambaExecutablePath,
+                mapperVersion: mapperVersion,
+                samtoolsVersion: samtoolsVersion,
+                inputFiles: mappingInputs,
+                steps: [minimap2Step, sortStep, indexStep, statsStep],
+                exitStatus: statsResult.exitCode
+            )
+            throw Minimap2PipelineError.statsFailed(statsResult.stderr)
+        }
 
         let (totalReads, mappedReads) = parseFlagstat(statsResult.stdout)
 
@@ -588,7 +885,7 @@ public final class Minimap2Pipeline: @unchecked Sendable {
 
         logger.info("Minimap2 pipeline complete in \(String(format: "%.1f", elapsed))s: \(mappedReads)/\(totalReads) mapped")
 
-        return Minimap2Result(
+        let pipelineResult = Minimap2Result(
             bamURL: sortedBAM,
             baiURL: baiFile,
             totalReads: totalReads,
@@ -596,6 +893,20 @@ public final class Minimap2Pipeline: @unchecked Sendable {
             unmappedReads: totalReads - mappedReads,
             wallClockSeconds: elapsed
         )
+        try writeMappingProvenance(
+            config: config,
+            result: pipelineResult,
+            minimap2Environment: minimap2Env,
+            minimap2Arguments: minimap2Args,
+            provenanceMinimap2Arguments: provenanceMinimap2Arguments,
+            micromambaExecutablePath: micromambaExecutablePath,
+            mapperVersion: mapperVersion,
+            samtoolsVersion: samtoolsVersion,
+            inputFiles: mappingInputs,
+            steps: [minimap2Step, sortStep, indexStep, statsStep],
+            exitStatus: 0
+        )
+        return pipelineResult
     }
 
     // MARK: - Private Helpers
@@ -627,5 +938,326 @@ public final class Minimap2Pipeline: @unchecked Sendable {
         }
 
         return (total, mapped)
+    }
+
+    private func writeMappingProvenance(
+        config: Minimap2Config,
+        result: Minimap2Result,
+        minimap2Environment: String,
+        minimap2Arguments: [String],
+        provenanceMinimap2Arguments: [String],
+        micromambaExecutablePath: String,
+        mapperVersion: String,
+        samtoolsVersion: String,
+        inputFiles: [FileRecord],
+        steps: [StepExecution],
+        exitStatus: Int32
+    ) throws {
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: config.preset.rawValue,
+            inputFASTQURLs: config.provenanceInputFiles ?? config.inputFiles,
+            referenceFASTAURL: config.referenceURL,
+            outputDirectory: config.outputDirectory,
+            sampleName: config.sampleName,
+            pairedEnd: config.isPairedEnd,
+            threads: config.threads,
+            includeSecondary: config.includeSecondary,
+            includeSupplementary: config.includeSupplementary,
+            minimumMappingQuality: config.minMappingQuality,
+            advancedArguments: config.advancedArguments
+        )
+        let mapperInvocation = MappingCommandInvocation(
+            label: MappingTool.minimap2.displayName,
+            argv: condaCommand(
+                name: "minimap2",
+                arguments: minimap2Arguments,
+                environment: minimap2Environment,
+                micromambaExecutablePath: micromambaExecutablePath
+            ),
+            durableReplayArgv: condaCommand(
+                name: "minimap2",
+                arguments: provenanceMinimap2Arguments,
+                environment: minimap2Environment,
+                micromambaExecutablePath: micromambaExecutablePath
+            )
+        )
+        let normalizationInvocations = steps.dropFirst().map { step in
+            MappingCommandInvocation(
+                label: step.command.dropFirst().first.map { "samtools \($0)" } ?? "samtools",
+                argv: step.command
+            )
+        }
+        let outputFiles = [
+            outputRecordIfPresent(url: result.bamURL, format: .bam, role: .output),
+            outputRecordIfPresent(url: result.baiURL, role: .index),
+        ].compactMap { $0 }
+
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: MappingResult(
+                mapper: .minimap2,
+                modeID: request.modeID,
+                bamURL: result.bamURL,
+                baiURL: result.baiURL,
+                totalReads: result.totalReads,
+                mappedReads: result.mappedReads,
+                unmappedReads: result.unmappedReads,
+                wallClockSeconds: result.wallClockSeconds,
+                contigs: []
+            ),
+            mapperInvocation: mapperInvocation,
+            normalizationInvocations: normalizationInvocations,
+            mapperVersion: mapperVersion,
+            samtoolsVersion: samtoolsVersion,
+            inputFiles: inputFiles,
+            outputFiles: outputFiles,
+            runtimeIdentity: [
+                "mapper": condaRuntimeIdentity(environment: minimap2Environment, executableName: "minimap2"),
+                "samtools": runtimeIdentity(for: .samtools),
+            ],
+            steps: steps,
+            exitStatus: exitStatus,
+            stderr: combinedStderr(steps.map(\.stderr))
+        )
+        try provenance.save(to: config.outputDirectory)
+    }
+
+    private func failureResult(
+        bamURL: URL,
+        baiURL: URL,
+        startedAt: Date
+    ) -> Minimap2Result {
+        Minimap2Result(
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 0,
+            mappedReads: 0,
+            unmappedReads: 0,
+            wallClockSeconds: Date().timeIntervalSince(startedAt)
+        )
+    }
+
+    private func outputRecordIfPresent(
+        url: URL,
+        format: FileFormat? = nil,
+        role: FileRole
+    ) -> FileRecord? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return ProvenanceRecorder.fileRecord(url: url, format: format, role: role)
+    }
+
+    private func outputRecordsIfPresent(
+        url: URL,
+        format: FileFormat? = nil,
+        role: FileRole
+    ) -> [FileRecord] {
+        outputRecordIfPresent(url: url, format: format, role: role).map { [$0] } ?? []
+    }
+
+    private struct DurableReplayInputMaterialization {
+        let inputFiles: [URL]
+        let fileRecords: [FileRecord]
+    }
+
+    private func durableReplayInputMaterialization(
+        for config: Minimap2Config
+    ) throws -> DurableReplayInputMaterialization {
+        let requestedReplayInputs = config.provenanceInputFiles ?? config.inputFiles
+        if requestedReplayInputs.allSatisfy(isRunnableSequenceInput) {
+            return DurableReplayInputMaterialization(inputFiles: requestedReplayInputs, fileRecords: [])
+        }
+
+        let replayDirectory = config.outputDirectory
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("intermediates", isDirectory: true)
+            .appendingPathComponent("minimap2-inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: replayDirectory, withIntermediateDirectories: true)
+
+        var replayInputs: [URL] = []
+        var replayRecords: [FileRecord] = []
+        for (index, inputFile) in config.inputFiles.enumerated() {
+            let replayInput = replayDirectory.appendingPathComponent(
+                "input-\(index + 1)-\(inputFile.lastPathComponent)"
+            )
+            try copyReplacingItem(at: inputFile, to: replayInput)
+            replayInputs.append(replayInput)
+            replayRecords.append(
+                ProvenanceRecorder.fileRecord(url: replayInput, format: fileFormat(for: replayInput), role: .input)
+            )
+        }
+        return DurableReplayInputMaterialization(inputFiles: replayInputs, fileRecords: replayRecords)
+    }
+
+    private func isRunnableSequenceInput(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
+              !isDirectory.boolValue else {
+            return false
+        }
+        switch fileFormat(for: url) {
+        case .fastq, .fasta:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func copyReplacingItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func mappingInputRecords(
+        for config: Minimap2Config,
+        replayInputRecords: [FileRecord]
+    ) -> [FileRecord] {
+        let records: [FileRecord]
+        if let provenanceInputFileRecords = config.provenanceInputFileRecords {
+            records = provenanceInputFileRecords + [
+                ProvenanceRecorder.fileRecord(url: config.referenceURL, format: fileFormat(for: config.referenceURL), role: .reference),
+            ]
+        } else {
+            let provenanceInputFiles = config.provenanceInputFiles ?? config.inputFiles
+            records = provenanceInputFiles.map {
+                ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .input)
+            } + [
+                ProvenanceRecorder.fileRecord(url: config.referenceURL, format: fileFormat(for: config.referenceURL), role: .reference),
+            ]
+        }
+        return deduplicatedFileRecords(records + replayInputRecords)
+    }
+
+    private func deduplicatedFileRecords(_ records: [FileRecord]) -> [FileRecord] {
+        var seen = Set<String>()
+        return records.filter { record in
+            seen.insert("\(record.role.rawValue)|\(URL(fileURLWithPath: record.path).standardizedFileURL.path)").inserted
+        }
+    }
+
+    private func buildMinimap2Arguments(
+        config: Minimap2Config,
+        inputFiles: [URL],
+        unsortedSAM: URL
+    ) -> [String] {
+        var arguments: [String] = [
+            "-a",  // Output SAM format
+            "-x", config.preset.rawValue,
+            "-t", String(config.threads),
+        ]
+
+        // Read group header -- samtools and downstream tools use this
+        let platform: String
+        switch config.preset {
+        case .mapONT:
+            platform = "ONT"
+        case .mapHiFi, .mapPB:
+            platform = "PACBIO"
+        default:
+            platform = "ILLUMINA"
+        }
+        arguments.append(contentsOf: [
+            "-R", "@RG\\tID:\(config.sampleName)\\tSM:\(config.sampleName)\\tPL:\(platform)",
+        ])
+
+        // Secondary alignment filter
+        if !config.includeSecondary {
+            arguments.append("--secondary=no")
+        }
+
+        arguments += config.advancedArguments
+        arguments += ["-o", unsortedSAM.path]
+
+        // Reference and input files (positional args at the end)
+        arguments.append(config.referenceURL.path)
+        for inputFile in inputFiles {
+            arguments.append(inputFile.path)
+        }
+        return arguments
+    }
+
+    private func fileFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "sam":
+            return .sam
+        case "bam":
+            return .bam
+        case "fastq", "fq":
+            return .fastq
+        case "fa", "fasta", "fna":
+            return .fasta
+        default:
+            let lowercasedName = url.lastPathComponent.lowercased()
+            if lowercasedName.hasSuffix(".fastq.gz") || lowercasedName.hasSuffix(".fq.gz") {
+                return .fastq
+            }
+            if lowercasedName.hasSuffix(".fa.gz")
+                || lowercasedName.hasSuffix(".fasta.gz")
+                || lowercasedName.hasSuffix(".fna.gz") {
+                return .fasta
+            }
+            return .unknown
+        }
+    }
+
+    private func toolFailureMessage(_ error: Error) -> String {
+        let localized = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let trimmed = localized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? String(describing: error) : trimmed
+    }
+
+    private func condaCommand(
+        name: String,
+        arguments: [String],
+        environment: String,
+        micromambaExecutablePath: String
+    ) -> [String] {
+        [micromambaExecutablePath, "run", "-n", environment, name] + arguments
+    }
+
+    private func condaToolVersionString(
+        _ version: String,
+        environment: String,
+        executableName: String
+    ) -> String {
+        "\(version) (\(condaRuntimeIdentity(environment: environment, executableName: executableName)))"
+    }
+
+    private func nativeToolVersionString(_ version: String, tool: NativeTool) -> String {
+        "\(version) (\(runtimeIdentity(for: tool)))"
+    }
+
+    private func condaRuntimeIdentity(environment: String, executableName: String) -> String {
+        "managed conda environment \(environment); executable \(executableName); root \(condaManager.rootPrefix.path)"
+    }
+
+    private func runtimeIdentity(for tool: NativeTool) -> String {
+        switch tool.location {
+        case .managed(let environment, let executableName):
+            let packageSpec = (try? ManagedToolLock.loadFromBundle().tool(named: environment)?.packageSpec)
+                ?? tool.sourcePackage
+            return "managed conda environment \(environment); executable \(executableName); package \(packageSpec)"
+        case .bundled(let relativePath):
+            return "bundled executable \(relativePath)"
+        }
+    }
+
+    private func nonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
+    }
+
+    private func combinedStderr(_ values: [String?]) -> String? {
+        let combined = values
+            .compactMap { $0 }
+            .compactMap(nonEmpty)
+            .joined(separator: "\n")
+        return combined.isEmpty ? nil : combined
     }
 }

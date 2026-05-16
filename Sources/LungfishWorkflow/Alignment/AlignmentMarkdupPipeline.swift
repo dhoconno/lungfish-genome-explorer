@@ -127,6 +127,24 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         referenceFastaPath: String?,
         progressHandler: (@Sendable (Double, String) -> Void)?
     ) async throws -> AlignmentMarkdupPipelineResult {
+        try await run(
+            inputURL: inputURL,
+            outputURL: outputURL,
+            removeDuplicates: removeDuplicates,
+            referenceFastaPath: referenceFastaPath,
+            sortThreads: nil,
+            progressHandler: progressHandler
+        )
+    }
+
+    public func run(
+        inputURL: URL,
+        outputURL: URL,
+        removeDuplicates: Bool,
+        referenceFastaPath: String?,
+        sortThreads: Int?,
+        progressHandler: (@Sendable (Double, String) -> Void)?
+    ) async throws -> AlignmentMarkdupPipelineResult {
         let outputDir = outputURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
 
@@ -143,9 +161,10 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         let size = (try? FileManager.default.attributesOfItem(atPath: inputURL.path)[.size] as? Int64) ?? 0
         let longTimeout = max(600.0, Double(size) / 10_000_000.0)
         var commandHistory: [AlignmentCommandExecutionRecord] = []
+        let threadArguments = sortThreads.map { ["-@", String(max(1, $0))] } ?? []
 
         progressHandler?(0.05, "Sorting by read name...")
-        var sortNameArgs = ["sort", "-n", "-o", intermediateFiles.nameSortedBAM.path]
+        var sortNameArgs = ["sort", "-n"] + threadArguments + ["-o", intermediateFiles.nameSortedBAM.path]
         if let referenceFastaPath {
             sortNameArgs += ["--reference", referenceFastaPath]
         }
@@ -175,7 +194,7 @@ public struct AlignmentMarkdupPipeline: AlignmentMarkdupPipelining, Sendable {
         )
 
         progressHandler?(0.55, "Sorting by coordinate...")
-        var sortCoordArgs = ["sort", "-o", intermediateFiles.coordinateSortedBAM.path]
+        var sortCoordArgs = ["sort"] + threadArguments + ["-o", intermediateFiles.coordinateSortedBAM.path]
         if let referenceFastaPath {
             sortCoordArgs += ["--reference", referenceFastaPath]
         }

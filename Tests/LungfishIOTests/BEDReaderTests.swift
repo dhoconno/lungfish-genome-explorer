@@ -70,6 +70,20 @@ final class BEDReaderTests: XCTestCase {
         XCTAssertEqual(features[2].strand, .unknown)
     }
 
+    func testReadGzippedBED6() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).bed.gz")
+        try GzipTestHelper.writeGzip(sampleBED6, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = BEDReader()
+        let features = try await reader.readAll(from: url)
+
+        XCTAssertEqual(features.count, 3)
+        XCTAssertEqual(features[0].name, "feature1")
+        XCTAssertEqual(features[1].strand, .reverse)
+    }
+
     // MARK: - BED12 Tests
 
     func testReadBED12() async throws {

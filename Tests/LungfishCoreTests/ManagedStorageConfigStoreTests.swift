@@ -75,6 +75,21 @@ final class ManagedStorageConfigStoreTests: XCTestCase {
         XCTAssertEqual(store.currentLocation().rootURL.standardizedFileURL.path, legacyRoot.standardizedFileURL.path)
     }
 
+    func testCurrentCondaRootRejectsEnvironmentOverrideWithSpaces() throws {
+        let home = try makeTemporaryHomeDirectory()
+        let store = ManagedStorageConfigStore(homeDirectory: home)
+        let invalidOverride = "/tmp/Lungfish Conda Root"
+
+        let resolved = store.currentCondaRootURL(environment: [
+            "LUNGFISH_CONDA_ROOT": invalidOverride,
+        ])
+
+        XCTAssertEqual(
+            resolved.standardizedFileURL.path,
+            store.currentLocation().condaRootURL.standardizedFileURL.path
+        )
+    }
+
     func testSettingDefaultRootOverridesLegacyDatabaseFallback() throws {
         let home = try makeTemporaryHomeDirectory()
         let legacyRoot = URL(fileURLWithPath: "/tmp/legacy-lungfish", isDirectory: true)

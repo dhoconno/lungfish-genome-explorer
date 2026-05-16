@@ -376,22 +376,51 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
             return
         }
 
+        let preexistingEnvironmentNames = await existingCondaEnvironmentNames(for: installTargets)
+        var attemptedCondaTargets: [PlannedInstallTarget] = []
+
         await invalidateVisibleStatusesCache()
         let totalSteps = max(installTargets.count, 1)
-        for (index, target) in installTargets.enumerated() {
-            let requirement = target.requirement
-            let base = Double(index) / Double(totalSteps)
-            if let databaseID = requirement.managedDatabaseID {
-                progress?(PluginPackInstallProgress(
-                    requirementID: requirement.id,
-                    requirementDisplayName: requirement.displayName,
-                    overallFraction: base,
-                    itemFraction: 0,
-                    message: target.reinstall
-                        ? "Reinstalling \(requirement.displayName)…"
-                        : "Installing \(requirement.displayName)…"
-                ))
-                _ = try await databaseInstallAction(databaseID, target.reinstall) { fraction, message in
+        do {
+            for (index, target) in installTargets.enumerated() {
+                let requirement = target.requirement
+                let base = Double(index) / Double(totalSteps)
+                if let databaseID = requirement.managedDatabaseID {
+                    progress?(PluginPackInstallProgress(
+                        requirementID: requirement.id,
+                        requirementDisplayName: requirement.displayName,
+                        overallFraction: base,
+                        itemFraction: 0,
+                        message: target.reinstall
+                            ? "Reinstalling \(requirement.displayName)…"
+                            : "Installing \(requirement.displayName)…"
+                    ))
+                    _ = try await databaseInstallAction(databaseID, target.reinstall) { fraction, message in
+                        let scaled = base + (fraction / Double(totalSteps))
+                        progress?(PluginPackInstallProgress(
+                            requirementID: requirement.id,
+                            requirementDisplayName: requirement.displayName,
+                            overallFraction: scaled,
+                            itemFraction: fraction,
+                            message: message
+                        ))
+                    }
+                    progress?(PluginPackInstallProgress(
+                        requirementID: requirement.id,
+                        requirementDisplayName: requirement.displayName,
+                        overallFraction: base + (1.0 / Double(totalSteps)),
+                        itemFraction: 1.0,
+                        message: "\(requirement.displayName) installed"
+                    ))
+                    continue
+                }
+
+                attemptedCondaTargets.append(target)
+                try await installAction(
+                    requirement.installPackages,
+                    requirement.environment,
+                    target.reinstall
+                ) { fraction, message in
                     let scaled = base + (fraction / Double(totalSteps))
                     progress?(PluginPackInstallProgress(
                         requirementID: requirement.id,
@@ -401,30 +430,14 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                         message: message
                     ))
                 }
-                progress?(PluginPackInstallProgress(
-                    requirementID: requirement.id,
-                    requirementDisplayName: requirement.displayName,
-                    overallFraction: base + (1.0 / Double(totalSteps)),
-                    itemFraction: 1.0,
-                    message: "\(requirement.displayName) installed"
-                ))
-                continue
             }
-
-            try await installAction(
-                requirement.installPackages,
-                requirement.environment,
-                target.reinstall
-            ) { fraction, message in
-                let scaled = base + (fraction / Double(totalSteps))
-                progress?(PluginPackInstallProgress(
-                    requirementID: requirement.id,
-                    requirementDisplayName: requirement.displayName,
-                    overallFraction: scaled,
-                    itemFraction: fraction,
-                    message: message
-                ))
-            }
+        } catch {
+            await rollbackAttemptedCondaEnvironments(
+                attemptedCondaTargets,
+                preexistingEnvironmentNames: preexistingEnvironmentNames
+            )
+            await invalidateVisibleStatusesCache()
+            throw error
         }
         await runPostInstallHooks(
             for: pack,
@@ -447,6 +460,41 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                 ? "\(pack.name) ready"
                 : (verifiedStatus.failureMessage ?? "\(pack.name) installed; verification pending")
         ))
+    }
+
+    private func existingCondaEnvironmentNames(
+        for installTargets: [PlannedInstallTarget]
+    ) async -> Set<String> {
+        var environmentNames: Set<String> = []
+        for target in installTargets where target.requirement.managedDatabaseID == nil {
+            let environmentURL = await condaManager.environmentURL(named: target.requirement.environment)
+            if FileManager.default.fileExists(atPath: environmentURL.path) {
+                environmentNames.insert(target.requirement.environment)
+            }
+        }
+        return environmentNames
+    }
+
+    private func rollbackAttemptedCondaEnvironments(
+        _ targets: [PlannedInstallTarget],
+        preexistingEnvironmentNames: Set<String>
+    ) async {
+        var rolledBackEnvironmentNames: Set<String> = []
+        for target in targets.reversed() {
+            let requirement = target.requirement
+            let shouldRollback = target.reinstall || !preexistingEnvironmentNames.contains(requirement.environment)
+            guard shouldRollback,
+                  rolledBackEnvironmentNames.insert(requirement.environment).inserted
+            else { continue }
+
+            do {
+                try await condaManager.removeEnvironment(name: requirement.environment)
+            } catch {
+                logger.warning(
+                    "Failed to remove partially installed environment '\(requirement.environment, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+                )
+            }
+        }
     }
 
     private func plannedInstallTargets(

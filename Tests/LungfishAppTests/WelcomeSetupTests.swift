@@ -329,6 +329,16 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(source.contains(".disabled(!viewModel.canConfirmStorageSelection)"))
     }
 
+    func testWelcomeReadyRequiredSetupHidesPrimaryInstallAction() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("if !isReady {\n                    Button(actionTitle)"))
+    }
+
     func testWelcomeViewSourceUsesWarmPaletteAndNoVerticalFixedSize() throws {
         let source = try String(
             contentsOf: repositoryRoot()

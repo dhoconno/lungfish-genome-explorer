@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import CryptoKit
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -609,7 +610,7 @@ public actor FASTQDerivativeService {
         return canonical
     }
 
-    private let runner = NativeToolRunner.shared
+    private let runner: NativeToolRunner
     private let databaseRegistry: DatabaseRegistry
 
     /// Number of threads to pass to multithreaded tools (fastp, seqkit, etc.).
@@ -619,8 +620,9 @@ public actor FASTQDerivativeService {
     /// Cached BBTools environment dictionary — stable across the actor's lifetime.
     private var cachedBBToolsEnv: [String: String]?
 
-    public init(databaseRegistry: DatabaseRegistry = .shared) {
+    public init(databaseRegistry: DatabaseRegistry = .shared, runner: NativeToolRunner = .shared) {
         self.databaseRegistry = databaseRegistry
+        self.runner = runner
     }
 
     /// Materializes a derived FASTQ bundle to a standalone FASTQ file.
@@ -673,6 +675,7 @@ public actor FASTQDerivativeService {
             ?? FASTQBundle.loadDerivedManifest(in: sourceBundleURL)?.sequenceFormat
             ?? .fastq
         let executionSourceFASTQ: URL
+        let sourceBridgeFASTQ: URL?
         if sourceSequenceFormat == .fasta {
             let bridgedFASTQ = tempDir.appendingPathComponent("bridged-source.fastq")
             try await SyntheticFASTQBridge.convertFASTAToFASTQ(
@@ -680,8 +683,10 @@ public actor FASTQDerivativeService {
                 outputURL: bridgedFASTQ
             )
             executionSourceFASTQ = bridgedFASTQ
+            sourceBridgeFASTQ = bridgedFASTQ
         } else {
             executionSourceFASTQ = materializedSourceFASTQ
+            sourceBridgeFASTQ = nil
         }
 
         // Resolve lineage and root bundle info (needed for all operation types)
@@ -712,9 +717,15 @@ public actor FASTQDerivativeService {
         }
 
         // Orient has its own execution path — produces an orient-map derivative
-        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, _) = request {
+        if case .orient(let referenceURL, let wordLength, let dbMask, let saveUnoriented, let extraArguments) = request {
+            let provenanceInputRecord = try durableSourceInputRecord(
+                for: sourceBundleURL,
+                sequenceFormat: sourceSequenceFormat
+            )
             return try await createOrientDerivative(
                 sourceFASTQ: executionSourceFASTQ,
+                sourceProvenanceInputRecord: provenanceInputRecord,
+                sourceBridgeFASTQ: sourceBridgeFASTQ,
                 sourceBundleURL: sourceBundleURL,
                 resolvedRootBundleURL: resolvedRootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
@@ -725,6 +736,7 @@ public actor FASTQDerivativeService {
                 wordLength: wordLength,
                 dbMask: dbMask,
                 saveUnoriented: saveUnoriented,
+                extraArguments: extraArguments,
                 progress: progress
             )
         }
@@ -1093,6 +1105,8 @@ public actor FASTQDerivativeService {
     /// is materialized on demand using seqkit.
     private func createOrientDerivative(
         sourceFASTQ: URL,
+        sourceProvenanceInputRecord: FileRecord,
+        sourceBridgeFASTQ: URL?,
         sourceBundleURL: URL,
         resolvedRootBundleURL: URL,
         rootFASTQFilename: String,
@@ -1103,21 +1117,43 @@ public actor FASTQDerivativeService {
         wordLength: Int,
         dbMask: String,
         saveUnoriented: Bool,
+        extraArguments: [String],
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
         progress?("Running vsearch orient...")
 
         let pipeline = OrientPipeline(runner: runner)
+        let vsearchInputRecord = sourceBridgeFASTQ == nil
+            ? sourceProvenanceInputRecord
+            : ProvenanceRecorder.fileRecord(url: sourceFASTQ, format: .fastq, role: .input)
+        let orientPathReplacements = sourceBridgeFASTQ == nil
+            ? [sourceFASTQ.path: sourceProvenanceInputRecord.path]
+            : [:]
         let config = OrientConfig(
             inputURL: sourceFASTQ,
             referenceURL: referenceURL,
             wordLength: wordLength,
             dbMask: dbMask,
             qMask: dbMask,
-            saveUnoriented: saveUnoriented
+            saveUnoriented: saveUnoriented,
+            extraArguments: extraArguments
         )
 
-        let result = try await pipeline.run(config: config) { fraction, msg in
+        let result = try await pipeline.run(
+            config: config,
+            provenanceContext: OrientProvenanceContext(
+                options: orientProvenanceOptions(
+                    sourceInputRecord: sourceProvenanceInputRecord,
+                    referenceURL: referenceURL,
+                    wordLength: wordLength,
+                    dbMask: dbMask,
+                    saveUnoriented: saveUnoriented,
+                    extraArguments: extraArguments
+                ),
+                inputFileRecords: [vsearchInputRecord],
+                pathReplacements: orientPathReplacements
+            )
+        ) { fraction, msg in
             progress?(msg)
         }
 
@@ -1169,23 +1205,98 @@ public actor FASTQDerivativeService {
             stats = parseFASTQStats(statsResult.stdout)
         }
 
+        let orientIntermediateDirectory = try provenanceIntermediateDirectory(in: bundleURL)
+        let storedOrientedFASTQ = orientIntermediateDirectory.appendingPathComponent("vsearch-oriented.fastq")
+        let storedTabbedOutput = orientIntermediateDirectory.appendingPathComponent("vsearch-orient-results.tsv")
+        try copyReplacingItem(at: result.orientedFASTQ, to: storedOrientedFASTQ)
+        try copyReplacingItem(at: result.tabbedOutput, to: storedTabbedOutput)
+        var orientProvenancePathMap = [
+            result.orientedFASTQ.path: storedOrientedFASTQ.path,
+            result.tabbedOutput.path: storedTabbedOutput.path,
+        ]
+        if let unorientedFASTQ = result.unorientedFASTQ,
+           FileManager.default.fileExists(atPath: unorientedFASTQ.path) {
+            let storedUnorientedFASTQ = orientIntermediateDirectory.appendingPathComponent("vsearch-unoriented.fastq")
+            try copyReplacingItem(at: unorientedFASTQ, to: storedUnorientedFASTQ)
+            orientProvenancePathMap[unorientedFASTQ.path] = storedUnorientedFASTQ.path
+        }
+        var bridgeStep: ProvenanceStep?
+        if let sourceBridgeFASTQ {
+            let storedBridgeFASTQ = orientIntermediateDirectory.appendingPathComponent("bridged-source.fastq")
+            try copyReplacingItem(at: sourceBridgeFASTQ, to: storedBridgeFASTQ)
+            orientProvenancePathMap[sourceBridgeFASTQ.path] = storedBridgeFASTQ.path
+            let bridgeOutput = try ProvenanceFileDescriptor.file(url: storedBridgeFASTQ, format: .fastq, role: .output)
+            bridgeStep = appProvenanceStep(
+                argv: [
+                    "Lungfish.app",
+                    "fastq",
+                    "fasta-to-fastq-bridge",
+                    "--input", sourceProvenanceInputRecord.path,
+                    "--output", storedBridgeFASTQ.path,
+                ],
+                inputs: [ProvenanceFileDescriptor(fileRecord: sourceProvenanceInputRecord)],
+                outputs: [bridgeOutput],
+                dependsOn: []
+            )
+        }
+        var unorientedBundleURL: URL?
+        var unorientedDest: URL?
+        var unorientedPayload: FASTQDerivativePayload?
+        var unorientedStats: FASTQDatasetStatistics?
+
+        // Optionally create unoriented reads derivative
+        if saveUnoriented, let unorientedFASTQ = result.unorientedFASTQ,
+           FileManager.default.fileExists(atPath: unorientedFASTQ.path) {
+            let unorientedShortID = UUID().uuidString.prefix(8).lowercased()
+            let unorientedBaseName = "unoriented-\(unorientedShortID).\(FASTQBundle.directoryExtension)"
+            let initialUnorientedBundleURL = derivDir.appendingPathComponent(unorientedBaseName, isDirectory: true)
+            let createdUnorientedBundleURL = uniqueDirectoryURL(startingAt: initialUnorientedBundleURL)
+            unorientedBundleURL = createdUnorientedBundleURL
+            try FileManager.default.createDirectory(at: createdUnorientedBundleURL, withIntermediateDirectories: true)
+            OperationMarker.markInProgress(createdUnorientedBundleURL, detail: "Creating derivative FASTQ\u{2026}")
+            defer { OperationMarker.clearInProgress(createdUnorientedBundleURL) }
+
+            if sourceSequenceFormat == .fasta {
+                let fastaDest = createdUnorientedBundleURL.appendingPathComponent("unoriented.fasta")
+                try await SyntheticFASTQBridge.convertFASTQToFASTA(
+                    inputURL: unorientedFASTQ,
+                    outputURL: fastaDest
+                )
+                unorientedDest = fastaDest
+                unorientedPayload = .fullFASTA(fastaFilename: fastaDest.lastPathComponent)
+                unorientedStats = try await SyntheticFASTQBridge.placeholderStatistics(fromFASTQ: unorientedFASTQ)
+            } else {
+                let fastqDest = createdUnorientedBundleURL.appendingPathComponent("unoriented.fastq")
+                try FileManager.default.copyItem(at: unorientedFASTQ, to: fastqDest)
+                unorientedDest = fastqDest
+                unorientedPayload = .full(fastqFilename: fastqDest.lastPathComponent)
+                unorientedStats = parseFASTQStats(
+                    (try? await runner.run(.seqkit, arguments: ["stats", "--tabular", fastqDest.path], timeout: 120))?.stdout ?? ""
+                )
+            }
+        }
+
         var orientCommandParts: [String] = [
-            "vsearch",
-            "--orient", sourceFASTQ.path,
-            "--db", referenceURL.path,
-            "--fastqout", result.orientedFASTQ.path,
-            "--tabbedout", result.tabbedOutput.path,
+            "Lungfish.app",
+            "fastq",
+            "orient-derivative",
+            sourceBundleURL.path,
+            "--reference", referenceURL.path,
             "--wordlength", String(wordLength),
             "--dbmask", dbMask,
             "--qmask", dbMask,
             "--threads", "0",
+            "--orient-map", orientMapURL.path,
+            "--preview", previewURL.path,
         ]
-        if saveUnoriented, let unorientedFASTQ = result.unorientedFASTQ {
-            orientCommandParts += ["--notmatched", unorientedFASTQ.path]
+        if let unorientedDest {
+            orientCommandParts += ["--save-unoriented", unorientedDest.path]
         }
-        let orientCommand = orientCommandParts.joined(separator: " ")
+        if !extraArguments.isEmpty {
+            orientCommandParts += ["--extra-args", AdvancedCommandLineOptions.join(extraArguments)]
+        }
+        let orientCommand = orientCommandParts.map(shellEscape).joined(separator: " ")
 
-        // Build the operation record
         let operation = FASTQDerivativeOperation(
             kind: .orient,
             orientReferencePath: referenceURL.lastPathComponent,
@@ -1194,7 +1305,7 @@ public actor FASTQDerivativeService {
             orientSaveUnoriented: saveUnoriented,
             orientRCCount: rcCount,
             orientUnmatchedCount: result.unmatchedCount,
-            toolUsed: "vsearch",
+            toolUsed: "Lungfish App",
             toolCommand: orientCommand
         )
 
@@ -1221,45 +1332,13 @@ public actor FASTQDerivativeService {
 
         try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
 
-        // Optionally create unoriented reads derivative
-        if saveUnoriented, let unorientedFASTQ = result.unorientedFASTQ,
-           FileManager.default.fileExists(atPath: unorientedFASTQ.path) {
-            let unorientedShortID = UUID().uuidString.prefix(8).lowercased()
-            let unorientedBaseName = "unoriented-\(unorientedShortID).\(FASTQBundle.directoryExtension)"
-            let initialUnorientedBundleURL = derivDir.appendingPathComponent(unorientedBaseName, isDirectory: true)
-            let unorientedBundleURL = uniqueDirectoryURL(startingAt: initialUnorientedBundleURL)
-            try FileManager.default.createDirectory(at: unorientedBundleURL, withIntermediateDirectories: true)
-            OperationMarker.markInProgress(unorientedBundleURL, detail: "Creating derivative FASTQ\u{2026}")
-            defer { OperationMarker.clearInProgress(unorientedBundleURL) }
-
-            let unorientedDest: URL
-            let unorientedPayload: FASTQDerivativePayload
-            let unorientedStats: FASTQDatasetStatistics?
-            if sourceSequenceFormat == .fasta {
-                let fastaDest = unorientedBundleURL.appendingPathComponent("unoriented.fasta")
-                try await SyntheticFASTQBridge.convertFASTQToFASTA(
-                    inputURL: unorientedFASTQ,
-                    outputURL: fastaDest
-                )
-                unorientedDest = fastaDest
-                unorientedPayload = .fullFASTA(fastaFilename: unorientedDest.lastPathComponent)
-                unorientedStats = try await SyntheticFASTQBridge.placeholderStatistics(fromFASTQ: unorientedFASTQ)
-            } else {
-                let fastqDest = unorientedBundleURL.appendingPathComponent("unoriented.fastq")
-                try FileManager.default.copyItem(at: unorientedFASTQ, to: fastqDest)
-                unorientedDest = fastqDest
-                unorientedPayload = .full(fastqFilename: unorientedDest.lastPathComponent)
-                unorientedStats = parseFASTQStats(
-                    (try? await runner.run(.seqkit, arguments: ["stats", "--tabular", unorientedDest.path], timeout: 120))?.stdout ?? ""
-                )
-            }
-
+        if let unorientedBundleURL, let unorientedPayload {
             let unorientedOp = FASTQDerivativeOperation(
                 kind: .orient,
                 orientReferencePath: referenceURL.lastPathComponent,
                 orientSaveUnoriented: true,
                 orientUnmatchedCount: result.unmatchedCount,
-                toolUsed: "vsearch",
+                toolUsed: "Lungfish App",
                 toolCommand: orientCommand
             )
 
@@ -1287,12 +1366,443 @@ public actor FASTQDerivativeService {
             try FASTQBundle.saveDerivedManifest(unorientedManifest, in: unorientedBundleURL)
         }
 
+        let orientedBaseProvenance = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+            sourceDirectory: result.orientedFASTQ.deletingLastPathComponent(),
+            finalDirectory: bundleURL,
+            pathMap: orientProvenancePathMap,
+            argumentPathMap: orientProvenancePathMap,
+            preserveOriginMetadata: false
+        )
+        try writeOrientDerivativeProvenance(
+            baseEnvelope: orientedBaseProvenance,
+            finalDirectory: bundleURL,
+            argv: orientCommandParts,
+            sourceInputRecord: sourceProvenanceInputRecord,
+            bridgeStep: bridgeStep,
+            storedTabbedOutputPath: storedTabbedOutput.path,
+            orientMapURL: orientMapURL,
+            previewURL: previewURL
+        )
+
+        if let unorientedBundleURL, let unorientedFASTQ = result.unorientedFASTQ, let unorientedDest {
+            let unorientedIntermediateDirectory = try provenanceIntermediateDirectory(in: unorientedBundleURL)
+            let storedUnorientedOrientedFASTQ = unorientedIntermediateDirectory.appendingPathComponent("vsearch-oriented.fastq")
+            let storedUnorientedFASTQ = unorientedIntermediateDirectory.appendingPathComponent("vsearch-unoriented.fastq")
+            let storedUnorientedTabbedOutput = unorientedIntermediateDirectory.appendingPathComponent("vsearch-orient-results.tsv")
+            try copyReplacingItem(at: result.orientedFASTQ, to: storedUnorientedOrientedFASTQ)
+            try copyReplacingItem(at: unorientedFASTQ, to: storedUnorientedFASTQ)
+            try copyReplacingItem(at: result.tabbedOutput, to: storedUnorientedTabbedOutput)
+            var unorientedPathMap = [
+                result.orientedFASTQ.path: storedUnorientedOrientedFASTQ.path,
+                unorientedFASTQ.path: storedUnorientedFASTQ.path,
+                result.tabbedOutput.path: storedUnorientedTabbedOutput.path,
+            ]
+            var unorientedArgumentPathMap = [
+                result.orientedFASTQ.path: storedUnorientedOrientedFASTQ.path,
+                result.tabbedOutput.path: storedUnorientedTabbedOutput.path,
+                unorientedFASTQ.path: storedUnorientedFASTQ.path,
+            ]
+            var unorientedBridgeStep: ProvenanceStep?
+            if let sourceBridgeFASTQ {
+                let storedBridgeFASTQ = unorientedIntermediateDirectory.appendingPathComponent("bridged-source.fastq")
+                try copyReplacingItem(at: sourceBridgeFASTQ, to: storedBridgeFASTQ)
+                unorientedPathMap[sourceBridgeFASTQ.path] = storedBridgeFASTQ.path
+                unorientedArgumentPathMap[sourceBridgeFASTQ.path] = storedBridgeFASTQ.path
+                let bridgeOutput = try ProvenanceFileDescriptor.file(url: storedBridgeFASTQ, format: .fastq, role: .output)
+                unorientedBridgeStep = appProvenanceStep(
+                    argv: [
+                        "Lungfish.app",
+                        "fastq",
+                        "fasta-to-fastq-bridge",
+                        "--input", sourceProvenanceInputRecord.path,
+                        "--output", storedBridgeFASTQ.path,
+                    ],
+                    inputs: [ProvenanceFileDescriptor(fileRecord: sourceProvenanceInputRecord)],
+                    outputs: [bridgeOutput],
+                    dependsOn: []
+                )
+            }
+            let unorientedBaseProvenance = try ProvenanceRehydrator.rehydrateSelectedOutputs(
+                sourceDirectory: result.orientedFASTQ.deletingLastPathComponent(),
+                finalDirectory: unorientedBundleURL,
+                pathMap: unorientedPathMap,
+                argumentPathMap: unorientedArgumentPathMap,
+                preserveOriginMetadata: false
+            )
+            try writeUnorientedDerivativeProvenance(
+                baseEnvelope: unorientedBaseProvenance,
+                finalDirectory: unorientedBundleURL,
+                argv: orientCommandParts,
+                bridgeStep: unorientedBridgeStep,
+                storedUnorientedFASTQPath: storedUnorientedFASTQ.path,
+                outputURL: unorientedDest,
+                outputFormat: sourceSequenceFormat == .fasta ? .fasta : .fastq,
+                operationName: sourceSequenceFormat == .fasta
+                    ? "orient-unmatched-to-fasta"
+                    : "orient-save-unmatched"
+            )
+        }
+
         // Clean up vsearch work directory
         let workDir = result.orientedFASTQ.deletingLastPathComponent()
         try? FileManager.default.removeItem(at: workDir)
 
         progress?("Orient complete: \(fwdCount) forward, \(rcCount) reverse-complemented, \(result.unmatchedCount) unmatched")
         return bundleURL
+    }
+
+    private func writeOrientDerivativeProvenance(
+        baseEnvelope: ProvenanceEnvelope,
+        finalDirectory: URL,
+        argv: [String],
+        sourceInputRecord: FileRecord,
+        bridgeStep: ProvenanceStep?,
+        storedTabbedOutputPath: String,
+        orientMapURL: URL,
+        previewURL: URL
+    ) throws {
+        let orientMapDescriptor = try ProvenanceFileDescriptor.file(url: orientMapURL, format: .text, role: .output)
+        var finalOutputs = [orientMapDescriptor]
+        var appSteps = [
+            appProvenanceStep(
+                argv: [
+                    "Lungfish.app",
+                    "fastq",
+                    "orient-map",
+                    "--input", storedTabbedOutputPath,
+                    "--output", orientMapURL.path,
+                ],
+                inputs: [
+                    ProvenanceFileDescriptor(path: storedTabbedOutputPath, format: .text, role: .input),
+                ],
+                outputs: [orientMapDescriptor],
+                dependsOn: baseEnvelope.steps.map(\.id)
+            ),
+        ]
+
+        if FileManager.default.fileExists(atPath: previewURL.path) {
+            let previewDescriptor = try ProvenanceFileDescriptor.file(url: previewURL, format: .fastq, role: .output)
+            let previewInput = bridgeStep?.outputs.first?.withRole(.input)
+                ?? ProvenanceFileDescriptor(fileRecord: sourceInputRecord)
+            let previewDependencies = [appSteps[0].id] + (bridgeStep.map { [$0.id] } ?? [])
+            finalOutputs.append(previewDescriptor)
+            appSteps.append(
+                appProvenanceStep(
+                    argv: [
+                        "Lungfish.app",
+                        "fastq",
+                        "orient-preview",
+                        "--source", previewInput.path,
+                        "--orient-map", orientMapURL.path,
+                        "--output", previewURL.path,
+                    ],
+                    inputs: [
+                        previewInput,
+                        orientMapDescriptor.withRole(.input),
+                    ],
+                    outputs: [previewDescriptor],
+                    dependsOn: previewDependencies
+                )
+            )
+        }
+
+        try writeAugmentedOrientProvenance(
+            baseEnvelope: baseEnvelope,
+            finalDirectory: finalDirectory,
+            argv: argv,
+            finalOutputs: finalOutputs,
+            preSteps: bridgeStep.map { [$0] } ?? [],
+            appSteps: appSteps
+        )
+    }
+
+    private func writeUnorientedDerivativeProvenance(
+        baseEnvelope: ProvenanceEnvelope,
+        finalDirectory: URL,
+        argv: [String],
+        bridgeStep: ProvenanceStep?,
+        storedUnorientedFASTQPath: String,
+        outputURL: URL,
+        outputFormat: FileFormat,
+        operationName: String
+    ) throws {
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: outputFormat, role: .output)
+        let appStep = appProvenanceStep(
+            argv: [
+                "Lungfish.app",
+                "fastq",
+                operationName,
+                "--input", storedUnorientedFASTQPath,
+                "--output", outputURL.path,
+            ],
+            inputs: [
+                ProvenanceFileDescriptor(path: storedUnorientedFASTQPath, format: .fastq, role: .input),
+            ],
+            outputs: [outputDescriptor],
+            dependsOn: baseEnvelope.steps.map(\.id)
+        )
+
+        try writeAugmentedOrientProvenance(
+            baseEnvelope: baseEnvelope,
+            finalDirectory: finalDirectory,
+            argv: argv,
+            finalOutputs: [outputDescriptor],
+            preSteps: bridgeStep.map { [$0] } ?? [],
+            appSteps: [appStep]
+        )
+    }
+
+    private func appProvenanceStep(
+        argv: [String],
+        inputs: [ProvenanceFileDescriptor],
+        outputs: [ProvenanceFileDescriptor],
+        dependsOn: [UUID]
+    ) -> ProvenanceStep {
+        ProvenanceStep(
+            toolName: "Lungfish App",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: 0,
+            dependsOn: dependsOn
+        )
+    }
+
+    private func writeAugmentedOrientProvenance(
+        baseEnvelope: ProvenanceEnvelope,
+        finalDirectory: URL,
+        argv: [String],
+        finalOutputs: [ProvenanceFileDescriptor],
+        preSteps: [ProvenanceStep] = [],
+        appSteps: [ProvenanceStep]
+    ) throws {
+        let outputPaths = Set(finalOutputs.map { standardizedPath($0.path) })
+        let retainedSteps = addDependencies(
+            preSteps.map(\.id),
+            to: stripOutputs(outputPaths, from: baseEnvelope.steps)
+        )
+        let retainedFiles = baseEnvelope.files.filter { descriptor in
+            !(descriptor.role == .output && outputPaths.contains(standardizedPath(descriptor.path)))
+        }
+        let appDescriptors = (preSteps + appSteps).flatMap { $0.inputs + $0.outputs }
+        let files = deduplicatedProvenanceDescriptors(retainedFiles + appDescriptors + finalOutputs)
+        let envelope = ProvenanceEnvelope(
+            schemaVersion: baseEnvelope.schemaVersion,
+            id: baseEnvelope.id,
+            createdAt: baseEnvelope.createdAt,
+            workflowName: "lungfish fastq orient derivative",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish App",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            options: baseEnvelope.options,
+            runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "Lungfish.app"),
+            files: files,
+            output: finalOutputs.first,
+            outputs: finalOutputs,
+            steps: preSteps + retainedSteps + appSteps,
+            wallTimeSeconds: baseEnvelope.wallTimeSeconds,
+            exitStatus: baseEnvelope.exitStatus,
+            stderr: baseEnvelope.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: finalDirectory)
+    }
+
+    private func stripOutputs(
+        _ outputPaths: Set<String>,
+        from steps: [ProvenanceStep]
+    ) -> [ProvenanceStep] {
+        steps.map { step in
+            let outputs = step.outputs.filter { !outputPaths.contains(standardizedPath($0.path)) }
+            guard outputs != step.outputs else { return step }
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: step.durableReplayArgv,
+                reproducibleCommand: step.reproducibleCommand,
+                inputs: step.inputs,
+                outputs: outputs,
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+    }
+
+    private func addDependencies(
+        _ dependencyIDs: [UUID],
+        to steps: [ProvenanceStep]
+    ) -> [ProvenanceStep] {
+        guard !dependencyIDs.isEmpty else { return steps }
+        return steps.map { step in
+            let dependsOn = step.dependsOn + dependencyIDs.filter { !step.dependsOn.contains($0) }
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: step.durableReplayArgv,
+                reproducibleCommand: step.reproducibleCommand,
+                inputs: step.inputs,
+                outputs: step.outputs,
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+    }
+
+    private func provenanceIntermediateDirectory(in bundleURL: URL) throws -> URL {
+        let directory = bundleURL
+            .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+            .appendingPathComponent("intermediates", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    private func copyReplacingItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: destinationURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func deduplicatedProvenanceDescriptors(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        return descriptors.filter { descriptor in
+            seen.insert("\(descriptor.role)|\(standardizedPath(descriptor.path))").inserted
+        }
+    }
+
+    private func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
+    }
+
+    private func orientProvenanceOptions(
+        sourceInputRecord: FileRecord,
+        referenceURL: URL,
+        wordLength: Int,
+        dbMask: String,
+        saveUnoriented: Bool,
+        extraArguments: [String]
+    ) -> ProvenanceOptions {
+        let sourceURL = URL(fileURLWithPath: sourceInputRecord.path)
+        let extraArgumentValues = extraArguments.map(ParameterValue.string)
+        let resolved: [String: ParameterValue] = [
+            "input": .file(sourceURL),
+            "reference": .file(referenceURL),
+            "wordLength": .integer(wordLength),
+            "dbMask": .string(dbMask),
+            "qMask": .string(dbMask),
+            "saveUnoriented": .boolean(saveUnoriented),
+            "threads": .integer(0),
+            "extraArguments": .array(extraArgumentValues),
+        ]
+        return ProvenanceOptions(
+            explicit: resolved,
+            defaults: [
+                "wordLength": .integer(12),
+                "dbMask": .string("dust"),
+                "qMask": .string("dust"),
+                "saveUnoriented": .boolean(true),
+                "threads": .integer(0),
+                "extraArguments": .array([]),
+            ],
+            resolvedDefaults: resolved
+        )
+    }
+
+    private func durableSourceInputRecord(
+        for sourceBundleURL: URL,
+        sequenceFormat: SequenceFormat
+    ) throws -> FileRecord {
+        if !FASTQBundle.isDerivedBundle(sourceBundleURL),
+           let primaryURL = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL) {
+            return ProvenanceRecorder.fileRecord(
+                url: primaryURL,
+                format: provenanceFileFormat(for: sequenceFormat),
+                role: .input
+            )
+        }
+
+        if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
+            switch manifest.payload {
+            case .full(let fastqFilename):
+                let payloadURL = sourceBundleURL.appendingPathComponent(fastqFilename)
+                if FileManager.default.fileExists(atPath: payloadURL.path) {
+                    return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fastq, role: .input)
+                }
+            case .fullFASTA(let fastaFilename):
+                let payloadURL = sourceBundleURL.appendingPathComponent(fastaFilename)
+                if FileManager.default.fileExists(atPath: payloadURL.path) {
+                    return ProvenanceRecorder.fileRecord(url: payloadURL, format: .fasta, role: .input)
+                }
+            default:
+                break
+            }
+        }
+
+        return try durableBundleInputRecord(
+            for: sourceBundleURL,
+            format: provenanceFileFormat(for: sequenceFormat)
+        )
+    }
+
+    private func durableBundleInputRecord(for bundleURL: URL, format: FileFormat) throws -> FileRecord {
+        let manifest = try ProvenanceFileHasher.directoryManifest(for: bundleURL, role: .input)
+        let sizeBytes = manifest.files.reduce(UInt64(0)) { partial, descriptor in
+            partial + (descriptor.fileSize ?? 0)
+        }
+        let digestInput = manifest.files
+            .map { descriptor in
+                [
+                    descriptor.path,
+                    descriptor.checksumSHA256 ?? "",
+                    String(descriptor.fileSize ?? 0),
+                ].joined(separator: "\t")
+            }
+            .joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(digestInput.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+
+        return FileRecord(
+            path: bundleURL.path,
+            sha256: digest,
+            sizeBytes: sizeBytes,
+            format: format,
+            role: .input
+        )
+    }
+
+    private func provenanceFileFormat(for sequenceFormat: SequenceFormat) -> FileFormat {
+        switch sequenceFormat {
+        case .fasta:
+            return .fasta
+        case .fastq:
+            return .fastq
+        }
     }
 
     /// Parses seqkit stats tabular output into FASTQDatasetStatistics.

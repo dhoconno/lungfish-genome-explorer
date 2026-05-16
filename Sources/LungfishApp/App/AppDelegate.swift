@@ -6011,9 +6011,13 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext
         )
 
-        Task.detached { [weak self] in
+        let cliCancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached { [weak self] in
             do {
-                let output = try SequenceAnnotationOperationRunner.run(request)
+                let output = try SequenceAnnotationOperationRunner.run(
+                    request,
+                    cancellation: cliCancellation
+                )
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     if !output.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         OperationCenter.shared.log(id: opID, level: .info, message: output.stdout)
@@ -6031,6 +6035,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                         routeContext: routeContext
                     )
                 }}
+            } catch LungfishCLIRunner.RunError.cancelled {
+                // OperationCenter.cancel has already transitioned the row to Cancelled.
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                }}
+            } catch is CancellationError {
+                DispatchQueue.main.async { MainActor.assumeIsolated {
+                    OperationCenter.shared.log(id: opID, level: .info, message: "\(request.operation.displayName) cancelled")
+                }}
             } catch {
                 DispatchQueue.main.async { MainActor.assumeIsolated {
                     OperationCenter.shared.fail(
@@ -6046,6 +6059,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     )
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            cliCancellation.cancel()
         }
     }
 
@@ -6972,7 +6989,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext
         )
 
-        Task.detached { [weak self] in
+        let task = Task.detached { [weak self] in
             do {
                 // Materialize virtual FASTQs before running the pipeline.
                 let materializeTempDir = try ProjectTempDirectory.createFromContext(
@@ -6991,6 +7008,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 ) ?? config.inputFiles
 
                 var resolvedConfig = config
+                resolvedConfig.provenanceInputFiles = config.provenanceInputFiles
+                    ?? Self.durableSequenceInputsForProvenance(config.inputFiles)
+                resolvedConfig.provenanceInputFileRecords = config.provenanceInputFileRecords
+                    ?? Self.durableSequenceInputRecordsForProvenance(config.inputFiles)
                 resolvedConfig.inputFiles = resolvedFiles
 
                 let pipeline = Minimap2Pipeline()
@@ -7031,6 +7052,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }}
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     func importCzIdResultFromURL(_ url: URL, routeContext explicitRouteContext: OperationRouteContext? = nil) {
@@ -7171,7 +7193,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext
         )
 
-        Task.detached { [weak self] in
+        let task = Task.detached { [weak self] in
             do {
                 if AppUITestConfiguration.current.isEnabled,
                    AppUITestConfiguration.current.backendMode == .deterministic {
@@ -7274,6 +7296,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }}
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
     private func runMAFFTAlignment(
@@ -7314,9 +7337,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext
         )
 
-        Task.detached { [weak self] in
+        let runner = CLIMSAAlignmentRunner()
+        let task = Task.detached { [weak self] in
             do {
-                let result = try await CLIMSAAlignmentRunner().run(
+                let result = try await runner.run(
                     arguments: cliArgs,
                     operationID: opID
                 )
@@ -7339,6 +7363,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                     )
                 }}
             }
+        }
+        OperationCenter.shared.setCancelCallback(for: opID) {
+            task.cancel()
+            runner.cancel()
         }
     }
 
@@ -7439,7 +7467,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: currentOperationRouteContext()
         )
 
-        Task.detached { [weak self] in
+        let task = Task.detached { [weak self] in
             do {
                 // Materialize virtual FASTQs before running the pipeline.
                 let materializeTempDir = try ProjectTempDirectory.createFromContext(
@@ -7486,6 +7514,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 }}
             }
         }
+        OperationCenter.shared.setCancelCallback(for: opID) { task.cancel() }
     }
 
 
@@ -7624,6 +7653,113 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
         return nil
+    }
+
+    nonisolated private static func durableSequenceInputsForProvenance(_ inputFiles: [URL]) -> [URL] {
+        inputFiles.flatMap { inputURL -> [URL] in
+            let standardizedInput = inputURL.standardizedFileURL
+            if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedInput) {
+                if let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+                    let payloadURLs = durableMaterializedPayloadURLs(manifest.payload, in: bundleURL)
+                    return payloadURLs.isEmpty ? [bundleURL] : payloadURLs
+                }
+                if let physicalFASTQs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+                   !physicalFASTQs.isEmpty {
+                    return physicalFASTQs
+                }
+                return [bundleURL]
+            }
+            if let resolvedSequenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: standardizedInput) {
+                return [resolvedSequenceURL]
+            }
+            return [standardizedInput]
+        }
+    }
+
+    nonisolated private static func durableDerivedPayloadURLs(
+        _ payload: FASTQDerivativePayload,
+        in bundleURL: URL
+    ) -> [URL] {
+        let candidates: [URL]
+        switch payload {
+        case .subset(let readIDListFilename):
+            candidates = [bundleURL.appendingPathComponent(readIDListFilename)]
+        case .trim(let trimPositionFilename):
+            candidates = [bundleURL.appendingPathComponent(trimPositionFilename)]
+        case .full(let fastqFilename):
+            candidates = [bundleURL.appendingPathComponent(fastqFilename)]
+        case .fullFASTA(let fastaFilename):
+            candidates = [bundleURL.appendingPathComponent(fastaFilename)]
+        case .fullPaired(let r1Filename, let r2Filename):
+            candidates = [
+                bundleURL.appendingPathComponent(r1Filename),
+                bundleURL.appendingPathComponent(r2Filename),
+            ]
+        case .fullMixed(let classification):
+            candidates = classification.files.map { bundleURL.appendingPathComponent($0.filename) }
+        case .demuxedVirtual(_, let readIDListFilename, let previewFilename, let trimPositionsFilename, let orientMapFilename):
+            candidates = [
+                bundleURL.appendingPathComponent(readIDListFilename),
+                bundleURL.appendingPathComponent(previewFilename),
+                trimPositionsFilename.map { bundleURL.appendingPathComponent($0) },
+                orientMapFilename.map { bundleURL.appendingPathComponent($0) },
+            ].compactMap { $0 }
+        case .orientMap(let orientMapFilename, let previewFilename):
+            candidates = [
+                bundleURL.appendingPathComponent(orientMapFilename),
+                bundleURL.appendingPathComponent(previewFilename),
+            ]
+        case .demuxGroup:
+            candidates = []
+        }
+        return candidates
+            .map(\.standardizedFileURL)
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    nonisolated private static func durableMaterializedPayloadURLs(
+        _ payload: FASTQDerivativePayload,
+        in bundleURL: URL
+    ) -> [URL] {
+        switch payload {
+        case .full, .fullFASTA, .fullPaired, .fullMixed:
+            return durableDerivedPayloadURLs(payload, in: bundleURL)
+        case .subset, .trim, .demuxedVirtual, .demuxGroup, .orientMap:
+            return []
+        }
+    }
+
+    nonisolated private static func durableSequenceInputRecordsForProvenance(_ inputFiles: [URL]) -> [FileRecord] {
+        inputFiles.flatMap { inputURL -> [FileRecord] in
+            let standardizedInput = inputURL.standardizedFileURL
+            guard let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedInput),
+                  let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
+                return durableSequenceInputsForProvenance([standardizedInput]).map {
+                    ProvenanceRecorder.fileRecord(url: $0, role: .input)
+                }
+            }
+
+            var durableURLs = [FASTQBundle.derivedManifestURL(in: bundleURL)]
+            durableURLs += durableDerivedPayloadURLs(manifest.payload, in: bundleURL)
+
+            let rootBundleURL = FASTQBundle.resolveBundle(
+                relativePath: manifest.rootBundleRelativePath,
+                from: bundleURL
+            )
+            let rootSequenceURL = rootBundleURL
+                .appendingPathComponent(manifest.rootFASTQFilename)
+                .standardizedFileURL
+            if FileManager.default.fileExists(atPath: rootSequenceURL.path) {
+                durableURLs.append(rootSequenceURL)
+            }
+
+            var seen = Set<String>()
+            return durableURLs.compactMap { url in
+                let path = url.standardizedFileURL.path
+                guard seen.insert(path).inserted else { return nil }
+                return ProvenanceRecorder.fileRecord(url: url, role: .input)
+            }
+        }
     }
 
     ///
@@ -10284,5 +10420,9 @@ private struct AppUITestViralReconWorkflowProcessRunner: ViralReconWorkflowProce
             standardError: "",
             didStreamOutput: true
         )
+    }
+
+    func cancel() {
+        AppUITestConfiguration.current.appendEvent("viralrecon.cli.cancelled")
     }
 }

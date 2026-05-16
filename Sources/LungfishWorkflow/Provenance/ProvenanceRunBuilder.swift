@@ -58,6 +58,7 @@ public struct ProvenanceRunBuilder: Sendable {
     private let toolName: String
     private let toolVersion: String
     private let arguments: [String]
+    private let durableArguments: [String]?
     private let command: String?
     private let provenanceOptions: ProvenanceOptions
     private let inputs: [ProvenanceFileDescriptor]
@@ -77,6 +78,7 @@ public struct ProvenanceRunBuilder: Sendable {
             toolName: toolName,
             toolVersion: toolVersion,
             arguments: [],
+            durableArguments: nil,
             command: nil,
             provenanceOptions: ProvenanceOptions(),
             inputs: [],
@@ -92,6 +94,7 @@ public struct ProvenanceRunBuilder: Sendable {
         toolName: String,
         toolVersion: String,
         arguments: [String],
+        durableArguments: [String]?,
         command: String?,
         provenanceOptions: ProvenanceOptions,
         inputs: [ProvenanceFileDescriptor],
@@ -104,6 +107,7 @@ public struct ProvenanceRunBuilder: Sendable {
         self.toolName = toolName
         self.toolVersion = toolVersion
         self.arguments = arguments
+        self.durableArguments = durableArguments
         self.command = command
         self.provenanceOptions = provenanceOptions
         self.inputs = inputs
@@ -114,6 +118,10 @@ public struct ProvenanceRunBuilder: Sendable {
 
     public func argv(_ argv: [String]) -> Self {
         replacing(arguments: argv)
+    }
+
+    public func durableReplayArgv(_ argv: [String]?) -> Self {
+        replacing(durableArguments: argv)
     }
 
     public func reproducibleCommand(_ command: String) -> Self {
@@ -197,6 +205,7 @@ public struct ProvenanceRunBuilder: Sendable {
             toolVersion: toolVersion,
             tool: ProvenanceToolIdentity(name: toolName, version: toolVersion, kind: "cli"),
             argv: arguments,
+            durableReplayArgv: durableArguments,
             reproducibleCommand: command,
             options: provenanceOptions,
             runtimeIdentity: runtimeIdentity ?? ProvenanceRuntimeIdentity(),
@@ -247,6 +256,7 @@ public struct ProvenanceRunBuilder: Sendable {
 
     private func replacing(
         arguments: [String]? = nil,
+        durableArguments: [String]?? = nil,
         command: String?? = nil,
         provenanceOptions: ProvenanceOptions? = nil,
         inputs: [ProvenanceFileDescriptor]? = nil,
@@ -260,6 +270,7 @@ public struct ProvenanceRunBuilder: Sendable {
             toolName: toolName,
             toolVersion: toolVersion,
             arguments: arguments ?? self.arguments,
+            durableArguments: durableArguments ?? self.durableArguments,
             command: command ?? self.command,
             provenanceOptions: provenanceOptions ?? self.provenanceOptions,
             inputs: inputs ?? self.inputs,

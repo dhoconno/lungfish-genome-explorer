@@ -152,3 +152,127 @@ public final class NativeProcessRegistry: @unchecked Sendable {
         return processes.count
     }
 }
+
+enum NativeProcessCompletionReason {
+    case completed
+    case cancelled
+    case timedOut
+}
+
+final class NativeProcessRunState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+    private var cancelled = false
+    private var timedOut = false
+
+    func markCancelled() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func markTimedOut() {
+        lock.lock()
+        timedOut = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func resumeOnce(_ body: (NativeProcessCompletionReason) -> Void) {
+        let reason: NativeProcessCompletionReason
+        lock.lock()
+        guard !resumed else {
+            lock.unlock()
+            return
+        }
+        resumed = true
+        if cancelled {
+            reason = .cancelled
+        } else if timedOut {
+            reason = .timedOut
+        } else {
+            reason = .completed
+        }
+        lock.unlock()
+        body(reason)
+    }
+}
+
+public final class NativeProcessCancellationHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var terminationRequested = false
+
+    public init() {}
+
+    public func store(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+        NativeProcessRegistry.shared.register(process)
+    }
+
+    public func clear(_ process: Process) {
+        let shouldUnregister: Bool
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+            terminationRequested = false
+            shouldUnregister = true
+        } else {
+            shouldUnregister = false
+        }
+        lock.unlock()
+
+        if shouldUnregister {
+            NativeProcessRegistry.shared.unregister(process)
+        }
+    }
+
+    public func terminateProcessTree(gracePeriod: TimeInterval = 0.5) {
+        let process: Process?
+        lock.lock()
+        terminationRequested = true
+        process = self.process
+        lock.unlock()
+
+        guard let process else { return }
+        ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+    }
+
+    public func requestProcessTreeTermination(gracePeriod: TimeInterval = 0.5) {
+        let process: Process?
+        lock.lock()
+        terminationRequested = true
+        process = self.process
+        lock.unlock()
+
+        guard let process else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+        }
+    }
+
+    public var isTerminationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return terminationRequested
+    }
+
+    public func terminateIfRequested(gracePeriod: TimeInterval = 0.5) {
+        let shouldTerminate: Bool
+        let process: Process?
+        lock.lock()
+        shouldTerminate = terminationRequested
+        process = self.process
+        lock.unlock()
+
+        guard shouldTerminate, let process else { return }
+        ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+    }
+}

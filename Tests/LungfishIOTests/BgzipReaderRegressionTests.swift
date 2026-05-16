@@ -84,6 +84,32 @@ final class BgzipReaderRegressionTests: XCTestCase {
         XCTAssertEqual(result?.offsetInBlock, 0, "Offset at exact block boundary should have 0 in-block offset")
     }
 
+    func testGZIIndexLoadsLittleEndianOffsetsFromFileWithoutAlignmentAssumptions() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gzi")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        var data = Data()
+        func appendLittleEndianUInt64(_ value: UInt64) {
+            for shift in stride(from: 0, through: 56, by: 8) {
+                data.append(UInt8((value >> UInt64(shift)) & 0xff))
+            }
+        }
+
+        appendLittleEndianUInt64(1)
+        appendLittleEndianUInt64(0x0102_0304_0506_0708)
+        appendLittleEndianUInt64(0x1112_1314_1516_1718)
+        try data.write(to: url)
+
+        let index = try GZIIndex(url: url)
+
+        XCTAssertEqual(index.entries.count, 2)
+        XCTAssertEqual(index.entries[0].compressedOffset, 0)
+        XCTAssertEqual(index.entries[0].uncompressedOffset, 0)
+        XCTAssertEqual(index.entries[1].compressedOffset, 0x0102_0304_0506_0708)
+        XCTAssertEqual(index.entries[1].uncompressedOffset, 0x1112_1314_1516_1718)
+    }
+
     // MARK: - Infinite Loop Regression: SyncBgzipFASTAReader
 
     /// Verifies that creating a SyncBgzipFASTAReader with a missing file

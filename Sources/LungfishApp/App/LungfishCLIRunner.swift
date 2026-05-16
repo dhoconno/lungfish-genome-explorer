@@ -4,6 +4,7 @@
 
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "LungfishCLIRunner")
@@ -15,6 +16,29 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "LungfishCLIR
 /// via a subprocess keeps the logic in one place and avoids pulling large
 /// parsing/SQL code into the GUI target.
 enum LungfishCLIRunner {
+    final class CancellationHandle: @unchecked Sendable {
+        private let handle = NativeProcessCancellationHandle()
+
+        func cancel() {
+            handle.requestProcessTreeTermination()
+        }
+
+        fileprivate func store(_ process: Process) {
+            handle.store(process)
+        }
+
+        fileprivate func clear(_ process: Process) {
+            handle.clear(process)
+        }
+
+        fileprivate func terminateIfRequested() {
+            handle.terminateIfRequested()
+        }
+
+        fileprivate var isCancellationRequested: Bool {
+            handle.isTerminationRequested
+        }
+    }
 
     struct Output: Sendable, Equatable {
         let stdout: String
@@ -25,6 +49,7 @@ enum LungfishCLIRunner {
     /// An error returned from a CLI invocation.
     enum RunError: Error, LocalizedError {
         case cliNotFound
+        case cancelled
         case nonZeroExit(status: Int32, stderr: String)
         case launchFailed(String)
 
@@ -32,6 +57,8 @@ enum LungfishCLIRunner {
             switch self {
             case .cliNotFound:
                 return "The `lungfish-cli` binary could not be found in the app bundle or build products."
+            case .cancelled:
+                return "Operation cancelled"
             case .nonZeroExit(let status, let stderr):
                 let trimmed = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed.isEmpty
@@ -69,8 +96,12 @@ enum LungfishCLIRunner {
     /// - Parameter arguments: Arguments passed to `lungfish-cli`.
     /// - Returns: The process output and termination status.
     /// - Throws: ``RunError`` on missing CLI, launch failure, or non-zero exit.
-    static func run(arguments: [String]) throws -> Output {
-        guard let cliURL = findCLI() else {
+    static func run(
+        arguments: [String],
+        executableURL: URL? = nil,
+        cancellation: CancellationHandle? = nil
+    ) throws -> Output {
+        guard let cliURL = executableURL ?? findCLI() else {
             let execDir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? "<nil>"
             let bundleDir = Bundle.main.bundleURL.path
             logger.error(
@@ -82,6 +113,7 @@ enum LungfishCLIRunner {
         let process = Process()
         process.executableURL = cliURL
         process.arguments = arguments
+        cancellation?.store(process)
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -105,16 +137,27 @@ enum LungfishCLIRunner {
 
         do {
             try process.run()
+            cancellation?.terminateIfRequested()
         } catch {
+            stdoutPipe.fileHandleForWriting.closeFile()
+            stderrPipe.fileHandleForWriting.closeFile()
+            outputGroup.wait()
+            cancellation?.clear(process)
             logger.error("run: Failed to launch CLI: \(error.localizedDescription, privacy: .public)")
             throw RunError.launchFailed(error.localizedDescription)
         }
 
         process.waitUntilExit()
+        let cancellationRequested = cancellation?.isCancellationRequested == true
+        cancellation?.clear(process)
         outputGroup.wait()
 
         let stdoutText = String(data: stdoutCapture.data, encoding: .utf8) ?? ""
         let stderrText = String(data: stderrCapture.data, encoding: .utf8) ?? ""
+
+        if cancellationRequested {
+            throw RunError.cancelled
+        }
 
         if process.terminationStatus != 0 {
             logger.error(

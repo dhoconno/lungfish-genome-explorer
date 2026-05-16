@@ -386,6 +386,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: editable.count == 1 ? "Delete Annotation" : "Delete Annotations")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -503,6 +504,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete Track")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in

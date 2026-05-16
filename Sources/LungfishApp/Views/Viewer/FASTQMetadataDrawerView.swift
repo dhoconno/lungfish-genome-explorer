@@ -417,7 +417,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         tabControl.setLabel("Primer Trim", forSegment: 2)
         tabControl.setLabel("Dedup", forSegment: 3)
         tabControl.selectedSegment = 0
-        tabControl.segmentStyle = .texturedRounded
+        tabControl.segmentStyle = .rounded
         tabControl.controlSize = .small
         tabControl.translatesAutoresizingMaskIntoConstraints = false
         tabControl.target = self

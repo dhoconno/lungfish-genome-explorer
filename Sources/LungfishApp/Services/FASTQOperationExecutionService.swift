@@ -104,18 +104,29 @@ struct FASTQOperationExecutionService {
         request: FASTQOperationLaunchRequest,
         workingDirectory: URL
     ) async throws -> FASTQOperationExecutionResult {
-        let materializationDirectory = workingDirectory.appendingPathComponent(
-            "materialized-inputs-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        try validatePreResolutionTopologyIfNeeded(for: request)
+
+        let materializationDirectory = request.resolvesInputsBeforeCLI
+            ? workingDirectory.appendingPathComponent(
+                "materialized-inputs-\(UUID().uuidString)",
+                isDirectory: true
+            )
+            : nil
         let outputDirectory = executionOutputDirectory(for: request, workingDirectory: workingDirectory)
-        try FileManager.default.createDirectory(at: materializationDirectory, withIntermediateDirectories: true)
+        if let materializationDirectory {
+            try FileManager.default.createDirectory(at: materializationDirectory, withIntermediateDirectories: true)
+        }
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let resolvedRequest = try await inputResolver.resolve(
-            request: request,
-            tempDirectory: materializationDirectory
-        )
+        let resolvedRequest: FASTQOperationLaunchRequest
+        if let materializationDirectory {
+            resolvedRequest = try await inputResolver.resolve(
+                request: request,
+                tempDirectory: materializationDirectory
+            )
+        } else {
+            resolvedRequest = request
+        }
         let executionPlans = makeExecutionPlans(
             originalRequest: request,
             resolvedRequest: resolvedRequest,
@@ -164,7 +175,7 @@ struct FASTQOperationExecutionService {
                 outputDirectory: outputDirectory
             )
             cleanupTransientStagingDirectories(
-                [materializationDirectory],
+                [materializationDirectory].compactMap { $0 },
                 preserving: [outputDirectory] + outputURLs
             )
             return FASTQOperationExecutionResult(
@@ -182,7 +193,7 @@ struct FASTQOperationExecutionService {
                 outputDirectory: outputDirectory
             )
             cleanupTransientStagingDirectories(
-                [materializationDirectory, outputDirectory],
+                [materializationDirectory, outputDirectory].compactMap { $0 },
                 preserving: importedURLs
             )
             return FASTQOperationExecutionResult(
@@ -200,6 +211,35 @@ struct FASTQOperationExecutionService {
 
     private var derivedOutputPlaceholder: String {
         "<derived>"
+    }
+
+    private func validatePreResolutionTopologyIfNeeded(
+        for request: FASTQOperationLaunchRequest
+    ) throws {
+        guard case .assemble(let assemblyRequest, _) = request else { return }
+
+        if assemblyRequest.pairedEnd && assemblyRequest.inputURLs.count != 2 {
+            throw FASTQOperationExecutionError.unsupportedAssembly(
+                "Paired-end assembly requests must include exactly two sequence inputs."
+            )
+        }
+
+        switch assemblyRequest.tool {
+        case .flye:
+            guard !assemblyRequest.pairedEnd, assemblyRequest.inputURLs.count == 1 else {
+                throw FASTQOperationExecutionError.unsupportedAssembly(
+                    "Flye expects a single ONT sequence input in v1."
+                )
+            }
+        case .hifiasm:
+            guard !assemblyRequest.pairedEnd, assemblyRequest.inputURLs.count == 1 else {
+                throw FASTQOperationExecutionError.unsupportedAssembly(
+                    "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
+                )
+            }
+        case .spades, .megahit, .skesa:
+            break
+        }
     }
 
     private func executionOutputDirectory(
@@ -2273,6 +2313,13 @@ private extension FASTQOperationLaunchRequest {
         case .map, .assemble, .classify:
             return false
         }
+    }
+
+    var resolvesInputsBeforeCLI: Bool {
+        if case .assemble = self {
+            return false
+        }
+        return true
     }
 
     var requiresSyntheticFASTQBridge: Bool {

@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 final class CLIMSAAlignmentRunnerTests: XCTestCase {
     private var cleanupURLs: [URL] = []
@@ -152,6 +153,54 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
         }
     }
 
+    func testCancelTerminatesRunningMAFFTProcessTree() async throws {
+        let tempDir = try makeTemporaryDirectory()
+        let fakeCLI = tempDir.appendingPathComponent("lungfish-cli")
+        let readyURL = tempDir.appendingPathComponent("ready")
+        let rootPIDURL = tempDir.appendingPathComponent("root.pid")
+        let childPIDURL = tempDir.appendingPathComponent("child.pid")
+        let script = """
+        #!/bin/sh
+        echo $$ > '\(rootPIDURL.path)'
+        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        child=$!
+        echo "$child" > '\(childPIDURL.path)'
+        printf '%s\\n' '{"event":"msaAlignmentStart","tool":"mafft","sourceCount":1}'
+        touch '\(readyURL.path)'
+        wait "$child"
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let opID = await MainActor.run {
+            OperationCenter.shared.start(
+                title: "MAFFT Alignment",
+                detail: "Launching...",
+                operationType: .multipleSequenceAlignmentGeneration
+            )
+        }
+        let runner = CLIMSAAlignmentRunner(cliURLOverride: fakeCLI)
+        let runTask = Task {
+            try await runner.run(arguments: [], operationID: opID)
+        }
+
+        try await waitForFile(readyURL)
+        let rootPID = try readPID(rootPIDURL)
+        let childPID = try readPID(childPIDURL)
+        defer {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        let start = Date()
+        runner.cancel()
+        let cancelElapsed = Date().timeIntervalSince(start)
+        _ = await runTask.result
+
+        XCTAssertLessThan(cancelElapsed, 1.0, "MAFFT cancellation should not wait for the child process to finish naturally")
+        try await waitForProcessExit(pid: childPID)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = repoRoot
             .appendingPathComponent(".build", isDirectory: true)
@@ -166,5 +215,33 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for \(url.path)")
+    }
+
+    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !ProcessTreeTerminator.processExists(pid: pid) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Process \(pid) was still running after cancellation")
+    }
+
+    private func readPID(_ url: URL) throws -> Int32 {
+        let text = try String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }
 }

@@ -220,6 +220,26 @@ final class PluginPackVisibilityTests: XCTestCase {
         XCTAssertEqual(viewModel.focusedPackID, "metagenomics")
     }
 
+    func testInstalledTabSeparatesHashNamedOrphanEnvironments() {
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: []),
+            automaticallyRefresh: false
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("plugin-manager-orphan-envs-\(UUID().uuidString)", isDirectory: true)
+        let orphanName = "5b301f1ad57c22a15e98c9f27d9f4a41"
+
+        viewModel.applyInstalledEnvironments([
+            CondaEnvironment(name: "bbmap", path: root.appendingPathComponent("bbmap"), packageCount: 12),
+            CondaEnvironment(name: orphanName, path: root.appendingPathComponent(orphanName), packageCount: 3),
+            CondaEnvironment(name: "minimap2", path: root.appendingPathComponent("minimap2"), packageCount: 5),
+        ])
+
+        XCTAssertEqual(viewModel.environments.map(\.name), ["bbmap", "minimap2"])
+        XCTAssertEqual(viewModel.orphanedEnvironments.map(\.name), [orphanName])
+        XCTAssertTrue(viewModel.orphanedEnvironmentDiagnosticText.contains("1 orphaned"))
+    }
+
     func testOfflinePackGuidanceIncludesDocsCompatibleCommandsForSelectedPack() throws {
         let pack = try XCTUnwrap(PluginPack.builtInPack(id: "metagenomics"))
         let viewModel = PluginManagerViewModel(

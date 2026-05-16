@@ -1624,6 +1624,103 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[minContigIndex + 1], "1")
     }
 
+    func testExecuteAssemblyPreservesOriginalDerivedBundleInputInCLIInvocation() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecAssemblyOriginalInput")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundleURL = try makeVirtualDerivedFASTQBundle(named: "derived-input", in: tempDir)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: materializedURL, readCount: 2, readLength: 20)
+
+        let originalRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [sourceBundleURL],
+                projectName: "Demo",
+                outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                threads: 2
+            ),
+            outputMode: .perInput
+        )
+        let preMaterializedRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [materializedURL],
+                projectName: "Demo",
+                outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                threads: 2
+            ),
+            outputMode: .perInput
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: preMaterializedRequest)
+        let runner = SpyCommandRunner { _, outputDirectory in
+            FASTQCLIExecutionResult(outputURLs: [outputDirectory])
+        }
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        _ = try await service.execute(
+            request: originalRequest,
+            workingDirectory: tempDir
+        )
+
+        XCTAssertTrue(resolver.requests.isEmpty, "Assembly execution should let the assemble CLI own input materialization")
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertTrue(runner.invocations[0].arguments.contains(sourceBundleURL.path))
+        XCTAssertFalse(runner.invocations[0].arguments.contains(materializedURL.path))
+    }
+
+    func testExecuteAssemblyRejectsInvalidFlyeAndHifiasmMultiInputBeforeResolvingInputs() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecAssemblyTopology")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        for (tool, readType, expectedMessage) in [
+            (AssemblyTool.flye, AssemblyReadType.ontReads, "Flye expects a single"),
+            (.hifiasm, .pacBioHiFi, "Hifiasm expects a single"),
+        ] {
+            let request = FASTQOperationLaunchRequest.assemble(
+                request: AssemblyRunRequest(
+                    tool: tool,
+                    readType: readType,
+                    inputURLs: [
+                        tempDir.appendingPathComponent("reads-a.\(FASTQBundle.directoryExtension)", isDirectory: true),
+                        tempDir.appendingPathComponent("reads-b.\(FASTQBundle.directoryExtension)", isDirectory: true),
+                    ],
+                    projectName: "Demo",
+                    outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                    threads: 2
+                ),
+                outputMode: .perInput
+            )
+            let resolver = SpyInputResolver(resolvedRequest: request)
+            let runner = SpyCommandRunner()
+            let service = FASTQOperationExecutionService(
+                inputResolver: resolver,
+                commandRunner: runner,
+                directImporter: SpyDirectImporter()
+            )
+
+            do {
+                _ = try await service.execute(request: request, workingDirectory: tempDir)
+                XCTFail("Expected invalid \(tool.rawValue) multi-input launch to fail before resolving inputs")
+            } catch let error as FASTQOperationExecutionError {
+                guard case .unsupportedAssembly(let reason) = error else {
+                    return XCTFail("Expected unsupported assembly error, got \(error)")
+                }
+                XCTAssertTrue(reason.contains(expectedMessage))
+            }
+
+            XCTAssertTrue(resolver.requests.isEmpty)
+            XCTAssertTrue(runner.invocations.isEmpty)
+        }
+    }
+
     func testExecuteKeepsPairedAssemblyAsSinglePerInputPlan() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -2534,7 +2631,7 @@ private func makeReferenceBundle(
     let fastaFilename = "genome/sequence.fa.gz"
     let fastaURL = bundleURL.appendingPathComponent(fastaFilename)
     let fastaContents = records.map { ">\($0.id)\n\($0.sequence)\n" }.joined()
-    try fastaContents.write(to: fastaURL, atomically: true, encoding: .utf8)
+    try writeGzipFixture(fastaContents, to: fastaURL)
 
     let faiContents = records.reduce(into: [String]()) { lines, record in
         lines.append("\(record.id)\t\(record.sequence.count)\t9\t\(record.sequence.count)\t\(record.sequence.count + 1)")
@@ -2557,5 +2654,69 @@ private func makeReferenceBundle(
         )
     )
     try manifest.save(to: bundleURL)
+    return bundleURL
+}
+
+private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {
+    let sourceURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lungfish-app-gzip-source-\(UUID().uuidString).fa")
+    try content.write(to: sourceURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-c", sourceURL.path]
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    try process.run()
+    let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+        let message = String(data: stderr, encoding: .utf8) ?? "gzip failed"
+        throw NSError(
+            domain: "FASTQOperationExecutionServiceTests.GzipFixture",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+    }
+
+    try compressed.write(to: gzipURL)
+}
+
+private func makeVirtualDerivedFASTQBundle(named name: String, in tempDir: URL) throws -> URL {
+    let root = try FASTQOperationTestHelper.makeBundle(named: "\(name)-root", in: tempDir)
+    try FASTQOperationTestHelper.writeSyntheticFASTQ(to: root.fastqURL, readCount: 4, readLength: 20)
+
+    let bundleURL = tempDir.appendingPathComponent(
+        "\(name).\(FASTQBundle.directoryExtension)",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+    try "read1\nread2\n".write(
+        to: bundleURL.appendingPathComponent("read-ids.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let manifest = FASTQDerivedBundleManifest(
+        name: name,
+        parentBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+        rootBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+        rootFASTQFilename: root.fastqURL.lastPathComponent,
+        payload: .subset(readIDListFilename: "read-ids.txt"),
+        lineage: [],
+        operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
+        cachedStatistics: .placeholder(readCount: 2, baseCount: 40),
+        pairingMode: nil,
+        sequenceFormat: .fastq,
+        materializationState: .virtual
+    )
+    try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
     return bundleURL
 }

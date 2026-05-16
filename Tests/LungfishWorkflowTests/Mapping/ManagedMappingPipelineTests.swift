@@ -34,6 +34,42 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertFalse(source.contains("isToolInstalled(request.tool.executableName)"))
     }
 
+    func testStreamingCondaStdoutRunnerUsesTaskCancellationAndProcessTreeTermination() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("private func runCondaToolStreamingStdout"))
+        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(source.contains("NativeProcessCancellationHandle()"))
+        XCTAssertTrue(source.contains("cancellationHandle.terminateProcessTree()"))
+    }
+
+    func testStreamingCondaStdoutRegistersStderrDrainBeforeProcessRun() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = root
+            .appendingPathComponent("Sources/LungfishWorkflow/Mapping/ManagedMappingPipeline.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let functionStart = try XCTUnwrap(source.range(of: "private func runCondaToolStreamingStdout"))
+        let functionEnd = try XCTUnwrap(
+            source.range(of: "func runCondaToolStreamingStdoutForTesting", range: functionStart.upperBound..<source.endIndex)
+        )
+        let functionSource = source[functionStart.lowerBound..<functionEnd.lowerBound]
+        let drainCall = try XCTUnwrap(functionSource.range(of: "startStderrDrain()"))
+        let processRun = try XCTUnwrap(functionSource.range(of: "try process.run()"))
+
+        XCTAssertLessThan(drainCall.lowerBound, processRun.lowerBound)
+    }
+
     func testBuildsBwaMem2CommandForShortReads() throws {
         let request = makeRequest(tool: .bwaMem2)
 
@@ -639,6 +675,79 @@ final class ManagedMappingPipelineTests: XCTestCase {
         XCTAssertTrue(staged.cleanupURLs.isEmpty)
     }
 
+    func testStreamingCondaStdoutTimeoutThrowsCondaTimeout() async throws {
+        let fixture = try StreamingCondaFixture()
+        defer { fixture.cleanup() }
+        let pipeline = ManagedMappingPipeline(condaManager: fixture.condaManager)
+        let stdoutURL = fixture.root.appendingPathComponent("timed-out.sam")
+
+        do {
+            _ = try await pipeline.runCondaToolStreamingStdoutForTesting(
+                executable: "mapper",
+                arguments: ["sleep"],
+                environment: "mapper",
+                workingDirectory: fixture.root,
+                stdoutURL: stdoutURL,
+                timeout: 0.2
+            )
+            XCTFail("Expected timeout")
+        } catch CondaError.timeout(let tool, let seconds) {
+            XCTAssertEqual(tool, "mapper")
+            XCTAssertEqual(seconds, 0.2, accuracy: 0.001)
+        } catch {
+            XCTFail("Expected CondaError.timeout, got \(error)")
+        }
+    }
+
+    func testStreamingCondaStdoutCapturesFastExitStderr() async throws {
+        let fixture = try StreamingCondaFixture()
+        defer { fixture.cleanup() }
+        let pipeline = ManagedMappingPipeline(condaManager: fixture.condaManager)
+        let stdoutURL = fixture.root.appendingPathComponent("fast-exit.sam")
+
+        let result = try await pipeline.runCondaToolStreamingStdoutForTesting(
+            executable: "mapper",
+            arguments: ["fast-stderr"],
+            environment: "mapper",
+            workingDirectory: fixture.root,
+            stdoutURL: stdoutURL,
+            timeout: 2
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertEqual(result.stderr, "fast-exit stderr\n")
+    }
+
+    func testStreamingCondaStdoutUserCancellationThrowsCancellationError() async throws {
+        let fixture = try StreamingCondaFixture()
+        defer { fixture.cleanup() }
+        let pipeline = ManagedMappingPipeline(condaManager: fixture.condaManager)
+        let stdoutURL = fixture.root.appendingPathComponent("cancelled.sam")
+        let readyURL = fixture.root.appendingPathComponent("ready")
+
+        let task = Task {
+            try await pipeline.runCondaToolStreamingStdoutForTesting(
+                executable: "mapper",
+                arguments: ["ready", readyURL.path],
+                environment: "mapper",
+                workingDirectory: fixture.root,
+                stdoutURL: stdoutURL,
+                timeout: 10
+            )
+        }
+        try await waitForFile(readyURL)
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Expected cancellation")
+        } catch is CancellationError {
+            // expected
+        } catch {
+            XCTFail("Expected CancellationError, got \(error)")
+        }
+    }
+
     private func makeRequest(
         tool: MappingTool,
         modeID: String? = nil,
@@ -661,6 +770,82 @@ final class ManagedMappingPipelineTests: XCTestCase {
             advancedArguments: advancedArguments
         )
     }
+}
+
+private struct StreamingCondaFixture {
+    let root: URL
+    let condaManager: CondaManager
+
+    init() throws {
+        let fm = FileManager.default
+        root = fm.temporaryDirectory.appendingPathComponent(
+            "mapping-streaming-conda-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bundledMicromamba = root.appendingPathComponent("bundled-micromamba")
+        try Self.scriptBody().write(to: bundledMicromamba, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bundledMicromamba.path)
+
+        condaManager = CondaManager(
+            rootPrefix: root.appendingPathComponent("conda", isDirectory: true),
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.0" }
+        )
+    }
+
+    func cleanup() {
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    private static func scriptBody() -> String {
+        """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+          echo "2.0.0"
+          exit 0
+        fi
+        if [ "$1" = "run" ]; then
+          shift
+          if [ "$1" = "-n" ]; then
+            shift
+            shift
+          fi
+          tool="$1"
+          shift
+          case "$1" in
+            sleep)
+              echo "starting timeout path" >&2
+              sleep 30
+              ;;
+            fast-stderr)
+              echo "fast-exit stderr" >&2
+              exit 0
+              ;;
+            ready)
+              touch "$2"
+              sleep 30
+              ;;
+            *)
+              echo "unknown mode for $tool" >&2
+              exit 64
+              ;;
+          esac
+        fi
+        """
+    }
+}
+
+private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if FileManager.default.fileExists(atPath: url.path) {
+            return
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+    }
+    XCTFail("Timed out waiting for \(url.path)")
 }
 
 private func XCTAssertArgumentPair(

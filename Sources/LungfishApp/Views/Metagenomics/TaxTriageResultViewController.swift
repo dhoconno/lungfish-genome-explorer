@@ -1007,7 +1007,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Initially hidden; shown only when the result contains multiple samples.
     /// Segment 0 is "All Samples"; subsequent segments are per-sample IDs.
     private func setupSampleFilterControl() {
-        sampleFilterControl.segmentStyle = .texturedRounded
+        sampleFilterControl.segmentStyle = .rounded
         sampleFilterControl.segmentCount = 1
         sampleFilterControl.setLabel("All Samples", forSegment: 0)
         sampleFilterControl.selectedSegment = 0

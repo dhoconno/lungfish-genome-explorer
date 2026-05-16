@@ -947,7 +947,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tabControl.setLabel("Variants", forSegment: 1)
         tabControl.setLabel("Samples", forSegment: 2)
         tabControl.selectedSegment = 0
-        tabControl.segmentStyle = .texturedRounded
+        tabControl.segmentStyle = .rounded
         tabControl.controlSize = .small
         tabControl.font = .systemFont(ofSize: 10, weight: .medium)
         tabControl.translatesAutoresizingMaskIntoConstraints = false
@@ -6690,6 +6690,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove the selected variant\(count == 1 ? "" : "s") from the database."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
         alert.alertStyle = .warning
 
         guard let window = window else { return }
@@ -6707,6 +6708,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove all variants from the database. This cannot be undone."
         alert.addButton(withTitle: "Delete All")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
         alert.alertStyle = .critical
 
         guard let window = window else { return }

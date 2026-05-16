@@ -104,7 +104,15 @@ enum SequenceAnnotationOperationRunner {
             .joined(separator: " ")
     }
 
-    static func run(_ request: SequenceAnnotationOperationRequest) throws -> LungfishCLIRunner.Output {
-        try LungfishCLIRunner.run(arguments: commandArguments(for: request))
+    static func run(
+        _ request: SequenceAnnotationOperationRequest,
+        cliURLOverride: URL? = nil,
+        cancellation: LungfishCLIRunner.CancellationHandle? = nil
+    ) throws -> LungfishCLIRunner.Output {
+        try LungfishCLIRunner.run(
+            arguments: commandArguments(for: request),
+            executableURL: cliURLOverride,
+            cancellation: cancellation
+        )
     }
 }

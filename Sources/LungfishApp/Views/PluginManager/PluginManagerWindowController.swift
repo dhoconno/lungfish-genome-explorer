@@ -148,7 +148,7 @@ public final class PluginManagerWindowController: NSWindowController, NSToolbarD
                 target: self,
                 action: #selector(segmentChanged(_:))
             )
-            segmented.segmentStyle = .texturedRounded
+            segmented.segmentStyle = .rounded
             segmented.selectedSegment = viewModel.selectedTab.segmentIndex
             segmented.setWidth(96, forSegment: 0)
             segmented.setWidth(72, forSegment: 1)

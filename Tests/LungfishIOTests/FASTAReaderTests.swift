@@ -140,6 +140,20 @@ final class FASTAReaderTests: XCTestCase {
         XCTAssertEqual(sequences[0].description, "This is a description with spaces")
     }
 
+    func testParseHeaderSplitsOnTabWhitespace() async throws {
+        let content = """
+        >seq1\tThis is a tab separated description
+        ATCG
+        """
+
+        let fileURL = try createTempFASTA(content)
+        let reader = try FASTAReader(url: fileURL)
+        let sequences = try await reader.readAll()
+
+        XCTAssertEqual(sequences[0].name, "seq1")
+        XCTAssertEqual(sequences[0].description, "This is a tab separated description")
+    }
+
     func testParseHeaderWithSpecialCharacters() async throws {
         let content = """
         >chr1:100-200|gene=BRCA1|organism=Homo_sapiens
@@ -173,6 +187,67 @@ final class FASTAReaderTests: XCTestCase {
         XCTAssertEqual(headers[1].name, "seq2")
         XCTAssertEqual(headers[2].name, "seq3")
         XCTAssertNil(headers[2].description)
+    }
+
+    func testReadAllSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1 gzip description
+        ATCGATCG
+        >seq2
+        GGGGCCCC
+        """
+        let fileURL = tempDirectory.appendingPathComponent("test.fa.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        let sequences = try await reader.readAll()
+
+        XCTAssertTrue(reader.isCompressed)
+        XCTAssertEqual(sequences.count, 2)
+        XCTAssertEqual(sequences[0].name, "seq1")
+        XCTAssertEqual(sequences[0].description, "gzip description")
+        XCTAssertEqual(sequences[0].asString(), "ATCGATCG")
+        XCTAssertEqual(sequences[1].name, "seq2")
+        XCTAssertEqual(sequences[1].asString(), "GGGGCCCC")
+    }
+
+    func testSequencesSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1
+        ATCG
+        >seq2
+        GCTA
+        """
+        let fileURL = tempDirectory.appendingPathComponent("stream.fasta.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        var names: [String] = []
+        for try await sequence in reader.sequences() {
+            names.append(sequence.name)
+        }
+
+        XCTAssertEqual(names, ["seq1", "seq2"])
+    }
+
+    func testReadHeadersSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1 first compressed header
+        ATCG
+        >seq2
+        GCTA
+        """
+        let fileURL = tempDirectory.appendingPathComponent("headers.fa.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        let headers = try await reader.readHeaders()
+
+        XCTAssertEqual(headers.count, 2)
+        XCTAssertEqual(headers[0].name, "seq1")
+        XCTAssertEqual(headers[0].description, "first compressed header")
+        XCTAssertEqual(headers[1].name, "seq2")
+        XCTAssertNil(headers[1].description)
     }
 
     // MARK: - Alphabet Detection Tests

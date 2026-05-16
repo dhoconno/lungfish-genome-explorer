@@ -59,6 +59,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
     public let toolVersion: String
     public let tool: ProvenanceToolIdentity
     public let argv: [String]
+    public let durableReplayArgv: [String]?
     public let reproducibleCommand: String
     public let options: ProvenanceOptions
     public let runtimeIdentity: ProvenanceRuntimeIdentity
@@ -90,6 +91,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         case toolVersion
         case tool
         case argv
+        case durableReplayArgv
         case reproducibleCommand
         case reproducibleShellCommand
         case options
@@ -119,6 +121,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         toolVersion: String = "unknown",
         tool: ProvenanceToolIdentity? = nil,
         argv: [String] = [],
+        durableReplayArgv: [String]? = nil,
         reproducibleCommand: String? = nil,
         options: ProvenanceOptions = ProvenanceOptions(),
         runtimeIdentity: ProvenanceRuntimeIdentity = ProvenanceRuntimeIdentity(),
@@ -141,6 +144,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         self.toolVersion = ProvenanceVersion.required(toolVersion)
         self.tool = ProvenanceToolIdentity(name: self.toolName, version: self.toolVersion, kind: tool?.kind)
         self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
         self.options = options
         self.runtimeIdentity = runtimeIdentity
@@ -187,6 +191,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
             tool = ProvenanceToolIdentity(name: toolName, version: toolVersion)
         }
         argv = try container.decodeIfPresent([String].self, forKey: .argv) ?? []
+        durableReplayArgv = try container.decodeIfPresent([String].self, forKey: .durableReplayArgv)
         reproducibleCommand = try container.decodeIfPresent(String.self, forKey: .reproducibleCommand)
             ?? container.decodeIfPresent(String.self, forKey: .reproducibleShellCommand)
             ?? argv.map(shellEscape).joined(separator: " ")
@@ -251,6 +256,7 @@ public struct ProvenanceEnvelope: Codable, Sendable, Equatable, Identifiable {
         try container.encode(toolVersion, forKey: .toolVersion)
         try container.encode(tool, forKey: .tool)
         try container.encode(argv, forKey: .argv)
+        try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)
         try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
         try container.encode(options, forKey: .options)
         try container.encode(runtimeIdentity, forKey: .runtimeIdentity)
@@ -818,6 +824,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
     public let toolName: String
     public let toolVersion: String
     public let argv: [String]
+    public let durableReplayArgv: [String]?
     public let reproducibleCommand: String
     public let inputs: [ProvenanceFileDescriptor]
     public let outputs: [ProvenanceFileDescriptor]
@@ -834,6 +841,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         case toolVersion
         case argv
         case command
+        case durableReplayArgv
         case reproducibleCommand
         case inputs
         case outputs
@@ -854,6 +862,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         toolName: String,
         toolVersion: String = "unknown",
         argv: [String] = [],
+        durableReplayArgv: [String]? = nil,
         reproducibleCommand: String? = nil,
         inputs: [ProvenanceFileDescriptor] = [],
         outputs: [ProvenanceFileDescriptor] = [],
@@ -868,6 +877,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         self.toolName = ProvenanceName.required(toolName)
         self.toolVersion = ProvenanceVersion.required(toolVersion)
         self.argv = argv
+        self.durableReplayArgv = durableReplayArgv
         self.reproducibleCommand = reproducibleCommand ?? argv.map(shellEscape).joined(separator: " ")
         self.inputs = inputs
         self.outputs = outputs
@@ -887,6 +897,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         argv = try container.decodeIfPresent([String].self, forKey: .argv)
             ?? container.decodeIfPresent([String].self, forKey: .command)
             ?? []
+        durableReplayArgv = try container.decodeIfPresent([String].self, forKey: .durableReplayArgv)
         reproducibleCommand = try container.decodeIfPresent(String.self, forKey: .reproducibleCommand)
             ?? argv.map(shellEscape).joined(separator: " ")
         inputs = try container.decodeIfPresent([ProvenanceFileDescriptor].self, forKey: .inputs) ?? []
@@ -910,6 +921,7 @@ public struct ProvenanceStep: Codable, Sendable, Equatable, Identifiable {
         try container.encode(toolVersion, forKey: .toolVersion)
         try container.encode(argv, forKey: .argv)
         try container.encode(argv, forKey: .command)
+        try container.encodeIfPresent(durableReplayArgv, forKey: .durableReplayArgv)
         try container.encode(reproducibleCommand, forKey: .reproducibleCommand)
         try container.encode(inputs, forKey: .inputs)
         try container.encode(outputs, forKey: .outputs)

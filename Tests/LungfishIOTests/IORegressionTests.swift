@@ -352,6 +352,17 @@ final class FASTAIndexRegressionTests: XCTestCase {
         XCTAssertEqual(index.length(of: "seq2"), 16) // GGGGAAAATTTTCCCC
     }
 
+    func testBuildIndexSplitsHeaderNameOnTabWhitespace() throws {
+        let fastaContent = ">seq1\tdescription with tabs\nACGT\n"
+        let fastaURL = tempDir.appendingPathComponent("tab-header.fasta")
+        try fastaContent.write(to: fastaURL, atomically: true, encoding: .utf8)
+
+        let index = try FASTAIndexBuilder.build(for: fastaURL)
+
+        XCTAssertEqual(index.sequenceNames, ["seq1"])
+        XCTAssertEqual(index.length(of: "seq1"), 4)
+    }
+
     func testBuildAndWriteEmptyFASTAProducesEmptyIndex() throws {
         let fastaURL = tempDir.appendingPathComponent("empty.fasta")
         try "".write(to: fastaURL, atomically: true, encoding: .utf8)

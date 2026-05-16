@@ -118,7 +118,7 @@ final class TaxTriageBatchOverviewView: NSView {
             facetControl.setLabel(facet.label, forSegment: facet.rawValue)
         }
         facetControl.selectedSegment = 0
-        facetControl.segmentStyle = .texturedRounded
+        facetControl.segmentStyle = .rounded
         facetControl.controlSize = .small
         facetControl.target = self
         facetControl.action = #selector(facetChanged(_:))

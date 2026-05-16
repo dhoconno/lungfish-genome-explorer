@@ -39,6 +39,10 @@ final class ViralReconWorkflowExecutionService {
             cliCommand: commandPreview,
             routeContext: routeContext
         )
+        let cancellation = ViralReconWorkflowProcessCancellation(runner: processRunner)
+        operationCenter.setCancelCallback(for: operationID) {
+            cancellation.cancel()
+        }
         logPreparation(for: persistedRequest, bundleURL: bundleURL, commandPreview: commandPreview, operationID: operationID)
 
         do {
@@ -321,6 +325,21 @@ final class ViralReconWorkflowExecutionService {
     }
 }
 
+private final class ViralReconWorkflowProcessCancellation: @unchecked Sendable {
+    private let runner: ViralReconWorkflowProcessRunning
+
+    @MainActor
+    init(runner: ViralReconWorkflowProcessRunning) {
+        self.runner = runner
+    }
+
+    func cancel() {
+        Task { @MainActor in
+            self.runner.cancel()
+        }
+    }
+}
+
 enum ViralReconWorkflowCommandPreview {
     static func build(executableName: String, arguments: [String]) -> String {
         ([executableName] + arguments)
@@ -360,6 +379,8 @@ protocol ViralReconWorkflowProcessRunning {
         workingDirectory: URL,
         outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> ViralReconWorkflowProcessResult
+
+    func cancel()
 }
 
 enum ViralReconWorkflowExecutionError: Error, Equatable {
@@ -367,8 +388,9 @@ enum ViralReconWorkflowExecutionError: Error, Equatable {
     case missingWorkflowDefinition
 }
 
-struct ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
+final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning {
     private let executableURL: URL?
+    private let cancellationHandle = NativeProcessCancellationHandle()
 
     init(executableURL: URL? = nil) {
         self.executableURL = executableURL
@@ -394,6 +416,7 @@ struct ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning 
         process.currentDirectoryURL = workingDirectory
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
+        cancellationHandle.store(process)
 
         stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
@@ -424,13 +447,16 @@ struct ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning 
 
         do {
             try process.run()
+            cancellationHandle.terminateIfRequested()
         } catch {
+            cancellationHandle.clear(process)
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             throw error
         }
 
         let exitCode = await termination.wait()
+        cancellationHandle.clear(process)
         return ViralReconWorkflowProcessResult(
             exitCode: exitCode,
             standardOutput: collector.standardOutput,
@@ -453,6 +479,10 @@ struct ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning 
         }
 
         return nil
+    }
+
+    func cancel() {
+        cancellationHandle.requestProcessTreeTermination()
     }
 }
 

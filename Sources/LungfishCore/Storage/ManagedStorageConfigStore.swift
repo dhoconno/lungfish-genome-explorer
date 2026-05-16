@@ -85,7 +85,11 @@ public final class ManagedStorageConfigStore: @unchecked Sendable {
         if let override = environment["LUNGFISH_CONDA_ROOT"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
-            return URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+            let overrideURL = URL(fileURLWithPath: override, isDirectory: true).standardizedFileURL
+            guard case .valid = ManagedStorageLocation.validateSelection(overrideURL) else {
+                return currentLocation().condaRootURL
+            }
+            return overrideURL
         }
         return currentLocation().condaRootURL
     }

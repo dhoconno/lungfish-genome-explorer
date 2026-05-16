@@ -116,6 +116,32 @@ public struct OrientResult: Sendable {
     public let wallClockSeconds: Double
 }
 
+/// Optional caller context for pipeline-level orient provenance.
+public struct OrientProvenanceContext: Sendable {
+    public let workflowName: String
+    public let argv: [String]
+    public let reproducibleCommand: String?
+    public let options: ProvenanceOptions?
+    public let inputFileRecords: [FileRecord]?
+    public let pathReplacements: [String: String]
+
+    public init(
+        workflowName: String = "lungfish orient",
+        argv: [String] = [],
+        reproducibleCommand: String? = nil,
+        options: ProvenanceOptions? = nil,
+        inputFileRecords: [FileRecord]? = nil,
+        pathReplacements: [String: String] = [:]
+    ) {
+        self.workflowName = workflowName
+        self.argv = argv
+        self.reproducibleCommand = reproducibleCommand
+        self.options = options
+        self.inputFileRecords = inputFileRecords
+        self.pathReplacements = pathReplacements
+    }
+}
+
 /// Pipeline for orienting FASTQ reads against a reference using vsearch.
 ///
 /// Uses `vsearch --orient` to determine the correct orientation of each read
@@ -143,6 +169,7 @@ public final class OrientPipeline: @unchecked Sendable {
     /// - Returns: OrientResult with paths and statistics
     public func run(
         config: OrientConfig,
+        provenanceContext: OrientProvenanceContext? = nil,
         progress: @Sendable (Double, String) -> Void = { _, _ in }
     ) async throws -> OrientResult {
         let startTime = Date()
@@ -181,28 +208,121 @@ public final class OrientPipeline: @unchecked Sendable {
 
         progress(0.10, "Running vsearch orient...")
 
-        let result = try await runner.run(
-            .vsearch,
-            arguments: args,
-            workingDirectory: workDir,
-            timeout: 1800
-        )
+        let vsearchStart = Date()
+        let result: NativeToolResult
+        do {
+            result = try await runner.run(
+                .vsearch,
+                arguments: args,
+                workingDirectory: workDir,
+                timeout: 1800
+            )
+        } catch {
+            let vsearchEnd = Date()
+            let failureMessage = toolFailureMessage(error)
+            let failureResult = OrientResult(
+                orientedFASTQ: orientedOutput,
+                unorientedFASTQ: unmatchedOutput,
+                tabbedOutput: tabbedOutput,
+                forwardCount: 0,
+                reverseComplementedCount: 0,
+                unmatchedCount: 0,
+                wallClockSeconds: Date().timeIntervalSince(startTime)
+            )
+            let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
+            try writeProvenance(
+                config: config,
+                result: failureResult,
+                vsearchResult: NativeToolResult(
+                    exitCode: -1,
+                    stdout: "",
+                    stderr: failureMessage,
+                    arguments: [NativeTool.vsearch.executableName] + args
+                ),
+                vsearchArguments: args,
+                vsearchStartedAt: vsearchStart,
+                vsearchCompletedAt: vsearchEnd,
+                workflowStartedAt: startTime,
+                workflowCompletedAt: Date(),
+                vsearchVersion: vsearchVersion,
+                context: provenanceContext
+            )
+            throw OrientPipelineError.vsearchFailed(failureMessage)
+        }
+        let vsearchEnd = Date()
 
         guard result.isSuccess else {
+            let failureResult = OrientResult(
+                orientedFASTQ: orientedOutput,
+                unorientedFASTQ: unmatchedOutput,
+                tabbedOutput: tabbedOutput,
+                forwardCount: 0,
+                reverseComplementedCount: 0,
+                unmatchedCount: 0,
+                wallClockSeconds: Date().timeIntervalSince(startTime)
+            )
+            let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
+            try writeProvenance(
+                config: config,
+                result: failureResult,
+                vsearchResult: result,
+                vsearchArguments: args,
+                vsearchStartedAt: vsearchStart,
+                vsearchCompletedAt: vsearchEnd,
+                workflowStartedAt: startTime,
+                workflowCompletedAt: Date(),
+                vsearchVersion: vsearchVersion,
+                context: provenanceContext
+            )
             throw OrientPipelineError.vsearchFailed(result.stderr)
         }
 
         progress(0.70, "Parsing orientation results...")
 
         // Parse the tabbed output to count orientations
-        let (forwardCount, rcCount, unmatchedCount) = try parseOrientResults(tabbedOutput)
+        let forwardCount: Int
+        let rcCount: Int
+        let unmatchedCount: Int
+        do {
+            let counts = try parseOrientResults(tabbedOutput)
+            forwardCount = counts.forward
+            rcCount = counts.rc
+            unmatchedCount = counts.unmatched
+        } catch {
+            let failureMessage = toolFailureMessage(error)
+            let failureResult = OrientResult(
+                orientedFASTQ: orientedOutput,
+                unorientedFASTQ: unmatchedOutput,
+                tabbedOutput: tabbedOutput,
+                forwardCount: 0,
+                reverseComplementedCount: 0,
+                unmatchedCount: 0,
+                wallClockSeconds: Date().timeIntervalSince(startTime)
+            )
+            let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
+            try writeProvenance(
+                config: config,
+                result: failureResult,
+                vsearchResult: result,
+                vsearchArguments: args,
+                vsearchStartedAt: vsearchStart,
+                vsearchCompletedAt: vsearchEnd,
+                workflowStartedAt: startTime,
+                workflowCompletedAt: Date(),
+                vsearchVersion: vsearchVersion,
+                context: provenanceContext,
+                workflowExitStatus: -1,
+                workflowStderr: failureMessage
+            )
+            throw error
+        }
 
         progress(0.90, "Orient complete: \(forwardCount) forward, \(rcCount) RC'd, \(unmatchedCount) unmatched")
 
         let elapsed = Date().timeIntervalSince(startTime)
         logger.info("Orient complete in \(String(format: "%.1f", elapsed))s: \(forwardCount) fwd, \(rcCount) rc, \(unmatchedCount) unmatched")
 
-        return OrientResult(
+        let orientResult = OrientResult(
             orientedFASTQ: orientedOutput,
             unorientedFASTQ: unmatchedOutput,
             tabbedOutput: tabbedOutput,
@@ -211,6 +331,20 @@ public final class OrientPipeline: @unchecked Sendable {
             unmatchedCount: unmatchedCount,
             wallClockSeconds: elapsed
         )
+        let vsearchVersion = await runner.getToolVersion(.vsearch) ?? "unknown"
+        try writeProvenance(
+            config: config,
+            result: orientResult,
+            vsearchResult: result,
+            vsearchArguments: args,
+            vsearchStartedAt: vsearchStart,
+            vsearchCompletedAt: vsearchEnd,
+            workflowStartedAt: startTime,
+            workflowCompletedAt: Date(),
+            vsearchVersion: vsearchVersion,
+            context: provenanceContext
+        )
+        return orientResult
     }
 
     /// Creates an orient-map TSV from vsearch tabbed output.
@@ -331,6 +465,186 @@ public final class OrientPipeline: @unchecked Sendable {
         let lineBytes = rawLine.last == 0x0D ? rawLine.dropLast() : rawLine
         guard !lineBytes.isEmpty else { return }
         try body(String(decoding: lineBytes, as: UTF8.self))
+    }
+
+    private func writeProvenance(
+        config: OrientConfig,
+        result: OrientResult,
+        vsearchResult: NativeToolResult,
+        vsearchArguments: [String],
+        vsearchStartedAt: Date,
+        vsearchCompletedAt: Date,
+        workflowStartedAt: Date,
+        workflowCompletedAt: Date,
+        vsearchVersion: String,
+        context: OrientProvenanceContext?,
+        workflowExitStatus: Int? = nil,
+        workflowStderr: String? = nil
+    ) throws {
+        let stepArgv = vsearchResult.arguments.isEmpty
+            ? [NativeTool.vsearch.executableName] + vsearchArguments
+            : vsearchResult.arguments
+        let pathReplacements = context?.pathReplacements ?? [:]
+        let provenanceInputRecords = context?.inputFileRecords ?? [
+            ProvenanceRecorder.fileRecord(url: config.inputURL, format: .fastq, role: .input),
+        ]
+        let inputs = provenanceInputRecords + [
+            ProvenanceRecorder.fileRecord(url: config.referenceURL, format: .fasta, role: .reference),
+        ]
+        var outputs = [
+            outputRecordIfPresent(url: result.orientedFASTQ, format: .fastq, role: .output),
+            outputRecordIfPresent(url: result.tabbedOutput, format: .text, role: .output),
+        ].compactMap { $0 }
+        if let unorientedFASTQ = result.unorientedFASTQ,
+           let outputRecord = outputRecordIfPresent(url: unorientedFASTQ, format: .fastq, role: .output) {
+            outputs.append(outputRecord)
+        }
+
+        let stepDurableArgv = rewriteArguments(stepArgv, using: pathReplacements)
+        let step = ProvenanceStep(
+            toolName: NativeTool.vsearch.executableName,
+            toolVersion: vsearchVersion,
+            argv: stepArgv,
+            durableReplayArgv: stepDurableArgv,
+            reproducibleCommand: commandLine(from: stepDurableArgv),
+            inputs: inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+            outputs: outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
+            exitStatus: Int(vsearchResult.exitCode),
+            wallTimeSeconds: vsearchCompletedAt.timeIntervalSince(vsearchStartedAt),
+            stderr: nonEmpty(vsearchResult.stderr),
+            startedAt: vsearchStartedAt,
+            completedAt: vsearchCompletedAt
+        )
+
+        let topLevelArgv: [String]
+        if let context, !context.argv.isEmpty {
+            topLevelArgv = context.argv
+        } else {
+            topLevelArgv = stepArgv
+        }
+        let topLevelDurableArgv = rewriteArguments(topLevelArgv, using: pathReplacements)
+        let options = context?.options ?? defaultProvenanceOptions(for: config)
+        let resultStatistics: [String: ParameterValue] = [
+            "forwardCount": .integer(result.forwardCount),
+            "reverseComplementedCount": .integer(result.reverseComplementedCount),
+            "unmatchedCount": .integer(result.unmatchedCount),
+        ]
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: context?.workflowName ?? "lungfish orient",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: NativeTool.vsearch.executableName,
+            toolVersion: vsearchVersion
+        )
+        .argv(topLevelArgv)
+        .durableReplayArgv(topLevelDurableArgv)
+        .reproducibleCommand(commandLine(from: topLevelDurableArgv))
+        .options(
+            explicit: options.explicit.merging(resultStatistics) { _, statistic in statistic },
+            defaults: options.defaults,
+            resolved: options.resolvedDefaults.merging(resultStatistics) { _, statistic in statistic }
+        )
+        .runtime(
+            ProvenanceRuntimeIdentity(
+                executablePath: stepArgv.first ?? NativeTool.vsearch.executableName,
+                condaEnvironment: "vsearch"
+            )
+        )
+        .step(step)
+        .complete(
+            exitStatus: workflowExitStatus ?? Int(vsearchResult.exitCode),
+            stderr: workflowStderr ?? vsearchResult.stderr,
+            startedAt: workflowStartedAt,
+            endedAt: workflowCompletedAt
+        )
+
+        try ProvenanceWriter().write(envelope, to: result.orientedFASTQ.deletingLastPathComponent())
+    }
+
+    private func defaultProvenanceOptions(for config: OrientConfig) -> ProvenanceOptions {
+        let resolved: [String: ParameterValue] = [
+            "input": .file(config.inputURL),
+            "reference": .file(config.referenceURL),
+            "wordLength": .integer(config.wordLength),
+            "dbMask": .string(config.dbMask),
+            "qMask": .string(config.qMask),
+            "saveUnoriented": .boolean(config.saveUnoriented),
+            "threads": .integer(config.threads),
+            "extraArguments": .array(config.extraArguments.map(ParameterValue.string)),
+        ]
+        return ProvenanceOptions(
+            explicit: resolved,
+            defaults: [
+                "wordLength": .integer(12),
+                "dbMask": .string("dust"),
+                "qMask": .string("dust"),
+                "saveUnoriented": .boolean(true),
+                "threads": .integer(0),
+                "extraArguments": .array([]),
+            ],
+            resolvedDefaults: resolved
+        )
+    }
+
+    private func nonEmpty(_ value: String) -> String? {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : value
+    }
+
+    private func toolFailureMessage(_ error: Error) -> String {
+        let localized = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        let trimmed = localized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? String(describing: error) : trimmed
+    }
+
+    private func commandLine(from argv: [String]) -> String {
+        argv.map(shellEscape).joined(separator: " ")
+    }
+
+    private func outputRecordIfPresent(
+        url: URL,
+        format: FileFormat? = nil,
+        role: FileRole
+    ) -> FileRecord? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return ProvenanceRecorder.fileRecord(url: url, format: format, role: role)
+    }
+
+    private func rewriteArguments(_ argv: [String], using replacements: [String: String]) -> [String] {
+        argv.map { rewriteArgument($0, using: replacements) }
+    }
+
+    private func rewriteArgument(_ argument: String, using replacements: [String: String]) -> String {
+        for (source, destination) in replacementPairs(for: replacements) where argument == source {
+            return destination
+        }
+        guard let equalsIndex = argument.firstIndex(of: "=") else {
+            return argument
+        }
+        let prefix = argument[...equalsIndex]
+        let value = String(argument[argument.index(after: equalsIndex)...])
+        for (source, destination) in replacementPairs(for: replacements) where value == source {
+            return String(prefix) + destination
+        }
+        return argument
+    }
+
+    private func replacementPairs(for replacements: [String: String]) -> [(source: String, destination: String)] {
+        var pairs: [(String, String)] = []
+        var seen = Set<String>()
+        for (source, destination) in replacements {
+            if seen.insert(source).inserted {
+                pairs.append((source, destination))
+            }
+            let standardizedSource = URL(fileURLWithPath: source).standardizedFileURL.path
+            if seen.insert(standardizedSource).inserted {
+                pairs.append((standardizedSource, destination))
+            }
+        }
+        return pairs.sorted {
+            if $0.0.count != $1.0.count {
+                return $0.0.count > $1.0.count
+            }
+            return $0.0 < $1.0
+        }
     }
 }
 

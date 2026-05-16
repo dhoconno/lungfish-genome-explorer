@@ -125,11 +125,22 @@ final class PluginManagerViewModel {
     /// Installed conda environments.
     var environments: [CondaEnvironment] = []
 
+    /// Hash-named conda environments that do not map to curated Lungfish packs.
+    var orphanedEnvironments: [CondaEnvironment] = []
+
     /// Map of environment name to its installed packages.
     var installedPackages: [String: [CondaPackageInfo]] = [:]
 
     /// Set of environment names currently being removed.
     var removingEnvironments: Set<String> = []
+
+    var orphanedEnvironmentDiagnosticText: String {
+        guard !orphanedEnvironments.isEmpty else { return "" }
+        let count = orphanedEnvironments.count
+        let noun = count == 1 ? "orphaned hash-named conda environment" : "orphaned hash-named conda environments"
+        let examples = orphanedEnvironments.prefix(2).map(\.name).joined(separator: ", ")
+        return "\(count) \(noun) hidden from installed tools: \(examples). Remove them if they are leftover runtime/plugin installs."
+    }
 
     // MARK: - Packs Tab State
 
@@ -247,12 +258,18 @@ final class PluginManagerViewModel {
 
             do {
                 let envs = try await CondaManager.shared.listEnvironments()
-                environments = envs.sorted { $0.name < $1.name }
+                applyInstalledEnvironments(envs)
                 logger.info("Found \(envs.count, privacy: .public) conda environments")
             } catch {
                 handleError(error, context: "listing environments")
             }
         }
+    }
+
+    func applyInstalledEnvironments(_ envs: [CondaEnvironment]) {
+        let sorted = envs.sorted { $0.name < $1.name }
+        orphanedEnvironments = sorted.filter { Self.isHashNamedOrphanEnvironmentName($0.name) }
+        environments = sorted.filter { !Self.isHashNamedOrphanEnvironmentName($0.name) }
     }
 
     /// Loads the package list for a specific environment.
@@ -279,6 +296,37 @@ final class PluginManagerViewModel {
                 refreshInstalled()
             } catch {
                 handleError(error, context: "removing '\(name)'")
+            }
+        }
+    }
+
+    func removeOrphanedEnvironments() {
+        let names = orphanedEnvironments.map(\.name)
+        guard !names.isEmpty else { return }
+
+        removingEnvironments.formUnion(names)
+        Task {
+            defer { removingEnvironments.subtract(names) }
+
+            var failedNames: [String] = []
+            for name in names {
+                do {
+                    try await CondaManager.shared.removeEnvironment(name: name)
+                    logger.info("Removed orphaned environment '\(name, privacy: .public)'")
+                } catch {
+                    failedNames.append(name)
+                    logger.error("Failed to remove orphaned environment '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+                }
+            }
+
+            refreshInstalled()
+            if failedNames.isEmpty {
+                postManagedResourcesDidChange()
+            } else {
+                handleError(
+                    PluginManagerOrphanCleanupError(environmentNames: failedNames),
+                    context: "removing orphaned environments"
+                )
             }
         }
     }
@@ -408,7 +456,7 @@ final class PluginManagerViewModel {
                 databases = allDBs
 
                 let recommended = try await registry.recommendedDatabase(ramBytes: systemRAMBytes)
-                recommendedDatabaseName = recommended.name
+                recommendedDatabaseName = recommended?.name ?? ""
 
                 logger.info(
                     "Loaded \(allDBs.count, privacy: .public) databases, recommended: \(self.recommendedDatabaseName, privacy: .public)"
@@ -560,6 +608,13 @@ final class PluginManagerViewModel {
         return parts.joined(separator: " · ")
     }
 
+    static func isHashNamedOrphanEnvironmentName(_ name: String) -> Bool {
+        guard (32...64).contains(name.count) else { return false }
+        return name.unicodeScalars.allSatisfy { scalar in
+            CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains(scalar)
+        }
+    }
+
     private static let databaseTrackingDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -594,4 +649,12 @@ final class PluginManagerViewModel {
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscape).joined(separator: " ")
+}
+
+private struct PluginManagerOrphanCleanupError: LocalizedError {
+    let environmentNames: [String]
+
+    var errorDescription: String? {
+        "Could not remove \(environmentNames.joined(separator: ", "))"
+    }
 }

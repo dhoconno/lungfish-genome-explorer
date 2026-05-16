@@ -1851,6 +1851,7 @@ public class InspectorViewController: NSViewController {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window) { response in

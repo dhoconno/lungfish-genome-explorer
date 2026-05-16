@@ -333,7 +333,7 @@ public struct FASTAIndexBuilder {
 
                 // Start new sequence
                 let headerLine = String(line.dropFirst())
-                currentName = headerLine.split(separator: " ").first.map(String.init)
+                currentName = parseIndexHeaderName(headerLine)
                 currentOffset = nil
                 currentLength = 0
                 currentLineBases = nil
@@ -378,5 +378,18 @@ public struct FASTAIndexBuilder {
         let index = try build(for: url)
         let output = outputURL ?? url.appendingPathExtension("fai")
         try index.write(to: output)
+    }
+
+    private static func parseIndexHeaderName(_ header: String) -> String? {
+        let trimmedHeader = header.trimmingCharacters(in: .whitespaces)
+        guard !trimmedHeader.isEmpty else { return nil }
+        guard let separator = trimmedHeader.firstIndex(where: isHeaderWhitespace) else {
+            return trimmedHeader
+        }
+        return String(trimmedHeader[..<separator])
+    }
+
+    private static func isHeaderWhitespace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
     }
 }

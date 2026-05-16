@@ -431,12 +431,21 @@ public final class FASTQReader: Sendable {
     // MARK: - Helpers
 
     private func parseHeader(_ header: String) -> (identifier: String, description: String?) {
-        if let spaceIndex = header.firstIndex(of: " ") {
-            let identifier = String(header[..<spaceIndex])
-            let description = String(header[header.index(after: spaceIndex)...])
-            return (identifier, description.isEmpty ? nil : description)
+        let trimmedHeader = header.trimmingCharacters(in: .whitespaces)
+        guard let separator = trimmedHeader.firstIndex(where: isHeaderWhitespace) else {
+            return (trimmedHeader, nil)
         }
-        return (header, nil)
+
+        let identifier = String(trimmedHeader[..<separator])
+        guard let descriptionStart = trimmedHeader[separator...].firstIndex(where: { !isHeaderWhitespace($0) }) else {
+            return (identifier, nil)
+        }
+
+        return (identifier, String(trimmedHeader[descriptionStart...]))
+    }
+
+    private func isHeaderWhitespace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { CharacterSet.whitespaces.contains($0) }
     }
 
     private func validateSequenceCharacters(_ sequence: String, lineNumber: Int) throws {

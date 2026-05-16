@@ -222,6 +222,119 @@ public enum AssemblyRunner {
 
     // MARK: - Pipeline Execution
 
+    typealias ManagedAssemblyMaterializer = (URL, URL, (@Sendable (String) -> Void)?) async throws -> URL
+
+    struct ManagedAssemblyMaterializationResult {
+        let request: AssemblyRunRequest
+        let materializationStartedAt: Date?
+        let materializationEndedAt: Date?
+    }
+
+    static func materializedManagedAssemblyRequest(
+        from request: AssemblyRunRequest,
+        tempDirectory: URL,
+        materialize: ManagedAssemblyMaterializer
+    ) async throws -> AssemblyRunRequest {
+        try await materializedManagedAssemblyRequestResult(
+            from: request,
+            tempDirectory: tempDirectory,
+            materialize: materialize
+        ).request
+    }
+
+    static func materializedManagedAssemblyRequestResult(
+        from request: AssemblyRunRequest,
+        tempDirectory: URL,
+        materialize: ManagedAssemblyMaterializer
+    ) async throws -> ManagedAssemblyMaterializationResult {
+        try validatePreMaterializationTopology(for: request)
+
+        var resolvedInputURLs: [URL] = []
+        var materializationStartedAt: Date?
+        var materializationEndedAt: Date?
+        for inputURL in request.inputURLs {
+            if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: inputURL) {
+                if materializationStartedAt == nil {
+                    materializationStartedAt = Date()
+                }
+                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+                let materializedURL = try await materialize(bundleURL, tempDirectory, nil)
+                materializationEndedAt = Date()
+                resolvedInputURLs.append(materializedURL.standardizedFileURL)
+                continue
+            }
+
+            let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) ?? inputURL
+            resolvedInputURLs.append(resolvedURL.standardizedFileURL)
+        }
+
+        let executionRequest = AssemblyRunRequest(
+            tool: request.tool,
+            readType: request.readType,
+            inputURLs: resolvedInputURLs,
+            projectName: request.projectName,
+            outputDirectory: request.outputDirectory,
+            pairedEnd: request.pairedEnd,
+            threads: request.threads,
+            memoryGB: request.memoryGB,
+            minContigLength: request.minContigLength,
+            selectedProfileID: request.selectedProfileID,
+            extraArguments: request.extraArguments
+        )
+        return ManagedAssemblyMaterializationResult(
+            request: executionRequest,
+            materializationStartedAt: materializationStartedAt,
+            materializationEndedAt: materializationEndedAt
+        )
+    }
+
+    static func validatePreMaterializationTopology(for request: AssemblyRunRequest) throws {
+        guard AssemblyCompatibility.isSupported(tool: request.tool, for: request.readType) else {
+            throw ManagedAssemblyPipelineError.incompatibleSelection(
+                "\(request.tool.displayName) is not available for \(request.readType.displayName) in v1."
+            )
+        }
+
+        for inputURL in request.inputURLs {
+            if let unsupportedMessage = AssemblyInputMaterialization.unsupportedAssemblyInputMessage(for: inputURL) {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(unsupportedMessage)
+            }
+        }
+
+        if request.pairedEnd && request.inputURLs.count != 2 {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "Paired-end assembly requests must include exactly two sequence inputs."
+            )
+        }
+
+        switch request.tool {
+        case .flye:
+            guard !request.pairedEnd, request.inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Flye expects a single ONT sequence input in v1."
+                )
+            }
+        case .hifiasm:
+            guard !request.pairedEnd, request.inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
+                )
+            }
+        case .spades, .megahit, .skesa:
+            break
+        }
+    }
+
+    static func managedAssemblyInputRecords(
+        originalRequest: AssemblyRunRequest,
+        executionRequest: AssemblyRunRequest
+    ) -> [InputFileRecord] {
+        AssemblyInputMaterialization.inputRecordsPreservingLineage(
+            originalInputURLs: originalRequest.inputURLs,
+            executionInputURLs: executionRequest.inputURLs
+        )
+    }
+
     private static func runManagedAssemblyOperation(
         request: AssemblyRunRequest,
         baseOutputDirectory: URL,
@@ -234,8 +347,24 @@ public enum AssemblyRunner {
                 OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
             }
 
+            let materializationDirectory = request.outputDirectory
+                .appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
+            try validatePreMaterializationTopology(for: request)
+            let materializationResult = try await materializedManagedAssemblyRequestResult(
+                from: request,
+                tempDirectory: materializationDirectory,
+                materialize: { bundleURL, tempDirectory, progress in
+                    try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                        fromBundle: bundleURL,
+                        tempDirectory: tempDirectory,
+                        progress: progress
+                    )
+                }
+            )
+            let executionRequest = materializationResult.request
+
             let pipeline = ManagedAssemblyPipeline()
-            let result = try await pipeline.run(request: request) { fraction, message in
+            let result = try await pipeline.run(request: executionRequest) { fraction, message in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let scaledProgress = 0.05 + fraction * 0.85
@@ -250,18 +379,26 @@ public enum AssemblyRunner {
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
+            let materializationStep = try managedAssemblyMaterializationStep(
+                originalRequest: request,
+                executionRequest: executionRequest,
+                startedAt: materializationResult.materializationStartedAt,
+                endedAt: materializationResult.materializationEndedAt
+            )
             let provenance = ProvenanceBuilder.build(
-                request: request,
+                request: executionRequest,
                 result: result,
-                inputRecords: request.inputURLs.map { url in
-                    ProvenanceBuilder.inputRecord(for: url)
-                }
+                inputRecords: managedAssemblyInputRecords(
+                    originalRequest: request,
+                    executionRequest: executionRequest
+                ),
+                steps: materializationStep.map { [$0] } ?? []
             )
 
             let bundleBuilder = AssemblyBundleBuilder()
             let bundleURL = try await bundleBuilder.build(
                 result: result,
-                request: request,
+                request: executionRequest,
                 provenance: provenance,
                 outputDirectory: baseOutputDirectory,
                 bundleName: projectName
@@ -306,6 +443,60 @@ public enum AssemblyRunner {
                 body: error.localizedDescription,
                 isSuccess: false
             )
+        }
+    }
+
+    static func managedAssemblyMaterializationStep(
+        originalRequest: AssemblyRunRequest,
+        executionRequest: AssemblyRunRequest,
+        startedAt: Date?,
+        endedAt: Date?
+    ) throws -> ProvenanceStep? {
+        let inputPairs = zipOriginalAndExecutionInputs(
+            originalInputURLs: originalRequest.inputURLs,
+            executionInputURLs: executionRequest.inputURLs
+        )
+        let materializedPairs = inputPairs.filter { originalURL, executionURL in
+            AssemblyInputMaterialization.requiresMaterialization(originalURL)
+                && originalURL.standardizedFileURL != executionURL.standardizedFileURL
+        }
+        guard !materializedPairs.isEmpty else { return nil }
+        guard let startedAt else { return nil }
+
+        let completedAt = endedAt ?? startedAt
+        let inputs = try materializedPairs.flatMap { originalURL, _ in
+            try AssemblyInputMaterialization.originalInputDescriptors(for: originalURL)
+        }
+        let outputs = try materializedPairs.map { originalURL, executionURL in
+            try AssemblyInputMaterialization.executionInputDescriptor(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let argv = ["lungfish-app", "assemble", "materialize-inputs"]
+            + originalRequest.inputURLs.map(\.path)
+
+        return ProvenanceStep(
+            toolName: "lungfish.assemble.input-materialization",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    private static func zipOriginalAndExecutionInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [(originalURL: URL, executionURL: URL)] {
+        executionInputURLs.enumerated().map { index, executionURL in
+            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
+            return (originalURL, executionURL)
         }
     }
 

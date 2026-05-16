@@ -189,7 +189,7 @@ public final class GTFReader: Sendable {
                 do {
                     var lineNumber = 0
 
-                    for try await line in fileURL.lines {
+                    for try await line in fileURL.linesAutoDecompressing() {
                         lineNumber += 1
 
                         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -249,16 +249,15 @@ public final class GTFReader: Sendable {
     /// - Returns: Array of SequenceAnnotation
     /// - Throws: GTFError on parse failure or if the file cannot be read
     public func readAllSync() throws -> [SequenceAnnotation] {
-        let content = try String(contentsOf: url, encoding: .utf8)
         var annotations: [SequenceAnnotation] = []
         var lineNumber = 0
 
-        for line in content.components(separatedBy: .newlines) {
+        func consume(_ line: String) throws {
             lineNumber += 1
 
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("#") {
-                continue
+                return
             }
 
             let feature = try GTFReader.parseLine(
@@ -267,6 +266,16 @@ public final class GTFReader: Sendable {
                 validateCoordinates: validateCoordinates
             )
             annotations.append(feature.toAnnotation())
+        }
+
+        if url.isGzipCompressed {
+            let stream = try GzipInputStream(url: url)
+            try stream.forEachLine(consume)
+        } else {
+            let content = try String(contentsOf: url, encoding: .utf8)
+            for line in content.components(separatedBy: .newlines) {
+                try consume(line)
+            }
         }
 
         return annotations

@@ -254,10 +254,18 @@ extension DbCommand {
             let ram = ProcessInfo.processInfo.physicalMemory
             let ramGB = String(format: "%.0f", Double(ram) / 1_073_741_824)
 
-            let recommended = try await registry.recommendedDatabase()
-
             print(formatter.header("Database Recommendation"))
             print("")
+
+            guard let recommended = try await registry.recommendedDatabase() else {
+                print(formatter.keyValueTable([
+                    ("System RAM", "\(ramGB) GB"),
+                    ("Recommended DB", "None"),
+                    ("Reason", "No bundled database fits in available RAM"),
+                ]))
+                return
+            }
+
             print(formatter.keyValueTable([
                 ("System RAM", "\(ramGB) GB"),
                 ("Recommended DB", recommended.name),

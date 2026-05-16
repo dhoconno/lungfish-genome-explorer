@@ -11,6 +11,8 @@ enum PluginManagerAccessibilityID {
     static let root = "plugin-manager-root"
     static let toolbarSegmentedControl = "plugin-manager-segmented-control"
     static let installedBrowsePacksButton = "plugin-manager-installed-browse-packs-button"
+    static let orphanedEnvironmentsRecovery = "plugin-manager-orphaned-environments-recovery"
+    static let orphanedEnvironmentsRemoveButton = "plugin-manager-orphaned-environments-remove-button"
     static let databasesRefreshButton = "plugin-manager-databases-refresh-button"
     static let storageSettingsButton = "plugin-manager-storage-settings-button"
 
@@ -139,9 +141,9 @@ private struct InstalledTabView: View {
     @State private var expandedEnvironments: Set<String> = []
 
     var body: some View {
-        if viewModel.isLoading && viewModel.environments.isEmpty {
+        if viewModel.isLoading && viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
             loadingPlaceholder
-        } else if viewModel.environments.isEmpty {
+        } else if viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
             emptyPlaceholder
         } else {
             environmentList
@@ -181,6 +183,19 @@ private struct InstalledTabView: View {
 
     private var environmentList: some View {
         List {
+            if !viewModel.orphanedEnvironments.isEmpty {
+                OrphanedEnvironmentRecoveryRow(
+                    diagnosticText: viewModel.orphanedEnvironmentDiagnosticText,
+                    isRemoving: viewModel.orphanedEnvironments.contains {
+                        viewModel.removingEnvironments.contains($0.name)
+                    },
+                    onRemove: {
+                        viewModel.removeOrphanedEnvironments()
+                    }
+                )
+                .listRowBackground(Color.lungfishCardBackground)
+            }
+
             ForEach(viewModel.environments) { env in
                 EnvironmentRow(
                     environment: env,
@@ -219,6 +234,47 @@ private struct InstalledTabView: View {
                 viewModel.loadPackages(for: name)
             }
         }
+    }
+}
+
+// MARK: - Orphaned Environment Recovery Row
+
+private struct OrphanedEnvironmentRecoveryRow: View {
+
+    let diagnosticText: String
+    let isRemoving: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.lungfishCreamsicleFallback)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Orphaned Environments")
+                    .font(.headline)
+                Text(diagnosticText)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button(role: .destructive) {
+                    onRemove()
+                } label: { Text("Remove") }
+                .controlSize(.small)
+                .help("Remove orphaned hash-named environments")
+                .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRemoveButton)
+            }
+        }
+        .padding(.vertical, 8)
+        .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRecovery)
     }
 }
 

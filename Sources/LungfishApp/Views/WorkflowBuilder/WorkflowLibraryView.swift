@@ -154,7 +154,7 @@ public final class WorkflowLibraryView: NSView {
     }
 
     private func configureButton(_ button: NSButton, symbolName: String, tooltip: String, action: Selector) {
-        button.bezelStyle = .texturedRounded
+        button.bezelStyle = .rounded
         button.isBordered = false
         button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: tooltip)
         button.imageScaling = .scaleProportionallyDown

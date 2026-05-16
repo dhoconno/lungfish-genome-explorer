@@ -1073,15 +1073,17 @@ private struct RequiredSetupCard: View {
             }
 
             HStack(spacing: 12) {
-                Button(actionTitle) {
-                    onInstall()
+                if !isReady {
+                    Button(actionTitle) {
+                        onInstall()
+                    }
+                    .accessibilityIdentifier("welcome-required-setup-primary-action")
+                    .accessibilityLabel("Install required setup")
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.lungfishCreamsicleFallback)
+                    .disabled(isInstalling)
                 }
-                .accessibilityIdentifier("welcome-required-setup-primary-action")
-                .accessibilityLabel("Install required setup")
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.lungfishCreamsicleFallback)
-                .disabled(isInstalling)
 
                 Button(showingDetails ? "Hide Details" : "Show Details") {
                     showingDetails.toggle()

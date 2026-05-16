@@ -8,7 +8,7 @@ import XCTest
 @testable import LungfishIO
 
 // Disambiguate DocumentType: LungfishApp.DocumentType (file format type used by DocumentManager)
-// vs LungfishCore.DocumentType (genomic document classification). We test the LungfishApp one.
+// vs LungfishCore.DocumentCategory (genomic document classification). We test the LungfishApp one.
 private typealias AppDocumentType = LungfishApp.DocumentType
 
 /// Comprehensive tests for DocumentManager, DocumentType, and DocumentLoadError.

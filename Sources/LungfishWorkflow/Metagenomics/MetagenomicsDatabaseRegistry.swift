@@ -610,20 +610,25 @@ public actor MetagenomicsDatabaseRegistry {
 
     /// Returns the recommended database for the current system's RAM.
     ///
-    /// The recommendation logic follows the design document:
+    /// The recommendation logic never selects a collection whose RAM requirement
+    /// exceeds the available physical memory:
     /// - 72+ GB RAM: PlusPF (most comprehensive)
-    /// - 32+ GB RAM: Standard
+    /// - 67+ GB RAM: Standard
     /// - 16+ GB RAM: Standard-16
-    /// - <16 GB RAM: Standard-8
+    /// - 8+ GB RAM: Standard-8
+    /// - <8 GB RAM: no recommendation
     ///
     /// - Parameter ramBytes: Override for system RAM (defaults to
     ///   `ProcessInfo.processInfo.physicalMemory`). Pass explicitly for testing.
-    /// - Returns: The recommended database info.
-    public func recommendedDatabase(ramBytes: UInt64? = nil) throws -> MetagenomicsDatabaseInfo {
+    /// - Returns: The recommended database info, or `nil` when no catalog entry
+    ///   fits in the available RAM.
+    public func recommendedDatabase(ramBytes: UInt64? = nil) throws -> MetagenomicsDatabaseInfo? {
         try loadIfNeeded()
 
         let ram = ramBytes ?? UInt64(ProcessInfo.processInfo.physicalMemory)
-        let collection = Self.recommendedCollection(forRAMBytes: ram)
+        guard let collection = Self.recommendedCollection(forRAMBytes: ram) else {
+            return nil
+        }
 
         // Prefer an already-downloaded database of the recommended collection.
         if let db = databases[collection.displayName], db.isDownloaded {
@@ -635,29 +640,31 @@ public actor MetagenomicsDatabaseRegistry {
             return db
         }
 
-        // Should never happen if the catalog was loaded, but return a safe default.
+        // Should never happen if the catalog was loaded, but keep the
+        // no-recommendation contract instead of returning an oversized fallback.
         return MetagenomicsDatabaseInfo.catalogEntry(for: collection)
-            ?? MetagenomicsDatabaseInfo.builtInCatalog.first!
     }
 
     /// Returns the recommended collection for a given RAM amount.
     ///
     /// - Parameter ramBytes: Available physical memory in bytes.
-    /// - Returns: The recommended database collection.
-    public static func recommendedCollection(forRAMBytes ramBytes: UInt64) -> DatabaseCollection {
-        let gb72: UInt64 = 72 * 1_073_741_824
-        let gb32: UInt64 = 32 * 1_073_741_824
-        let gb16: UInt64 = 16 * 1_073_741_824
-
-        if ramBytes >= gb72 {
+    /// - Returns: The recommended database collection, or `nil` if no collection fits.
+    public static func recommendedCollection(forRAMBytes ramBytes: UInt64) -> DatabaseCollection? {
+        if ramBytes >= ramRequirementBytes(for: .plusPF) {
             return .plusPF
-        } else if ramBytes >= gb32 {
+        } else if ramBytes >= ramRequirementBytes(for: .standard) {
             return .standard
-        } else if ramBytes >= gb16 {
+        } else if ramBytes >= ramRequirementBytes(for: .standard16) {
             return .standard16
-        } else {
+        } else if ramBytes >= ramRequirementBytes(for: .standard8) {
             return .standard8
+        } else {
+            return nil
         }
+    }
+
+    private static func ramRequirementBytes(for collection: DatabaseCollection) -> UInt64 {
+        UInt64(max(collection.approximateRAMBytes, 0))
     }
 
     // MARK: - Download Support

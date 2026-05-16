@@ -631,7 +631,7 @@ public final class FASTQDatasetViewController: NSViewController {
         middleTabControl.segmentCount = 2
         middleTabControl.setLabel("Operations", forSegment: 0)
         middleTabControl.setLabel("Reads", forSegment: 1)
-        middleTabControl.segmentStyle = .texturedRounded
+        middleTabControl.segmentStyle = .rounded
         middleTabControl.selectedSegment = 0
         middleTabControl.target = self
         middleTabControl.action = #selector(middleTabChanged(_:))
