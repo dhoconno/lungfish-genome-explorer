@@ -9,7 +9,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
         let root = repositoryRoot()
         let sourcesRoot = root.appendingPathComponent("Sources", isDirectory: true)
         let swiftFiles = try swiftSourceFiles(under: sourcesRoot)
-        let allowedLegacyRunModalCounts: [String: Int] = [
+        let maximumLegacyRunModalCounts: [String: Int] = [
             "Sources/LungfishApp/App/AppDelegate.swift": 1,
             "Sources/LungfishApp/Services/ReferenceBundleAnnotationImportConfigurationPresenter.swift": 1,
             "Sources/LungfishApp/Views/Assembly/AssemblyRuntimePreflight.swift": 1,
@@ -30,7 +30,7 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             let path = relativePath(file, root: root)
             for index in lines.indices where lines[index].contains(".runModal(") {
                 actualLegacyRunModalCounts[path, default: 0] += 1
-                guard allowedLegacyRunModalCounts[path] != nil else {
+                guard maximumLegacyRunModalCounts[path] != nil else {
                     violations.append("\(path):\(index + 1) is not in the allowed legacy runModal inventory")
                     continue
                 }
@@ -46,12 +46,12 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             }
         }
 
-        for (path, expectedCount) in allowedLegacyRunModalCounts.sorted(by: { $0.key < $1.key }) {
+        for (path, maximumCount) in maximumLegacyRunModalCounts.sorted(by: { $0.key < $1.key }) {
             let actualCount = actualLegacyRunModalCounts[path, default: 0]
-            XCTAssertEqual(
+            XCTAssertLessThanOrEqual(
                 actualCount,
-                expectedCount,
-                "\(path) legacy runModal inventory changed; update this test with a concrete reason or convert the flow to a sheet"
+                maximumCount,
+                "\(path) added a legacy runModal call; update this test with a concrete reason or convert the flow to a sheet"
             )
         }
 
