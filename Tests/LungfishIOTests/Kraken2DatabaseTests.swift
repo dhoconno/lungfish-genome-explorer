@@ -228,6 +228,47 @@ final class Kraken2DatabaseTests: XCTestCase {
         XCTAssertEqual(Set(sampleIds), Set(["S1", "S3"]))
     }
 
+    func testMetadataContainsFilterEscapesLikeWildcards() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S3", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S4", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+        let store = try SampleMetadataStore(
+            csvData: Data("""
+            sample_id\tbatch\tpath
+            S1\trun_%_literal\tkraken\\db
+            S2\trun_A_literal\tkrakendb
+            S3\trun__literal\tkraken/db
+            S4\trun_B_literal\tkraken-db
+            """.utf8),
+            knownSampleIds: Set(["S1", "S2", "S3", "S4"])
+        )
+
+        try db.refreshSampleMetadataCache(store: store)
+
+        let percentMatches = try db.filterSamplesByMetadata([
+            .init(field: "batch", op: .contains, value: "run_%"),
+        ])
+        XCTAssertEqual(percentMatches, ["S1"])
+
+        let underscoreMatches = try db.filterSamplesByMetadata([
+            .init(field: "batch", op: .contains, value: "run__"),
+        ])
+        XCTAssertEqual(underscoreMatches, ["S3"])
+
+        let backslashMatches = try db.filterSamplesByMetadata([
+            .init(field: "path", op: .contains, value: "kraken\\db"),
+        ])
+        XCTAssertEqual(backslashMatches, ["S1"])
+    }
+
     func testSearchPrunedHierarchyReturnsMatchingTaxaAndAncestors() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -265,6 +306,32 @@ final class Kraken2DatabaseTests: XCTestCase {
 
         XCTAssertEqual(result.matchingSamples, ["S1"])
         XCTAssertTrue(result.rows.allSatisfy { $0.sample == "S1" })
+    }
+
+    func testSearchPrunedHierarchyEscapesLikeWildcards() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let dbURL = dir.appendingPathComponent("test.sqlite")
+
+        let rows = [
+            makeTestRow(sample: "S1", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S1", taxonName: "SARS_CoV_2", taxId: 101, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S2", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S2", taxonName: "SARSXCoVY2", taxId: 102, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S3", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S3", taxonName: "Path\\Virus", taxId: 103, parentTaxId: 1, depth: 1),
+            makeTestRow(sample: "S4", taxonName: "root", taxId: 1, rank: "R", parentTaxId: nil, depth: 0),
+            makeTestRow(sample: "S4", taxonName: "PathVirus", taxId: 104, parentTaxId: 1, depth: 1),
+        ]
+        let db = try Kraken2Database.create(at: dbURL, rows: rows, metadata: [:])
+
+        let underscoreResult = try db.searchPrunedHierarchy(taxonQuery: "SARS_CoV_2", sampleIds: ["S1", "S2"])
+        XCTAssertEqual(underscoreResult.matchingSamples, ["S1"])
+        XCTAssertFalse(underscoreResult.rows.contains { $0.sample == "S2" })
+
+        let backslashResult = try db.searchPrunedHierarchy(taxonQuery: "Path\\Virus", sampleIds: ["S3", "S4"])
+        XCTAssertEqual(backslashResult.matchingSamples, ["S3"])
+        XCTAssertFalse(backslashResult.rows.contains { $0.sample == "S4" })
     }
 
     // MARK: - Helpers

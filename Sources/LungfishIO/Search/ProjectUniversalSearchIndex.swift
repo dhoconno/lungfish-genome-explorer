@@ -2358,23 +2358,11 @@ public final class ProjectUniversalSearchIndex {
     }
 
     private static func likeContainsPattern(for literal: String) -> String {
-        "%\(escapeLikeLiteral(literal))%"
+        SQLiteLikePattern.contains(literal)
     }
 
     private static func likePrefixPattern(for literal: String) -> String {
-        "\(escapeLikeLiteral(literal))%"
-    }
-
-    private static func escapeLikeLiteral(_ literal: String) -> String {
-        var escaped = ""
-        escaped.reserveCapacity(literal.count)
-        for character in literal {
-            if character == "\\" || character == "%" || character == "_" {
-                escaped.append("\\")
-            }
-            escaped.append(character)
-        }
-        return escaped
+        SQLiteLikePattern.prefix(literal)
     }
 
     private func entityRow(

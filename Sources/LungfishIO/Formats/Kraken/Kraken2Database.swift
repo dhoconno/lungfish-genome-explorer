@@ -591,8 +591,8 @@ public final class Kraken2Database: @unchecked Sendable {
                 sql = "SELECT sample FROM sample_metadata_cache WHERE field = ? AND lower(value) = lower(?)"
                 boundValue = filter.value
             case .contains:
-                sql = "SELECT sample FROM sample_metadata_cache WHERE field = ? AND lower(value) LIKE lower(?)"
-                boundValue = "%\(filter.value)%"
+                sql = "SELECT sample FROM sample_metadata_cache WHERE field = ? AND lower(value) LIKE lower(?) ESCAPE '\\'"
+                boundValue = SQLiteLikePattern.contains(filter.value)
             }
 
             var stmt: OpaquePointer?
@@ -638,7 +638,7 @@ public final class Kraken2Database: @unchecked Sendable {
             SELECT sample, tax_id
             FROM classification_rows
             WHERE sample IN (\(samplePlaceholders))
-              AND lower(taxon_name) LIKE lower(?)
+              AND lower(taxon_name) LIKE lower(?) ESCAPE '\\'
         ),
         ancestor_ids(sample, tax_id) AS (
             SELECT sample, tax_id FROM matches
@@ -668,7 +668,7 @@ public final class Kraken2Database: @unchecked Sendable {
         for (index, sampleId) in sampleIds.enumerated() {
             krBindText(stmt, Int32(index + 1), sampleId)
         }
-        krBindText(stmt, Int32(sampleIds.count + 1), "%\(trimmed)%")
+        krBindText(stmt, Int32(sampleIds.count + 1), SQLiteLikePattern.contains(trimmed))
 
         let rows = collectRows(stmt: stmt)
         let matchingSamples = Set(rows.map(\.sample)).sorted()

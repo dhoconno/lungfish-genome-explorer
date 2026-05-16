@@ -375,6 +375,88 @@ struct NvdDatabaseTests {
     }
 
     @Test
+    func searchBestHitsEscapesLikeWildcards() throws {
+        let url = temporaryDatabaseURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let hits = makeSyntheticHits() + [
+            NvdBlastHit(
+                experiment: "100",
+                blastTask: "megablast",
+                sampleId: "sample_A",
+                qseqid: "NODEX1_length_250_cov_1.0",
+                qlen: 250,
+                sseqid: "NCX045512.2",
+                stitle: "Wildcard impostor for NCX045512.2",
+                taxRank: "species:Wildcard",
+                length: 240,
+                pident: 92.0,
+                evalue: 1e-20,
+                bitscore: 300.0,
+                sscinames: "Wildcard virus",
+                staxids: "999001",
+                blastDbVersion: "v5.0",
+                snakemakeRunId: "run_001",
+                mappedReads: 50,
+                totalReads: 100_000,
+                statDbVersion: "stat_v1",
+                adjustedTaxid: "999001",
+                adjustmentMethod: "dominant",
+                adjustedTaxidName: "NCX045512 impostor",
+                adjustedTaxidRank: "species",
+                hitRank: 1,
+                readsPerBillion: 500_000.0
+            ),
+            NvdBlastHit(
+                experiment: "100",
+                blastTask: "megablast",
+                sampleId: "sample_A",
+                qseqid: #"path\contig"#,
+                qlen: 200,
+                sseqid: "BK000001.1",
+                stitle: #"Backslash path\contig virus"#,
+                taxRank: "species:Backslash",
+                length: 190,
+                pident: 91.0,
+                evalue: 1e-10,
+                bitscore: 250.0,
+                sscinames: "Backslash virus",
+                staxids: "999002",
+                blastDbVersion: "v5.0",
+                snakemakeRunId: "run_001",
+                mappedReads: 40,
+                totalReads: 100_000,
+                statDbVersion: "stat_v1",
+                adjustedTaxid: "999002",
+                adjustmentMethod: "dominant",
+                adjustedTaxidName: #"Path\Virus"#,
+                adjustedTaxidRank: "species",
+                hitRank: 1,
+                readsPerBillion: 400_000.0
+            ),
+        ]
+
+        let db = try NvdDatabase.create(
+            at: url,
+            hits: hits,
+            samples: makeSyntheticSamples()
+        )
+
+        let accessionResults = try db.searchBestHits(query: "NC_045512", samples: ["sample_A", "sample_B"])
+        #expect(accessionResults.count == 2)
+        #expect(accessionResults.allSatisfy { $0.sseqid == "NC_045512.2" })
+
+        let contigResults = try db.searchBestHits(query: "NODE_1", samples: ["sample_A"])
+        #expect(contigResults.map(\.qseqid) == ["NODE_1_length_500_cov_10.0"])
+
+        let percentResults = try db.searchBestHits(query: "%", samples: ["sample_A", "sample_B"])
+        #expect(percentResults.isEmpty)
+
+        let backslashResults = try db.searchBestHits(query: #"path\contig"#, samples: ["sample_A"])
+        #expect(backslashResults.map(\.qseqid) == [#"path\contig"#])
+    }
+
+    @Test
     func searchByContigName() throws {
         let url = temporaryDatabaseURL()
         defer { try? FileManager.default.removeItem(at: url) }
