@@ -22,12 +22,6 @@ public enum LogSubsystem {
     /// LungfishIO: file format parsing, indexing, I/O
     public static let io = "com.lungfish.io"
 
-    /// LungfishUI: rendering, tracks, visualization
-    public static let ui = "com.lungfish.ui"
-
-    /// LungfishPlugin: plugin system, built-in plugins
-    public static let plugin = "com.lungfish.plugin"
-
     /// LungfishWorkflow: workflow execution, containers, native tools
     public static let workflow = "com.lungfish.workflow"
 
