@@ -261,12 +261,6 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
                await visibleStatusesFingerprintMatches(forGeneration: generation) {
                 return cachedVisibleStatuses.statuses
             }
-
-            if !containsVolatileSmokeTestFailure(cachedVisibleStatuses.statuses),
-               Date().timeIntervalSince(cachedVisibleStatuses.timestamp) < cacheLifetime {
-                _ = visibleStatusesRefreshTask(forGeneration: generation)
-                return cachedVisibleStatuses.statuses
-            }
         }
 
         if let inFlightVisibleStatuses, inFlightVisibleStatuses.generation == generation {
@@ -283,12 +277,6 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         if let cached = cachedPackStatuses[pack.id], cached.generation == generation {
             if !cached.status.hasVolatileSmokeTestFailure,
                await packFingerprintMatches(for: pack, cached: cached) {
-                return cached.status
-            }
-
-            if !cached.status.hasVolatileSmokeTestFailure,
-               Date().timeIntervalSince(cached.timestamp) < cacheLifetime {
-                _ = packStatusRefreshTask(for: pack, generation: generation)
                 return cached.status
             }
         }

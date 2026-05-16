@@ -609,8 +609,9 @@ final class PluginManagerViewModel {
     }
 
     static func isHashNamedOrphanEnvironmentName(_ name: String) -> Bool {
-        guard (32...64).contains(name.count) else { return false }
-        return name.unicodeScalars.allSatisfy { scalar in
+        let candidate = name.hasPrefix("env-") ? String(name.dropFirst(4)) : name
+        guard (32...64).contains(candidate.count) else { return false }
+        return candidate.unicodeScalars.allSatisfy { scalar in
             CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains(scalar)
         }
     }

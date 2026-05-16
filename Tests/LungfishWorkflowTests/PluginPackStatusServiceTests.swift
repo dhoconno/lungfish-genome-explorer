@@ -563,6 +563,51 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(try smokeInvocationCount(at: toolLogURL), 2)
     }
 
+    func testStatusForPackRefreshesFreshPersistedSnapshotWhenFingerprintChanges() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-fingerprint-fresh-change-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let toolLogURL = sandbox.appendingPathComponent("smoke.log")
+        let pack = try await makeSmokeCountingPack(
+            manager: manager,
+            toolID: "fingerprint-fresh-change",
+            toolLogURL: toolLogURL
+        )
+
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            cacheLifetime: 60
+        )
+        let readyStatus = await firstService.status(for: pack)
+        XCTAssertEqual(readyStatus.state, .ready)
+        XCTAssertEqual(try smokeInvocationCount(at: toolLogURL), 1)
+
+        let executableURL = await manager.environmentURL(named: "fingerprint-fresh-change")
+            .appendingPathComponent("bin/fingerprint-fresh-change")
+        try FileManager.default.removeItem(at: executableURL)
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            cacheLifetime: 60
+        )
+        let refreshedStatus = await secondService.status(for: pack)
+
+        XCTAssertEqual(refreshedStatus.state, .needsInstall)
+    }
+
     func testRequiredPackNeedsInstallWhenBBToolsExecutablesAreMissing() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-status-\(UUID().uuidString)", isDirectory: true)
