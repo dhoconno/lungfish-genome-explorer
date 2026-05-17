@@ -1,6 +1,5 @@
 import XCTest
-import LungfishWorkflow
-@testable import LungfishApp
+@testable import LungfishWorkflow
 
 final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
     private var temporaryDirectories: [URL] = []
@@ -37,7 +36,8 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             inputs: [input],
             outputs: [output],
             exitStatus: 0,
-            wallTimeSeconds: 4.5
+            wallTimeSeconds: 4.5,
+            stderr: "EsViritu warning: low viral read depth"
         )
         let childEnvelope = ProvenanceEnvelope(
             workflowName: "Viral Metagenomics Detection",
@@ -51,7 +51,8 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
             outputs: [output],
             steps: [childStep],
             wallTimeSeconds: 4.5,
-            exitStatus: 0
+            exitStatus: 0,
+            stderr: "EsViritu warning: low viral read depth"
         )
         try ProvenanceWriter(signingProvider: nil).write(childEnvelope, to: sampleDirectory)
 
@@ -86,6 +87,10 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertTrue(rootEnvelope.steps.contains { $0.toolName == "Lungfish EsViritu Batch" })
         XCTAssertTrue(rootEnvelope.outputs.contains { $0.path == summaryURL.path })
         XCTAssertTrue(rootEnvelope.outputs.contains { $0.path == sqliteURL.path })
+        XCTAssertTrue(rootEnvelope.stderr?.contains("low viral read depth") == true)
+        XCTAssertEqual(rootEnvelope.options.defaults["summaryFilename"], .string("esviritu-batch-summary.tsv"))
+        XCTAssertEqual(rootEnvelope.options.resolvedDefaults["summaryTSV"], .string(summaryURL.path))
+        XCTAssertTrue(rootEnvelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
         XCTAssertNotNil(ProvenanceRecorder.findProvenanceEnvelope(for: batchRoot))
     }
 
@@ -192,6 +197,51 @@ final class MetagenomicsBatchProvenanceWriterTests: XCTestCase {
         XCTAssertTrue(envelope.steps.contains { $0.toolName == "TaxTriage" })
         XCTAssertTrue(envelope.outputs.contains { $0.path == sqliteURL.path })
         XCTAssertTrue(envelope.files.contains { $0.path == fastqURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(envelope.options.defaults["topHitsCount"], .integer(10))
+        XCTAssertEqual(envelope.options.resolvedDefaults["maxCpus"], .integer(config.maxCpus))
+        XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "nextflow")
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+    }
+
+    func testTaxTriageFailedBackfillCapturesUsefulLogStderr() throws {
+        let resultDirectory = try makeTemporaryDirectory(prefix: "taxtriage-failed-backfill-")
+
+        let fastqURL = resultDirectory.appendingPathComponent("SampleF.fastq")
+        let logURL = resultDirectory.appendingPathComponent("nextflow.log")
+        try "@r\nACGT\n+\nIIII\n".write(to: fastqURL, atomically: true, encoding: .utf8)
+        try "ERROR ~ TaxTriage failed while classifying SampleF\n".write(to: logURL, atomically: true, encoding: .utf8)
+
+        let config = TaxTriageConfig(
+            samples: [
+                TaxTriageSample(sampleId: "SampleF", fastq1: fastqURL)
+            ],
+            outputDirectory: resultDirectory,
+            profile: "conda"
+        )
+        let result = TaxTriageResult(
+            config: config,
+            runtime: 7.25,
+            exitCode: 2,
+            outputDirectory: resultDirectory,
+            logFile: logURL,
+            allOutputFiles: [logURL]
+        )
+        try result.save()
+
+        let sidecarURL = try XCTUnwrap(
+            MetagenomicsBatchProvenanceWriter.ensureTaxTriageProvenanceIfPossible(resultDirectory: resultDirectory)
+        )
+
+        XCTAssertEqual(sidecarURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: resultDirectory)?.envelope)
+        XCTAssertEqual(envelope.exitStatus, 2)
+        XCTAssertEqual(envelope.wallTimeSeconds, 7.25)
+        XCTAssertTrue(envelope.stderr?.contains("TaxTriage failed while classifying SampleF") == true)
+        XCTAssertTrue(envelope.steps.contains {
+            $0.toolName == "TaxTriage"
+                && $0.exitStatus == 2
+                && $0.stderr?.contains("TaxTriage failed while classifying SampleF") == true
+        })
     }
 
     func testTaxTriageBackfillPreservesExistingPipelineProvenanceWhenAddingSQLite() throws {
