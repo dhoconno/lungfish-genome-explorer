@@ -565,11 +565,12 @@ EOF
 echo -n "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
 # Copy icon if exists
-if [ -f "$PROJECT_ROOT/Resources/AppIcon.icns" ]; then
+APP_ICON_SOURCE="$PROJECT_ROOT/Sources/Lungfish/AppIcon.icns"
+if [ -f "$APP_ICON_SOURCE" ]; then
     echo -e "${GREEN}Copying app icon...${NC}"
-    cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$RESOURCES_DIR/"
+    cp "$APP_ICON_SOURCE" "$RESOURCES_DIR/"
 else
-    echo -e "${YELLOW}Warning: AppIcon.icns not found at $PROJECT_ROOT/Resources/AppIcon.icns${NC}"
+    echo -e "${YELLOW}Warning: AppIcon.icns not found at $APP_ICON_SOURCE${NC}"
     echo -e "${YELLOW}The app will use a generic icon until an icon is provided.${NC}"
 fi
 

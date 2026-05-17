@@ -205,15 +205,12 @@ def main() -> None:
 
     png_output_dir = root / "Sources" / "LungfishApp" / "Resources" / "Assets.xcassets" / "AppIcon.appiconset"
     about_logo_output = root / "Sources" / "LungfishApp" / "Resources" / "Images" / "about-logo.png"
-    icns_output = root / "Resources" / "AppIcon.icns"
-    swiftpm_icns_output = root / "Sources" / "Lungfish" / "AppIcon.icns"
+    icns_output = root / "Sources" / "Lungfish" / "AppIcon.icns"
 
     print("Generating Lungfish app icon assets...")
     generate_all_icons(png_output_dir, source_logo)
     write_about_logo(about_logo_output, source_logo)
     create_icns(png_output_dir, icns_output)
-    shutil.copy2(icns_output, swiftpm_icns_output)
-    print(f"Saved {swiftpm_icns_output}")
 
 
 if __name__ == "__main__":
