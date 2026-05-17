@@ -14,7 +14,6 @@ import Foundation
 /// - `samtools`: FASTA indexing, BAM manipulation
 /// - `bcftools`: VCF/BCF conversion and indexing
 /// - `htslib`: bgzip compression
-/// - `ucsc-bedtobigbed`: BED to BigBed conversion
 /// - `ucsc-bedgraphtobigwig`: bedGraph to BigWig conversion
 ///
 /// ## Optional Images (Extended functionality)
@@ -59,7 +58,6 @@ public enum DefaultContainerImages {
             samtools,
             bcftools,
             htslib,
-            ucscBedToBigBed,
             ucscBedGraphToBigWig
         ]
     }
@@ -134,26 +132,6 @@ public enum DefaultContainerImages {
         documentationURL: URL(string: "https://www.htslib.org/doc/bgzip.html"),
         setupCommands: [
             ["mamba", "install", "-y", "-c", "conda-forge", "-c", "bioconda", "htslib=1.18"]
-        ]
-    )
-    
-    /// UCSC bedToBigBed - BED to BigBed converter.
-    ///
-    /// Essential for creating indexed BigBed annotation tracks in reference bundles.
-    /// Uses miniforge3 base image with bioconda for arm64 support on Apple Silicon.
-    public static let ucscBedToBigBed = ContainerImageSpec(
-        id: "ucsc-bedtobigbed",
-        name: "bedToBigBed",
-        description: "Convert BED format to indexed BigBed format for efficient random access",
-        reference: baseImage,
-        category: .core,
-        purpose: .conversion,
-        version: "377",
-        supportedExtensions: ["bed", "bed.gz"],
-        estimatedSizeBytes: 500_000_000, // ~500 MB (miniforge3 base + tools)
-        documentationURL: URL(string: "https://genome.ucsc.edu/goldenPath/help/bigBed.html"),
-        setupCommands: [
-            ["mamba", "install", "-y", "-c", "conda-forge", "-c", "bioconda", "ucsc-bedtobigbed"]
         ]
     )
     

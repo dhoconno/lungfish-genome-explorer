@@ -533,13 +533,13 @@ public actor FormatRegistry {
         let bigwig = FormatDescriptor(
             identifier: .bigwig,
             displayName: "BigWig",
-            formatDescription: "Binary coverage/signal format",
+            formatDescription: "Binary coverage/signal format (detection only; in-process reader unavailable)",
             extensions: ["bw", "bigwig"],
             magicBytes: Data([0x26, 0xfc, 0x8f, 0x88]), // BigWig magic (little-endian)
             capabilities: .coverage,
             supportsCompression: false,
             isBinary: true,
-            canRead: true,
+            canRead: false,
             canWrite: false,
             uiCategory: .coverage
         )

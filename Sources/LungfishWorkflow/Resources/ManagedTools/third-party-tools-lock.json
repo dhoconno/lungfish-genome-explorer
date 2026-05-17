@@ -16,7 +16,6 @@
     { "id": "vsearch", "environment": "vsearch", "packageSpec": "bioconda::vsearch=2.30.5=h85a231e_0", "executables": ["vsearch"], "version": "2.30.5", "license": "GPL-3.0-or-later OR BSD-2-Clause", "sourceUrl": "https://github.com/torognes/vsearch" },
     { "id": "pigz", "environment": "pigz", "packageSpec": "conda-forge::pigz=2.8=hfab5511_2", "executables": ["pigz"], "version": "2.8", "license": "Zlib", "sourceUrl": "https://github.com/madler/pigz" },
     { "id": "sra-tools", "environment": "sra-tools", "packageSpec": "bioconda::sra-tools=3.4.1=h4675bf2_1", "executables": ["prefetch", "fasterq-dump"], "version": "3.4.1", "license": "Public Domain", "sourceUrl": "https://github.com/ncbi/sra-tools" },
-    { "id": "ucsc-bedtobigbed", "environment": "ucsc-bedtobigbed", "packageSpec": "bioconda::ucsc-bedtobigbed=482=h1643cc5_0", "executables": ["bedToBigBed"], "version": "482", "license": "Varies; see https://genome.ucsc.edu/license", "sourceUrl": "https://genome.ucsc.edu/goldenPath/help/bigBed.html" },
     { "id": "ucsc-bedgraphtobigwig", "environment": "ucsc-bedgraphtobigwig", "packageSpec": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0", "executables": ["bedGraphToBigWig"], "version": "482", "license": "Varies; see https://genome.ucsc.edu/license", "sourceUrl": "https://genome.ucsc.edu/goldenPath/help/bigWig.html" }
   ],
   "managedData": [

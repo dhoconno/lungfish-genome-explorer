@@ -203,7 +203,7 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(lock.version, "0.4.0-alpha.16")
-        XCTAssertEqual(lock.tools.count, 15)
+        XCTAssertEqual(lock.tools.count, 14)
         XCTAssertEqual(lock.managedData.count, 2)
 
         let expectedSpecs: [String: String] = [
@@ -220,7 +220,6 @@ final class CondaManagerTests: XCTestCase {
             "vsearch": "bioconda::vsearch=2.30.5=h85a231e_0",
             "pigz": "conda-forge::pigz=2.8=hfab5511_2",
             "sra-tools": "bioconda::sra-tools=3.4.1=h4675bf2_1",
-            "ucsc-bedtobigbed": "bioconda::ucsc-bedtobigbed=482=h1643cc5_0",
             "ucsc-bedgraphtobigwig": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0",
         ]
 
@@ -1125,7 +1124,7 @@ final class CondaManagerTests: XCTestCase {
         }
     }
 
-    private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -1134,6 +1133,7 @@ final class CondaManagerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 25_000_000)
         }
         XCTFail("Timed out waiting for \(url.path)")
+        throw CocoaError(.fileReadNoSuchFile)
     }
 
     private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {

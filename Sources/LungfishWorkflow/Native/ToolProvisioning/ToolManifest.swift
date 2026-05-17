@@ -409,7 +409,7 @@ extension BundledToolSpec {
         )
     }
 
-    /// UCSC tools - bedToBigBed, bedGraphToBigWig (pre-built x86_64 only).
+    /// UCSC tool - bedGraphToBigWig (pre-built x86_64 only).
     public static func ucscTools(version: String = "469") -> BundledToolSpec {
         BundledToolSpec(
             name: "ucsc-tools",
@@ -427,7 +427,7 @@ extension BundledToolSpec {
                 ],
                 isArchive: false
             )),
-            executables: ["bedToBigBed", "bedGraphToBigWig"],
+            executables: ["bedGraphToBigWig"],
             dependencies: [],
             supportedArchitectures: [.x86_64],  // Runs via Rosetta on arm64
             notes: "Pre-built x86_64 binaries from UCSC. Run via Rosetta 2 on Apple Silicon."

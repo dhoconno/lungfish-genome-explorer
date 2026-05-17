@@ -785,7 +785,7 @@ final class ImageCategoryPurposeRegressionTests: XCTestCase {
 final class DefaultContainerImagesRegressionTests: XCTestCase {
 
     func testCoreImageCount() {
-        XCTAssertEqual(DefaultContainerImages.coreImages.count, 5)
+        XCTAssertEqual(DefaultContainerImages.coreImages.count, 4)
     }
 
     func testOptionalImageCount() {
@@ -804,7 +804,6 @@ final class DefaultContainerImagesRegressionTests: XCTestCase {
         XCTAssertTrue(ids.contains("samtools"))
         XCTAssertTrue(ids.contains("bcftools"))
         XCTAssertTrue(ids.contains("htslib"))
-        XCTAssertTrue(ids.contains("ucsc-bedtobigbed"))
         XCTAssertTrue(ids.contains("ucsc-bedgraphtobigwig"))
     }
 
@@ -827,7 +826,7 @@ final class DefaultContainerImagesRegressionTests: XCTestCase {
 
     func testImagesByCategory() {
         let core = DefaultContainerImages.images(for: .core)
-        XCTAssertEqual(core.count, 5)
+        XCTAssertEqual(core.count, 4)
         for image in core {
             XCTAssertEqual(image.category, .core)
         }
@@ -1368,7 +1367,7 @@ final class BundledToolSpecRegressionTests: XCTestCase {
     func testUCSCToolsFactory() {
         let spec = BundledToolSpec.ucscTools()
         XCTAssertEqual(spec.name, "ucsc-tools")
-        XCTAssertEqual(spec.executables, ["bedToBigBed", "bedGraphToBigWig"])
+        XCTAssertEqual(spec.executables, ["bedGraphToBigWig"])
         XCTAssertEqual(spec.supportedArchitectures, [.x86_64])
         XCTAssertNotNil(spec.notes)
     }

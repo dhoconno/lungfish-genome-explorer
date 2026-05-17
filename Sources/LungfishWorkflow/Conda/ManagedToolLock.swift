@@ -43,7 +43,6 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
             case "vsearch": return "VSEARCH"
             case "pigz": return "pigz"
             case "sra-tools": return "SRA Tools"
-            case "ucsc-bedtobigbed": return "UCSC bedToBigBed"
             case "ucsc-bedgraphtobigwig": return "UCSC bedGraphToBigWig"
             default:
                 return id.replacingOccurrences(of: "-", with: " ").capitalized
@@ -92,7 +91,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                 )
             case "fastp", "deacon":
                 return .command(arguments: ["--help"], timeoutSeconds: 10)
-            case "ucsc-bedtobigbed", "ucsc-bedgraphtobigwig":
+            case "ucsc-bedgraphtobigwig":
                 return .usage(executable: executables.first, timeoutSeconds: 10)
             default:
                 return executables.first.map { executable in

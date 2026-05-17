@@ -251,8 +251,8 @@ public enum ToolBibliographyCatalog {
         ),
         ToolCitation(
             id: "ucsc-bigbed-bigwig",
-            displayName: "UCSC bigBed/bigWig tools",
-            aliases: ["ucsc-bedtobigbed", "bedtobigbed", "ucsc-bedgraphtobigwig", "bedgraphtobigwig", "bigbed", "bigwig"],
+            displayName: "UCSC bigWig tools",
+            aliases: ["ucsc-bedgraphtobigwig", "bedgraphtobigwig", "bigwig"],
             citation: "Kent WJ, Zweig AS, Barber G, Hinrichs AS, Karolchik D. BigWig and BigBed: enabling browsing of large distributed datasets. Bioinformatics. 2010.",
             doi: "10.1093/bioinformatics/btq351",
             url: "https://genome.ucsc.edu/goldenPath/help/bigBed.html"

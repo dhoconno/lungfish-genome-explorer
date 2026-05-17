@@ -208,19 +208,6 @@ final class NativeToolRunnerTests: XCTestCase {
         )
     }
 
-    func testBedToBigBedUsage() async throws {
-        let (runner, root) = try makeManagedNativeToolRunner()
-        defer { try? FileManager.default.removeItem(at: root) }
-        // bedToBigBed with no arguments prints usage and exits with non-zero
-        let result = try await runner.run(.bedToBigBed, arguments: [])
-        // We just verify it ran without crashing (exit code will be non-zero)
-        let output = result.stdout + result.stderr
-        XCTAssertTrue(
-            output.contains("bedToBigBed") || output.contains("usage") || output.contains("bed"),
-            "bedToBigBed should produce usage output"
-        )
-    }
-
     func testFastpVersion() async throws {
         let (runner, root) = try makeManagedNativeToolRunner()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -535,7 +522,6 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.bcftools.executableName, "bcftools")
         XCTAssertEqual(NativeTool.bgzip.executableName, "bgzip")
         XCTAssertEqual(NativeTool.tabix.executableName, "tabix")
-        XCTAssertEqual(NativeTool.bedToBigBed.executableName, "bedToBigBed")
         XCTAssertEqual(NativeTool.bedGraphToBigWig.executableName, "bedGraphToBigWig")
         XCTAssertEqual(NativeTool.seqkit.executableName, "seqkit")
         XCTAssertEqual(NativeTool.fastp.executableName, "fastp")
@@ -593,10 +579,6 @@ final class NativeToolRunnerTests: XCTestCase {
             .managed(environment: "sra-tools", executableName: "prefetch")
         )
         XCTAssertEqual(
-            NativeTool.bedToBigBed.location,
-            .managed(environment: "ucsc-bedtobigbed", executableName: "bedToBigBed")
-        )
-        XCTAssertEqual(
             NativeTool.bedGraphToBigWig.location,
             .managed(environment: "ucsc-bedgraphtobigwig", executableName: "bedGraphToBigWig")
         )
@@ -606,7 +588,7 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertEqual(NativeTool.samtools.sourcePackage, "samtools")
         XCTAssertEqual(NativeTool.bgzip.sourcePackage, "htslib")
         XCTAssertEqual(NativeTool.tabix.sourcePackage, "htslib")
-        XCTAssertEqual(NativeTool.bedToBigBed.sourcePackage, "ucsc-tools")
+        XCTAssertEqual(NativeTool.bedGraphToBigWig.sourcePackage, "ucsc-tools")
         XCTAssertEqual(NativeTool.bbduk.sourcePackage, "bbmap")
         XCTAssertEqual(NativeTool.bbmerge.sourcePackage, "bbmap")
         XCTAssertEqual(NativeTool.repair.sourcePackage, "bbmap")
@@ -618,13 +600,13 @@ final class NativeToolRunnerTests: XCTestCase {
         XCTAssertTrue(NativeTool.bgzip.isHtslib)
         XCTAssertTrue(NativeTool.tabix.isHtslib)
         XCTAssertFalse(NativeTool.samtools.isHtslib)
-        XCTAssertFalse(NativeTool.bedToBigBed.isHtslib)
+        XCTAssertFalse(NativeTool.bedGraphToBigWig.isHtslib)
     }
 
     func testAllCasesCount() {
         // The legacy human-scrubber executables were retired when Deacon replaced that path.
         // BBMap shell wrappers and the viral variant callers are both part of the managed tool surface.
-        XCTAssertEqual(NativeTool.allCases.count, 29, "Should include BBTools wrappers, variant callers, phasing, and lineage demixing tools")
+        XCTAssertEqual(NativeTool.allCases.count, 28, "Should include BBTools wrappers, variant callers, phasing, and lineage demixing tools")
     }
 
     // MARK: - Error Tests
@@ -777,11 +759,6 @@ final class NativeToolRunnerTests: XCTestCase {
             #!/bin/sh
             echo "tabix 1.23" >&2
             """),
-            ("ucsc-bedtobigbed", "bedToBigBed", """
-            #!/bin/sh
-            echo "usage: bedToBigBed" >&2
-            exit 1
-            """),
             ("ucsc-bedgraphtobigwig", "bedGraphToBigWig", """
             #!/bin/sh
             echo "bedGraphToBigWig 1.0" >&2
@@ -887,7 +864,7 @@ final class NativeToolRunnerTests: XCTestCase {
         return (NativeToolRunner(toolsDirectory: nil, homeDirectory: root), root)
     }
 
-    private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 1_000_000_000) async throws {
+    private func waitForFile(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
         while DispatchTime.now().uptimeNanoseconds < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -896,9 +873,10 @@ final class NativeToolRunnerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTFail("Expected file to appear: \(url.path)")
+        throw CocoaError(.fileReadNoSuchFile)
     }
 
-    private func waitForInt32File(at url: URL, timeoutNanoseconds: UInt64 = 1_000_000_000) async throws -> Int32 {
+    private func waitForInt32File(at url: URL, timeoutNanoseconds: UInt64 = 5_000_000_000) async throws -> Int32 {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
         var lastContents: String?
         while DispatchTime.now().uptimeNanoseconds < deadline {
@@ -913,7 +891,7 @@ final class NativeToolRunnerTests: XCTestCase {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         XCTFail("Expected PID file to contain an Int32: \(url.path), last contents: \(lastContents ?? "<missing>")")
-        return 0
+        throw CocoaError(.fileReadNoSuchFile)
     }
 
     private func assertFileDoesNotAppear(

@@ -154,7 +154,6 @@ public enum ScientificProvenancePolicy {
         "bcftools": dataWriting("native.bcftools", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "bgzip": dataWriting("native.bgzip", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "tabix": dataWriting("native.tabix", writer: "NativeToolRunner/ProvenanceRunBuilder"),
-        "bedToBigBed": dataWriting("native.bedToBigBed", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "bedGraphToBigWig": dataWriting("native.bedGraphToBigWig", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "pigz": dataWriting("native.pigz", writer: "NativeToolRunner/ProvenanceRunBuilder"),
         "seqkit": dataWriting("native.seqkit", writer: "NativeToolRunner/ProvenanceRunBuilder"),
