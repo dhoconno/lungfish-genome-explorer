@@ -233,7 +233,7 @@ extension TaxTriageCommand {
                 let sheetURL = URL(fileURLWithPath: samplesheetPath)
                 guard FileManager.default.fileExists(atPath: sheetURL.path) else {
                     print(formatter.error("Samplesheet not found: \(samplesheetPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 let entries = try TaxTriageSamplesheet.parse(url: sheetURL)
@@ -254,13 +254,13 @@ extension TaxTriageCommand {
                 // Build single sample from --input
                 guard let inputPath = input, let sid = sampleId else {
                     print(formatter.error("--input and --sample are required"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 let fastq1 = URL(fileURLWithPath: inputPath)
                 guard FileManager.default.fileExists(atPath: fastq1.path) else {
                     print(formatter.error("Input file not found: \(inputPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 var fastq2: URL?
@@ -270,7 +270,7 @@ extension TaxTriageCommand {
                         print(formatter.error(
                             "Input R2 file not found: \(input2Path)"
                         ))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                     fastq2 = r2
                 }
@@ -289,7 +289,7 @@ extension TaxTriageCommand {
                 dbURL = URL(fileURLWithPath: dbPath)
                 guard FileManager.default.fileExists(atPath: dbURL!.path) else {
                     print(formatter.error("Database not found: \(dbPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
@@ -483,7 +483,7 @@ extension TaxTriageCommand {
                 print(formatter.error(
                     "Missing prerequisites. Install the tools listed above."
                 ))
-                throw ExitCode.failure
+                throw CLIExitCode.dependency.exitCode
             }
         }
     }

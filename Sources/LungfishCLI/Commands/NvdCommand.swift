@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Import and inspect NVD (Novel Virus Diagnostics) pipeline BLAST results.
 ///
@@ -65,19 +66,20 @@ struct NvdCommand: AsyncParsableCommand {
         var name: String?
 
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
             let inputURL = URL(fileURLWithPath: inputPath)
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input directory not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Locate blast_concatenated.csv
             let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
             guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
                 print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let labkeyContents = try FileManager.default.contentsOfDirectory(
@@ -86,7 +88,7 @@ struct NvdCommand: AsyncParsableCommand {
             )
             guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
                 print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -96,7 +98,13 @@ struct NvdCommand: AsyncParsableCommand {
             }
 
             let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL)
+            let result: NvdParseResult
+            do {
+                result = try await parser.parse(at: csvURL)
+            } catch let error as NvdParserError {
+                print(formatter.error(error.localizedDescription))
+                throw nvdExitCode(for: error).exitCode
+            }
 
             // Summary before import
             print(formatter.keyValueTable([
@@ -183,7 +191,22 @@ struct NvdCommand: AsyncParsableCommand {
 
             let manifestData = try encoder.encode(manifest)
             let manifestURL = bundleDir.appendingPathComponent("manifest.json")
-            try manifestData.write(to: manifestURL, options: .atomic)
+            do {
+                try manifestData.write(to: manifestURL, options: .atomic)
+                try await recordNvdImportProvenance(
+                    startedAt: startedAt,
+                    inputURL: inputURL,
+                    csvURL: csvURL,
+                    outputDirectory: outputDirectory,
+                    bundleDir: bundleDir,
+                    bundleName: bundleName,
+                    manifestURL: manifestURL,
+                    result: result
+                )
+            } catch {
+                print(formatter.error("Failed to write NVD import output: \(error.localizedDescription)"))
+                throw CLIExitCode.outputError.exitCode
+            }
 
             print(formatter.success("Manifest written to \(manifestURL.path)"))
             print("")
@@ -218,7 +241,7 @@ struct NvdCommand: AsyncParsableCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Determine if input is a directory or CSV file
@@ -234,7 +257,7 @@ struct NvdCommand: AsyncParsableCommand {
                 )
                 guard let found = contents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
                     print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
                 csvURL = found
             } else {
@@ -242,7 +265,13 @@ struct NvdCommand: AsyncParsableCommand {
             }
 
             let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL)
+            let result: NvdParseResult
+            do {
+                result = try await parser.parse(at: csvURL)
+            } catch let error as NvdParserError {
+                print(formatter.error(error.localizedDescription))
+                throw nvdExitCode(for: error).exitCode
+            }
 
             switch globalOptions.outputFormat {
             case .json:
@@ -300,6 +329,74 @@ struct NvdCommand: AsyncParsableCommand {
                 nvdPrintTopContigs(result.hits.filter { $0.hitRank == 1 }.prefix(topN), formatter: formatter)
             }
         }
+    }
+}
+
+private func recordNvdImportProvenance(
+    startedAt: Date,
+    inputURL: URL,
+    csvURL: URL,
+    outputDirectory: URL,
+    bundleDir: URL,
+    bundleName: String,
+    manifestURL: URL,
+    result: NvdParseResult
+) async throws {
+    let command = [
+        "lungfish",
+        "nvd",
+        "import",
+        inputURL.path,
+        "--output-dir",
+        outputDirectory.path,
+        "--name",
+        bundleName,
+    ]
+    let defaultBundleName = "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
+
+    try await CLIProvenanceSupport.recordSingleStepRun(
+        name: "lungfish nvd import",
+        parameters: [
+            "inputPath": .string(inputURL.path),
+            "outputDir": .string(outputDirectory.path),
+            "name": .string(bundleName),
+        ],
+        defaults: [
+            "outputDir": .string(FileManager.default.currentDirectoryPath),
+            "name": .string(defaultBundleName),
+        ],
+        resolved: [
+            "inputPath": .string(inputURL.path),
+            "csvPath": .string(csvURL.path),
+            "outputDir": .string(outputDirectory.path),
+            "bundleName": .string(bundleName),
+            "experiment": .string(result.experiment),
+            "sampleCount": .integer(result.sampleIds.count),
+            "hitCount": .integer(result.hits.count),
+        ],
+        toolName: "lungfish nvd import",
+        toolVersion: WorkflowRun.currentAppVersion,
+        command: command,
+        inputs: [
+            ProvenanceRecorder.fileRecord(url: csvURL, format: .unknown, role: .input),
+        ],
+        outputs: [
+            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
+        ],
+        exitCode: 0,
+        wallTime: Date().timeIntervalSince(startedAt),
+        stderr: nil,
+        status: .completed,
+        outputDirectory: bundleDir
+    )
+}
+
+private func nvdExitCode(for error: NvdParserError) -> CLIExitCode {
+    switch error {
+    case .fileNotFound:
+        return .inputError
+    case .invalidHeader, .malformedRow:
+        return .formatError
     }
 }
 
