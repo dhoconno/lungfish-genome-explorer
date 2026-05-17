@@ -308,9 +308,9 @@ extension DocumentCapability: ExpressibleByArrayLiteral {
     }
 }
 
-// MARK: - Type Alias
+// MARK: - Deprecated Compatibility
 
-/// Type alias for a set of capabilities (for clarity in API).
+@available(*, deprecated, renamed: "DocumentCapability")
 public typealias DocumentCapabilities = DocumentCapability
 
 // MARK: - CapabilityProvider Protocol
