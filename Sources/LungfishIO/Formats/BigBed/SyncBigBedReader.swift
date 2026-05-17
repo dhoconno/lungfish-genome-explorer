@@ -2,8 +2,7 @@
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 //
-// Synchronous counterpart to BigBedReader for use in AppKit drawing contexts
-// where async calls cannot be awaited (e.g., draw(_:) methods).
+// Synchronous counterpart to the unsupported BigBedReader implementation.
 
 import Foundation
 import Compression
@@ -11,19 +10,12 @@ import LungfishCore
 
 // MARK: - SyncBigBedReader
 
-/// Synchronous reader for BigBed binary files.
+/// Unsupported synchronous reader for BigBed binary files.
 ///
-/// Unlike the actor-based `BigBedReader`, this class provides fully synchronous
-/// access to BigBed features. This is required for AppKit drawing contexts where
-/// `async/await` cannot be used (e.g., `NSView.draw(_:)`).
-///
-/// Each instance opens its own `FileHandle` and should not be shared across threads.
-///
-/// ## Usage
-/// ```swift
-/// let reader = try SyncBigBedReader(url: fileURL)
-/// let features = try reader.features(chromosome: "chr1", start: 1000, end: 2000)
-/// ```
+/// This parser is incomplete and is not part of the supported public API.
+/// BigBed files remain detectable as external bundle artifacts, but in-process
+/// parsing should use supported annotation database or BED/GFF/GTF import paths.
+@available(*, unavailable, message: "BigBed parsing is incomplete; use supported annotation database or BED/GFF/GTF import paths instead.")
 public final class SyncBigBedReader {
 
     // MARK: - Properties

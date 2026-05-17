@@ -549,13 +549,13 @@ public actor FormatRegistry {
         let bigbed = FormatDescriptor(
             identifier: .bigbed,
             displayName: "BigBed",
-            formatDescription: "Binary annotation format",
+            formatDescription: "Binary annotation format (detection only; in-process reader unavailable)",
             extensions: ["bb", "bigbed"],
             magicBytes: Data([0x26, 0xfc, 0x8f, 0x87]), // BigBed magic (little-endian)
             capabilities: .annotations,
             supportsCompression: false,
             isBinary: true,
-            canRead: true,
+            canRead: false,
             canWrite: false,
             uiCategory: .coverage
         )
