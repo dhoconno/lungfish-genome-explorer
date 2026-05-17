@@ -85,10 +85,21 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         let fastpStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" })
         XCTAssertTrue(fastpStep.argv.first?.hasSuffix("/fastp") == true)
         XCTAssertTrue(fastpStep.argv.contains("-i"))
+        XCTAssertNil(
+            fastpStep.durableReplayArgv,
+            "The fastp trim step writes an intermediate FASTQ, so it must not fabricate a durable native replay command."
+        )
+        XCTAssertTrue(
+            fastpStep.reproducibleCommand.contains("transformed.fastq"),
+            "Native reproducibleCommand should preserve the exact executed intermediate command when no durable native replay exists."
+        )
+        XCTAssertFalse(fastpStep.argv.containsSourceOrOutputBundleDirectory(source.bundleURL, outputBundle))
         XCTAssertTrue(fastpStep.toolVersion.contains("0.23.4"))
         XCTAssertEqual(fastpStep.exitStatus, 0)
         XCTAssertNotNil(fastpStep.wallTimeSeconds)
         XCTAssertNotNil(fastpStep.completedAt)
+        let appStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "Lungfish App" })
+        XCTAssertEqual(appStep.durableReplayArgv, envelope.argv)
 
         assertNoTemporaryPaths(in: envelope)
         try assertOutput(
@@ -130,6 +141,15 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.explicit["minOverlap"]?.integerValue, 8)
         XCTAssertEqual(envelope.options.defaults["strictness"]?.stringValue, FASTQMergeStrictness.normal.rawValue)
         XCTAssertEqual(envelope.options.defaults["minOverlap"]?.integerValue, 12)
+
+        let bbmergeStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "bbmerge.sh" })
+        let durableBBMergeArgv = try XCTUnwrap(bbmergeStep.durableReplayArgv)
+        let mergedFASTQPath = outputBundle.appendingPathComponent("merged.fastq").path
+        XCTAssertTrue(durableBBMergeArgv.containsKeyValuePath(key: "in", path: source.fastqURL.path))
+        XCTAssertTrue(durableBBMergeArgv.containsKeyValuePath(key: "out", path: mergedFASTQPath))
+        XCTAssertTrue(bbmergeStep.reproducibleCommand.contains(source.fastqURL.path))
+        XCTAssertTrue(bbmergeStep.reproducibleCommand.contains(mergedFASTQPath))
+        XCTAssertFalse(durableBBMergeArgv.containsSourceOrOutputBundleDirectory(source.bundleURL, outputBundle))
 
         assertNoTemporaryPaths(in: envelope)
         try assertOutput(
@@ -332,6 +352,52 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         XCTAssertEqual(referenceDescriptor.fileSize, try ProvenanceFileHasher.fileSize(of: referenceURL))
     }
 
+    func testOrientDerivativeProvenanceUsesHonestAppWorkflowIdentifiers() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit, .vsearch])
+        defer { fixture.cleanup() }
+
+        let projectURL = fixture.root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let source = try fixture.makeBundle(named: "orient-honest-source", in: projectURL)
+        try fixture.writeFASTQ(
+            [
+                ("read-1", "ACGT"),
+                ("read-2", "TGCA"),
+                ("read-3", "TTTT"),
+            ],
+            to: source.fastqURL
+        )
+        let referenceURL = fixture.root.appendingPathComponent("reference.fa")
+        try ">ref\nACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let outputBundle = try await service.createDerivative(
+            from: source.bundleURL,
+            request: .orient(
+                referenceURL: referenceURL,
+                wordLength: 11,
+                dbMask: "none",
+                saveUnoriented: true
+            )
+        )
+
+        let envelope = try loadProvenance(from: outputBundle)
+        XCTAssertEqual(envelope.argv.first, "lungfish-app-workflow:fastq-orient-derivative")
+        XCTAssertEqual(envelope.durableReplayArgv?.first, "lungfish-app-workflow:fastq-orient-derivative")
+        XCTAssertFalse(envelope.argv.contains("Lungfish.app"))
+        XCTAssertFalse(envelope.reproducibleCommand.contains("Lungfish.app fastq"))
+
+        let appSteps = envelope.steps.filter { $0.toolName == "Lungfish App" }
+        XCTAssertFalse(appSteps.isEmpty)
+        for step in appSteps {
+            XCTAssertTrue(step.argv.first?.hasPrefix("lungfish-app-action:") == true)
+            XCTAssertEqual(step.durableReplayArgv, step.argv)
+            XCTAssertFalse(step.argv.contains("Lungfish.app"))
+            XCTAssertFalse(step.argv.contains("fastq"))
+            XCTAssertFalse(step.reproducibleCommand.contains("Lungfish.app fastq"))
+        }
+    }
+
     func testOrientDerivativeCleansPartialBundlesWhenProvenanceWriteFails() async throws {
         let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit, .vsearch])
         defer { fixture.cleanup() }
@@ -455,6 +521,39 @@ private func assertNoTemporaryPaths(
         XCTAssertFalse(value.contains("fastq-derive-"), file: file, line: line)
         XCTAssertFalse(value.contains("transformed.fastq"), file: file, line: line)
         XCTAssertFalse(value.contains("demux-output"), file: file, line: line)
+    }
+}
+
+private extension Array where Element == String {
+    func containsKeyValuePath(key: String, path expectedPath: String) -> Bool {
+        contains { argument in
+            let prefix = "\(key)="
+            guard argument.hasPrefix(prefix) else { return false }
+            let actualPath = String(argument.dropFirst(prefix.count))
+            return pathsReferToSameFile(actualPath, expectedPath)
+        }
+    }
+
+    func containsSourceOrOutputBundleDirectory(_ sourceBundleURL: URL, _ outputBundleURL: URL) -> Bool {
+        contains { argument in
+            nativePathCandidates(in: argument).contains { path in
+                pathsReferToSameFile(path, sourceBundleURL.path)
+                    || pathsReferToSameFile(path, outputBundleURL.path)
+            }
+        }
+    }
+
+    private func nativePathCandidates(in argument: String) -> [String] {
+        if argument.hasPrefix("file:") {
+            return [String(argument.dropFirst("file:".count))]
+        }
+        if let equalsIndex = argument.firstIndex(of: "=") {
+            return [String(argument[argument.index(after: equalsIndex)...])]
+        }
+        if argument.hasPrefix("/") {
+            return [argument]
+        }
+        return []
     }
 }
 

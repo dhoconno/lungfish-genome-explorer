@@ -928,6 +928,19 @@ private struct FASTQDerivativeNativeToolExecution: Sendable {
     let completedAt: Date
 }
 
+private struct FASTQDerivativeNativeReplayContext: Sendable {
+    let pathReplacements: [String: String]
+    let temporaryPathRoots: [String]
+
+    init(
+        pathReplacements: [String: String] = [:],
+        temporaryPathRoots: [String] = []
+    ) {
+        self.pathReplacements = pathReplacements
+        self.temporaryPathRoots = temporaryPathRoots.map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+    }
+}
+
 private final class FASTQDerivativeNativeProvenanceCollector: @unchecked Sendable {
     private let lock = NSLock()
     private var executions: [FASTQDerivativeNativeToolExecution] = []
@@ -1154,10 +1167,12 @@ public actor FASTQDerivativeService {
                 request: request,
                 sourceFASTQ: executionSourceFASTQ,
                 sourceBundleURL: sourceBundleURL,
+                sourceSequenceFormat: sourceSequenceFormat,
                 resolvedRootBundleURL: resolvedRootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
                 pairingMode: pairingMode,
                 baseLineage: baseLineage,
+                nativeTemporaryPathRoots: [tempDir.path],
                 batchOperationID: batchOperationID,
                 progress: progress
             )
@@ -1337,6 +1352,15 @@ public actor FASTQDerivativeService {
             sequenceFormat: outputSequenceFormat
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: outputBundle)
+        let nativeReplayContext = derivativeNativeReplayContext(
+            sourceFASTQ: executionSourceFASTQ,
+            sourceBundleURL: sourceBundleURL,
+            sourceSequenceFormat: sourceSequenceFormat,
+            transformedFASTQ: transformedFASTQ,
+            outputBundleURL: outputBundle,
+            payload: payload,
+            temporaryPathRoots: [tempDir.path]
+        )
         try await writeDerivativeProvenance(
             workflowName: "lungfish fastq \(request.operationKindString) derivative",
             request: request,
@@ -1345,10 +1369,7 @@ public actor FASTQDerivativeService {
             sourceSequenceFormat: sourceSequenceFormat,
             outputBundleURL: outputBundle,
             nativeExecutions: nativeProvenanceCollector.snapshot(),
-            argumentPathReplacements: [
-                executionSourceFASTQ.path: sourceBundleURL.path,
-                transformedFASTQ.path: outputBundle.path,
-            ],
+            nativeReplayContext: nativeReplayContext,
             startedAt: provenanceStartedAt,
             completedAt: Date()
         )
@@ -1640,11 +1661,9 @@ public actor FASTQDerivativeService {
             let bridgeOutput = try ProvenanceFileDescriptor.file(url: storedBridgeFASTQ, format: .fastq, role: .output)
             bridgeStep = appProvenanceStep(
                 argv: [
-                    "Lungfish.app",
-                    "fastq",
-                    "fasta-to-fastq-bridge",
-                    "--input", sourceProvenanceInputRecord.path,
-                    "--output", storedBridgeFASTQ.path,
+                    "lungfish-app-action:fastq-synthetic-fastq-from-fasta",
+                    "--source-fasta", sourceProvenanceInputRecord.path,
+                    "--output-fastq", storedBridgeFASTQ.path,
                 ],
                 inputs: [ProvenanceFileDescriptor(fileRecord: sourceProvenanceInputRecord)],
                 outputs: [bridgeOutput],
@@ -1690,10 +1709,8 @@ public actor FASTQDerivativeService {
         }
 
         var orientCommandParts: [String] = [
-            "Lungfish.app",
-            "fastq",
-            "orient-derivative",
-            sourceBundleURL.path,
+            "lungfish-app-workflow:fastq-orient-derivative",
+            "--source-bundle", sourceBundleURL.path,
             "--reference", referenceURL.path,
             "--wordlength", String(wordLength),
             "--dbmask", dbMask,
@@ -1826,11 +1843,9 @@ public actor FASTQDerivativeService {
                 let bridgeOutput = try ProvenanceFileDescriptor.file(url: storedBridgeFASTQ, format: .fastq, role: .output)
                 unorientedBridgeStep = appProvenanceStep(
                     argv: [
-                        "Lungfish.app",
-                        "fastq",
-                        "fasta-to-fastq-bridge",
-                        "--input", sourceProvenanceInputRecord.path,
-                        "--output", storedBridgeFASTQ.path,
+                        "lungfish-app-action:fastq-synthetic-fastq-from-fasta",
+                        "--source-fasta", sourceProvenanceInputRecord.path,
+                        "--output-fastq", storedBridgeFASTQ.path,
                     ],
                     inputs: [ProvenanceFileDescriptor(fileRecord: sourceProvenanceInputRecord)],
                     outputs: [bridgeOutput],
@@ -1852,9 +1867,9 @@ public actor FASTQDerivativeService {
                 storedUnorientedFASTQPath: storedUnorientedFASTQ.path,
                 outputURL: unorientedDest,
                 outputFormat: sourceSequenceFormat == .fasta ? .fasta : .fastq,
-                operationName: sourceSequenceFormat == .fasta
-                    ? "orient-unmatched-to-fasta"
-                    : "orient-save-unmatched"
+                actionIdentifier: sourceSequenceFormat == .fasta
+                    ? "lungfish-app-action:fastq-orient-unmatched-fastq-to-fasta-payload"
+                    : "lungfish-app-action:fastq-orient-unmatched-fastq-payload"
             )
         }
 
@@ -1882,11 +1897,9 @@ public actor FASTQDerivativeService {
         var appSteps = [
             appProvenanceStep(
                 argv: [
-                    "Lungfish.app",
-                    "fastq",
-                    "orient-map",
-                    "--input", storedTabbedOutputPath,
-                    "--output", orientMapURL.path,
+                    "lungfish-app-action:fastq-vsearch-tabbed-output-to-orientation-map",
+                    "--vsearch-tabbed-output", storedTabbedOutputPath,
+                    "--orient-map", orientMapURL.path,
                 ],
                 inputs: [
                     ProvenanceFileDescriptor(path: storedTabbedOutputPath, format: .text, role: .input),
@@ -1905,9 +1918,7 @@ public actor FASTQDerivativeService {
             appSteps.append(
                 appProvenanceStep(
                     argv: [
-                        "Lungfish.app",
-                        "fastq",
-                        "orient-preview",
+                        "lungfish-app-action:fastq-preview-from-orientation-map",
                         "--source", previewInput.path,
                         "--orient-map", orientMapURL.path,
                         "--output", previewURL.path,
@@ -1940,14 +1951,12 @@ public actor FASTQDerivativeService {
         storedUnorientedFASTQPath: String,
         outputURL: URL,
         outputFormat: FileFormat,
-        operationName: String
+        actionIdentifier: String
     ) throws {
         let outputDescriptor = try ProvenanceFileDescriptor.file(url: outputURL, format: outputFormat, role: .output)
         let appStep = appProvenanceStep(
             argv: [
-                "Lungfish.app",
-                "fastq",
-                operationName,
+                actionIdentifier,
                 "--input", storedUnorientedFASTQPath,
                 "--output", outputURL.path,
             ],
@@ -1998,19 +2007,24 @@ public actor FASTQDerivativeService {
     private func nativeProvenanceSteps(
         from executions: [FASTQDerivativeNativeToolExecution],
         inputs: [ProvenanceFileDescriptor],
-        argumentPathReplacements: [String: String]
+        replayContext: FASTQDerivativeNativeReplayContext
     ) -> [ProvenanceStep] {
         executions.map { execution in
-            let durableArgv = rewriteNativeArguments(
+            let rewrittenArgv = rewriteNativeArguments(
                 execution.result.arguments,
-                using: argumentPathReplacements
+                using: replayContext.pathReplacements
             )
+            let durableArgv = durableNativeReplayArgv(
+                rewrittenArgv,
+                replayContext: replayContext
+            )
+            let commandArgv = durableArgv ?? execution.result.arguments
             return ProvenanceStep(
                 toolName: execution.tool.executableName,
                 toolVersion: nativeToolVersionString(for: execution),
                 argv: execution.result.arguments,
                 durableReplayArgv: durableArgv,
-                reproducibleCommand: durableArgv.map(shellEscape).joined(separator: " "),
+                reproducibleCommand: commandArgv.map(shellEscape).joined(separator: " "),
                 inputs: inputs,
                 outputs: [],
                 exitStatus: Int(execution.result.exitCode),
@@ -2021,6 +2035,19 @@ public actor FASTQDerivativeService {
                 completedAt: execution.completedAt
             )
         }
+    }
+
+    private func durableNativeReplayArgv(
+        _ argv: [String],
+        replayContext: FASTQDerivativeNativeReplayContext
+    ) -> [String]? {
+        guard !argv.contains(where: { argument in
+            nativeArgumentReferencesTemporaryPath(argument, roots: replayContext.temporaryPathRoots)
+                || nativeArgumentReferencesFASTQBundleDirectory(argument)
+        }) else {
+            return nil
+        }
+        return argv
     }
 
     private func nativeToolVersionString(for execution: FASTQDerivativeNativeToolExecution) -> String {
@@ -2084,6 +2111,96 @@ public actor FASTQDerivativeService {
         replacements.sorted { lhs, rhs in lhs.key.count > rhs.key.count }
     }
 
+    private func derivativeNativeReplayContext(
+        sourceFASTQ: URL,
+        sourceBundleURL: URL,
+        sourceSequenceFormat: SequenceFormat,
+        transformedFASTQ: URL?,
+        outputBundleURL: URL,
+        payload: FASTQDerivativePayload,
+        temporaryPathRoots: [String]
+    ) -> FASTQDerivativeNativeReplayContext {
+        var replacements: [String: String] = [:]
+        if let durableSourceFASTQ = durableNativeSourceFASTQURL(
+            for: sourceBundleURL,
+            sourceSequenceFormat: sourceSequenceFormat
+        ) {
+            replacements[sourceFASTQ.path] = durableSourceFASTQ.path
+        }
+        if let transformedFASTQ,
+           let durableOutputFASTQ = durableNativeOutputFASTQURL(
+               in: outputBundleURL,
+               payload: payload
+           ) {
+            replacements[transformedFASTQ.path] = durableOutputFASTQ.path
+        }
+        return FASTQDerivativeNativeReplayContext(
+            pathReplacements: replacements,
+            temporaryPathRoots: temporaryPathRoots
+        )
+    }
+
+    private func durableNativeSourceFASTQURL(
+        for sourceBundleURL: URL,
+        sourceSequenceFormat: SequenceFormat
+    ) -> URL? {
+        guard sourceSequenceFormat == .fastq else {
+            return nil
+        }
+        if let manifest = FASTQBundle.loadDerivedManifest(in: sourceBundleURL) {
+            if case .full(let fastqFilename) = manifest.payload {
+                let url = sourceBundleURL.appendingPathComponent(fastqFilename)
+                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            }
+            return nil
+        }
+        guard let url = FASTQBundle.resolvePrimarySequenceURL(for: sourceBundleURL),
+              SequenceFormat.from(url: url) == .fastq else {
+            return nil
+        }
+        return url
+    }
+
+    private func durableNativeOutputFASTQURL(
+        in outputBundleURL: URL,
+        payload: FASTQDerivativePayload
+    ) -> URL? {
+        guard case .full(let fastqFilename) = payload else {
+            return nil
+        }
+        let url = outputBundleURL.appendingPathComponent(fastqFilename)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    private func nativeArgumentReferencesTemporaryPath(_ argument: String, roots: [String]) -> Bool {
+        guard !roots.isEmpty else { return false }
+        return nativeArgumentPathCandidates(argument).contains { path in
+            let standardized = standardizedPath(path)
+            return roots.contains { root in
+                standardized == root || standardized.hasPrefix(root + "/")
+            }
+        }
+    }
+
+    private func nativeArgumentReferencesFASTQBundleDirectory(_ argument: String) -> Bool {
+        nativeArgumentPathCandidates(argument).contains { path in
+            URL(fileURLWithPath: path).standardizedFileURL.pathExtension == FASTQBundle.directoryExtension
+        }
+    }
+
+    private func nativeArgumentPathCandidates(_ argument: String) -> [String] {
+        if argument.hasPrefix("file:") {
+            return [String(argument.dropFirst("file:".count))]
+        }
+        if let equalsIndex = argument.firstIndex(of: "=") {
+            return [String(argument[argument.index(after: equalsIndex)...])]
+        }
+        if argument.hasPrefix("/") {
+            return [argument]
+        }
+        return []
+    }
+
     private func writeAugmentedOrientProvenance(
         baseEnvelope: ProvenanceEnvelope,
         finalDirectory: URL,
@@ -2136,7 +2253,7 @@ public actor FASTQDerivativeService {
         sourceSequenceFormat: SequenceFormat,
         outputBundleURL: URL,
         nativeExecutions: [FASTQDerivativeNativeToolExecution] = [],
-        argumentPathReplacements: [String: String] = [:],
+        nativeReplayContext: FASTQDerivativeNativeReplayContext = FASTQDerivativeNativeReplayContext(),
         startedAt: Date,
         completedAt: Date
     ) async throws {
@@ -2161,7 +2278,7 @@ public actor FASTQDerivativeService {
         let nativeSteps = nativeProvenanceSteps(
             from: nativeExecutions,
             inputs: inputDescriptors,
-            argumentPathReplacements: argumentPathReplacements
+            replayContext: nativeReplayContext
         )
         let step = appProvenanceStep(
             argv: argv,
@@ -2924,10 +3041,12 @@ public actor FASTQDerivativeService {
         request: FASTQDerivativeRequest,
         sourceFASTQ: URL,
         sourceBundleURL: URL,
+        sourceSequenceFormat: SequenceFormat,
         resolvedRootBundleURL: URL,
         rootFASTQFilename: String,
         pairingMode: IngestionMetadata.PairingMode?,
         baseLineage: [FASTQDerivativeOperation],
+        nativeTemporaryPathRoots: [String],
         batchOperationID: UUID?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
@@ -3046,17 +3165,24 @@ public actor FASTQDerivativeService {
             batchOperationID: batchOperationID
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: outputBundle)
+        let nativeReplayContext = derivativeNativeReplayContext(
+            sourceFASTQ: sourceFASTQ,
+            sourceBundleURL: sourceBundleURL,
+            sourceSequenceFormat: sourceSequenceFormat,
+            transformedFASTQ: nil,
+            outputBundleURL: outputBundle,
+            payload: .fullMixed(classification),
+            temporaryPathRoots: nativeTemporaryPathRoots
+        )
         try await writeDerivativeProvenance(
             workflowName: "lungfish fastq \(request.operationKindString) derivative",
             request: request,
             operation: operation,
             sourceBundleURL: sourceBundleURL,
-            sourceSequenceFormat: .fastq,
+            sourceSequenceFormat: sourceSequenceFormat,
             outputBundleURL: outputBundle,
             nativeExecutions: nativeProvenanceCollector.snapshot(),
-            argumentPathReplacements: [
-                sourceFASTQ.path: sourceBundleURL.path,
-            ],
+            nativeReplayContext: nativeReplayContext,
             startedAt: provenanceStartedAt,
             completedAt: Date()
         )

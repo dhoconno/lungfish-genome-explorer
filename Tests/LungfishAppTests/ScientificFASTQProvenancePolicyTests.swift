@@ -264,13 +264,13 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         )
         let orientAppSteps = orientEnvelope.steps.filter { $0.toolName == "Lungfish App" }
         let orientBridgeStep = try XCTUnwrap(orientAppSteps.first { step in
-            step.argv.contains("fasta-to-fastq-bridge")
+            step.argv.contains("lungfish-app-action:fastq-synthetic-fastq-from-fasta")
         })
         let orientBridgeOutput = try XCTUnwrap(orientBridgeStep.outputs.first { output in
             output.path.hasSuffix("bridged-source.fastq")
         })
         let previewStep = try XCTUnwrap(orientAppSteps.first { step in
-            step.argv.contains("orient-preview")
+            step.argv.contains("lungfish-app-action:fastq-preview-from-orientation-map")
         })
         XCTAssertTrue(FileManager.default.fileExists(atPath: orientBridgeOutput.path))
         XCTAssertTrue(previewStep.argv.contains(orientBridgeOutput.path))
@@ -313,7 +313,7 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
         })
         let appSteps = envelope.steps.filter { $0.toolName == "Lungfish App" }
         XCTAssertTrue(appSteps.contains { step in
-            step.argv.contains("fasta-to-fastq-bridge")
+            step.argv.contains("lungfish-app-action:fastq-synthetic-fastq-from-fasta")
                 && step.inputs.contains {
                     URL(fileURLWithPath: $0.path).standardizedFileURL.path
                         == sourceFASTAURL.standardizedFileURL.path
@@ -331,7 +331,7 @@ final class ScientificFASTQProvenancePolicyTests: XCTestCase {
                 && FileManager.default.fileExists(atPath: $0.path)
         })
         XCTAssertTrue(appSteps.contains { step in
-            step.argv.contains("orient-unmatched-to-fasta")
+            step.argv.contains("lungfish-app-action:fastq-orient-unmatched-fastq-to-fasta-payload")
                 && step.outputs.contains {
                     URL(fileURLWithPath: $0.path).standardizedFileURL.path == outputPath && $0.format == .fasta
                 }
