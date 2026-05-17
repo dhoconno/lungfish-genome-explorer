@@ -235,7 +235,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         // Run command with --quiet to suppress output
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
             try await cmd.run()
         }
 
@@ -308,7 +308,7 @@ final class BuildDbCommandTests: XCTestCase {
         )
 
         try await withHomeDirectory(home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
             try await cmd.run()
         }
 
@@ -365,7 +365,7 @@ final class BuildDbCommandTests: XCTestCase {
         )
 
         try await withHomeDirectory(home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
             try await cmd.run()
         }
 
@@ -434,7 +434,7 @@ final class BuildDbCommandTests: XCTestCase {
         FileManager.default.createFile(atPath: dbURL.path, contents: Data())
 
         // Run without --force — should skip
-        var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+        let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
         // DB should still be empty (0 bytes) — not rebuilt
@@ -460,7 +460,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         // Run WITH --force — should rebuild
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--force", "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--force", "-q"])
             try await cmd.run()
         }
 
@@ -500,7 +500,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         // Run build-db (cleanup enabled by default)
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
             try await cmd.run()
         }
 
@@ -544,7 +544,7 @@ final class BuildDbCommandTests: XCTestCase {
         try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
 
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            let cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
             try await cmd.run()
         }
 
@@ -605,7 +605,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         // Run build-db (cleanup enabled by default)
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
+            let cmd = try BuildDbCommand.EsVirituSubcommand.parse([resultDir.path, "-q"])
             try await cmd.run()
         }
 
@@ -639,7 +639,7 @@ final class BuildDbCommandTests: XCTestCase {
         let resultDir = tmpDir.appendingPathComponent("kraken2")
         try FileManager.default.copyItem(at: fixtureDir, to: resultDir)
 
-        var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
         let dbURL = resultDir.appendingPathComponent("kraken2.sqlite")
@@ -682,7 +682,7 @@ final class BuildDbCommandTests: XCTestCase {
         fm.createFile(atPath: krakenIndex.path, contents: Data("kraken index".utf8))
 
         // Run build-db (cleanup enabled by default)
-        var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
         // Verify the per-read output remains available for downstream extraction,
@@ -722,7 +722,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         // Run with --no-cleanup
         try await withHomeDirectory(managedHome.home) {
-            var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
+            let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "--no-cleanup", "-q"])
             try await cmd.run()
         }
 
@@ -746,7 +746,7 @@ final class BuildDbCommandTests: XCTestCase {
 
         do {
             try await withHomeDirectory(home) {
-                var cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
+                let cmd = try BuildDbCommand.TaxTriageSubcommand.parse([resultDir.path, "-q"])
                 try await cmd.run()
             }
             XCTFail("Expected build-db to fail without managed samtools")

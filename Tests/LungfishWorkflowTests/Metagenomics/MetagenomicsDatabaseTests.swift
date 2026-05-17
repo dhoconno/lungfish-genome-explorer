@@ -1061,18 +1061,15 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
 
     func testProcessCompletionStateOnlyCompletesOnceUnderConcurrentCalls() {
         let state = MetagenomicsProcessCompletionState()
-        let successLock = NSLock()
-        var successfulCompletions = 0
+        let successfulCompletions = LockedCounter()
 
         DispatchQueue.concurrentPerform(iterations: 1_000) { _ in
             if state.markCompleted() {
-                successLock.lock()
-                successfulCompletions += 1
-                successLock.unlock()
+                successfulCompletions.increment()
             }
         }
 
-        XCTAssertEqual(successfulCompletions, 1)
+        XCTAssertEqual(successfulCompletions.value, 1)
     }
 
     func testProcessCompletionStateAccumulatesStderrUnderConcurrentAppends() {
@@ -1107,5 +1104,22 @@ final class MetagenomicsDatabaseRegistryTests: XCTestCase {
         }
 
         return dbDir
+    }
+}
+
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+
+    func increment() {
+        lock.lock()
+        defer { lock.unlock() }
+        storage += 1
     }
 }

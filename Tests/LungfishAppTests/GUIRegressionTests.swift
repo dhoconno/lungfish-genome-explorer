@@ -20,9 +20,9 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
-@MainActor
 final class GUIRegressionTests: XCTestCase {
 
+    @MainActor
     func testToolsMenuContainsFASTQOperationsSubmenu() throws {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
@@ -50,8 +50,9 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertFalse(toolTitles.contains("Assemble with SPAdes..."))
     }
 
+    @MainActor
     func testToolsMenuContainsVariantCallingCommand() throws {
-        let _ = NSApplication.shared
+        _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
@@ -111,7 +112,6 @@ final class GUIRegressionTests: XCTestCase {
 
 // MARK: - Test Fixtures
 
-@MainActor
 private func makeViralDetection(
     name: String,
     segment: String? = nil,
@@ -148,7 +148,6 @@ private func makeViralDetection(
     )
 }
 
-@MainActor
 private func makeAssembly(
     accession: String,
     name: String,
@@ -177,7 +176,6 @@ private func makeAssembly(
 /// Regression: 2026-03-28 — Influenza C virus strains were all displayed
 /// identically as "Influenza C virus (C/Ann Arbor/1/..." making strain
 /// differentiation impossible.
-@MainActor
 final class VirusNameDisplayTests: XCTestCase {
 
     /// Verifies that assemblies with different strain names produce
@@ -265,7 +263,6 @@ final class VirusNameDisplayTests: XCTestCase {
 /// for biological workflows.
 /// Regression: 2026-03-28 — Context menus only offered "Verify with BLAST..."
 /// and "Copy Organism Name", missing critical export/copy operations.
-@MainActor
 final class ContextMenuCompletenessTests: XCTestCase {
 
     /// Documents the minimum expected context menu items for TaxTriage results.
@@ -310,7 +307,6 @@ final class ContextMenuCompletenessTests: XCTestCase {
 /// Regression: 2026-03-28 — Kraken2 wizard showed "No databases installed"
 /// even though the Viral database (512 MB) was installed and visible in
 /// Plugin Manager.
-@MainActor
 final class ClassificationWizardDatabaseTests: XCTestCase {
 
     private let tempDir = FileManager.default.temporaryDirectory
@@ -408,7 +404,6 @@ final class ClassificationWizardDatabaseTests: XCTestCase {
 
 /// Tests that TaxTriage results display correctly with all columns visible.
 /// Regression: 2026-03-28 — Last column "Confidence" was truncated to "Con..."
-@MainActor
 final class TaxTriageResultsDisplayTests: XCTestCase {
 
     /// Verifies that TASS scores are displayed with appropriate precision.
@@ -455,7 +450,6 @@ final class TaxTriageResultsDisplayTests: XCTestCase {
 // MARK: - 5. EsViritu Results Assembly Hierarchy Tests
 
 /// Tests that the EsViritu virus hierarchy properly distinguishes strains.
-@MainActor
 final class EsVirituHierarchyTests: XCTestCase {
 
     /// Verifies that assemblies with similar names but different accessions
@@ -511,7 +505,6 @@ final class EsVirituHierarchyTests: XCTestCase {
 /// Tests that export functionality covers biologist requirements.
 /// Regression: 2026-03-28 — Export button exists but specific export
 /// formats and options need verification.
-@MainActor
 final class ExportFeatureTests: XCTestCase {
 
     /// Documents expected export formats for EsViritu results.
@@ -548,7 +541,6 @@ final class ExportFeatureTests: XCTestCase {
 // MARK: - 7. Unified Wizard Tests
 
 /// Tests the UnifiedMetagenomicsWizard analysis type presentation.
-@MainActor
 final class UnifiedWizardTests: XCTestCase {
 
     /// Verifies all three analysis types are present with correct tool names.
@@ -629,7 +621,6 @@ final class UnifiedWizardTests: XCTestCase {
 /// Tests for the operations progress tracking panel.
 /// Regression: 2026-03-28 — Panel was difficult to dismiss, and empty panel
 /// still showed table headers consuming viewport space.
-@MainActor
 final class OperationsPanelTests: XCTestCase {
 
     /// Verifies OperationType includes classification.
@@ -646,6 +637,7 @@ final class OperationsPanelTests: XCTestCase {
             "Operations should have more than 2 possible states")
     }
 
+    @MainActor
     func testOperationsMenuRunningRowsCancelTheRepresentedOperation() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -673,6 +665,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
     }
 
+    @MainActor
     func testOperationsMenuRunningRowsWithoutCancelCallbacksAreStatusItems() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -698,6 +691,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertFalse(statusItem.isEnabled)
     }
 
+    @MainActor
     func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
@@ -715,6 +709,7 @@ final class OperationsPanelTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
     }
 
+    @MainActor
     func testOperationsPanelDisplaysOutputFileExpansionSection() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -756,6 +751,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertFalse(revealButton.isHidden)
     }
 
+    @MainActor
     func testOperationsPanelUsesNormalWindowLayering() throws {
         _ = NSApplication.shared
         let controller = OperationsPanelController()
@@ -773,6 +769,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertFalse(window.styleMask.contains(.nonactivatingPanel))
     }
 
+    @MainActor
     func testOperationsPanelDisplaysLocalLogViewingActions() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -820,6 +817,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertNotNil(revealButton.action)
     }
 
+    @MainActor
     private func makeOperationsPanelController() throws -> OperationsPanelController {
         let controller = OperationsPanelController()
         let window = try XCTUnwrap(controller.window)
@@ -828,6 +826,7 @@ final class OperationsPanelTests: XCTestCase {
         return controller
     }
 
+    @MainActor
     private func expandOperationRow(_ operationID: UUID, in controller: OperationsPanelController) throws -> NSView {
         let window = try XCTUnwrap(controller.window)
         let tableView = try XCTUnwrap(window.contentView?.firstSubview(of: NSTableView.self))
@@ -852,6 +851,7 @@ final class OperationsPanelTests: XCTestCase {
         return expandedRow
     }
 
+    @MainActor
     private func drainOperationsPanelRunLoop(_ window: NSWindow) {
         window.contentView?.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -967,7 +967,6 @@ final class RepositoryHygieneTests: XCTestCase {
 /// Tests for sidebar file browser display.
 /// Regression: 2026-03-28 — Multiple "Viral Detection..." entries were
 /// indistinguishable in the sidebar. TaxTriage showed as "Comprehensiv..."
-@MainActor
 final class SidebarDisplayTests: XCTestCase {
 
     /// Verifies that result node labels contain enough info for differentiation.
@@ -998,7 +997,6 @@ final class SidebarDisplayTests: XCTestCase {
 /// Tests for the FASTQ operations panel layout and behavior.
 /// Regression: 2026-03-28/29 — 17 of 18 operation names were truncated
 /// due to insufficient panel width (~100px, needs ~200px).
-@MainActor
 final class FASTQOperationsPanelTests: XCTestCase {
 
     /// Documents the full list of 18 FASTQ operations and their display names.
@@ -1098,7 +1096,6 @@ final class FASTQOperationsPanelTests: XCTestCase {
 /// Tests that cancellation of operations is handled gracefully.
 /// Regression: 2026-03-29 — Cancelling quality report showed
 /// "Quality Report Failed — CancellationError()" error dialog.
-@MainActor
 final class OperationCancellationTests: XCTestCase {
 
     /// Documents that CancellationError should NOT trigger an error alert.
@@ -1107,7 +1104,7 @@ final class OperationCancellationTests: XCTestCase {
         // The UI should distinguish between:
         // 1. CancellationError → silently return to ready state
         // 2. Other errors → show error dialog with message
-        let cancellationError = CancellationError()
+        let cancellationError: any Error = CancellationError()
 
         XCTAssertTrue(cancellationError is CancellationError,
             "CancellationError should be identifiable for special handling")

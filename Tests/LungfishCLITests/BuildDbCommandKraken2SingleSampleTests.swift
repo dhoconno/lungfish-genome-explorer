@@ -32,7 +32,7 @@ final class BuildDbCommandKraken2SingleSampleTests: XCTestCase {
         try kreport.write(to: kreportURL, atomically: true, encoding: .utf8)
 
         // Run build-db
-        var cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
+        let cmd = try BuildDbCommand.Kraken2Subcommand.parse([resultDir.path, "-q"])
         try await cmd.run()
 
         // Verify DB was created with non-zero rows
