@@ -1883,8 +1883,7 @@ public class ViewerViewController: NSViewController {
         if let window = view.window {
             alert.beginSheetModal(for: window)
         } else {
-            // runModal-legacy-allowed because this alert can be raised while the viewer is detached from a window.
-            alert.runModal()
+            NSApp.presentError(ViewerDetachedWarning(title: title, message: message))
         }
     }
 
@@ -3369,6 +3368,14 @@ public class ViewerViewController: NSViewController {
         MainSplitViewController.isVCFFile(url)
     }
 
+}
+
+private struct ViewerDetachedWarning: LocalizedError {
+    let title: String
+    let message: String
+
+    var errorDescription: String? { title }
+    var recoverySuggestion: String? { message }
 }
 
 // ProgressOverlayView extracted to ProgressOverlayView.swift

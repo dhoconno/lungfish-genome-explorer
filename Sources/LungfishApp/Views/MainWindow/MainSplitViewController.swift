@@ -835,18 +835,7 @@ public class MainSplitViewController: NSSplitViewController {
 
     private func canWriteProjectOutputs(workflowName: String) -> Bool {
         guard projectSession.isReadOnlyRecommended else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Project Is Open Read Only"
-        alert.informativeText = "\(workflowName) writes files into the project. Close the other writer or reopen the project after the lock is released before running this workflow."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.applyLungfishBranding()
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            // runModal-legacy-allowed because canWriteProjectOutputs is a synchronous Bool gate used before file writes.
-            alert.runModal()
-        }
+        ProjectWriteGatePresenter.presentBlockedWrite(workflowName: workflowName, on: view.window)
         return false
     }
 
