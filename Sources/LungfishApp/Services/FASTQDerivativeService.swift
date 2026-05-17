@@ -920,6 +920,31 @@ private struct DefaultFASTQDerivativeProvenanceWriter: FASTQDerivativeProvenance
     }
 }
 
+private struct FASTQDerivativeNativeToolExecution: Sendable {
+    let tool: NativeTool
+    let toolVersion: String?
+    let result: NativeToolResult
+    let startedAt: Date
+    let completedAt: Date
+}
+
+private final class FASTQDerivativeNativeProvenanceCollector: @unchecked Sendable {
+    private let lock = NSLock()
+    private var executions: [FASTQDerivativeNativeToolExecution] = []
+
+    func append(_ execution: FASTQDerivativeNativeToolExecution) {
+        lock.lock()
+        executions.append(execution)
+        lock.unlock()
+    }
+
+    func snapshot() -> [FASTQDerivativeNativeToolExecution] {
+        lock.lock()
+        defer { lock.unlock() }
+        return executions
+    }
+}
+
 /// Creates pointer-based FASTQ derivative bundles using bundled tools.
 public actor FASTQDerivativeService {
     public static let shared = FASTQDerivativeService()
@@ -1000,6 +1025,7 @@ public actor FASTQDerivativeService {
     public func createDerivative(
         from sourceBundleURL: URL,
         request: FASTQDerivativeRequest,
+        batchOperationID: UUID? = nil,
         progress: (@Sendable (String) -> Void)? = nil
     ) async throws -> URL {
         let provenanceStartedAt = Date()
@@ -1082,6 +1108,7 @@ public actor FASTQDerivativeService {
                 dbMask: dbMask,
                 saveUnoriented: saveUnoriented,
                 extraArguments: extraArguments,
+                batchOperationID: batchOperationID,
                 progress: progress
             )
         }
@@ -1117,6 +1144,7 @@ public actor FASTQDerivativeService {
                 trimBarcodes: trimBarcodes,
                 sampleAssignments: sampleAssignments ?? [],
                 kitOverride: kitOverride,
+                batchOperationID: batchOperationID,
                 progress: progress
             )
         }
@@ -1130,17 +1158,20 @@ public actor FASTQDerivativeService {
                 rootFASTQFilename: rootFASTQFilename,
                 pairingMode: pairingMode,
                 baseLineage: baseLineage,
+                batchOperationID: batchOperationID,
                 progress: progress
             )
         }
 
         progress?("Applying transformation...")
         let transformedFASTQ = tempDir.appendingPathComponent("transformed.fastq")
+        let nativeProvenanceCollector = FASTQDerivativeNativeProvenanceCollector()
         let operation = try await runTransformation(
             request: request,
             sourceFASTQ: executionSourceFASTQ,
             outputFASTQ: transformedFASTQ,
             sourceBundleURL: sourceBundleURL,
+            provenanceCollector: nativeProvenanceCollector,
             progress: progress
         )
 
@@ -1190,7 +1221,7 @@ public actor FASTQDerivativeService {
             let r2URL = outputBundle.appendingPathComponent(r2Filename)
 
             let env = await bbToolsEnvironment()
-            let splitResult = try await runner.run(
+            let splitResult = try await runNativeTool(
                 .reformat,
                 arguments: [
                     "in=\(transformedFASTQ.path)",
@@ -1199,7 +1230,8 @@ public actor FASTQDerivativeService {
                     "interleaved=t",
                 ],
                 environment: env,
-                timeout: 1800
+                timeout: 1800,
+                provenanceCollector: nativeProvenanceCollector
             )
             guard splitResult.isSuccess else {
                 throw FASTQDerivativeError.invalidOperation("reformat.sh deinterleave failed: \(splitResult.stderr)")
@@ -1301,15 +1333,22 @@ public actor FASTQDerivativeService {
             operation: operation,
             cachedStatistics: stats,
             pairingMode: pairingMode,
+            batchOperationID: batchOperationID,
             sequenceFormat: outputSequenceFormat
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: outputBundle)
-        try writeDerivativeProvenance(
+        try await writeDerivativeProvenance(
             workflowName: "lungfish fastq \(request.operationKindString) derivative",
             request: request,
+            operation: operation,
             sourceBundleURL: sourceBundleURL,
             sourceSequenceFormat: sourceSequenceFormat,
             outputBundleURL: outputBundle,
+            nativeExecutions: nativeProvenanceCollector.snapshot(),
+            argumentPathReplacements: [
+                executionSourceFASTQ.path: sourceBundleURL.path,
+                transformedFASTQ.path: outputBundle.path,
+            ],
             startedAt: provenanceStartedAt,
             completedAt: Date()
         )
@@ -1357,6 +1396,7 @@ public actor FASTQDerivativeService {
     ) async throws -> BatchResult {
         let startTime = Date()
         let totalCount = inputBundleURLs.count
+        let batchOperationID = UUID()
         var outputURLs: [URL] = []
         var failures: [(URL, String)] = []
 
@@ -1369,6 +1409,7 @@ public actor FASTQDerivativeService {
                 let outputURL = try await createDerivative(
                     from: inputURL,
                     request: request,
+                    batchOperationID: batchOperationID,
                     progress: { message in
                         let subFraction = fraction + (1.0 / Double(max(1, totalCount))) * 0.9
                         progress?(subFraction, "[\(bundleName)] \(message)")
@@ -1386,6 +1427,7 @@ public actor FASTQDerivativeService {
 
         // Build the batch record
         let record = BatchOperationRecord(
+            id: batchOperationID,
             label: request.batchLabel,
             operationKind: request.operationKindString,
             parameters: request.batchParameters,
@@ -1402,10 +1444,6 @@ public actor FASTQDerivativeService {
             failureCount: failures.count,
             wallClockSeconds: elapsed
         )
-
-        for outputURL in outputURLs {
-            attachBatchOperationID(record.id, to: outputURL)
-        }
 
         // Persist the batch record to the common parent directory
         if let parentDir = commonParentDirectory {
@@ -1425,8 +1463,10 @@ public actor FASTQDerivativeService {
         )
     }
 
-    private func attachBatchOperationID(_ batchOperationID: UUID, to bundleURL: URL) {
-        guard let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else { return }
+    private func attachBatchOperationID(_ batchOperationID: UUID, to bundleURL: URL) throws {
+        guard let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) else {
+            throw FASTQDerivativeError.derivedManifestMissing
+        }
         let updatedManifest = FASTQDerivedBundleManifest(
             id: manifest.id,
             name: manifest.name,
@@ -1445,7 +1485,7 @@ public actor FASTQDerivativeService {
             provenance: manifest.provenance,
             payloadChecksums: manifest.payloadChecksums
         )
-        try? FASTQBundle.saveDerivedManifest(updatedManifest, in: bundleURL)
+        try FASTQBundle.saveDerivedManifest(updatedManifest, in: bundleURL)
     }
 
     /// Computes a relative path from one URL to another.
@@ -1479,6 +1519,7 @@ public actor FASTQDerivativeService {
         dbMask: String,
         saveUnoriented: Bool,
         extraArguments: [String],
+        batchOperationID: UUID?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
         progress?("Running vsearch orient...")
@@ -1522,6 +1563,15 @@ public actor FASTQDerivativeService {
 
         // Create the derivative bundle inside the source bundle's derivatives/ directory.
         let derivDir = try FASTQBundle.ensureDerivativesDirectory(in: sourceBundleURL)
+        var createdOrientBundles: [URL] = []
+        var shouldCleanCreatedOrientBundlesOnFailure = true
+        defer {
+            if shouldCleanCreatedOrientBundlesOnFailure {
+                for url in createdOrientBundles {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+        }
         let shortID = UUID().uuidString.prefix(8).lowercased()
         let initialBundleURL = derivDir.appendingPathComponent(
             "orient-\(shortID).\(FASTQBundle.directoryExtension)",
@@ -1529,6 +1579,7 @@ public actor FASTQDerivativeService {
         )
         let bundleURL = uniqueDirectoryURL(startingAt: initialBundleURL)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        createdOrientBundles.append(bundleURL)
         OperationMarker.markInProgress(bundleURL, detail: "Creating derivative FASTQ\u{2026}")
         defer { OperationMarker.clearInProgress(bundleURL) }
 
@@ -1614,6 +1665,7 @@ public actor FASTQDerivativeService {
             let createdUnorientedBundleURL = uniqueDirectoryURL(startingAt: initialUnorientedBundleURL)
             unorientedBundleURL = createdUnorientedBundleURL
             try FileManager.default.createDirectory(at: createdUnorientedBundleURL, withIntermediateDirectories: true)
+            createdOrientBundles.append(createdUnorientedBundleURL)
             OperationMarker.markInProgress(createdUnorientedBundleURL, detail: "Creating derivative FASTQ\u{2026}")
             defer { OperationMarker.clearInProgress(createdUnorientedBundleURL) }
 
@@ -1688,6 +1740,7 @@ public actor FASTQDerivativeService {
             operation: operation,
             cachedStatistics: stats ?? .placeholder(readCount: fwdCount + rcCount, baseCount: 0),
             pairingMode: pairingMode,
+            batchOperationID: batchOperationID,
             sequenceFormat: sourceSequenceFormat
         )
 
@@ -1721,6 +1774,7 @@ public actor FASTQDerivativeService {
                 operation: unorientedOp,
                 cachedStatistics: unorientedStats ?? .placeholder(readCount: result.unmatchedCount, baseCount: 0),
                 pairingMode: pairingMode,
+                batchOperationID: batchOperationID,
                 sequenceFormat: sourceSequenceFormat
             )
 
@@ -1809,6 +1863,7 @@ public actor FASTQDerivativeService {
         try? FileManager.default.removeItem(at: workDir)
 
         progress?("Orient complete: \(fwdCount) forward, \(rcCount) reverse-complemented, \(result.unmatchedCount) unmatched")
+        shouldCleanCreatedOrientBundlesOnFailure = false
         return bundleURL
     }
 
@@ -1940,6 +1995,95 @@ public actor FASTQDerivativeService {
         )
     }
 
+    private func nativeProvenanceSteps(
+        from executions: [FASTQDerivativeNativeToolExecution],
+        inputs: [ProvenanceFileDescriptor],
+        argumentPathReplacements: [String: String]
+    ) -> [ProvenanceStep] {
+        executions.map { execution in
+            let durableArgv = rewriteNativeArguments(
+                execution.result.arguments,
+                using: argumentPathReplacements
+            )
+            return ProvenanceStep(
+                toolName: execution.tool.executableName,
+                toolVersion: nativeToolVersionString(for: execution),
+                argv: execution.result.arguments,
+                durableReplayArgv: durableArgv,
+                reproducibleCommand: durableArgv.map(shellEscape).joined(separator: " "),
+                inputs: inputs,
+                outputs: [],
+                exitStatus: Int(execution.result.exitCode),
+                wallTimeSeconds: execution.completedAt.timeIntervalSince(execution.startedAt),
+                stderr: nonEmptyStderr(execution.result.stderr),
+                dependsOn: [],
+                startedAt: execution.startedAt,
+                completedAt: execution.completedAt
+            )
+        }
+    }
+
+    private func nativeToolVersionString(for execution: FASTQDerivativeNativeToolExecution) -> String {
+        let version = execution.toolVersion ?? "unknown"
+        let executable = execution.result.arguments.first ?? execution.tool.executableName
+        switch execution.tool.location {
+        case .managed(let environment, _):
+            return "\(version) (conda:\(environment); executable:\(executable))"
+        case .bundled:
+            return "\(version) (bundled; executable:\(executable))"
+        }
+    }
+
+    private func nonEmptyStderr(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : value
+    }
+
+    private func rewriteNativeArguments(
+        _ argv: [String],
+        using replacements: [String: String]
+    ) -> [String] {
+        argv.map { rewriteNativeArgument($0, using: replacements) }
+    }
+
+    private func rewriteNativeArgument(
+        _ argument: String,
+        using replacements: [String: String]
+    ) -> String {
+        for (source, destination) in sortedPathReplacements(replacements) where argument == source {
+            return destination
+        }
+        if argument.hasPrefix("file:") {
+            let path = String(argument.dropFirst("file:".count))
+            if let replacement = replacementPath(for: path, replacements: replacements) {
+                return "file:\(replacement)"
+            }
+        }
+        guard let equalsIndex = argument.firstIndex(of: "=") else {
+            return argument
+        }
+        let prefix = String(argument[...equalsIndex])
+        let value = String(argument[argument.index(after: equalsIndex)...])
+        if let replacement = replacementPath(for: value, replacements: replacements) {
+            return prefix + replacement
+        }
+        return argument
+    }
+
+    private func replacementPath(
+        for path: String,
+        replacements: [String: String]
+    ) -> String? {
+        let standardized = standardizedPath(path)
+        return sortedPathReplacements(replacements).first { source, _ in
+            standardizedPath(source) == standardized
+        }?.value
+    }
+
+    private func sortedPathReplacements(_ replacements: [String: String]) -> [(key: String, value: String)] {
+        replacements.sorted { lhs, rhs in lhs.key.count > rhs.key.count }
+    }
+
     private func writeAugmentedOrientProvenance(
         baseEnvelope: ProvenanceEnvelope,
         finalDirectory: URL,
@@ -1981,35 +2125,49 @@ public actor FASTQDerivativeService {
             signatures: [],
             legacyWorkflowRun: nil
         )
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: finalDirectory)
+        try provenanceWriter.write(envelope, to: finalDirectory)
     }
 
     private func writeDerivativeProvenance(
         workflowName: String,
         request: FASTQDerivativeRequest,
+        operation: FASTQDerivativeOperation? = nil,
         sourceBundleURL: URL,
         sourceSequenceFormat: SequenceFormat,
         outputBundleURL: URL,
+        nativeExecutions: [FASTQDerivativeNativeToolExecution] = [],
+        argumentPathReplacements: [String: String] = [:],
         startedAt: Date,
         completedAt: Date
-    ) throws {
+    ) async throws {
         let sourceInputRecord = try durableSourceInputRecord(
             for: sourceBundleURL,
             sequenceFormat: sourceSequenceFormat
         )
         let sourceInput = ProvenanceFileDescriptor(fileRecord: sourceInputRecord)
+        let additionalInputs = try await derivativeAdditionalInputDescriptors(
+            for: request,
+            sourceBundleURL: sourceBundleURL
+        )
+        let inputDescriptors = deduplicatedProvenanceDescriptors([sourceInput] + additionalInputs)
         let outputs = try derivativeOutputDescriptors(in: outputBundleURL)
         let argv = derivativeProvenanceArgv(
             request: request,
+            operation: operation,
             sourceBundleURL: sourceBundleURL,
             outputBundleURL: outputBundleURL
         )
         let wallTimeSeconds = completedAt.timeIntervalSince(startedAt)
+        let nativeSteps = nativeProvenanceSteps(
+            from: nativeExecutions,
+            inputs: inputDescriptors,
+            argumentPathReplacements: argumentPathReplacements
+        )
         let step = appProvenanceStep(
             argv: argv,
-            inputs: [sourceInput],
+            inputs: inputDescriptors,
             outputs: outputs,
-            dependsOn: [],
+            dependsOn: nativeSteps.map(\.id),
             wallTimeSeconds: wallTimeSeconds,
             startedAt: startedAt,
             completedAt: completedAt
@@ -2026,14 +2184,15 @@ public actor FASTQDerivativeService {
             reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
             options: derivativeProvenanceOptions(
                 request: request,
+                operation: operation,
                 sourceBundleURL: sourceBundleURL,
                 outputBundleURL: outputBundleURL
             ),
             runtimeIdentity: ProvenanceRuntimeIdentity(executablePath: "Lungfish.app"),
-            files: deduplicatedProvenanceDescriptors([sourceInput] + outputs),
+            files: deduplicatedProvenanceDescriptors(inputDescriptors + outputs + nativeSteps.flatMap { $0.inputs + $0.outputs }),
             output: outputs.first,
             outputs: outputs,
-            steps: [step],
+            steps: nativeSteps + [step],
             wallTimeSeconds: wallTimeSeconds,
             exitStatus: 0,
             stderr: nil,
@@ -2050,10 +2209,10 @@ public actor FASTQDerivativeService {
         result: DemultiplexResult,
         startedAt: Date,
         completedAt: Date
-    ) throws {
+    ) async throws {
         let outputBundles = result.outputBundleURLs + (result.unassignedBundleURL.map { [$0] } ?? [])
         for outputBundleURL in outputBundles {
-            try writeDerivativeProvenance(
+            try await writeDerivativeProvenance(
                 workflowName: "lungfish fastq demultiplex derivative",
                 request: request,
                 sourceBundleURL: sourceBundleURL,
@@ -2067,13 +2226,13 @@ public actor FASTQDerivativeService {
 
     private func derivativeProvenanceArgv(
         request: FASTQDerivativeRequest,
+        operation: FASTQDerivativeOperation?,
         sourceBundleURL: URL,
         outputBundleURL: URL
     ) -> [String] {
         var argv = [
-            "Lungfish.app",
-            "fastq",
-            "derive",
+            "lungfish-app-workflow:fastq-derivative",
+            "--source-bundle",
             sourceBundleURL.path,
             "--operation",
             request.operationKindString,
@@ -2081,11 +2240,15 @@ public actor FASTQDerivativeService {
             outputBundleURL.path,
         ]
         argv += request.provenanceCLIArguments
+        if let randomSeed = operation?.randomSeed {
+            argv += ["--random-seed", String(randomSeed)]
+        }
         return argv
     }
 
     private func derivativeProvenanceOptions(
         request: FASTQDerivativeRequest,
+        operation: FASTQDerivativeOperation?,
         sourceBundleURL: URL,
         outputBundleURL: URL
     ) -> ProvenanceOptions {
@@ -2095,6 +2258,9 @@ public actor FASTQDerivativeService {
             "outputBundle": .file(outputBundleURL),
         ]
         explicit.merge(request.provenanceExplicitOptions) { _, new in new }
+        if let randomSeed = operation?.randomSeed {
+            explicit["randomSeed"] = .integer(Int(randomSeed))
+        }
         let defaults = request.provenanceDefaultOptions
         var resolved = defaults
         resolved.merge(explicit) { _, explicit in explicit }
@@ -2103,6 +2269,71 @@ public actor FASTQDerivativeService {
             defaults: defaults,
             resolvedDefaults: resolved
         )
+    }
+
+    private func derivativeAdditionalInputDescriptors(
+        for request: FASTQDerivativeRequest,
+        sourceBundleURL: URL
+    ) async throws -> [ProvenanceFileDescriptor] {
+        var references: [(url: URL, format: FileFormat)] = []
+
+        switch request {
+        case .adapterTrim(let mode, _, _, let fastaFilename) where mode == .fastaFile:
+            if let fastaFilename {
+                references.append((sourceBundleURL.appendingPathComponent(fastaFilename), .fasta))
+            }
+        case .contaminantFilter(let mode, let referenceFasta, _, _):
+            switch mode {
+            case .phix:
+                if let phixReference = CoreToolLocator.bbToolsPhiXReferenceURL(
+                    homeDirectory: FileManager.default.homeDirectoryForCurrentUser
+                ) {
+                    references.append((phixReference, .fasta))
+                }
+            case .custom:
+                if let refURL = resolveReferenceInputURL(referenceFasta, relativeTo: sourceBundleURL) {
+                    references.append((refURL, .fasta))
+                }
+            }
+        case .primerRemoval(let configuration) where configuration.source == .reference:
+            if let refURL = resolveReferenceInputURL(configuration.referenceFasta, relativeTo: sourceBundleURL) {
+                references.append((refURL, .fasta))
+            }
+        case .sequencePresenceFilter(_, let fastaPath, _, _, _, _, _):
+            if let fastaURL = resolveReferenceInputURL(fastaPath, relativeTo: sourceBundleURL) {
+                references.append((fastaURL, .fasta))
+            }
+        case .demultiplex(_, let customCSVPath, _, _, _, _, _, _, _, _):
+            if let csvURL = resolveReferenceInputURL(customCSVPath, relativeTo: sourceBundleURL) {
+                references.append((csvURL, .text))
+            }
+        case .humanReadScrub(let databaseID, _):
+            let databaseURL = try await humanScrubberDatabasePath(databaseID)
+            references.append((databaseURL, .unknown))
+        default:
+            break
+        }
+
+        var seen = Set<String>()
+        return try references.compactMap { reference in
+            let path = reference.url.standardizedFileURL.path
+            guard seen.insert(path).inserted else { return nil }
+            return try ProvenanceFileDescriptor.file(
+                url: reference.url,
+                format: reference.format,
+                role: .input
+            )
+        }
+    }
+
+    private func resolveReferenceInputURL(_ path: String?, relativeTo bundleURL: URL) -> URL? {
+        guard let path, !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        return bundleURL.appendingPathComponent(path)
     }
 
     private func derivativeOutputDescriptors(in bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
@@ -2363,6 +2594,38 @@ public actor FASTQDerivativeService {
         }
     }
 
+    private func runNativeTool(
+        _ tool: NativeTool,
+        arguments: [String],
+        workingDirectory: URL? = nil,
+        environment: [String: String]? = nil,
+        timeout: TimeInterval? = nil,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector?
+    ) async throws -> NativeToolResult {
+        let startedAt = Date()
+        let result = try await runner.run(
+            tool,
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            timeout: timeout
+        )
+        let completedAt = Date()
+        if let provenanceCollector {
+            let toolVersion = await runner.getToolVersion(tool)
+            provenanceCollector.append(
+                FASTQDerivativeNativeToolExecution(
+                    tool: tool,
+                    toolVersion: toolVersion,
+                    result: result,
+                    startedAt: startedAt,
+                    completedAt: completedAt
+                )
+            )
+        }
+        return result
+    }
+
     /// Parses seqkit stats tabular output into FASTQDatasetStatistics.
     private func parseFASTQStats(_ output: String) -> FASTQDatasetStatistics? {
         let lines = output.split(separator: "\n")
@@ -2413,6 +2676,7 @@ public actor FASTQDerivativeService {
         trimBarcodes: Bool,
         sampleAssignments: [FASTQSampleBarcodeAssignment],
         kitOverride: BarcodeKitDefinition?,
+        batchOperationID: UUID?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
         let provenanceStartedAt = Date()
@@ -2506,7 +2770,14 @@ public actor FASTQDerivativeService {
             throw FASTQDerivativeError.emptyResult
         }
 
-        try writeDemultiplexDerivativeProvenance(
+        if let batchOperationID {
+            let outputBundles = result.outputBundleURLs + (result.unassignedBundleURL.map { [$0] } ?? [])
+            for outputBundleURL in outputBundles {
+                try attachBatchOperationID(batchOperationID, to: outputBundleURL)
+            }
+        }
+
+        try await writeDemultiplexDerivativeProvenance(
             request: .demultiplex(
                 kitID: kitID,
                 customCSVPath: customCSVPath,
@@ -2657,9 +2928,11 @@ public actor FASTQDerivativeService {
         rootFASTQFilename: String,
         pairingMode: IngestionMetadata.PairingMode?,
         baseLineage: [FASTQDerivativeOperation],
+        batchOperationID: UUID?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> URL {
         let provenanceStartedAt = Date()
+        let nativeProvenanceCollector = FASTQDerivativeNativeProvenanceCollector()
         // Build the operation metadata first (for bundle naming)
         let operation: FASTQDerivativeOperation
         let classification: ReadClassification
@@ -2690,7 +2963,8 @@ public actor FASTQDerivativeService {
                 sourceFASTQ: sourceFASTQ,
                 outputBundleURL: outputBundle,
                 strictness: strictness,
-                minOverlap: minOverlap
+                minOverlap: minOverlap,
+                provenanceCollector: nativeProvenanceCollector
             )
             classification = cls
             operation = FASTQDerivativeOperation(
@@ -2710,7 +2984,8 @@ public actor FASTQDerivativeService {
             progress?("Repairing paired-end reads...")
             let (result, cls) = try await runBBRepair(
                 sourceFASTQ: sourceFASTQ,
-                outputBundleURL: outputBundle
+                outputBundleURL: outputBundle,
+                provenanceCollector: nativeProvenanceCollector
             )
             classification = cls
             operation = FASTQDerivativeOperation(
@@ -2767,15 +3042,21 @@ public actor FASTQDerivativeService {
             operation: operation,
             cachedStatistics: stats,
             pairingMode: pairingMode,
-            readClassification: classification
+            readClassification: classification,
+            batchOperationID: batchOperationID
         )
         try FASTQBundle.saveDerivedManifest(manifest, in: outputBundle)
-        try writeDerivativeProvenance(
+        try await writeDerivativeProvenance(
             workflowName: "lungfish fastq \(request.operationKindString) derivative",
             request: request,
+            operation: operation,
             sourceBundleURL: sourceBundleURL,
             sourceSequenceFormat: .fastq,
             outputBundleURL: outputBundle,
+            nativeExecutions: nativeProvenanceCollector.snapshot(),
+            argumentPathReplacements: [
+                sourceFASTQ.path: sourceBundleURL.path,
+            ],
             startedAt: provenanceStartedAt,
             completedAt: Date()
         )
@@ -2810,6 +3091,7 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputFASTQ: URL,
         sourceBundleURL: URL,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector?,
         progress: (@Sendable (String) -> Void)?
     ) async throws -> FASTQDerivativeOperation {
         let isInterleaved = isInterleavedBundle(sourceBundleURL)
@@ -2824,7 +3106,7 @@ public actor FASTQDerivativeService {
             if isInterleaved {
                 // Use reformat.sh with samplerate for pair-aware subsampling
                 let env = await bbToolsEnvironment()
-                let result = try await runner.run(
+                let result = try await runNativeTool(
                     .reformat,
                     arguments: [
                         "in=\(sourceFASTQ.path)",
@@ -2834,15 +3116,17 @@ public actor FASTQDerivativeService {
                         "interleaved=t",
                     ],
                     environment: env,
-                    timeout: 1800
+                    timeout: 1800,
+                    provenanceCollector: provenanceCollector
                 )
                 guard result.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("reformat.sh subsample failed: \(result.stderr)")
                 }
             } else {
-                let result = try await runner.run(
+                let result = try await runNativeTool(
                     .seqkit,
-                    arguments: ["sample", "-p", String(proportion), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
+                    arguments: ["sample", "-p", String(proportion), "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path],
+                    provenanceCollector: provenanceCollector
                 )
                 guard result.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("seqkit sample failed: \(result.stderr)")
@@ -2864,7 +3148,7 @@ public actor FASTQDerivativeService {
                 // For PE data, sample count/2 pairs to get ~count total reads
                 let pairCount = max(1, count / 2)
                 let env = await bbToolsEnvironment()
-                let result = try await runner.run(
+                let result = try await runNativeTool(
                     .reformat,
                     arguments: [
                         "in=\(sourceFASTQ.path)",
@@ -2874,15 +3158,17 @@ public actor FASTQDerivativeService {
                         "interleaved=t",
                     ],
                     environment: env,
-                    timeout: 1800
+                    timeout: 1800,
+                    provenanceCollector: provenanceCollector
                 )
                 guard result.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("reformat.sh subsample failed: \(result.stderr)")
                 }
             } else {
-                let result = try await runner.run(
+                let result = try await runNativeTool(
                     .seqkit,
-                    arguments: ["sample2", "-n", String(count), "-2", "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path]
+                    arguments: ["sample2", "-n", String(count), "-2", "-s", String(seed), sourceFASTQ.path, "-o", outputFASTQ.path],
+                    provenanceCollector: provenanceCollector
                 )
                 guard result.isSuccess else {
                     throw FASTQDerivativeError.invalidOperation("seqkit sample2 failed: \(result.stderr)")
@@ -2913,7 +3199,8 @@ public actor FASTQDerivativeService {
                     sourceFASTQ: sourceFASTQ,
                     outputFASTQ: outputFASTQ,
                     minLength: minLength,
-                    maxLength: maxLength
+                    maxLength: maxLength,
+                    provenanceCollector: provenanceCollector
                 )
             } else {
                 var args = ["seq", "-j", String(toolThreadCount)]
@@ -2924,7 +3211,7 @@ public actor FASTQDerivativeService {
                     args += ["-M", String(maxLength)]
                 }
                 args += [sourceFASTQ.path, "-o", outputFASTQ.path]
-                _ = try await runner.run(.seqkit, arguments: args)
+                _ = try await runNativeTool(.seqkit, arguments: args, provenanceCollector: provenanceCollector)
             }
             return FASTQDerivativeOperation(
                 kind: .lengthFilter,
@@ -2941,7 +3228,8 @@ public actor FASTQDerivativeService {
                 try await runPairedAwareSearch(
                     sourceFASTQ: sourceFASTQ,
                     outputFASTQ: outputFASTQ,
-                    searchArgs: buildSearchArgs(field: field, regex: regex, query: query)
+                    searchArgs: buildSearchArgs(field: field, regex: regex, query: query),
+                    provenanceCollector: provenanceCollector
                 )
             } else {
                 var args = ["grep", "-j", String(toolThreadCount)]
@@ -2952,7 +3240,7 @@ public actor FASTQDerivativeService {
                     args.append("-r")
                 }
                 args += ["-p", query, sourceFASTQ.path, "-o", outputFASTQ.path]
-                _ = try await runner.run(.seqkit, arguments: args)
+                _ = try await runNativeTool(.seqkit, arguments: args, provenanceCollector: provenanceCollector)
             }
             return FASTQDerivativeOperation(
                 kind: .searchText,
@@ -2970,7 +3258,8 @@ public actor FASTQDerivativeService {
                 try await runPairedAwareSearch(
                     sourceFASTQ: sourceFASTQ,
                     outputFASTQ: outputFASTQ,
-                    searchArgs: buildMotifSearchArgs(pattern: pattern, regex: regex)
+                    searchArgs: buildMotifSearchArgs(pattern: pattern, regex: regex),
+                    provenanceCollector: provenanceCollector
                 )
             } else {
                 var args = ["grep", "-s", "-j", String(toolThreadCount)]
@@ -2978,7 +3267,7 @@ public actor FASTQDerivativeService {
                     args.append("-r")
                 }
                 args += ["-p", pattern, sourceFASTQ.path, "-o", outputFASTQ.path]
-                _ = try await runner.run(.seqkit, arguments: args)
+                _ = try await runNativeTool(.seqkit, arguments: args, provenanceCollector: provenanceCollector)
             }
             return FASTQDerivativeOperation(
                 kind: .searchMotif,
@@ -3003,7 +3292,13 @@ public actor FASTQDerivativeService {
                 args.append("optical=t")
                 args.append("dupedist=\(opticalDistance)")
             }
-            let result = try await runner.run(.clumpify, arguments: args, environment: env, timeout: 3600)
+            let result = try await runNativeTool(
+                .clumpify,
+                arguments: args,
+                environment: env,
+                timeout: 3600,
+                provenanceCollector: provenanceCollector
+            )
             guard result.isSuccess else {
                 throw FASTQDerivativeError.invalidOperation("clumpify deduplication failed: \(result.stderr)")
             }
@@ -3026,7 +3321,8 @@ public actor FASTQDerivativeService {
                 mode: mode,
                 adapterMode: adapterMode,
                 adapterSequence: adapterSequence,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .fastpTrim,
@@ -3046,7 +3342,8 @@ public actor FASTQDerivativeService {
                 threshold: threshold,
                 windowSize: windowSize,
                 mode: mode,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .qualityTrim,
@@ -3066,7 +3363,8 @@ public actor FASTQDerivativeService {
                 sequenceR2: sequenceR2,
                 fastaFilename: fastaFilename,
                 sourceBundleURL: sourceBundleURL,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .adapterTrim,
@@ -3084,7 +3382,8 @@ public actor FASTQDerivativeService {
                 outputFASTQ: outputFASTQ,
                 from5Prime: from5Prime,
                 from3Prime: from3Prime,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .fixedTrim,
@@ -3103,7 +3402,8 @@ public actor FASTQDerivativeService {
                 kmerSize: kmerSize,
                 hammingDistance: hammingDistance,
                 sourceBundleURL: sourceBundleURL,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .contaminantFilter,
@@ -3129,7 +3429,8 @@ public actor FASTQDerivativeService {
                     outputFASTQ: outputFASTQ,
                     configuration: configuration,
                     sourceBundleURL: sourceBundleURL,
-                    isInterleaved: isInterleaved
+                    isInterleaved: isInterleaved,
+                    provenanceCollector: provenanceCollector
                 )
             case .bbduk:
                 result = try await runBBDukPrimerTrim(
@@ -3137,7 +3438,8 @@ public actor FASTQDerivativeService {
                     outputFASTQ: outputFASTQ,
                     configuration: configuration,
                     sourceBundleURL: sourceBundleURL,
-                    isInterleaved: isInterleaved
+                    isInterleaved: isInterleaved,
+                    provenanceCollector: provenanceCollector
                 )
             }
             return FASTQDerivativeOperation(
@@ -3178,7 +3480,8 @@ public actor FASTQDerivativeService {
                 keepMatched: keepMatched,
                 searchReverseComplement: searchRC,
                 sourceBundleURL: sourceBundleURL,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .sequencePresenceFilter,
@@ -3198,7 +3501,8 @@ public actor FASTQDerivativeService {
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 kmerSize: kmerSize,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .errorCorrection,
@@ -3212,7 +3516,8 @@ public actor FASTQDerivativeService {
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputFASTQ,
                 direction: direction,
-                sourceBundleURL: sourceBundleURL
+                sourceBundleURL: sourceBundleURL,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .interleaveReformat,
@@ -3260,7 +3565,8 @@ public actor FASTQDerivativeService {
                 sourceFASTQ: sourceFASTQ,
                 outputFASTQ: outputURL,
                 databaseID: databaseID,
-                isInterleaved: isInterleaved
+                isInterleaved: isInterleaved,
+                provenanceCollector: provenanceCollector
             )
             return FASTQDerivativeOperation(
                 kind: .humanReadScrub,
@@ -4240,7 +4546,8 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputFASTQ: URL,
         databaseID: String,
-        isInterleaved: Bool
+        isInterleaved: Bool,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws {
         let dbPath = try await humanScrubberDatabasePath(databaseID)
         let threads = ProcessInfo.processInfo.activeProcessorCount
@@ -4284,10 +4591,11 @@ public actor FASTQDerivativeService {
             try await deinterleaveFASTQ(
                 source: inputFASTQ,
                 outputR1: inputR1,
-                outputR2: inputR2
+                outputR2: inputR2,
+                provenanceCollector: provenanceCollector
             )
 
-            let deaconResult = try await runner.run(
+            let deaconResult = try await runNativeTool(
                 .deacon,
                 arguments: [
                     "filter",
@@ -4298,15 +4606,21 @@ public actor FASTQDerivativeService {
                     "-O", outputR2.path,
                     "-t", "\(threads)",
                 ],
-                timeout: 7200
+                timeout: 7200,
+                provenanceCollector: provenanceCollector
             )
             guard deaconResult.isSuccess else {
                 throw FASTQDerivativeError.invalidOperation("deacon filter failed: \(deaconResult.stderr)")
             }
 
-            try await reinterleaveFastpOutput(r1: outputR1, r2: outputR2, output: outputFASTQ)
+            try await reinterleaveFastpOutput(
+                r1: outputR1,
+                r2: outputR2,
+                output: outputFASTQ,
+                provenanceCollector: provenanceCollector
+            )
         } else {
-            let deaconResult = try await runner.run(
+            let deaconResult = try await runNativeTool(
                 .deacon,
                 arguments: [
                     "filter",
@@ -4315,7 +4629,8 @@ public actor FASTQDerivativeService {
                     "-o", outputFASTQ.path,
                     "-t", "\(threads)",
                 ],
-                timeout: 7200
+                timeout: 7200,
+                provenanceCollector: provenanceCollector
             )
             guard deaconResult.isSuccess else {
                 throw FASTQDerivativeError.invalidOperation("deacon filter failed: \(deaconResult.stderr)")
@@ -4342,7 +4657,8 @@ public actor FASTQDerivativeService {
         threshold: Int,
         windowSize: Int,
         mode: FASTQQualityTrimMode,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
         // For interleaved PE data, fastp needs separate R1/R2 outputs
         let r1Output: URL
@@ -4381,14 +4697,19 @@ public actor FASTQDerivativeService {
             args.append("--cut_right")
         }
 
-        let result = try await runner.run(.fastp, arguments: args)
+        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("fastp quality trim failed: \(result.stderr)")
         }
 
         // Re-interleave R1+R2 into the final output
         if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
+            try await reinterleaveFastpOutput(
+                r1: r1Output,
+                r2: r2,
+                output: outputFASTQ,
+                provenanceCollector: provenanceCollector
+            )
         }
 
         return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
@@ -4402,7 +4723,8 @@ public actor FASTQDerivativeService {
         mode: FASTQQualityTrimMode,
         adapterMode: FASTQAdapterMode,
         adapterSequence: String?,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
         let r1Output: URL
         let r2Output: URL?
@@ -4450,13 +4772,18 @@ public actor FASTQDerivativeService {
             args.append("--cut_right")
         }
 
-        let result = try await runner.run(.fastp, arguments: args)
+        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("fastp combined trim failed: \(result.stderr)")
         }
 
         if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
+            try await reinterleaveFastpOutput(
+                r1: r1Output,
+                r2: r2,
+                output: outputFASTQ,
+                provenanceCollector: provenanceCollector
+            )
         }
 
         return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
@@ -4470,7 +4797,8 @@ public actor FASTQDerivativeService {
         sequenceR2: String?,
         fastaFilename: String?,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
         let r1Output: URL
         let r2Output: URL?
@@ -4513,13 +4841,18 @@ public actor FASTQDerivativeService {
             }
         }
 
-        let result = try await runner.run(.fastp, arguments: args)
+        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("fastp adapter trim failed: \(result.stderr)")
         }
 
         if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
+            try await reinterleaveFastpOutput(
+                r1: r1Output,
+                r2: r2,
+                output: outputFASTQ,
+                provenanceCollector: provenanceCollector
+            )
         }
 
         return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
@@ -4530,7 +4863,8 @@ public actor FASTQDerivativeService {
         outputFASTQ: URL,
         from5Prime: Int,
         from3Prime: Int,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> FastpResult {
         let r1Output: URL
         let r2Output: URL?
@@ -4564,13 +4898,18 @@ public actor FASTQDerivativeService {
             args += ["--trim_tail1", String(from3Prime)]
         }
 
-        let result = try await runner.run(.fastp, arguments: args)
+        let result = try await runNativeTool(.fastp, arguments: args, provenanceCollector: provenanceCollector)
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("fastp fixed trim failed: \(result.stderr)")
         }
 
         if isInterleaved, let r2 = r2Output {
-            try await reinterleaveFastpOutput(r1: r1Output, r2: r2, output: outputFASTQ)
+            try await reinterleaveFastpOutput(
+                r1: r1Output,
+                r2: r2,
+                output: outputFASTQ,
+                provenanceCollector: provenanceCollector
+            )
         }
 
         return FastpResult(toolCommand: "fastp \(args.joined(separator: " "))")
@@ -4578,9 +4917,14 @@ public actor FASTQDerivativeService {
 
     /// Re-interleaves split R1/R2 fastp output back into a single interleaved file
     /// using reformat.sh, then cleans up the temp files.
-    private func reinterleaveFastpOutput(r1: URL, r2: URL, output: URL) async throws {
+    private func reinterleaveFastpOutput(
+        r1: URL,
+        r2: URL,
+        output: URL,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(
+        let result = try await runNativeTool(
             .reformat,
             arguments: [
                 "in1=\(r1.path)",
@@ -4589,7 +4933,8 @@ public actor FASTQDerivativeService {
                 "interleaved=t",
             ],
             environment: env,
-            timeout: 1800
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("reformat.sh re-interleave failed: \(result.stderr)")
@@ -4599,9 +4944,14 @@ public actor FASTQDerivativeService {
     }
 
     /// Splits an interleaved FASTQ into separate R1/R2 files using reformat.sh.
-    private func deinterleaveFASTQ(source: URL, outputR1: URL, outputR2: URL) async throws {
+    private func deinterleaveFASTQ(
+        source: URL,
+        outputR1: URL,
+        outputR2: URL,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
+    ) async throws {
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(
+        let result = try await runNativeTool(
             .reformat,
             arguments: [
                 "in=\(source.path)",
@@ -4610,7 +4960,8 @@ public actor FASTQDerivativeService {
                 "interleaved=t",
             ],
             environment: env,
-            timeout: 1800
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
         )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("reformat.sh deinterleave failed: \(result.stderr)")
@@ -4651,7 +5002,8 @@ public actor FASTQDerivativeService {
         kmerSize: Int,
         hammingDistance: Int,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         var args = [
             "in=\(sourceFASTQ.path)",
@@ -4691,7 +5043,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .bbduk,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk contaminant filter failed: \(result.stderr)")
         }
@@ -4706,7 +5064,8 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputBundleURL: URL,
         strictness: FASTQMergeStrictness,
-        minOverlap: Int
+        minOverlap: Int,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> (BBToolResult, ReadClassification) {
         let mergedURL = outputBundleURL.appendingPathComponent("merged.fastq")
         let unmergedInterleavedURL = outputBundleURL.appendingPathComponent("unmerged.fastq")
@@ -4725,7 +5084,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.bbmerge, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .bbmerge,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbmerge failed: \(result.stderr)")
         }
@@ -4734,7 +5099,8 @@ public actor FASTQDerivativeService {
             try await deinterleaveFASTQ(
                 source: unmergedInterleavedURL,
                 outputR1: unmergedR1URL,
-                outputR2: unmergedR2URL
+                outputR2: unmergedR2URL,
+                provenanceCollector: provenanceCollector
             )
             try? FileManager.default.removeItem(at: unmergedInterleavedURL)
         }
@@ -4785,7 +5151,8 @@ public actor FASTQDerivativeService {
     /// plus singletons (reads with no mate) as separate files.
     private func runBBRepair(
         sourceFASTQ: URL,
-        outputBundleURL: URL
+        outputBundleURL: URL,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> (BBToolResult, ReadClassification) {
         // repair.sh writes repaired pairs to out1/out2, singletons to outs
         let repairedR1URL = outputBundleURL.appendingPathComponent("repaired_R1.fastq")
@@ -4800,7 +5167,13 @@ public actor FASTQDerivativeService {
         ]
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.repair, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .repair,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("repair.sh failed: \(result.stderr)")
         }
@@ -4837,7 +5210,8 @@ public actor FASTQDerivativeService {
         outputFASTQ: URL,
         configuration: FASTQPrimerTrimConfiguration,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         try validatePrimerTrimConfiguration(configuration)
         let primerSpec = try await resolvePrimerTrimSpecification(
@@ -4906,7 +5280,12 @@ public actor FASTQDerivativeService {
             args += ["-o", outputFASTQ.path, sourceFASTQ.path]
         }
 
-        let result = try await runner.run(.cutadapt, arguments: args, timeout: 1800)
+        let result = try await runNativeTool(
+            .cutadapt,
+            arguments: args,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("cutadapt primer trimming failed: \(result.stderr)")
         }
@@ -4985,7 +5364,8 @@ public actor FASTQDerivativeService {
         outputFASTQ: URL,
         configuration: FASTQPrimerTrimConfiguration,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         // Resolve primer reference
         let refPath: String
@@ -5039,7 +5419,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .bbduk,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk primer trim failed: \(result.stderr)")
         }
@@ -5063,7 +5449,8 @@ public actor FASTQDerivativeService {
         keepMatched: Bool,
         searchReverseComplement: Bool = false,
         sourceBundleURL: URL,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         var args: [String] = [
             "-e", String(errorRate),
@@ -5111,7 +5498,12 @@ public actor FASTQDerivativeService {
 
         args += ["-o", outputFASTQ.path, sourceFASTQ.path]
 
-        let result = try await runner.run(.cutadapt, arguments: args, timeout: 1800)
+        let result = try await runNativeTool(
+            .cutadapt,
+            arguments: args,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("cutadapt adapter presence filter failed: \(result.stderr)")
         }
@@ -5123,7 +5515,8 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputFASTQ: URL,
         kmerSize: Int,
-        isInterleaved: Bool = false
+        isInterleaved: Bool = false,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         var args = [
             "in=\(sourceFASTQ.path)",
@@ -5137,7 +5530,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.tadpole, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .tadpole,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("tadpole error correction failed: \(result.stderr)")
         }
@@ -5149,7 +5548,8 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputFASTQ: URL,
         direction: FASTQInterleaveDirection,
-        sourceBundleURL: URL
+        sourceBundleURL: URL,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws -> BBToolResult {
         var args: [String]
 
@@ -5184,7 +5584,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.reformat, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .reformat,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("reformat.sh failed: \(result.stderr)")
         }
@@ -5259,7 +5665,8 @@ public actor FASTQDerivativeService {
     private func runPairedAwareSearch(
         sourceFASTQ: URL,
         outputFASTQ: URL,
-        searchArgs: [String]
+        searchArgs: [String],
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws {
         let tempDir = try makeTemporaryDirectory(prefix: "pe-search-", contextURL: sourceFASTQ)
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -5267,7 +5674,11 @@ public actor FASTQDerivativeService {
         // Step 1: Run the search to find matching reads
         let matchesURL = tempDir.appendingPathComponent("matches.fastq")
         let matchArgs = searchArgs + [sourceFASTQ.path, "-o", matchesURL.path]
-        let searchResult = try await runner.run(.seqkit, arguments: matchArgs)
+        let searchResult = try await runNativeTool(
+            .seqkit,
+            arguments: matchArgs,
+            provenanceCollector: provenanceCollector
+        )
         guard searchResult.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("seqkit grep failed: \(searchResult.stderr)")
         }
@@ -5289,14 +5700,15 @@ public actor FASTQDerivativeService {
         try deduplicateIDFile(from: matchedIDsURL, to: dedupedIDsURL)
 
         // Step 3: Re-extract both mates from the original source using base IDs
-        let reExtractResult = try await runner.run(
+        let reExtractResult = try await runNativeTool(
             .seqkit,
             arguments: [
                 "grep", "-f", dedupedIDsURL.path,
                 sourceFASTQ.path,
                 "-o", outputFASTQ.path,
             ],
-            timeout: 600
+            timeout: 600,
+            provenanceCollector: provenanceCollector
         )
         guard reExtractResult.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("seqkit grep (pair re-extraction) failed: \(reExtractResult.stderr)")
@@ -5310,7 +5722,8 @@ public actor FASTQDerivativeService {
         sourceFASTQ: URL,
         outputFASTQ: URL,
         minLength: Int?,
-        maxLength: Int?
+        maxLength: Int?,
+        provenanceCollector: FASTQDerivativeNativeProvenanceCollector? = nil
     ) async throws {
         var args = [
             "in=\(sourceFASTQ.path)",
@@ -5325,7 +5738,13 @@ public actor FASTQDerivativeService {
         }
 
         let env = await bbToolsEnvironment()
-        let result = try await runner.run(.bbduk, arguments: args, environment: env, timeout: 1800)
+        let result = try await runNativeTool(
+            .bbduk,
+            arguments: args,
+            environment: env,
+            timeout: 1800,
+            provenanceCollector: provenanceCollector
+        )
         guard result.isSuccess else {
             throw FASTQDerivativeError.invalidOperation("bbduk length filter failed: \(result.stderr)")
         }

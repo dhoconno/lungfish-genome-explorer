@@ -82,6 +82,14 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
         XCTAssertEqual(envelope.options.resolvedDefaults["windowSize"]?.integerValue, 5)
         XCTAssertEqual(envelope.options.resolvedDefaults["mode"]?.stringValue, FASTQQualityTrimMode.cutBoth.rawValue)
 
+        let fastpStep = try XCTUnwrap(envelope.steps.first { $0.toolName == "fastp" })
+        XCTAssertTrue(fastpStep.argv.first?.hasSuffix("/fastp") == true)
+        XCTAssertTrue(fastpStep.argv.contains("-i"))
+        XCTAssertTrue(fastpStep.toolVersion.contains("0.23.4"))
+        XCTAssertEqual(fastpStep.exitStatus, 0)
+        XCTAssertNotNil(fastpStep.wallTimeSeconds)
+        XCTAssertNotNil(fastpStep.completedAt)
+
         assertNoTemporaryPaths(in: envelope)
         try assertOutput(
             outputBundle.appendingPathComponent(FASTQBundle.trimPositionFilename),
@@ -240,6 +248,138 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
             "A derivative bundle should not remain after provenance writing fails."
         )
     }
+
+    func testBatchDerivativeProvenanceManifestDescriptorMatchesFinalBatchManifest() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
+        defer { fixture.cleanup() }
+
+        let source = try fixture.makeBundle(named: "batch-source")
+        try fixture.writeFASTQ([("read-1", "ACGTACGT")], to: source.fastqURL)
+
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let result = try await service.createBatchDerivative(
+            from: [source.bundleURL],
+            request: .lengthFilter(min: 4, max: nil),
+            commonParentDirectory: fixture.root
+        )
+
+        let outputBundle = try XCTUnwrap(result.outputBundleURLs.first)
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: outputBundle))
+        XCTAssertEqual(manifest.batchOperationID, result.record.id)
+
+        let envelope = try loadProvenance(from: outputBundle)
+        try assertOutput(FASTQBundle.derivedManifestURL(in: outputBundle), isRecordedIn: envelope)
+    }
+
+    func testSubsampleProvenanceUsesHonestWorkflowReplayAndRecordsSeed() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit])
+        defer { fixture.cleanup() }
+
+        let source = try fixture.makeBundle(named: "subsample-source")
+        try fixture.writeFASTQ(
+            [
+                ("read-1", "ACGTACGT"),
+                ("read-2", "TTTTAAAA"),
+            ],
+            to: source.fastqURL
+        )
+
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let outputBundle = try await service.createDerivative(
+            from: source.bundleURL,
+            request: .subsampleProportion(0.5)
+        )
+
+        let envelope = try loadProvenance(from: outputBundle)
+        XCTAssertEqual(envelope.argv.first, "lungfish-app-workflow:fastq-derivative")
+        XCTAssertFalse(Array(envelope.argv.prefix(3)) == ["Lungfish.app", "fastq", "derive"])
+
+        let seed = try XCTUnwrap(envelope.options.resolvedDefaults["randomSeed"]?.integerValue)
+        XCTAssertTrue(envelope.argv.contains("--random-seed"))
+        XCTAssertTrue(envelope.argv.contains(String(seed)))
+    }
+
+    func testReferenceInputsAreRecordedWithChecksums() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.cutadapt, .seqkit])
+        defer { fixture.cleanup() }
+
+        let source = try fixture.makeBundle(named: "reference-source")
+        try fixture.writeFASTQ([("read-1", "ACGTACGT")], to: source.fastqURL)
+
+        let referenceURL = fixture.root.appendingPathComponent("adapters.fa")
+        try ">adapter\nACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        let service = FASTQDerivativeService(runner: fixture.runner)
+        let outputBundle = try await service.createDerivative(
+            from: source.bundleURL,
+            request: .sequencePresenceFilter(
+                sequence: nil,
+                fastaPath: referenceURL.path,
+                searchEnd: .fivePrime,
+                minOverlap: 3,
+                errorRate: 0.1,
+                keepMatched: true,
+                searchReverseComplement: false
+            )
+        )
+
+        let envelope = try loadProvenance(from: outputBundle)
+        assertInput(referenceURL, isRecordedIn: envelope)
+        let referenceDescriptor = try XCTUnwrap(
+            envelope.files.first { $0.role == .input && pathsReferToSameFile($0.path, referenceURL.path) }
+        )
+        XCTAssertNotNil(referenceDescriptor.checksumSHA256)
+        XCTAssertEqual(referenceDescriptor.fileSize, try ProvenanceFileHasher.fileSize(of: referenceURL))
+    }
+
+    func testOrientDerivativeCleansPartialBundlesWhenProvenanceWriteFails() async throws {
+        let fixture = try FASTQDerivativeToolFixture(tools: [.seqkit, .vsearch])
+        defer { fixture.cleanup() }
+
+        let projectURL = fixture.root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let source = try fixture.makeBundle(named: "orient-source", in: projectURL)
+        try fixture.writeFASTQ(
+            [
+                ("read-1", "ACGT"),
+                ("read-2", "TGCA"),
+                ("read-3", "TTTT"),
+            ],
+            to: source.fastqURL
+        )
+        let referenceURL = fixture.root.appendingPathComponent("reference.fa")
+        try ">ref\nACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+
+        let service = FASTQDerivativeService(
+            runner: fixture.runner,
+            provenanceWriter: FailingDerivativeProvenanceWriter()
+        )
+
+        do {
+            _ = try await service.createDerivative(
+                from: source.bundleURL,
+                request: .orient(
+                    referenceURL: referenceURL,
+                    wordLength: 11,
+                    dbMask: "none",
+                    saveUnoriented: true
+                )
+            )
+            XCTFail("Expected orient provenance writing to fail")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "FASTQDerivativeServiceProvenanceTests")
+        }
+
+        let derivativesDirectory = source.bundleURL.appendingPathComponent("derivatives", isDirectory: true)
+        let derivativeBundles = (try? FileManager.default.contentsOfDirectory(
+            at: derivativesDirectory,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertTrue(
+            derivativeBundles.filter { $0.pathExtension == FASTQBundle.directoryExtension }.isEmpty,
+            "Orient and unoriented bundles should not remain after provenance writing fails."
+        )
+    }
 }
 
 private struct FailingDerivativeProvenanceWriter: FASTQDerivativeProvenanceWriting {
@@ -302,10 +442,20 @@ private func assertNoTemporaryPaths(
     file: StaticString = #filePath,
     line: UInt = #line
 ) {
-    let encoded = String(data: (try? ProvenanceJSON.encoder.encode(envelope)) ?? Data(), encoding: .utf8) ?? ""
-    XCTAssertFalse(encoded.contains("fastq-derive-"), file: file, line: line)
-    XCTAssertFalse(encoded.contains("transformed.fastq"), file: file, line: line)
-    XCTAssertFalse(encoded.contains("demux-output"), file: file, line: line)
+    let durableValues = envelope.argv
+        + (envelope.durableReplayArgv ?? [])
+        + envelope.files.map(\.path)
+        + envelope.outputs.map(\.path)
+        + envelope.steps.flatMap { step in
+            (step.durableReplayArgv ?? [])
+                + step.inputs.map(\.path)
+                + step.outputs.map(\.path)
+        }
+    for value in durableValues {
+        XCTAssertFalse(value.contains("fastq-derive-"), file: file, line: line)
+        XCTAssertFalse(value.contains("transformed.fastq"), file: file, line: line)
+        XCTAssertFalse(value.contains("demux-output"), file: file, line: line)
+    }
 }
 
 private func XCTAssertThrowsErrorAsync<T>(
@@ -326,6 +476,8 @@ private final class FASTQDerivativeToolFixture {
         case seqkit
         case fastp
         case bbmerge
+        case cutadapt
+        case vsearch
     }
 
     let root: URL
@@ -344,6 +496,10 @@ private final class FASTQDerivativeToolFixture {
                 try Self.install(script: Self.fastpScript(), tool: "fastp", environment: "fastp", homeDirectory: homeDirectory)
             case .bbmerge:
                 try Self.install(script: Self.bbmergeScript(), tool: "bbmerge.sh", environment: "bbtools", homeDirectory: homeDirectory)
+            case .cutadapt:
+                try Self.install(script: Self.cutadaptScript(), tool: "cutadapt", environment: "cutadapt", homeDirectory: homeDirectory)
+            case .vsearch:
+                try Self.install(script: Self.vsearchScript(), tool: "vsearch", environment: "vsearch", homeDirectory: homeDirectory)
             }
         }
         runner = NativeToolRunner(toolsDirectory: nil, homeDirectory: homeDirectory)
@@ -353,8 +509,9 @@ private final class FASTQDerivativeToolFixture {
         try? FileManager.default.removeItem(at: root)
     }
 
-    func makeBundle(named name: String) throws -> (bundleURL: URL, fastqURL: URL) {
-        let bundleURL = root.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
+    func makeBundle(named name: String, in directory: URL? = nil) throws -> (bundleURL: URL, fastqURL: URL) {
+        let parent = directory ?? root
+        let bundleURL = parent.appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
         try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
         return (bundleURL, bundleURL.appendingPathComponent("reads.fastq"))
     }
@@ -393,8 +550,11 @@ private final class FASTQDerivativeToolFixture {
               output="$2"
               shift 2
               ;;
-            -m|-M|-j|-n)
+            -m|-M|-j|-n|-p|-s)
               shift 2
+              ;;
+            -2)
+              shift
               ;;
             --name|--only-id)
               names=1
@@ -423,6 +583,20 @@ private final class FASTQDerivativeToolFixture {
           else
             cat "$input"
           fi
+          exit 0
+        fi
+        if [ "$command" = "sample" ] || [ "$command" = "sample2" ]; then
+          cp "$input" "$output"
+          exit 0
+        fi
+        if [ "$command" = "grep" ]; then
+          cp "$input" "$output"
+          exit 0
+        fi
+        if [ "$command" = "stats" ]; then
+          file="$input"
+          printf 'file\tformat\ttype\tnum_seqs\tsum_len\tmin_len\tavg_len\tmax_len\n'
+          printf '%s\tFASTQ\tDNA\t2\t8\t4\t4.0\t4\n' "$file"
           exit 0
         fi
         exit 1
@@ -477,6 +651,77 @@ private final class FASTQDerivativeToolFixture {
           esac
         done
         printf '@merged-1\\nACGTACGTACGT\\n+\\nIIIIIIIIIIII\\n' > "$out"
+        exit 0
+        """
+    }
+
+    private static func cutadaptScript() -> String {
+        """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+          echo "4.9"
+          exit 0
+        fi
+        output=""
+        input=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            -o)
+              output="$2"
+              shift 2
+              ;;
+            -e|--overlap|--action|--cores|-g|-a|-G|--pair-filter)
+              shift 2
+              ;;
+            --discard-untrimmed|--discard-trimmed|--interleaved|--revcomp|--no-indels)
+              shift
+              ;;
+            *)
+              input="$1"
+              shift
+              ;;
+          esac
+        done
+        cp "$input" "$output"
+        exit 0
+        """
+    }
+
+    private static func vsearchScript() -> String {
+        """
+        #!/bin/sh
+        if [ "$1" = "--version" ]; then
+          echo "vsearch v2.30.5"
+          exit 0
+        fi
+        fastqout=""
+        tabbedout=""
+        notmatched=""
+        while [ "$#" -gt 0 ]; do
+          case "$1" in
+            --fastqout)
+              fastqout="$2"
+              shift 2
+              ;;
+            --tabbedout)
+              tabbedout="$2"
+              shift 2
+              ;;
+            --notmatched)
+              notmatched="$2"
+              shift 2
+              ;;
+            *)
+              shift
+              ;;
+          esac
+        done
+        printf '@read-1\\nACGT\\n+\\nIIII\\n@read-2\\nTGCA\\n+\\nIIII\\n' > "$fastqout"
+        printf 'read-1\\t+\\tref\\nread-2\\t-\\tref\\nread-3\\t?\\t*\\n' > "$tabbedout"
+        if [ -n "$notmatched" ]; then
+          printf '@read-3\\nTTTT\\n+\\nIIII\\n' > "$notmatched"
+        fi
+        printf 'vsearch completed\\n' >&2
         exit 0
         """
     }
