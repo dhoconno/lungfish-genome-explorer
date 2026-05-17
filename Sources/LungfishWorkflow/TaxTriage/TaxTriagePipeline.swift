@@ -530,7 +530,7 @@ public actor TaxTriagePipeline {
         return result
     }
 
-    func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {
+    nonisolated func prepareExecutionConfig(for config: TaxTriageConfig) throws -> PreparedExecutionConfig {
         let needsRedirect = config.outputDirectory.path.contains(" ")
             || config.samples.contains(where: {
                 $0.fastq1.path.contains(" ") || ($0.fastq2?.path.contains(" ") ?? false)
@@ -906,7 +906,7 @@ public actor TaxTriagePipeline {
         return patched == content ? nil : patched
     }
 
-    func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
+    nonisolated func buildNextflowArguments(config: TaxTriageConfig) -> [String] {
         buildNextflowArguments(
             config: config,
             pipelineLaunchTarget: TaxTriageConfig.pipelineRepository,
@@ -914,7 +914,7 @@ public actor TaxTriagePipeline {
         )
     }
 
-    func buildNextflowArguments(
+    nonisolated func buildNextflowArguments(
         config: TaxTriageConfig,
         pipelineLaunchTarget: String,
         pipelineRevision: String?
@@ -968,7 +968,7 @@ public actor TaxTriagePipeline {
         return args
     }
 
-    func buildNextflowLaunchArguments(
+    nonisolated func buildNextflowLaunchArguments(
         config: TaxTriageConfig,
         runtimeConfigURL: URL
     ) -> [String] {
@@ -980,7 +980,7 @@ public actor TaxTriagePipeline {
         )
     }
 
-    func buildNextflowLaunchArguments(
+    nonisolated func buildNextflowLaunchArguments(
         config: TaxTriageConfig,
         runtimeConfigURL: URL,
         pipelineLaunchTarget: String,

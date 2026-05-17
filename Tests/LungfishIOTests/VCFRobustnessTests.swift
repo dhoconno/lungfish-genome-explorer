@@ -95,7 +95,7 @@ final class VCFRobustnessTests: XCTestCase {
 
         // Database should still be valid and queryable
         let db = try VariantDatabase(url: dbURL)
-        let results = try db.query(chromosome: "any", start: 0, end: 1000)
+        let results = db.query(chromosome: "any", start: 0, end: 1000)
         XCTAssertEqual(results.count, 0)
     }
 

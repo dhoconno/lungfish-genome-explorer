@@ -277,15 +277,7 @@ final class NativeToolRunnerTests: XCTestCase {
     func testIvarVersionParsesToSemanticVersion() async throws {
         let (runner, root) = try makeManagedNativeToolRunner()
         defer { try? FileManager.default.removeItem(at: root) }
-        let version: String?
-        do {
-            version = await runner.getToolVersion(.ivar)
-        } catch let error as NativeToolError {
-            if case .toolNotFound = error {
-                throw XCTSkip("Managed iVar is not available")
-            }
-            throw error
-        }
+        let version = await runner.getToolVersion(.ivar)
         guard let version else {
             throw XCTSkip("Managed iVar returned nil for getToolVersion; tool may be missing or misconfigured")
         }

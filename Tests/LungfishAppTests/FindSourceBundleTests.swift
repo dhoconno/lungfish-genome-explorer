@@ -5,7 +5,6 @@
 import XCTest
 @testable import LungfishApp
 
-@MainActor
 final class FindSourceBundleTests: XCTestCase {
     private var tempDir: URL!
 
@@ -31,12 +30,14 @@ final class FindSourceBundleTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testFindsWhenInputIsBundleURL() {
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
         let result = AppDelegate.findSourceBundle(for: [bundleURL])
         assertURLEqual(result, bundleURL)
     }
 
+    @MainActor
     func testFindsWhenInputIsFileInsideBundle() {
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
         let fileURL = bundleURL.appendingPathComponent("reads.fastq.gz")
@@ -44,17 +45,20 @@ final class FindSourceBundleTests: XCTestCase {
         assertURLEqual(result, bundleURL)
     }
 
+    @MainActor
     func testReturnsNilForPlainFASTQ() {
         let fileURL = tempDir.appendingPathComponent("reads.fastq.gz")
         let result = AppDelegate.findSourceBundle(for: [fileURL])
         XCTAssertNil(result)
     }
 
+    @MainActor
     func testReturnsNilForEmptyArray() {
         let result = AppDelegate.findSourceBundle(for: [])
         XCTAssertNil(result)
     }
 
+    @MainActor
     func testFindsFirstBundleInMultipleInputs() {
         let plainFile = tempDir.appendingPathComponent("other.fastq")
         let bundleURL = tempDir.appendingPathComponent("sample.lungfishfastq")
@@ -63,12 +67,14 @@ final class FindSourceBundleTests: XCTestCase {
         assertURLEqual(result, bundleURL)
     }
 
+    @MainActor
     func testCaseInsensitiveExtension() {
         let bundleURL = tempDir.appendingPathComponent("sample.LUNGFISHFASTQ")
         let result = AppDelegate.findSourceBundle(for: [bundleURL])
         assertURLEqual(result, bundleURL)
     }
 
+    @MainActor
     func testFileInsideBundleWithMixedCaseExtension() {
         let bundleURL = tempDir.appendingPathComponent("sample.LungfishFastq")
         let fileURL = bundleURL.appendingPathComponent("reads.fastq")
