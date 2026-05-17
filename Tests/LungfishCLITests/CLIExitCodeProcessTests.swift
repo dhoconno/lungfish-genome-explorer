@@ -123,6 +123,58 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertFalse(output.contains("ArgumentParser.ExitCode"))
     }
 
+    func testImportFastqMissingInputExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing.fastq")
+        let project = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+
+        let result = try runCLI(["import", "fastq", missingInput.path, "--project", project.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Input not found"))
+    }
+
+    func testAssembleInvalidAssemblerExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reads = tempDir.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+
+        let result = try runCLI(["assemble", reads.path, "--assembler", "not-an-assembler"])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Unknown assembler"))
+    }
+
+    func testMapInvalidMapperExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let reads = tempDir.appendingPathComponent("reads.fastq")
+        let reference = tempDir.appendingPathComponent("reference.fasta")
+        try "@r1\nACGT\n+\nIIII\n".write(to: reads, atomically: true, encoding: .utf8)
+        try ">ref\nACGT\n".write(to: reference, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "map",
+            reads.path,
+            "--reference", reference.path,
+            "--mapper", "not-a-mapper",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Invalid mapper"))
+    }
+
     func testOrientInvalidWordLengthExitsWithInputError() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)

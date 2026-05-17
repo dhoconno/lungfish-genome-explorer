@@ -116,10 +116,12 @@ struct MapCommand: AsyncParsableCommand {
         }
 
         if pairedEnd && inputURLs.count != 2 {
-            throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
+            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."))
+            throw CLIExitCode.inputError.exitCode
         }
         if minMapQ < 0 {
-            throw CLIError.validationFailed(errors: ["--min-mapq must be greater than or equal to 0."])
+            print(formatter.error("--min-mapq must be greater than or equal to 0."))
+            throw CLIExitCode.inputError.exitCode
         }
 
         let outputDirectory: URL
@@ -143,7 +145,7 @@ struct MapCommand: AsyncParsableCommand {
         guard let selectedTool = MappingTool(rawValue: mapper) else {
             let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
             print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let selectedMode: MappingMode
@@ -151,7 +153,7 @@ struct MapCommand: AsyncParsableCommand {
             selectedMode = try resolveMode(tool: selectedTool, preset: preset)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
@@ -169,7 +171,7 @@ struct MapCommand: AsyncParsableCommand {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let resolvedInputs: CLISequenceInputMaterializationResult

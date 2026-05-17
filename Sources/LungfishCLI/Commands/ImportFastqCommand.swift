@@ -142,11 +142,11 @@ extension ImportCommand {
 
             guard !input.isEmpty || samplesheet != nil else {
                 print(formatter.error("At least one input path or --samplesheet is required."))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
             guard !(samplesheet != nil && !input.isEmpty) else {
                 print(formatter.error("Pass either FASTQ input paths or --samplesheet, not both."))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // MARK: Detect pairs
@@ -158,13 +158,13 @@ extension ImportCommand {
                 let sheetURL = URL(fileURLWithPath: samplesheet)
                 guard fm.fileExists(atPath: sheetURL.path) else {
                     print(formatter.error("Sample sheet not found: \(samplesheet)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
                 do {
                     pairs = try FASTQSampleSheet.parse(url: sheetURL).samplePairs()
                 } catch {
                     print(formatter.error("Could not parse sample sheet: \(error.localizedDescription)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.formatError.exitCode
                 }
             } else if input.count == 1 {
                 // Single argument: could be a directory or a single file
@@ -181,12 +181,12 @@ extension ImportCommand {
                         }
                     } catch let batchError as BatchImportError {
                         print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                 } else {
                     guard exists else {
                         print(formatter.error("Input not found: \(input[0])"))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                     pairs = FASTQBatchImporter.detectPairs(from: [inputURL])
                 }
@@ -197,7 +197,7 @@ extension ImportCommand {
                     let url = URL(fileURLWithPath: path)
                     guard fm.fileExists(atPath: url.path) else {
                         print(formatter.error("Input file not found: \(path)"))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                     fileURLs.append(url)
                 }
@@ -237,7 +237,7 @@ extension ImportCommand {
                     print(formatter.error(
                         "Unknown platform '\(platformStr)'. Valid: illumina, ont, pacbio, ultima"
                     ))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
                 resolvedPlatform = p
             } else {
@@ -247,7 +247,12 @@ extension ImportCommand {
                     resolvedPlatform = try Self.detectPlatformFromPairs(pairs) ?? .illumina
                 } catch let error as PlatformDetectionError {
                     print(formatter.error(error.localizedDescription))
-                    throw ExitCode.failure
+                    switch error {
+                    case .managedPigzUnavailable:
+                        throw CLIExitCode.dependency.exitCode
+                    case .managedPigzFailed:
+                        throw CLIExitCode.workflowError.exitCode
+                    }
                 }
                 if !globalOptions.quiet {
                     print(formatter.info("Platform: \(resolvedPlatform.displayName) (auto-detected)"))
@@ -270,7 +275,7 @@ extension ImportCommand {
                         oldRecipe = try FASTQBatchImporter.resolveRecipe(named: recipe)
                     } catch let batchError as BatchImportError {
                         print(formatter.error(batchError.errorDescription ?? batchError.localizedDescription))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                 }
             }
@@ -287,7 +292,7 @@ extension ImportCommand {
                 binningScheme = .none
             default:
                 print(formatter.error("Unknown quality-binning value '\(qualityBinning)'. Valid: illumina4, eightLevel, none"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // MARK: Resolve compression level
@@ -296,7 +301,7 @@ extension ImportCommand {
                 print(formatter.error(
                     "Unknown compression '\(compression)'. Valid: fast, balanced, maximum"
                 ))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // MARK: Build config
@@ -366,7 +371,7 @@ extension ImportCommand {
                 for (sample, error) in result.errors {
                     print(formatter.error("  \(sample): \(error)"))
                 }
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
         }
 
@@ -436,10 +441,10 @@ extension ImportCommand {
                     }
                 } catch let error as HumanScrubberDatabaseError {
                     emit(formatter.error(error.localizedDescription))
-                    throw ExitCode.failure
+                    throw CLIExitCode.dependency.exitCode
                 } catch {
                     emit(formatter.error("Failed to install \(displayName): \(error.localizedDescription)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.dependency.exitCode
                 }
             }
         }

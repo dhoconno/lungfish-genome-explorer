@@ -118,13 +118,13 @@ struct AssembleCommand: AsyncParsableCommand {
 
         guard let tool = AssemblyTool(rawValue: assembler.lowercased()) else {
             print(formatter.error("Unknown assembler: \(assembler)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             print(formatter.error("Input file not found: \(inputURL.path)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let projectName = resolvedProjectName(from: inputURLs)
@@ -132,7 +132,7 @@ struct AssembleCommand: AsyncParsableCommand {
 
         if pairedEnd && inputURLs.count != 2 {
             print(formatter.error("Paired-end assembly requires exactly two sequence inputs."))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let advancedArguments: [String]
@@ -140,7 +140,7 @@ struct AssembleCommand: AsyncParsableCommand {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions) + extraArg
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let explicitReadType: AssemblyReadType?
@@ -148,13 +148,13 @@ struct AssembleCommand: AsyncParsableCommand {
             explicitReadType = try Self.parseExplicitReadType(readType)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         if let explicitReadType,
            !AssemblyCompatibility.isSupported(tool: tool, for: explicitReadType) {
             print(formatter.error("\(tool.displayName) is not available for \(explicitReadType.displayName) in v1."))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         do {
@@ -165,7 +165,7 @@ struct AssembleCommand: AsyncParsableCommand {
             )
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let preMaterializationReadType: AssemblyReadType?
@@ -177,13 +177,13 @@ struct AssembleCommand: AsyncParsableCommand {
             )
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         if let preMaterializationReadType,
            !AssemblyCompatibility.isSupported(tool: tool, for: preMaterializationReadType) {
             print(formatter.error("\(tool.displayName) is not available for \(preMaterializationReadType.displayName) in v1."))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let executionInputURLs: [URL]
@@ -214,14 +214,18 @@ struct AssembleCommand: AsyncParsableCommand {
             guard AssemblyCompatibility.isSupported(tool: tool, for: resolvedReadType) else {
                 print(formatter.error("\(tool.displayName) is not available for \(resolvedReadType.displayName) in v1."))
                 try? FileManager.default.removeItem(at: materializationDirectory)
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
-        } catch is ExitCode {
-            throw ExitCode.failure
+        } catch let exit as ExitCode {
+            throw exit
+        } catch let error as AssembleInputResolutionError {
+            try? FileManager.default.removeItem(at: materializationDirectory)
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.formatError.exitCode
         } catch {
             try? FileManager.default.removeItem(at: materializationDirectory)
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.workflowError.exitCode
         }
 
         let request = AssemblyRunRequest(
@@ -254,10 +258,16 @@ struct AssembleCommand: AsyncParsableCommand {
         ]))
         print("")
 
-        let result = try await ManagedAssemblyPipeline().run(request: executionRequest) { _, message in
-            if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+        let result: AssemblyResult
+        do {
+            result = try await ManagedAssemblyPipeline().run(request: executionRequest) { _, message in
+                if !globalOptions.quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                }
             }
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.workflowError.exitCode
         }
         _ = try Self.writeProvenance(
             request: executionRequest,
