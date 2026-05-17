@@ -1,37 +1,68 @@
 import XCTest
+@testable import LungfishApp
+@testable import LungfishIO
+@testable import LungfishWorkflow
 
 final class AssemblyConfigurationViewModelSourceTests: XCTestCase {
-    func testAssemblyCompletionCopyHandlesNoContigsOutcome() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyConfigurationViewModel.swift"),
-            encoding: .utf8
-        )
-        let operationCenterSource = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Services/OperationCenter.swift"),
-            encoding: .utf8
-        )
+    func testAssemblyCompletionPresentationHandlesNoContigsOutcome() {
+        let result = makeAssemblyResult(outcome: .completedWithNoContigs)
 
-        XCTAssertTrue(source.contains("private static func completionDetail(for result: AssemblyResult) -> String"))
-        XCTAssertTrue(source.contains(#""Assembly completed, but no contigs were generated.""#))
-        XCTAssertTrue(source.contains(#""No Contigs Generated""#))
-        XCTAssertTrue(source.contains(#"finished for \(projectName), but no contigs were generated."#))
-        XCTAssertTrue(operationCenterSource.contains("public func completeWithWarning(id: UUID, detail: String"))
-        XCTAssertTrue(operationCenterSource.contains("public func completeWithWarning(id: UUID, detail: String, bundleURLs: [URL])"))
-        XCTAssertTrue(source.contains("OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])"))
-        XCTAssertTrue(source.contains("OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])"))
-        XCTAssertFalse(source.contains("OperationCenter.shared.log(id: opID, level: .warning"))
-        XCTAssertTrue(source.contains("title: completionNotificationTitle(for: result)"))
-        XCTAssertTrue(source.contains("title: completionNotificationTitle(for: normalizedResult)"))
-        XCTAssertGreaterThanOrEqual(source.components(separatedBy: "completionNotificationBody(").count - 1, 3)
-        XCTAssertTrue(source.contains("result.outcome == .completedWithNoContigs"))
+        XCTAssertEqual(
+            AssemblyRunner.completionDetail(for: result),
+            "Assembly completed, but no contigs were generated."
+        )
+        XCTAssertEqual(
+            AssemblyRunner.completionNotificationTitle(for: result),
+            "No Contigs Generated"
+        )
+        XCTAssertEqual(
+            AssemblyRunner.completionNotificationBody(
+                for: result,
+                toolDisplayName: "SPAdes",
+                projectName: "project-a"
+            ),
+            "SPAdes finished for project-a, but no contigs were generated."
+        )
     }
 
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+    func testAssemblyCompletionPresentationHandlesNormalOutcome() {
+        let result = makeAssemblyResult(outcome: .completed)
+
+        XCTAssertEqual(AssemblyRunner.completionDetail(for: result), "Assembly complete")
+        XCTAssertEqual(AssemblyRunner.completionNotificationTitle(for: result), "Assembly Complete")
+        XCTAssertEqual(
+            AssemblyRunner.completionNotificationBody(
+                for: result,
+                toolDisplayName: "SPAdes",
+                projectName: "project-a"
+            ),
+            "SPAdes finished for project-a."
+        )
+    }
+
+    private func makeAssemblyResult(outcome: AssemblyOutcome) -> AssemblyResult {
+        AssemblyResult(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            outcome: outcome,
+            contigsPath: URL(fileURLWithPath: "/tmp/project-a/contigs.fasta"),
+            graphPath: nil,
+            logPath: nil,
+            assemblerVersion: "test",
+            commandLine: "lungfish-cli assemble spades",
+            outputDirectory: URL(fileURLWithPath: "/tmp/project-a"),
+            statistics: AssemblyStatistics(
+                contigCount: outcome == .completedWithNoContigs ? 0 : 1,
+                totalLengthBP: outcome == .completedWithNoContigs ? 0 : 1200,
+                largestContigBP: outcome == .completedWithNoContigs ? 0 : 1200,
+                smallestContigBP: outcome == .completedWithNoContigs ? 0 : 1200,
+                n50: outcome == .completedWithNoContigs ? 0 : 1200,
+                l50: outcome == .completedWithNoContigs ? 0 : 1,
+                n90: outcome == .completedWithNoContigs ? 0 : 1200,
+                gcFraction: 0.5,
+                meanLengthBP: outcome == .completedWithNoContigs ? 0 : 1200
+            ),
+            wallTimeSeconds: 1
+        )
     }
 }

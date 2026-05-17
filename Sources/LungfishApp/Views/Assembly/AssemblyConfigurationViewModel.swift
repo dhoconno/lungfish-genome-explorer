@@ -788,19 +788,19 @@ public enum AssemblyRunner {
 
     // MARK: - Notifications
 
-    private static func completionDetail(for result: AssemblyResult) -> String {
+    nonisolated static func completionDetail(for result: AssemblyResult) -> String {
         result.outcome == .completedWithNoContigs
             ? "Assembly completed, but no contigs were generated."
             : "Assembly complete"
     }
 
-    private static func completionNotificationTitle(for result: AssemblyResult) -> String {
+    nonisolated static func completionNotificationTitle(for result: AssemblyResult) -> String {
         result.outcome == .completedWithNoContigs
             ? "No Contigs Generated"
             : "Assembly Complete"
     }
 
-    private static func completionNotificationBody(
+    nonisolated static func completionNotificationBody(
         for result: AssemblyResult,
         toolDisplayName: String,
         projectName: String
