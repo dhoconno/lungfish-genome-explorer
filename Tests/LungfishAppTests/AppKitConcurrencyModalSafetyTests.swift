@@ -5,19 +5,10 @@
 import XCTest
 
 final class AppKitConcurrencyModalSafetyTests: XCTestCase {
-    func testProductionRunModalCallsRequireLegacyExceptionComment() throws {
+    func testProductionSourcesDoNotCallRunModal() throws {
         let root = repositoryRoot()
-        let sourcesRoot = root.appendingPathComponent("Sources", isDirectory: true)
-        let swiftFiles = try swiftSourceFiles(under: sourcesRoot)
-        let maximumLegacyRunModalCounts: [String: Int] = [
-            "Sources/LungfishApp/App/AppDelegate.swift": 1,
-            "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift": 1,
-            "Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift": 1,
-            "Sources/LungfishApp/Views/Viewer/PhylogeneticTreeViewController.swift": 1,
-            "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift": 1,
-            "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift": 5,
-        ]
-        var actualLegacyRunModalCounts: [String: Int] = [:]
+        let appSourcesRoot = root.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
+        let swiftFiles = try swiftSourceFiles(under: appSourcesRoot)
         var violations: [String] = []
 
         for file in swiftFiles {
@@ -25,35 +16,13 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             let lines = source.components(separatedBy: .newlines)
             let path = relativePath(file, root: root)
             for index in lines.indices where lines[index].contains(".runModal(") {
-                actualLegacyRunModalCounts[path, default: 0] += 1
-                guard maximumLegacyRunModalCounts[path] != nil else {
-                    violations.append("\(path):\(index + 1) is not in the allowed legacy runModal inventory")
-                    continue
-                }
-                let context = nearbyCommentContext(lines: lines, index: index)
-                guard context.contains("runModal-legacy-allowed") else {
-                    violations.append("\(path):\(index + 1)")
-                    continue
-                }
-                XCTAssertTrue(
-                    context.contains("because"),
-                    "\(path):\(index + 1) runModal legacy exception must explain why"
-                )
+                violations.append("\(path):\(index + 1)")
             }
-        }
-
-        for (path, maximumCount) in maximumLegacyRunModalCounts.sorted(by: { $0.key < $1.key }) {
-            let actualCount = actualLegacyRunModalCounts[path, default: 0]
-            XCTAssertLessThanOrEqual(
-                actualCount,
-                maximumCount,
-                "\(path) added a legacy runModal call; update this test with a concrete reason or convert the flow to a sheet"
-            )
         }
 
         XCTAssertTrue(
             violations.isEmpty,
-            "Unexpected production runModal calls without runModal-legacy-allowed justification:\n"
+            "Production AppKit code must use nonblocking sheets, panel begin(), presentError, beep, or cancellation instead of runModal:\n"
                 + violations.joined(separator: "\n")
         )
     }
@@ -218,12 +187,6 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             }
         }
         return files
-    }
-
-    private func nearbyCommentContext(lines: [String], index: Int) -> String {
-        let lowerBound = max(lines.startIndex, index - 3)
-        let upperBound = min(lines.endIndex - 1, index + 1)
-        return lines[lowerBound...upperBound].joined(separator: "\n")
     }
 
     private func relativePath(_ url: URL, root: URL) -> String {
