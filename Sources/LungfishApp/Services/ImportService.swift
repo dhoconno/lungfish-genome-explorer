@@ -11,9 +11,6 @@ import os.log
 /// Logger for import operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "ImportService")
 
-/// Type alias for backward compatibility - use UICategory from LungfishIO
-public typealias FileCategory = UICategory
-
 /// Detected file format information
 public struct DetectedFormat: Sendable {
     public let category: UICategory

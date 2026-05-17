@@ -455,7 +455,7 @@ struct ReleaseBuildConfigurationTests {
             encoding: .utf8
         )
 
-        #expect(script.contains(#"APP_ICON_SOURCE="${PROJECT_ROOT}/Resources/AppIcon.icns""#))
+        #expect(script.contains(#"APP_ICON_SOURCE="${PROJECT_ROOT}/Sources/Lungfish/AppIcon.icns""#))
         #expect(script.contains(#"APP_ICON_DEST="${APP_PATH}/Contents/Resources/AppIcon.icns""#))
         #expect(script.contains(#"/usr/bin/install -m 644 "$APP_ICON_SOURCE" "$APP_ICON_DEST""#))
         #expect(script.contains(#"Set :CFBundleIconFile AppIcon"#))

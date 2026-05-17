@@ -208,7 +208,7 @@ fi
 
 APP_PATH="${ARCHIVE_PATH}/Products/Applications/Lungfish.app"
 RELEASE_APP_PATH="${RELEASE_DIR}/Lungfish.app"
-APP_ICON_SOURCE="${PROJECT_ROOT}/Resources/AppIcon.icns"
+APP_ICON_SOURCE="${PROJECT_ROOT}/Sources/Lungfish/AppIcon.icns"
 APP_ICON_DEST="${APP_PATH}/Contents/Resources/AppIcon.icns"
 METADATA_PATH="${RELEASE_DIR}/release-metadata.txt"
 APP_NOTARY_LOG="${RELEASE_DIR}/notary-app-log.json"
