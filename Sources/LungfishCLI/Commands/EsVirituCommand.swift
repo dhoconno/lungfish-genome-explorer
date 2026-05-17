@@ -66,7 +66,7 @@ extension EsVirituCommand {
             parsing: .upToNextOption,
             help: "Input FASTQ file(s). Provide two files for paired-end."
         )
-        var inputFiles: [String]
+        var inputFiles: [String] = []
 
         @Option(
             name: [.customLong("sample"), .customShort("s")],
@@ -120,7 +120,7 @@ extension EsVirituCommand {
                 ? Array(arguments.dropFirst())
                 : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
-                throw ValidationError("Failed to parse esviritu detect arguments.")
+                throw CLIError.validationFailed(errors: ["Failed to parse esviritu detect arguments."])
             }
             return parsed
         }
@@ -130,6 +130,10 @@ extension EsVirituCommand {
 
             // Resolve input files.
             let inputURLs = inputFiles.map { URL(fileURLWithPath: $0) }
+            guard !inputURLs.isEmpty else {
+                print(formatter.error("At least one --input file is required"))
+                throw CLIExitCode.inputError.exitCode
+            }
             for url in inputURLs {
                 guard FileManager.default.fileExists(atPath: url.path) else {
                     print(formatter.error("Input file not found: \(url.path)"))

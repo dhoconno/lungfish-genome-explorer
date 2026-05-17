@@ -541,7 +541,7 @@ final class CLIErrorRegressionTests: XCTestCase {
         XCTAssertEqual(CLIError.formatDetectionFailed(path: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.unsupportedFormat(format: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.conversionFailed(reason: "").exitCode, .failure)
-        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .failure)
+        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .inputError)
         XCTAssertEqual(CLIError.workflowFailed(reason: "").exitCode, .workflowError)
         XCTAssertEqual(CLIError.containerUnavailable.exitCode, .containerError)
         XCTAssertEqual(CLIError.networkError(reason: "").exitCode, .networkError)

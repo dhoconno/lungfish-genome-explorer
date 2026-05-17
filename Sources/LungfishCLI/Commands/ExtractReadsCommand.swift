@@ -202,48 +202,52 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // Exactly one strategy must be selected
         let strategyCount = [byId, byRegion, byDb, byClassifier].filter { $0 }.count
         guard strategyCount == 1 else {
-            throw ValidationError("Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified")
+            throw CLIError.validationFailed(errors: [
+                "Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified"
+            ])
         }
 
         if byId {
             guard idsFile != nil else {
-                throw ValidationError("--ids is required with --by-id")
+                throw CLIError.validationFailed(errors: ["--ids is required with --by-id"])
             }
             guard !sourceFiles.isEmpty else {
-                throw ValidationError("At least one --source file is required with --by-id")
+                throw CLIError.validationFailed(errors: ["At least one --source file is required with --by-id"])
             }
             if keepReadPairs && noKeepReadPairs {
-                throw ValidationError("--keep-read-pairs and --no-keep-read-pairs are mutually exclusive")
+                throw CLIError.validationFailed(errors: ["--keep-read-pairs and --no-keep-read-pairs are mutually exclusive"])
             }
         }
 
         if byRegion {
             guard bamFile != nil else {
-                throw ValidationError("--bam is required with --by-region")
+                throw CLIError.validationFailed(errors: ["--bam is required with --by-region"])
             }
             guard !regions.isEmpty else {
-                throw ValidationError("At least one --region is required with --by-region")
+                throw CLIError.validationFailed(errors: ["At least one --region is required with --by-region"])
             }
         }
 
         if byDb {
             guard databaseFile != nil else {
-                throw ValidationError("--database is required with --by-db")
+                throw CLIError.validationFailed(errors: ["--database is required with --by-db"])
             }
             guard !taxIds.isEmpty || !accessions.isEmpty else {
-                throw ValidationError("At least one --db-taxid or --db-accession is required with --by-db")
+                throw CLIError.validationFailed(errors: ["At least one --db-taxid or --db-accession is required with --by-db"])
             }
         }
 
         if byClassifier {
             guard let toolRaw = classifierTool else {
-                throw ValidationError("--tool is required with --by-classifier")
+                throw CLIError.validationFailed(errors: ["--tool is required with --by-classifier"])
             }
             guard let tool = ClassifierTool(rawValue: toolRaw) else {
-                throw ValidationError("Invalid --tool value '\(toolRaw)'. Must be one of: \(ClassifierTool.allCases.map(\.rawValue).joined(separator: ", "))")
+                throw CLIError.validationFailed(errors: [
+                    "Invalid --tool value '\(toolRaw)'. Must be one of: \(ClassifierTool.allCases.map(\.rawValue).joined(separator: ", "))"
+                ])
             }
             guard classifierResult != nil else {
-                throw ValidationError("--result is required with --by-classifier")
+                throw CLIError.validationFailed(errors: ["--result is required with --by-classifier"])
             }
 
             // Use the flat parsed arrays for the "at least one selection
@@ -257,19 +261,19 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             switch tool {
             case .esviritu, .taxtriage, .naomgs, .nvd:
                 guard hasAccessions else {
-                    throw ValidationError("--tool \(toolRaw) requires at least one --accession")
+                    throw CLIError.validationFailed(errors: ["--tool \(toolRaw) requires at least one --accession"])
                 }
             case .kraken2:
                 guard hasTaxons else {
-                    throw ValidationError("--tool kraken2 requires at least one --taxon")
+                    throw CLIError.validationFailed(errors: ["--tool kraken2 requires at least one --taxon"])
                 }
                 if includeUnmappedMates {
-                    throw ValidationError("--include-unmapped-mates is not supported with --tool kraken2")
+                    throw CLIError.validationFailed(errors: ["--include-unmapped-mates is not supported with --tool kraken2"])
                 }
             }
 
             guard classifierFormat == "fastq" || classifierFormat == "fasta" else {
-                throw ValidationError("--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')")
+                throw CLIError.validationFailed(errors: ["--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')"])
             }
         }
     }

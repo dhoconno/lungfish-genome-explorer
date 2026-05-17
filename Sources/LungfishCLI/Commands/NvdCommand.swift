@@ -65,24 +65,29 @@ struct NvdCommand: AsyncParsableCommand {
         )
         var name: String?
 
+        #if DEBUG
+        var testingCreateProvenanceCollision = false
+        #endif
+
         func run() async throws {
             let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
 
-            guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input directory not found: \(inputPath)"))
                 throw CLIExitCode.inputError.exitCode
             }
 
             // Locate blast_concatenated.csv
             let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
+            guard fileManager.fileExists(atPath: labkeyDir.path) else {
                 print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
                 throw CLIExitCode.inputError.exitCode
             }
 
-            let labkeyContents = try FileManager.default.contentsOfDirectory(
+            let labkeyContents = try fileManager.contentsOfDirectory(
                 at: labkeyDir,
                 includingPropertiesForKeys: nil
             )
@@ -126,8 +131,16 @@ struct NvdCommand: AsyncParsableCommand {
 
             let bundleName = name ?? "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
             let bundleDir = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
+            let stagingBundleDir = outputDirectory.appendingPathComponent(
+                ".lungfish-nvd-import-\(UUID().uuidString)",
+                isDirectory: true
+            )
 
-            try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            guard !fileManager.fileExists(atPath: bundleDir.path) else {
+                print(formatter.error("NVD import output already exists: \(bundleDir.path)"))
+                throw CLIExitCode.outputError.exitCode
+            }
 
             // Write summary JSON
             let encoder = JSONEncoder()
@@ -190,25 +203,58 @@ struct NvdCommand: AsyncParsableCommand {
             )
 
             let manifestData = try encoder.encode(manifest)
-            let manifestURL = bundleDir.appendingPathComponent("manifest.json")
+            let finalManifestURL = bundleDir.appendingPathComponent("manifest.json")
+            let stagingManifestURL = stagingBundleDir.appendingPathComponent("manifest.json")
             do {
-                try manifestData.write(to: manifestURL, options: .atomic)
+                try fileManager.createDirectory(at: stagingBundleDir, withIntermediateDirectories: true)
+                try manifestData.write(to: stagingManifestURL, options: .atomic)
+                let stagingManifestRecord = ProvenanceRecorder.fileRecord(
+                    url: stagingManifestURL,
+                    format: .json,
+                    role: .output
+                )
+                let finalManifestRecord = FileRecord(
+                    path: finalManifestURL.path,
+                    sha256: stagingManifestRecord.sha256,
+                    sizeBytes: stagingManifestRecord.sizeBytes,
+                    format: stagingManifestRecord.format,
+                    role: stagingManifestRecord.role
+                )
+                #if DEBUG
+                if testingCreateProvenanceCollision {
+                    try fileManager.createDirectory(
+                        at: stagingBundleDir.appendingPathComponent(
+                            ProvenanceRecorder.provenanceFilename,
+                            isDirectory: true
+                        ),
+                        withIntermediateDirectories: true
+                    )
+                }
+                #endif
                 try await recordNvdImportProvenance(
                     startedAt: startedAt,
                     inputURL: inputURL,
                     csvURL: csvURL,
                     outputDirectory: outputDirectory,
-                    bundleDir: bundleDir,
+                    provenanceDirectory: stagingBundleDir,
                     bundleName: bundleName,
-                    manifestURL: manifestURL,
+                    manifestRecord: finalManifestRecord,
                     result: result
                 )
+                guard !fileManager.fileExists(atPath: bundleDir.path) else {
+                    throw CLIError.outputWriteFailed(
+                        path: bundleDir.path,
+                        reason: "output bundle appeared before finalization"
+                    )
+                }
+                try fileManager.moveItem(at: stagingBundleDir, to: bundleDir)
             } catch {
+                try? fileManager.removeItem(at: stagingBundleDir)
                 print(formatter.error("Failed to write NVD import output: \(error.localizedDescription)"))
                 throw CLIExitCode.outputError.exitCode
             }
 
-            print(formatter.success("Manifest written to \(manifestURL.path)"))
+            print(formatter.success("Manifest written to \(finalManifestURL.path)"))
             print("")
             print(formatter.success(
                 "Imported \(result.hits.count) BLAST hits from \(result.sampleIds.count) samples into \(bundleName)"
@@ -337,9 +383,9 @@ private func recordNvdImportProvenance(
     inputURL: URL,
     csvURL: URL,
     outputDirectory: URL,
-    bundleDir: URL,
+    provenanceDirectory: URL,
     bundleName: String,
-    manifestURL: URL,
+    manifestRecord: FileRecord,
     result: NvdParseResult
 ) async throws {
     let command = [
@@ -381,13 +427,13 @@ private func recordNvdImportProvenance(
             ProvenanceRecorder.fileRecord(url: csvURL, format: .unknown, role: .input),
         ],
         outputs: [
-            ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output),
+            manifestRecord,
         ],
         exitCode: 0,
         wallTime: Date().timeIntervalSince(startedAt),
         stderr: nil,
         status: .completed,
-        outputDirectory: bundleDir
+        outputDirectory: provenanceDirectory
     )
 }
 

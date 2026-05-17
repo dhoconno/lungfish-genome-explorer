@@ -2018,13 +2018,13 @@ public actor FASTQDerivativeService {
                 rewrittenArgv,
                 replayContext: replayContext
             )
-            let commandArgv = durableArgv ?? execution.result.arguments
+            let reproducibleCommand = durableArgv?.map(shellEscape).joined(separator: " ") ?? ""
             return ProvenanceStep(
                 toolName: execution.tool.executableName,
                 toolVersion: nativeToolVersionString(for: execution),
                 argv: execution.result.arguments,
                 durableReplayArgv: durableArgv,
-                reproducibleCommand: commandArgv.map(shellEscape).joined(separator: " "),
+                reproducibleCommand: reproducibleCommand,
                 inputs: inputs,
                 outputs: [],
                 exitStatus: Int(execution.result.exitCode),

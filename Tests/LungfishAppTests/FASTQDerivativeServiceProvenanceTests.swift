@@ -89,9 +89,10 @@ final class FASTQDerivativeServiceProvenanceTests: XCTestCase {
             fastpStep.durableReplayArgv,
             "The fastp trim step writes an intermediate FASTQ, so it must not fabricate a durable native replay command."
         )
-        XCTAssertTrue(
-            fastpStep.reproducibleCommand.contains("transformed.fastq"),
-            "Native reproducibleCommand should preserve the exact executed intermediate command when no durable native replay exists."
+        XCTAssertEqual(
+            fastpStep.reproducibleCommand,
+            "",
+            "Native reproducibleCommand should be blank when no durable replay command exists; exact executed argv remains in argv."
         )
         XCTAssertFalse(fastpStep.argv.containsSourceOrOutputBundleDirectory(source.bundleURL, outputBundle))
         XCTAssertTrue(fastpStep.toolVersion.contains("0.23.4"))
@@ -510,10 +511,12 @@ private func assertNoTemporaryPaths(
 ) {
     let durableValues = envelope.argv
         + (envelope.durableReplayArgv ?? [])
+        + [envelope.reproducibleCommand]
         + envelope.files.map(\.path)
         + envelope.outputs.map(\.path)
         + envelope.steps.flatMap { step in
             (step.durableReplayArgv ?? [])
+                + [step.reproducibleCommand]
                 + step.inputs.map(\.path)
                 + step.outputs.map(\.path)
         }

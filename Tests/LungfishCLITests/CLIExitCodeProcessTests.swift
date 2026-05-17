@@ -287,6 +287,24 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertTrue(combinedOutput(result).contains("Read ID file not found"))
     }
 
+    func testExtractReadsMissingStrategyExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let output = tempDir.appendingPathComponent("extracted.fastq")
+
+        let result = try runCLI([
+            "extract", "reads",
+            "--output", output.path,
+            "--quiet",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified"))
+    }
+
     func testEsVirituPairedInputCountExitsWithInputError() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
@@ -313,6 +331,28 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertTrue(combinedOutput(result).contains("Paired-end mode requires exactly 2 input files"))
     }
 
+    func testEsVirituMissingInputExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let dbDir = tempDir.appendingPathComponent("esviritu-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbDir, withIntermediateDirectories: true)
+        let outputDir = tempDir.appendingPathComponent("esviritu", isDirectory: true)
+
+        let result = try runCLI([
+            "esviritu", "detect",
+            "--sample", "S1",
+            "--db", dbDir.path,
+            "--output", outputDir.path,
+            "--quiet",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("At least one --input file is required"))
+    }
+
     func testNaoMgsImportMissingInputExitsWithInputError() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
@@ -330,12 +370,39 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertTrue(combinedOutput(result).contains("Input not found"))
     }
 
+    func testTaxTriageMissingInputSelectorExitsWithInputError() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDir = tempDir.appendingPathComponent("taxtriage", isDirectory: true)
+
+        let result = try runCLI([
+            "taxtriage", "run",
+            "--output", outputDir.path,
+            "--quiet",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Provide either --input (with --sample) or --samplesheet"))
+    }
+
     func testArgumentParserErrorsKeepUsageExitCodeAndFormatting() throws {
         let result = try runCLI(["--bad-option"])
 
         XCTAssertEqual(result.exitCode, 64)
         XCTAssertEqual(result.stdout, "")
         assertSingleErrorLine(in: result.stderr, diagnostic: "Unknown option '--bad-option'")
+        XCTAssertTrue(result.stderr.contains("Usage: lungfish"))
+    }
+
+    func testArgumentParserErrorsContainingValidationTextKeepUsageExitCode() throws {
+        let result = try runCLI(["--Validation failed:"])
+
+        XCTAssertEqual(result.exitCode, 64)
+        XCTAssertEqual(result.stdout, "")
+        assertSingleErrorLine(in: result.stderr, diagnostic: "Unknown option '--Validation failed:'")
         XCTAssertTrue(result.stderr.contains("Usage: lungfish"))
     }
 

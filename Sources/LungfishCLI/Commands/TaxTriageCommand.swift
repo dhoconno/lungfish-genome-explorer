@@ -189,7 +189,7 @@ extension TaxTriageCommand {
                 ? Array(arguments.dropFirst())
                 : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
-                throw ValidationError("Failed to parse taxtriage run arguments.")
+                throw CLIError.validationFailed(errors: ["Failed to parse taxtriage run arguments."])
             }
             return parsed
         }
@@ -197,24 +197,16 @@ extension TaxTriageCommand {
         func validate() throws {
             // Must provide either --input or --samplesheet
             if input == nil && samplesheet == nil {
-                throw ValidationError(
-                    "Provide either --input (with --sample) or --samplesheet"
-                )
+                throw CLIError.validationFailed(errors: ["Provide either --input (with --sample) or --samplesheet"])
             }
             if input != nil && samplesheet != nil {
-                throw ValidationError(
-                    "Cannot use both --input and --samplesheet"
-                )
+                throw CLIError.validationFailed(errors: ["Cannot use both --input and --samplesheet"])
             }
             if input != nil && sampleId == nil {
-                throw ValidationError(
-                    "--sample is required when using --input"
-                )
+                throw CLIError.validationFailed(errors: ["--sample is required when using --input"])
             }
             if skipAssembly && noSkipAssembly {
-                throw ValidationError(
-                    "Cannot use both --skip-assembly and --no-skip-assembly"
-                )
+                throw CLIError.validationFailed(errors: ["Cannot use both --skip-assembly and --no-skip-assembly"])
             }
         }
 

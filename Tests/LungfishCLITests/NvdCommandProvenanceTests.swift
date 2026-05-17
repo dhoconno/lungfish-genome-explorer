@@ -1,4 +1,5 @@
 import XCTest
+import ArgumentParser
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 
@@ -59,6 +60,66 @@ final class NvdCommandProvenanceTests: XCTestCase {
         XCTAssertNotNil(output.checksumSHA256)
         XCTAssertGreaterThan(output.fileSize ?? 0, 0)
         XCTAssertTrue(envelope.reproducibleCommand.contains("lungfish nvd import"))
+    }
+
+    func testImportRemovesPartialBundleWhenProvenanceWriteFails() async throws {
+        let nvdDir = try makeNvdRunDirectory()
+        let outputDir = tempDir.appendingPathComponent("imports", isDirectory: true)
+        let bundleDir = outputDir.appendingPathComponent("ImportedNVD", isDirectory: true)
+
+        var command = try NvdCommand.ImportSubcommand.parse([
+            nvdDir.path,
+            "--output-dir", outputDir.path,
+            "--name", "ImportedNVD",
+            "--quiet",
+        ])
+        command.testingCreateProvenanceCollision = true
+
+        do {
+            try await command.run()
+            XCTFail("Expected NVD import to fail when canonical provenance cannot be written")
+        } catch let exitCode as ExitCode {
+            XCTAssertEqual(exitCode.rawValue, CLIExitCode.outputError.rawValue)
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: bundleDir.path),
+            "A failed provenance write must not leave an NVD scientific output bundle without provenance."
+        )
+        XCTAssertEqual(
+            (try? FileManager.default.contentsOfDirectory(atPath: outputDir.path)) ?? [],
+            [],
+            "Failed NVD imports should remove their staging bundle."
+        )
+    }
+
+    func testImportDoesNotDeleteExistingBundleWhenOutputExists() async throws {
+        let nvdDir = try makeNvdRunDirectory()
+        let outputDir = tempDir.appendingPathComponent("imports", isDirectory: true)
+        let bundleDir = outputDir.appendingPathComponent("ImportedNVD", isDirectory: true)
+        let sentinelURL = bundleDir.appendingPathComponent("sentinel.txt")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        try "keep me".write(to: sentinelURL, atomically: true, encoding: .utf8)
+
+        let command = try NvdCommand.ImportSubcommand.parse([
+            nvdDir.path,
+            "--output-dir", outputDir.path,
+            "--name", "ImportedNVD",
+            "--quiet",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected NVD import to reject an existing output bundle")
+        } catch let exitCode as ExitCode {
+            XCTAssertEqual(exitCode.rawValue, CLIExitCode.outputError.rawValue)
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: sentinelURL, encoding: .utf8),
+            "keep me",
+            "Rejecting an existing output must not delete durable user data."
+        )
     }
 
     private func makeNvdRunDirectory() throws -> URL {
