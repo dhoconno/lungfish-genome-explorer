@@ -122,7 +122,11 @@ public enum GUIImportedProvenanceRehydrator {
                 toolVersion: step.toolVersion,
                 argv: step.argv,
                 durableReplayArgv: stepReplayArgv,
-                reproducibleCommand: commandLine(from: stepReplayArgv),
+                reproducibleCommand: commandLine(
+                    from: stepReplayArgv,
+                    fallback: step.reproducibleCommand,
+                    pathMap: standardizedPathMap
+                ),
                 inputs: step.inputs,
                 outputs: try step.outputs.map {
                     try rewriteOutputDescriptor(
@@ -151,8 +155,12 @@ public enum GUIImportedProvenanceRehydrator {
             tool: envelope.tool,
             argv: envelope.argv,
             durableReplayArgv: replayArgv,
-            reproducibleCommand: commandLine(from: replayArgv),
-            options: envelope.options,
+            reproducibleCommand: commandLine(
+                from: replayArgv,
+                fallback: envelope.reproducibleCommand,
+                pathMap: standardizedPathMap
+            ),
+            options: rewriteOptions(envelope.options, pathMap: standardizedPathMap),
             runtimeIdentity: envelope.runtimeIdentity,
             files: files,
             output: output,
@@ -247,6 +255,13 @@ public enum GUIImportedProvenanceRehydrator {
     ) -> [String: String] {
         var pathMap: [String: String] = [:]
         let sourcePaths = outputPaths(from: envelope)
+            .filter {
+                isRelevantCopiedOutputPath(
+                    $0,
+                    sourceURL: sourceURL,
+                    sourceRoot: sourceRoot
+                )
+            }
         let standardizedSourceURL = sourceURL.standardizedFileURL.path
         let standardizedSourceRoot = sourceRoot.standardizedFileURL.path
         let standardizedDestinationURL = destinationURL.standardizedFileURL.path
@@ -283,6 +298,47 @@ public enum GUIImportedProvenanceRehydrator {
         paths.append(contentsOf: envelope.files.filter { $0.role == .output }.map(\.path))
         var seen = Set<String>()
         return paths.filter { seen.insert($0).inserted }
+    }
+
+    private static func isRelevantCopiedOutputPath(
+        _ path: String,
+        sourceURL: URL,
+        sourceRoot: URL
+    ) -> Bool {
+        let standardizedSourceURL = sourceURL.standardizedFileURL.path
+        let standardizedSourceRoot = sourceRoot.standardizedFileURL.path
+
+        if path.hasPrefix("/") == false {
+            if ProvenanceWriter.isBundleDirectory(sourceURL) {
+                return true
+            }
+            if path == sourceURL.lastPathComponent {
+                return true
+            }
+            let sourceRootRelativePath = relativePath(
+                for: sourceURL.standardizedFileURL.path,
+                under: standardizedSourceRoot
+            )
+            return sourceRootRelativePath == path
+        }
+
+        let standardizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        if standardizedPath == standardizedSourceURL {
+            return true
+        }
+        guard isDirectory(sourceURL) else {
+            return false
+        }
+        let copiedPrefix = standardizedSourceURL.hasSuffix("/")
+            ? standardizedSourceURL
+            : standardizedSourceURL + "/"
+        return standardizedPath.hasPrefix(copiedPrefix)
+    }
+
+    private static func relativePath(for path: String, under root: String) -> String? {
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        return String(path.dropFirst(prefix.count))
     }
 
     private static func mappedDestinationPath(
@@ -478,8 +534,60 @@ public enum GUIImportedProvenanceRehydrator {
         argv.map(shellEscape).joined(separator: " ")
     }
 
+    private static func commandLine(
+        from argv: [String],
+        fallback: String,
+        pathMap: [String: String]
+    ) -> String {
+        if !argv.isEmpty {
+            return commandLine(from: argv)
+        }
+        return rewriteShellLikeString(fallback, pathMap: pathMap)
+    }
+
+    private static func rewriteOptions(_ options: ProvenanceOptions, pathMap: [String: String]) -> ProvenanceOptions {
+        ProvenanceOptions(
+            explicit: options.explicit.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
+            defaults: options.defaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
+            resolvedDefaults: options.resolvedDefaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) }
+        )
+    }
+
+    private static func rewriteParameterValue(_ value: ParameterValue, pathMap: [String: String]) -> ParameterValue {
+        switch value {
+        case .file(let url):
+            let rewritten = rewriteArgument(url.path, pathMap: pathMap)
+            return .file(URL(fileURLWithPath: rewritten))
+        case .string(let string):
+            return .string(rewriteShellLikeString(string, pathMap: pathMap))
+        case .array(let values):
+            return .array(values.map { rewriteParameterValue($0, pathMap: pathMap) })
+        case .dictionary(let values):
+            return .dictionary(values.mapValues { rewriteParameterValue($0, pathMap: pathMap) })
+        case .integer, .number, .boolean, .null:
+            return value
+        }
+    }
+
+    private static func rewriteShellLikeString(_ string: String, pathMap: [String: String]) -> String {
+        do {
+            let arguments = try AdvancedCommandLineOptions.parse(string)
+            let rewritten = rewriteArguments(arguments, pathMap: pathMap)
+            guard rewritten != arguments else {
+                return rewriteArgument(string, pathMap: pathMap)
+            }
+            return commandLine(from: rewritten)
+        } catch {
+            return rewriteArgument(string, pathMap: pathMap)
+        }
+    }
+
     private static func isRegularFile(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+    }
+
+    private static func isDirectory(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     private static func deduplicated(

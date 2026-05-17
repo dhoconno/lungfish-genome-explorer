@@ -125,6 +125,68 @@ final class GUIImportedProvenanceRehydratorTests: XCTestCase {
         XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
     }
 
+    func testImportedSinglePayloadFromMultiOutputSidecarDoesNotRequireSiblingOutputsToBeCopied() throws {
+        let tempDir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let stagingDirectory = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let bundleURL = tempDir.appendingPathComponent("Project/Multi.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: stagingDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        let copiedSource = stagingDirectory.appendingPathComponent("copied.fastq")
+        let siblingSource = stagingDirectory.appendingPathComponent("sibling.fastq")
+        let copiedDestination = bundleURL.appendingPathComponent("copied.fastq")
+        try Data("@copied\nACGT\n+\n!!!!\n".utf8).write(to: copiedSource, options: .atomic)
+        try Data("@sibling\nTGCA\n+\n!!!!\n".utf8).write(to: siblingSource, options: .atomic)
+        try Data("@copied\nACGT\n+\n!!!!\n".utf8).write(to: copiedDestination, options: .atomic)
+
+        let sourceSidecarURL = ProvenanceRecorder.fileSidecarURL(for: copiedSource)
+        let cliEnvelope = try ProvenanceRunBuilder(
+            workflowName: "CLI Multi FASTQ Export",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish-cli", "fetch", "multi", "--output", copiedSource.path])
+        .output(copiedSource, format: .fastq, role: .output)
+        .output(siblingSource, format: .fastq, role: .output)
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish-cli", "fetch", "multi", "--output", copiedSource.path],
+                outputs: [
+                    try ProvenanceFileDescriptor.file(url: copiedSource, format: .fastq, role: .output),
+                    try ProvenanceFileDescriptor.file(url: siblingSource, format: .fastq, role: .output)
+                ],
+                exitStatus: 0,
+                wallTimeSeconds: 2
+            )
+        )
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 30),
+            endedAt: Date(timeIntervalSince1970: 32)
+        )
+        try ProvenanceWriter(signingProvider: nil).write(cliEnvelope, toSidecar: sourceSidecarURL)
+
+        let rehydrated = try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(
+            from: copiedSource,
+            to: copiedDestination
+        )
+
+        XCTAssertEqual(rehydrated.output?.path, copiedDestination.path)
+        XCTAssertEqual(rehydrated.outputs.map(\.path), [copiedDestination.path])
+        XCTAssertEqual(rehydrated.steps[0].outputs.map(\.path), [copiedDestination.path])
+        XCTAssertFalse(rehydrated.files.contains { $0.role == .output && $0.path.hasSuffix("sibling.fastq") })
+
+        let stored = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(stored.outputs.map(\.path), [copiedDestination.path])
+        XCTAssertEqual(stored.steps.map(\.toolName), ["lungfish-cli", "lungfish-app"])
+    }
+
     private func makeTempDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("gui-imported-provenance-\(UUID().uuidString)", isDirectory: true)

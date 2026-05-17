@@ -649,10 +649,14 @@ public enum FASTQIngestionService {
             parameters: parameters
         )
         let ingestionEnvelope = run.canonicalEnvelope()
-        let existingEnvelope = try ProvenanceEnvelopeReader.load(from: outputDirectory)
-        let envelopeToWrite = try existingEnvelope.map {
+        let existingProvenance = try existingInPlaceIngestionProvenance(
+            outputDirectory: outputDirectory,
+            inputFiles: config.inputFiles
+        )
+        let envelopeToWrite = try existingProvenance.map {
             try mergedInPlaceIngestionEnvelope(
-                existingEnvelope: $0,
+                existingEnvelope: $0.envelope,
+                sourceProvenanceURL: $0.sourceURL,
                 ingestionEnvelope: ingestionEnvelope,
                 replacedInputFiles: config.inputFiles,
                 finalFASTQURL: result.outputFile
@@ -661,8 +665,36 @@ public enum FASTQIngestionService {
         try ProvenanceWriter(signingProvider: nil).write(envelopeToWrite, to: outputDirectory)
     }
 
+    nonisolated private static func existingInPlaceIngestionProvenance(
+        outputDirectory: URL,
+        inputFiles: [URL]
+    ) throws -> (envelope: ProvenanceEnvelope, sourceURL: URL?)? {
+        let rootProvenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        if let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: rootProvenanceURL) {
+            return (envelope, rootProvenanceURL)
+        }
+
+        var candidates: [URL] = []
+        for inputFile in inputFiles {
+            candidates.append(ProvenanceRecorder.fileSidecarURL(for: inputFile))
+            if let bundleSidecarURL = ProvenanceWriter.bundleOutputSidecarURL(for: inputFile, inBundle: outputDirectory) {
+                candidates.append(bundleSidecarURL)
+            }
+        }
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate.standardizedFileURL.path).inserted {
+            guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidate) else {
+                continue
+            }
+            return (envelope, candidate)
+        }
+        return nil
+    }
+
     nonisolated private static func mergedInPlaceIngestionEnvelope(
         existingEnvelope: ProvenanceEnvelope,
+        sourceProvenanceURL: URL?,
         ingestionEnvelope: ProvenanceEnvelope,
         replacedInputFiles: [URL],
         finalFASTQURL: URL
@@ -676,7 +708,8 @@ public enum FASTQIngestionService {
             ? existingEnvelope
             : try GUIImportedProvenanceRehydrator.rewriteOutputDescriptors(
                 in: existingEnvelope,
-                pathMap: pathMap
+                pathMap: pathMap,
+                sourceProvenancePath: sourceProvenanceURL?.path
             )
         let output = ingestionEnvelope.output ?? rewrittenExisting.output
         let outputs = deduplicatedProvenanceFiles(rewrittenExisting.outputs + ingestionEnvelope.outputs)
