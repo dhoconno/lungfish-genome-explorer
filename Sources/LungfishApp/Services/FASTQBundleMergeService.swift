@@ -35,12 +35,22 @@ enum FASTQBundleMergeService {
     private enum MergeMode {
         case virtualSingleEnd
         case physical
+
+        var provenanceName: String {
+            switch self {
+            case .virtualSingleEnd:
+                return "virtual-single-end"
+            case .physical:
+                return "materialized"
+            }
+        }
     }
 
     private struct ResolvedInput {
         let fastqURLs: [URL]
         let pairingMode: IngestionMetadata.PairingMode
         let originalFilenames: [String]
+        let provenanceSteps: [ProvenanceStep]
     }
 
     static func merge(
@@ -48,10 +58,25 @@ enum FASTQBundleMergeService {
         outputDirectory: URL,
         bundleName: String
     ) async throws -> URL {
+        try await merge(
+            sourceBundleURLs: sourceBundleURLs,
+            outputDirectory: outputDirectory,
+            bundleName: bundleName,
+            provenanceWriter: .live
+        )
+    }
+
+    static func merge(
+        sourceBundleURLs: [URL],
+        outputDirectory: URL,
+        bundleName: String,
+        provenanceWriter: BundleMergeProvenanceSidecarWriter
+    ) async throws -> URL {
         guard sourceBundleURLs.count >= 2 else {
             throw FASTQBundleMergeServiceError.requiresAtLeastTwoBundles
         }
 
+        let startedAt = Date()
         let bundleURL = try makeOutputBundleURL(
             outputDirectory: outputDirectory,
             bundleName: bundleName
@@ -66,6 +91,7 @@ enum FASTQBundleMergeService {
 
         do {
             let mergeMode = determineMode(for: sourceBundleURLs)
+            let nestedSteps: [ProvenanceStep]
             switch mergeMode {
             case .virtualSingleEnd:
                 try await createVirtualBundle(
@@ -73,14 +99,25 @@ enum FASTQBundleMergeService {
                     sourceBundleURLs: sourceBundleURLs,
                     bundleName: bundleName
                 )
+                nestedSteps = []
             case .physical:
-                try await createPhysicalBundle(
+                nestedSteps = try await createPhysicalBundle(
                     at: bundleURL,
                     sourceBundleURLs: sourceBundleURLs,
                     outputDirectory: outputDirectory,
                     bundleName: bundleName
                 )
             }
+            try writeMergeProvenance(
+                sourceBundleURLs: sourceBundleURLs,
+                bundleURL: bundleURL,
+                bundleName: bundleName,
+                mergeMode: mergeMode,
+                startedAt: startedAt,
+                completedAt: Date(),
+                nestedSteps: nestedSteps,
+                provenanceWriter: provenanceWriter
+            )
             return bundleURL
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
@@ -162,7 +199,7 @@ enum FASTQBundleMergeService {
         sourceBundleURLs: [URL],
         outputDirectory: URL,
         bundleName: String
-    ) async throws {
+    ) async throws -> [ProvenanceStep] {
         let tempDirectory = try ProjectTempDirectory.createFromContext(
             prefix: "fastq-merge-",
             contextURL: outputDirectory
@@ -199,10 +236,14 @@ enum FASTQBundleMergeService {
         FileManager.default.createFile(atPath: outputFASTQ.path, contents: nil)
 
         let outputHandle = try FileHandle(forWritingTo: outputFASTQ)
-        defer { try? outputHandle.close() }
-
-        for inputURL in flattenedInputs {
-            try appendFile(at: inputURL, to: outputHandle)
+        do {
+            for inputURL in flattenedInputs {
+                try appendFile(at: inputURL, to: outputHandle)
+            }
+            try outputHandle.close()
+        } catch {
+            try? outputHandle.close()
+            throw error
         }
 
         FASTQMetadataStore.save(
@@ -219,6 +260,7 @@ enum FASTQBundleMergeService {
             FASTQSampleMetadata(sampleName: bundleName).toLegacyCSV(),
             to: bundleURL
         )
+        return normalizeTransientNativeSteps(resolvedInputs.flatMap(\.provenanceSteps))
     }
 
     private static func resolvePhysicalMergeInput(
@@ -233,11 +275,12 @@ enum FASTQBundleMergeService {
                 let interleavedURL = tempDirectory.appendingPathComponent(
                     "interleaved-\(UUID().uuidString).fastq"
                 )
-                try await interleavePairedInputs(r1: r1, r2: r2, outputURL: interleavedURL)
+                let step = try await interleavePairedInputs(r1: r1, r2: r2, outputURL: interleavedURL)
                 return ResolvedInput(
                     fastqURLs: [interleavedURL],
                     pairingMode: .interleaved,
-                    originalFilenames: [r1.lastPathComponent, r2.lastPathComponent]
+                    originalFilenames: [r1.lastPathComponent, r2.lastPathComponent],
+                    provenanceSteps: [step]
                 )
             }
             throw FASTQBundleMergeServiceError.unsupportedReadComposition(
@@ -256,7 +299,8 @@ enum FASTQBundleMergeService {
             return ResolvedInput(
                 fastqURLs: [materializedURL],
                 pairingMode: normalizedPairing,
-                originalFilenames: [materializedURL.lastPathComponent]
+                originalFilenames: [materializedURL.lastPathComponent],
+                provenanceSteps: []
             )
         }
 
@@ -277,7 +321,7 @@ enum FASTQBundleMergeService {
             let interleavedURL = tempDirectory.appendingPathComponent(
                 "interleaved-\(UUID().uuidString).fastq"
             )
-            try await interleavePairedInputs(
+            let step = try await interleavePairedInputs(
                 r1: physicalURLs[0],
                 r2: physicalURLs[1],
                 outputURL: interleavedURL
@@ -285,14 +329,16 @@ enum FASTQBundleMergeService {
             return ResolvedInput(
                 fastqURLs: [interleavedURL],
                 pairingMode: .interleaved,
-                originalFilenames: physicalURLs.map(\.lastPathComponent)
+                originalFilenames: physicalURLs.map(\.lastPathComponent),
+                provenanceSteps: [step]
             )
         }
 
         return ResolvedInput(
             fastqURLs: physicalURLs,
             pairingMode: pairing,
-            originalFilenames: physicalURLs.map(\.lastPathComponent)
+            originalFilenames: physicalURLs.map(\.lastPathComponent),
+            provenanceSteps: []
         )
     }
 
@@ -300,7 +346,8 @@ enum FASTQBundleMergeService {
         r1: URL,
         r2: URL,
         outputURL: URL
-    ) async throws {
+    ) async throws -> ProvenanceStep {
+        let startedAt = Date()
         let runner = NativeToolRunner.shared
         let result = try await runner.run(
             .reformat,
@@ -316,6 +363,51 @@ enum FASTQBundleMergeService {
         guard result.isSuccess else {
             throw FASTQBundleMergeServiceError.toolFailed(
                 "reformat.sh interleave failed: \(result.stderr)"
+            )
+        }
+        return ProvenanceStep(
+            toolName: NativeTool.reformat.executableName,
+            toolVersion: NativeToolRunner.bundledVersions[NativeTool.reformat.rawValue] ?? "unknown",
+            argv: result.arguments,
+            durableReplayArgv: result.arguments,
+            inputs: try [
+                ProvenanceFileDescriptor.file(url: r1, format: .fastq, role: .input),
+                ProvenanceFileDescriptor.file(url: r2, format: .fastq, role: .input),
+            ],
+            outputs: [
+                try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output),
+            ],
+            exitStatus: Int(result.exitCode),
+            wallTimeSeconds: max(0, Date().timeIntervalSince(startedAt)),
+            stderr: result.stderr,
+            startedAt: startedAt,
+            completedAt: Date()
+        )
+    }
+
+    private static func normalizeTransientNativeSteps(
+        _ steps: [ProvenanceStep]
+    ) -> [ProvenanceStep] {
+        steps.map { step in
+            guard step.toolName == NativeTool.reformat.executableName else {
+                return step
+            }
+
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: nil,
+                reproducibleCommand: BundleMergeProvenance.commandLine(from: step.argv),
+                inputs: step.inputs,
+                outputs: [],
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
             )
         }
     }
@@ -422,6 +514,143 @@ enum FASTQBundleMergeService {
             if chunk.isEmpty { break }
             outputHandle.write(chunk)
         }
+    }
+
+    private static func writeMergeProvenance(
+        sourceBundleURLs: [URL],
+        bundleURL: URL,
+        bundleName: String,
+        mergeMode: MergeMode,
+        startedAt: Date,
+        completedAt: Date,
+        nestedSteps: [ProvenanceStep],
+        provenanceWriter: BundleMergeProvenanceSidecarWriter
+    ) throws {
+        let inputPayloadURLs = sourceBundleURLs.flatMap(provenanceInputURLs(in:))
+        let outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
+        try BundleMergeProvenance.write(
+            request: BundleMergeProvenance.Request(
+                workflowName: "lungfish fastq merge",
+                sourceBundleURLs: sourceBundleURLs,
+                inputPayloadURLs: inputPayloadURLs,
+                outputBundleURL: bundleURL,
+                outputPayloadURLs: outputPayloadURLs,
+                bundleName: bundleName,
+                mergeMode: mergeMode.provenanceName,
+                defaults: [
+                    "previewMaxReads": .integer(1_000),
+                    "pairedEndNormalization": .string("interleave paired-end sources"),
+                ],
+                resolvedDefaults: [
+                    "previewMaxReads": .integer(1_000),
+                    "pairedEndNormalization": .string("interleave paired-end sources"),
+                ],
+                nestedSteps: nestedSteps,
+                startedAt: startedAt,
+                completedAt: completedAt
+            ),
+            sidecarWriter: provenanceWriter
+        )
+    }
+
+    private static func provenanceInputURLs(in bundleURL: URL) -> [URL] {
+        var urls: [URL] = []
+
+        if let derivedManifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+            urls.append(FASTQBundle.derivedManifestURL(in: bundleURL))
+            urls.append(contentsOf: derivedPayloadURLs(in: bundleURL, manifest: derivedManifest))
+
+            let rootBundleURL = FASTQBundle.resolveBundle(
+                relativePath: derivedManifest.rootBundleRelativePath,
+                from: bundleURL
+            )
+            if FASTQBundle.isBundleURL(rootBundleURL) {
+                if FASTQSourceFileManifest.exists(in: rootBundleURL) {
+                    urls.append(rootBundleURL.appendingPathComponent(FASTQSourceFileManifest.filename))
+                }
+                urls.append(contentsOf: physicalFASTQURLs(in: rootBundleURL))
+            }
+            return uniqueExistingURLs(urls)
+        }
+
+        if let classifiedURLs = FASTQBundle.classifiedFileURLs(for: bundleURL) {
+            urls.append(bundleURL.appendingPathComponent(ReadManifest.filename))
+            urls.append(contentsOf: classifiedURLs.values)
+            return uniqueExistingURLs(urls)
+        }
+
+        let physicalURLs = physicalFASTQURLs(in: bundleURL)
+        if !physicalURLs.isEmpty {
+            if FASTQSourceFileManifest.exists(in: bundleURL) {
+                urls.append(bundleURL.appendingPathComponent(FASTQSourceFileManifest.filename))
+            }
+            urls.append(contentsOf: physicalURLs)
+            return uniqueExistingURLs(urls)
+        }
+
+        if let sequenceURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL) {
+            return [sequenceURL]
+        }
+
+        let derivedManifestURL = FASTQBundle.derivedManifestURL(in: bundleURL)
+        if FileManager.default.fileExists(atPath: derivedManifestURL.path) {
+            return [derivedManifestURL]
+        }
+
+        return physicalFASTQURLs(in: bundleURL)
+    }
+
+    private static func derivedPayloadURLs(
+        in bundleURL: URL,
+        manifest: FASTQDerivedBundleManifest
+    ) -> [URL] {
+        switch manifest.payload {
+        case .subset(let readIDListFilename):
+            return [bundleURL.appendingPathComponent(readIDListFilename)]
+        case .trim(let trimPositionFilename):
+            return [bundleURL.appendingPathComponent(trimPositionFilename)]
+        case .full(let fastqFilename):
+            return [bundleURL.appendingPathComponent(fastqFilename)]
+        case .fullPaired(let r1Filename, let r2Filename):
+            return [
+                bundleURL.appendingPathComponent(r1Filename),
+                bundleURL.appendingPathComponent(r2Filename),
+            ]
+        case .fullMixed(let classification):
+            return classification.files.map { bundleURL.appendingPathComponent($0.filename) }
+        case .fullFASTA(let fastaFilename):
+            return [bundleURL.appendingPathComponent(fastaFilename)]
+        case .demuxedVirtual(_, let readIDListFilename, let previewFilename, let trimPositionsFilename, let orientMapFilename):
+            return [
+                bundleURL.appendingPathComponent(readIDListFilename),
+                bundleURL.appendingPathComponent(previewFilename),
+                trimPositionsFilename.map { bundleURL.appendingPathComponent($0) },
+                orientMapFilename.map { bundleURL.appendingPathComponent($0) },
+            ].compactMap { $0 }
+        case .demuxGroup:
+            return []
+        case .orientMap(let orientMapFilename, let previewFilename):
+            return [
+                bundleURL.appendingPathComponent(orientMapFilename),
+                bundleURL.appendingPathComponent(previewFilename),
+            ]
+        }
+    }
+
+    private static func uniqueExistingURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var result: [URL] = []
+        for url in urls {
+            let standardized = url.standardizedFileURL
+            guard FileManager.default.fileExists(atPath: standardized.path) else {
+                continue
+            }
+            guard seen.insert(standardized.path).inserted else {
+                continue
+            }
+            result.append(standardized)
+        }
+        return result.sorted { $0.path < $1.path }
     }
 
     private static func fileSize(at url: URL) -> Int64 {
