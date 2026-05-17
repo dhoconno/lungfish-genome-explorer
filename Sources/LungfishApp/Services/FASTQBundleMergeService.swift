@@ -35,6 +35,15 @@ enum FASTQBundleMergeService {
     private enum MergeMode {
         case virtualSingleEnd
         case physical
+
+        var provenanceName: String {
+            switch self {
+            case .virtualSingleEnd:
+                return "virtual-single-end"
+            case .physical:
+                return "materialized"
+            }
+        }
     }
 
     private struct ResolvedInput {
@@ -48,10 +57,25 @@ enum FASTQBundleMergeService {
         outputDirectory: URL,
         bundleName: String
     ) async throws -> URL {
+        try await merge(
+            sourceBundleURLs: sourceBundleURLs,
+            outputDirectory: outputDirectory,
+            bundleName: bundleName,
+            provenanceWriter: .live
+        )
+    }
+
+    static func merge(
+        sourceBundleURLs: [URL],
+        outputDirectory: URL,
+        bundleName: String,
+        provenanceWriter: BundleMergeProvenanceSidecarWriter
+    ) async throws -> URL {
         guard sourceBundleURLs.count >= 2 else {
             throw FASTQBundleMergeServiceError.requiresAtLeastTwoBundles
         }
 
+        let startedAt = Date()
         let bundleURL = try makeOutputBundleURL(
             outputDirectory: outputDirectory,
             bundleName: bundleName
@@ -81,6 +105,15 @@ enum FASTQBundleMergeService {
                     bundleName: bundleName
                 )
             }
+            try writeMergeProvenance(
+                sourceBundleURLs: sourceBundleURLs,
+                bundleURL: bundleURL,
+                bundleName: bundleName,
+                mergeMode: mergeMode,
+                startedAt: startedAt,
+                completedAt: Date(),
+                provenanceWriter: provenanceWriter
+            )
             return bundleURL
         } catch {
             try? FileManager.default.removeItem(at: bundleURL)
@@ -422,6 +455,65 @@ enum FASTQBundleMergeService {
             if chunk.isEmpty { break }
             outputHandle.write(chunk)
         }
+    }
+
+    private static func writeMergeProvenance(
+        sourceBundleURLs: [URL],
+        bundleURL: URL,
+        bundleName: String,
+        mergeMode: MergeMode,
+        startedAt: Date,
+        completedAt: Date,
+        provenanceWriter: BundleMergeProvenanceSidecarWriter
+    ) throws {
+        let inputPayloadURLs = sourceBundleURLs.flatMap(provenanceInputURLs(in:))
+        let outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
+        try BundleMergeProvenance.write(
+            request: BundleMergeProvenance.Request(
+                workflowName: "lungfish fastq merge",
+                sourceBundleURLs: sourceBundleURLs,
+                inputPayloadURLs: inputPayloadURLs,
+                outputBundleURL: bundleURL,
+                outputPayloadURLs: outputPayloadURLs,
+                bundleName: bundleName,
+                mergeMode: mergeMode.provenanceName,
+                defaults: [
+                    "previewMaxReads": .integer(1_000),
+                    "pairedEndNormalization": .string("interleave paired-end sources"),
+                ],
+                resolvedDefaults: [
+                    "previewMaxReads": .integer(1_000),
+                    "pairedEndNormalization": .string("interleave paired-end sources"),
+                ],
+                startedAt: startedAt,
+                completedAt: completedAt
+            ),
+            sidecarWriter: provenanceWriter
+        )
+    }
+
+    private static func provenanceInputURLs(in bundleURL: URL) -> [URL] {
+        if let classifiedURLs = FASTQBundle.classifiedFileURLs(for: bundleURL) {
+            return classifiedURLs.values.sorted {
+                $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+            }
+        }
+
+        if let urls = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+           !urls.isEmpty {
+            return urls
+        }
+
+        if let sequenceURL = FASTQBundle.resolvePrimarySequenceURL(for: bundleURL) {
+            return [sequenceURL]
+        }
+
+        let derivedManifestURL = FASTQBundle.derivedManifestURL(in: bundleURL)
+        if FileManager.default.fileExists(atPath: derivedManifestURL.path) {
+            return [derivedManifestURL]
+        }
+
+        return physicalFASTQURLs(in: bundleURL)
     }
 
     private static func fileSize(at url: URL) -> Int64 {
