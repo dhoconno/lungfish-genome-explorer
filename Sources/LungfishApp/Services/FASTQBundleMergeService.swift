@@ -236,10 +236,14 @@ enum FASTQBundleMergeService {
         FileManager.default.createFile(atPath: outputFASTQ.path, contents: nil)
 
         let outputHandle = try FileHandle(forWritingTo: outputFASTQ)
-        defer { try? outputHandle.close() }
-
-        for inputURL in flattenedInputs {
-            try appendFile(at: inputURL, to: outputHandle)
+        do {
+            for inputURL in flattenedInputs {
+                try appendFile(at: inputURL, to: outputHandle)
+            }
+            try outputHandle.close()
+        } catch {
+            try? outputHandle.close()
+            throw error
         }
 
         FASTQMetadataStore.save(
@@ -256,7 +260,7 @@ enum FASTQBundleMergeService {
             FASTQSampleMetadata(sampleName: bundleName).toLegacyCSV(),
             to: bundleURL
         )
-        return resolvedInputs.flatMap(\.provenanceSteps)
+        return normalizeTransientNativeSteps(resolvedInputs.flatMap(\.provenanceSteps))
     }
 
     private static func resolvePhysicalMergeInput(
@@ -379,6 +383,33 @@ enum FASTQBundleMergeService {
             startedAt: startedAt,
             completedAt: Date()
         )
+    }
+
+    private static func normalizeTransientNativeSteps(
+        _ steps: [ProvenanceStep]
+    ) -> [ProvenanceStep] {
+        steps.map { step in
+            guard step.toolName == NativeTool.reformat.executableName else {
+                return step
+            }
+
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: step.argv,
+                durableReplayArgv: nil,
+                reproducibleCommand: BundleMergeProvenance.commandLine(from: step.argv),
+                inputs: step.inputs,
+                outputs: [],
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
     }
 
     private static func writePreview(

@@ -150,6 +150,7 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
         )
 
         let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        let mergedFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: mergedURL))
         assertProvenanceInputs(
             provenance,
             include: [
@@ -163,12 +164,26 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
             step.toolName == "reformat.sh" || step.argv.contains { $0.contains("reformat.sh") }
         }
         XCTAssertEqual(reformatSteps.count, 2)
+        let mergedFASTQPath = canonicalPath(mergedFASTQ.path)
         for step in reformatSteps {
             XCTAssertTrue(step.argv.contains { $0.contains("in1=") })
             XCTAssertTrue(step.argv.contains { $0.contains("in2=") })
             XCTAssertTrue(step.argv.contains { $0.contains("out=") })
+            XCTAssertNil(step.durableReplayArgv)
+            XCTAssertTrue(step.outputs.isEmpty)
             XCTAssertNotNil(step.stderr)
+
+            let exactNativeText = (step.argv + [step.reproducibleCommand]).joined(separator: "\n")
+            XCTAssertTrue(exactNativeText.contains("fastq-merge-"))
+            XCTAssertTrue(exactNativeText.contains("interleaved-"))
         }
+
+        let mergeStep = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == "lungfish fastq merge" }
+        )
+        XCTAssertTrue(provenance.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
+        XCTAssertTrue(mergeStep.outputs.contains { canonicalPath($0.path) == mergedFASTQPath })
+        XCTAssertTrue(mergeStep.durableReplayArgv?.contains(mergedURL.path) == true)
     }
 
     func testMergeProvenanceRecordsDerivedBundleManifestAndPayloadInputs() async throws {
@@ -323,6 +338,10 @@ final class FASTQBundleMergeServiceTests: XCTestCase {
             .appendingPathComponent("FASTQBundleMergeServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         return root
+    }
+
+    private func canonicalPath(_ path: String) -> String {
+        path.replacingOccurrences(of: "/private/var/", with: "/var/")
     }
 
     private func makeBundle(

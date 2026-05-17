@@ -67,7 +67,7 @@ enum BundleMergeProvenance {
         sidecarWriter: BundleMergeProvenanceSidecarWriter = .live
     ) throws {
         let argv = reproducibleArgv(for: request)
-        let command = argv.map(shellQuoted(_:)).joined(separator: " ")
+        let command = commandLine(from: argv)
         let inputs = try uniqueExistingFiles(request.inputPayloadURLs).map {
             try ProvenanceFileDescriptor.file(url: $0, format: fileFormat(for: $0), role: .input)
         }
@@ -162,6 +162,10 @@ enum BundleMergeProvenance {
         }
 
         return urls.sorted { $0.path < $1.path }
+    }
+
+    static func commandLine(from argv: [String]) -> String {
+        argv.map(shellQuoted(_:)).joined(separator: " ")
     }
 
     private static func reproducibleArgv(for request: Request) -> [String] {

@@ -208,31 +208,37 @@ enum ReferenceBundleMergeService {
         resolvedBundleName: String
     ) throws -> [ProvenanceStep] {
         guard let envelope else { return [] }
-        let inputs = try inputPayloadURLs.map {
+        let sourceInputs = try inputPayloadURLs.map {
             try ProvenanceFileDescriptor.file(url: $0, format: .fasta, role: .input)
         }
         let outputs = try outputPayloadURLs.map {
             try ProvenanceFileDescriptor.file(url: $0, format: fileFormat(for: $0), role: .output)
         }
-        let argv = [
-            "NativeBundleBuilder.build",
-            "--name",
-            resolvedBundleName,
-            "--bundle",
-            bundleURL.standardizedFileURL.path,
-            "--compress-fasta",
-            "true",
-        ]
+        let durableFASTAURL = finalGenomePayloadURL(in: bundleURL, outputPayloadURLs: outputPayloadURLs)
+        let durableFASTAInput = try durableFASTAURL.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: .fasta, role: .input)
+        }
+        let inputs = uniqueDescriptors(sourceInputs + Array(durableFASTAInput.map { [$0] } ?? []))
+
         return envelope.steps.map { step in
             guard step.toolName == "NativeBundleBuilder.build" else {
                 return step
             }
+            let originalArgv = step.durableReplayArgv ?? step.argv
+            let argv = rewriteBuilderReplayArgv(
+                originalArgv,
+                tempInputPaths: step.inputs.map(\.path),
+                durableFASTAURL: durableFASTAURL,
+                bundleURL: bundleURL,
+                resolvedBundleName: resolvedBundleName
+            )
             return ProvenanceStep(
                 id: step.id,
                 toolName: step.toolName,
                 toolVersion: step.toolVersion,
-                argv: argv,
+                argv: step.argv,
                 durableReplayArgv: argv,
+                reproducibleCommand: BundleMergeProvenance.commandLine(from: argv),
                 inputs: inputs,
                 outputs: outputs,
                 exitStatus: step.exitStatus,
@@ -243,6 +249,93 @@ enum ReferenceBundleMergeService {
                 completedAt: step.completedAt
             )
         }
+    }
+
+    private static func finalGenomePayloadURL(in bundleURL: URL, outputPayloadURLs: [URL]) -> URL? {
+        if let manifest = try? BundleManifest.load(from: bundleURL),
+           let genome = manifest.genome {
+            return bundleURL.appendingPathComponent(genome.path).standardizedFileURL
+        }
+        return outputPayloadURLs.first(where: isFASTAFileURL(_:))?.standardizedFileURL
+    }
+
+    private static func rewriteBuilderReplayArgv(
+        _ argv: [String],
+        tempInputPaths: [String],
+        durableFASTAURL: URL?,
+        bundleURL: URL,
+        resolvedBundleName: String
+    ) -> [String] {
+        let durableFASTAPath = durableFASTAURL?.standardizedFileURL.path
+        let tempInputPaths = Set(tempInputPaths)
+        var rewritten = argv.map { argument in
+            rewriteBuilderArgument(
+                argument,
+                tempInputPaths: tempInputPaths,
+                durableFASTAPath: durableFASTAPath
+            )
+        }
+
+        if rewritten.isEmpty, let durableFASTAPath {
+            rewritten = [
+                "NativeBundleBuilder.build",
+                "--name",
+                resolvedBundleName,
+                "--identifier",
+                resolvedBundleIdentifier(in: bundleURL, fallbackName: resolvedBundleName),
+                "--fasta",
+                durableFASTAPath,
+                "--output-directory",
+                bundleURL.deletingLastPathComponent().standardizedFileURL.path,
+                "--bundle",
+                bundleURL.standardizedFileURL.path,
+                "--compress-fasta",
+                "true",
+            ]
+        }
+
+        return rewritten
+    }
+
+    private static func resolvedBundleIdentifier(in bundleURL: URL, fallbackName: String) -> String {
+        if let manifest = try? BundleManifest.load(from: bundleURL) {
+            return manifest.identifier
+        }
+        let sanitized = fallbackName
+            .lowercased()
+            .map { character -> Character in
+                if character.isLetter || character.isNumber || character == "." || character == "-" {
+                    return character
+                }
+                return "-"
+            }
+        return "org.lungfish.\(String(sanitized))"
+    }
+
+    private static func rewriteBuilderArgument(
+        _ argument: String,
+        tempInputPaths: Set<String>,
+        durableFASTAPath: String?
+    ) -> String {
+        guard let durableFASTAPath else { return argument }
+        if tempInputPaths.contains(argument) {
+            return durableFASTAPath
+        }
+        for tempInputPath in tempInputPaths where argument.contains(tempInputPath) {
+            return argument.replacingOccurrences(of: tempInputPath, with: durableFASTAPath)
+        }
+        return argument
+    }
+
+    private static func uniqueDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen: Set<String> = []
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue):\(descriptor.path)"
+            guard seen.insert(key).inserted else { continue }
+            result.append(descriptor)
+        }
+        return result
     }
 
     private static func fileFormat(for url: URL) -> FileFormat? {

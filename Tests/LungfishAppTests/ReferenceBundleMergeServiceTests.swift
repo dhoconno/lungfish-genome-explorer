@@ -71,20 +71,45 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
             provenance.steps.contains { $0.toolName == "NativeBundleBuilder.build" },
             "Reference merge provenance must preserve the nested builder step"
         )
+        let builderStep = try XCTUnwrap(
+            provenance.steps.first { $0.toolName == "NativeBundleBuilder.build" }
+        )
+        let builderReplayArgv = try XCTUnwrap(builderStep.durableReplayArgv)
+        XCTAssertTrue(builderReplayArgv.contains("--identifier"))
+        XCTAssertTrue(builderReplayArgv.contains("--output-directory"))
+        let fastaFlagIndex = try XCTUnwrap(builderReplayArgv.firstIndex(of: "--fasta"))
+        let replayFASTAPath = builderReplayArgv[builderReplayArgv.index(after: fastaFlagIndex)]
+        XCTAssertTrue(FileManager.default.fileExists(atPath: replayFASTAPath))
+        XCTAssertFalse(replayFASTAPath.contains("reference-merge-"))
+        XCTAssertFalse(replayFASTAPath.contains("ref-import-"))
+
+        let sourceFASTAPaths = try [
+            XCTUnwrap(ReferenceSequenceFolder.fastaURL(in: bundleA)).path,
+            XCTUnwrap(ReferenceSequenceFolder.fastaURL(in: bundleB)).path,
+        ]
+        let builderInputPaths = Set(builderStep.inputs.map(\.path))
+        for sourceFASTAPath in sourceFASTAPaths {
+            XCTAssertTrue(builderInputPaths.contains(sourceFASTAPath))
+        }
+        XCTAssertNotEqual(builderStep.argv, builderReplayArgv)
+        XCTAssertTrue(builderStep.argv.joined(separator: "\n").contains("reference-merge-"))
         XCTAssertTrue(
             provenance.steps.contains { $0.toolName == "lungfish reference merge" },
             "Reference merge provenance must include the wrapping merge workflow step"
         )
 
-        let provenanceText = (
-            provenance.argv
-            + [provenance.reproducibleCommand]
-            + provenance.files.map(\.path)
-            + provenance.steps.flatMap { $0.argv + [$0.reproducibleCommand] + $0.inputs.map(\.path) + $0.outputs.map(\.path) }
-        )
-        .joined(separator: "\n")
-        XCTAssertFalse(provenanceText.contains("reference-merge-"))
-        XCTAssertFalse(provenanceText.contains("ref-import-"))
+        var durableProvenanceLines = provenance.argv
+        durableProvenanceLines.append(provenance.reproducibleCommand)
+        durableProvenanceLines.append(contentsOf: provenance.files.map(\.path))
+        for step in provenance.steps {
+            durableProvenanceLines.append(contentsOf: step.durableReplayArgv ?? [])
+            durableProvenanceLines.append(step.reproducibleCommand)
+            durableProvenanceLines.append(contentsOf: step.inputs.map(\.path))
+            durableProvenanceLines.append(contentsOf: step.outputs.map(\.path))
+        }
+        let durableProvenanceText = durableProvenanceLines.joined(separator: "\n")
+        XCTAssertFalse(durableProvenanceText.contains("reference-merge-"))
+        XCTAssertFalse(durableProvenanceText.contains("ref-import-"))
     }
 
     func testMergeProvenanceUsesResolvedReferenceNameWhenOutputNameIsUniquified() async throws {
