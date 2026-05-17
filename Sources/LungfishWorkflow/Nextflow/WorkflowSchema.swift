@@ -65,7 +65,9 @@ public struct NextflowWorkflowSchema: Sendable, Codable {
     }
 }
 
-// Type alias for backward compatibility
+// MARK: - Deprecated Compatibility
+
+@available(*, deprecated, renamed: "NextflowWorkflowSchema")
 public typealias WorkflowSchema = NextflowWorkflowSchema
 
 // MARK: - NextflowParameterGroup
@@ -118,7 +120,7 @@ public struct NextflowParameterGroup: Sendable, Codable, Identifiable {
     }
 }
 
-// Type alias for backward compatibility
+@available(*, deprecated, renamed: "NextflowParameterGroup")
 public typealias ParameterGroup = NextflowParameterGroup
 
 // MARK: - NextflowParameter
@@ -191,7 +193,7 @@ public struct NextflowParameter: Sendable, Codable, Identifiable {
     }
 }
 
-// Type alias for backward compatibility
+@available(*, deprecated, renamed: "NextflowParameter")
 public typealias WorkflowParameter = NextflowParameter
 
 // MARK: - NextflowParameterType
