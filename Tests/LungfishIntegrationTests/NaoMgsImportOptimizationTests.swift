@@ -810,7 +810,7 @@ struct NaoMgsImportOptimizationTests {
         #expect(result.sampleFiles.keys.contains("SAMPLE_B"))
         #expect(result.totalRows == 3)
 
-        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
+        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!, encoding: .utf8)
         let sampleALines = sampleA.split(separator: "\n", omittingEmptySubsequences: false)
         #expect(sampleALines.count == 4)
         #expect(String(sampleALines[0]) == header)
@@ -818,7 +818,7 @@ struct NaoMgsImportOptimizationTests {
         #expect(String(sampleALines[2]).contains("read2"))
         #expect(!sampleA.contains("read3"))
 
-        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!)
+        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!, encoding: .utf8)
         let sampleBLines = sampleB.split(separator: "\n", omittingEmptySubsequences: false)
         #expect(sampleBLines.count == 3)
         #expect(String(sampleBLines[0]) == header)
@@ -848,7 +848,7 @@ struct NaoMgsImportOptimizationTests {
             outputDirectory: outputDir
         )
 
-        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!)
+        let sampleA = try String(contentsOf: result.sampleFiles["SAMPLE_A"]!, encoding: .utf8)
         let sampleALines = sampleA.split(separator: "\n", omittingEmptySubsequences: false)
         #expect(result.totalRows == 3)
         #expect(sampleALines.count == 4)
@@ -856,7 +856,7 @@ struct NaoMgsImportOptimizationTests {
         #expect(String(sampleALines[1]).contains("read1"))
         #expect(String(sampleALines[2]).contains("read2"))
 
-        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!)
+        let sampleB = try String(contentsOf: result.sampleFiles["SAMPLE_B"]!, encoding: .utf8)
         let sampleBLines = sampleB.split(separator: "\n", omittingEmptySubsequences: false)
         #expect(sampleBLines.count == 3)
         #expect(String(sampleBLines[0]) == header.trimmingCharacters(in: .newlines))
@@ -901,7 +901,7 @@ struct NaoMgsImportOptimizationTests {
         let secondURL = try #require(second.sampleFiles[logicalSample])
         #expect(firstURL == secondURL, "Filename should be deterministic across reruns")
 
-        let rerunContent = try String(contentsOf: secondURL)
+        let rerunContent = try String(contentsOf: secondURL, encoding: .utf8)
         #expect(rerunContent.contains("read2"))
         #expect(!rerunContent.contains("read1"), "Rerun should not leave stale tail data in existing partition files")
     }

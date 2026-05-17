@@ -67,6 +67,7 @@ public struct GenomicRegion: Hashable, Codable, Sendable {
     /// Checks if this region overlaps with another region
     public func overlaps(_ other: GenomicRegion) -> Bool {
         guard chromosome == other.chromosome else { return false }
+        guard !isEmpty, !other.isEmpty else { return false }
         return start < other.end && end > other.start
     }
 

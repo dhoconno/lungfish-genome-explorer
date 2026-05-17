@@ -1593,8 +1593,6 @@ extension AnnotationDatabaseRecord {
         isReverseComplement: Bool,
         newChromosome: String
     ) -> AnnotationDatabaseRecord? {
-        let seqLength = extractionEnd - extractionStart
-
         // Parse blocks into absolute intervals
         var absoluteBlocks: [(start: Int, end: Int)]
         if let bc = blockCount, bc > 1,
