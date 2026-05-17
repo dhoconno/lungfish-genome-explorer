@@ -621,26 +621,25 @@ public enum FASTQIngestionService {
 
         let metadataURL = FASTQMetadataStore.metadataURL(for: result.outputFile)
         var steps = result.provenanceSteps
-        steps.append(
-            StepExecution(
-                toolName: "lungfish-app",
-                toolVersion: WorkflowRun.currentAppVersion,
-                command: [
-                    "lungfish-app",
-                    "fastq-ingestion",
-                    "write-metadata",
-                    result.outputFile.path
-                ],
-                inputs: [
-                    ProvenanceRecorder.fileRecord(url: result.outputFile, format: .fastq, role: .input)
-                ],
-                outputs: [
-                    ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)
-                ],
-                exitCode: 0,
-                wallTime: 0
-            )
+        let metadataStep = StepExecution(
+            toolName: "lungfish-app",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: [
+                "lungfish-app",
+                "fastq-ingestion",
+                "write-metadata",
+                result.outputFile.path
+            ],
+            inputs: [
+                ProvenanceRecorder.fileRecord(url: result.outputFile, format: .fastq, role: .input)
+            ],
+            outputs: [
+                ProvenanceRecorder.fileRecord(url: metadataURL, format: .json, role: .output)
+            ],
+            exitCode: 0,
+            wallTime: 0
         )
+        steps.append(metadataStep)
 
         let run = WorkflowRun(
             name: "FASTQ Ingestion",
@@ -649,14 +648,165 @@ public enum FASTQIngestionService {
             steps: steps,
             parameters: parameters
         )
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(run)
-        try data.write(
-            to: outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
-            options: .atomic
+        let ingestionEnvelope = run.canonicalEnvelope()
+        let existingProvenance = try existingInPlaceIngestionProvenance(
+            outputDirectory: outputDirectory,
+            inputFiles: config.inputFiles
         )
+        let envelopeToWrite = try existingProvenance.map {
+            try mergedInPlaceIngestionEnvelope(
+                existingEnvelope: $0.envelope,
+                sourceProvenanceURL: $0.sourceURL,
+                ingestionEnvelope: ingestionEnvelope,
+                replacedInputFiles: config.inputFiles,
+                finalFASTQURL: result.outputFile
+            )
+        } ?? ingestionEnvelope
+        try ProvenanceWriter(signingProvider: nil).write(envelopeToWrite, to: outputDirectory)
+    }
+
+    nonisolated private static func existingInPlaceIngestionProvenance(
+        outputDirectory: URL,
+        inputFiles: [URL]
+    ) throws -> (envelope: ProvenanceEnvelope, sourceURL: URL?)? {
+        let rootProvenanceURL = outputDirectory.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        if let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: rootProvenanceURL) {
+            return (envelope, rootProvenanceURL)
+        }
+
+        var candidates: [URL] = []
+        for inputFile in inputFiles {
+            candidates.append(ProvenanceRecorder.fileSidecarURL(for: inputFile))
+            if let bundleSidecarURL = ProvenanceWriter.bundleOutputSidecarURL(for: inputFile, inBundle: outputDirectory) {
+                candidates.append(bundleSidecarURL)
+            }
+        }
+
+        var seen = Set<String>()
+        for candidate in candidates where seen.insert(candidate.standardizedFileURL.path).inserted {
+            guard let envelope = try ProvenanceEnvelopeReader.load(fromSidecar: candidate) else {
+                continue
+            }
+            return (envelope, candidate)
+        }
+        return nil
+    }
+
+    nonisolated private static func mergedInPlaceIngestionEnvelope(
+        existingEnvelope: ProvenanceEnvelope,
+        sourceProvenanceURL: URL?,
+        ingestionEnvelope: ProvenanceEnvelope,
+        replacedInputFiles: [URL],
+        finalFASTQURL: URL
+    ) throws -> ProvenanceEnvelope {
+        let pathMap = replacedOutputPathMap(
+            in: existingEnvelope,
+            replacedInputFiles: replacedInputFiles,
+            finalFASTQURL: finalFASTQURL
+        )
+        let rewrittenExisting = pathMap.isEmpty
+            ? existingEnvelope
+            : try GUIImportedProvenanceRehydrator.rewriteOutputDescriptors(
+                in: existingEnvelope,
+                pathMap: pathMap,
+                sourceProvenancePath: sourceProvenanceURL?.path
+            )
+        let output = ingestionEnvelope.output ?? rewrittenExisting.output
+        let outputs = deduplicatedProvenanceFiles(rewrittenExisting.outputs + ingestionEnvelope.outputs)
+        let files = deduplicatedProvenanceFiles(rewrittenExisting.files + ingestionEnvelope.files)
+        let options = ProvenanceOptions(
+            explicit: rewrittenExisting.options.explicit.merging(ingestionEnvelope.options.explicit) { _, ingestion in
+                ingestion
+            },
+            defaults: rewrittenExisting.options.defaults.merging(ingestionEnvelope.options.defaults) { _, ingestion in
+                ingestion
+            },
+            resolvedDefaults: rewrittenExisting.options.resolvedDefaults.merging(
+                ingestionEnvelope.options.resolvedDefaults
+            ) { _, ingestion in
+                ingestion
+            }
+        )
+
+        return ProvenanceEnvelope(
+            schemaVersion: rewrittenExisting.schemaVersion,
+            id: rewrittenExisting.id,
+            createdAt: rewrittenExisting.createdAt,
+            workflowName: rewrittenExisting.workflowName,
+            workflowVersion: rewrittenExisting.workflowVersion,
+            toolName: rewrittenExisting.toolName,
+            toolVersion: rewrittenExisting.toolVersion,
+            tool: rewrittenExisting.tool,
+            argv: rewrittenExisting.argv,
+            durableReplayArgv: rewrittenExisting.durableReplayArgv,
+            reproducibleCommand: rewrittenExisting.reproducibleCommand,
+            options: options,
+            runtimeIdentity: rewrittenExisting.runtimeIdentity,
+            files: files,
+            output: output,
+            outputs: outputs,
+            steps: rewrittenExisting.steps + ingestionEnvelope.steps,
+            wallTimeSeconds: combinedWallTime(rewrittenExisting.wallTimeSeconds, ingestionEnvelope.wallTimeSeconds),
+            exitStatus: ingestionEnvelope.exitStatus ?? rewrittenExisting.exitStatus,
+            stderr: ingestionEnvelope.stderr ?? rewrittenExisting.stderr,
+            signatures: [],
+            legacyWorkflowRun: nil
+        )
+    }
+
+    nonisolated private static func replacedOutputPathMap(
+        in envelope: ProvenanceEnvelope,
+        replacedInputFiles: [URL],
+        finalFASTQURL: URL
+    ) -> [String: String] {
+        let finalPath = finalFASTQURL.standardizedFileURL.path
+        let replacedPaths = Set(replacedInputFiles.map { $0.standardizedFileURL.path })
+        guard !replacedPaths.isEmpty else { return [:] }
+
+        let outputDescriptors = ([envelope.output].compactMap { $0 })
+            + envelope.outputs
+            + envelope.files.filter { $0.role == .output }
+            + envelope.steps.flatMap(\.outputs)
+        var pathMap: [String: String] = [:]
+        for descriptor in outputDescriptors {
+            let standardizedPath = URL(fileURLWithPath: descriptor.path).standardizedFileURL.path
+            guard replacedPaths.contains(standardizedPath), standardizedPath != finalPath else {
+                continue
+            }
+            pathMap[descriptor.path] = finalPath
+            pathMap[standardizedPath] = finalPath
+        }
+        return pathMap
+    }
+
+    nonisolated private static func combinedWallTime(
+        _ existing: TimeInterval?,
+        _ ingestion: TimeInterval?
+    ) -> TimeInterval? {
+        switch (existing, ingestion) {
+        case (.some(let existing), .some(let ingestion)):
+            return existing + ingestion
+        case (.some(let existing), .none):
+            return existing
+        case (.none, .some(let ingestion)):
+            return ingestion
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    nonisolated private static func deduplicatedProvenanceFiles(
+        _ descriptors: [ProvenanceFileDescriptor]
+    ) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                result.append(descriptor)
+            }
+        }
+        return result
     }
 
     nonisolated private static func writeImportManifest(
