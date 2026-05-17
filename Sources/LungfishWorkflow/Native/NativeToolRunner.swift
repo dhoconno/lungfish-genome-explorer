@@ -231,7 +231,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
     case bcftools
     case bgzip
     case tabix
-    case bedToBigBed
     case bedGraphToBigWig
     case pigz
     case seqkit
@@ -266,7 +265,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .bcftools: return "bcftools"
         case .bgzip: return "bgzip"
         case .tabix: return "tabix"
-        case .bedToBigBed: return "bedToBigBed"
         case .bedGraphToBigWig: return "bedGraphToBigWig"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
@@ -326,8 +324,6 @@ public enum NativeTool: String, CaseIterable, Sendable {
             return .managed(environment: "htslib", executableName: "bgzip")
         case .tabix:
             return .managed(environment: "htslib", executableName: "tabix")
-        case .bedToBigBed:
-            return .managed(environment: "ucsc-bedtobigbed", executableName: "bedToBigBed")
         case .bedGraphToBigWig:
             return .managed(environment: "ucsc-bedgraphtobigwig", executableName: "bedGraphToBigWig")
         case .pigz:
@@ -423,7 +419,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         case .samtools: return "samtools"
         case .bcftools: return "bcftools"
         case .bgzip, .tabix: return "htslib"
-        case .bedToBigBed, .bedGraphToBigWig: return "ucsc-tools"
+        case .bedGraphToBigWig: return "ucsc-tools"
         case .pigz: return "pigz"
         case .seqkit: return "seqkit"
         case .fastp: return "fastp"
@@ -457,7 +453,7 @@ public enum NativeTool: String, CaseIterable, Sendable {
         switch self {
         case .samtools, .bcftools, .bgzip, .tabix:
             return "MIT/Expat"
-        case .bedToBigBed, .bedGraphToBigWig:
+        case .bedGraphToBigWig:
             return "MIT (UCSC Genome Browser)"
         case .pigz:
             return "zlib License"
@@ -1660,34 +1656,6 @@ extension NativeToolRunner {
             .bcftools,
             arguments: ["index", outputPath.path],
             workingDirectory: outputPath.deletingLastPathComponent()
-        )
-    }
-    
-    /// Converts BED to BigBed using bedToBigBed.
-    ///
-    /// - Parameters:
-    ///   - bedPath: Path to the input BED file.
-    ///   - chromSizesPath: Path to the chromosome sizes file.
-    ///   - outputPath: Path for the output BigBed file.
-    /// - Returns: Result of the conversion.
-    public func convertBEDtoBigBed(
-        bedPath: URL,
-        chromSizesPath: URL,
-        outputPath: URL
-    ) async throws -> NativeToolResult {
-        // bedToBigBed on millions of features can take several minutes
-        let fileSize = (try? FileManager.default.attributesOfItem(atPath: bedPath.path)[.size] as? Int64) ?? 0
-        let estimatedTimeout: TimeInterval = max(600, Double(fileSize) / 5_000_000)
-
-        return try await run(
-            .bedToBigBed,
-            arguments: [
-                bedPath.path,
-                chromSizesPath.path,
-                outputPath.path
-            ],
-            workingDirectory: bedPath.deletingLastPathComponent(),
-            timeout: estimatedTimeout
         )
     }
     

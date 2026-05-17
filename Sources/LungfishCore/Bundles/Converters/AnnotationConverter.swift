@@ -1,4 +1,4 @@
-// AnnotationConverter.swift - Convert annotation files to BigBed format
+// AnnotationConverter.swift - Convert annotation files to BED rows for bundle annotation stores
 // Copyright (c) 2024 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
@@ -7,18 +7,14 @@ import os.log
 
 // MARK: - AnnotationConverter
 
-/// Converts annotation files (GFF3, BED, GenBank) to BED format for BigBed conversion.
+/// Converts annotation files (GFF3, BED, GenBank) to BED rows for SQLite-backed
+/// bundle annotation stores.
 ///
 /// The conversion pipeline is:
 /// 1. Read source format (GFF3, BED, or GenBank)
 /// 2. Convert to intermediate BED format
 /// 3. Sort by chromosome and position
-/// 4. Use bedToBigBed (via container) to create BigBed
-///
-/// ## Container Usage
-///
-/// The final step (BED to BigBed) requires the UCSC bedToBigBed tool.
-/// This is run via the container plugin system.
+/// 4. Import BED rows into the bundle-owned annotation database.
 ///
 /// ## Usage
 ///
@@ -729,7 +725,7 @@ public enum AnnotationConversionError: Error, LocalizedError, Sendable {
     /// The output file could not be written.
     case writeFailed(String)
 
-    /// bedToBigBed conversion failed.
+    /// Legacy BigBed conversion failed.
     case bigBedConversionFailed(String)
 
     /// The chromosome sizes file is missing or invalid.
@@ -764,7 +760,7 @@ public enum AnnotationConversionError: Error, LocalizedError, Sendable {
         case .writeFailed:
             return "Check that the output directory is writable"
         case .bigBedConversionFailed:
-            return "Ensure the bedToBigBed container is available"
+            return "Use SQLite-backed annotations or BED/GFF/GTF import paths instead"
         case .invalidChromSizes:
             return "Provide a valid chromosome sizes file"
         case .noFeatures:

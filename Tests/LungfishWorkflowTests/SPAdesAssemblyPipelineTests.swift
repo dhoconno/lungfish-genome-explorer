@@ -354,7 +354,7 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
 
     func testCoreImagesExist() {
         let coreImages = DefaultContainerImages.coreImages
-        XCTAssertGreaterThanOrEqual(coreImages.count, 5)
+        XCTAssertGreaterThanOrEqual(coreImages.count, 4)
 
         let coreIds = Set(coreImages.map(\.id))
         XCTAssertTrue(coreIds.contains("samtools"))

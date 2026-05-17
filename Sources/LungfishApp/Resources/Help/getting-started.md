@@ -63,8 +63,7 @@ Results display matching assemblies with:
 
 The build process:
 - Compresses the genome with bgzip and creates a `.fai` index
-- Converts GFF3 annotations to BigBed format for fast random access
-- Creates a SQLite database for instant annotation search
+- Imports GFF3 annotations into an indexed SQLite database for fast random access and search
 - Parses VCF variants into a searchable database (if included)
 - Packages everything into a single `.lungfish` bundle
 

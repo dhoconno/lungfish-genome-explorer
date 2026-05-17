@@ -20,8 +20,8 @@ RUN samtools --version && \
     bgzip --version && \
     tabix --version
 
-# Note: UCSC tools (bedToBigBed, bedGraphToBigWig) are not available via bioconda for arm64
-# We'll need to handle those separately or use alternative tools
+# Note: UCSC bedGraphToBigWig is not available via bioconda for arm64.
+# It is handled in a separate minimal UCSC image.
 
 WORKDIR /workspace
 
