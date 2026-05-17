@@ -51,7 +51,7 @@ final class CLIFunctionalTests: XCTestCase {
         let inputPath = TestFixtures.sarscov2.reference.path
         let outputPath = tempDirectory.appendingPathComponent("genome.gb").path
 
-        var command = try ConvertCommand.parse([
+        let command = try ConvertCommand.parse([
             inputPath,
             "--to-format", "genbank",
             "--to", outputPath,
@@ -86,7 +86,7 @@ final class CLIFunctionalTests: XCTestCase {
         let inputPath = TestFixtures.sarscov2.reference.path
         let outputPath = tempDirectory.appendingPathComponent("genome.fastq").path
 
-        var command = try ConvertCommand.parse([
+        let command = try ConvertCommand.parse([
             inputPath,
             "--to-format", "fastq",
             "--to", outputPath,
@@ -111,7 +111,7 @@ final class CLIFunctionalTests: XCTestCase {
         let fastaOutPath = tempDirectory.appendingPathComponent("roundtrip.fasta").path
 
         // Step 1: FASTA -> GenBank
-        var toGB = try ConvertCommand.parse([
+        let toGB = try ConvertCommand.parse([
             TestFixtures.sarscov2.reference.path,
             "--to-format", "genbank",
             "--to", gbPath,
@@ -120,7 +120,7 @@ final class CLIFunctionalTests: XCTestCase {
         try await toGB.run()
 
         // Step 2: GenBank -> FASTA
-        var toFA = try ConvertCommand.parse([
+        let toFA = try ConvertCommand.parse([
             gbPath,
             "--to-format", "fasta",
             "--to", fastaOutPath,
@@ -150,7 +150,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractSubsequenceFromFASTA() async throws {
         let outputPath = tempDirectory.appendingPathComponent("region.fasta").path
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:100-200",
             "--output", outputPath,
@@ -178,7 +178,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractReverseComplement() async throws {
         let outputPath = tempDirectory.appendingPathComponent("rc.fasta").path
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:1-50",
             "--reverse-complement",
@@ -198,7 +198,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractWithFlanking() async throws {
         let outputPath = tempDirectory.appendingPathComponent("flanked.fasta").path
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:500-600",
             "--flank", "10",
@@ -223,7 +223,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testSearchExactPatternInFASTA() async throws {
         let outputPath = tempDirectory.appendingPathComponent("atg_sites.bed").path
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             TestFixtures.sarscov2.reference.path,
             "ATGTTTAT",
             "--forward-only",
@@ -258,7 +258,7 @@ final class CLIFunctionalTests: XCTestCase {
         let outputPath = tempDirectory.appendingPathComponent("mismatches.bed").path
 
         // Search for a pattern that may not exist exactly but should have near-matches
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             TestFixtures.sarscov2.reference.path,
             "ATGTTTAT",
             "--forward-only",
@@ -283,7 +283,7 @@ final class CLIFunctionalTests: XCTestCase {
         let outputPath = tempDirectory.appendingPathComponent("iupac.bed").path
 
         // ATGNNN should match any 3 bases after ATG
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             TestFixtures.sarscov2.reference.path,
             "ATGNNN",
             "--iupac",
@@ -304,7 +304,7 @@ final class CLIFunctionalTests: XCTestCase {
     /// SARS-CoV-2 reference genome.
     func testAnalyzeStatsFASTA() async throws {
         // Run with JSON output to parse the result
-        var command = try StatsSubcommand.parse([
+        let command = try StatsSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "--format", "json",
             "-q",
@@ -321,7 +321,7 @@ final class CLIFunctionalTests: XCTestCase {
     /// with expected column count for the reference genome.
     func testAnalyzeStatsFASTACompletesSuccessfully() async throws {
         // Run with text format (default) to verify it completes
-        var command = try StatsSubcommand.parse([
+        let command = try StatsSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "-q",
         ])
@@ -333,7 +333,7 @@ final class CLIFunctionalTests: XCTestCase {
 
     /// Verifies that `analyze validate` accepts the FASTA reference as valid.
     func testValidateFASTA() async throws {
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "-q",
         ])
@@ -343,7 +343,7 @@ final class CLIFunctionalTests: XCTestCase {
 
     /// Verifies that `analyze validate` accepts the plain-text VCF as valid.
     func testValidateVCF() async throws {
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             TestFixtures.sarscov2.vcf.path,
             "-q",
         ])
@@ -352,7 +352,7 @@ final class CLIFunctionalTests: XCTestCase {
 
     /// Verifies that `analyze validate` accepts the BED file as valid.
     func testValidateBED() async throws {
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             TestFixtures.sarscov2.bed.path,
             "-q",
         ])
@@ -361,7 +361,7 @@ final class CLIFunctionalTests: XCTestCase {
 
     /// Verifies that `analyze validate` accepts the GFF3 file as valid.
     func testValidateGFF3() async throws {
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             TestFixtures.sarscov2.gff3.path,
             "-q",
         ])
@@ -370,7 +370,7 @@ final class CLIFunctionalTests: XCTestCase {
 
     /// Verifies that `analyze validate` can validate multiple files at once.
     func testValidateMultipleFormats() async throws {
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             TestFixtures.sarscov2.vcf.path,
             TestFixtures.sarscov2.bed.path,
@@ -383,7 +383,7 @@ final class CLIFunctionalTests: XCTestCase {
     /// Verifies that `analyze validate` rejects a nonexistent file.
     func testValidateNonexistentFileThrows() async throws {
         let bogusPath = tempDirectory.appendingPathComponent("does_not_exist.fasta").path
-        var command = try FileValidateSubcommand.parse([
+        let command = try FileValidateSubcommand.parse([
             bogusPath,
             "-q",
         ])
@@ -403,7 +403,7 @@ final class CLIFunctionalTests: XCTestCase {
         let projectDir = tempDirectory.appendingPathComponent("vcf-project")
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
-        var command = try ImportCommand.VCFSubcommand.parse([
+        let command = try ImportCommand.VCFSubcommand.parse([
             TestFixtures.sarscov2.vcf.path,
             "-o", projectDir.path,
             "-q",
@@ -431,7 +431,7 @@ final class CLIFunctionalTests: XCTestCase {
         let projectDir = tempDirectory.appendingPathComponent("bam-project")
         try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
 
-        var command = try ImportCommand.BAMSubcommand.parse([
+        let command = try ImportCommand.BAMSubcommand.parse([
             TestFixtures.sarscov2.sortedBam.path,
             "-o", projectDir.path,
             "-q",
@@ -459,7 +459,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractOutOfRangeThrows() async throws {
         let outputPath = tempDirectory.appendingPathComponent("bad_range.fasta").path
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "MT192765.1:30000-40000",
             "--output", outputPath,
@@ -477,7 +477,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testExtractBadChromosomeThrows() async throws {
         let outputPath = tempDirectory.appendingPathComponent("bad_chrom.fasta").path
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             TestFixtures.sarscov2.reference.path,
             "chr1:100-200",
             "--output", outputPath,
@@ -497,7 +497,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testConvertUnsupportedFormatThrows() async throws {
         let outputPath = tempDirectory.appendingPathComponent("output.xyz").path
 
-        var command = try ConvertCommand.parse([
+        let command = try ConvertCommand.parse([
             TestFixtures.sarscov2.reference.path,
             "--to-format", "xyz",
             "--to", outputPath,
@@ -516,7 +516,7 @@ final class CLIFunctionalTests: XCTestCase {
         let bogusInput = tempDirectory.appendingPathComponent("nonexistent.fasta").path
         let outputPath = tempDirectory.appendingPathComponent("output.gb").path
 
-        var command = try ConvertCommand.parse([
+        let command = try ConvertCommand.parse([
             bogusInput,
             "--to-format", "genbank",
             "--to", outputPath,
@@ -536,7 +536,7 @@ final class CLIFunctionalTests: XCTestCase {
     func testSearchNonexistentInputThrows() async throws {
         let bogusInput = tempDirectory.appendingPathComponent("ghost.fasta").path
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             bogusInput,
             "ATG",
             "-q",

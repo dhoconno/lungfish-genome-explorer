@@ -1,7 +1,52 @@
 import XCTest
+import os
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
+
+private final class MSAStringNotificationCapture: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: String?.none)
+
+    func record(_ value: String?) {
+        lock.withLock { $0 = value }
+    }
+
+    var value: String? {
+        lock.withLock { $0 }
+    }
+}
+
+private struct MSAReferenceDisplayNotification: Sendable {
+    var referenceRowID: String?
+    var residueIdentityDisplayMode: String?
+    var lowSupportThresholdPercent: Int?
+    var highGapThresholdPercent: Int?
+    var maskSymbolMode: String?
+}
+
+private final class MSAReferenceDisplayNotificationCapture: @unchecked Sendable {
+    private let lock = OSAllocatedUnfairLock(initialState: MSAReferenceDisplayNotification())
+
+    func record(_ userInfo: [AnyHashable: Any]?) {
+        let referenceRowID = userInfo?[NotificationUserInfoKey.msaReferenceRowID] as? String
+        let residueIdentityDisplayMode = userInfo?[NotificationUserInfoKey.msaResidueIdentityDisplayMode] as? String
+        let lowSupportThresholdPercent = userInfo?[NotificationUserInfoKey.msaConsensusLowSupportThresholdPercent] as? Int
+        let highGapThresholdPercent = userInfo?[NotificationUserInfoKey.msaConsensusHighGapThresholdPercent] as? Int
+        let maskSymbolMode = userInfo?[NotificationUserInfoKey.msaConsensusMaskSymbolMode] as? String
+
+        lock.withLock { snapshot in
+            snapshot.referenceRowID = referenceRowID
+            snapshot.residueIdentityDisplayMode = residueIdentityDisplayMode
+            snapshot.lowSupportThresholdPercent = lowSupportThresholdPercent
+            snapshot.highGapThresholdPercent = highGapThresholdPercent
+            snapshot.maskSymbolMode = maskSymbolMode
+        }
+    }
+
+    var snapshot: MSAReferenceDisplayNotification {
+        lock.withLock { $0 }
+    }
+}
 
 @MainActor
 final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
@@ -197,13 +242,13 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
 
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
-        var receivedMode: String?
+        let receivedMode = MSAStringNotificationCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .readDisplaySettingsChanged,
             object: inspector,
             queue: nil
         ) { notification in
-            receivedMode = notification.userInfo?[NotificationUserInfoKey.msaNumberingMode] as? String
+            receivedMode.record(notification.userInfo?[NotificationUserInfoKey.msaNumberingMode] as? String)
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
@@ -215,7 +260,7 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
         inspector.viewModel.readStyleSectionViewModel.msaNumberingMode = .sourceCoordinates
         inspector.viewModel.readStyleSectionViewModel.onSettingsChanged?()
 
-        XCTAssertEqual(receivedMode, MSAAlignmentNumberingMode.sourceCoordinates.rawValue)
+        XCTAssertEqual(receivedMode.value, MSAAlignmentNumberingMode.sourceCoordinates.rawValue)
     }
 
     func testInspectorMSADocumentBroadcastsConsensusAndReferenceDisplayControls() throws {
@@ -238,13 +283,13 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
 
         let inspector = InspectorViewController()
         inspector.loadViewIfNeeded()
-        var receivedUserInfo: [AnyHashable: Any] = [:]
+        let receivedNotification = MSAReferenceDisplayNotificationCapture()
         let observer = NotificationCenter.default.addObserver(
             forName: .readDisplaySettingsChanged,
             object: inspector,
             queue: nil
         ) { notification in
-            receivedUserInfo = notification.userInfo ?? [:]
+            receivedNotification.record(notification.userInfo)
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
@@ -263,11 +308,12 @@ final class MultipleSequenceAlignmentDocumentSectionTests: XCTestCase {
         vm.msaConsensusMaskSymbolMode = .x
         vm.onSettingsChanged?()
 
-        XCTAssertEqual(receivedUserInfo[NotificationUserInfoKey.msaReferenceRowID] as? String, bundle.rows[1].id)
-        XCTAssertEqual(receivedUserInfo[NotificationUserInfoKey.msaResidueIdentityDisplayMode] as? String, MSAResidueIdentityDisplayMode.dotsToReference.rawValue)
-        XCTAssertEqual(receivedUserInfo[NotificationUserInfoKey.msaConsensusLowSupportThresholdPercent] as? Int, 80)
-        XCTAssertEqual(receivedUserInfo[NotificationUserInfoKey.msaConsensusHighGapThresholdPercent] as? Int, 20)
-        XCTAssertEqual(receivedUserInfo[NotificationUserInfoKey.msaConsensusMaskSymbolMode] as? String, MSAConsensusMaskSymbolMode.x.rawValue)
+        let snapshot = receivedNotification.snapshot
+        XCTAssertEqual(snapshot.referenceRowID, bundle.rows[1].id)
+        XCTAssertEqual(snapshot.residueIdentityDisplayMode, MSAResidueIdentityDisplayMode.dotsToReference.rawValue)
+        XCTAssertEqual(snapshot.lowSupportThresholdPercent, 80)
+        XCTAssertEqual(snapshot.highGapThresholdPercent, 20)
+        XCTAssertEqual(snapshot.maskSymbolMode, MSAConsensusMaskSymbolMode.x.rawValue)
     }
 
     private func repositoryRoot() -> URL {

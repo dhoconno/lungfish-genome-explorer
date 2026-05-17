@@ -118,47 +118,36 @@ private final class CLIPrimerTrimStreamState: @unchecked Sendable {
     }
 }
 
-private final class CLIPrimerTrimStreamCompletion: @unchecked Sendable {
-    private enum Stream {
-        case stdout
-        case stderr
-    }
-
+private final class CLIPrimerTrimProcessTermination: @unchecked Sendable {
     private struct State {
-        var stdoutClosed = false
-        var stderrClosed = false
-        var resumed = false
+        var status: Int32?
+        var continuation: CheckedContinuation<Int32, Never>?
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
 
-    func markStdoutClosed(_ continuation: CheckedContinuation<Void, Never>) {
-        mark(.stdout, continuation)
-    }
-
-    func markStderrClosed(_ continuation: CheckedContinuation<Void, Never>) {
-        mark(.stderr, continuation)
-    }
-
-    private func mark(
-        _ stream: Stream,
-        _ continuation: CheckedContinuation<Void, Never>
-    ) {
-        let shouldResume = lock.withLock { state in
-            switch stream {
-            case .stdout:
-                state.stdoutClosed = true
-            case .stderr:
-                state.stderrClosed = true
-            }
-            guard state.stdoutClosed && state.stderrClosed && !state.resumed else {
-                return false
-            }
-            state.resumed = true
-            return true
+    func markTerminated(status: Int32) {
+        let continuation = lock.withLock { state -> CheckedContinuation<Int32, Never>? in
+            guard state.status == nil else { return nil }
+            state.status = status
+            defer { state.continuation = nil }
+            return state.continuation
         }
-        if shouldResume {
-            continuation.resume()
+        continuation?.resume(returning: status)
+    }
+
+    func wait() async -> Int32 {
+        await withCheckedContinuation { continuation in
+            let status = lock.withLock { state -> Int32? in
+                if let status = state.status {
+                    return status
+                }
+                state.continuation = continuation
+                return nil
+            }
+            if let status {
+                continuation.resume(returning: status)
+            }
         }
     }
 }
@@ -305,11 +294,17 @@ actor CLIPrimerTrimRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let termination = CLIPrimerTrimProcessTermination()
+        process.terminationHandler = { terminatedProcess in
+            termination.markTerminated(status: terminatedProcess.terminationStatus)
+        }
+
         self.process = process
 
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             self.process = nil
             throw CLIPrimerTrimRunnerError.processLaunchFailed(error.localizedDescription)
         }
@@ -319,41 +314,42 @@ actor CLIPrimerTrimRunner {
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let completion = CLIPrimerTrimStreamCompletion()
-
-            stderrHandle.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else {
-                    stderrHandle.readabilityHandler = nil
-                    completion.markStderrClosed(continuation)
-                    return
-                }
-                state.appendStderr(chunk)
-            }
-
-            stdoutHandle.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else {
-                    Self.emitEvents(from: state.finishStdout(), onEvent: onEvent)
-                    stdoutHandle.readabilityHandler = nil
-                    completion.markStdoutClosed(continuation)
-                    return
-                }
-
-                Self.emitEvents(from: state.appendStdout(chunk), onEvent: onEvent)
-            }
+        stderrHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            state.appendStderr(chunk)
         }
 
-        process.waitUntilExit()
+        stdoutHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            Self.emitEvents(from: state.appendStdout(chunk), onEvent: onEvent)
+        }
+
+        let status = await termination.wait()
+        stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        self.process = nil
+        process.terminationHandler = nil
+
+        let remainingStdout = stdoutHandle.readDataToEndOfFile()
+        if !remainingStdout.isEmpty {
+            Self.emitEvents(from: state.appendStdout(remainingStdout), onEvent: onEvent)
+        }
+        Self.emitEvents(from: state.finishStdout(), onEvent: onEvent)
+
+        let remainingStderr = stderrHandle.readDataToEndOfFile()
+        if !remainingStderr.isEmpty {
+            state.appendStderr(remainingStderr)
+        }
+
+        if self.process === process {
+            self.process = nil
+        }
 
         if Task.isCancelled {
             throw CancellationError()
         }
 
-        let status = process.terminationStatus
         guard status == 0 else {
             throw CLIPrimerTrimRunnerError.processExited(status: status, stderr: state.stderrText())
         }

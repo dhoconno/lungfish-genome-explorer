@@ -1,8 +1,60 @@
 import XCTest
+import Foundation
 import LungfishIO
 @testable import LungfishApp
 
 final class CLIPrimerTrimRunnerTests: XCTestCase {
+    func testRunCompletesForFastExitingCLIProcess() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CLIPrimerTrimRunnerTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cliURL = tempDir.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        printf '%s\\n' '{"event":"runStart","message":"starting"}'
+        printf '%s\\n' '{"event":"runComplete","outputAlignmentTrackID":"trimmed","outputAlignmentTrackName":"Trimmed","bamPath":"/tmp/trimmed.bam","baiPath":"/tmp/trimmed.bam.bai","provenanceSidecarPath":"/tmp/trimmed.primer-trim-provenance.json"}'
+        exit 0
+        """
+        try script.write(to: cliURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: cliURL.path
+        )
+
+        let originalCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        setenv("LUNGFISH_CLI_PATH", cliURL.path, 1)
+        defer {
+            if let originalCLIPath {
+                setenv("LUNGFISH_CLI_PATH", originalCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+        }
+
+        final class Capturer: @unchecked Sendable {
+            var events: [CLIPrimerTrimEvent] = []
+        }
+        let capturer = Capturer()
+
+        let runner = CLIPrimerTrimRunner()
+        try await runner.run(arguments: ["bam", "primer-trim"]) { event in
+            capturer.events.append(event)
+        }
+
+        XCTAssertTrue(capturer.events.contains { event in
+            if case .runStart = event { return true }
+            return false
+        })
+        XCTAssertTrue(capturer.events.contains { event in
+            if case .runComplete(let trackID, let trackName, _, _, _) = event {
+                return trackID == "trimmed" && trackName == "Trimmed"
+            }
+            return false
+        })
+    }
+
     func testBuildCLIArgumentsIncludesAllRequiredFlags() {
         let arguments = CLIPrimerTrimRunner.buildCLIArguments(
             bundleURL: URL(fileURLWithPath: "/tmp/proj/Sample.lungfishref"),

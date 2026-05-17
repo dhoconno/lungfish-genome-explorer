@@ -335,17 +335,6 @@ final class TaxonomyViewControllerTests: XCTestCase {
         bar.update(zoomNode: gamma)
         XCTAssertEqual(bar.segmentCount, 4)  // Root > Bacteria > Proteobacteria > Gamma...
 
-        // Simulate clicking the Bacteria breadcrumb
-        var navigatedToNode: TaxonNode?
-        var navigatedToNil = false
-        bar.onNavigateToNode = { node in
-            if let node {
-                navigatedToNode = node
-            } else {
-                navigatedToNil = true
-            }
-        }
-
         // After zoom, clicking Root segment should set zoom to nil
         bar.update(zoomNode: nil)
         XCTAssertTrue(bar.isAtRoot)
@@ -721,14 +710,14 @@ final class TaxonomyTableKeyboardTests: XCTestCase {
     func testOutlineViewIsCustomSubclass() throws {
         let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         XCTAssertTrue(
-            table.outlineView is TaxonomyOutlineView,
+            type(of: table.outlineView) == TaxonomyOutlineView.self,
             "Outline view should be TaxonomyOutlineView subclass"
         )
     }
 
     func testOutlineViewHasBackReference() throws {
         let table = TaxonomyTableView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
-        let outline = table.outlineView as! TaxonomyOutlineView
+        let outline = table.outlineView
         XCTAssertTrue(
             outline.taxonomyTableView === table,
             "TaxonomyOutlineView should have back-reference to TaxonomyTableView"
@@ -871,7 +860,7 @@ final class TaxonomyTableKeyboardTests: XCTestCase {
             keyCode: 124
         )!
 
-        let outline = table.outlineView as! TaxonomyOutlineView
+        let outline = table.outlineView
         outline.keyDown(with: event)
 
         // After Cmd+Shift+Right, all items should be expanded
@@ -910,7 +899,7 @@ final class TaxonomyTableKeyboardTests: XCTestCase {
             keyCode: 123
         )!
 
-        let outline = table.outlineView as! TaxonomyOutlineView
+        let outline = table.outlineView
         outline.keyDown(with: event)
 
         // After Cmd+Shift+Left, deeply nested items should be collapsed
@@ -961,7 +950,7 @@ final class TaxonomyTableKeyboardTests: XCTestCase {
             keyCode: 124
         )!
 
-        let outline = table.outlineView as! TaxonomyOutlineView
+        let outline = table.outlineView
         outline.keyDown(with: event)
 
         // After Option+Right on Bacteria, E. coli should be visible
