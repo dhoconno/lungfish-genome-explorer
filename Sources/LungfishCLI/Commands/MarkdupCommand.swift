@@ -19,6 +19,7 @@ struct MarkdupCommand: AsyncParsableCommand {
         let sortThreads: Int
         let quiet: Bool
         let outputFormat: OutputFormat
+        let deduplicatedBundlePath: String?
     }
 
     struct Runtime {
@@ -39,6 +40,12 @@ struct MarkdupCommand: AsyncParsableCommand {
 
     @Option(name: .customLong("sort-threads"), help: "Threads for samtools sort (default 4)")
     var sortThreads: Int = 4
+
+    @Option(
+        name: .customLong("deduplicated-bundle"),
+        help: "Create a sibling .lungfishref bundle with duplicate reads removed"
+    )
+    var deduplicatedBundlePath: String?
 
     @OptionGroup var globalOptions: TextAndJSONGlobalOptions
 
@@ -70,6 +77,14 @@ struct MarkdupCommand: AsyncParsableCommand {
         guard input.sortThreads >= 1 else {
             throw ValidationError("--sort-threads must be >= 1")
         }
+        if let deduplicatedBundlePath = input.deduplicatedBundlePath {
+            try await createDeduplicatedBundle(
+                input: input,
+                outputBundlePath: deduplicatedBundlePath,
+                emit: emit
+            )
+            return []
+        }
         let results = try await runtime.execute(input, emit)
         emitResults(results, for: input, emit: emit)
         return results
@@ -89,7 +104,29 @@ struct MarkdupCommand: AsyncParsableCommand {
             force: force,
             sortThreads: sortThreads,
             quiet: resolvedGlobalOptions.quiet,
-            outputFormat: resolvedGlobalOptions.outputFormat
+            outputFormat: resolvedGlobalOptions.outputFormat,
+            deduplicatedBundlePath: deduplicatedBundlePath
+        )
+    }
+
+    private static func createDeduplicatedBundle(
+        input: ExecutionInput,
+        outputBundlePath: String,
+        emit: @escaping (String) -> Void
+    ) async throws {
+        _ = try await CLIDeduplicatedBundleSupport.run(
+            sourceBundlePath: input.path,
+            outputBundlePath: outputBundlePath,
+            outputFormat: input.outputFormat,
+            quiet: input.quiet,
+            command: [
+                "lungfish",
+                "markdup",
+                input.path,
+                "--deduplicated-bundle",
+                outputBundlePath,
+            ],
+            emit: emit
         )
     }
 
@@ -857,6 +894,98 @@ struct MarkdupCommand: AsyncParsableCommand {
             return URL(fileURLWithPath: home, isDirectory: true)
         }
         return FileManager.default.homeDirectoryForCurrentUser
+    }
+}
+
+enum CLIDeduplicatedBundleSupport {
+    @discardableResult
+    static func run(
+        sourceBundlePath: String,
+        outputBundlePath: String?,
+        outputFormat: OutputFormat,
+        quiet: Bool,
+        command: [String],
+        emit: @escaping (String) -> Void
+    ) async throws -> AlignmentDuplicateService.WorkflowResult {
+        let sourceBundleURL = URL(fileURLWithPath: sourceBundlePath)
+        var isDirectory = ObjCBool(false)
+        guard FileManager.default.fileExists(atPath: sourceBundleURL.path, isDirectory: &isDirectory) else {
+            throw CLIError.inputFileNotFound(path: sourceBundleURL.path)
+        }
+        guard isDirectory.boolValue, sourceBundleURL.pathExtension == "lungfishref" else {
+            throw CLIError.validationFailed(errors: ["Source must be a .lungfishref bundle directory: \(sourceBundleURL.path)"])
+        }
+
+        let outputBundleURL = outputBundlePath.map { URL(fileURLWithPath: $0) }
+        if let outputBundleURL, FileManager.default.fileExists(atPath: outputBundleURL.path) {
+            throw CLIError.outputWriteFailed(path: outputBundleURL.path, reason: "Path already exists")
+        }
+
+        let startedAt = Date()
+        let result = try await AlignmentDuplicateService.createDeduplicatedBundle(
+            from: sourceBundleURL,
+            outputBundleURL: outputBundleURL
+        )
+
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish bundle deduplicate-alignments",
+            parameters: [
+                "sourceBundle": .file(sourceBundleURL),
+                "outputBundle": outputBundleURL.map { .file($0) } ?? .null,
+                "processedTracks": .integer(result.processedTracks),
+                "newTrackIds": .array(result.newTrackIds.map(ParameterValue.string)),
+            ],
+            defaults: [
+                "outputBundle": .null,
+            ],
+            resolved: [
+                "sourceBundle": .file(sourceBundleURL),
+                "outputBundle": .file(result.bundleURL),
+                "processedTracks": .integer(result.processedTracks),
+                "newTrackIds": .array(result.newTrackIds.map(ParameterValue.string)),
+            ],
+            toolName: "lungfish bundle deduplicate-alignments",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: provenanceRecords(for: sourceBundleURL, role: .input),
+            outputs: provenanceRecords(for: result.bundleURL, role: .output),
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: result.bundleURL,
+            writeFileSidecars: false
+        )
+
+        if outputFormat == .json {
+            if let line = encodeJSONOutput(result) {
+                emit(line)
+            }
+            return result
+        }
+        guard !quiet else { return result }
+        emit("Deduplicated bundle: \(result.bundleURL.path)")
+        emit("Processed tracks: \(result.processedTracks)")
+        return result
+    }
+
+    private static func encodeJSONOutput(_ result: AlignmentDuplicateService.WorkflowResult) -> String? {
+        let summary = JSONOutput(
+            bundlePath: result.bundleURL.path,
+            processedTracks: result.processedTracks,
+            newTrackIds: result.newTrackIds
+        )
+        let encoder = JSONEncoder()
+        guard let data = try? encoder.encode(summary) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private struct JSONOutput: Encodable {
+        let bundlePath: String
+        let processedTracks: Int
+        let newTrackIds: [String]
     }
 }
 

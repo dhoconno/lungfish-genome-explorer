@@ -190,7 +190,6 @@ public class ReferenceBundleViewportController: NSViewController {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.isHidden = true
-        container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         return container
     }()

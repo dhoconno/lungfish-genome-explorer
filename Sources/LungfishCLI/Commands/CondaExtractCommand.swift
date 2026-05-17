@@ -98,7 +98,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
 
         guard !parsedTaxIds.isEmpty else {
             print(formatter.error("No valid taxonomy IDs provided"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Resolve file paths
@@ -111,12 +111,12 @@ struct ExtractSubcommand: AsyncParsableCommand {
         for url in sourceURLs {
             guard fm.fileExists(atPath: url.path) else {
                 print(formatter.error("Source file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
         }
         guard fm.fileExists(atPath: krakenOutputURL.path) else {
             print(formatter.error("Kraken output file not found: \(krakenOutput)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Build taxonomy tree if needed for descendant lookup
@@ -125,7 +125,7 @@ struct ExtractSubcommand: AsyncParsableCommand {
             let kreportURL = URL(fileURLWithPath: kreport)
             guard fm.fileExists(atPath: kreportURL.path) else {
                 print(formatter.error("Kreport file not found: \(kreport)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
             tree = try KreportParser.parse(url: kreportURL)
         } else {

@@ -385,7 +385,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     override func loadView() {
         view = NSView()
         view.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.root)
-        view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         configureLayout()
     }
@@ -646,7 +645,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func configureCanvas() {
         canvasContainer.translatesAutoresizingMaskIntoConstraints = false
-        canvasContainer.wantsLayer = true
         canvasContainer.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
 
         cornerHeaderView.translatesAutoresizingMaskIntoConstraints = false

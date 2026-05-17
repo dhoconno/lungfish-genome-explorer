@@ -513,13 +513,27 @@ public enum AssemblyRunner {
                 executionURL: executionURL
             )
         }
-        let argv = ["lungfish-app", "assemble", "materialize-inputs"]
-            + originalRequest.inputURLs.map(\.path)
+        let materializationCommands = materializedPairs.map { originalURL, executionURL in
+            CLISequenceInputMaterialization.materializationCommand(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let argv = materializationCommands.count == 1
+            ? materializationCommands[0]
+            : [
+                "/bin/sh",
+                "-lc",
+                materializationCommands
+                    .map { $0.map(shellEscape).joined(separator: " ") }
+                    .joined(separator: " && "),
+            ]
 
         return ProvenanceStep(
-            toolName: "lungfish.assemble.input-materialization",
+            toolName: "lungfish fastq materialize",
             toolVersion: WorkflowRun.currentAppVersion,
             argv: argv,
+            durableReplayArgv: argv,
             reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
             inputs: inputs,
             outputs: outputs,

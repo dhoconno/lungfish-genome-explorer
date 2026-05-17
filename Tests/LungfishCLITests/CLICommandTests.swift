@@ -1246,10 +1246,10 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 26 subcommands registered.
+    /// Verifies that FastqCommand has all 27 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 26, "FastqCommand should have 26 subcommands")
+        XCTAssertEqual(subcommands.count, 27, "FastqCommand should have 27 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
@@ -1259,13 +1259,39 @@ final class FastqCommandTests: XCTestCase {
             "subsample", "length-filter", "trim", "quality-trim", "adapter-trim", "fixed-trim",
             "contaminant-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
-            "demultiplex", "import-ont", "materialize", "qc-summary",
+            "demultiplex", "scout", "import-ont", "materialize", "qc-summary",
             "search-text", "search-motif", "orient", "scrub-human", "sequence-filter",
             "deacon-ribo", "reverse-complement", "translate",
         ]
         for name in expected {
             XCTAssertTrue(names.contains(name), "Missing subcommand: \(name)")
         }
+    }
+
+    func testFastqScoutParsesBarcodeScoutingOptions() throws {
+        let cmd = try FastqScoutSubcommand.parse([
+            "reads.fastq",
+            "--kit", "ont-nbd114",
+            "--output", "/tmp/scout-result.json",
+            "--read-limit", "2500",
+            "--accept-threshold", "7",
+            "--reject-threshold", "2",
+            "--error-rate", "0.12",
+            "--overlap", "16",
+            "--source-platform", "ont",
+            "--no-indels",
+        ])
+
+        XCTAssertEqual(cmd.input, "reads.fastq")
+        XCTAssertEqual(cmd.kit, "ont-nbd114")
+        XCTAssertEqual(cmd.output, "/tmp/scout-result.json")
+        XCTAssertEqual(cmd.readLimit, 2500)
+        XCTAssertEqual(cmd.acceptThreshold, 7)
+        XCTAssertEqual(cmd.rejectThreshold, 2)
+        XCTAssertEqual(cmd.errorRate, 0.12)
+        XCTAssertEqual(cmd.overlap, 16)
+        XCTAssertEqual(cmd.sourcePlatform, "ont")
+        XCTAssertTrue(cmd.useNoIndels)
     }
 
     // MARK: - Subsample Argument Parsing

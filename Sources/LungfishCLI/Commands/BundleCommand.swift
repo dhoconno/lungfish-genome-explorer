@@ -28,12 +28,53 @@ struct BundleCommand: AsyncParsableCommand {
             BundleInfoSubcommand.self,
             BundleCreateSubcommand.self,
             BundleExtractAnnotationsSubcommand.self,
+            BundleDeduplicateAlignmentsSubcommand.self,
             BundleExportSubcommand.self,
             BundleValidateSubcommand.self,
             BundleListSubcommand.self,
         ],
         defaultSubcommand: BundleInfoSubcommand.self
     )
+}
+
+// MARK: - Deduplicate Alignments Subcommand
+
+struct BundleDeduplicateAlignmentsSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "deduplicate-alignments",
+        abstract: "Create a bundle with duplicate reads removed from alignment tracks",
+        discussion: """
+            Copies a .lungfishref bundle, runs the shared duplicate-removal workflow on
+            every alignment track, and records reproducibility provenance in the output bundle.
+
+            Examples:
+              lungfish bundle deduplicate-alignments MyGenome.lungfishref
+              lungfish bundle deduplicate-alignments MyGenome.lungfishref --output MyGenome-dedup.lungfishref
+            """
+    )
+
+    @Argument(help: "Path to the source .lungfishref bundle")
+    var bundlePath: String
+
+    @Option(name: [.customLong("output"), .customShort("o")], help: "Output .lungfishref bundle path")
+    var output: String?
+
+    @OptionGroup var globalOptions: TextAndJSONGlobalOptions
+
+    func run() async throws {
+        let resolvedOptions = try globalOptions.resolved(with: ProcessInfo.processInfo.arguments)
+        var command = ["lungfish", "bundle", "deduplicate-alignments", bundlePath]
+        if let output {
+            command += ["--output", output]
+        }
+        _ = try await CLIDeduplicatedBundleSupport.run(
+            sourceBundlePath: bundlePath,
+            outputBundlePath: output,
+            outputFormat: resolvedOptions.outputFormat,
+            quiet: resolvedOptions.quiet,
+            command: command
+        ) { print($0) }
+    }
 }
 
 // MARK: - Export Subcommand
@@ -613,7 +654,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
         if FileManager.default.fileExists(atPath: outputBundleURL.path) {
             guard replace else {
                 print(formatter.error("Output bundle already exists: \(outputBundleURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.outputError.exitCode
             }
             try FileManager.default.removeItem(at: outputBundleURL)
         }
@@ -622,7 +663,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
         let manifest = referenceBundle.manifest
         guard let track = manifest.annotations.first(where: { $0.id == trackID || $0.name == trackID }) else {
             print(formatter.error("Annotation track not found: \(trackID)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let databasePath = track.databasePath ?? track.path
@@ -638,7 +679,7 @@ struct BundleExtractAnnotationsSubcommand: AsyncParsableCommand {
 
         guard !records.isEmpty else {
             print(formatter.error("No \(featureType) features matched the requested filters."))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let tempDirectory = try ProjectTempDirectory.createFromContext(
@@ -758,6 +799,7 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         var allValid = true
+        var sawMissingBundle = false
         var results: [BundleValidationResult] = []
 
         for bundlePath in bundles {
@@ -765,6 +807,7 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
 
             guard FileManager.default.fileExists(atPath: bundlePath) else {
                 allValid = false
+                sawMissingBundle = true
                 results.append(BundleValidationResult(
                     path: bundlePath,
                     valid: false,
@@ -854,7 +897,7 @@ struct BundleValidateSubcommand: AsyncParsableCommand {
         }
 
         if !allValid {
-            throw ExitCode.failure
+            throw sawMissingBundle ? CLIExitCode.inputError.exitCode : CLIExitCode.formatError.exitCode
         }
     }
 }

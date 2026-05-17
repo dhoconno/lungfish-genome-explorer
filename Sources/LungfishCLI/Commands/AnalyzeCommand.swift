@@ -244,11 +244,13 @@ struct FileValidateSubcommand: AsyncParsableCommand {
     func run() async throws {
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         var allValid = true
+        var sawMissingInput = false
         var results: [ValidationFileResult] = []
 
         for file in files {
             guard FileManager.default.fileExists(atPath: file) else {
                 allValid = false
+                sawMissingInput = true
                 results.append(ValidationFileResult(
                     file: file,
                     valid: false,
@@ -341,7 +343,7 @@ struct FileValidateSubcommand: AsyncParsableCommand {
         }
 
         if !allValid {
-            throw ExitCode.failure
+            throw sawMissingInput ? CLIExitCode.inputError.exitCode : CLIExitCode.formatError.exitCode
         }
     }
 }

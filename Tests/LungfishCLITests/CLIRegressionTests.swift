@@ -1303,7 +1303,23 @@ final class BundleCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 6)
+        let names = subs.map { $0.configuration.commandName }
+        XCTAssertEqual(subs.count, 7)
+        XCTAssertTrue(names.contains("deduplicate-alignments"))
+    }
+
+    func testDeduplicateAlignmentsSubcommandParsesBundleOptions() throws {
+        let parsed = try BundleCommand.parseAsRoot([
+            "deduplicate-alignments",
+            "/tmp/source.lungfishref",
+            "--output", "/tmp/source-deduplicated.lungfishref",
+            "--format", "json",
+        ])
+        let command = try XCTUnwrap(parsed as? BundleDeduplicateAlignmentsSubcommand)
+
+        XCTAssertEqual(command.bundlePath, "/tmp/source.lungfishref")
+        XCTAssertEqual(command.output, "/tmp/source-deduplicated.lungfishref")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 }
 
@@ -1833,8 +1849,15 @@ final class AssembleCommandRegressionTests: XCTestCase {
                 && $0.fileSize != nil
         })
         let materializationStep = try XCTUnwrap(
-            envelope.steps.first { $0.toolName == "lungfish.assemble.input-materialization" }
+            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
         )
+        let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
+            originalURL: derivedBundleURL,
+            executionURL: materializedURL
+        )
+        XCTAssertEqual(materializationStep.argv, expectedCommand)
+        XCTAssertEqual(materializationStep.durableReplayArgv, expectedCommand)
+        XCTAssertEqual(materializationStep.reproducibleCommand, expectedCommand.map(shellEscape).joined(separator: " "))
         XCTAssertTrue(materializationStep.inputs.contains { $0.path == derivedBundleURL.path })
         XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
         XCTAssertEqual(materializationStep.startedAt, Date(timeIntervalSince1970: 200))

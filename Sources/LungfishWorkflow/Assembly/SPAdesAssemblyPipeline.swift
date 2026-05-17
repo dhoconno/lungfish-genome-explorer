@@ -263,7 +263,7 @@ public enum SPAdesResultLoadError: Error, LocalizedError, Sendable {
 
 // MARK: - SPAdesAssemblyPipeline
 
-/// Core pipeline for running SPAdes assembly via Apple Containers.
+/// Core pipeline for running SPAdes assembly via a container runtime.
 ///
 /// This class follows the `@unchecked Sendable` pipeline pattern for use
 /// from `Task.detached` contexts. Progress is reported via a callback,
@@ -277,7 +277,6 @@ public enum SPAdesResultLoadError: Error, LocalizedError, Sendable {
 ///     print("\(Int(progress * 100))%: \(message)")
 /// }
 /// ```
-@available(macOS 26, *)
 public final class SPAdesAssemblyPipeline: @unchecked Sendable {
 
     /// Container image reference for SPAdes.
@@ -291,13 +290,13 @@ public final class SPAdesAssemblyPipeline: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - config: Assembly configuration
-    ///   - runtime: The Apple Container runtime to use
+    ///   - runtime: Container runtime to use
     ///   - progress: Progress callback: (fraction 0-1, status message)
     /// - Returns: Assembly result with paths to outputs and statistics
     /// - Throws: On container errors, SPAdes failures, or cancellation
     public func run(
         config: SPAdesAssemblyConfig,
-        runtime: AppleContainerRuntime,
+        runtime: any ContainerRuntimeProtocol,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> SPAdesAssemblyResult {
         let startTime = Date()

@@ -4,7 +4,6 @@
 
 import AppKit
 import SwiftUI
-import Combine
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -141,9 +140,6 @@ public class InspectorViewController: NSViewController {
     var provenanceSectionViewModel: ProvenanceInspectorViewModel {
         viewModel.provenanceSectionViewModel
     }
-
-    /// Cancellables for Combine subscriptions
-    private var cancellables = Set<AnyCancellable>()
 
     /// Prevents duplicate NotificationCenter observer registration.
     private var hasRegisteredNotificationObservers = false

@@ -80,15 +80,6 @@ public struct ProvisioningProgress: Sendable {
     }
 }
 
-// MARK: - ToolProvisionerDelegate
-
-/// Delegate for receiving provisioning progress updates.
-public protocol ToolProvisionerDelegate: AnyObject, Sendable {
-    func provisionerDidUpdateProgress(_ progress: ProvisioningProgress)
-    func provisionerDidComplete(tool: String, executables: [URL])
-    func provisionerDidFail(tool: String, error: Error)
-}
-
 // MARK: - ToolProvisioner
 
 /// Protocol for tool provisioners.

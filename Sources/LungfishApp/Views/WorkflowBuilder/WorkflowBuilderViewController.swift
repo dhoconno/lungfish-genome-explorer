@@ -1265,7 +1265,6 @@ class WorkflowCanvasViewController: NSViewController {
         banner.material = .contentBackground
         banner.blendingMode = .withinWindow
         banner.state = .active
-        banner.wantsLayer = true
         banner.layer?.borderWidth = 1
         banner.layer?.borderColor = NSColor.separatorColor.cgColor
         banner.setAccessibilityIdentifier(WorkflowBuilderAccessibilityID.experimentalBanner)

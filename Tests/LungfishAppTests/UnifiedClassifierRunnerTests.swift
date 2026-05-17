@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class UnifiedClassifierRunnerTests: XCTestCase {
@@ -65,73 +66,152 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertEqual(wizard.testingSidebarSelection, .clinicalTriage)
     }
 
-    func testWizardSourceUsesRunnerShellTermsOnly() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
-        let bodyStart = try XCTUnwrap(source.range(of: "    var body: some View {"))
-        let bodyEnd = try XCTUnwrap(source.range(of: "    // MARK: - Runner Sidebar"))
-        let bodySource = String(source[bodyStart.upperBound..<bodyEnd.lowerBound])
-
-        XCTAssertTrue(bodySource.contains("runnerSidebar"))
-        XCTAssertTrue(bodySource.contains("runnerDetail"))
-        XCTAssertTrue(source.contains("footerBar"))
-        XCTAssertTrue(source.contains("UnifiedClassifierRunnerSection"))
-        XCTAssertFalse(source.contains("WizardStep"))
-        XCTAssertFalse(source.contains("analysisTypeSelector"))
+    func testRunnerShellExposesStableAnalysisOptions() {
+        XCTAssertEqual(
+            UnifiedMetagenomicsWizard.AnalysisType.allCases,
+            [.classification, .viralDetection, .clinicalTriage]
+        )
+        XCTAssertEqual(
+            UnifiedMetagenomicsWizard.AnalysisType.allCases.map(\.runnerTitle),
+            ["Kraken2", "EsViritu", "TaxTriage"]
+        )
+        XCTAssertEqual(
+            UnifiedMetagenomicsWizard.AnalysisType.allCases.map(\.toolName),
+            [
+                "Classify & Profile (Kraken2)",
+                "Detect Viruses (EsViritu)",
+                "Detect Pathogens (TaxTriage)",
+            ]
+        )
     }
 
-    func testUnifiedClassifierWizardUsesSharedEmbeddedContractNames() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/Views/Metagenomics/UnifiedMetagenomicsWizard.swift")
+    func testClassifierToolsUseEmbeddedFASTQOperationsRoutingContract() {
+        for toolID in [FASTQOperationToolID.kraken2, .esViritu, .taxTriage] {
+            let state = FASTQOperationDialogState(
+                initialCategory: .classification,
+                selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.fastq")]
+            )
 
-        XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
-        XCTAssertTrue(source.contains("embeddedRunTrigger: runnerRunTrigger"))
-        XCTAssertTrue(source.contains("onRunnerAvailabilityChange: { acceptRunnerAvailability($0, for: .classification) }"))
-        XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
+            state.selectTool(toolID)
+
+            XCTAssertEqual(state.selectedCategory, .classification)
+            XCTAssertEqual(state.selectedToolID, toolID)
+            XCTAssertEqual(state.outputMode, .fixedBatch)
+            XCTAssertFalse(state.isRunEnabled)
+            XCTAssertEqual(state.readinessText, "Complete the classifier settings to continue.")
+
+            let initialTrigger = state.embeddedRunTrigger
+            state.prepareForRun()
+
+            XCTAssertEqual(state.embeddedRunTrigger, initialTrigger + 1)
+            XCTAssertNil(state.pendingLaunchRequest)
+            XCTAssertTrue(state.pendingClassificationConfigs.isEmpty)
+            XCTAssertTrue(state.pendingEsVirituConfigs.isEmpty)
+            XCTAssertNil(state.pendingTaxTriageConfig)
+        }
     }
 
-    func testDirectClassifierRoutingUsesFASTQOperationsDialogPresenter() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
-        XCTAssertTrue(source.contains("FASTQOperationsDialogPresenter.present("))
-        XCTAssertFalse(source.contains("makeUnifiedClassifierPanel"))
-        XCTAssertFalse(source.contains("presentUnifiedClassifierPanel"))
+    func testOrientToolSelectionBuildsOperationsDialogLaunchRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fastq")
+        let referenceURL = URL(fileURLWithPath: "/tmp/reference.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [inputURL]
+        )
+
+        state.selectTool(.orientReads)
+        state.setAuxiliaryInput(referenceURL, for: .referenceSequence)
+        state.prepareForRun()
+
+        XCTAssertEqual(state.selectedCategory, .readProcessing)
+        XCTAssertEqual(state.selectedToolID, .orientReads)
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .orient(
+                    referenceURL: referenceURL,
+                    wordLength: 12,
+                    dbMask: "dust",
+                    saveUnoriented: false
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
     }
 
-    func testDirectOrientLaunchUsesFASTQOperationsDialogToolSelection() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+    func testEmbeddedClassifierCapturesRouteToRunnerSpecificPendingState() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.fastq")
+        let databaseURL = URL(fileURLWithPath: "/tmp/classifier-db")
+        let outputURL = URL(fileURLWithPath: "/tmp/classifier-output")
 
-        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .readProcessing, initialToolID: .orientReads)"))
-        XCTAssertFalse(source.contains("OrientWizardSheet(inputFiles:"))
-    }
+        let krakenState = FASTQOperationDialogState(
+            initialCategory: .classification,
+            selectedInputURLs: [inputURL]
+        )
+        krakenState.captureClassificationConfigs([
+            ClassificationConfig(
+                inputFiles: [inputURL],
+                isPairedEnd: false,
+                databaseName: "standard",
+                databasePath: databaseURL,
+                outputDirectory: outputURL
+            )
+        ])
+        XCTAssertEqual(krakenState.pendingClassificationConfigs.count, 1)
+        XCTAssertTrue(krakenState.pendingEsVirituConfigs.isEmpty)
+        XCTAssertNil(krakenState.pendingTaxTriageConfig)
+        XCTAssertEqual(
+            krakenState.pendingLaunchRequest,
+            .classify(tool: .kraken2, inputURLs: [inputURL], databaseName: "standard")
+        )
 
-    func testClassifierLaunchRoutingUsesOperationsDialogForEveryClassifierTool() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
+        let esVirituState = FASTQOperationDialogState(
+            initialCategory: .classification,
+            selectedInputURLs: [inputURL]
+        )
+        esVirituState.captureEsVirituConfigs([
+            EsVirituConfig(
+                inputFiles: [inputURL],
+                isPairedEnd: false,
+                sampleName: "sample",
+                outputDirectory: outputURL,
+                databasePath: databaseURL
+            )
+        ])
+        XCTAssertTrue(esVirituState.pendingClassificationConfigs.isEmpty)
+        XCTAssertEqual(esVirituState.pendingEsVirituConfigs.count, 1)
+        XCTAssertNil(esVirituState.pendingTaxTriageConfig)
+        XCTAssertEqual(
+            esVirituState.pendingLaunchRequest,
+            .classify(tool: .esViritu, inputURLs: [inputURL], databaseName: "classifier-db")
+        )
 
-        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .kraken2)"))
-        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .esViritu)"))
-        XCTAssertTrue(source.contains("showFASTQOperationsDialog(sender, initialCategory: .classification, initialToolID: .taxTriage)"))
-        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .classification)"))
-        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .viralDetection)"))
-        XCTAssertFalse(source.contains("UnifiedMetagenomicsWizard(inputFiles: bundleURLs, initialSelection: .clinicalTriage)"))
-        XCTAssertFalse(source.contains("ClassificationWizardSheet("))
-        XCTAssertFalse(source.contains("EsVirituWizardSheet("))
-        XCTAssertFalse(source.contains("TaxTriageWizardSheet("))
-    }
-
-    func testFASTQOperationsDialogRunDispatchesOnlyMappingAndClassifierEmbedsDirectly() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
-
-        XCTAssertTrue(source.contains("if let config = state.pendingMinimap2Config"))
-        XCTAssertTrue(source.contains("self.runMinimap2Mapping(config: config, routeContext: routeContext)"))
-        XCTAssertFalse(source.contains("pendingSPAdesConfig"))
-        XCTAssertFalse(source.contains("AssemblyRunner.run(config:"))
-        XCTAssertTrue(source.contains("if !state.pendingClassificationConfigs.isEmpty"))
-        XCTAssertTrue(source.contains("self.runClassification(configs: state.pendingClassificationConfigs, viewerController: viewerController, routeContext: routeContext)"))
-        XCTAssertTrue(source.contains("if !state.pendingEsVirituConfigs.isEmpty"))
-        XCTAssertTrue(source.contains("self.runEsViritu(configs: state.pendingEsVirituConfigs, viewerController: viewerController, routeContext: routeContext)"))
-        XCTAssertTrue(source.contains("if let config = state.pendingTaxTriageConfig"))
-        XCTAssertTrue(source.contains("self.runTaxTriage(config: config, viewerController: viewerController, routeContext: routeContext)"))
+        let taxTriageState = FASTQOperationDialogState(
+            initialCategory: .classification,
+            selectedInputURLs: [inputURL]
+        )
+        taxTriageState.captureTaxTriageConfig(
+            TaxTriageConfig(
+                samples: [TaxTriageSample(sampleId: "sample", fastq1: inputURL)],
+                outputDirectory: outputURL,
+                kraken2DatabasePath: databaseURL
+            )
+        )
+        XCTAssertTrue(taxTriageState.pendingClassificationConfigs.isEmpty)
+        XCTAssertTrue(taxTriageState.pendingEsVirituConfigs.isEmpty)
+        XCTAssertNotNil(taxTriageState.pendingTaxTriageConfig)
+        XCTAssertEqual(
+            taxTriageState.pendingLaunchRequest,
+            .classify(tool: .taxTriage, inputURLs: [inputURL], databaseName: "classifier-db")
+        )
     }
 
     func testRunMinimap2MappingKeepsDurableVirtualInputProvenanceBeforeResolvedExecutionInputs() throws {
+        // This AppDelegate path resolves temporary FASTQ materializations inside a
+        // private async runner. Until that workflow exposes a route/result seam,
+        // keep this narrow source guard because preserving virtual input provenance
+        // is a blocking scientific-data requirement.
         let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
         let methodStart = try XCTUnwrap(source.range(of: "    private func runMinimap2Mapping("))
         let methodEnd = try XCTUnwrap(
@@ -145,13 +225,6 @@ final class UnifiedClassifierRunnerTests: XCTestCase {
         XCTAssertTrue(methodSource.contains("resolvedConfig.provenanceInputFileRecords = config.provenanceInputFileRecords"))
         XCTAssertTrue(methodSource.contains("?? Self.durableSequenceInputRecordsForProvenance(config.inputFiles)"))
         XCTAssertTrue(methodSource.contains("resolvedConfig.inputFiles = resolvedFiles"))
-    }
-
-    func testFASTQOperationsDialogRoutesDerivativeLaunchesThroughMainSplitExecutionPath() throws {
-        let source = try loadSource(at: "Sources/LungfishApp/App/AppDelegate.swift")
-
-        XCTAssertTrue(source.contains("if let request = state.pendingLaunchRequest"))
-        XCTAssertTrue(source.contains("runFASTQOperationLaunchRequest("))
     }
 
     private func loadSource(at relativePath: String) throws -> String {

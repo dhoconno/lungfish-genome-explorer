@@ -422,9 +422,16 @@ final class AssemblyManagedInputMaterializationTests: XCTestCase {
         try provenance.save(to: outputDir)
         let reloaded = try AssemblyProvenance.load(from: outputDir)
         let reloadedStep = try XCTUnwrap(
-            reloaded.steps.first { $0.toolName == "lungfish.assemble.input-materialization" }
+            reloaded.steps.first { $0.toolName == "lungfish fastq materialize" }
+        )
+        let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
+            originalURL: derivedBundleURL,
+            executionURL: materializedURL
         )
 
+        XCTAssertEqual(reloadedStep.argv, expectedCommand)
+        XCTAssertEqual(reloadedStep.durableReplayArgv, expectedCommand)
+        XCTAssertEqual(reloadedStep.reproducibleCommand, expectedCommand.map(shellEscape).joined(separator: " "))
         XCTAssertEqual(reloadedStep.startedAt, materializationStartedAt)
         XCTAssertEqual(reloadedStep.completedAt, materializationEndedAt)
         XCTAssertEqual(reloadedStep.wallTimeSeconds, 2.0)

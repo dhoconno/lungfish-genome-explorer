@@ -276,57 +276,20 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertLessThanOrEqual(window.contentMinSize.height, 700)
     }
 
-    func testWelcomeViewSourceOmitsBrandingHeaderStack() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+    func testWelcomeNavigationSectionsExposeExpectedLabelsAndIdentifiers() {
+        XCTAssertEqual(
+            WelcomeSection.allCases.map(\.rawValue),
+            ["Get Started", "Recent Projects", "Required Setup", "Optional Tools"]
         )
-
-        XCTAssertFalse(source.contains("Image(nsImage: Self.loadLogo())"))
-        XCTAssertFalse(source.contains("Text(\"Lungfish Genome Explorer\")"))
-        XCTAssertFalse(source.contains("Text(\"Seeing the invisible. Informing action.\")"))
-    }
-
-    func testWelcomeViewSourceIncludesSidebarNavigationSections() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+        XCTAssertEqual(
+            WelcomeSection.allCases.map(\.accessibilityIdentifier),
+            [
+                "welcome-nav-get-started",
+                "welcome-nav-recent-projects",
+                "welcome-nav-required-setup",
+                "welcome-nav-optional-tools",
+            ]
         )
-
-        XCTAssertTrue(source.contains("Get Started"))
-        XCTAssertTrue(source.contains("Recent Projects"))
-        XCTAssertTrue(source.contains("Required Setup"))
-        XCTAssertTrue(source.contains("Optional Tools"))
-    }
-
-    func testWelcomeViewSourceUsesRequiredPackCopy() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertFalse(source.contains("Lungfish Tools"))
-        XCTAssertTrue(source.contains("Checking Required Setup"))
-        XCTAssertTrue(source.contains("Preparing \\(pack.name)"))
-        XCTAssertTrue(source.contains("Text(status.pack.name)"))
-    }
-
-    func testWelcomeViewSourceIncludesAlternateStorageAction() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("Need more space? Choose another storage location…"))
-        XCTAssertTrue(source.contains("url.resolvingSymlinksInPath().standardizedFileURL"))
-        XCTAssertTrue(source.contains("var isStorageChooserEnabled: Bool"))
-        XCTAssertTrue(source.contains("Button(\"Use This Location\")"))
-        XCTAssertTrue(source.contains(".disabled(!viewModel.isStorageChooserEnabled)"))
-        XCTAssertTrue(source.contains(".disabled(!viewModel.canConfirmStorageSelection)"))
     }
 
     func testRequiredSetupPresentationHidesPrimaryInstallWhenReady() {
@@ -361,25 +324,12 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(presentation.showsAlternateStorageAction)
     }
 
-    func testWelcomeViewSourceUsesWarmPaletteAndNoVerticalFixedSize() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("Color.lungfishWelcomeSidebarBackground"))
-        XCTAssertTrue(source.contains("Color.lungfishWelcomeCardBackground"))
-        XCTAssertTrue(source.contains("Color.lungfishCreamsicleFallback"))
-        XCTAssertTrue(source.contains("Color.lungfishSageFallback"))
-        XCTAssertFalse(source.contains("Color.accentColor"))
-        XCTAssertFalse(source.contains("? .green"))
-        XCTAssertFalse(source.contains("? .red"))
-        XCTAssertFalse(source.contains(".fixedSize(horizontal: false, vertical: true)"))
-    }
-
     func testAvailableActionsExcludeOpenFiles() {
         XCTAssertEqual(WelcomeAction.allCases, [.createProject, .openProject])
+        XCTAssertEqual(
+            WelcomeAction.allCases.map(\.accessibilityIdentifier),
+            ["welcome-create-project", "welcome-open-project"]
+        )
     }
 
     func testLaunchRemainsDisabledUntilRequiredSetupIsReady() async {
@@ -710,12 +660,5 @@ final class WelcomeSetupTests: XCTestCase {
         await firstRefresh.value
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-    }
-
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 }

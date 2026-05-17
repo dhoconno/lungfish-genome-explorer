@@ -40,18 +40,10 @@ final class MappingWizardSheetTests: XCTestCase {
         )
     }
 
-    func testMappingSheetLabelsUseReadGroupAndExtraArgumentsText() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains(#"DisclosureGroup("Read Group""#))
-        XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
-        XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
+    func testMappingSheetLabelsExposeReadGroupAndExtraArgumentsContract() {
+        XCTAssertEqual(MappingWizardSheet.readGroupSectionTitle, "Read Group")
+        XCTAssertEqual(MappingWizardSheet.advancedSectionTitle, "Advanced Settings")
+        XCTAssertEqual(MappingWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
     }
 
     func testAdvancedOptionsPlaceholderUsesRealToolSpecificOptions() {

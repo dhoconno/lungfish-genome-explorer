@@ -269,6 +269,7 @@ private struct OrphanedEnvironmentRecoveryRow: View {
                     onRemove()
                 } label: { Text("Remove") }
                 .controlSize(.small)
+                .tint(.red)
                 .help("Remove orphaned hash-named environments")
                 .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRemoveButton)
             }
@@ -322,6 +323,7 @@ private struct EnvironmentRow: View {
                     }
                     label: { Text("Remove") }
                     .controlSize(.small)
+                    .tint(.red)
                     .help("Remove this environment and all its packages")
                     .accessibilityIdentifier(PluginManagerAccessibilityID.environmentRemoveButton(environment.name))
                 }
@@ -622,6 +624,7 @@ private struct PackCard: View {
                                 onRemoveAll()
                             } label: { Text("Remove All") }
                             .controlSize(.small)
+                            .tint(.red)
                             .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                         }
                     }
@@ -1131,6 +1134,7 @@ private struct DatabaseRow: View {
                     onRemove()
                 } label: { Text("Remove") }
                 .controlSize(.small)
+                .tint(.red)
                 .help("Remove this database and free disk space")
                 .accessibilityIdentifier(PluginManagerAccessibilityID.databaseRemoveButton(database.name))
             }

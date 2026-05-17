@@ -122,6 +122,46 @@ final class NvdCommandProvenanceTests: XCTestCase {
         )
     }
 
+    func testFinalOutputRecordsEnumerateAllBundleFilesWithFinalPaths() throws {
+        let stagingBundle = tempDir.appendingPathComponent("ImportedNVD.staging", isDirectory: true)
+        let finalBundle = tempDir.appendingPathComponent("ImportedNVD", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: stagingBundle.appendingPathComponent("tables", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        try "{}".write(
+            to: stagingBundle.appendingPathComponent("manifest.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "sample\tcontig\n".write(
+            to: stagingBundle.appendingPathComponent("tables/top-contigs.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "provenance".write(
+            to: stagingBundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let records = try nvdFinalOutputRecords(
+            stagingBundleDirectory: stagingBundle,
+            finalBundleDirectory: finalBundle
+        )
+
+        XCTAssertEqual(
+            records.map(\.path),
+            [
+                finalBundle.appendingPathComponent("manifest.json").path,
+                finalBundle.appendingPathComponent("tables/top-contigs.tsv").path,
+            ]
+        )
+        XCTAssertTrue(records.allSatisfy { $0.role == .output })
+        XCTAssertTrue(records.allSatisfy { $0.sha256 != nil })
+        XCTAssertFalse(records.contains { $0.path.hasSuffix(ProvenanceRecorder.provenanceFilename) })
+    }
+
     private func makeNvdRunDirectory() throws -> URL {
         let nvdDir = tempDir.appendingPathComponent("nvd-run", isDirectory: true)
         let labkeyDir = nvdDir.appendingPathComponent("05_labkey_bundling", isDirectory: true)

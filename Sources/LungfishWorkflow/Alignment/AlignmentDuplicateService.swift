@@ -5,7 +5,6 @@
 import Foundation
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
 
 /// Service for running `samtools markdup` workflows on bundle alignment tracks.
 public final class AlignmentDuplicateService: @unchecked Sendable {

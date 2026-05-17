@@ -721,7 +721,6 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
 
     private func setupSummaryBar() {
         summaryBar.translatesAutoresizingMaskIntoConstraints = false
-        summaryBar.wantsLayer = true
         resultsContainer.addSubview(summaryBar)
 
         summaryIcon.translatesAutoresizingMaskIntoConstraints = false

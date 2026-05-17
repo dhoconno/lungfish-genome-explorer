@@ -163,7 +163,7 @@ extension CondaCommand {
                     guard let pack = CondaCommand.visiblePacksForTesting().first(where: { $0.id == packID }) else {
                         print(formatter.error("Unknown tool pack: \(packID)"))
                         print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
 
                     print(formatter.header("Installing Tool Pack: \(pack.name)"))
@@ -186,7 +186,7 @@ extension CondaCommand {
                     } catch {
                         print("")
                         print(formatter.error("Tool pack '\(pack.name)' failed: \(error.localizedDescription)"))
-                        throw ExitCode.failure
+                        throw CLIExitCode.dependency.exitCode
                     }
                 }
             } else {
@@ -235,7 +235,7 @@ extension CondaCommand {
             guard let pluginPack = PluginPack.builtInPack(id: pack) else {
                 print(formatter.error("Unknown tool pack: \(pack)"))
                 print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
             let result = try CondaLockfileService().writeLockfile(
                 for: pluginPack,
@@ -387,7 +387,7 @@ extension CondaCommand {
         func run() async throws {
             guard let toolName = toolAndArgs.first else {
                 print("Error: No tool specified")
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let toolArgs = Array(toolAndArgs.dropFirst())
@@ -588,7 +588,7 @@ extension CondaCommand {
         guard let pluginPack = PluginPack.builtInPack(id: packID) else {
             print(formatter.error("Unknown tool pack: \(packID)"))
             print("Available packs: \(CondaCommand.visiblePacksForTesting().map(\.id).joined(separator: ", "))")
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let root = condaRoot.map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -611,7 +611,7 @@ extension CondaCommand {
             print("Provenance: \(result.provenanceURL.path)")
         } catch {
             print(formatter.error("Offline export failed: \(error.localizedDescription)"))
-            throw ExitCode.failure
+            throw CLIExitCode.outputError.exitCode
         }
     }
 
@@ -640,7 +640,7 @@ extension CondaCommand {
             print("Provenance: \(result.provenanceURL.path)")
         } catch {
             print(formatter.error("Offline install failed: \(error.localizedDescription)"))
-            throw ExitCode.failure
+            throw CLIExitCode.dependency.exitCode
         }
     }
 }

@@ -170,6 +170,10 @@ struct MappingWizardSheet: View {
         MappingMode(rawValue: selectedModeID)
     }
 
+    static let readGroupSectionTitle = "Read Group"
+    static let advancedSectionTitle = "Advanced Settings"
+    static let extraArgumentsFieldTitle = "Extra arguments"
+
     static func advancedOptionsPlaceholder(for tool: MappingTool) -> String {
         switch tool {
         case .minimap2:
@@ -472,7 +476,7 @@ struct MappingWizardSheet: View {
     }
 
     private var readGroupSection: some View {
-        DisclosureGroup("Read Group", isExpanded: $showReadGroup) {
+        DisclosureGroup(Self.readGroupSectionTitle, isExpanded: $showReadGroup) {
             VStack(alignment: .leading, spacing: 10) {
                 readGroupField(label: "ID (--rg-id)", text: $readGroupIDText)
                 readGroupField(label: "Sample (--rg-sm)", text: $readGroupSampleText)
@@ -497,7 +501,7 @@ struct MappingWizardSheet: View {
     }
 
     private var advancedSection: some View {
-        DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+        DisclosureGroup(Self.advancedSectionTitle, isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Threads:")
@@ -535,7 +539,7 @@ struct MappingWizardSheet: View {
 
                 Divider().padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Extra arguments")
+                    Text(Self.extraArgumentsFieldTitle)
                         .font(.system(size: 12))
                     TextField(Self.advancedOptionsPlaceholder(for: initialTool), text: $advancedOptionsText)
                         .font(.system(size: 12, design: .monospaced))

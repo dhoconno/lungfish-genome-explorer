@@ -1047,6 +1047,18 @@ final class MarkdupCommandTests: XCTestCase {
         XCTAssertFalse(help.contains("tsv"))
     }
 
+    func testLegacyMarkdupParsesDeduplicatedBundleOption() throws {
+        let command = try MarkdupCommand.parse([
+            "/tmp/source.lungfishref",
+            "--deduplicated-bundle", "/tmp/source-deduplicated.lungfishref",
+            "--format", "json",
+        ])
+
+        XCTAssertEqual(command.path, "/tmp/source.lungfishref")
+        XCTAssertEqual(command.deduplicatedBundlePath, "/tmp/source-deduplicated.lungfishref")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
+    }
+
     func testRootLevelQuietAppliesToBamMarkdupExecutable() throws {
         let managedHome = try makeFunctionalManagedSamtoolsHome()
         let samtools = managedHome.samtoolsPath.path

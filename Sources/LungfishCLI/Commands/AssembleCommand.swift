@@ -615,12 +615,28 @@ struct AssembleCommand: AsyncParsableCommand {
         if !materializedExecutionDescriptors.isEmpty {
             let stepStartedAt = materializationStartedAt ?? startedAt
             let stepCompletedAt = materializationEndedAt ?? stepStartedAt
+            let materializationCommands = materializedPairs.map { originalURL, executionURL in
+                CLISequenceInputMaterialization.materializationCommand(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            }
+            let materializationArgv = materializationCommands.count == 1
+                ? materializationCommands[0]
+                : [
+                    "/bin/sh",
+                    "-lc",
+                    materializationCommands
+                        .map { $0.map(shellEscape).joined(separator: " ") }
+                        .joined(separator: " && "),
+                ]
             builder = builder.step(
                 ProvenanceStep(
-                    toolName: "lungfish.assemble.input-materialization",
+                    toolName: "lungfish fastq materialize",
                     toolVersion: LungfishCLI.configuration.version,
-                    argv: argv,
-                    reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                    argv: materializationArgv,
+                    durableReplayArgv: materializationArgv,
+                    reproducibleCommand: materializationArgv.map(shellEscape).joined(separator: " "),
                     inputs: materializationInputDescriptors,
                     outputs: materializedExecutionDescriptors,
                     exitStatus: 0,

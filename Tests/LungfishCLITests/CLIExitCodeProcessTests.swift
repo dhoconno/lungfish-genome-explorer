@@ -388,6 +388,125 @@ final class CLIExitCodeProcessTests: XCTestCase {
         XCTAssertTrue(combinedOutput(result).contains("Provide either --input (with --sample) or --samplesheet"))
     }
 
+    func testBlastVerifyMissingKreportExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingKreport = tempDir.appendingPathComponent("missing.kreport")
+        let source = tempDir.appendingPathComponent("reads.fastq")
+        let krakenOutput = tempDir.appendingPathComponent("classified.kraken")
+        try "@r1\nACGT\n+\nIIII\n".write(to: source, atomically: true, encoding: .utf8)
+        try "C\tr1\t562\t4\t562:4\n".write(to: krakenOutput, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "blast", "verify",
+            "--kreport", missingKreport.path,
+            "--source", source.path,
+            "--kraken-output", krakenOutput.path,
+            "--taxid", "562",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Kreport file not found"))
+    }
+
+    func testBlastVerifyMissingSourceExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let kreport = tempDir.appendingPathComponent("report.kreport")
+        let missingSource = tempDir.appendingPathComponent("missing.fastq")
+        let krakenOutput = tempDir.appendingPathComponent("classified.kraken")
+        try "".write(to: kreport, atomically: true, encoding: .utf8)
+        try "C\tr1\t562\t4\t562:4\n".write(to: krakenOutput, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "blast", "verify",
+            "--kreport", kreport.path,
+            "--source", missingSource.path,
+            "--kraken-output", krakenOutput.path,
+            "--taxid", "562",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Source FASTQ not found"))
+    }
+
+    func testBlastVerifyMissingKrakenOutputExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let kreport = tempDir.appendingPathComponent("report.kreport")
+        let source = tempDir.appendingPathComponent("reads.fastq")
+        let missingKrakenOutput = tempDir.appendingPathComponent("missing.kraken")
+        try "".write(to: kreport, atomically: true, encoding: .utf8)
+        try "@r1\nACGT\n+\nIIII\n".write(to: source, atomically: true, encoding: .utf8)
+
+        let result = try runCLI([
+            "blast", "verify",
+            "--kreport", kreport.path,
+            "--source", source.path,
+            "--kraken-output", missingKrakenOutput.path,
+            "--taxid", "562",
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Kraken output not found"))
+    }
+
+    func testBundleValidateMissingBundleExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingBundle = tempDir.appendingPathComponent("Missing.lungfishref")
+
+        let result = try runCLI(["bundle", "validate", missingBundle.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+        XCTAssertTrue(combinedOutput(result).contains("Not found"))
+    }
+
+    func testImportMSAMissingInputExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing.fasta")
+        let project = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+
+        let result = try runCLI(["import", "msa", missingInput.path, "--project", project.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+    }
+
+    func testImportTreeMissingInputExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing.nwk")
+        let project = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+
+        let result = try runCLI(["import", "tree", missingInput.path, "--project", project.path])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+    }
+
+    func testApplicationExportMissingInputExitsWithInputError() throws {
+        let tempDir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let missingInput = tempDir.appendingPathComponent("missing-export.zip")
+        let project = tempDir.appendingPathComponent("Project.lungfish", isDirectory: true)
+
+        let result = try runCLI([
+            "import", "application-export",
+            "clc-workbench",
+            missingInput.path,
+            "--project", project.path,
+        ])
+
+        XCTAssertEqual(result.exitCode, CLIExitCode.inputError.rawValue)
+    }
+
     func testArgumentParserErrorsKeepUsageExitCodeAndFormatting() throws {
         let result = try runCLI(["--bad-option"])
 
@@ -452,6 +571,13 @@ final class CLIExitCodeProcessTests: XCTestCase {
 
     private func combinedOutput(_ result: (exitCode: Int32, stdout: String, stderr: String)) -> String {
         result.stdout + result.stderr
+    }
+
+    private func makeTemporaryDirectory() throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cli-exit-code-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        return tempDir
     }
 }
 

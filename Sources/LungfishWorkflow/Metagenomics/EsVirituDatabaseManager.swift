@@ -207,26 +207,6 @@ public actor EsVirituDatabaseManager {
         return hasFasta
     }
 
-    /// Returns the names of required Kraken2 files missing from a directory.
-    /// Kept for backward compatibility but no longer used for EsViritu validation.
-    private func _legacyCheck(_ dbDir: URL) -> Bool {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbDir.path) else { return false }
-
-        let markerFiles = ["refseq_viral.fasta", "taxonomy", "metadata"]
-        for marker in markerFiles {
-            let markerPath = dbDir.appendingPathComponent(marker)
-            if fm.fileExists(atPath: markerPath.path) {
-                return true
-            }
-        }
-
-        // If the directory exists but has no known markers, check if it
-        // has any contents at all (may be a different db layout version).
-        let contents = (try? fm.contentsOfDirectory(atPath: dbDir.path)) ?? []
-        return !contents.isEmpty
-    }
-
     /// Returns information about the installed database, if any.
     ///
     /// - Returns: A tuple of (version, path, sizeBytes), or `nil` if not installed.

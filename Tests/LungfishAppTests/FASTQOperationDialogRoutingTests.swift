@@ -918,6 +918,11 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     }
 
     func testViralReconBuildFailureDoesNotForceParentReadinessFalse() throws {
+        // ViralReconWizardSheet owns this SwiftUI callback choreography privately:
+        // build failures should surface an error without forcing the parent FASTQ
+        // dialog disabled, and later input changes must clear the error. There is
+        // no state/result seam for that view behavior yet, so this is intentionally
+        // kept as a narrow source guard rather than a broad implementation scan.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1390,20 +1395,24 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         ))
     }
 
-    func testAppDelegateRoutesPendingMSAAlignmentRequestToMAFFTRunner() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
+    func testMAFFTPrepareForRunBuildsAlignmentRequestInsteadOfGenericLaunchRequest() throws {
+        let project = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
         )
 
-        XCTAssertTrue(appDelegateSource.contains("state.pendingMSAAlignmentRequest"))
-        XCTAssertTrue(appDelegateSource.contains("self.runMAFFTAlignment(request: request, routeContext: routeContext)"))
-        XCTAssertTrue(appDelegateSource.contains("CLIMSAAlignmentRunner.buildArguments"))
-        XCTAssertTrue(appDelegateSource.contains("operationType: .multipleSequenceAlignmentGeneration"))
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.inputSequenceURLs, [input])
+        XCTAssertEqual(request.projectURL, project)
+        XCTAssertEqual(request.name, "input")
+        XCTAssertNil(state.pendingLaunchRequest)
+        XCTAssertNil(state.pendingMappingRequest)
+        XCTAssertNil(state.pendingMinimap2Config)
     }
 
     func testMAFFTAdvancedOptionsRouteIntoPendingMSARequest() throws {

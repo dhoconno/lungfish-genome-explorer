@@ -203,22 +203,13 @@ struct NvdCommand: AsyncParsableCommand {
             )
 
             let manifestData = try encoder.encode(manifest)
-            let finalManifestURL = bundleDir.appendingPathComponent("manifest.json")
             let stagingManifestURL = stagingBundleDir.appendingPathComponent("manifest.json")
             do {
                 try fileManager.createDirectory(at: stagingBundleDir, withIntermediateDirectories: true)
                 try manifestData.write(to: stagingManifestURL, options: .atomic)
-                let stagingManifestRecord = ProvenanceRecorder.fileRecord(
-                    url: stagingManifestURL,
-                    format: .json,
-                    role: .output
-                )
-                let finalManifestRecord = FileRecord(
-                    path: finalManifestURL.path,
-                    sha256: stagingManifestRecord.sha256,
-                    sizeBytes: stagingManifestRecord.sizeBytes,
-                    format: stagingManifestRecord.format,
-                    role: stagingManifestRecord.role
+                let finalOutputRecords = try nvdFinalOutputRecords(
+                    stagingBundleDirectory: stagingBundleDir,
+                    finalBundleDirectory: bundleDir
                 )
                 #if DEBUG
                 if testingCreateProvenanceCollision {
@@ -238,7 +229,7 @@ struct NvdCommand: AsyncParsableCommand {
                     outputDirectory: outputDirectory,
                     provenanceDirectory: stagingBundleDir,
                     bundleName: bundleName,
-                    manifestRecord: finalManifestRecord,
+                    outputRecords: finalOutputRecords,
                     result: result
                 )
                 guard !fileManager.fileExists(atPath: bundleDir.path) else {
@@ -254,7 +245,7 @@ struct NvdCommand: AsyncParsableCommand {
                 throw CLIExitCode.outputError.exitCode
             }
 
-            print(formatter.success("Manifest written to \(finalManifestURL.path)"))
+            print(formatter.success("Manifest written to \(bundleDir.appendingPathComponent("manifest.json").path)"))
             print("")
             print(formatter.success(
                 "Imported \(result.hits.count) BLAST hits from \(result.sampleIds.count) samples into \(bundleName)"
@@ -385,7 +376,7 @@ private func recordNvdImportProvenance(
     outputDirectory: URL,
     provenanceDirectory: URL,
     bundleName: String,
-    manifestRecord: FileRecord,
+    outputRecords: [FileRecord],
     result: NvdParseResult
 ) async throws {
     let command = [
@@ -426,15 +417,89 @@ private func recordNvdImportProvenance(
         inputs: [
             ProvenanceRecorder.fileRecord(url: csvURL, format: .unknown, role: .input),
         ],
-        outputs: [
-            manifestRecord,
-        ],
+        outputs: outputRecords,
         exitCode: 0,
         wallTime: Date().timeIntervalSince(startedAt),
         stderr: nil,
         status: .completed,
         outputDirectory: provenanceDirectory
     )
+}
+
+func nvdFinalOutputRecords(
+    stagingBundleDirectory: URL,
+    finalBundleDirectory: URL,
+    fileManager: FileManager = .default
+) throws -> [FileRecord] {
+    guard let enumerator = fileManager.enumerator(
+        at: stagingBundleDirectory,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return []
+    }
+
+    var records: [FileRecord] = []
+    for case let stagingURL as URL in enumerator {
+        guard stagingURL.lastPathComponent != ProvenanceRecorder.provenanceFilename else {
+            continue
+        }
+        let values = try stagingURL.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else {
+            continue
+        }
+
+        let relativeComponents = nvdBundleRelativePathComponents(
+            for: stagingURL,
+            stagingBundleDirectory: stagingBundleDirectory
+        )
+        let relativePath = relativeComponents.joined(separator: "/")
+        guard !relativePath.isEmpty else {
+            continue
+        }
+
+        let stagingRecord = ProvenanceRecorder.fileRecord(url: stagingURL, role: .output)
+        let finalURL = finalBundleDirectory.appendingPathComponent(relativePath)
+        records.append(
+            FileRecord(
+                path: finalURL.path,
+                sha256: stagingRecord.sha256,
+                sizeBytes: stagingRecord.sizeBytes,
+                format: stagingRecord.format,
+                role: stagingRecord.role
+            )
+        )
+    }
+    return records.sorted { $0.path < $1.path }
+}
+
+private func nvdBundleRelativePathComponents(
+    for stagingURL: URL,
+    stagingBundleDirectory: URL
+) -> [String] {
+    let stagingMarker = stagingBundleDirectory.lastPathComponent
+    let pathComponents = stagingURL.pathComponents
+    if let markerIndex = pathComponents.lastIndex(of: stagingMarker),
+       markerIndex < pathComponents.index(before: pathComponents.endIndex) {
+        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
+    }
+    if let markerIndex = pathComponents.lastIndex(where: {
+        $0 == ".staging"
+            || $0.hasSuffix(".staging")
+            || $0.hasPrefix(".lungfish-nvd-import-")
+    }), markerIndex < pathComponents.index(before: pathComponents.endIndex) {
+        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
+    }
+
+    let stagingPrefix = stagingBundleDirectory.path.hasSuffix("/")
+        ? stagingBundleDirectory.path
+        : stagingBundleDirectory.path + "/"
+    if stagingURL.path.hasPrefix(stagingPrefix) {
+        return String(stagingURL.path.dropFirst(stagingPrefix.count))
+            .split(separator: "/")
+            .map(String.init)
+    }
+    return [stagingURL.lastPathComponent]
 }
 
 private func nvdExitCode(for error: NvdParserError) -> CLIExitCode {
