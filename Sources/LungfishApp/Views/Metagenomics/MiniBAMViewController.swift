@@ -576,7 +576,7 @@ public final class MiniBAMViewController: NSViewController {
 
         // Fetch all primary/supplement-compatible reads for this contig. Keep
         // duplicate-flagged reads visible and deduplicate only for unique stats.
-        loadTask = Task { @MainActor [weak self] in
+        loadTask = Task { [weak self] in
             guard let self else { return }
             let requestedContig = contig
             do {
@@ -691,7 +691,7 @@ public final class MiniBAMViewController: NSViewController {
 
     private func scheduleViewportResizeUpdate() {
         pendingViewportResizeTask?.cancel()
-        pendingViewportResizeTask = Task { @MainActor [weak self] in
+        pendingViewportResizeTask = Task { [weak self] in
             await Task.yield()
             guard !Task.isCancelled else { return }
             self?.pendingViewportResizeTask = nil
@@ -709,8 +709,10 @@ public final class MiniBAMViewController: NSViewController {
             object: scrollView.contentView,
             queue: nil
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleViewportResizeUpdate()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.scheduleViewportResizeUpdate()
+                }
             }
         }
         clipFrameObserver = NotificationCenter.default.addObserver(
@@ -718,8 +720,10 @@ public final class MiniBAMViewController: NSViewController {
             object: scrollView.contentView,
             queue: nil
         ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleViewportResizeUpdate()
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.scheduleViewportResizeUpdate()
+                }
             }
         }
     }
@@ -832,14 +836,16 @@ public final class MiniBAMViewController: NSViewController {
             let inferredBases = MiniPileupView.inferReferenceBases(reads: reads, contigLength: contigLength)
             guard !Task.isCancelled else { return }
 
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                guard self.loadGeneration == generation else { return }
-                guard self.contigName == requestedContig else { return }
-                guard self.referenceSequence == nil else { return }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    guard self.loadGeneration == generation else { return }
+                    guard self.contigName == requestedContig else { return }
+                    guard self.referenceSequence == nil else { return }
 
-                self.pileupView.applyInferredReferenceBases(inferredBases)
-                self.deferredReferenceTask = nil
+                    self.pileupView.applyInferredReferenceBases(inferredBases)
+                    self.deferredReferenceTask = nil
+                }
             }
         }
     }

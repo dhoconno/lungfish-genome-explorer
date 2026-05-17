@@ -1003,7 +1003,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Locates the samtools binary for on-demand NAO-MGS BAM materialization.
     ///
-    /// `nonisolated` so it can be called from `Task.detached` contexts — the
+    /// `nonisolated` so it can be called from detached task contexts — the
     /// function only performs filesystem probes, so it's safe to run off the
     /// main actor.
     nonisolated fileprivate static func naomgsLocateSamtools() -> String? {
@@ -1067,15 +1067,18 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                             resultURL: capturedResultURL,
                             samtoolsPath: samtoolsPath
                         )
-                        await MainActor.run {
-                            if FileManager.default.fileExists(atPath: bamURL.path),
-                               capturedIndex < self.miniBAMControllers.count {
-                                self.miniBAMControllers[capturedIndex].displayContig(
-                                    bamURL: bamURL,
-                                    contig: capturedSummary.accession,
-                                    contigLength: max(capturedSummary.referenceLength, 1),
-                                    readNameAllowlist: readNameAllowlist
-                                )
+                        DispatchQueue.main.async { [weak self] in
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                if FileManager.default.fileExists(atPath: bamURL.path),
+                                   capturedIndex < self.miniBAMControllers.count {
+                                    self.miniBAMControllers[capturedIndex].displayContig(
+                                        bamURL: bamURL,
+                                        contig: capturedSummary.accession,
+                                        contigLength: max(capturedSummary.referenceLength, 1),
+                                        readNameAllowlist: readNameAllowlist
+                                    )
+                                }
                             }
                         }
                     }

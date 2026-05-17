@@ -69,9 +69,15 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
             "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
             "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
             "Sources/LungfishApp/Views/DatabaseBrowser/DatabaseBrowserViewController.swift",
+            "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
+            "Sources/LungfishApp/Views/Metagenomics/NaoMgsResultViewController.swift",
+            "Sources/LungfishApp/Views/Metagenomics/MiniBAMViewController.swift",
         ]
         let mainActorRunForbiddenPaths: Set<String> = [
             "Sources/LungfishApp/Views/Settings/StorageSettingsTab.swift",
+        ]
+        let operationCenterMainQueueIsolationRequiredPaths: Set<String> = [
+            "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift",
         ]
         var violations: [String] = []
 
@@ -90,6 +96,15 @@ final class AppKitConcurrencyModalSafetyTests: XCTestCase {
                 let context = lines[index..<upperBound].joined(separator: "\n")
                 if context.contains("await MainActor.run") {
                     violations.append("\(path):\(index + 1) Task.detached block contains await MainActor.run")
+                }
+            }
+            if operationCenterMainQueueIsolationRequiredPaths.contains(path) {
+                for index in lines.indices where lines[index].contains("DispatchQueue.main.async") {
+                    let upperBound = min(lines.endIndex, index + 20)
+                    let context = lines[index..<upperBound].joined(separator: "\n")
+                    if context.contains("OperationCenter.shared"), !context.contains("MainActor.assumeIsolated") {
+                        violations.append("\(path):\(index + 1) OperationCenter main-queue block lacks MainActor.assumeIsolated")
+                    }
                 }
             }
         }

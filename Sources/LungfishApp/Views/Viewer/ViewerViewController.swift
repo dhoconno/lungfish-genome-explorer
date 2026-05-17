@@ -1551,25 +1551,31 @@ public class ViewerViewController: NSViewController {
                     request: request,
                     progress: { fraction, message in
                         DispatchQueue.main.async {
-                            OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                            MainActor.assumeIsolated {
+                                OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
+                            }
                         }
                     }
                 )
 
                 DispatchQueue.main.async {
-                    OperationCenter.shared.complete(
-                        id: opID,
-                        detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
-                    )
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.complete(
+                            id: opID,
+                            detail: "\(result.verifiedCount)/\(result.readResults.count) verified"
+                        )
+                    }
                 }
             } catch {
                 let errorText = error.localizedDescription
                 DispatchQueue.main.async {
-                    OperationCenter.shared.fail(
-                        id: opID,
-                        detail: errorText,
-                        errorMessage: errorText
-                    )
+                    MainActor.assumeIsolated {
+                        OperationCenter.shared.fail(
+                            id: opID,
+                            detail: errorText,
+                            errorMessage: errorText
+                        )
+                    }
                 }
             }
         }
@@ -1726,16 +1732,18 @@ public class ViewerViewController: NSViewController {
         Task.detached {
             do {
                 _ = try await runner.run(arguments: arguments, operationID: opID)
-                await MainActor.run {
-                    guard let controller, controller.bundleURL == targetBundleURL else { return }
-                    do {
-                        try controller.displayBundle(at: targetBundleURL)
-                    } catch {
-                        OperationCenter.shared.log(
-                            id: opID,
-                            level: .warning,
-                            message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
-                        )
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let controller, controller.bundleURL == targetBundleURL else { return }
+                        do {
+                            try controller.displayBundle(at: targetBundleURL)
+                        } catch {
+                            OperationCenter.shared.log(
+                                id: opID,
+                                level: .warning,
+                                message: "Updated annotation store, but the alignment viewport could not be refreshed: \(error.localizedDescription)"
+                            )
+                        }
                     }
                 }
             } catch is CancellationError {
