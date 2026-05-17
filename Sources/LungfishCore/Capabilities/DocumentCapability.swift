@@ -308,11 +308,6 @@ extension DocumentCapability: ExpressibleByArrayLiteral {
     }
 }
 
-// MARK: - Deprecated Compatibility
-
-@available(*, deprecated, renamed: "DocumentCapability")
-public typealias DocumentCapabilities = DocumentCapability
-
 // MARK: - CapabilityProvider Protocol
 
 /// A type that can provide document capabilities.

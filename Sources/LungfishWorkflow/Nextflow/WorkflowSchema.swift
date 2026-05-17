@@ -65,11 +65,6 @@ public struct NextflowWorkflowSchema: Sendable, Codable {
     }
 }
 
-// MARK: - Deprecated Compatibility
-
-@available(*, deprecated, renamed: "NextflowWorkflowSchema")
-public typealias WorkflowSchema = NextflowWorkflowSchema
-
 // MARK: - NextflowParameterGroup
 
 /// A group of related workflow parameters.
@@ -119,9 +114,6 @@ public struct NextflowParameterGroup: Sendable, Codable, Identifiable {
         self.parameters = parameters
     }
 }
-
-@available(*, deprecated, renamed: "NextflowParameterGroup")
-public typealias ParameterGroup = NextflowParameterGroup
 
 // MARK: - NextflowParameter
 
@@ -192,9 +184,6 @@ public struct NextflowParameter: Sendable, Codable, Identifiable {
         self.helpText = helpText
     }
 }
-
-@available(*, deprecated, renamed: "NextflowParameter")
-public typealias WorkflowParameter = NextflowParameter
 
 // MARK: - NextflowParameterType
 
