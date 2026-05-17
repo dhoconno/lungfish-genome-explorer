@@ -9450,6 +9450,21 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func rehydrateCopiedProvenance(from sourceURL: URL, to destinationURL: URL) {
+        if GUIImportedProvenanceRehydrator.finalBundleRoot(containing: destinationURL) != nil {
+            do {
+                try GUIImportedProvenanceRehydrator.rehydrateImportedCopy(from: sourceURL, to: destinationURL)
+            } catch GUIImportedProvenanceRehydratorError.unsupportedSourceProvenance {
+                ProvenancePathRehydrator.rehydrate(from: sourceURL, to: destinationURL) { message in
+                    debugLog("rehydrateCopiedProvenance: \(message)")
+                }
+            } catch ProvenanceRehydrationError.missingSourceProvenance {
+                debugLog("rehydrateCopiedProvenance: no source provenance for \(sourceURL.path)")
+            } catch {
+                debugLog("rehydrateCopiedProvenance: failed schema-aware rehydration for \(sourceURL.path): \(error)")
+            }
+            return
+        }
+
         ProvenancePathRehydrator.rehydrate(from: sourceURL, to: destinationURL) { message in
             debugLog("rehydrateCopiedProvenance: \(message)")
         }
