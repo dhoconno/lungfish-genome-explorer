@@ -18,7 +18,7 @@ final class BundleCreateProvenanceTests: XCTestCase {
         ACGTACGTACGT
         """.write(to: fastaURL, atomically: true, encoding: .utf8)
 
-        var command = try BundleCreateSubcommand.parse([
+        let command = try BundleCreateSubcommand.parse([
             "--fasta", fastaURL.path,
             "--name", "Test Bundle",
             "--identifier", "org.lungfish.test.bundle",

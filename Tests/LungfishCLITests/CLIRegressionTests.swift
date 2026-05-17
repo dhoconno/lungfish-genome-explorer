@@ -1418,7 +1418,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--advanced-options", "--meta",
         ])
 
-        let stderr = try await captureStandardError {
+        let stderr = await captureStandardError {
             do {
                 try await command.run()
             } catch {
@@ -1623,7 +1623,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--output", outputDir.path,
         ])
 
-        let output = try await captureStandardOutputForRegression {
+        let output = await captureStandardOutputForRegression {
             do {
                 try await command.run()
                 XCTFail("Expected demux-group topology to fail before materialization")
@@ -1933,7 +1933,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--output", outputDir.path,
         ])
 
-        let output = try await captureStandardOutputForRegression {
+        let output = await captureStandardOutputForRegression {
             do {
                 try await command.run()
                 XCTFail("Expected inferred unsupported read type to fail before materialization")
@@ -2269,7 +2269,7 @@ final class MapCommandRegressionTests: XCTestCase {
             "--advanced-options", "--eqx",
         ])
 
-        let stderr = try await captureStandardError {
+        let stderr = await captureStandardError {
             do {
                 try await command.run()
             } catch {

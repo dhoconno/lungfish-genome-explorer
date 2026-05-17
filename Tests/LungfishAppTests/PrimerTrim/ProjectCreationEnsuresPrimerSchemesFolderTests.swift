@@ -14,14 +14,16 @@ import XCTest
 final class ProjectCreationEnsuresPrimerSchemesFolderTests: XCTestCase {
     private var tempDir: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectCreationEnsuresPrimerSchemesFolderTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: tempDir)
+        try await super.tearDown()
     }
 
     func testCreatingProjectCreatesPrimerSchemesFolder() throws {

@@ -577,14 +577,14 @@ final class DocumentManagerTests: XCTestCase {
             to: projectURL
         )
 
-        var notificationState: ProjectOpenWarningState?
+        let notificationState = LockedValue<ProjectOpenWarningState>()
         let expectation = expectation(description: "project opened notification includes lock warning state")
         let observer = NotificationCenter.default.addObserver(
             forName: DocumentManager.projectOpenedNotification,
             object: manager,
             queue: nil
         ) { notification in
-            notificationState = notification.userInfo?["openWarningState"] as? ProjectOpenWarningState
+            notificationState.value = notification.userInfo?["openWarningState"] as? ProjectOpenWarningState
             expectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(observer) }
@@ -597,7 +597,7 @@ final class DocumentManagerTests: XCTestCase {
         XCTAssertEqual(manager.activeProjectOpenWarningState.lockStatus, .active)
         XCTAssertEqual(manager.activeProjectOpenWarningState.lockRecord?.mode, "exclusive")
         XCTAssertTrue(manager.activeProjectOpenWarningState.warningMessage?.contains("opened read-only") == true)
-        XCTAssertEqual(notificationState, manager.activeProjectOpenWarningState)
+        XCTAssertEqual(notificationState.value, manager.activeProjectOpenWarningState)
     }
 
     func testLoadDocumentForProjectReturnsProjectActiveDocumentInsteadOfStaleFirstDocument() async throws {
@@ -908,5 +908,23 @@ final class DocumentManagerTests: XCTestCase {
         )
         let data = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: lockURL, options: .atomic)
+    }
+}
+
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: Value?
+
+    var value: Value? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
+        set {
+            lock.lock()
+            storage = newValue
+            lock.unlock()
+        }
     }
 }

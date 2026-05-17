@@ -329,6 +329,7 @@ final class SunburstRightClickTests: XCTestCase {
 
 // MARK: - Phase G10: RAM Warning Tests (Gap 19)
 
+@MainActor
 final class RAMWarningTests: XCTestCase {
 
     /// Creates a test database info with specified RAM requirements.

@@ -78,7 +78,7 @@ struct FASTQOperationTestHelper {
         var lines: [String] = []
         var readIndex = 0
         for length in lengths {
-            for i in 0..<readsPerLength {
+            for _ in 0..<readsPerLength {
                 readIndex += 1
                 let id = "\(idPrefix)\(readIndex)"
                 var seq = ""

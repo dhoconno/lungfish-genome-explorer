@@ -83,7 +83,7 @@ final class TranslateCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("protein.fasta")
 
         // Parse and run command
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             fastaURL.path,
             "--frame", "1",
             "--output", outputURL.path,
@@ -108,7 +108,7 @@ final class TranslateCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("trimmed.fasta")
 
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             fastaURL.path,
             "--frame", "1",
             "--trim-to-stop",
@@ -130,7 +130,7 @@ final class TranslateCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             fastaURL.path,
             "--frame", "7",
             "-q",
@@ -151,7 +151,7 @@ final class TranslateCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             fastaURL.path,
             "--table", "99",
             "-q",
@@ -175,7 +175,7 @@ final class TranslateCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("mito_protein.fasta")
 
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             fastaURL.path,
             "--frame", "1",
             "--table", "2",
@@ -191,7 +191,7 @@ final class TranslateCommandTests: XCTestCase {
 
     /// Verifies that missing input file produces an error.
     func testTranslateCommandMissingInput() async throws {
-        var command = try TranslateCommand.parse([
+        let command = try TranslateCommand.parse([
             "/nonexistent/path/missing.fasta",
             "-q",
         ])
@@ -277,7 +277,7 @@ final class SearchCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("matches.bed")
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "GAATTC",
             "--forward-only",
@@ -308,7 +308,7 @@ final class SearchCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("mismatches.bed")
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "GAATTC",
             "--max-mismatches", "1",
@@ -333,7 +333,7 @@ final class SearchCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("iupac.bed")
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "TATAWAT",
             "--iupac",
@@ -358,7 +358,7 @@ final class SearchCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("regex.bed")
 
         // Find ATG...ATG pattern
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "ATG.{3,9}ATG",
             "--regex",
@@ -380,7 +380,7 @@ final class SearchCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "",
             "-q",
@@ -401,7 +401,7 @@ final class SearchCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "ATCG",
             "--regex",
@@ -430,7 +430,7 @@ final class SearchCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("strands.bed")
 
         // Search for AAGCTT which is palindromic, should match both strands at same position
-        var command = try SearchCommand.parse([
+        let command = try SearchCommand.parse([
             fastaURL.path,
             "AAGCTT",
             "--output", outputURL.path,
@@ -499,7 +499,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("region.fasta")
 
         // Extract bases 4-9 (1-based inclusive): "CCCGGG"
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr1:4-9",
             "--output", outputURL.path,
@@ -522,7 +522,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("rc.fasta")
 
         // Extract all 8 bases and reverse complement
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "seq1:1-8",
             "--reverse-complement",
@@ -546,7 +546,7 @@ final class ExtractCommandTests: XCTestCase {
         let outputURL = tempDir.appendingPathComponent("flanked.fasta")
 
         // Extract bases 7-9 (1-based) = "GGG" with 3 bases flanking = "CCCGGGTTT"
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr1:7-9",
             "--flank", "3",
@@ -569,7 +569,7 @@ final class ExtractCommandTests: XCTestCase {
 
         let outputURL = tempDir.appendingPathComponent("chr2_region.fasta")
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chr2:1-3",
             "--output", outputURL.path,
@@ -588,7 +588,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "seq1:1-100",
             "-q",
@@ -609,7 +609,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "chrX:1-4",
             "-q",
@@ -630,7 +630,7 @@ final class ExtractCommandTests: XCTestCase {
         let writer = FASTAWriter(url: fastaURL)
         try writer.write([seq])
 
-        var command = try ExtractSequenceSubcommand.parse([
+        let command = try ExtractSequenceSubcommand.parse([
             fastaURL.path,
             "invalid_format",
             "-q",

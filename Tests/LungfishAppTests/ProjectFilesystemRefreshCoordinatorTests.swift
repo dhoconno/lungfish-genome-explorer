@@ -5,15 +5,17 @@ import XCTest
 final class ProjectFilesystemRefreshCoordinatorTests: XCTestCase {
     private var tempRoot: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectFilesystemRefreshCoordinatorTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         ProjectFilesystemRefreshCoordinator.shared.unregisterAll()
         try? FileManager.default.removeItem(at: tempRoot)
+        try await super.tearDown()
     }
 
     func testDuplicateProjectSubscriptionsShareOneWatcherAndFanOutChanges() throws {

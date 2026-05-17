@@ -38,9 +38,7 @@ final class UniversalSearchCommandTests: XCTestCase {
 
     func testUniversalSearchRegisteredAtRoot() {
         let subcommands = LungfishCLI.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
 
         XCTAssertTrue(
             names.contains("universal-search"),
@@ -48,4 +46,3 @@ final class UniversalSearchCommandTests: XCTestCase {
         )
     }
 }
-

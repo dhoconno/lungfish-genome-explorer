@@ -27,18 +27,18 @@ import XCTest
 @MainActor
 final class ClassifierExtractionMenuWiringTests: XCTestCase {
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         // Enable capture-only mode on the shared orchestrator so real dialog
         // presentation is suppressed.
         TaxonomyReadExtractionAction.shared.testingCaptureOnly = true
         TaxonomyReadExtractionAction.shared.testingCapture = .init()
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         TaxonomyReadExtractionAction.shared.testingCaptureOnly = false
         TaxonomyReadExtractionAction.shared.testingCapture = .init()
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - EsViritu

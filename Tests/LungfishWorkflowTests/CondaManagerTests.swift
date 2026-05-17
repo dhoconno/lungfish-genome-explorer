@@ -715,8 +715,7 @@ final class CondaManagerTests: XCTestCase {
         let manager = CondaManager.shared
         // This should not throw even if no environments exist
         let envs = try await manager.listEnvironments()
-        // Just verify it returns an array (may be empty or populated)
-        XCTAssertTrue(envs is [CondaEnvironment])
+        XCTAssertGreaterThanOrEqual(envs.count, 0)
     }
 
     // MARK: - Concurrent Pipe Reading Tests
@@ -731,8 +730,6 @@ final class CondaManagerTests: XCTestCase {
     /// double the pipe buffer size. If the implementation reads pipes
     /// concurrently, this completes in well under the timeout.
     func testRunToolDoesNotDeadlockWithLargeOutput() async throws {
-        let manager = CondaManager.shared
-
         // We bypass micromamba by directly testing the pattern with a known
         // system command. Since runTool requires an environment, we instead
         // test the same continuation+readabilityHandler pattern directly

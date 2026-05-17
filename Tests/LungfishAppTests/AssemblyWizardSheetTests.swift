@@ -2,6 +2,7 @@ import XCTest
 @testable import LungfishApp
 @testable import LungfishWorkflow
 
+@MainActor
 final class AssemblyWizardSheetTests: XCTestCase {
     func testUnknownReadTypeDefaultsAreTreatedAsCurrentManualSelection() {
         XCTAssertTrue(AssemblyWizardSheet.initialManualReadTypeConfirmationState())

@@ -6,15 +6,17 @@ import LungfishCore
 final class ProjectSessionTests: XCTestCase {
     private var tempRoot: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectSessionTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         DocumentManager.shared.closeActiveProject()
         try? FileManager.default.removeItem(at: tempRoot)
+        try await super.tearDown()
     }
 
     func testTwoSessionsCanOpenSameProjectWithIndependentActiveDocument() throws {

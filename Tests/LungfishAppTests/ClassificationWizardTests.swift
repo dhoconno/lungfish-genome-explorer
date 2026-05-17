@@ -219,6 +219,7 @@ final class ClassificationWizardTests: XCTestCase {
         XCTAssertEqual(defaultDB, "Viral", "First ready database should be selected by default")
     }
 
+    @MainActor
     func testDatabaseSelectionAfterRefreshKeepsCurrentReadyDatabase() {
         let current = makeDatabaseInfo(name: "Viral", status: .ready, sizeBytes: 536_870_912)
         let newer = makeDatabaseInfo(name: "Standard-8", status: .ready)
@@ -231,6 +232,7 @@ final class ClassificationWizardTests: XCTestCase {
         XCTAssertEqual(selected, "Viral")
     }
 
+    @MainActor
     func testDatabaseSelectionAfterRefreshFallsBackToFirstReadyDatabase() {
         let missing = makeDatabaseInfo(name: "Viral", status: .missing, sizeBytes: 536_870_912)
         let ready = makeDatabaseInfo(name: "Standard-8", status: .ready)

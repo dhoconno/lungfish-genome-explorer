@@ -45,7 +45,9 @@ final class MappingWizardSheetTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift"))
+            .appendingPathComponent("Sources/LungfishApp/Views/Mapping/MappingWizardSheet.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(source.contains(#"DisclosureGroup("Read Group""#))
         XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))

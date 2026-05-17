@@ -1254,9 +1254,7 @@ final class FastqCommandTests: XCTestCase {
 
     /// Verifies that all expected subcommand names are registered.
     func testFastqSubcommandNames() {
-        let names = FastqCommand.configuration.subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         let expected = [
             "subsample", "length-filter", "trim", "quality-trim", "adapter-trim", "fixed-trim",
             "contaminant-filter", "primer-remove", "error-correct",
@@ -1690,9 +1688,7 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that FastqCommand is registered as a subcommand of LungfishCLI.
     func testFastqCommandRegistered() {
         let subcommands = LungfishCLI.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("fastq"), "LungfishCLI should contain fastq subcommand")
     }
 
@@ -1701,9 +1697,7 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that the blast subcommand is registered at the top level.
     func testBlastCommandRegistered() {
         let subcommands = LungfishCLI.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("blast"), "LungfishCLI should contain blast subcommand")
     }
 }
@@ -1799,9 +1793,7 @@ final class BlastVerifyCommandTests: XCTestCase {
     /// Verifies that the verify subcommand is the default for blast.
     func testBlastDefaultSubcommand() {
         let subcommands = BlastCommand.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("verify"), "BlastCommand should have verify subcommand")
     }
 }

@@ -6,15 +6,17 @@ final class ProjectWindowStateStoreTests: XCTestCase {
     private var tempRoot: URL!
     private var stateURL: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("ProjectWindowStateStoreTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
         stateURL = tempRoot.appendingPathComponent("window-state.json")
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: tempRoot)
+        try await super.tearDown()
     }
 
     func testSaveAndLoadRoundTripPreservesDuplicateProjectWindows() throws {
