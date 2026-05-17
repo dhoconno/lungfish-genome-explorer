@@ -1045,21 +1045,67 @@ struct WorkflowValidateSubcommand: AsyncParsableCommand {
     }
 
     private func sourceForValidation(_ source: String, engine: WorkflowValidationEngine) -> String {
-        let withoutBlockComments = source.replacingOccurrences(
-            of: #"(?s)/\*.*?\*/"#,
-            with: "",
-            options: .regularExpression
-        )
         let lineCommentPrefix: String = engine == .nextflow ? "//" : "#"
-        return withoutBlockComments
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { line -> Substring in
-                guard let commentStart = line.range(of: lineCommentPrefix) else {
-                    return line
+        var stripped = ""
+        var index = source.startIndex
+        var activeQuote: Character?
+        var isEscaped = false
+        var isInBlockComment = false
+
+        while index < source.endIndex {
+            let character = source[index]
+
+            if isInBlockComment {
+                if source[index...].hasPrefix("*/") {
+                    index = source.index(index, offsetBy: 2)
+                    isInBlockComment = false
+                    continue
                 }
-                return line[..<commentStart.lowerBound]
+                if character == "\n" {
+                    stripped.append(character)
+                }
+                index = source.index(after: index)
+                continue
             }
-            .joined(separator: "\n")
+
+            if let quote = activeQuote {
+                stripped.append(character)
+                if isEscaped {
+                    isEscaped = false
+                } else if character == "\\" {
+                    isEscaped = true
+                } else if character == quote {
+                    activeQuote = nil
+                }
+                index = source.index(after: index)
+                continue
+            }
+
+            if character == "\"" || character == "'" {
+                activeQuote = character
+                stripped.append(character)
+                index = source.index(after: index)
+                continue
+            }
+
+            if source[index...].hasPrefix("/*") {
+                index = source.index(index, offsetBy: 2)
+                isInBlockComment = true
+                continue
+            }
+
+            if source[index...].hasPrefix(lineCommentPrefix) {
+                repeat {
+                    index = source.index(after: index)
+                } while index < source.endIndex && source[index] != "\n"
+                continue
+            }
+
+            stripped.append(character)
+            index = source.index(after: index)
+        }
+
+        return stripped
     }
 
     private func emitValidationSuccess(

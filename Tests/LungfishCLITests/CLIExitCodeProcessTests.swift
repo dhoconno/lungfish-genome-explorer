@@ -13,13 +13,18 @@ final class CLIExitCodeProcessTests: XCTestCase {
             .deletingLastPathComponent() // LungfishCLITests/
             .deletingLastPathComponent() // Tests/
             .deletingLastPathComponent() // repo root
+        let buildProductsDirectory = Bundle(for: Self.self).bundleURL.deletingLastPathComponent()
 
+        let environmentBinary = ProcessInfo.processInfo.environment["LUNGFISH_CLI_BINARY"]
+            .map { URL(fileURLWithPath: $0) }
         let candidates = [
+            environmentBinary,
+            buildProductsDirectory.appendingPathComponent("lungfish-cli"),
             repoRoot.appendingPathComponent(".build/debug/lungfish-cli"),
             repoRoot.appendingPathComponent(".build/arm64-apple-macosx/debug/lungfish-cli"),
             repoRoot.appendingPathComponent(".build/x86_64-apple-macosx/debug/lungfish-cli"),
-        ]
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        ].compactMap { $0 }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     func testConvertMissingInputExitsWithInputError() throws {

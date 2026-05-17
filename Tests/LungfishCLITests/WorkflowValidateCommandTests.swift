@@ -68,6 +68,22 @@ final class WorkflowValidateCommandTests: XCTestCase {
         }
     }
 
+    func testWorkflowValidateAcceptsURLStringInNextflowWorkflow() async throws {
+        let root = try makeTempDirectory()
+        let workflow = root.appendingPathComponent("main.nf")
+        try """
+        nextflow.enable.dsl=2
+        workflow { println "https://example.org/ref.fa" }
+        """.write(to: workflow, atomically: true, encoding: .utf8)
+
+        let command = try WorkflowValidateSubcommand.parse([workflow.path])
+        let output = try await captureStandardOutput {
+            try await command.run()
+        }
+
+        XCTAssertTrue(output.contains("Workflow syntax appears valid"), output)
+    }
+
     func testWorkflowValidateRejectsWrongOrderDelimiters() async throws {
         let root = try makeTempDirectory()
         let workflow = root.appendingPathComponent("main.nf")

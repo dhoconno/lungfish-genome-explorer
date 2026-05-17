@@ -118,6 +118,8 @@ enum LungfishCLIMain {
             Darwin.exit(CLIExitCode.success.rawValue)
         } catch let error as CLIError {
             LungfishCLI.exit(withCLIError: error)
+        } catch let exitCode as ExitCode {
+            Darwin.exit(exitCode.rawValue)
         } catch {
             LungfishCLI.exit(withError: error)
         }

@@ -334,7 +334,7 @@ s += "<!-- This is an automatically-generated draft. Read it before submitting. 
 
 `lungfish-cli version --tools` prints a 16-row table (micromamba, BBTools,
 BCFtools, Cutadapt, Deacon, Fastp, HTSlib, Nextflow, pigz, Samtools, SeqKit,
-Snakemake, SRA Tools, UCSC bedGraphToBigWig, UCSC bedToBigBed, VSEARCH).
+Snakemake, SRA Tools, UCSC bedGraphToBigWig, VSEARCH).
 
 ### docs-030 — Tool-paper bibliography
 
