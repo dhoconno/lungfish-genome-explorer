@@ -53,6 +53,8 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         XCTAssertEqual(provenance.exitStatus, 0)
         XCTAssertNotNil(provenance.wallTimeSeconds)
         XCTAssertEqual(provenance.options.explicit["bundleName"]?.stringValue, "Merged Reference")
+        XCTAssertEqual(provenance.options.explicit["requestedBundleName"]?.stringValue, "Merged Reference")
+        XCTAssertEqual(provenance.options.explicit["resolvedBundleName"]?.stringValue, "Merged Reference")
         XCTAssertEqual(provenance.options.explicit["outputBundle"]?.fileValue?.path, mergedURL.path)
 
         let genome = try XCTUnwrap(manifest.genome)
@@ -65,6 +67,14 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
             XCTAssertNotNil(record.checksumSHA256, "Missing checksum for \(record.path)")
             XCTAssertNotNil(record.fileSize, "Missing file size for \(record.path)")
         }
+        XCTAssertTrue(
+            provenance.steps.contains { $0.toolName == "NativeBundleBuilder.build" },
+            "Reference merge provenance must preserve the nested builder step"
+        )
+        XCTAssertTrue(
+            provenance.steps.contains { $0.toolName == "lungfish reference merge" },
+            "Reference merge provenance must include the wrapping merge workflow step"
+        )
 
         let provenanceText = (
             provenance.argv
@@ -75,6 +85,48 @@ final class ReferenceBundleMergeServiceTests: XCTestCase {
         .joined(separator: "\n")
         XCTAssertFalse(provenanceText.contains("reference-merge-"))
         XCTAssertFalse(provenanceText.contains("ref-import-"))
+    }
+
+    func testMergeProvenanceUsesResolvedReferenceNameWhenOutputNameIsUniquified() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let existingBundle = projectURL.appendingPathComponent("Merged_Reference.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingBundle, withIntermediateDirectories: true)
+
+        let fastaA = root.appendingPathComponent("A.fa")
+        let fastaB = root.appendingPathComponent("B.fa")
+        try ">chrA\nAAAA\n".write(to: fastaA, atomically: true, encoding: .utf8)
+        try ">chrB\nCCCC\n".write(to: fastaB, atomically: true, encoding: .utf8)
+
+        let bundleA = try ReferenceSequenceFolder.importReference(
+            from: fastaA,
+            into: projectURL,
+            displayName: "A"
+        )
+        let bundleB = try ReferenceSequenceFolder.importReference(
+            from: fastaB,
+            into: projectURL,
+            displayName: "B"
+        )
+
+        let mergedURL = try await ReferenceBundleMergeService.merge(
+            sourceBundleURLs: [bundleA, bundleB],
+            outputDirectory: projectURL,
+            bundleName: "Merged Reference"
+        )
+        let manifest = try BundleManifest.load(from: mergedURL)
+        XCTAssertEqual(manifest.name, "Merged Reference 2")
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: mergedURL))
+        XCTAssertEqual(provenance.options.explicit["requestedBundleName"]?.stringValue, "Merged Reference")
+        XCTAssertEqual(provenance.options.explicit["resolvedBundleName"]?.stringValue, "Merged Reference 2")
+        XCTAssertEqual(provenance.options.explicit["bundleName"]?.stringValue, "Merged Reference 2")
+        XCTAssertTrue(provenance.argv.contains("Merged Reference 2"))
+        XCTAssertFalse(provenance.argv.contains("Merged Reference.lungfishref"))
     }
 
     func testMergeRejectsSourceBundleWithNonSequenceTracks() async throws {

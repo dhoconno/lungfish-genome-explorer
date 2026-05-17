@@ -76,11 +76,14 @@ enum ReferenceBundleMergeService {
                 preferredBundleName: bundleName
             )
             createdBundleURL = result.bundleURL
+            let builderProvenance = try ProvenanceEnvelopeReader.load(from: result.bundleURL)
             try writeMergeProvenance(
                 sourceBundleURLs: sourceBundleURLs,
                 inputPayloadURLs: sourceFASTAURLs,
                 bundleURL: result.bundleURL,
-                bundleName: bundleName,
+                requestedBundleName: bundleName,
+                resolvedBundleName: result.bundleName,
+                nestedProvenance: builderProvenance,
                 startedAt: startedAt,
                 completedAt: Date(),
                 provenanceWriter: provenanceWriter
@@ -152,12 +155,21 @@ enum ReferenceBundleMergeService {
         sourceBundleURLs: [URL],
         inputPayloadURLs: [URL],
         bundleURL: URL,
-        bundleName: String,
+        requestedBundleName: String,
+        resolvedBundleName: String,
+        nestedProvenance: ProvenanceEnvelope?,
         startedAt: Date,
         completedAt: Date,
         provenanceWriter: BundleMergeProvenanceSidecarWriter
     ) throws {
         let outputPayloadURLs = try BundleMergeProvenance.regularPayloadFileURLs(in: bundleURL)
+        let nestedSteps = try normalizedNestedSteps(
+            from: nestedProvenance,
+            inputPayloadURLs: inputPayloadURLs,
+            outputPayloadURLs: outputPayloadURLs,
+            bundleURL: bundleURL,
+            resolvedBundleName: resolvedBundleName
+        )
         try BundleMergeProvenance.write(
             request: BundleMergeProvenance.Request(
                 workflowName: "lungfish reference merge",
@@ -165,7 +177,8 @@ enum ReferenceBundleMergeService {
                 inputPayloadURLs: inputPayloadURLs,
                 outputBundleURL: bundleURL,
                 outputPayloadURLs: outputPayloadURLs,
-                bundleName: bundleName,
+                bundleName: resolvedBundleName,
+                requestedBundleName: requestedBundleName,
                 mergeMode: "sequence-only",
                 defaults: [
                     "compressFASTA": .boolean(true),
@@ -179,11 +192,74 @@ enum ReferenceBundleMergeService {
                     "variantMerge": .string("unsupported"),
                     "trackMerge": .string("unsupported"),
                 ],
+                nestedSteps: nestedSteps,
                 startedAt: startedAt,
                 completedAt: completedAt
             ),
             sidecarWriter: provenanceWriter
         )
+    }
+
+    private static func normalizedNestedSteps(
+        from envelope: ProvenanceEnvelope?,
+        inputPayloadURLs: [URL],
+        outputPayloadURLs: [URL],
+        bundleURL: URL,
+        resolvedBundleName: String
+    ) throws -> [ProvenanceStep] {
+        guard let envelope else { return [] }
+        let inputs = try inputPayloadURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: .fasta, role: .input)
+        }
+        let outputs = try outputPayloadURLs.map {
+            try ProvenanceFileDescriptor.file(url: $0, format: fileFormat(for: $0), role: .output)
+        }
+        let argv = [
+            "NativeBundleBuilder.build",
+            "--name",
+            resolvedBundleName,
+            "--bundle",
+            bundleURL.standardizedFileURL.path,
+            "--compress-fasta",
+            "true",
+        ]
+        return envelope.steps.map { step in
+            guard step.toolName == "NativeBundleBuilder.build" else {
+                return step
+            }
+            return ProvenanceStep(
+                id: step.id,
+                toolName: step.toolName,
+                toolVersion: step.toolVersion,
+                argv: argv,
+                durableReplayArgv: argv,
+                inputs: inputs,
+                outputs: outputs,
+                exitStatus: step.exitStatus,
+                wallTimeSeconds: step.wallTimeSeconds,
+                stderr: step.stderr,
+                dependsOn: step.dependsOn,
+                startedAt: step.startedAt,
+                completedAt: step.completedAt
+            )
+        }
+    }
+
+    private static func fileFormat(for url: URL) -> FileFormat? {
+        var candidate = url
+        if candidate.pathExtension.lowercased() == "gz" {
+            candidate = candidate.deletingPathExtension()
+        }
+        switch candidate.pathExtension.lowercased() {
+        case "fa", "fasta", "fna", "fsa", "fas", "faa", "ffn", "frn":
+            return .fasta
+        case "json":
+            return .json
+        case "csv", "tsv", "txt", "fai", "gzi":
+            return .text
+        default:
+            return .unknown
+        }
     }
 
     private static func isFASTAFileURL(_ url: URL) -> Bool {

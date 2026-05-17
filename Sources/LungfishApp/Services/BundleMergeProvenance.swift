@@ -17,10 +17,12 @@ enum BundleMergeProvenance {
         let inputPayloadURLs: [URL]
         let outputBundleURL: URL
         let outputPayloadURLs: [URL]
+        let requestedBundleName: String
         let bundleName: String
         let mergeMode: String
         let defaults: [String: ParameterValue]
         let resolvedDefaults: [String: ParameterValue]
+        let nestedSteps: [ProvenanceStep]
         let startedAt: Date
         let completedAt: Date
         let diagnostics: String?
@@ -33,9 +35,11 @@ enum BundleMergeProvenance {
             outputBundleURL: URL,
             outputPayloadURLs: [URL],
             bundleName: String,
+            requestedBundleName: String? = nil,
             mergeMode: String,
             defaults: [String: ParameterValue] = [:],
             resolvedDefaults: [String: ParameterValue] = [:],
+            nestedSteps: [ProvenanceStep] = [],
             startedAt: Date,
             completedAt: Date,
             diagnostics: String? = nil
@@ -46,10 +50,12 @@ enum BundleMergeProvenance {
             self.inputPayloadURLs = inputPayloadURLs
             self.outputBundleURL = outputBundleURL
             self.outputPayloadURLs = outputPayloadURLs
+            self.requestedBundleName = requestedBundleName ?? bundleName
             self.bundleName = bundleName
             self.mergeMode = mergeMode
             self.defaults = defaults
             self.resolvedDefaults = resolvedDefaults
+            self.nestedSteps = nestedSteps
             self.startedAt = startedAt
             self.completedAt = completedAt
             self.diagnostics = diagnostics
@@ -77,6 +83,8 @@ enum BundleMergeProvenance {
                 "outputBundle": .file(request.outputBundleURL.standardizedFileURL),
                 "outputPayloads": .array(outputs.map { .file(URL(fileURLWithPath: $0.path)) }),
                 "bundleName": .string(request.bundleName),
+                "requestedBundleName": .string(request.requestedBundleName),
+                "resolvedBundleName": .string(request.bundleName),
                 "mergeMode": .string(request.mergeMode),
             ],
             defaults: request.defaults,
@@ -96,6 +104,7 @@ enum BundleMergeProvenance {
             startedAt: request.startedAt,
             completedAt: request.completedAt
         )
+        let steps = request.nestedSteps + [step]
         let envelope = ProvenanceEnvelope(
             createdAt: request.startedAt,
             workflowName: request.workflowName,
@@ -115,7 +124,7 @@ enum BundleMergeProvenance {
             files: inputs + outputs,
             output: outputs.first,
             outputs: outputs,
-            steps: [step],
+            steps: steps,
             wallTimeSeconds: normalizedDuration,
             exitStatus: 0,
             stderr: request.diagnostics
@@ -159,7 +168,9 @@ enum BundleMergeProvenance {
         var argv = [
             request.toolName,
             request.workflowName,
-            "--bundle-name",
+            "--requested-bundle-name",
+            request.requestedBundleName,
+            "--resolved-bundle-name",
             request.bundleName,
             "--merge-mode",
             request.mergeMode,
