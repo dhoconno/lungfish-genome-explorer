@@ -16,8 +16,13 @@
 - `FASTQBundleMergeService` and `ReferenceBundleMergeService` create new scientific bundles without canonical final-bundle provenance.
 - Production still has 10 `.runModal()` calls, all currently tolerated by legacy comments and a bounded source regression.
 - `Sources/LungfishApp/Services/MetagenomicsBatchProvenanceWriter.swift` is pure provenance/workflow glue but lives in `LungfishApp` and is called by the provenance inspector.
-- `Sources/LungfishApp/Services/FASTQDerivativeService.swift` is still over 5k lines; several reusable sidecar/parsing helpers are pure logic.
+- `Sources/LungfishApp/Services/FASTQDerivativeService.swift` is still over 5k lines and several derivative paths create new scientific bundles without canonical `.lungfish-provenance.json`.
+- GUI import paths can still overwrite or best-effort rewrite CLI provenance instead of preserving a schema-aware original CLI step plus final stored payload paths.
+- `lungfish nvd import` creates scientific output without provenance.
 - `Sources/LungfishCLI` still contains generic `ExitCode.failure` throws in scientific commands outside Wave 6 scope.
+- BigBed is detection-only, but BigBed parser code remains quarantined and BigWig still advertises read support without an implemented reader.
+- `workflow validate` is still a success-returning placeholder for any existing `.nf` or `Snakefile`.
+- Dormant compatibility aliases and a multi-sequence integration stub remain after earlier cleanup waves.
 - Many source-string tests remain; only replace batches where stable behavior seams already exist or can be introduced cheaply.
 
 ## Task A: Add Provenance To Bundle Merge Workflows
@@ -75,7 +80,25 @@
 - Focused write-gate tests.
 - `swift test --filter AppKitConcurrencyModalSafetyTests --filter ProjectLockWarningPresentationTests --filter MainWindowSessionRoutingTests`
 
-## Task D: Move Metagenomics Batch Provenance Writer To Workflow
+## Task D: Add FASTQ Derivative Provenance
+
+**Files:**
+- Modify: `Sources/LungfishApp/Services/FASTQDerivativeService.swift`
+- Modify/create: workflow-layer FASTQ provenance helpers if useful.
+- Add: `Tests/LungfishAppTests/FASTQDerivativeServiceProvenanceTests.swift`
+- Modify focused derivative tests as needed.
+
+**Spec:**
+- Every derivative-created `.lungfishfastq` bundle must include canonical `.lungfish-provenance.json`, including length filter, quality trim, paired-end merge, mixed output derivatives, and demultiplex outputs.
+- Provenance must record workflow name/version, exact reproducible command or app workflow, user-visible options plus resolved defaults, source inputs, final output payload paths/checksums/sizes, runtime identity where applicable, wall time, exit status, and useful stderr/diagnostics.
+- Preserve existing orient/minimap2 provenance behavior; add missing sidecars without changing payload semantics.
+- If provenance writing fails after output creation, fail the derivative and clean up the partial bundle.
+
+**Verification:**
+- Decode provenance in derivative tests and assert final stored paths, no temporary staging paths, correct options/defaults, and checksum/file-size records.
+- `swift test --filter FASTQDerivativeServiceProvenanceTests --filter FASTQDerivativesTests --filter FASTQOperationExecutionServiceTests`
+
+## Task E: Move And Complete Metagenomics Batch Provenance
 
 **Files:**
 - Move/create: `Sources/LungfishWorkflow/Metagenomics/MetagenomicsBatchProvenanceWriter.swift`
@@ -87,35 +110,40 @@
 **Spec:**
 - Make the writer a workflow-layer utility with no AppKit imports.
 - Preserve existing behavior: ensure EsViritu/TaxTriage batch provenance can be discovered/rehydrated and points at final bundle payloads.
-- Do not weaken AGENTS provenance requirements; missing provenance for scientific outputs remains a blocking defect.
+- Replace early-return/minimal sidecar behavior with AGENTS-compliant provenance records, including argv/repro command, options/defaults, runtime identity, stderr/wall-time where available, checksums/sizes, and final output paths.
+- Do not weaken missing-provenance handling; missing provenance for scientific outputs remains a blocking defect.
 
 **Verification:**
 - `swift test --filter MetagenomicsBatchProvenanceWriterTests --filter ProvenanceInspectorViewModelTests`
 - `rg -n 'MetagenomicsBatchProvenanceWriter' Sources Tests`
 
-## Task E: Extract Pure FASTQ Derivative Sidecar Helpers
+## Task F: Preserve GUI-Imported CLI Provenance
 
 **Files:**
-- Create: `Sources/LungfishWorkflow/FASTQ/FASTQDerivativeSidecarIO.swift` or a more locally idiomatic path.
-- Modify: `Sources/LungfishApp/Services/FASTQDerivativeService.swift`
-- Modify/add: `Tests/LungfishWorkflowTests/FASTQDerivativeSidecarIOTests.swift`
-- Modify focused app tests that exercise derivative sidecars.
+- Modify/create: `Sources/LungfishWorkflow/Provenance/GUIImportedProvenanceRehydrator.swift`
+- Modify: `Sources/LungfishApp/App/AppDelegate.swift`
+- Modify: `Sources/LungfishApp/Services/FASTQIngestionService.swift`
+- Modify/add: focused app/workflow provenance tests.
 
 **Spec:**
-- Extract sidecar/trim-position/orient-map parsing and writing that does not depend on AppKit or UI state.
-- Leave orchestration, OperationCenter integration, and app-specific bundle import behavior in `FASTQDerivativeService`.
-- Keep public behavior and provenance output byte-for-byte compatible where tests already assert it.
+- Replace arbitrary JSON path rewriting with schema-aware CLI provenance rehydration for GUI-imported bundles.
+- Preserve the original CLI provenance step and add/retain the app optimization/import step without overwriting the CLI-created record.
+- Ensure final `.lungfish*` bundles point at final stored payload paths, not temporary staging files.
 
 **Verification:**
-- `swift test --filter FASTQDerivativeSidecarIOTests --filter FASTQDerivativesTests --filter FASTQOperationExecutionServiceTests`
+- Tests covering imported CLI FASTQ bundles with existing provenance, optimized GUI copies, and final path rewriting.
+- `swift test --filter ProvenanceRehydrator --filter FASTQIngestionService`
 
-## Task F: Classify Remaining Scientific CLI Exit Codes
+## Task G: Classify Remaining Scientific CLI Exit Codes And NVD Provenance
 
 **Files:**
 - Modify: targeted command files under `Sources/LungfishCLI/Commands/`
+- Modify: `Sources/LungfishCLI/Commands/NvdCommand.swift`
 - Modify/add: `Tests/LungfishCLITests/CLIExitCodeProcessTests.swift`
+- Modify/add: NVD import provenance tests.
 
 **Spec:**
+- Add AGENTS-compliant provenance to `lungfish nvd import` outputs.
 - Continue Wave 6 exit-code classification for scientific commands with clear mappings:
   - user input/config validation: `CLIExitCode.inputError`
   - output conflicts/write failures: `CLIExitCode.outputError`
@@ -129,29 +157,54 @@
 - Red/green subprocess tests in `CLIExitCodeProcessTests`.
 - `swift test --filter CLIExitCodeProcessTests --filter LungfishCLITests`
 
-## Task G: Delete Quarantined BigBed Reader Implementations
+## Task H: Delete Quarantined BigBed Reader Implementations And Disable BigWig Reads
 
 **Files:**
 - Modify/delete: `Sources/LungfishIO/Formats/BigBed/BigBedReader.swift`
 - Modify/delete: `Sources/LungfishIO/Formats/BigBed/SyncBigBedReader.swift`
+- Modify: `Sources/LungfishIO/Registry/FormatRegistry.swift`
+- Modify: native bundle tooling metadata/tests if `bedToBigBed` is no longer required.
 - Modify: any public re-exports or stale docs that describe BigBed reading as implemented.
 - Modify: `Tests/LungfishIOTests/FormatRegistryTests.swift`
 
 **Spec:**
 - Keep BigBed format detection in the registry as unsupported/detection-only.
 - Remove unavailable parser implementation bodies so dead code cannot be accidentally revived.
+- Set BigWig to detection-only/unsupported until a real reader exists.
+- Remove `bedToBigBed` from required native bundle tooling if SQLite-backed annotations no longer need it.
 - Update user/developer-facing text to state that BigBed reading is intentionally unavailable pending a real UCSC/libBigWig-backed implementation.
 
 **Verification:**
 - `swift test --filter FormatRegistryTests`
 - `swift build --target LungfishIO`
 
-## Task H: Replace A High-Value Source-String Test Batch
+## Task I: Implement Or Remove Dormant Workflow And Alias Surfaces
+
+**Files:**
+- Modify/delete: `Sources/LungfishApp/Views/Viewer/SequenceViewerView+Integration.swift`
+- Modify: `Sources/LungfishCore/Capabilities/DocumentCapability.swift`
+- Modify: `Sources/LungfishWorkflow/Nextflow/WorkflowSchema.swift`
+- Modify: `Sources/LungfishCLI/Commands/WorkflowCommand.swift`
+- Add/modify: `Tests/LungfishCLITests/WorkflowValidateCommandTests.swift`
+- Modify tests that referenced removed aliases or stubs.
+
+**Spec:**
+- Delete unused compatibility aliases that are no longer referenced.
+- Delete or wire the dormant multi-sequence integration stub; prefer deletion if no production caller exists.
+- Make `workflow validate` truthful. Either implement lightweight validation for Nextflow and Snakemake files, or remove/return a clear unsupported command instead of success for any existing file.
+
+**Verification:**
+- `swift test --filter WorkflowValidateCommandTests --filter DocumentCapability --filter SchemaParserTests`
+- `rg -n 'TODO: Implement actual validation|testMultiSequenceIntegration|typealias DocumentCapabilities|typealias WorkflowSchema|typealias ParameterGroup|typealias WorkflowParameter' Sources Tests` must be empty.
+
+## Task J: Replace A High-Value Source-String Test Batch
 
 **Files:**
 - Modify: `Tests/LungfishAppTests/FASTQOperationDialogRoutingTests.swift`
 - Modify: `Tests/LungfishAppTests/MappingWizardSheetTests.swift`
 - Modify: `Tests/LungfishAppTests/WelcomeSetupTests.swift`
+- Modify: `Tests/LungfishAppTests/WindowAppearanceTests.swift`
+- Modify: `Tests/LungfishAppTests/UnifiedClassifierRunnerTests.swift`
 - Add small presentation helpers only where behavior is not currently observable.
 
 **Spec:**
