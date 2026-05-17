@@ -3,11 +3,10 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
-import LungfishWorkflow
 
-enum MetagenomicsBatchProvenanceWriter {
+public enum MetagenomicsBatchProvenanceWriter {
     @discardableResult
-    static func ensureEsVirituBatchProvenanceIfPossible(batchRoot: URL) -> URL? {
+    public static func ensureEsVirituBatchProvenanceIfPossible(batchRoot: URL) -> URL? {
         let root = batchRoot.standardizedFileURL
         guard isDirectory(root),
               root.lastPathComponent.hasPrefix("esviritu") else {
@@ -42,7 +41,7 @@ enum MetagenomicsBatchProvenanceWriter {
     }
 
     @discardableResult
-    static func ensureTaxTriageProvenanceIfPossible(resultDirectory: URL) -> URL? {
+    public static func ensureTaxTriageProvenanceIfPossible(resultDirectory: URL) -> URL? {
         let root = resultDirectory.standardizedFileURL
         guard isDirectory(root),
               let result = try? TaxTriageResult.load(from: root) else {
@@ -79,7 +78,7 @@ enum MetagenomicsBatchProvenanceWriter {
     }
 
     @discardableResult
-    static func writeEsVirituBatchProvenance(
+    public static func writeEsVirituBatchProvenance(
         batchRoot: URL,
         manifest: EsVirituBatchResultManifest,
         summaryURL: URL,
@@ -98,6 +97,9 @@ enum MetagenomicsBatchProvenanceWriter {
         )
         let batchInputs = inputDescriptors(from: manifest)
         let batchOutputs = outputDescriptors(summaryURL: summaryURL, sqliteURL: sqliteURL)
+        let stderr = usefulStderr(
+            sampleEnvelopes.compactMap(\.stderr) + childSteps.compactMap(\.stderr)
+        )
         let batchStep = ProvenanceStep(
             toolName: "Lungfish EsViritu Batch",
             toolVersion: WorkflowRun.currentAppVersion,
@@ -106,6 +108,7 @@ enum MetagenomicsBatchProvenanceWriter {
             outputs: batchOutputs,
             exitStatus: 0,
             wallTimeSeconds: sampleEnvelopes.compactMap(\.wallTimeSeconds).reduce(0, +),
+            stderr: stderr,
             dependsOn: childSteps.map(\.id),
             startedAt: sampleEnvelopes.map(\.createdAt).min() ?? manifest.header.createdAt,
             completedAt: Date()
@@ -124,13 +127,7 @@ enum MetagenomicsBatchProvenanceWriter {
                 kind: "app"
             ),
             argv: command,
-            options: ProvenanceOptions(
-                explicit: [
-                    "sampleCount": .integer(manifest.header.sampleCount),
-                    "successfulSamples": .integer(manifest.samples.count),
-                    "summaryTSV": .string(manifest.summaryTSV),
-                ]
-            ),
+            options: esVirituBatchOptions(manifest: manifest, summaryURL: summaryURL, sqliteURL: sqliteURL),
             runtimeIdentity: sampleEnvelopes.first?.runtimeIdentity ?? ProvenanceRuntimeIdentity(),
             files: files,
             output: batchOutputs.first ?? childOutputs.first,
@@ -138,20 +135,21 @@ enum MetagenomicsBatchProvenanceWriter {
             steps: childSteps + [batchStep],
             wallTimeSeconds: batchStep.wallTimeSeconds,
             exitStatus: 0,
-            stderr: ""
+            stderr: stderr ?? ""
         )
 
         return try ProvenanceWriter().write(envelope, to: batchRoot)
     }
 
     @discardableResult
-    static func writeTaxTriageProvenance(
+    public static func writeTaxTriageProvenance(
         result: TaxTriageResult,
         sqliteURL: URL?,
         command: [String]
     ) throws -> URL {
         let inputs = result.config.samples.flatMap(taxTriageInputDescriptors(for:))
         let outputs = taxTriageOutputDescriptors(result: result, sqliteURL: sqliteURL)
+        let stderr = taxTriageUsefulStderr(result: result)
         let step = ProvenanceStep(
             toolName: "TaxTriage",
             toolVersion: result.config.revision,
@@ -160,7 +158,7 @@ enum MetagenomicsBatchProvenanceWriter {
             outputs: outputs,
             exitStatus: Int(result.exitCode),
             wallTimeSeconds: result.runtime,
-            stderr: ""
+            stderr: stderr ?? ""
         )
         let envelope = ProvenanceEnvelope(
             createdAt: Date(),
@@ -175,14 +173,14 @@ enum MetagenomicsBatchProvenanceWriter {
             ),
             argv: command,
             options: taxTriageOptions(for: result.config),
-            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            runtimeIdentity: taxTriageRuntimeIdentity(),
             files: uniqueDescriptors(inputs + outputs),
             output: outputs.first,
             outputs: outputs,
             steps: [step],
             wallTimeSeconds: result.runtime,
             exitStatus: Int(result.exitCode),
-            stderr: ""
+            stderr: stderr ?? ""
         )
 
         return try ProvenanceWriter().write(envelope, to: result.outputDirectory)
@@ -216,6 +214,8 @@ enum MetagenomicsBatchProvenanceWriter {
                     inputs: indexInputs,
                     outputs: [sqliteOutput],
                     exitStatus: 0,
+                    wallTimeSeconds: 0,
+                    stderr: "",
                     dependsOn: existing.steps.map(\.id),
                     completedAt: Date()
                 )
@@ -346,6 +346,36 @@ enum MetagenomicsBatchProvenanceWriter {
         return outputs
     }
 
+    private static func esVirituBatchOptions(
+        manifest: EsVirituBatchResultManifest,
+        summaryURL: URL,
+        sqliteURL: URL?
+    ) -> ProvenanceOptions {
+        var resolvedDefaults: [String: ParameterValue] = [
+            "summaryTSV": .string(summaryURL.path),
+            "summaryFilename": .string(summaryURL.lastPathComponent),
+        ]
+        if let sqliteURL {
+            resolvedDefaults["sqlitePath"] = .string(sqliteURL.path)
+            resolvedDefaults["sqliteFilename"] = .string(sqliteURL.lastPathComponent)
+        }
+
+        return ProvenanceOptions(
+            explicit: [
+                "sampleCount": .integer(manifest.header.sampleCount),
+                "successfulSamples": .integer(manifest.samples.count),
+                "manifestSummaryTSV": .string(manifest.summaryTSV),
+                "pairedEndSamples": .integer(manifest.samples.filter(\.isPairedEnd).count),
+            ],
+            defaults: [
+                "summaryFilename": .string("esviritu-batch-summary.tsv"),
+                "sqliteFilename": .string("esviritu.sqlite"),
+                "manifestFilename": .string(EsVirituBatchResultManifest.filename),
+            ],
+            resolvedDefaults: resolvedDefaults
+        )
+    }
+
     private static func taxTriageInputDescriptors(
         for sample: TaxTriageSample
     ) -> [ProvenanceFileDescriptor] {
@@ -427,6 +457,8 @@ enum MetagenomicsBatchProvenanceWriter {
     private static func taxTriageOptions(for config: TaxTriageConfig) -> ProvenanceOptions {
         var explicit: [String: ParameterValue] = [
             "sampleCount": .integer(config.samples.count),
+            "samplesheet": .string(config.samplesheetURL.path),
+            "outputDirectory": .string(config.outputDirectory.path),
             "platform": .string(config.platform.rawValue),
             "classifiers": .array(config.classifiers.map { .string($0) }),
             "topHitsCount": .integer(config.topHitsCount),
@@ -443,7 +475,72 @@ enum MetagenomicsBatchProvenanceWriter {
         if let databasePath = config.kraken2DatabasePath {
             explicit["kraken2DatabasePath"] = .string(databasePath.path)
         }
-        return ProvenanceOptions(explicit: explicit)
+        if let containerRuntime = config.containerRuntime {
+            explicit["containerRuntime"] = .string(containerRuntime)
+        }
+        if let sourceBundleURLs = config.sourceBundleURLs {
+            explicit["sourceBundleURLs"] = .array(sourceBundleURLs.map { .string($0.path) })
+        }
+
+        return ProvenanceOptions(
+            explicit: explicit,
+            defaults: [
+                "platform": .string(TaxTriageConfig.Platform.illumina.rawValue),
+                "classifiers": .array([.string("kraken2")]),
+                "topHitsCount": .integer(10),
+                "k2Confidence": .number(0.2),
+                "rank": .string("S"),
+                "skipAssembly": .boolean(true),
+                "skipKrona": .boolean(false),
+                "maxMemory": .string("16.GB"),
+                "profile": .string("docker"),
+                "revision": .string(TaxTriageConfig.defaultRevision),
+                "extraArgs": .string(""),
+            ],
+            resolvedDefaults: [
+                "platform": .string(config.platform.rawValue),
+                "classifiers": .array(config.classifiers.map { .string($0) }),
+                "topHitsCount": .integer(config.topHitsCount),
+                "k2Confidence": .number(config.k2Confidence),
+                "rank": .string(config.rank),
+                "skipAssembly": .boolean(config.skipAssembly),
+                "skipKrona": .boolean(config.skipKrona),
+                "maxMemory": .string(config.maxMemory),
+                "maxCpus": .integer(config.maxCpus),
+                "profile": .string(config.profile),
+                "revision": .string(config.revision),
+                "extraArgs": .string(AdvancedCommandLineOptions.join(config.extraArguments)),
+            ]
+        )
+    }
+
+    private static func taxTriageRuntimeIdentity() -> ProvenanceRuntimeIdentity {
+        let environment = ProcessInfo.processInfo.environment
+        return ProvenanceRuntimeIdentity(
+            condaEnvironment: "nextflow",
+            condaPrefix: environment["CONDA_PREFIX"]
+        )
+    }
+
+    private static func taxTriageUsefulStderr(result: TaxTriageResult) -> String? {
+        guard result.exitCode != 0 || result.hasIgnoredFailures || result.hasSampleFailures else {
+            return ""
+        }
+        guard let logFile = result.logFile,
+              let text = try? String(contentsOf: logFile, encoding: .utf8) else {
+            return ""
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines).limitedForProvenance
+    }
+
+    private static func usefulStderr(_ values: [String]) -> String? {
+        let stderr = uniqueStrings(
+            values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+        .joined(separator: "\n")
+        return stderr.isEmpty ? nil : stderr.limitedForProvenance
     }
 
     private static func descriptor(
@@ -526,5 +623,14 @@ enum MetagenomicsBatchProvenanceWriter {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
             && isDirectory.boolValue
+    }
+}
+
+private extension String {
+    var limitedForProvenance: String {
+        let limit = 16_384
+        guard count > limit else { return self }
+        let end = index(startIndex, offsetBy: limit)
+        return String(self[..<end]) + "\n[truncated]"
     }
 }
