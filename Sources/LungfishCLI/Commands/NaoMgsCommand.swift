@@ -79,7 +79,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Determine if input is a directory or file
@@ -87,21 +87,26 @@ struct NaoMgsCommand: AsyncParsableCommand {
             FileManager.default.fileExists(atPath: inputURL.path, isDirectory: &isDir)
 
             let result: NaoMgsResult
-            if isDir.boolValue {
-                result = try await parser.loadResults(from: inputURL, sampleName: sampleName)
-            } else {
-                let hits = try await parser.parseVirusHits(at: inputURL)
-                let resolvedName = sampleName ?? hits.first?.sample ?? inputURL
-                    .deletingPathExtension().deletingPathExtension().lastPathComponent
-                let summaries = parser.aggregateByTaxon(hits)
-                result = NaoMgsResult(
-                    virusHits: hits,
-                    taxonSummaries: summaries,
-                    totalHitReads: hits.count,
-                    sampleName: resolvedName,
-                    sourceDirectory: inputURL.deletingLastPathComponent(),
-                    virusHitsFile: inputURL
-                )
+            do {
+                if isDir.boolValue {
+                    result = try await parser.loadResults(from: inputURL, sampleName: sampleName)
+                } else {
+                    let hits = try await parser.parseVirusHits(at: inputURL)
+                    let resolvedName = sampleName ?? hits.first?.sample ?? inputURL
+                        .deletingPathExtension().deletingPathExtension().lastPathComponent
+                    let summaries = parser.aggregateByTaxon(hits)
+                    result = NaoMgsResult(
+                        virusHits: hits,
+                        taxonSummaries: summaries,
+                        totalHitReads: hits.count,
+                        sampleName: resolvedName,
+                        sourceDirectory: inputURL.deletingLastPathComponent(),
+                        virusHitsFile: inputURL
+                    )
+                }
+            } catch let error as NaoMgsError {
+                print(formatter.error(error.localizedDescription))
+                throw naoMgsExitCode(for: error).exitCode
             }
 
             // Apply filters
@@ -182,7 +187,7 @@ struct NaoMgsCommand: AsyncParsableCommand {
             let inputURL = URL(fileURLWithPath: inputPath)
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Determine if input is a directory or file
@@ -190,21 +195,26 @@ struct NaoMgsCommand: AsyncParsableCommand {
             FileManager.default.fileExists(atPath: inputURL.path, isDirectory: &isDir)
 
             let result: NaoMgsResult
-            if isDir.boolValue {
-                result = try await parser.loadResults(from: inputURL)
-            } else {
-                let hits = try await parser.parseVirusHits(at: inputURL)
-                let name = hits.first?.sample ?? inputURL
-                    .deletingPathExtension().deletingPathExtension().lastPathComponent
-                let summaries = parser.aggregateByTaxon(hits)
-                result = NaoMgsResult(
-                    virusHits: hits,
-                    taxonSummaries: summaries,
-                    totalHitReads: hits.count,
-                    sampleName: name,
-                    sourceDirectory: inputURL.deletingLastPathComponent(),
-                    virusHitsFile: inputURL
-                )
+            do {
+                if isDir.boolValue {
+                    result = try await parser.loadResults(from: inputURL)
+                } else {
+                    let hits = try await parser.parseVirusHits(at: inputURL)
+                    let name = hits.first?.sample ?? inputURL
+                        .deletingPathExtension().deletingPathExtension().lastPathComponent
+                    let summaries = parser.aggregateByTaxon(hits)
+                    result = NaoMgsResult(
+                        virusHits: hits,
+                        taxonSummaries: summaries,
+                        totalHitReads: hits.count,
+                        sampleName: name,
+                        sourceDirectory: inputURL.deletingLastPathComponent(),
+                        virusHitsFile: inputURL
+                    )
+                }
+            } catch let error as NaoMgsError {
+                print(formatter.error(error.localizedDescription))
+                throw naoMgsExitCode(for: error).exitCode
             }
 
             switch globalOptions.outputFormat {
@@ -278,4 +288,15 @@ private func printTaxonSummary(
         rows: rows
     ))
     print("")
+}
+
+private func naoMgsExitCode(for error: NaoMgsError) -> CLIExitCode {
+    switch error {
+    case .fileNotFound, .missingResultFiles:
+        return .inputError
+    case .invalidHeader, .malformedRow:
+        return .formatError
+    case .samConversionFailed:
+        return .workflowError
+    }
 }

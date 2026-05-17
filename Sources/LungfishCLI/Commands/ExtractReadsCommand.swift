@@ -438,7 +438,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let idsURL = URL(fileURLWithPath: idsFile!)
         guard fm.fileExists(atPath: idsURL.path) else {
             print(formatter.error("Read ID file not found: \(idsFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         let idsContent = try String(contentsOf: idsURL, encoding: .utf8)
         let readIDs = Set(
@@ -449,7 +449,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         )
         guard !readIDs.isEmpty else {
             print(formatter.error("Read ID file is empty"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Validate source files
@@ -457,7 +457,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         for url in sourceURLs {
             guard fm.fileExists(atPath: url.path) else {
                 print(formatter.error("Source file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
         }
 
@@ -498,7 +498,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let bamURL = URL(fileURLWithPath: bamFile!)
         guard fm.fileExists(atPath: bamURL.path) else {
             print(formatter.error("BAM file not found: \(bamFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let config = BAMRegionExtractionConfig(
@@ -538,7 +538,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let dbURL = URL(fileURLWithPath: databaseFile!)
         guard fm.fileExists(atPath: dbURL.path) else {
             print(formatter.error("Database file not found: \(databaseFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Parse tax IDs
@@ -590,10 +590,10 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let fm = FileManager.default
 
         guard let toolRaw = classifierTool, let tool = ClassifierTool(rawValue: toolRaw) else {
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         guard let resultPathStr = classifierResult else {
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         // Pre-flight existence check, matching the pattern in runByReadID /
         // runByBAMRegion / runByDatabase. The semantics are slightly relaxed
@@ -617,7 +617,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let parentExists = fm.fileExists(atPath: resultPath.deletingLastPathComponent().path)
         guard fm.fileExists(atPath: resultPathStr) || parentExists else {
             print(formatter.error("Classifier result not found: \(resultPathStr)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // In DEBUG builds, allow tests to inject the simulated argv via the
@@ -677,7 +677,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             // doesn't silently crash end users.
             print("")
             print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         return ReadExtractionResult(
             fastqURLs: [fastqURL],

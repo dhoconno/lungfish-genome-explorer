@@ -133,14 +133,14 @@ extension EsVirituCommand {
             for url in inputURLs {
                 guard FileManager.default.fileExists(atPath: url.path) else {
                     print(formatter.error("Input file not found: \(url.path)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
             // Validate paired-end input count.
             if pairedEnd && inputURLs.count != 2 {
                 print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Resolve database path.
@@ -156,13 +156,13 @@ extension EsVirituCommand {
                 } else {
                     print(formatter.error("EsViritu database not found. Download it first:"))
                     print(formatter.info("  lungfish esviritu download-db"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.dependency.exitCode
                 }
             }
 
             guard FileManager.default.fileExists(atPath: dbURL.path) else {
                 print(formatter.error("Database directory not found: \(dbURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Resolve output directory.
