@@ -244,7 +244,7 @@ public final class GTFReader: Sendable {
 
     /// Synchronous variant for contexts that cannot use async/await.
     ///
-    /// Reads the entire file line-by-line using Foundation string APIs.
+    /// Reads the file with bounded line streaming for both plain and gzipped GTF.
     ///
     /// - Returns: Array of SequenceAnnotation
     /// - Throws: GTFError on parse failure or if the file cannot be read
@@ -268,17 +268,96 @@ public final class GTFReader: Sendable {
             annotations.append(feature.toAnnotation())
         }
 
-        if url.isGzipCompressed {
-            let stream = try GzipInputStream(url: url)
-            try stream.forEachLine(consume)
-        } else {
-            let content = try String(contentsOf: url, encoding: .utf8)
-            for line in content.components(separatedBy: .newlines) {
-                try consume(line)
-            }
-        }
+        try forEachLineSync(consume)
 
         return annotations
+    }
+
+    private func forEachLineSync(_ body: (String) throws -> Void) throws {
+        if url.isGzipCompressed {
+            let stream = try GzipInputStream(url: url)
+            try stream.forEachLine(body)
+            return
+        }
+
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        let chunkSize = 256 * 1024
+        var buffer = Data()
+
+        while true {
+            guard let chunk = try handle.read(upToCount: chunkSize) else { break }
+            if chunk.isEmpty { break }
+
+            buffer.append(chunk)
+            try Self.emitCompletePlainLines(from: &buffer, body)
+        }
+
+        try Self.emitFinalPlainLine(from: buffer, body)
+    }
+
+    private static func emitCompletePlainLines(
+        from buffer: inout Data,
+        _ body: (String) throws -> Void
+    ) throws {
+        let lineFeed = UInt8(ascii: "\n")
+        let carriageReturn = UInt8(ascii: "\r")
+        var lineStart = buffer.startIndex
+        var index = buffer.startIndex
+
+        while index < buffer.endIndex {
+            let byte = buffer[index]
+            guard byte == lineFeed || byte == carriageReturn else {
+                index = buffer.index(after: index)
+                continue
+            }
+
+            let nextIndex = buffer.index(after: index)
+            if byte == carriageReturn && nextIndex == buffer.endIndex {
+                break
+            }
+
+            try emitPlainLine(buffer[lineStart..<index], body)
+
+            if byte == carriageReturn && nextIndex < buffer.endIndex && buffer[nextIndex] == lineFeed {
+                index = buffer.index(after: nextIndex)
+            } else {
+                index = nextIndex
+            }
+            lineStart = index
+        }
+
+        if lineStart > buffer.startIndex {
+            buffer.removeSubrange(buffer.startIndex..<lineStart)
+        }
+    }
+
+    private static func emitFinalPlainLine(
+        from buffer: Data,
+        _ body: (String) throws -> Void
+    ) throws {
+        guard !buffer.isEmpty else { return }
+
+        let lineFeed = UInt8(ascii: "\n")
+        let carriageReturn = UInt8(ascii: "\r")
+        var lineEnd = buffer.endIndex
+        let previousIndex = buffer.index(before: lineEnd)
+        if buffer[previousIndex] == lineFeed || buffer[previousIndex] == carriageReturn {
+            lineEnd = previousIndex
+        }
+
+        try emitPlainLine(buffer[buffer.startIndex..<lineEnd], body)
+    }
+
+    private static func emitPlainLine(
+        _ bytes: Data.SubSequence,
+        _ body: (String) throws -> Void
+    ) throws {
+        guard let line = String(bytes: bytes, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
+        try body(line)
     }
 
     /// Reads features grouped by sequence ID.

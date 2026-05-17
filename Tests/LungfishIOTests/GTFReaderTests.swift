@@ -97,6 +97,37 @@ final class GTFReaderTests: XCTestCase {
         XCTAssertEqual(annotations[0].name, "DDX11L1")
     }
 
+    func testReadAllSyncDoesNotLoadPlainGTFWithStringContentsOf() throws {
+        let testURL = URL(fileURLWithPath: #filePath)
+        let packageRoot = testURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishIO/Formats/GFF/GTFReader.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        guard
+            let methodStart = source.range(of: "public func readAllSync() throws -> [SequenceAnnotation]"),
+            let methodEnd = source.range(
+                of: "/// Reads features grouped by sequence ID.",
+                range: methodStart.upperBound..<source.endIndex
+            )
+        else {
+            return XCTFail("Could not locate GTFReader.readAllSync() in source")
+        }
+
+        let methodSource = source[methodStart.lowerBound..<methodEnd.lowerBound]
+        XCTAssertFalse(
+            methodSource.contains("String(contentsOf:"),
+            "readAllSync() must stream plain GTF lines instead of loading the whole file"
+        )
+        XCTAssertTrue(
+            methodSource.contains("FileHandle(forReadingFrom:"),
+            "readAllSync() should use bounded FileHandle streaming for plain GTF files"
+        )
+    }
+
     // MARK: - Gene Attribute Tests
 
     func testGeneAttributes() async throws {

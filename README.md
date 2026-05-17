@@ -104,9 +104,12 @@ The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`
 | Sequences   | FASTA, FASTQ, GenBank, 2bit         | FASTA, FASTQ         |
 | Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
 | Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
-| Annotations | GFF3, GTF, BED, BigBed              | BED, BigBed          |
+| Annotations | GFF3, GTF, BED                      | BED                  |
 | Coverage    | BigWig, bedGraph                    | BigWig               |
 | Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
+
+BigBed files are recognized as bundle artifacts, but the incomplete in-process
+BigBed reader API is intentionally unavailable until parser support is complete.
 
 ## Requirements
 

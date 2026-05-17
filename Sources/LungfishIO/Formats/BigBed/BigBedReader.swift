@@ -152,16 +152,12 @@ public struct BigBedChromosome: Sendable {
 
 // MARK: - BigBedReader
 
-/// Actor-based reader for BigBed binary files.
+/// Unsupported actor-based reader for BigBed binary files.
 ///
-/// BigBed files contain annotation features (like BED records) with built-in
-/// R-tree indexing for efficient range queries.
-///
-/// ## Usage
-/// ```swift
-/// let reader = try await BigBedReader(url: fileURL)
-/// let features = try await reader.features(chromosome: "chr1", start: 1000, end: 2000)
-/// ```
+/// This parser is incomplete and is not part of the supported public API.
+/// BigBed files remain detectable as external bundle artifacts, but in-process
+/// parsing should use supported annotation database or BED/GFF/GTF import paths.
+@available(*, unavailable, message: "BigBed parsing is incomplete; use supported annotation database or BED/GFF/GTF import paths instead.")
 public actor BigBedReader {
     
     // MARK: - Properties
