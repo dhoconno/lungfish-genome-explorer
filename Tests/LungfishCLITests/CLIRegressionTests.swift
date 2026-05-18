@@ -1227,6 +1227,130 @@ final class AssembleCommandRegressionTests: XCTestCase {
         )
     }
 
+    func testVirtualDerivedBundleIsMaterializedForAssemblyExecution() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-virtual-derived-input-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let derivedBundleURL = tempDir.appendingPathComponent("subset.lungfishfastq", isDirectory: true)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try "@read1\nACGT\n+\nIIII\n@read2\nTTTT\n+\nIIII\n".write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+        try "read1\n".write(
+            to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "@read1\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 1)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "subset",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: rootFASTQURL.lastPathComponent,
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: .singleEnd,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let materializer = RecordingAssemblyMaterializer(materializedURL: materializedURL)
+
+        let resolved = try await AssembleCommand.resolveExecutionInputURLs(
+            for: [derivedBundleURL],
+            tempDirectory: tempDir,
+            materializer: materializer
+        )
+
+        XCTAssertEqual(resolved, [materializedURL.standardizedFileURL])
+        XCTAssertEqual(materializer.bundleURLs, [derivedBundleURL.standardizedFileURL])
+        XCTAssertFalse(resolved.contains(rootFASTQURL.standardizedFileURL))
+    }
+
+    func testAssembleCommandWritesCanonicalOutputProvenance() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let inputURL = tempDir.appendingPathComponent("reads.fastq")
+        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
+        let logURL = tempDir.appendingPathComponent("assembly.log")
+        try "@read1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try ">contig1\nACGT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
+        try "assembler stderr summary\n".write(to: logURL, atomically: true, encoding: .utf8)
+        let result = AssemblyResult(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            contigsPath: contigsURL,
+            graphPath: nil,
+            logPath: logURL,
+            assemblerVersion: "1.2.9",
+            commandLine: "megahit -r \(inputURL.path) -o \(tempDir.path)",
+            outputDirectory: tempDir,
+            statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
+            wallTimeSeconds: 2.0
+        )
+        try result.save(to: tempDir)
+        let argv = [
+            "lungfish-cli",
+            "assemble",
+            inputURL.path,
+            "--assembler",
+            "megahit",
+            "--threads",
+            "4",
+        ]
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [inputURL],
+            projectName: "demo",
+            outputDirectory: tempDir,
+            threads: 4,
+            minContigLength: 500,
+            selectedProfileID: "meta-sensitive",
+            extraArguments: ["--k-min", "21"]
+        )
+
+        let sidecarURL = try AssembleCommand.writeProvenance(
+            request: request,
+            result: result,
+            originalInputURLs: [inputURL],
+            executionInputURLs: [inputURL],
+            argv: argv,
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 106),
+            stderr: "assembler stderr summary",
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: sidecarURL))
+
+        XCTAssertEqual(sidecarURL, tempDir.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertEqual(envelope.workflowName, "lungfish.assemble")
+        XCTAssertEqual(envelope.workflowVersion, LungfishCLI.configuration.version)
+        XCTAssertEqual(envelope.toolName, "megahit")
+        XCTAssertEqual(envelope.toolVersion, "1.2.9")
+        XCTAssertEqual(envelope.argv, argv)
+        XCTAssertEqual(envelope.options.resolvedDefaults["assembler"], .string("megahit"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["threads"], .integer(4))
+        XCTAssertEqual(envelope.options.resolvedDefaults["minContigLength"], .integer(500))
+        XCTAssertEqual(envelope.runtimeIdentity.condaEnvironment, "megahit")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.wallTimeSeconds, 6.0)
+        XCTAssertEqual(envelope.stderr, "assembler stderr summary")
+        XCTAssertEqual(envelope.output?.path, contigsURL.path)
+        XCTAssertNotNil(envelope.files.first { $0.path == inputURL.path }?.checksumSHA256)
+        XCTAssertNotNil(envelope.outputs.first { $0.path == contigsURL.path }?.checksumSHA256)
+        XCTAssertTrue(envelope.outputs.contains { $0.path == tempDir.appendingPathComponent("assembly-result.json").path })
+    }
+
     func testInvalidReadTypeIsRejectedBeforeFallbackInference() async {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-invalid-read-type-\(UUID().uuidString)")
@@ -1267,6 +1391,24 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertTrue(source.contains(#"customLong("output")"#))
         XCTAssertTrue(source.contains(#"customLong("profile")"#))
         XCTAssertTrue(source.contains("ManagedAssemblyPipeline"))
+    }
+}
+
+private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
+    let materializedURL: URL
+    private(set) var bundleURLs: [URL] = []
+
+    init(materializedURL: URL) {
+        self.materializedURL = materializedURL
+    }
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        bundleURLs.append(bundleURL.standardizedFileURL)
+        return materializedURL
     }
 }
 
