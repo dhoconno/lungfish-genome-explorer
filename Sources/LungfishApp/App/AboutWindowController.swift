@@ -86,7 +86,7 @@ final class AboutWindowController: NSWindowController {
         container.addSubview(taglineLabel)
 
         // Version
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.4.0-alpha.16"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5-alpha1"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
         let versionLabel = NSTextField(labelWithString: "Version \(version) (\(build))")
         versionLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -127,7 +127,7 @@ final class AboutWindowController: NSWindowController {
         self.creditsTextView = textView
 
         // Copyright
-        let copyrightLabel = NSTextField(labelWithString: "Copyright \u{00A9} 2024\u{2013}2026 Lungfish Contributors")
+        let copyrightLabel = NSTextField(labelWithString: "Copyright \u{00A9} 2026 Dave O'Connor")
         copyrightLabel.translatesAutoresizingMaskIntoConstraints = false
         copyrightLabel.font = .systemFont(ofSize: 10)
         copyrightLabel.alignment = .center

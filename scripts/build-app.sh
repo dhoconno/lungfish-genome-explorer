@@ -13,7 +13,7 @@ BUNDLE_NAME="Lungfish"
 DEBUG_BUNDLE_NAME="Lungfish Debug"
 BUNDLE_DISPLAY_NAME="Lungfish Genome Browser"
 DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Browser Debug"
-VERSION="0.4.0-alpha.16"
+VERSION="0.5-alpha1"
 BUILD_NUMBER="1"
 CONFIGURATION="release"
 SKIP_BUILD=0
@@ -568,7 +568,7 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
 
     <!-- Copyright -->
     <key>NSHumanReadableCopyright</key>
-    <string>Copyright 2024 Lungfish Contributors. MIT License.</string>
+    <string>Copyright &#169; 2026 Dave O'Connor. MIT License.</string>
 </dict>
 </plist>
 EOF

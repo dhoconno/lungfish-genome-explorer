@@ -606,7 +606,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
 
             provenance = json.loads((missing_fixture / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(provenance["schemaVersion"], 1)
-            self.assertEqual(provenance["tool"]["version"], "0.4.0-alpha.16")
+            self.assertEqual(provenance["tool"]["version"], "0.5-alpha1")
             self.assertEqual(provenance["output"]["path"], "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00")
             self.assertEqual(provenance["output"]["fileSize"], 8)
             self.assertEqual(provenance["exitStatus"], 0)

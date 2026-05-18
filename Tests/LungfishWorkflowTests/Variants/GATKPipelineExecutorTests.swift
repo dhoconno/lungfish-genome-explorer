@@ -42,7 +42,7 @@ final class GATKPipelineExecutorTests: XCTestCase {
                 containerImage: nil,
                 containerDigest: nil
             ),
-            packVersion: "0.4.0-alpha.16"
+            packVersion: "0.5-alpha1"
         )
 
         let result = try await executor.run(request)
@@ -72,7 +72,7 @@ final class GATKPipelineExecutorTests: XCTestCase {
         XCTAssertEqual(step.containerDigest, nil)
         XCTAssertEqual(provenance.parameters["toolEnvironment"]?.stringValue, "gatk-core")
         XCTAssertEqual(provenance.parameters["packID"]?.stringValue, "gatk-core")
-        XCTAssertEqual(provenance.parameters["packVersion"]?.stringValue, "0.4.0-alpha.16")
+        XCTAssertEqual(provenance.parameters["packVersion"]?.stringValue, "0.5-alpha1")
         XCTAssertEqual(provenance.parameters["condaEnvironment"]?.stringValue, "/tmp/conda/envs/gatk-core")
         XCTAssertEqual(provenance.parameters["option.emitReferenceConfidence"]?.stringValue, "GVCF")
         XCTAssertEqual(provenance.parameters["default.ploidy"]?.stringValue, "2")
@@ -103,7 +103,7 @@ final class GATKPipelineExecutorTests: XCTestCase {
             configuration: config,
             toolVersion: "4.6.2.0",
             runtimeIdentity: GATKRuntimeIdentity(condaEnvironment: "/tmp/conda/envs/gatk-core"),
-            packVersion: "0.4.0-alpha.16"
+            packVersion: "0.5-alpha1"
         )
 
         let result = try await executor.run(request)

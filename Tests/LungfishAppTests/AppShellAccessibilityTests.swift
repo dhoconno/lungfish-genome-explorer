@@ -143,6 +143,16 @@ final class AppShellAccessibilityTests: XCTestCase {
         XCTAssertNotNil(root.descendant(matching: "about-lab-website-button"))
     }
 
+    func testAboutWindowShowsCurrentCopyrightOwner() throws {
+        let controller = AboutWindowController()
+        let root = try XCTUnwrap(controller.window?.contentView)
+        let labels = root.descendantLabels()
+
+        XCTAssertTrue(labels.contains("Copyright \u{00A9} 2026 Dave O'Connor"))
+        XCTAssertFalse(labels.contains { $0.contains("Lungfish Contributors") })
+        XCTAssertFalse(labels.contains { $0.contains("2024\u{2013}2026") })
+    }
+
     func testAboutWindowDeclaresSystemRequirements() throws {
         let controller = AboutWindowController()
         let root = try XCTUnwrap(controller.window?.contentView)
@@ -202,5 +212,10 @@ private extension NSView {
             }
         }
         return nil
+    }
+
+    func descendantLabels() -> [String] {
+        let ownText = (self as? NSTextField).map { [$0.stringValue] } ?? []
+        return ownText + subviews.flatMap { $0.descendantLabels() }
     }
 }

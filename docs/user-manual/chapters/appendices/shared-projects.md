@@ -41,7 +41,7 @@ The command creates `.lungfish/project.lock` using an atomic write. The record c
 
 ```json
 {
-  "appVersion": "lungfish-cli 0.4.0-alpha.16",
+  "appVersion": "lungfish-cli 0.5-alpha1",
   "createdAt": "2026-05-09T19:34:43Z",
   "cwd": "/Users/diana/Projects",
   "host": "lab-mac-01.local",
