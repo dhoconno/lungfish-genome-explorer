@@ -6,7 +6,6 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -1298,16 +1297,9 @@ public class DatabaseBrowserViewModel: ObservableObject {
     }
 
     /// Imports accession list from a CSV or text file.
-    /// Opens NSOpenPanel, parses the file, and triggers batch search.
+    /// Opens a file panel, parses the file, and triggers batch search.
     func importAccessionList() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Accession List"
-        panel.allowedContentTypes = [
-            .commaSeparatedText,
-            .plainText,
-        ]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = DatabaseBrowserFilePanelFactory.accessionListImportPanel()
 
         let handleSelection: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let url = panel.url else { return }

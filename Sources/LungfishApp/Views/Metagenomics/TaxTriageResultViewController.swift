@@ -3447,11 +3447,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             negativeControlSampleIds: negativeControlSampleIds()
         )
 
-        let panel = NSSavePanel()
-        panel.title = "Export Organism Matrix"
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "organism_matrix.csv"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export Organism Matrix",
+            suggestedName: "organism_matrix.csv",
+            contentTypes: [.commaSeparatedText]
+        )
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
@@ -3471,11 +3471,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleIds: sampleIds
         )
 
-        let panel = NSSavePanel()
-        panel.title = "Export Batch Report"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "batch_report.txt"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export Batch Report",
+            suggestedName: "batch_report.txt"
+        )
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
@@ -3492,13 +3491,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Export TaxTriage Results as \(fileTypeName)"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-
         let baseName = taxTriageConfig?.samples.first?.sampleId ?? "taxtriage"
-        panel.nameFieldStringValue = "\(baseName)_results.\(fileExtension)"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export TaxTriage Results as \(fileTypeName)",
+            suggestedName: "\(baseName)_results.\(fileExtension)"
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }

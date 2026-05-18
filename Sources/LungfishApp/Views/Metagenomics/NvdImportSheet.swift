@@ -252,12 +252,7 @@ struct NvdImportSheet: View {
 
     /// Opens an NSOpenPanel to browse for the NVD results directory.
     private func browseForDirectory() {
-        let panel = NSOpenPanel()
-        panel.title = "Select NVD Results Directory"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select the top-level NVD run directory"
+        let panel = MetagenomicsFilePanelFactory.nvdResultsImportPanel()
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }

@@ -86,7 +86,7 @@ public struct ManagedAssemblyPipeline: Sendable {
         case .spades:
             return try buildSpadesCommand(for: request)
         case .megahit:
-            return try buildMegahitCommand(for: request)
+            return try buildMegahitCommand(for: request, host: host)
         case .skesa:
             return try buildSKESACommand(for: request)
         case .flye:
@@ -163,10 +163,11 @@ public struct ManagedAssemblyPipeline: Sendable {
         )
         progress?(0.9, "Normalizing \(request.tool.displayName) output...")
 
+        let durableCommandLine = try Self.buildCommand(for: request).shellCommand
         let normalizedResult = try AssemblyOutputNormalizer.normalize(
             request: request,
             primaryOutputDirectory: request.outputDirectory,
-            commandLine: command.shellCommand,
+            commandLine: durableCommandLine,
             wallTimeSeconds: Date().timeIntervalSince(start),
             assemblerVersion: version == "unknown" ? nil : version
         )
@@ -208,7 +209,10 @@ public struct ManagedAssemblyPipeline: Sendable {
         )
     }
 
-    private static func buildMegahitCommand(for request: AssemblyRunRequest) throws -> ManagedAssemblyCommand {
+    private static func buildMegahitCommand(
+        for request: AssemblyRunRequest,
+        host: AssemblyExecutionHost
+    ) throws -> ManagedAssemblyCommand {
         let paired = try pairedReadsIfNeeded(for: request)
         var arguments: [String] = []
         if let paired {
@@ -226,6 +230,10 @@ public struct ManagedAssemblyPipeline: Sendable {
         }
         if let memoryBytes = request.effectiveMegahitMemoryBytes {
             arguments += ["--memory", "\(memoryBytes)"]
+        }
+        if host.capsMegahitThreads,
+           !containsArgument(named: "--no-hw-accel", in: request.extraArguments) {
+            arguments.append("--no-hw-accel")
         }
         arguments += request.extraArguments
         return ManagedAssemblyCommand(

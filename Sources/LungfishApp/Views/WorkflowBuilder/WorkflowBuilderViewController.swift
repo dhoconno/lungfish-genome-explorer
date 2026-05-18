@@ -231,11 +231,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Opens a workflow from a file.
     public func openWorkflow() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = Self.workflowContentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.message = "Select a Lungfish workflow bundle or workflow JSON file"
+        let panel = MappingWorkflowFilePanelFactory.workflowOpenPanel(
+            contentTypes: Self.workflowContentTypes
+        )
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -282,10 +280,11 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Saves the current workflow with a new name.
     public func saveWorkflowAs() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = Self.workflowContentTypes
-        panel.nameFieldStringValue = "\(graph.name).lungfishflow"
-        panel.message = "Save workflow as"
+        let panel = MappingWorkflowFilePanelFactory.workflowSavePanel(
+            contentTypes: Self.workflowContentTypes,
+            suggestedName: "\(graph.name).lungfishflow",
+            message: "Save workflow as"
+        )
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -862,10 +861,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Exports the workflow to Nextflow DSL2.
     public func exportToNextflow() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "nf") ?? .plainText]
-        panel.nameFieldStringValue = "\(graph.name).nf"
-        panel.message = "Export as Nextflow pipeline"
+        let panel = MappingWorkflowFilePanelFactory.nextflowExportPanel(suggestedName: "\(graph.name).nf")
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self = self else { return }
@@ -901,10 +897,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Exports the workflow to Snakemake.
     public func exportToSnakemake() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "Snakefile"
-        panel.message = "Export as Snakemake workflow"
+        let panel = MappingWorkflowFilePanelFactory.snakemakeExportPanel()
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self = self else { return }

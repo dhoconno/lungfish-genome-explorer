@@ -332,7 +332,7 @@ actor CLIMSAAlignmentRunner {
     }
 
     nonisolated func cancel() {
-        cancellationHandle.requestProcessTreeTermination()
+        cancellationHandle.terminateProcessTree(gracePeriod: 0)
     }
 
     @MainActor

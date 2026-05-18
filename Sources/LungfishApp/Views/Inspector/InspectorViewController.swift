@@ -8,7 +8,6 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import UniformTypeIdentifiers
 
 /// Logger for inspector operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "InspectorViewController")
@@ -844,12 +843,9 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        let savePanel = NSSavePanel()
-        savePanel.title = "Export Provenance"
-        savePanel.message = "Choose a folder name for the exported reproducibility package."
-        savePanel.nameFieldStringValue = "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
-        savePanel.canCreateDirectories = true
-        savePanel.canSelectHiddenExtension = true
+        let savePanel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(
+            defaultDirectoryName: "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
+        )
 
         guard let window = view.window ?? NSApp.keyWindow else { return }
         savePanel.beginSheetModal(for: window) { [weak self] response in
@@ -1418,12 +1414,7 @@ public class InspectorViewController: NSViewController {
     }
 
     private func presentMetadataImportPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.message = "Select a CSV or TSV file with sample metadata"
+        let panel = FeatureFilePanelFactory.inspectorTextMetadataImportPanel()
 
         guard let window = self.view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -1718,14 +1709,7 @@ public class InspectorViewController: NSViewController {
         guard canWriteProjectOutputs(bundleURL: bundle.url, workflowName: "Sample metadata import") else {
             return
         }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "txt")!,
-        ]
-        panel.message = "Select a TSV or CSV file with sample metadata"
-        panel.prompt = "Import"
+        let panel = FeatureFilePanelFactory.variantSampleMetadataImportPanel()
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -2665,17 +2649,12 @@ public class InspectorViewController: NSViewController {
     private func presentPrimerSchemeBrowseSheet(for state: BAMPrimerTrimDialogState) {
         guard let window = view.window ?? NSApp.keyWindow else { return }
 
-        let panel = NSOpenPanel()
-        panel.title = "Choose Primer Scheme"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = []
-        panel.directoryURL = (parent as? MainSplitViewController)?
-            .sidebarController
-            .currentProjectURL
-            .flatMap { PrimerSchemesFolder.folderURL(in: $0) }
+        let panel = FeatureFilePanelFactory.primerSchemeFolderPanel(
+            directoryURL: (parent as? MainSplitViewController)?
+                .sidebarController
+                .currentProjectURL
+                .flatMap { PrimerSchemesFolder.folderURL(in: $0) }
+        )
 
         panel.beginSheetModal(for: window) { [weak self, weak state] response in
             guard response == .OK, let url = panel.url else { return }

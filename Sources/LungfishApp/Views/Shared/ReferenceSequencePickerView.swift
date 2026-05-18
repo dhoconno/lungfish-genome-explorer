@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishIO
 
 // MARK: - DiscoveredReference
@@ -114,21 +113,9 @@ struct ReferenceSequencePickerView: View {
     // MARK: - Browse
 
     private func browseForReference() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a reference FASTA file"
-
-        // Accept ALL FASTA variants including gzipped
-        var types: [UTType] = []
-        for ext in ["fasta", "fa", "fna", "gz", "fasta.gz"] {
-            if let t = UTType(filenameExtension: ext) { types.append(t) }
-        }
-        // Also add .gzip type explicitly
-        types.append(.gzip)
-        if !types.isEmpty {
-            panel.allowedContentTypes = types
-        }
+        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(
+            message: "Select a reference FASTA file"
+        )
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         panel.beginSheetModal(for: window) { response in

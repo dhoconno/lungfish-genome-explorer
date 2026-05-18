@@ -735,9 +735,9 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
               let bundle else { return }
         do {
             let export = try bundle.subtreeExport(nodeID: selectedNodeID)
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.plainText]
-            panel.nameFieldStringValue = "\(export.selectedLabel).nwk"
+            let panel = ViewerFilePanelFactory.phylogeneticSubtreeExportPanel(
+                suggestedName: "\(export.selectedLabel).nwk"
+            )
             let completion: (NSApplication.ModalResponse) -> Void = { response in
                 guard response == .OK, let url = panel.url else { return }
                 try? Data(export.newick.utf8).write(to: url, options: .atomic)

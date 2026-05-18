@@ -194,11 +194,11 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
 
         let start = Date()
         runner.cancel()
-        let cancelElapsed = Date().timeIntervalSince(start)
         _ = await runTask.result
+        try await waitForProcessExit(pid: childPID)
+        let cancelElapsed = Date().timeIntervalSince(start)
 
         XCTAssertLessThan(cancelElapsed, 1.0, "MAFFT cancellation should not wait for the child process to finish naturally")
-        try await waitForProcessExit(pid: childPID)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -217,7 +217,7 @@ final class CLIMSAAlignmentRunnerTests: XCTestCase {
             .deletingLastPathComponent()
     }
 
-    private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 5) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {

@@ -2246,10 +2246,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard database != nil, let window = view.window else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
 
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.tabSeparatedText]
-        savePanel.nameFieldStringValue = "\(sampleName)_naomgs_summary.tsv"
-        savePanel.title = "Export NAO-MGS Summary"
+        let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
+            title: "Export NAO-MGS Summary",
+            suggestedName: "\(sampleName)_naomgs_summary.tsv"
+        )
 
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }

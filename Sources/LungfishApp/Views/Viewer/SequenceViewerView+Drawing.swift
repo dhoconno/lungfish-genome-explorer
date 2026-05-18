@@ -330,11 +330,9 @@ extension SequenceViewerView {
 
         let seq = seqInfo.sequence
 
-        // Create save panel
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.text]
-        savePanel.nameFieldStringValue = "\(seq.name).fasta"
-        savePanel.title = "Export Sequence"
+        let savePanel = ViewerFilePanelFactory.sequenceFastaExportPanel(
+            suggestedName: "\(seq.name).fasta"
+        )
 
         savePanel.begin { response in
             guard response == .OK, let url = savePanel.url else { return }

@@ -188,11 +188,9 @@ final class FolderMetadataEditorSheet: NSViewController {
     }
 
     @objc private func importCSV(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Choose a CSV file with sample metadata"
+        let panel = FeatureFilePanelFactory.metadataCSVImportPanel(
+            message: "Choose a CSV file with sample metadata"
+        )
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -245,9 +243,7 @@ final class FolderMetadataEditorSheet: NSViewController {
     }
 
     @objc private func exportCSV(_ sender: Any?) {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "samples.csv"
+        let panel = FeatureFilePanelFactory.metadataCSVExportPanel(suggestedName: "samples.csv")
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

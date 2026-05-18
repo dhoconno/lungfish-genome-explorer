@@ -8040,14 +8040,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             defaultTemplateStem = "sample-metadata-template"
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Save Sample Metadata Template"
-        panel.prompt = "Save Template"
-        panel.nameFieldStringValue = "\(defaultTemplateStem).tsv"
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-        ]
+        let panel = ViewerFilePanelFactory.sampleMetadataTemplatePanel(
+            suggestedName: "\(defaultTemplateStem).tsv"
+        )
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -8091,14 +8086,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     @objc private func importMetadataAction(_ sender: Any?) {
         guard let searchIndex else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "txt")!,
-        ]
-        panel.message = "Select a TSV or CSV file with sample metadata"
-        panel.prompt = "Import"
+        let panel = ViewerFilePanelFactory.variantSampleMetadataImportPanel()
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

@@ -295,13 +295,7 @@ struct StorageSettingsTab: View {
     }
 
     private func chooseDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "Select a storage location for managed tools and databases. The full resolved path cannot contain spaces."
+        let panel = AppFilePanelFactory.managedStorageLocationPanel()
 
         let completionHandler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }

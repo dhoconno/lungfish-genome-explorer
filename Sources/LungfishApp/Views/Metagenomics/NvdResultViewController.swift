@@ -1833,10 +1833,10 @@ public final class NvdResultViewController: NSViewController, NSSplitViewDelegat
         guard let window = view.window else { return }
         let experiment = manifest?.experiment ?? "nvd"
 
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.tabSeparatedText]
-        savePanel.nameFieldStringValue = "\(experiment)_nvd_contigs.tsv"
-        savePanel.title = "Export NVD Contigs"
+        let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
+            title: "Export NVD Contigs",
+            suggestedName: "\(experiment)_nvd_contigs.tsv"
+        )
 
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }

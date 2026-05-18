@@ -106,11 +106,11 @@ extension AnnotationTableDrawerView {
             return
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Export Table"
-        panel.nameFieldStringValue = defaultExportFilename(scope: scope, format: format)
-        panel.allowedContentTypes = [format.contentType]
-        panel.canCreateDirectories = true
+        let panel = ViewerFilePanelFactory.tableExportPanel(
+            title: "Export Table",
+            suggestedName: defaultExportFilename(scope: scope, format: format),
+            contentType: format.contentType
+        )
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

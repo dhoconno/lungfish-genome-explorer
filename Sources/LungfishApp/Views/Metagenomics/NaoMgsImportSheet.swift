@@ -229,13 +229,7 @@ struct NaoMgsImportSheet: View {
 
     /// Opens an NSOpenPanel to browse for results.
     private func browseForResults() {
-        let panel = NSOpenPanel()
-        panel.title = "Select NAO-MGS Results"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.data, .folder]
-        panel.message = "Select a virus_hits_final.tsv.gz file or results directory"
+        let panel = MetagenomicsFilePanelFactory.naoMgsResultsImportPanel()
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }

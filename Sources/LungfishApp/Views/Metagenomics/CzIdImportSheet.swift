@@ -4,7 +4,6 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishWorkflow
 
 struct CzIdImportDialogPresentation: Equatable {
@@ -274,19 +273,7 @@ struct CzIdImportSheet: View {
     }
 
     private func browseForSource() {
-        let panel = NSOpenPanel()
-        panel.title = "Select CZ-ID Export"
-        panel.message = "Select a CZ-ID taxon report TSV, ZIP archive, or extracted folder"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "zip") ?? .zip,
-            UTType(filenameExtension: "tsv") ?? .tabSeparatedText,
-            UTType(filenameExtension: "txt") ?? .plainText,
-            UTType(filenameExtension: "csv") ?? .commaSeparatedText,
-        ]
-        panel.allowsOtherFileTypes = true
+        let panel = MetagenomicsFilePanelFactory.czIdExportImportPanel()
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }

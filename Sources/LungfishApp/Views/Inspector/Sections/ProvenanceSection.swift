@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Lungfish Contributors
 // SPDX-License-Identifier: MIT
 
+import AppKit
 import SwiftUI
 
 struct ProvenanceSection: View {
@@ -90,6 +91,17 @@ struct ProvenanceSection: View {
                 Text("Provenance")
                     .font(LungfishInspectorStyle.sectionTitleFont)
                 Spacer()
+                Button {
+                    copyToPasteboard(viewModel.copyableText)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                        .labelStyle(.iconOnly)
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("Copy provenance text")
+                .disabled(viewModel.copyableText.isEmpty)
+                .accessibilityIdentifier("provenance-copy-text")
                 Menu {
                     ForEach(ProvenanceExportMenuModel.items, id: \.format) { item in
                         Button(item.title) {
@@ -221,8 +233,7 @@ struct ProvenanceSection: View {
                 HStack {
                     Spacer()
                     Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(viewModel.rawJSON, forType: .string)
+                        copyToPasteboard(viewModel.rawJSON)
                     } label: {
                         Label("Copy", systemImage: "doc.on.doc")
                     }
@@ -231,11 +242,13 @@ struct ProvenanceSection: View {
                     .accessibilityIdentifier("provenance-copy-json")
                 }
 
-                Text(viewModel.rawJSON)
-                    .font(.system(.caption2, design: .monospaced))
-                    .textSelection(.enabled)
+                SelectableWrappingText(
+                    viewModel.rawJSON,
+                    font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                    maximumNumberOfLines: 80,
+                    accessibilityIdentifier: "provenance-raw-json-text"
+                )
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .lineLimit(80)
             }
         }
     }
@@ -304,11 +317,13 @@ struct ProvenanceSection: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 62, alignment: .trailing)
-                Text(row.displayPath)
-                    .font(.caption)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+                SelectableWrappingText(
+                    row.displayPath,
+                    font: .systemFont(ofSize: NSFont.smallSystemFontSize),
+                    maximumNumberOfLines: 2,
+                    accessibilityIdentifier: "provenance-file-path"
+                )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .help(row.path)
             }
             Text(fileMetadataSummary(for: row))
@@ -317,12 +332,15 @@ struct ProvenanceSection: View {
             .padding(.leading, 68)
 
             if let checksum = row.checksumSHA256, !checksum.isEmpty {
-                Text("sha256 \(checksum)")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                SelectableWrappingText(
+                    "sha256 \(checksum)",
+                    font: .monospacedSystemFont(ofSize: 10, weight: .regular),
+                    textColor: .tertiaryLabelColor,
+                    maximumNumberOfLines: 1,
+                    lineBreakMode: .byTruncatingMiddle,
+                    accessibilityIdentifier: "provenance-file-checksum"
+                )
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 68)
             }
         }
@@ -338,33 +356,24 @@ struct ProvenanceSection: View {
     }
 
     private func pathList(_ label: String, _ paths: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(label)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            ForEach(paths, id: \.self) { path in
-                Text(path)
-                    .font(.system(.caption2, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .help(path)
-            }
-        }
+        summaryRow(label, value: paths.joined(separator: "\n"), accessibilityIdentifier: "provenance-path-list-value")
     }
 
-    private func summaryRow(_ label: String, value: String) -> some View {
+    private func summaryRow(
+        _ label: String,
+        value: String,
+        accessibilityIdentifier: String = "provenance-summary-value"
+    ) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 96, alignment: .trailing)
-            Text(value)
-                .font(.caption)
-                .textSelection(.enabled)
-                .lineLimit(4)
-                .fixedSize(horizontal: false, vertical: true)
+            SelectableWrappingText(
+                value,
+                font: .systemFont(ofSize: NSFont.smallSystemFontSize),
+                accessibilityIdentifier: accessibilityIdentifier
+            )
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -465,5 +474,10 @@ struct ProvenanceSection: View {
             return String(format: "%.1f min", seconds / 60)
         }
         return String(format: "%.2f hr", seconds / 3_600)
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }

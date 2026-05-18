@@ -74,7 +74,12 @@ final class SequenceMenuOperationTests: XCTestCase {
         ])
     }
 
-    func testORFAnnotationRunnerCancellationTerminatesCLIProcessTree() async throws {
+    nonisolated func testORFAnnotationRunnerCancellationTerminatesCLIProcessTree() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-sequence-menu-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
         let fakeCLI = tempDirectory.appendingPathComponent("lungfish-cli")
         let readyURL = tempDirectory.appendingPathComponent("ready")
         let rootPIDURL = tempDirectory.appendingPathComponent("root.pid")
@@ -645,7 +650,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(drawerSource.contains("func selectAnnotationInDrawer(_ annotation: SequenceAnnotation)"))
     }
 
-    private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+    nonisolated private func waitForFile(_ url: URL, timeout: TimeInterval = 5) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
@@ -656,7 +661,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTFail("Timed out waiting for \(url.path)")
     }
 
-    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if !ProcessTreeTerminator.processExists(pid: pid) {
@@ -667,7 +672,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTFail("Process \(pid) was still running after cancellation")
     }
 
-    private func readPID(_ url: URL) throws -> Int32 {
+    nonisolated private func readPID(_ url: URL) throws -> Int32 {
         let text = try String(contentsOf: url, encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")

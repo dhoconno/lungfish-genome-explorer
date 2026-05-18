@@ -350,7 +350,7 @@ public extension PluginPack {
             name: "Variant Calling",
             description: "Viral BAM variant calling from bundle-owned alignment tracks",
             sfSymbol: "diamond.fill",
-            packages: ["lofreq", "ivar", "medaka"],
+            packages: ["lofreq", "ivar", "medaka", "clair3"],
             category: "Variant Calling",
             isActive: true,
             requirements: [
@@ -394,7 +394,7 @@ public extension PluginPack {
                     id: "clair3",
                     displayName: "Clair3",
                     environment: "clair3",
-                    installPackages: ["bioconda::clair3=1.0.10"],
+                    installPackages: ["bioconda::clair3=2.0.1"],
                     executables: ["run_clair3.sh"],
                     smokeTest: .command(
                         executable: "run_clair3.sh",
@@ -403,7 +403,7 @@ public extension PluginPack {
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "Usage"
                     ),
-                    version: "1.0.10",
+                    version: "2.0.1",
                     license: "BSD-3-Clause",
                     sourceURL: "https://github.com/HKU-BAL/Clair3"
                 ),

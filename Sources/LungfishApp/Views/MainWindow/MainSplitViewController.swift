@@ -797,7 +797,7 @@ public class MainSplitViewController: NSSplitViewController {
 
         switch url.pathExtension.lowercased() {
         case "lungfishref":
-            displayReferenceBundleViewportFromSidebar(at: url, forceReload: true)
+            displayReferenceBundleViewportFromSidebar(at: url)
         case MultipleSequenceAlignmentBundle.directoryExtension:
             displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
         case "lungfishtree":
@@ -2873,24 +2873,18 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let toolId = item.userInfo["analysisTool"]
                 ?? AnalysesFolder.readAnalysisMetadata(from: url)?.tool
                 ?? dirName
-            if toolId.hasPrefix("naomgs") {
+            switch AnalysisResultDisplayRoute.route(forToolID: toolId) {
+            case .naoMgs:
                 displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("nvd") {
+            case .nvd:
                 displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("cz-id") {
+            case .czId:
                 displayCzIdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("spades")
-                || toolId.hasPrefix("megahit")
-                || toolId.hasPrefix("skesa")
-                || toolId.hasPrefix("flye")
-                || toolId.hasPrefix("hifiasm") {
+            case .assembly:
                 displayAssemblyAnalysisFromSidebar(at: url)
-            } else if toolId == MappingTool.minimap2.rawValue
-                || toolId == MappingTool.bwaMem2.rawValue
-                || toolId == MappingTool.bowtie2.rawValue
-                || toolId == MappingTool.bbmap.rawValue {
+            case .mapping:
                 displayMappingAnalysisFromSidebar(at: url)
-            } else {
+            case .unknown:
                 logger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
             }
             return
@@ -2984,10 +2978,21 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    /// Display a direct reference bundle opened outside the project sidebar.
+    func displayReferenceBundleFromExternalOpen(at url: URL) throws {
+        inspectorController.clearSelection()
+        try viewerController.displayBundle(at: url)
+        inspectorController.updateProvenanceTarget(
+            url: url,
+            sidebarType: .referenceBundle,
+            displayName: url.lastPathComponent
+        )
+        wireDirectReferenceViewportInspectorUpdates()
+    }
+
     /// Display a direct reference bundle in the shared list/detail reference viewport.
     private func displayReferenceBundleViewportFromSidebar(
         at url: URL,
-        forceReload: Bool = false,
         identity: ContentSelectionIdentity? = nil,
         token: AsyncRequestToken<ContentSelectionIdentity>? = nil
     ) {
@@ -3010,11 +3015,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 do {
                     self.inspectorController.clearSelection()
                     let manifest = try BundleManifest.load(from: url)
-                    let input = ReferenceBundleViewportInput.directBundle(
+                    let route = ViewerDisplayRouteFactory.directReferenceBundle(
                         bundleURL: url,
                         manifest: manifest
                     )
-                    try self.viewerController.displayReferenceBundleViewport(input)
+                    try self.viewerController.display(route)
                     self.wireDirectReferenceViewportInspectorUpdates()
                     logger.info("displayReferenceBundleViewport: Bundle displayed successfully")
                 } catch {
@@ -3102,8 +3107,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let result = try MappingResult.load(from: url)
             let provenance = MappingProvenance.load(from: url)
             let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
-            let input = ReferenceBundleViewportInput.mappingResult(
-                result: result,
+            let route = ViewerDisplayRouteFactory.mappingResult(
+                result,
                 resultDirectoryURL: url,
                 provenance: provenance
             )
@@ -3120,7 +3125,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     projectURL: projectURL
                 )
             )
-            try viewerController.displayReferenceBundleViewport(input)
+            try viewerController.display(route)
             wireMappingReferenceViewportInspectorUpdates()
             recordUITestEvent(
                 "mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)"
@@ -3197,21 +3202,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             displayName: dirName
         )
 
-        if toolId.hasPrefix("spades")
-            || toolId.hasPrefix("megahit")
-            || toolId.hasPrefix("skesa")
-            || toolId.hasPrefix("flye")
-            || toolId.hasPrefix("hifiasm") {
+        switch AnalysisResultDisplayRoute.route(forToolID: toolId) {
+        case .assembly:
             displayAssemblyAnalysisFromSidebar(at: batchURL)
             return
-        }
-
-        if toolId == MappingTool.minimap2.rawValue
-            || toolId == MappingTool.bwaMem2.rawValue
-            || toolId == MappingTool.bowtie2.rawValue
-            || toolId == MappingTool.bbmap.rawValue {
+        case .mapping:
             displayMappingAnalysisFromSidebar(at: batchURL)
             return
+        case .naoMgs, .nvd, .czId, .unknown:
+            break
         }
 
         if dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
@@ -4491,10 +4490,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
                 logger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
 
-                // Reload the bundle in the viewer (force reload since URL hasn't changed)
+                // Reload the bundle in the viewer after the downloaded reference is merged.
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        self?.displayReferenceBundleViewportFromSidebar(at: bundleURL, forceReload: true)
+                        self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
                     }
                 }
 

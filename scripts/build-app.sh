@@ -8,6 +8,11 @@ set -e
 # Configuration
 APP_NAME="Lungfish"
 BUNDLE_ID="org.lungfish.genome-browser"
+DEBUG_BUNDLE_ID="org.lungfish.genome-browser.debug"
+BUNDLE_NAME="Lungfish"
+DEBUG_BUNDLE_NAME="Lungfish Debug"
+BUNDLE_DISPLAY_NAME="Lungfish Genome Browser"
+DEBUG_BUNDLE_DISPLAY_NAME="Lungfish Genome Browser Debug"
 VERSION="0.4.0-alpha.16"
 BUILD_NUMBER="1"
 CONFIGURATION="release"
@@ -100,6 +105,12 @@ case "$CONFIGURATION" in
         ;;
 esac
 
+if [ "$CONFIGURATION" = "debug" ]; then
+    BUNDLE_ID="$DEBUG_BUNDLE_ID"
+    BUNDLE_NAME="$DEBUG_BUNDLE_NAME"
+    BUNDLE_DISPLAY_NAME="$DEBUG_BUNDLE_DISPLAY_NAME"
+fi
+
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
@@ -108,6 +119,7 @@ FRAMEWORKS_DIR="$CONTENTS_DIR/Frameworks"
 echo -e "${GREEN}Building Lungfish Genome Browser${NC}"
 echo "=================================="
 echo "Configuration: $BUILD_LABEL"
+echo "Bundle identifier: $BUNDLE_ID"
 
 # Clean previous build
 if [ -d "$APP_DIR" ]; then
@@ -186,11 +198,11 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
 <dict>
     <!-- Bundle Identification -->
     <key>CFBundleIdentifier</key>
-    <string>org.lungfish.genome-browser</string>
+    <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>Lungfish</string>
+    <string>$BUNDLE_NAME</string>
     <key>CFBundleDisplayName</key>
-    <string>Lungfish Genome Browser</string>
+    <string>$BUNDLE_DISPLAY_NAME</string>
     <key>CFBundleExecutable</key>
     <string>Lungfish</string>
     <key>CFBundlePackageType</key>

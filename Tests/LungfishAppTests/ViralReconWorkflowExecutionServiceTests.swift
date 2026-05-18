@@ -388,7 +388,7 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
             in: String(source[processRunnerSource.lowerBound...])
         )
 
-        XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination()"))
+        XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination(gracePeriod: 0)"))
     }
 }
 

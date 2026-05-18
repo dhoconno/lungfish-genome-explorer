@@ -20,7 +20,7 @@ enum LungfishCLIRunner {
         private let handle = NativeProcessCancellationHandle()
 
         func cancel() {
-            handle.requestProcessTreeTermination()
+            handle.terminateProcessTree(gracePeriod: 0)
         }
 
         fileprivate func store(_ process: Process) {
@@ -31,8 +31,8 @@ enum LungfishCLIRunner {
             handle.clear(process)
         }
 
-        fileprivate func terminateIfRequested() {
-            handle.terminateIfRequested()
+        fileprivate func terminateIfRequested(gracePeriod: TimeInterval = 0.5) {
+            handle.terminateIfRequested(gracePeriod: gracePeriod)
         }
 
         fileprivate var isCancellationRequested: Bool {
@@ -137,7 +137,7 @@ enum LungfishCLIRunner {
 
         do {
             try process.run()
-            cancellation?.terminateIfRequested()
+            cancellation?.terminateIfRequested(gracePeriod: 0)
         } catch {
             stdoutPipe.fileHandleForWriting.closeFile()
             stderrPipe.fileHandleForWriting.closeFile()

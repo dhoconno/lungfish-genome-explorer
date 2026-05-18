@@ -8,7 +8,6 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import SQLite3
-import UniformTypeIdentifiers
 import os
 
 private let appDelegateLogger = Logger(subsystem: LogSubsystem.app, category: "AppDelegate")
@@ -35,25 +34,6 @@ private func appTSVField(_ value: String) -> String {
         return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
     return value
-}
-
-enum AppProvenanceExportCommandBuilder {
-    static func argv(
-        format: ProvenanceExportFormat,
-        sourceURL: URL,
-        outputDirectory: URL
-    ) -> [String] {
-        [
-            "lungfish",
-            "provenance",
-            "export",
-            sourceURL.path,
-            "--export-format",
-            format.cliToken,
-            "--output",
-            outputDirectory.path,
-        ]
-    }
 }
 
 /// Schedules a MainActor-isolated block to execute on the main run loop.
@@ -106,62 +86,11 @@ private struct SyncFileLoadResult: Sendable {
     }
 }
 
-struct SidebarImportRequestTrackerUpdate {
-    let pendingCount: Int
-    let succeeded: Int
-    let failed: Int
-    let isFinished: Bool
-}
-
 private struct SequenceExportDocumentSnapshot: Sendable {
     let name: String
     let url: URL
     let sequences: [LungfishCore.Sequence]
     let annotations: [SequenceAnnotation]
-}
-
-/// Main-thread import tracking state used by File > Import.
-///
-/// This object is captured by notification handlers that are `@Sendable`.
-/// The handler immediately hops to `MainActor` before mutating state.
-final class SidebarImportRequestTracker: @unchecked Sendable {
-    let requestID: String
-    var pendingURLs: Set<URL>
-    var succeeded: Int = 0
-    var failed: Int = 0
-    var observerToken: NSObjectProtocol?
-
-    init(requestID: String, trackedURLs: [URL]) {
-        self.requestID = requestID
-        self.pendingURLs = Set(trackedURLs.map(\.standardizedFileURL))
-    }
-
-    func registerCompletion(
-        requestID completionRequestID: String?,
-        completedURL: URL?,
-        wasSuccessful: Bool
-    ) -> SidebarImportRequestTrackerUpdate? {
-        guard let completionRequestID,
-              completionRequestID == requestID,
-              let completedURL = completedURL?.standardizedFileURL,
-              pendingURLs.contains(completedURL) else {
-            return nil
-        }
-
-        pendingURLs.remove(completedURL)
-        if wasSuccessful {
-            succeeded += 1
-        } else {
-            failed += 1
-        }
-
-        return SidebarImportRequestTrackerUpdate(
-            pendingCount: pendingURLs.count,
-            succeeded: succeeded,
-            failed: failed,
-            isFinished: pendingURLs.isEmpty
-        )
-    }
 }
 
 /// Loads file data synchronously on a background thread, completely avoiding MainActor.
@@ -344,6 +273,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     private var mainWindowControllers: [MainWindowController] = []
 
     private let projectSessionRegistry = ProjectSessionRegistry()
+    private let projectOpenCoordinator = ProjectOpenCoordinator()
 
     /// Welcome window controller for project selection
     private var welcomeWindowController: WelcomeWindowController?
@@ -673,26 +603,18 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             debugLog("openProject: Migrated \(count) analysis director\(count == 1 ? "y" : "ies") from derivatives/ to Analyses/")
         }
 
-        do {
-            let project = try controller.projectSession.openProject(at: projectURL)
+        let result = projectOpenCoordinator.openProject(at: projectURL, using: controller.projectSession)
+        switch result {
+        case .opened(let project):
             DocumentManager.shared.mirrorProjectSession(controller.projectSession)
             projectSessionRegistry.register(controller.projectSession, projectURL: project.url)
             controller.mainSplitViewController?.applyProjectSessionState()
             updateProjectWindowTitle(controller)
-            RecentProjectsManager.shared.addRecentProject(
-                url: project.url,
-                name: project.name
-            )
             debugLog("openProject: Opened project via ProjectSession")
-        } catch {
-            let projectName = projectURL.deletingPathExtension().lastPathComponent
-            controller.window?.title = "\(projectName) - Lungfish Genome Explorer"
-            debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(error.localizedDescription)")
-            controller.mainSplitViewController?.sidebarController.openProject(at: projectURL)
-            RecentProjectsManager.shared.addRecentProject(
-                url: projectURL,
-                name: projectName
-            )
+        case .filesystemFallback(let fallback):
+            controller.window?.title = "\(fallback.name) - Lungfish Genome Explorer"
+            debugLog("openProject: Failed via ProjectSession, falling back to filesystem sidebar: \(fallback.error.localizedDescription)")
+            controller.mainSplitViewController?.sidebarController.openProject(at: fallback.url)
         }
 
         // Clean stale project temp files only for the first open session. Duplicate
@@ -1405,13 +1327,16 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         let controller = ensureMainWindowForDocumentOpen()
-        let viewerController = controller.mainSplitViewController?.viewerController
+        let splitViewController = controller.mainSplitViewController
+        let viewerController = splitViewController?.viewerController
 
-        if type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle {
+        if type == .lungfishReferenceBundle || type == .lungfishMultipleSequenceAlignmentBundle || type == .lungfishPhylogeneticTreeBundle {
             Task {
                 viewerController?.showProgress("Loading \(url.lastPathComponent)...")
                 do {
                     switch type {
+                    case .lungfishReferenceBundle:
+                        try splitViewController?.displayReferenceBundleFromExternalOpen(at: url)
                     case .lungfishMultipleSequenceAlignmentBundle:
                         try viewerController?.displayMultipleSequenceAlignmentBundle(at: url)
                     case .lungfishPhylogeneticTreeBundle:
@@ -1467,14 +1392,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @IBAction func newDocument(_ sender: Any?) {
         Task {
-            let savePanel = NSSavePanel()
-            savePanel.title = "Create New Project"
-            savePanel.message = "Choose a location for your new Lungfish project"
-            savePanel.nameFieldLabel = "Project Name:"
-            savePanel.nameFieldStringValue = "My Genome Project"
-            savePanel.canCreateDirectories = true
-            savePanel.allowedContentTypes = [.folder]
-            savePanel.isExtensionHidden = false
+            let savePanel = AppFilePanelFactory.newProjectPanel()
 
             let response: NSApplication.ModalResponse
             if let window = NSApp.keyWindow {
@@ -1488,14 +1406,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             let projectURL = url.deletingPathExtension().appendingPathExtension("lungfish")
             do {
                 let session = ProjectSession()
-                let project = try session.createProject(
-                    at: projectURL,
-                    name: projectURL.deletingPathExtension().lastPathComponent
-                )
-                RecentProjectsManager.shared.addRecentProject(
-                    url: project.url,
-                    name: project.name
-                )
+                let project = try self.projectOpenCoordinator.createProject(at: projectURL, using: session)
                 let controller = self.createAndShowMainWindow(projectSession: session)
                 NSApp.activate()
                 self.welcomeWindowController?.close()
@@ -1519,20 +1430,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @IBAction func openDocument(_ sender: Any?) {
-        // Show open panel
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseDirectories = false
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes + [
-            .init(filenameExtension: "fq")!,
-            .init(filenameExtension: "fastq")!,
-            .init(filenameExtension: "gz")!,
-            .init(filenameExtension: FASTQBundle.directoryExtension)!,
-            .init(filenameExtension: "gb")!,
-            .init(filenameExtension: "gbk")!,
-            .init(filenameExtension: "gff")!,
-            .init(filenameExtension: "gff3")!,
-        ]
+        let panel = AppFilePanelFactory.documentOpenPanel()
 
         panel.begin { response in
             if response == .OK {
@@ -1544,13 +1442,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     @IBAction func openProjectFolder(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.title = "Open Project Folder"
-        panel.message = "Select a Lungfish project folder to open in a new window"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
+        let panel = AppFilePanelFactory.projectFolderOpenPanel()
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -1608,15 +1500,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         debugLog("importFiles: Showing import dialog")
 
-        // Show import dialog directly using NSOpenPanel
-        // We avoid Task{} here because it doesn't execute reliably from @objc menu actions
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowsOtherFileTypes = true
-        panel.message = "Select files to import into the project"
-        panel.prompt = "Import"
+        let panel = AppFilePanelFactory.projectFileImportPanel()
 
         // Use beginSheetModal with completion handler
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -1766,25 +1650,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             ) else { return }
         }
 
-        // Show NSOpenPanel for VCF files
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        var vcfTypes: [UTType] = []
-        if let vcfType = UTType(filenameExtension: "vcf") {
-            vcfTypes.append(vcfType)
-        }
-        // .vcf.gz files have UTType for "gz" — include it so they're visible by default
-        if let gzType = UTType(filenameExtension: "gz") {
-            vcfTypes.append(gzType)
-        }
-        panel.allowedContentTypes = vcfTypes
-        panel.allowsOtherFileTypes = true
-        panel.message = bundleURL != nil
-            ? "Select VCF file(s) to import into the current bundle"
-            : "Select VCF file(s) to open"
-        panel.prompt = "Import"
+        let panel = AppFilePanelFactory.vcfImportPanel(targetsCurrentBundle: bundleURL != nil)
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK else {
@@ -1831,20 +1697,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             presentingWindow: window
         ) else { return }
 
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        var bamTypes: [UTType] = []
-        for ext in ["bam", "cram", "sam"] {
-            if let utType = UTType(filenameExtension: ext) {
-                bamTypes.append(utType)
-            }
-        }
-        panel.allowedContentTypes = bamTypes
-        panel.allowsOtherFileTypes = true
-        panel.message = "Select a BAM, CRAM, or SAM file to import into the current bundle"
-        panel.prompt = "Import"
+        let panel = AppFilePanelFactory.bamImportPanel()
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let bamURL = panel.url else {
@@ -2675,17 +2528,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             presentingWindow: presentingWindow ?? targetMainWindowController(routeContext: routeContext)?.window
         ) else { return }
 
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "txt")!,
-        ]
-        panel.message = "Select a TSV or CSV file with sample metadata"
-        panel.prompt = "Import Metadata"
+        let panel = AppFilePanelFactory.sampleMetadataImportPanel()
 
         let handleSelection: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard response == .OK, let metadataURL = panel.url else {
@@ -3768,39 +3611,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Build save panel with format accessory
-        let panel = NSSavePanel()
-        panel.title = "Export Sequences"
-        panel.canCreateDirectories = true
-        panel.allowsOtherFileTypes = true
-
-        // Accessory view for format + compression
-        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 60))
-
-        let formatLabel = NSTextField(labelWithString: "Format:")
-        formatLabel.font = .systemFont(ofSize: 11)
-        formatLabel.frame = NSRect(x: 0, y: 32, width: 60, height: 18)
-        accessory.addSubview(formatLabel)
-
-        let formatPopup = NSPopUpButton(frame: NSRect(x: 64, y: 28, width: 120, height: 24))
-        formatPopup.controlSize = .small
-        formatPopup.addItems(withTitles: ["FASTA", "GenBank"])
-        formatPopup.selectItem(at: defaultFormat == .genbank ? 1 : 0)
-        formatPopup.tag = 1
-        accessory.addSubview(formatPopup)
-
-        let compLabel = NSTextField(labelWithString: "Compression:")
-        compLabel.font = .systemFont(ofSize: 11)
-        compLabel.frame = NSRect(x: 0, y: 4, width: 80, height: 18)
-        accessory.addSubview(compLabel)
-
-        let compPopup = NSPopUpButton(frame: NSRect(x: 84, y: 0, width: 120, height: 24))
-        compPopup.controlSize = .small
-        compPopup.addItems(withTitles: ["None", "gzip (.gz)", "zstd (.zst)"])
-        compPopup.tag = 2
-        accessory.addSubview(compPopup)
-
-        // Wire popup changes to update the suggested filename
         let baseName: String
         if sidebarItems.count == 1 {
             baseName = sidebarItems[0].title
@@ -3810,27 +3620,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             baseName = documents[0].name.replacingOccurrences(of: ".\(documents[0].url.pathExtension)", with: "")
         }
 
-        let filenameUpdater = ExportFilenameUpdater(panel: panel, baseName: baseName, formatPopup: formatPopup, compPopup: compPopup)
-        formatPopup.target = filenameUpdater
-        formatPopup.action = #selector(ExportFilenameUpdater.popupChanged(_:))
-        compPopup.target = filenameUpdater
-        compPopup.action = #selector(ExportFilenameUpdater.popupChanged(_:))
-        objc_setAssociatedObject(panel, &ExportFilenameUpdater.associatedKey, filenameUpdater, .OBJC_ASSOCIATION_RETAIN)
-
-        panel.accessoryView = accessory
-        filenameUpdater.popupChanged(formatPopup) // set initial filename
+        let panel = AppFilePanelFactory.sequenceExportPanel()
+        let panelController = SequenceExportPanelController(
+            panel: panel,
+            defaultFormat: defaultFormat,
+            filenameBaseName: baseName
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let outputURL = panel.url else { return }
             guard let self else { return }
 
-            let format: SequenceExportFormat = formatPopup.indexOfSelectedItem == 1 ? .genbank : .fasta
-            let compression: SequenceExportCompression
-            switch compPopup.indexOfSelectedItem {
-            case 1: compression = .gzip
-            case 2: compression = .zstd
-            default: compression = .none
-            }
+            let format = panelController.selectedFormat
+            let compression = panelController.selectedCompression
 
             let itemURLs = sidebarItems.compactMap(\.url)
             let exportTitle = "Exporting \(outputURL.lastPathComponent)"
@@ -3910,48 +3712,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         defaultFormat: SequenceExportFormat,
         window: NSWindow
     ) {
-        let panel = NSOpenPanel()
-        panel.title = "Export \(bundleURLs.count) Sequence Files - Choose Output Folder"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "Export Here"
-
-        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 60))
-
-        let formatLabel = NSTextField(labelWithString: "Format:")
-        formatLabel.font = .systemFont(ofSize: 11)
-        formatLabel.frame = NSRect(x: 0, y: 32, width: 60, height: 18)
-        accessory.addSubview(formatLabel)
-
-        let formatPopup = NSPopUpButton(frame: NSRect(x: 64, y: 28, width: 120, height: 24))
-        formatPopup.controlSize = .small
-        formatPopup.addItems(withTitles: ["FASTA", "GenBank"])
-        formatPopup.selectItem(at: defaultFormat == .genbank ? 1 : 0)
-        accessory.addSubview(formatPopup)
-
-        let compLabel = NSTextField(labelWithString: "Compression:")
-        compLabel.font = .systemFont(ofSize: 11)
-        compLabel.frame = NSRect(x: 0, y: 4, width: 80, height: 18)
-        accessory.addSubview(compLabel)
-
-        let compPopup = NSPopUpButton(frame: NSRect(x: 84, y: 0, width: 120, height: 24))
-        compPopup.controlSize = .small
-        compPopup.addItems(withTitles: ["None", "gzip (.gz)", "zstd (.zst)"])
-        accessory.addSubview(compPopup)
-        panel.accessoryView = accessory
+        let panel = AppFilePanelFactory.batchSequenceExportFolderPanel(itemCount: bundleURLs.count)
+        let panelController = SequenceExportPanelController(
+            panel: panel,
+            defaultFormat: defaultFormat,
+            filenameBaseName: nil
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let outputFolder = panel.url else { return }
             guard let self else { return }
 
-            let format: SequenceExportFormat = formatPopup.indexOfSelectedItem == 1 ? .genbank : .fasta
-            let compression: SequenceExportCompression
-            switch compPopup.indexOfSelectedItem {
-            case 1: compression = .gzip
-            case 2: compression = .zstd
-            default: compression = .none
-            }
+            let format = panelController.selectedFormat
+            let compression = panelController.selectedCompression
 
             let targets = Self.batchSequenceExportTargets(
                 for: bundleURLs,
@@ -4465,43 +4238,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         return (sequences, [])
     }
 
-    enum SequenceExportFormat {
-        case fasta, genbank
-
-        var fileExtension: String {
-            switch self {
-            case .fasta: return "fa"
-            case .genbank: return "gb"
-            }
-        }
-
-        var displayName: String {
-            switch self {
-            case .fasta: return "FASTA"
-            case .genbank: return "GenBank"
-            }
-        }
-
-        var cliFormat: String {
-            switch self {
-            case .fasta: return "fasta"
-            case .genbank: return "genbank"
-            }
-        }
-    }
-
-    enum SequenceExportCompression {
-        case none, gzip, zstd
-
-        var fileExtension: String? {
-            switch self {
-            case .none: return nil
-            case .gzip: return "gz"
-            case .zstd: return "zst"
-            }
-        }
-    }
-
     /// Returns current date in GenBank format (DD-MMM-YYYY)
     nonisolated private static func currentDateString() -> String {
         let formatter = DateFormatter()
@@ -4523,11 +4259,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return
         }
 
-        // Show save panel
-        let panel = NSSavePanel()
-        panel.title = "Export GFF3"
-        panel.allowedContentTypes = [UTType(filenameExtension: "gff3")!]
-        panel.nameFieldStringValue = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
+        let suggestedName = document.name.replacingOccurrences(of: ".\(document.url.pathExtension)", with: "") + ".gff3"
+        let panel = AppFilePanelFactory.gff3ExportPanel(suggestedName: suggestedName)
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -4576,42 +4309,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
-    private enum ViewerExportScope: String, CaseIterable {
-        case tracks = "tracks"
-        case fullViewer = "full"
-        case selectedRegion = "selection"
-
-        var title: String {
-            switch self {
-            case .tracks: return "Tracks View (Sequence + Variants + Annotations)"
-            case .fullViewer: return "Full Viewer Pane (Ruler + Tracks + Table)"
-            case .selectedRegion: return "Selected Region Only"
-            }
-        }
-    }
-
-    private enum ViewerGraphicFormat: String, CaseIterable {
-        case png
-        case jpeg
-        case tiff
-        case pdf
-
-        var title: String { rawValue.uppercased() }
-
-        var contentType: UTType {
-            switch self {
-            case .png: return .png
-            case .jpeg: return .jpeg
-            case .tiff: return .tiff
-            case .pdf: return .pdf
-            }
-        }
-
-        var fileExtension: String { rawValue }
-
-        var isVector: Bool { self == .pdf }
-    }
-
     private func presentViewerGraphicsExportPanel(
         viewerController: ViewerViewController,
         defaultFormat: ViewerGraphicFormat,
@@ -4625,58 +4322,20 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         let hasSelection = viewerController.viewerView.selectionRange?.isEmpty == false
         let formats: [ViewerGraphicFormat] = includeBitmapFormats ? [.png, .jpeg, .tiff, .pdf] : [.pdf]
         let scopes: [ViewerExportScope] = hasSelection ? [.tracks, .fullViewer, .selectedRegion] : [.tracks, .fullViewer]
-        let initialFormat = formats.contains(defaultFormat) ? defaultFormat : (formats.first ?? .png)
-
-        let panel = NSSavePanel()
-        panel.title = "Export Viewer Graphics"
-        panel.canCreateDirectories = true
-        panel.allowedContentTypes = formats.map(\.contentType)
-        panel.nameFieldStringValue = "viewer-export.\(initialFormat.fileExtension)"
-
-        let scopeLabel = NSTextField(labelWithString: "Scope:")
-        let scopePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        scopes.forEach { scopePopup.addItem(withTitle: $0.title) }
-        if let idx = scopes.firstIndex(of: .tracks) { scopePopup.selectItem(at: idx) }
-
-        let formatLabel = NSTextField(labelWithString: "Format:")
-        let formatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        formats.forEach { formatPopup.addItem(withTitle: $0.title) }
-        if let idx = formats.firstIndex(of: initialFormat) { formatPopup.selectItem(at: idx) }
-
-        let scaleLabel = NSTextField(labelWithString: "Bitmap Scale:")
-        let scalePopup = NSPopUpButton(frame: .zero, pullsDown: false)
-        ["1x", "2x", "4x"].forEach { scalePopup.addItem(withTitle: $0) }
-        scalePopup.selectItem(at: 1)
-        scalePopup.isEnabled = !initialFormat.isVector
-
-        let accessory = NSStackView(views: [scopeLabel, scopePopup, formatLabel, formatPopup, scaleLabel, scalePopup])
-        accessory.orientation = .vertical
-        accessory.alignment = .leading
-        accessory.spacing = 6
-        panel.accessoryView = accessory
-
-        func selectedFormat() -> ViewerGraphicFormat {
-            let idx = max(0, min(formats.count - 1, formatPopup.indexOfSelectedItem))
-            return formats[idx]
-        }
-
-        scalePopup.isEnabled = !selectedFormat().isVector
+        let panelController = ViewerGraphicsExportPanelController(
+            formats: formats,
+            scopes: scopes,
+            initialFormat: defaultFormat
+        )
+        let panel = panelController.panel
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let self, let rawURL = panel.url else { return }
 
-            let scope = scopes[max(0, min(scopes.count - 1, scopePopup.indexOfSelectedItem))]
-            let format = selectedFormat()
-            let scale: CGFloat
-            switch scalePopup.indexOfSelectedItem {
-            case 2: scale = 4
-            case 1: scale = 2
-            default: scale = 1
-            }
-
-            let outputURL = rawURL.pathExtension.lowercased() == format.fileExtension
-                ? rawURL
-                : rawURL.deletingPathExtension().appendingPathExtension(format.fileExtension)
+            let scope = panelController.selectedScope
+            let format = panelController.selectedFormat
+            let scale = panelController.selectedBitmapScale
+            let outputURL = panelController.normalizedOutputURL(from: rawURL)
 
             do {
                 let data = try self.viewerExportData(
@@ -9600,12 +9259,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
     }
 
     private func presentProvenanceExportSheet(source: AppProvenanceExportSource, format: ProvenanceExportFormat) {
-        let savePanel = NSSavePanel()
-        savePanel.title = "Export Provenance"
-        savePanel.message = "Choose a folder name for the exported reproducibility package."
-        savePanel.nameFieldStringValue = defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL)
-        savePanel.canCreateDirectories = true
-        savePanel.canSelectHiddenExtension = true
+        let savePanel = AppFilePanelFactory.provenanceExportPanel(
+            defaultDirectoryName: defaultProvenanceExportDirectoryName(for: format, sourceURL: source.selectedURL)
+        )
 
         guard let window = mainWindowController?.window ?? NSApp.keyWindow else {
             return
@@ -9724,12 +9380,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
         guard let window = mainWindowController?.window else { return }
 
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Select an ONT output directory (fastq_pass, a barcoded folder, or a folder with FASTQ chunks)"
-        panel.prompt = "Import"
+        let panel = AppFilePanelFactory.ontRunImportPanel()
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -9771,11 +9422,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
                 suggestedName = baseName + ".fastq"
             }
 
-            let savePanel = NSSavePanel()
-            savePanel.title = "Export FASTQ"
-            savePanel.nameFieldStringValue = suggestedName
-            savePanel.allowedContentTypes = [.data]
-            savePanel.canCreateDirectories = true
+            let savePanel = AppFilePanelFactory.fastqSingleExportPanel(suggestedName: suggestedName)
             savePanel.beginSheetModal(for: window) { [weak self] response in
                 guard response == .OK, let outputURL = savePanel.url else { return }
                 self?.performFASTQExports(
@@ -9785,12 +9432,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         } else {
             // Multi-selection: use open panel (folder picker)
-            let openPanel = NSOpenPanel()
-            openPanel.title = "Export \(items.count) FASTQ Files — Choose Output Folder"
-            openPanel.canChooseFiles = false
-            openPanel.canChooseDirectories = true
-            openPanel.canCreateDirectories = true
-            openPanel.prompt = "Export Here"
+            let openPanel = AppFilePanelFactory.fastqBatchExportFolderPanel(itemCount: items.count)
             openPanel.beginSheetModal(for: window) { [weak self] response in
                 guard response == .OK, let folderURL = openPanel.url else { return }
                 var bundles: [(bundleURL: URL, outputURL: URL, isDerived: Bool, title: String)] = []
@@ -9889,35 +9531,45 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func exportProjectSampleMetadata(_ sender: Any?) {
         let controller = activeMainWindowController(sender: sender)
-        guard let projectURL = projectFolderURLForMetadata(controller: controller) else {
+        switch ProjectSampleMetadataModalRouter.exportRoute(
+            projectURL: projectFolderURLForMetadata(controller: controller)
+        ) {
+        case .missingProject(let title, let message):
             showAlert(
-                title: "No Project Open",
-                message: "Open a project folder to export sample metadata.",
+                title: title,
+                message: message,
                 presentingWindow: controller?.window
             )
             return
+        case .exportSheet(let request):
+            let sheet = ProjectSampleMetadataModalRouter.makeExportSheet(for: request)
+            guard let window = controller?.window ?? NSApp.keyWindow else { return }
+            window.contentViewController?.presentAsSheet(sheet)
+        case .importSheet:
+            return
         }
-        let sheet = MetadataExportSheet(folderURL: projectURL)
-        guard let window = controller?.window ?? NSApp.keyWindow else { return }
-        window.contentViewController?.presentAsSheet(sheet)
     }
 
     @objc func importProjectSampleMetadata(_ sender: Any?) {
-        guard let controller = activeMainWindowController(sender: sender),
-              let projectURL = projectFolderURLForMetadata(controller: controller) else {
+        let controller = activeMainWindowController(sender: sender)
+        switch ProjectSampleMetadataModalRouter.importRoute(
+            projectURL: projectFolderURLForMetadata(controller: controller),
+            windowStateScope: controller?.projectSession.windowStateScope
+        ) {
+        case .missingProject(let title, let message):
             showAlert(
-                title: "No Project Open",
-                message: "Open a project folder to import sample metadata.",
-                presentingWindow: activeMainWindowController(sender: sender)?.window
+                title: title,
+                message: message,
+                presentingWindow: controller?.window
             )
             return
+        case .importSheet(let request):
+            let sheet = ProjectSampleMetadataModalRouter.makeImportSheet(for: request)
+            guard let window = controller?.window ?? NSApp.keyWindow else { return }
+            window.contentViewController?.presentAsSheet(sheet)
+        case .exportSheet:
+            return
         }
-        let sheet = MetadataImportSheet(
-            folderURL: projectURL,
-            windowStateScope: controller.projectSession.windowStateScope
-        )
-        guard let window = controller.window ?? NSApp.keyWindow else { return }
-        window.contentViewController?.presentAsSheet(sheet)
     }
 
     /// Returns the current project folder URL from the sidebar, if available.
@@ -10075,355 +9727,6 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             errorMessage: "UI test failure",
             errorDetail: "This fixture exercises the Operations panel GitHub issue action."
         )
-    }
-}
-
-// MARK: - GenBankParser for synchronous parsing
-
-/// Simple synchronous parser for GenBank files.
-/// This avoids async/await and MainActor completely.
-private class GenBankParser {
-
-    func parseContent(_ content: String) throws -> [GenBankRecord] {
-        let lines = content.components(separatedBy: .newlines)
-        var records: [GenBankRecord] = []
-        var lineIndex = 0
-
-        while lineIndex < lines.count {
-            // Skip empty lines between records
-            while lineIndex < lines.count && lines[lineIndex].trimmingCharacters(in: .whitespaces).isEmpty {
-                lineIndex += 1
-            }
-
-            if lineIndex >= lines.count {
-                break
-            }
-
-            // Parse a single record
-            let (record, nextIndex) = try parseRecord(lines: lines, startIndex: lineIndex)
-            if let record = record {
-                records.append(record)
-            }
-            lineIndex = nextIndex
-        }
-
-        return records
-    }
-
-    private func parseRecord(lines: [String], startIndex: Int) throws -> (GenBankRecord?, Int) {
-        var lineIndex = startIndex
-        var locusName: String?
-        var locusLength = 0
-        var locusMoleculeType: MoleculeType = .dna
-        var locusTopology: Topology = .linear
-        var locusDivision: String?
-        var locusDate: String?
-        var definition: String?
-        var accession: String?
-        var version: String?
-        var features: [SequenceAnnotation] = []
-        var sequenceBases = ""
-
-        enum Section {
-            case header
-            case features
-            case origin
-        }
-        var currentSection = Section.header
-        var currentFeatureType: String?
-        var currentFeatureLocation: String?
-        var currentQualifiers: [String: String] = [:]
-        var currentQualifierKey: String?
-        var currentQualifierValue: String = ""
-
-        while lineIndex < lines.count {
-            let line = lines[lineIndex]
-
-            // Check for record terminator
-            if line.hasPrefix("//") {
-                // Save any pending feature
-                if let featureType = currentFeatureType,
-                   let location = currentFeatureLocation {
-                    if let annotation = createAnnotation(type: featureType, location: location, qualifiers: currentQualifiers) {
-                        features.append(annotation)
-                    }
-                }
-                lineIndex += 1
-                break
-            }
-
-            switch currentSection {
-            case .header:
-                if line.hasPrefix("LOCUS") {
-                    let parsed = parseLocusLine(line)
-                    locusName = parsed.name
-                    locusLength = parsed.length
-                    locusMoleculeType = parsed.moleculeType
-                    locusTopology = parsed.topology
-                    locusDivision = parsed.division
-                    locusDate = parsed.date
-                } else if line.hasPrefix("DEFINITION") {
-                    definition = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("ACCESSION") {
-                    accession = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("VERSION") {
-                    version = String(line.dropFirst(12)).trimmingCharacters(in: .whitespaces)
-                } else if line.hasPrefix("FEATURES") {
-                    currentSection = .features
-                } else if line.hasPrefix("ORIGIN") {
-                    currentSection = .origin
-                }
-
-            case .features:
-                if line.hasPrefix("ORIGIN") {
-                    // Save any pending feature
-                    if let featureType = currentFeatureType,
-                       let location = currentFeatureLocation {
-                        if let annotation = createAnnotation(type: featureType, location: location, qualifiers: currentQualifiers) {
-                            features.append(annotation)
-                        }
-                    }
-                    currentSection = .origin
-                } else if line.count >= 21 && !line.hasPrefix(" ") {
-                    // New section - shouldn't happen but handle it
-                    break
-                } else if line.count >= 21 {
-                    let featureKey = String(line.prefix(21)).trimmingCharacters(in: .whitespaces)
-                    let rest = line.count > 21 ? String(line.dropFirst(21)) : ""
-
-                    if !featureKey.isEmpty && !featureKey.hasPrefix("/") {
-                        // Save previous feature
-                        if let featureType = currentFeatureType,
-                           let location = currentFeatureLocation {
-                            if let annotation = createAnnotation(type: featureType, location: location, qualifiers: currentQualifiers) {
-                                features.append(annotation)
-                            }
-                        }
-
-                        // Start new feature
-                        currentFeatureType = featureKey
-                        currentFeatureLocation = rest.trimmingCharacters(in: .whitespaces)
-                        currentQualifiers = [:]
-                        currentQualifierKey = nil
-                        currentQualifierValue = ""
-                    } else if featureKey.isEmpty || featureKey.hasPrefix("/") {
-                        // Continuation or qualifier
-                        let trimmed = rest.trimmingCharacters(in: .whitespaces)
-
-                        if trimmed.hasPrefix("/") {
-                            // Save previous qualifier
-                            if let key = currentQualifierKey {
-                                currentQualifiers[key] = currentQualifierValue.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                            }
-
-                            // Parse new qualifier
-                            let qualLine = String(trimmed.dropFirst())
-                            if let eqIndex = qualLine.firstIndex(of: "=") {
-                                currentQualifierKey = String(qualLine[..<eqIndex])
-                                currentQualifierValue = String(qualLine[qualLine.index(after: eqIndex)...])
-                            } else {
-                                currentQualifierKey = qualLine
-                                currentQualifierValue = "true"
-                            }
-                        } else if currentQualifierKey != nil {
-                            // Continuation of qualifier value
-                            currentQualifierValue += trimmed
-                        } else if currentFeatureLocation != nil {
-                            // Continuation of location
-                            currentFeatureLocation! += trimmed
-                        }
-                    }
-                }
-
-            case .origin:
-                // Parse sequence lines
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty && !trimmed.hasPrefix("//") {
-                    // Remove line numbers and spaces
-                    let bases = trimmed.filter { $0.isLetter }
-                    sequenceBases += bases
-                }
-            }
-
-            lineIndex += 1
-        }
-
-        // Create the record
-        guard let name = locusName else {
-            return (nil, lineIndex)
-        }
-
-        // Create LocusInfo using the proper LungfishIO types
-        let locusInfo = LocusInfo(
-            name: name,
-            length: locusLength,
-            moleculeType: locusMoleculeType,
-            topology: locusTopology,
-            division: locusDivision,
-            date: locusDate
-        )
-
-        // Create the sequence
-        let sequence = try Sequence(
-            name: name,
-            description: definition,
-            alphabet: locusMoleculeType.alphabet,
-            bases: sequenceBases
-        )
-
-        // Create the record using the proper GenBankRecord initializer
-        let record = GenBankRecord(
-            sequence: sequence,
-            annotations: features,
-            locus: locusInfo,
-            definition: definition,
-            accession: accession,
-            version: version
-        )
-
-        return (record, lineIndex)
-    }
-
-    private func parseLocusLine(_ line: String) -> (name: String, length: Int, moleculeType: MoleculeType, topology: Topology, division: String?, date: String?) {
-        let parts = line.split(separator: " ", omittingEmptySubsequences: true)
-        guard parts.count >= 3 else {
-            return ("unknown", 0, .dna, .linear, nil, nil)
-        }
-
-        let name = String(parts[1])
-        var length = 0
-        var moleculeType: MoleculeType = .dna
-        var topology: Topology = .linear
-        var division: String?
-        var date: String?
-
-        for (index, part) in parts.enumerated() {
-            let partStr = String(part)
-            if partStr == "bp" && index > 0 {
-                length = Int(parts[index - 1]) ?? 0
-            } else if let molType = MoleculeType(rawValue: partStr.uppercased()) {
-                moleculeType = molType
-            } else if let molType = MoleculeType(rawValue: partStr) {
-                moleculeType = molType
-            } else if partStr.lowercased() == "circular" {
-                topology = .circular
-            } else if partStr.lowercased() == "linear" {
-                topology = .linear
-            }
-        }
-
-        // Get division and date from end
-        if parts.count >= 2 {
-            let lastPart = String(parts.last!)
-            if lastPart.contains("-") {
-                date = lastPart
-                if parts.count >= 3 {
-                    let secondLast = String(parts[parts.count - 2])
-                    // Division codes are typically 3 uppercase letters
-                    if secondLast.count == 3 && secondLast.uppercased() == secondLast {
-                        division = secondLast
-                    }
-                }
-            }
-        }
-
-        return (name, length, moleculeType, topology, division, date)
-    }
-
-    private func createAnnotation(type: String, location: String, qualifiers: [String: String]) -> SequenceAnnotation? {
-        // Parse location to get start and end
-        let (start, end, strand) = parseLocation(location)
-        guard start >= 0 && end >= start else { return nil }
-
-        let name = qualifiers["gene"] ?? qualifiers["product"] ?? qualifiers["label"] ?? type
-        let annotationType = AnnotationType(rawValue: type.lowercased()) ?? .region
-
-        return SequenceAnnotation(
-            type: annotationType,
-            name: name,
-            intervals: [AnnotationInterval(start: start, end: end)],
-            strand: strand,
-            qualifiers: qualifiers.mapValues { AnnotationQualifier($0) }
-        )
-    }
-
-    private func parseLocation(_ location: String) -> (start: Int, end: Int, strand: Strand) {
-        var loc = location
-        var strand: Strand = .forward
-
-        // Handle complement
-        if loc.hasPrefix("complement(") {
-            strand = .reverse
-            loc = String(loc.dropFirst(11).dropLast())
-        }
-
-        // Handle join - just take first range for simplicity
-        if loc.hasPrefix("join(") {
-            loc = String(loc.dropFirst(5).dropLast())
-            if let firstRange = loc.split(separator: ",").first {
-                loc = String(firstRange)
-            }
-        }
-
-        // Parse range
-        let parts = loc.replacingOccurrences(of: "<", with: "")
-                      .replacingOccurrences(of: ">", with: "")
-                      .split(separator: ".")
-
-        if parts.count >= 2 {
-            let start = Int(parts[0]) ?? 0
-            let end = Int(parts.last!) ?? 0
-            return (start - 1, end, strand)  // Convert to 0-based
-        } else if let single = Int(loc.replacingOccurrences(of: "<", with: "").replacingOccurrences(of: ">", with: "")) {
-            return (single - 1, single, strand)
-        }
-
-        return (0, 0, strand)
-    }
-}
-
-// MARK: - Export Filename Updater
-
-/// Helper that updates NSSavePanel filename when format/compression popups change.
-@MainActor
-private class ExportFilenameUpdater: NSObject {
-    nonisolated(unsafe) static var associatedKey: UInt8 = 0
-    weak var panel: NSSavePanel?
-    let baseName: String
-    let formatPopup: NSPopUpButton
-    let compPopup: NSPopUpButton
-
-    init(panel: NSSavePanel, baseName: String, formatPopup: NSPopUpButton, compPopup: NSPopUpButton) {
-        self.panel = panel
-        self.baseName = baseName
-        self.formatPopup = formatPopup
-        self.compPopup = compPopup
-    }
-
-    @objc func popupChanged(_ sender: Any?) {
-        let formatExt = formatPopup.indexOfSelectedItem == 1 ? "gbk" : "fa"
-        let compExt: String
-        switch compPopup.indexOfSelectedItem {
-        case 1: compExt = ".gz"
-        case 2: compExt = ".zst"
-        default: compExt = ""
-        }
-        panel?.nameFieldStringValue = "\(baseName).\(formatExt)\(compExt)"
-    }
-}
-
-// MARK: - NVD Import Errors
-
-/// Errors thrown during the NVD import pipeline in AppDelegate.
-private enum NvdImportError: Error, LocalizedError {
-    case csvNotFound(String)
-    case bundleCreationFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .csvNotFound(let msg): return "NVD CSV not found: \(msg)"
-        case .bundleCreationFailed(let msg): return "Failed to create NVD bundle: \(msg)"
-        }
     }
 }
 

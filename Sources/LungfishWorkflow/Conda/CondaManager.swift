@@ -965,9 +965,9 @@ public actor CondaManager {
 
                 do {
                     try process.run()
-                    cancellationHandle.terminateIfRequested()
+                    cancellationHandle.terminateIfRequested(gracePeriod: 0)
                     if runState.isCancelled {
-                        cancellationHandle.terminateProcessTree()
+                        cancellationHandle.terminateProcessTree(gracePeriod: 0)
                     }
                 } catch {
                     timeoutItem.cancel()
@@ -988,7 +988,7 @@ public actor CondaManager {
             }
         } onCancel: {
             runState.markCancelled()
-            cancellationHandle.terminateProcessTree()
+            cancellationHandle.terminateProcessTree(gracePeriod: 0)
         }
     }
 

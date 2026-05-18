@@ -230,6 +230,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }))
 
         XCTAssertEqual(pack.description, "Viral BAM variant calling from bundle-owned alignment tracks")
+        XCTAssertEqual(pack.packages, ["lofreq", "ivar", "medaka", "clair3"])
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["lofreq", "ivar", "medaka", "clair3"])
         XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
 
@@ -252,9 +253,9 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
 
         let clair3 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "clair3" }))
-        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=1.0.10"])
+        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=2.0.1"])
         XCTAssertEqual(clair3.executables, ["run_clair3.sh"])
-        XCTAssertEqual(clair3.version, "1.0.10")
+        XCTAssertEqual(clair3.version, "2.0.1")
         XCTAssertEqual(clair3.license, "BSD-3-Clause")
         XCTAssertEqual(clair3.sourceURL, "https://github.com/HKU-BAL/Clair3")
     }

@@ -484,7 +484,7 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
     }
 
     func cancel() {
-        cancellationHandle.requestProcessTreeTermination()
+        cancellationHandle.requestProcessTreeTermination(gracePeriod: 0)
     }
 }
 

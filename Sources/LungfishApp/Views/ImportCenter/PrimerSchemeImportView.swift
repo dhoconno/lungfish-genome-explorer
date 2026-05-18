@@ -4,7 +4,6 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishCore
 import LungfishIO
 
@@ -137,11 +136,7 @@ struct PrimerSchemeImportView: View {
     }
 
     private func pickFile(types: [String], completion: @escaping (URL) -> Void) {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = types.compactMap { UTType(filenameExtension: $0) }
+        let panel = ImportFilePanelFactory.primerSchemeFilePanel(extensions: types)
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             completion(url)

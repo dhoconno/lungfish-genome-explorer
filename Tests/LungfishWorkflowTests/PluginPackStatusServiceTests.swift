@@ -2,6 +2,72 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class PluginPackStatusServiceTests: XCTestCase {
+    func testStatusForRequiredSetupPackDoesNotEvaluateActiveOptionalPackRequirements() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("required-status-excludes-optional-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        for requirement in PluginPack.requiredSetupPack.toolRequirements where requirement.managedDatabaseID == nil {
+            let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            for executable in requirement.executables {
+                try writeSmokeReadyExecutable(
+                    for: requirement,
+                    executable: executable,
+                    at: binDir.appendingPathComponent(executable)
+                )
+            }
+        }
+
+        let optionalRequirement = try XCTUnwrap(
+            PluginPack.activeOptionalPacks
+                .flatMap(\.toolRequirements)
+                .first { $0.managedDatabaseID == nil && $0.smokeTest != nil }
+        )
+        let optionalExecutable = try XCTUnwrap(
+            optionalRequirement.smokeTest?.executable ?? optionalRequirement.executables.first
+        )
+        let optionalBinDir = await manager.environmentURL(named: optionalRequirement.environment)
+            .appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: optionalBinDir, withIntermediateDirectories: true)
+        let optionalSmokeLog = sandbox.appendingPathComponent("optional-smoke.log")
+        let optionalScript = """
+        #!/bin/sh
+        printf 'smoke\\n' >> "\(optionalSmokeLog.path)"
+        printf 'Usage\\n' >&2
+        exit 0
+        """
+        let optionalExecutableURL = optionalBinDir.appendingPathComponent(optionalExecutable)
+        try optionalScript.write(to: optionalExecutableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: optionalExecutableURL.path)
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true },
+            cacheLifetime: 60
+        )
+
+        let status = await service.status(for: .requiredSetupPack)
+
+        let requiredRequirementIDs = PluginPack.requiredSetupPack.toolRequirements.map(\.id)
+        XCTAssertEqual(status.pack.id, PluginPack.requiredSetupPack.id)
+        XCTAssertEqual(status.state, .ready)
+        XCTAssertEqual(status.toolStatuses.map { $0.requirement.id }, requiredRequirementIDs)
+        XCTAssertEqual(try smokeInvocationCount(at: optionalSmokeLog), 0)
+    }
+
     func testStatusForVisiblePackDoesNotEvaluateUnrelatedVisiblePackRequirements() async throws {
         actor DatabaseRecorder {
             var callCount = 0

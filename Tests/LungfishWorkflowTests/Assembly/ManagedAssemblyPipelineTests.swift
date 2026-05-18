@@ -307,6 +307,58 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.arguments.contains("--min-contig-len"))
     }
 
+    func testBuildsMegahitCommandDisablesHardwareAccelerationOnAppleSilicon() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("managed-assembly-megahit-nohw-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
+            projectName: "nohw-demo",
+            outputDirectory: tempDir,
+            threads: 2,
+            memoryGB: 32,
+            minContigLength: 1,
+            selectedProfileID: nil,
+            extraArguments: []
+        )
+
+        let command = try ManagedAssemblyPipeline.buildCommand(
+            for: request,
+            host: AssemblyExecutionHost(operatingSystem: .macOS, architecture: "arm64")
+        )
+
+        XCTAssertTrue(command.arguments.contains("--no-hw-accel"))
+    }
+
+    func testBuildsMegahitCommandDoesNotDuplicateExplicitNoHardwareAccelerationFlag() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("managed-assembly-megahit-nohw-explicit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq.gz")],
+            projectName: "nohw-explicit-demo",
+            outputDirectory: tempDir,
+            threads: 2,
+            memoryGB: 32,
+            minContigLength: 1,
+            selectedProfileID: nil,
+            extraArguments: ["--no-hw-accel"]
+        )
+
+        let command = try ManagedAssemblyPipeline.buildCommand(
+            for: request,
+            host: AssemblyExecutionHost(operatingSystem: .macOS, architecture: "arm64")
+        )
+
+        XCTAssertEqual(command.arguments.filter { $0 == "--no-hw-accel" }.count, 1)
+    }
+
     func testBuildsMegahitCommandConvertsMemoryBudgetToBytes() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("managed-assembly-megahit-memory-\(UUID().uuidString)")
@@ -479,6 +531,8 @@ final class ManagedAssemblyPipelineTests: XCTestCase {
             result.contigsPath.standardizedFileURL,
             outputDir.appendingPathComponent("final.contigs.fa").standardizedFileURL
         )
+        XCTAssertTrue(result.commandLine.contains(outputDir.path))
+        XCTAssertFalse(result.commandLine.contains("managed-assembly-"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: outputDir.appendingPathComponent("assembly-result.json").path))
 
         let args = try String(contentsOf: argsLog, encoding: .utf8)

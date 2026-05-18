@@ -60,4 +60,18 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         XCTAssertTrue(source.contains("fileMetadataSummary(for: row)"))
         XCTAssertTrue(viewModelSource.contains("Size not recorded"))
     }
+
+    func testProvenanceSectionUsesSelectableWrappingTextForLongValues() throws {
+        let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("SelectableWrappingText("))
+        XCTAssertFalse(source.contains(".textSelection(.enabled)"))
+    }
+
+    func testLineagePathRowsUseSummaryRowTypography() throws {
+        let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("summaryRow(label, value: paths.joined(separator: \"\\n\")"))
+        XCTAssertFalse(source.contains("font: .monospacedSystemFont(ofSize: 10, weight: .regular),\n                    maximumNumberOfLines: 2,\n                    accessibilityIdentifier: \"provenance-path-list-value\""))
+    }
 }

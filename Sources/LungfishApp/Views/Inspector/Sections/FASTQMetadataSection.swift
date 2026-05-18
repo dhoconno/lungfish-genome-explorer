@@ -499,10 +499,7 @@ public struct FASTQMetadataSection: View {
                         }
                     }
                     Button("Attach File\u{2026}") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseFiles = true
-                        panel.canChooseDirectories = false
-                        panel.allowsMultipleSelection = true
+                        let panel = FeatureFilePanelFactory.attachmentImportPanel()
                         panel.beginSheetModal(for: NSApp.keyWindow ?? NSApp.mainWindow ?? NSWindow()) { response in
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {

@@ -1,6 +1,11 @@
 import Foundation
 import LungfishWorkflow
 
+private struct BAMVariantCallingToolGate: Hashable, Sendable {
+    let packID: String
+    let requirementID: String?
+}
+
 enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
     case lofreq
     case ivar
@@ -29,21 +34,30 @@ enum BAMVariantCallingToolID: String, CaseIterable, Sendable {
         }
     }
 
-    var requiredPackID: String {
+    fileprivate var requiredToolGates: [BAMVariantCallingToolGate] {
         switch self {
         case .lofreq, .ivar, .medaka, .clair3:
-            return "variant-calling"
+            return [
+                BAMVariantCallingToolGate(packID: "variant-calling", requirementID: rawValue),
+            ]
         case .bcftools:
-            return "lungfish-tools"
+            return [
+                BAMVariantCallingToolGate(packID: "lungfish-tools", requirementID: "bcftools"),
+            ]
         case .gatkHaplotypeCaller:
-            return "gatk-core"
+            return [
+                BAMVariantCallingToolGate(packID: "gatk-core", requirementID: "gatk4"),
+            ]
         case .gatkWhatsHapPhased:
-            return "gatk-core,phasing"
+            return [
+                BAMVariantCallingToolGate(packID: "gatk-core", requirementID: "gatk4"),
+                BAMVariantCallingToolGate(packID: "phasing", requirementID: "whatshap"),
+            ]
         }
     }
 
     var requiredPackIDs: [String] {
-        requiredPackID.split(separator: ",").map(String.init)
+        requiredToolGates.map(\.packID)
     }
 
     var viralCaller: ViralVariantCaller? {
@@ -59,32 +73,25 @@ struct BAMVariantCallingCatalog: Sendable {
     }
 
     func sidebarItems() async -> [DatasetOperationToolSidebarItem] {
-        var availabilityByPackID: [String: DatasetOperationAvailability] = [:]
+        var statusByPackID: [String: PluginPackStatus] = [:]
         for packID in Set(BAMVariantCallingToolID.allCases.flatMap(\.requiredPackIDs)) {
-            availabilityByPackID[packID] = await resolvedAvailability(forPackID: packID)
+            statusByPackID[packID] = await statusProvider.status(forPackID: packID)
         }
-        return Self.sidebarItems(availabilityByPackID: availabilityByPackID)
+        return Self.sidebarItems(statusByPackID: statusByPackID)
     }
 
     static func availableSidebarItems() -> [DatasetOperationToolSidebarItem] {
-        sidebarItems(availabilityByPackID: [
-            "variant-calling": .available,
-            "lungfish-tools": .available,
-            "gatk-core": .available,
-            "phasing": .available,
-        ])
-    }
-
-    private func resolvedAvailability(forPackID packID: String) async -> DatasetOperationAvailability {
-        guard let status = await statusProvider.status(forPackID: packID),
-              status.state == .ready else {
-            return .disabled(reason: disabledReason(forPackID: packID))
+        BAMVariantCallingToolID.allCases.map { tool in
+            DatasetOperationToolSidebarItem(
+                id: tool.rawValue,
+                title: tool.displayName,
+                subtitle: subtitle(for: tool),
+                availability: .available
+            )
         }
-
-        return .available
     }
 
-    private func disabledReason(forPackID packID: String) -> String {
+    private static func disabledReason(forPackID packID: String) -> String {
         guard let pack = PluginPack.builtInPack(id: packID) else {
             return "No tools available"
         }
@@ -92,30 +99,57 @@ struct BAMVariantCallingCatalog: Sendable {
         return "Requires \(pack.name) Pack"
     }
 
+    private static func disabledReason(for requirement: PackToolRequirement) -> String {
+        "Requires \(requirement.displayName)"
+    }
+
     private static func sidebarItems(
-        availabilityByPackID: [String: DatasetOperationAvailability]
+        statusByPackID: [String: PluginPackStatus]
     ) -> [DatasetOperationToolSidebarItem] {
         BAMVariantCallingToolID.allCases.map { tool in
             DatasetOperationToolSidebarItem(
                 id: tool.rawValue,
                 title: tool.displayName,
                 subtitle: subtitle(for: tool),
-                availability: availability(for: tool, availabilityByPackID: availabilityByPackID)
+                availability: availability(for: tool, statusByPackID: statusByPackID)
             )
         }
     }
 
     private static func availability(
         for tool: BAMVariantCallingToolID,
-        availabilityByPackID: [String: DatasetOperationAvailability]
+        statusByPackID: [String: PluginPackStatus]
     ) -> DatasetOperationAvailability {
-        for packID in tool.requiredPackIDs {
-            let availability = availabilityByPackID[packID] ?? .disabled(reason: "No tools available")
-            if availability != .available {
+        for gate in tool.requiredToolGates {
+            let availability = availability(for: gate, statusByPackID: statusByPackID)
+            if availability != DatasetOperationAvailability.available {
                 return availability
             }
         }
         return .available
+    }
+
+    private static func availability(
+        for gate: BAMVariantCallingToolGate,
+        statusByPackID: [String: PluginPackStatus]
+    ) -> DatasetOperationAvailability {
+        guard let status = statusByPackID[gate.packID] else {
+            return .disabled(reason: disabledReason(forPackID: gate.packID))
+        }
+
+        if let requirementID = gate.requirementID,
+           !status.toolStatuses.isEmpty {
+            guard let toolStatus = status.toolStatuses.first(where: { $0.requirement.id == requirementID }) else {
+                return .disabled(reason: disabledReason(forPackID: gate.packID))
+            }
+            return toolStatus.isReady
+                ? .available
+                : .disabled(reason: disabledReason(for: toolStatus.requirement))
+        }
+
+        return status.state == .ready
+            ? .available
+            : .disabled(reason: disabledReason(forPackID: gate.packID))
     }
 
     private static func subtitle(for tool: BAMVariantCallingToolID) -> String {
