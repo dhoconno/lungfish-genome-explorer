@@ -22,6 +22,27 @@ struct ReleaseBuildConfigurationTests {
         #expect(releaseBlock.contains("ENABLE_HARDENED_RUNTIME = YES;"))
     }
 
+    @Test("Xcode app bundle metadata uses 2026 Dave O'Connor copyright")
+    func xcodeAppBundleMetadataUsesDaveOConnorCopyright() throws {
+        let project = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("Lungfish.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        let releaseBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665559 /* Release */",
+            in: project
+        )
+        let debugBlock = try Self.buildConfigurationBlock(
+            named: "F1E2D3C4B5A6978877665558 /* Debug */",
+            in: project
+        )
+        let expected = #"INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Dave O'Connor. MIT License.";"#
+
+        #expect(releaseBlock.contains(expected))
+        #expect(debugBlock.contains(expected))
+    }
+
     @Test("Fallback build-app script builds arm64 release binary")
     func buildAppScriptBuildsArm64ReleaseBinary() throws {
         let script = try String(

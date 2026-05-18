@@ -405,6 +405,7 @@
 				INFOPLIST_KEY_CFBundleHelpBookFolder = Lungfish.help;
 				INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Dave O'Connor. MIT License.";
 				INFOPLIST_KEY_SUFeedURL = "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)";
 				INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES;
@@ -439,6 +440,7 @@
 				INFOPLIST_KEY_CFBundleHelpBookFolder = Lungfish.help;
 				INFOPLIST_KEY_CFBundleHelpBookName = "Lungfish Help";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Dave O'Connor. MIT License.";
 				INFOPLIST_KEY_SUFeedURL = "https://github.com/dhoconno/lungfish-genome-explorer/releases/download/sparkle-alpha/appcast-alpha.xml";
 				INFOPLIST_KEY_SUPublicEDKey = "$(LUNGFISH_SPARKLE_PUBLIC_ED_KEY)";
 				INFOPLIST_KEY_SUVerifyUpdateBeforeExtraction = YES;
