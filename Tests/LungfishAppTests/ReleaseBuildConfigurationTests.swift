@@ -815,6 +815,19 @@ struct ReleaseBuildConfigurationTests {
         #expect(sanitized.contains("/opt/homebrew") == false)
     }
 
+    @Test("Release tools sanitizer scans registered worktrees only when requested")
+    func releaseToolsSanitizerScansRegisteredWorktreesOnlyWhenRequested() throws {
+        let script = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("scripts/sanitize-bundled-tools.sh"),
+            encoding: .utf8
+        )
+
+        #expect(script.contains("LUNGFISH_SANITIZE_INCLUDE_WORKTREES"))
+        #expect(script.contains("return"))
+        #expect(script.contains("worktree list --porcelain"))
+    }
+
     @Test("Release tools sanitizer scrubs builder paths from standalone executables")
     func releaseToolsSanitizerScrubsBuilderPathsFromStandaloneExecutables() throws {
         let repositoryRoot = Self.repositoryRoot()

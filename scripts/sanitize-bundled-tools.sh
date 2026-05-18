@@ -9,6 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+INCLUDE_WORKTREES="${LUNGFISH_SANITIZE_INCLUDE_WORKTREES:-0}"
 declare -a BUILDER_ROOTS=()
 
 usage() {
@@ -67,6 +68,14 @@ append_builder_root() {
 
 initialize_builder_roots() {
     append_builder_root "$PROJECT_ROOT"
+
+    case "$INCLUDE_WORKTREES" in
+        1|true|TRUE|yes|YES)
+            ;;
+        *)
+            return
+            ;;
+    esac
 
     if ! command -v git >/dev/null 2>&1; then
         return
