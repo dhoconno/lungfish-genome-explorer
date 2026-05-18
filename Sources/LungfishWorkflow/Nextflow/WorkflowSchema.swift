@@ -65,9 +65,6 @@ public struct NextflowWorkflowSchema: Sendable, Codable {
     }
 }
 
-// Type alias for backward compatibility
-public typealias WorkflowSchema = NextflowWorkflowSchema
-
 // MARK: - NextflowParameterGroup
 
 /// A group of related workflow parameters.
@@ -117,9 +114,6 @@ public struct NextflowParameterGroup: Sendable, Codable, Identifiable {
         self.parameters = parameters
     }
 }
-
-// Type alias for backward compatibility
-public typealias ParameterGroup = NextflowParameterGroup
 
 // MARK: - NextflowParameter
 
@@ -190,9 +184,6 @@ public struct NextflowParameter: Sendable, Codable, Identifiable {
         self.helpText = helpText
     }
 }
-
-// Type alias for backward compatibility
-public typealias WorkflowParameter = NextflowParameter
 
 // MARK: - NextflowParameterType
 

@@ -189,7 +189,7 @@ extension TaxTriageCommand {
                 ? Array(arguments.dropFirst())
                 : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
-                throw ValidationError("Failed to parse taxtriage run arguments.")
+                throw CLIError.validationFailed(errors: ["Failed to parse taxtriage run arguments."])
             }
             return parsed
         }
@@ -197,24 +197,16 @@ extension TaxTriageCommand {
         func validate() throws {
             // Must provide either --input or --samplesheet
             if input == nil && samplesheet == nil {
-                throw ValidationError(
-                    "Provide either --input (with --sample) or --samplesheet"
-                )
+                throw CLIError.validationFailed(errors: ["Provide either --input (with --sample) or --samplesheet"])
             }
             if input != nil && samplesheet != nil {
-                throw ValidationError(
-                    "Cannot use both --input and --samplesheet"
-                )
+                throw CLIError.validationFailed(errors: ["Cannot use both --input and --samplesheet"])
             }
             if input != nil && sampleId == nil {
-                throw ValidationError(
-                    "--sample is required when using --input"
-                )
+                throw CLIError.validationFailed(errors: ["--sample is required when using --input"])
             }
             if skipAssembly && noSkipAssembly {
-                throw ValidationError(
-                    "Cannot use both --skip-assembly and --no-skip-assembly"
-                )
+                throw CLIError.validationFailed(errors: ["Cannot use both --skip-assembly and --no-skip-assembly"])
             }
         }
 
@@ -233,7 +225,7 @@ extension TaxTriageCommand {
                 let sheetURL = URL(fileURLWithPath: samplesheetPath)
                 guard FileManager.default.fileExists(atPath: sheetURL.path) else {
                     print(formatter.error("Samplesheet not found: \(samplesheetPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 let entries = try TaxTriageSamplesheet.parse(url: sheetURL)
@@ -254,13 +246,13 @@ extension TaxTriageCommand {
                 // Build single sample from --input
                 guard let inputPath = input, let sid = sampleId else {
                     print(formatter.error("--input and --sample are required"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 let fastq1 = URL(fileURLWithPath: inputPath)
                 guard FileManager.default.fileExists(atPath: fastq1.path) else {
                     print(formatter.error("Input file not found: \(inputPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
 
                 var fastq2: URL?
@@ -270,7 +262,7 @@ extension TaxTriageCommand {
                         print(formatter.error(
                             "Input R2 file not found: \(input2Path)"
                         ))
-                        throw ExitCode.failure
+                        throw CLIExitCode.inputError.exitCode
                     }
                     fastq2 = r2
                 }
@@ -289,7 +281,7 @@ extension TaxTriageCommand {
                 dbURL = URL(fileURLWithPath: dbPath)
                 guard FileManager.default.fileExists(atPath: dbURL!.path) else {
                     print(formatter.error("Database not found: \(dbPath)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
@@ -483,7 +475,7 @@ extension TaxTriageCommand {
                 print(formatter.error(
                     "Missing prerequisites. Install the tools listed above."
                 ))
-                throw ExitCode.failure
+                throw CLIExitCode.dependency.exitCode
             }
         }
     }

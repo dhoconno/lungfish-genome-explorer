@@ -205,6 +205,16 @@ public protocol ContainerRuntimeProtocol: Actor, Sendable {
     /// - Throws: `ContainerRuntimeError.containerStartFailed` if start fails
     func startContainer(_ container: Container) async throws
 
+    /// Starts a configured container and waits for its main process to finish.
+    ///
+    /// Runtimes use this for workflows where the container configuration's
+    /// command is the primary workload instead of a long-lived service process.
+    ///
+    /// - Parameter container: The container to run
+    /// - Returns: The exit code of the container's main process
+    /// - Throws: `ContainerRuntimeError.containerStartFailed` if the container cannot start
+    func runAndWait(_ container: Container) async throws -> Int32
+
     /// Stops a running container.
     ///
     /// Gracefully stops the container, allowing processes to terminate cleanly.

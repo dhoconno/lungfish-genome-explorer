@@ -20,9 +20,9 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishWorkflow
 
-@MainActor
 final class GUIRegressionTests: XCTestCase {
 
+    @MainActor
     func testToolsMenuContainsFASTQOperationsSubmenu() throws {
         _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu()
@@ -50,8 +50,9 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertFalse(toolTitles.contains("Assemble with SPAdes..."))
     }
 
+    @MainActor
     func testToolsMenuContainsVariantCallingCommand() throws {
-        let _ = NSApplication.shared
+        _ = NSApplication.shared
         let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: true)
         let toolsMenu = try XCTUnwrap(mainMenu.items.first { $0.title == "Tools" }?.submenu)
         let visibleTitles = toolsMenu.items.compactMap { $0.isSeparatorItem ? nil : $0.title }
@@ -60,7 +61,7 @@ final class GUIRegressionTests: XCTestCase {
             "FASTQ/FASTA Operations",
             "Call Variants…",
             "Workflow Builder (Experimental)…",
-            "Search Online Databases...",
+            "Search Online Databases",
             "Plugin Manager…",
         ])
     }
@@ -77,6 +78,30 @@ final class GUIRegressionTests: XCTestCase {
         XCTAssertFalse(source.contains("private enum OperationKind"))
     }
 
+    func testONTImportOperationShowsAvailableCLICommand() throws {
+        let mainSplitSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
+            encoding: .utf8
+        )
+        let coordinatorSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(mainSplitSource.contains("ONTImportOperationCoordinator(operationCenter: .shared)"))
+        XCTAssertTrue(mainSplitSource.contains("coordinator.importDirectory("))
+        XCTAssertTrue(coordinatorSource.contains("OperationCenter.buildCLICommand("))
+        XCTAssertTrue(coordinatorSource.contains(#"subcommand: "fastq import-ont""#))
+        XCTAssertFalse(coordinatorSource.contains("CLI command not yet available"))
+        XCTAssertFalse(coordinatorSource.contains("lungfish import ont"))
+        XCTAssertFalse(
+            OperationCenter.buildCLICommand(subcommand: "fastq import-ont", args: [])
+                .contains("'fastq import-ont'")
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -87,7 +112,6 @@ final class GUIRegressionTests: XCTestCase {
 
 // MARK: - Test Fixtures
 
-@MainActor
 private func makeViralDetection(
     name: String,
     segment: String? = nil,
@@ -124,7 +148,6 @@ private func makeViralDetection(
     )
 }
 
-@MainActor
 private func makeAssembly(
     accession: String,
     name: String,
@@ -153,7 +176,6 @@ private func makeAssembly(
 /// Regression: 2026-03-28 — Influenza C virus strains were all displayed
 /// identically as "Influenza C virus (C/Ann Arbor/1/..." making strain
 /// differentiation impossible.
-@MainActor
 final class VirusNameDisplayTests: XCTestCase {
 
     /// Verifies that assemblies with different strain names produce
@@ -241,7 +263,6 @@ final class VirusNameDisplayTests: XCTestCase {
 /// for biological workflows.
 /// Regression: 2026-03-28 — Context menus only offered "Verify with BLAST..."
 /// and "Copy Organism Name", missing critical export/copy operations.
-@MainActor
 final class ContextMenuCompletenessTests: XCTestCase {
 
     /// Documents the minimum expected context menu items for TaxTriage results.
@@ -286,7 +307,6 @@ final class ContextMenuCompletenessTests: XCTestCase {
 /// Regression: 2026-03-28 — Kraken2 wizard showed "No databases installed"
 /// even though the Viral database (512 MB) was installed and visible in
 /// Plugin Manager.
-@MainActor
 final class ClassificationWizardDatabaseTests: XCTestCase {
 
     private let tempDir = FileManager.default.temporaryDirectory
@@ -384,7 +404,6 @@ final class ClassificationWizardDatabaseTests: XCTestCase {
 
 /// Tests that TaxTriage results display correctly with all columns visible.
 /// Regression: 2026-03-28 — Last column "Confidence" was truncated to "Con..."
-@MainActor
 final class TaxTriageResultsDisplayTests: XCTestCase {
 
     /// Verifies that TASS scores are displayed with appropriate precision.
@@ -431,7 +450,6 @@ final class TaxTriageResultsDisplayTests: XCTestCase {
 // MARK: - 5. EsViritu Results Assembly Hierarchy Tests
 
 /// Tests that the EsViritu virus hierarchy properly distinguishes strains.
-@MainActor
 final class EsVirituHierarchyTests: XCTestCase {
 
     /// Verifies that assemblies with similar names but different accessions
@@ -487,7 +505,6 @@ final class EsVirituHierarchyTests: XCTestCase {
 /// Tests that export functionality covers biologist requirements.
 /// Regression: 2026-03-28 — Export button exists but specific export
 /// formats and options need verification.
-@MainActor
 final class ExportFeatureTests: XCTestCase {
 
     /// Documents expected export formats for EsViritu results.
@@ -524,7 +541,6 @@ final class ExportFeatureTests: XCTestCase {
 // MARK: - 7. Unified Wizard Tests
 
 /// Tests the UnifiedMetagenomicsWizard analysis type presentation.
-@MainActor
 final class UnifiedWizardTests: XCTestCase {
 
     /// Verifies all three analysis types are present with correct tool names.
@@ -561,7 +577,9 @@ final class UnifiedWizardTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("Text(\"TaxTriage\")"))
+        XCTAssertTrue(source.contains("let title = \"TaxTriage\""))
+        XCTAssertTrue(source.contains("WizardSheet("))
+        XCTAssertTrue(source.contains("title: standalonePresentation.title"))
         XCTAssertFalse(source.contains("TaxTriage Metagenomic Triage"))
         XCTAssertFalse(source.contains("Comprehensive taxonomic classification pipeline"))
     }
@@ -603,7 +621,6 @@ final class UnifiedWizardTests: XCTestCase {
 /// Tests for the operations progress tracking panel.
 /// Regression: 2026-03-28 — Panel was difficult to dismiss, and empty panel
 /// still showed table headers consuming viewport space.
-@MainActor
 final class OperationsPanelTests: XCTestCase {
 
     /// Verifies OperationType includes classification.
@@ -620,6 +637,7 @@ final class OperationsPanelTests: XCTestCase {
             "Operations should have more than 2 possible states")
     }
 
+    @MainActor
     func testOperationsMenuRunningRowsCancelTheRepresentedOperation() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -647,6 +665,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertEqual(statusItem.representedObject as? UUID, operationID)
     }
 
+    @MainActor
     func testOperationsMenuRunningRowsWithoutCancelCallbacksAreStatusItems() throws {
         _ = NSApplication.shared
         OperationCenter.shared.cancelAll()
@@ -672,6 +691,7 @@ final class OperationsPanelTests: XCTestCase {
         XCTAssertFalse(statusItem.isEnabled)
     }
 
+    @MainActor
     func testCompletedCallbacksDoNotOverwriteCancelledOperationRows() {
         OperationCenter.shared.cancelAll()
         OperationCenter.shared.clearCompleted()
@@ -689,47 +709,192 @@ final class OperationsPanelTests: XCTestCase {
         OperationCenter.shared.clearCompleted()
     }
 
-    func testOperationsPanelHasOutputFileExpansionSection() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+    @MainActor
+    func testOperationsPanelDisplaysOutputFileExpansionSection() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
 
-        XCTAssertTrue(source.contains("ops-expansion-outputs"))
-        XCTAssertTrue(source.contains("item.outputURLs"))
-        XCTAssertTrue(source.contains("Output Files"))
+        let outputURL = URL(fileURLWithPath: "/tmp/lungfish-operations/export/report.tsv")
+        let operationID = OperationCenter.shared.start(
+            title: "Export report",
+            detail: "Writing report",
+            operationType: .export
+        )
+        OperationCenter.shared.complete(
+            id: operationID,
+            detail: "Export complete",
+            outputURLs: [outputURL]
+        )
+
+        let controller = try makeOperationsPanelController()
+        defer {
+            controller.close()
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let rowView = try expandOperationRow(operationID, in: controller)
+        let outputSection = try XCTUnwrap(
+            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-outputs")
+        )
+        XCTAssertTrue(outputSection.containsText("Output Files"))
+
+        let outputField = try XCTUnwrap(
+            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-files") as? NSTextField
+        )
+        XCTAssertEqual(outputField.stringValue, outputURL.path)
+
+        let revealButton = try XCTUnwrap(
+            outputSection.firstSubview(withAccessibilityIdentifier: "operations-output-reveal-button") as? NSButton
+        )
+        XCTAssertEqual(revealButton.title, "Reveal")
+        XCTAssertFalse(revealButton.isHidden)
     }
 
+    @MainActor
     func testOperationsPanelUsesNormalWindowLayering() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+        _ = NSApplication.shared
+        let controller = OperationsPanelController()
+        defer { controller.close() }
 
-        XCTAssertTrue(source.contains("NSWindow("))
-        XCTAssertFalse(source.contains("NSPanel("))
-        XCTAssertFalse(source.contains(".utilityWindow"))
-        XCTAssertFalse(source.contains(".nonactivatingPanel"))
-        XCTAssertFalse(source.contains("isFloatingPanel = true"))
+        let window = try XCTUnwrap(controller.window)
+        XCTAssertFalse(window is NSPanel)
+        XCTAssertEqual(window.title, "Operations")
+        XCTAssertEqual(window.level, .normal)
+        XCTAssertTrue(window.styleMask.contains(.titled))
+        XCTAssertTrue(window.styleMask.contains(.closable))
+        XCTAssertTrue(window.styleMask.contains(.miniaturizable))
+        XCTAssertTrue(window.styleMask.contains(.resizable))
+        XCTAssertFalse(window.styleMask.contains(.utilityWindow))
+        XCTAssertFalse(window.styleMask.contains(.nonactivatingPanel))
     }
 
-    func testOperationsPanelExposesLocalLogViewingActions() throws {
-        let source = try String(contentsOf: repositoryRoot().appendingPathComponent(
-            "Sources/LungfishApp/Views/Operations/OperationsPanelController.swift"
-        ))
+    @MainActor
+    func testOperationsPanelDisplaysLocalLogViewingActions() throws {
+        _ = NSApplication.shared
+        OperationCenter.shared.cancelAll()
+        OperationCenter.shared.clearCompleted()
 
-        XCTAssertTrue(source.contains("View Log"))
-        XCTAssertTrue(source.contains("Reveal in Finder"))
-        XCTAssertTrue(source.contains("operations-log-view-button"))
-        XCTAssertTrue(source.contains("operations-log-reveal-button"))
-        XCTAssertTrue(source.contains("viewLogFromButton"))
-        XCTAssertTrue(source.contains("revealLogFromButton"))
-        XCTAssertTrue(source.contains("OperationLogDocument.write"))
+        let operationID = OperationCenter.shared.start(
+            title: "Classify reads",
+            detail: "Running classifier",
+            operationType: .classification
+        )
+        OperationCenter.shared.log(
+            id: operationID,
+            level: .info,
+            message: "Kraken2 classifier started"
+        )
+
+        let controller = try makeOperationsPanelController()
+        defer {
+            controller.close()
+            OperationCenter.shared.cancel(id: operationID)
+            OperationCenter.shared.clearCompleted()
+        }
+
+        let rowView = try expandOperationRow(operationID, in: controller)
+        let logSection = try XCTUnwrap(
+            rowView.firstSubview(withAccessibilityIdentifier: "ops-expansion-log")
+        )
+        XCTAssertTrue(logSection.containsText("Log"))
+        XCTAssertTrue(logSection.containsText("Kraken2 classifier started"))
+
+        let viewButton = try XCTUnwrap(
+            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-view-button") as? NSButton
+        )
+        XCTAssertEqual(viewButton.title, "View Log")
+        XCTAssertTrue(viewButton.isEnabled)
+        XCTAssertNotNil(viewButton.target)
+        XCTAssertNotNil(viewButton.action)
+
+        let revealButton = try XCTUnwrap(
+            logSection.firstSubview(withAccessibilityIdentifier: "operations-log-reveal-button") as? NSButton
+        )
+        XCTAssertEqual(revealButton.title, "Reveal in Finder")
+        XCTAssertTrue(revealButton.isEnabled)
+        XCTAssertNotNil(revealButton.target)
+        XCTAssertNotNil(revealButton.action)
     }
 
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
+    @MainActor
+    private func makeOperationsPanelController() throws -> OperationsPanelController {
+        let controller = OperationsPanelController()
+        let window = try XCTUnwrap(controller.window)
+        _ = window.contentViewController?.view
+        drainOperationsPanelRunLoop(window)
+        return controller
+    }
+
+    @MainActor
+    private func expandOperationRow(_ operationID: UUID, in controller: OperationsPanelController) throws -> NSView {
+        let window = try XCTUnwrap(controller.window)
+        let tableView = try XCTUnwrap(window.contentView?.firstSubview(of: NSTableView.self))
+        drainOperationsPanelRunLoop(window)
+        tableView.reloadData()
+        tableView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(tableView.numberOfRows, 1)
+        let collapsedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        collapsedRow.layoutSubtreeIfNeeded()
+        let toggle = try XCTUnwrap(
+            collapsedRow.firstSubview(withAccessibilityIdentifier: "operations-detail-toggle-\(operationID.uuidString)") as? NSButton
+        )
+
+        toggle.performClick(nil)
+        drainOperationsPanelRunLoop(window)
+        tableView.reloadData()
+        tableView.layoutSubtreeIfNeeded()
+
+        let expandedRow = try XCTUnwrap(tableView.rowView(atRow: 0, makeIfNecessary: true))
+        expandedRow.layoutSubtreeIfNeeded()
+        return expandedRow
+    }
+
+    @MainActor
+    private func drainOperationsPanelRunLoop(_ window: NSWindow) {
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        window.contentView?.layoutSubtreeIfNeeded()
+    }
+}
+
+private extension NSView {
+    func firstSubview<T: NSView>(of type: T.Type) -> T? {
+        if let match = self as? T {
+            return match
+        }
+        for subview in subviews {
+            if let match = subview.firstSubview(of: type) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func firstSubview(withAccessibilityIdentifier identifier: String) -> NSView? {
+        if accessibilityIdentifier() == identifier {
+            return self
+        }
+        for subview in subviews {
+            if let match = subview.firstSubview(withAccessibilityIdentifier: identifier) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    func containsText(_ text: String) -> Bool {
+        if let textField = self as? NSTextField, textField.stringValue.contains(text) {
+            return true
+        }
+        if let textView = self as? NSTextView, textView.string.contains(text) {
+            return true
+        }
+        if let button = self as? NSButton, button.title.contains(text) {
+            return true
+        }
+        return subviews.contains { $0.containsText(text) }
     }
 }
 
@@ -802,7 +967,6 @@ final class RepositoryHygieneTests: XCTestCase {
 /// Tests for sidebar file browser display.
 /// Regression: 2026-03-28 — Multiple "Viral Detection..." entries were
 /// indistinguishable in the sidebar. TaxTriage showed as "Comprehensiv..."
-@MainActor
 final class SidebarDisplayTests: XCTestCase {
 
     /// Verifies that result node labels contain enough info for differentiation.
@@ -833,7 +997,6 @@ final class SidebarDisplayTests: XCTestCase {
 /// Tests for the FASTQ operations panel layout and behavior.
 /// Regression: 2026-03-28/29 — 17 of 18 operation names were truncated
 /// due to insufficient panel width (~100px, needs ~200px).
-@MainActor
 final class FASTQOperationsPanelTests: XCTestCase {
 
     /// Documents the full list of 18 FASTQ operations and their display names.
@@ -933,7 +1096,6 @@ final class FASTQOperationsPanelTests: XCTestCase {
 /// Tests that cancellation of operations is handled gracefully.
 /// Regression: 2026-03-29 — Cancelling quality report showed
 /// "Quality Report Failed — CancellationError()" error dialog.
-@MainActor
 final class OperationCancellationTests: XCTestCase {
 
     /// Documents that CancellationError should NOT trigger an error alert.
@@ -942,7 +1104,7 @@ final class OperationCancellationTests: XCTestCase {
         // The UI should distinguish between:
         // 1. CancellationError → silently return to ready state
         // 2. Other errors → show error dialog with message
-        let cancellationError = CancellationError()
+        let cancellationError: any Error = CancellationError()
 
         XCTAssertTrue(cancellationError is CancellationError,
             "CancellationError should be identifiable for special handling")

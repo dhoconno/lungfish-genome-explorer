@@ -8,6 +8,11 @@ import LungfishWorkflow
 
 @MainActor
 enum AssemblyRuntimePreflight {
+    enum PresentationMode: Equatable {
+        case sheet
+        case applicationErrorPresentation
+    }
+
     static func warningTitle(for tool: AssemblyTool) -> String {
         "Cannot Run \(tool.displayName)"
     }
@@ -56,10 +61,26 @@ enum AssemblyRuntimePreflight {
         alert.addButton(withTitle: "OK")
         alert.applyLungfishBranding()
 
-        if let window {
+        if presentationMode(hasWindow: window != nil) == .sheet, let window {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            NSApp.presentError(PreflightWarning(title: alert.messageText, message: alert.informativeText))
         }
+    }
+
+    static func presentationMode(hasWindow: Bool) -> PresentationMode {
+        hasWindow ? .sheet : .applicationErrorPresentation
+    }
+
+    static func presentationModeForTest(hasWindow: Bool) -> PresentationMode {
+        presentationMode(hasWindow: hasWindow)
+    }
+
+    private struct PreflightWarning: LocalizedError {
+        let title: String
+        let message: String
+
+        var errorDescription: String? { title }
+        var recoverySuggestion: String? { message }
     }
 }

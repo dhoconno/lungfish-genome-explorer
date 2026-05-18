@@ -610,54 +610,132 @@ public actor MetagenomicsDatabaseRegistry {
 
     /// Returns the recommended database for the current system's RAM.
     ///
-    /// The recommendation logic follows the design document:
-    /// - 72+ GB RAM: PlusPF (most comprehensive)
-    /// - 32+ GB RAM: Standard
-    /// - 16+ GB RAM: Standard-16
-    /// - <16 GB RAM: Standard-8
+    /// The recommendation logic prefers the largest general-purpose collection
+    /// that fits within 60% of physical memory. If none meet that headroom
+    /// threshold, it falls back to the smallest general-purpose collection that
+    /// fits physical memory. Systems below the smallest supported collection's
+    /// RAM requirement receive no recommendation instead of highlighting an
+    /// oversized database.
     ///
     /// - Parameter ramBytes: Override for system RAM (defaults to
     ///   `ProcessInfo.processInfo.physicalMemory`). Pass explicitly for testing.
     /// - Returns: The recommended database info.
-    public func recommendedDatabase(ramBytes: UInt64? = nil) throws -> MetagenomicsDatabaseInfo {
+    public func recommendedDatabase(ramBytes: UInt64? = nil) throws -> MetagenomicsDatabaseInfo? {
         try loadIfNeeded()
 
         let ram = ramBytes ?? UInt64(ProcessInfo.processInfo.physicalMemory)
-        let collection = Self.recommendedCollection(forRAMBytes: ram)
+        guard let collection = Self.recommendedCollection(forRAMBytes: ram) else {
+            return nil
+        }
+        let recommendationLimit = Self.recommendationLimit(forRAMBytes: ram)
 
-        // Prefer an already-downloaded database of the recommended collection.
-        if let db = databases[collection.displayName], db.isDownloaded {
+        guard let catalogEntry = MetagenomicsDatabaseInfo.catalogEntry(for: collection),
+              Self.databaseFitsRecommendationLimit(catalogEntry, limitBytes: recommendationLimit) else {
+            return nil
+        }
+
+        // Prefer the persisted row when it still fits the current recommendation
+        // policy; otherwise use the fresh catalog metadata for the selected collection.
+        if let db = databases[collection.displayName],
+           Self.databaseFitsRecommendationLimit(db, limitBytes: recommendationLimit) {
             return db
         }
 
-        // Fall back to the catalog entry.
-        if let db = databases[collection.displayName] {
-            return db
-        }
-
-        // Should never happen if the catalog was loaded, but return a safe default.
-        return MetagenomicsDatabaseInfo.catalogEntry(for: collection)
-            ?? MetagenomicsDatabaseInfo.builtInCatalog.first!
+        return catalogEntry
     }
 
     /// Returns the recommended collection for a given RAM amount.
     ///
     /// - Parameter ramBytes: Available physical memory in bytes.
     /// - Returns: The recommended database collection.
-    public static func recommendedCollection(forRAMBytes ramBytes: UInt64) -> DatabaseCollection {
-        let gb72: UInt64 = 72 * 1_073_741_824
-        let gb32: UInt64 = 32 * 1_073_741_824
-        let gb16: UInt64 = 16 * 1_073_741_824
+    public static func recommendedCollection(forRAMBytes ramBytes: UInt64) -> DatabaseCollection? {
+        let candidates = recommendedCollections
+        let headroomLimit = UInt64(Double(ramBytes) * recommendationHeadroomFraction)
 
-        if ramBytes >= gb72 {
-            return .plusPF
-        } else if ramBytes >= gb32 {
-            return .standard
-        } else if ramBytes >= gb16 {
-            return .standard16
-        } else {
-            return .standard8
+        if let headroomFit = candidates
+            .filter({ ramRequirementBytes(for: $0) <= headroomLimit })
+            .max(by: recommendationAscending) {
+            return headroomFit
         }
+
+        if let viableFit = candidates
+            .filter({ ramRequirementBytes(for: $0) <= ramBytes })
+            .min(by: smallestRecommendationAscending) {
+            return viableFit
+        }
+
+        return nil
+    }
+
+    private static let recommendationHeadroomFraction = 0.6
+
+    /// General-purpose Kraken2 collections eligible for system recommendations.
+    /// Specialist catalogs such as Viral, MinusB, and EuPathDB remain visible
+    /// but are not used as whole-system defaults.
+    private static let recommendedCollections: [DatabaseCollection] = [
+        .plusPF,
+        .standard,
+        .plusPF16,
+        .standard16,
+        .plusPF8,
+        .standard8,
+    ]
+
+    private static func recommendationAscending(
+        lhs: DatabaseCollection,
+        rhs: DatabaseCollection
+    ) -> Bool {
+        let lhsRAM = ramRequirementBytes(for: lhs)
+        let rhsRAM = ramRequirementBytes(for: rhs)
+        if lhsRAM != rhsRAM {
+            return lhsRAM < rhsRAM
+        }
+        return recommendationRank(for: lhs) < recommendationRank(for: rhs)
+    }
+
+    private static func smallestRecommendationAscending(
+        lhs: DatabaseCollection,
+        rhs: DatabaseCollection
+    ) -> Bool {
+        let lhsRAM = ramRequirementBytes(for: lhs)
+        let rhsRAM = ramRequirementBytes(for: rhs)
+        if lhsRAM != rhsRAM {
+            return lhsRAM < rhsRAM
+        }
+        return recommendationRank(for: lhs) > recommendationRank(for: rhs)
+    }
+
+    private static func recommendationRank(for collection: DatabaseCollection) -> Int {
+        switch collection {
+        case .standard8:   return 0
+        case .plusPF8:     return 1
+        case .minusB:      return 2
+        case .standard16:  return 3
+        case .plusPF16:    return 4
+        case .standard:    return 5
+        case .plusPF:      return 6
+        case .viral:       return -2
+        case .euPathDB46:  return -1
+        }
+    }
+
+    private static func ramRequirementBytes(for collection: DatabaseCollection) -> UInt64 {
+        UInt64(max(collection.approximateRAMBytes, 0))
+    }
+
+    private static func recommendationLimit(forRAMBytes ramBytes: UInt64) -> UInt64 {
+        let headroomLimit = UInt64(Double(ramBytes) * recommendationHeadroomFraction)
+        let hasHeadroomFit = recommendedCollections.contains {
+            ramRequirementBytes(for: $0) <= headroomLimit
+        }
+        return hasHeadroomFit ? headroomLimit : ramBytes
+    }
+
+    private static func databaseFitsRecommendationLimit(
+        _ database: MetagenomicsDatabaseInfo,
+        limitBytes: UInt64
+    ) -> Bool {
+        UInt64(max(database.recommendedRAM, 0)) <= limitBytes
     }
 
     // MARK: - Download Support

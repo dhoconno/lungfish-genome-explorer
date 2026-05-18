@@ -198,6 +198,11 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.optionRows.contains { $0.name == "quality" && $0.kind == "Explicit" })
         XCTAssertTrue(viewModel.optionRows.contains { $0.name == "compress" && $0.kind == "Default" })
         XCTAssertTrue(viewModel.optionRows.contains { $0.name == "threads" && $0.kind == "Resolved Default" })
+        XCTAssertTrue(viewModel.copyableText.contains("Run Summary"))
+        XCTAssertTrue(viewModel.copyableText.contains("FASTQ Import"))
+        XCTAssertTrue(viewModel.copyableText.contains("fastq-import"))
+        XCTAssertTrue(viewModel.copyableText.contains(input.path))
+        XCTAssertTrue(viewModel.copyableText.contains(output.path))
     }
 
     func testIncompleteEnvelopeIsBlockingForRequiredScientificTarget() throws {
@@ -234,6 +239,123 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.audit.status, .incomplete)
         XCTAssertTrue(viewModel.audit.isBlocking)
         XCTAssertTrue(viewModel.warnings.contains { $0.title == "Incomplete provenance" })
+    }
+
+    func testSuccessfulEnvelopeWithoutStderrIsComplete() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("reads.fastq.gz")
+        let output = dir.appendingPathComponent("final.contigs.fa")
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: input)
+        try Data(">contig\nACGT\n".utf8).write(to: output)
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: input, format: .fastq, role: .input)
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: output, format: .fasta, role: .output)
+        let step = ProvenanceStep(
+            toolName: "megahit",
+            toolVersion: "1.2.9",
+            argv: ["megahit", "-r", input.path, "-o", dir.path],
+            inputs: [inputDescriptor],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 10.1
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "lungfish.assemble",
+            workflowVersion: "0.4.0-alpha.16",
+            toolName: "megahit",
+            toolVersion: "1.2.9",
+            argv: ["lungfish-cli", "assemble", input.path, "--assembler", "megahit"],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: 10.1,
+            exitStatus: 0,
+            stderr: nil
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: dir)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: dir,
+                sidebarType: .analysisResult,
+                contentMode: .assembly,
+                displayName: "MEGAHIT Assembly"
+            )
+        )
+
+        XCTAssertEqual(viewModel.audit.status, .present)
+        XCTAssertFalse(viewModel.warnings.contains { $0.message.localizedCaseInsensitiveContains("stderr") })
+    }
+
+    func testLineageStderrStripsANSIEscapeSequencesForDisplayAndCopy() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("reads.fastq")
+        let output = dir.appendingPathComponent("classification.tsv")
+        try Data("@r\nACGT\n+\n!!!!\n".utf8).write(to: input)
+        try Data("sample\tstatus\nSampleA\tok\n".utf8).write(to: output)
+
+        let inputDescriptor = try ProvenanceFileDescriptor.file(url: input, format: .fastq, role: .input)
+        let outputDescriptor = try ProvenanceFileDescriptor.file(url: output, format: .text, role: .report)
+        let coloredStderr = """
+        \u{001B}[93m2026-05-17 20:03:29,901 - INFO - DB: /tmp/esviritu\u{001B}[0m
+        \u{001B}[31mwarning: low viral read depth\u{001B}[0m
+        """
+        let step = ProvenanceStep(
+            toolName: "EsViritu",
+            toolVersion: "3.13",
+            argv: ["EsViritu", "-r", input.path],
+            inputs: [inputDescriptor],
+            outputs: [outputDescriptor],
+            exitStatus: 0,
+            wallTimeSeconds: 33.12,
+            stderr: coloredStderr
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "EsViritu Batch",
+            workflowVersion: "0.4.0-alpha.16",
+            toolName: "Lungfish EsViritu Batch",
+            toolVersion: "0.4.0-alpha.16",
+            argv: step.argv,
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: [inputDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            steps: [step],
+            wallTimeSeconds: 33.12,
+            exitStatus: 0,
+            stderr: coloredStderr
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: dir)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: dir,
+                sidebarType: .esvirituResult,
+                contentMode: .metagenomics,
+                displayName: "EsViritu"
+            )
+        )
+
+        let displayedStderr = try XCTUnwrap(viewModel.lineageRuns.first?.steps.first?.stderr)
+        XCTAssertTrue(displayedStderr.contains("2026-05-17 20:03:29,901 - INFO - DB: /tmp/esviritu"))
+        XCTAssertTrue(displayedStderr.contains("warning: low viral read depth"))
+        XCTAssertFalse(displayedStderr.contains("\u{001B}"))
+        XCTAssertFalse(displayedStderr.contains("[93m"))
+        XCTAssertFalse(displayedStderr.contains("[31m"))
+        XCTAssertFalse(displayedStderr.contains("[0m"))
+
+        XCTAssertFalse(viewModel.copyableText.contains("\u{001B}"))
+        XCTAssertFalse(viewModel.copyableText.contains("[93m"))
+        XCTAssertFalse(viewModel.copyableText.contains("[31m"))
+        XCTAssertFalse(viewModel.copyableText.contains("[0m"))
     }
 
     func testEsVirituInspectorBackfillsRootProvenanceFromSampleSidecar() throws {

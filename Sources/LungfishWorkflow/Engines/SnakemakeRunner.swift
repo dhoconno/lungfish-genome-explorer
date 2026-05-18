@@ -53,6 +53,7 @@ public actor SnakemakeRunner: WorkflowRunner {
     /// Base workflow runner for common functionality.
     private let baseRunner: BaseWorkflowRunner
     private let homeDirectoryProvider: @Sendable () -> URL
+    private let dagConverter: SnakemakeDAGConverter
 
     /// Path to the Snakemake executable.
     private var executablePath: URL?
@@ -79,6 +80,18 @@ public actor SnakemakeRunner: WorkflowRunner {
             processManager: processManager
         )
         self.homeDirectoryProvider = homeDirectoryProvider
+        self.dagConverter = SnakemakeDAGConverter(
+            dotExecutableProvider: {
+                processManager.findExecutable(named: "dot")
+            },
+            runGraphviz: { executable, arguments, workingDirectory in
+                try await processManager.runAndWait(
+                    executable: executable,
+                    arguments: arguments,
+                    workingDirectory: workingDirectory
+                )
+            }
+        )
     }
 
     // MARK: - WorkflowRunner Protocol
@@ -458,43 +471,7 @@ public actor SnakemakeRunner: WorkflowRunner {
 
     /// Converts DOT graph data to the specified format.
     private func convertDotToFormat(dotData: Data, format: DAGFormat) async throws -> Data {
-        // Try to find graphviz dot command
-        let dotPath = baseRunner.processManager.findExecutable(named: "dot")
-
-        guard let path = dotPath else {
-            Self.logger.warning("Graphviz not found, returning raw DOT data")
-            return dotData
-        }
-
-        let formatArg: String
-        switch format {
-        case .svg:
-            formatArg = "-Tsvg"
-        case .png:
-            formatArg = "-Tpng"
-        default:
-            return dotData
-        }
-
-        // Write DOT data to temp file
-        let tempDir = FileManager.default.temporaryDirectory
-        let dotFile = tempDir.appendingPathComponent("dag.dot")
-        try dotData.write(to: dotFile)
-
-        let outputFile = tempDir.appendingPathComponent("dag.\(format.rawValue)")
-
-        let (exitCode, _, stderr) = try await baseRunner.processManager.runAndWait(
-            executable: path,
-            arguments: [formatArg, "-o", outputFile.path, dotFile.path],
-            workingDirectory: tempDir
-        )
-
-        if exitCode != 0 {
-            Self.logger.error("Graphviz conversion failed: \(stderr)")
-            return dotData
-        }
-
-        return try Data(contentsOf: outputFile)
+        try await dagConverter.convert(dotData: dotData, format: format)
     }
 
     /// Processes an output stream and parses progress updates.

@@ -44,6 +44,31 @@ private final class StorageLocationChangeObserver {
     }
 }
 
+private struct RecommendedDatabaseSelection: Equatable {
+    let name: String
+    let tool: String
+    let collection: DatabaseCollection?
+    let recommendedRAM: Int64
+
+    init(_ database: MetagenomicsDatabaseInfo) {
+        self.name = database.name
+        self.tool = database.tool
+        self.collection = database.collection
+        self.recommendedRAM = database.recommendedRAM
+    }
+
+    func matches(_ database: MetagenomicsDatabaseInfo) -> Bool {
+        hasSameCatalogIdentity(as: database)
+            && database.recommendedRAM == recommendedRAM
+    }
+
+    func hasSameCatalogIdentity(as database: MetagenomicsDatabaseInfo) -> Bool {
+        database.name == name
+            && database.tool == tool
+            && database.collection == collection
+    }
+}
+
 struct OfflinePackCommandGuidance: Equatable {
     let exportCommand: String
     let installCommand: String
@@ -125,11 +150,22 @@ final class PluginManagerViewModel {
     /// Installed conda environments.
     var environments: [CondaEnvironment] = []
 
+    /// Hash-named conda environments that do not map to curated Lungfish packs.
+    var orphanedEnvironments: [CondaEnvironment] = []
+
     /// Map of environment name to its installed packages.
     var installedPackages: [String: [CondaPackageInfo]] = [:]
 
     /// Set of environment names currently being removed.
     var removingEnvironments: Set<String> = []
+
+    var orphanedEnvironmentDiagnosticText: String {
+        guard !orphanedEnvironments.isEmpty else { return "" }
+        let count = orphanedEnvironments.count
+        let noun = count == 1 ? "orphaned hash-named conda environment" : "orphaned hash-named conda environments"
+        let examples = orphanedEnvironments.prefix(2).map(\.name).joined(separator: ", ")
+        return "\(count) \(noun) hidden from installed tools: \(examples). Remove them if they are leftover runtime/plugin installs."
+    }
 
     // MARK: - Packs Tab State
 
@@ -185,6 +221,9 @@ final class PluginManagerViewModel {
     /// Name of the recommended database based on system RAM.
     var recommendedDatabaseName: String = ""
 
+    /// Registry-selected recommendation source used by the header and row badge.
+    private var recommendedDatabaseSelection: RecommendedDatabaseSelection?
+
     /// System RAM in bytes, for display and recommendation logic.
     let systemRAMBytes: UInt64 = ProcessInfo.processInfo.physicalMemory
 
@@ -194,6 +233,12 @@ final class PluginManagerViewModel {
             .filter { $0.status == .ready }
             .compactMap(\.sizeOnDisk)
             .reduce(0, +)
+    }
+
+    /// Returns whether a database should carry the same recommendation badge
+    /// named in the Databases tab header.
+    func isRecommendedDatabase(_ database: MetagenomicsDatabaseInfo) -> Bool {
+        recommendedDatabaseSelection?.matches(database) ?? false
     }
 
     /// The shared managed storage root shown in the Databases footer.
@@ -247,12 +292,18 @@ final class PluginManagerViewModel {
 
             do {
                 let envs = try await CondaManager.shared.listEnvironments()
-                environments = envs.sorted { $0.name < $1.name }
+                applyInstalledEnvironments(envs)
                 logger.info("Found \(envs.count, privacy: .public) conda environments")
             } catch {
                 handleError(error, context: "listing environments")
             }
         }
+    }
+
+    func applyInstalledEnvironments(_ envs: [CondaEnvironment]) {
+        let sorted = envs.sorted { $0.name < $1.name }
+        orphanedEnvironments = sorted.filter { Self.isHashNamedOrphanEnvironmentName($0.name) }
+        environments = sorted.filter { !Self.isHashNamedOrphanEnvironmentName($0.name) }
     }
 
     /// Loads the package list for a specific environment.
@@ -279,6 +330,37 @@ final class PluginManagerViewModel {
                 refreshInstalled()
             } catch {
                 handleError(error, context: "removing '\(name)'")
+            }
+        }
+    }
+
+    func removeOrphanedEnvironments() {
+        let names = orphanedEnvironments.map(\.name)
+        guard !names.isEmpty else { return }
+
+        removingEnvironments.formUnion(names)
+        Task {
+            defer { removingEnvironments.subtract(names) }
+
+            var failedNames: [String] = []
+            for name in names {
+                do {
+                    try await CondaManager.shared.removeEnvironment(name: name)
+                    logger.info("Removed orphaned environment '\(name, privacy: .public)'")
+                } catch {
+                    failedNames.append(name)
+                    logger.error("Failed to remove orphaned environment '\(name, privacy: .public)': \(error.localizedDescription, privacy: .public)")
+                }
+            }
+
+            refreshInstalled()
+            if failedNames.isEmpty {
+                postManagedResourcesDidChange()
+            } else {
+                handleError(
+                    PluginManagerOrphanCleanupError(environmentNames: failedNames),
+                    context: "removing orphaned environments"
+                )
             }
         }
     }
@@ -399,16 +481,41 @@ final class PluginManagerViewModel {
 
     // MARK: - Databases Tab Actions
 
+    /// Applies the registry-selected recommendation source to the displayed
+    /// database list so the header and row badge compare against the same policy.
+    func applyDatabaseRecommendation(
+        databases allDatabases: [MetagenomicsDatabaseInfo],
+        recommended: MetagenomicsDatabaseInfo?
+    ) {
+        guard let recommended else {
+            databases = allDatabases
+            recommendedDatabaseName = ""
+            recommendedDatabaseSelection = nil
+            return
+        }
+
+        let recommendation = RecommendedDatabaseSelection(recommended)
+        recommendedDatabaseName = recommended.name
+        recommendedDatabaseSelection = recommendation
+        databases = allDatabases.map { database in
+            guard recommendation.hasSameCatalogIdentity(as: database) else {
+                return database
+            }
+            var normalized = database
+            normalized.recommendedRAM = recommended.recommendedRAM
+            return normalized
+        }
+    }
+
     /// Refreshes the database catalog from the registry.
     func refreshDatabases() {
         Task {
             do {
                 let registry = MetagenomicsDatabaseRegistry.shared
                 let allDBs = try await registry.availableDatabases()
-                databases = allDBs
 
                 let recommended = try await registry.recommendedDatabase(ramBytes: systemRAMBytes)
-                recommendedDatabaseName = recommended.name
+                applyDatabaseRecommendation(databases: allDBs, recommended: recommended)
 
                 logger.info(
                     "Loaded \(allDBs.count, privacy: .public) databases, recommended: \(self.recommendedDatabaseName, privacy: .public)"
@@ -560,6 +667,14 @@ final class PluginManagerViewModel {
         return parts.joined(separator: " · ")
     }
 
+    static func isHashNamedOrphanEnvironmentName(_ name: String) -> Bool {
+        let candidate = name.hasPrefix("env-") ? String(name.dropFirst(4)) : name
+        guard (32...64).contains(candidate.count) else { return false }
+        return candidate.unicodeScalars.allSatisfy { scalar in
+            CharacterSet(charactersIn: "0123456789abcdefABCDEF").contains(scalar)
+        }
+    }
+
     private static let databaseTrackingDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -594,4 +709,12 @@ final class PluginManagerViewModel {
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscape).joined(separator: " ")
+}
+
+private struct PluginManagerOrphanCleanupError: LocalizedError {
+    let environmentNames: [String]
+
+    var errorDescription: String? {
+        "Could not remove \(environmentNames.joined(separator: ", "))"
+    }
 }

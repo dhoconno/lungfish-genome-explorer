@@ -57,6 +57,101 @@ enum CLIPrimerTrimRunnerError: Error, LocalizedError, Equatable {
     }
 }
 
+private final class CLIPrimerTrimStreamState: @unchecked Sendable {
+    private struct Buffers {
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+
+        mutating func drainStdoutLines() -> [String] {
+            var lines: [String] = []
+            while let newlineRange = stdoutBuffer.range(of: Data("\n".utf8)) {
+                let lineData = stdoutBuffer.subdata(
+                    in: stdoutBuffer.startIndex..<newlineRange.lowerBound
+                )
+                stdoutBuffer.removeSubrange(
+                    stdoutBuffer.startIndex..<newlineRange.upperBound
+                )
+                if let line = String(data: lineData, encoding: .utf8), !line.isEmpty {
+                    lines.append(line)
+                }
+            }
+            return lines
+        }
+
+        mutating func drainRemainingStdoutLine() -> [String] {
+            guard !stdoutBuffer.isEmpty else { return [] }
+            let lineData = stdoutBuffer
+            stdoutBuffer.removeAll(keepingCapacity: false)
+            guard let line = String(data: lineData, encoding: .utf8), !line.isEmpty else {
+                return []
+            }
+            return [line]
+        }
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: Buffers())
+
+    func appendStderr(_ chunk: Data) {
+        lock.withLock { buffers in
+            buffers.stderrBuffer.append(chunk)
+        }
+    }
+
+    func appendStdout(_ chunk: Data) -> [String] {
+        lock.withLock { buffers in
+            buffers.stdoutBuffer.append(chunk)
+            return buffers.drainStdoutLines()
+        }
+    }
+
+    func finishStdout() -> [String] {
+        lock.withLock { buffers in
+            buffers.drainRemainingStdoutLine()
+        }
+    }
+
+    func stderrText() -> String {
+        lock.withLock { buffers in
+            String(data: buffers.stderrBuffer, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        }
+    }
+}
+
+private final class CLIPrimerTrimProcessTermination: @unchecked Sendable {
+    private struct State {
+        var status: Int32?
+        var continuation: CheckedContinuation<Int32, Never>?
+    }
+
+    private let lock = OSAllocatedUnfairLock(initialState: State())
+
+    func markTerminated(status: Int32) {
+        let continuation = lock.withLock { state -> CheckedContinuation<Int32, Never>? in
+            guard state.status == nil else { return nil }
+            state.status = status
+            defer { state.continuation = nil }
+            return state.continuation
+        }
+        continuation?.resume(returning: status)
+    }
+
+    func wait() async -> Int32 {
+        await withCheckedContinuation { continuation in
+            let status = lock.withLock { state -> Int32? in
+                if let status = state.status {
+                    return status
+                }
+                state.continuation = continuation
+                return nil
+            }
+            if let status {
+                continuation.resume(returning: status)
+            }
+        }
+    }
+}
+
 actor CLIPrimerTrimRunner {
     private var process: Process?
 
@@ -165,6 +260,23 @@ actor CLIPrimerTrimRunner {
         }
     }
 
+    private static func emitEvents(
+        from lines: [String],
+        onEvent: @escaping @Sendable (CLIPrimerTrimEvent) -> Void
+    ) {
+        for line in lines {
+            do {
+                if let event = try parseEvent(from: line) {
+                    onEvent(event)
+                }
+            } catch {
+                primerTrimRunnerLogger.warning(
+                    "Failed to parse primer-trim CLI event: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
     func run(
         arguments: [String],
         onEvent: @escaping @Sendable (CLIPrimerTrimEvent) -> Void
@@ -182,86 +294,64 @@ actor CLIPrimerTrimRunner {
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
 
+        let termination = CLIPrimerTrimProcessTermination()
+        process.terminationHandler = { terminatedProcess in
+            termination.markTerminated(status: terminatedProcess.terminationStatus)
+        }
+
         self.process = process
 
         do {
             try process.run()
         } catch {
+            process.terminationHandler = nil
             self.process = nil
             throw CLIPrimerTrimRunnerError.processLaunchFailed(error.localizedDescription)
         }
 
-        final class StreamState: @unchecked Sendable {
-            var stdoutBuffer = Data()
-            var stderrBuffer = Data()
-        }
-        let state = StreamState()
+        let state = CLIPrimerTrimStreamState()
 
         let stdoutHandle = stdoutPipe.fileHandleForReading
         let stderrHandle = stderrPipe.fileHandleForReading
 
         stderrHandle.readabilityHandler = { handle in
             let chunk = handle.availableData
-            if !chunk.isEmpty {
-                state.stderrBuffer.append(chunk)
-            }
+            guard !chunk.isEmpty else { return }
+            state.appendStderr(chunk)
         }
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            let resumed = OSAllocatedUnfairLock(initialState: false)
-
-            stdoutHandle.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else {
-                    stdoutHandle.readabilityHandler = nil
-                    let alreadyResumed = resumed.withLock { value -> Bool in
-                        if value { return true }
-                        value = true
-                        return false
-                    }
-                    if !alreadyResumed {
-                        continuation.resume()
-                    }
-                    return
-                }
-
-                state.stdoutBuffer.append(chunk)
-
-                while let newlineRange = state.stdoutBuffer.range(of: Data("\n".utf8)) {
-                    let lineData = state.stdoutBuffer.subdata(
-                        in: state.stdoutBuffer.startIndex..<newlineRange.lowerBound
-                    )
-                    state.stdoutBuffer.removeSubrange(
-                        state.stdoutBuffer.startIndex..<newlineRange.upperBound
-                    )
-                    guard let line = String(data: lineData, encoding: .utf8),
-                          !line.isEmpty else { continue }
-                    do {
-                        if let event = try Self.parseEvent(from: line) {
-                            onEvent(event)
-                        }
-                    } catch {
-                        primerTrimRunnerLogger.warning(
-                            "Failed to parse primer-trim CLI event: \(error.localizedDescription)"
-                        )
-                    }
-                }
-            }
+        stdoutHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else { return }
+            Self.emitEvents(from: state.appendStdout(chunk), onEvent: onEvent)
         }
 
-        process.waitUntilExit()
+        let status = await termination.wait()
+        stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        self.process = nil
+        process.terminationHandler = nil
+
+        let remainingStdout = stdoutHandle.readDataToEndOfFile()
+        if !remainingStdout.isEmpty {
+            Self.emitEvents(from: state.appendStdout(remainingStdout), onEvent: onEvent)
+        }
+        Self.emitEvents(from: state.finishStdout(), onEvent: onEvent)
+
+        let remainingStderr = stderrHandle.readDataToEndOfFile()
+        if !remainingStderr.isEmpty {
+            state.appendStderr(remainingStderr)
+        }
+
+        if self.process === process {
+            self.process = nil
+        }
 
         if Task.isCancelled {
             throw CancellationError()
         }
 
-        let status = process.terminationStatus
         guard status == 0 else {
-            let stderr = String(data: state.stderrBuffer, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw CLIPrimerTrimRunnerError.processExited(status: status, stderr: stderr)
+            throw CLIPrimerTrimRunnerError.processExited(status: status, stderr: state.stderrText())
         }
     }
 

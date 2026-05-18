@@ -52,8 +52,10 @@ public struct GZIIndex: Sendable {
         }
         
         // Read entry count (8-byte little-endian)
-        let count = data.withUnsafeBytes { buffer in
-            buffer.load(fromByteOffset: 0, as: UInt64.self)
+        let count = try data.readLittleEndianUInt64(at: 0)
+
+        guard count <= UInt64((Int.max - 8) / 16) else {
+            throw BgzipError.invalidIndex("GZI entry count too large: \(count)")
         }
         
         let expectedSize = 8 + Int(count) * 16
@@ -70,12 +72,8 @@ public struct GZIIndex: Sendable {
         // Read pairs of offsets
         for i in 0..<Int(count) {
             let offset = 8 + i * 16
-            let compressedOffset = data.withUnsafeBytes { buffer in
-                buffer.load(fromByteOffset: offset, as: UInt64.self)
-            }
-            let uncompressedOffset = data.withUnsafeBytes { buffer in
-                buffer.load(fromByteOffset: offset + 8, as: UInt64.self)
-            }
+            let compressedOffset = try data.readLittleEndianUInt64(at: offset)
+            let uncompressedOffset = try data.readLittleEndianUInt64(at: offset + 8)
             entries.append(Entry(compressedOffset: compressedOffset, uncompressedOffset: uncompressedOffset))
         }
         
@@ -110,6 +108,21 @@ public struct GZIIndex: Sendable {
         let entry = entries[low]
         let offsetInBlock = uncompressedOffset - entry.uncompressedOffset
         return (entry, offsetInBlock)
+    }
+}
+
+private extension Data {
+    func readLittleEndianUInt64(at offset: Int) throws -> UInt64 {
+        guard offset >= 0, count >= offset + 8 else {
+            throw BgzipError.invalidIndex("GZI file truncated while reading UInt64 at byte \(offset)")
+        }
+
+        var value: UInt64 = 0
+        for byteOffset in 0..<8 {
+            let index = self.index(startIndex, offsetBy: offset + byteOffset)
+            value |= UInt64(self[index]) << UInt64(byteOffset * 8)
+        }
+        return value
     }
 }
 

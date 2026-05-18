@@ -50,7 +50,7 @@ public final class SampleMetadataStore: @unchecked Sendable {
     public private(set) var edits: [MetadataEdit] = []
 
     /// Called after every edit to persist changes. Set by the controller that owns the store.
-    public nonisolated(unsafe) var onEditsChanged: (() -> Void)?
+    @ObservationIgnored public var onEditsChanged: (() -> Void)?
 
     /// Decodes CSV/TSV data into headers, data rows, and the detected delimiter.
     private static func parseCSV(_ data: Data) throws -> (headers: [String], dataRows: [[String]], delimiter: Character) {

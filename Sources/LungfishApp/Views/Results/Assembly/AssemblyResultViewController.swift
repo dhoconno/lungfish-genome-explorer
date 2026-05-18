@@ -556,8 +556,16 @@ public final class AssemblyResultViewController: NSViewController {
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            NSApp.presentError(AssemblyResultWarning(title: title, message: message))
         }
+    }
+
+    private struct AssemblyResultWarning: LocalizedError {
+        let title: String
+        let message: String
+
+        var errorDescription: String? { title }
+        var recoverySuggestion: String? { message }
     }
 }
 

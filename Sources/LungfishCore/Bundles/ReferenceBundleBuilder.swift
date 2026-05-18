@@ -13,7 +13,7 @@ public enum BuildStep: String, Sendable, CaseIterable {
     case creatingStructure = "Creating bundle structure"
     case compressingFASTA = "Compressing FASTA with bgzip"
     case indexingFASTA = "Creating FASTA index"
-    case convertingAnnotations = "Converting annotations to BigBed"
+    case convertingAnnotations = "Indexing annotations"
     case convertingVariants = "Converting variants to BCF"
     case generatingManifest = "Generating manifest"
     case validatingBundle = "Validating bundle integrity"

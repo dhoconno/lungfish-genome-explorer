@@ -1161,9 +1161,17 @@ final class VariantDatabaseGenotypeTests: XCTestCase {
         XCTAssertEqual(VariantDatabase.classifyVariant(ref: "AT", alts: ["GCG"]), "INS")
     }
 
-    func testClassifyVariantSymbolicAlt() {
-        // Symbolic alts like <DEL> have length > 1, so classified by length comparison
-        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "N", alts: ["<DEL>"]), "INS")
+    func testClassifyVariantSymbolicAndBreakendAltsAsComplex() {
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "N", alts: ["<DEL>"]), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "A", alts: ["*"]), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "N", alts: ["N]chr2:100]"]), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "A", alts: ["G", "*"]), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: "A", alts: ["AT", "<DEL>"]), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: Substring("N"), altField: Substring("<DUP>")), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: Substring("A"), altField: Substring("*")), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: Substring("N"), altField: Substring("N[chr2:100[")), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: Substring("A"), altField: Substring("G,*")), "COMPLEX")
+        XCTAssertEqual(VariantDatabase.classifyVariant(ref: Substring("A"), altField: Substring("AT,<DEL>")), "COMPLEX")
     }
 
     // MARK: - Large Multi-Sample VCF

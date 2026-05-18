@@ -148,34 +148,3 @@ public protocol BlastVerifiable: AnyObject {
     /// receives a ``BlastRequest`` containing the sequences to verify.
     var onBlastVerification: ((BlastRequest) -> Void)? { get set }
 }
-
-// MARK: - Taxonomy Displayable
-
-/// Protocol for viewports that display taxonomy data with a table and detail pane.
-///
-/// Combines ``ResultViewportController`` and ``BlastVerifiable`` for the
-/// Taxonomy Browser viewport class. Tools that produce taxonomic
-/// classification results (Kraken2, EsViritu, TaxTriage, NAO-MGS) share
-/// this interface, differing only in the detail pane content.
-///
-/// ## Layout
-/// ```
-/// +------------------------------------------+
-/// |  Summary Bar (species count, reads, ...)  |
-/// +------------------------------------------+
-/// |  Taxonomy Table  |  Detail Pane           |
-/// |  (shared)        |  (tool-specific)       |
-/// +------------------------------------------+
-/// ```
-@MainActor
-public protocol TaxonomyDisplayable: ResultViewportController, BlastVerifiable {
-
-    /// The main taxonomy table view listing classified taxa.
-    var taxonomyTable: NSTableView { get }
-
-    /// The detail pane displaying tool-specific information for the selected taxon.
-    ///
-    /// Content varies by tool: coverage plots for EsViritu, confidence metrics
-    /// for TaxTriage, abundance charts for NAO-MGS, read lists for Kraken2.
-    var detailPane: NSView { get }
-}

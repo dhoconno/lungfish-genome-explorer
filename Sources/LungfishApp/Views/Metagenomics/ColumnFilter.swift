@@ -232,6 +232,7 @@ extension ColumnFilter {
     ///   - columns: The table columns to update.
     ///   - filters: Current filter state keyed by column identifier.
     ///   - originalTitles: Dictionary to store/retrieve original titles.
+    @MainActor
     public static func updateColumnTitleIndicators(
         columns: [NSTableColumn],
         filters: [String: ColumnFilter],
@@ -260,6 +261,7 @@ extension ColumnFilter {
     }
 
     /// Convenience overload accepting NSTableView directly.
+    @MainActor
     public static func updateColumnTitleIndicators(
         on tableView: NSTableView,
         filters: [String: ColumnFilter],

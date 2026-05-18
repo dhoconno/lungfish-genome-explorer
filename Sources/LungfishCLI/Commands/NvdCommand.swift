@@ -5,6 +5,7 @@
 import ArgumentParser
 import Foundation
 import LungfishIO
+import LungfishWorkflow
 
 /// Import and inspect NVD (Novel Virus Diagnostics) pipeline BLAST results.
 ///
@@ -64,29 +65,35 @@ struct NvdCommand: AsyncParsableCommand {
         )
         var name: String?
 
+        #if DEBUG
+        var testingCreateProvenanceCollision = false
+        #endif
+
         func run() async throws {
+            let startedAt = Date()
             let formatter = TerminalFormatter(useColors: globalOptions.useColors)
+            let fileManager = FileManager.default
             let inputURL = URL(fileURLWithPath: inputPath)
 
-            guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            guard fileManager.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input directory not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Locate blast_concatenated.csv
             let labkeyDir = inputURL.appendingPathComponent("05_labkey_bundling", isDirectory: true)
-            guard FileManager.default.fileExists(atPath: labkeyDir.path) else {
+            guard fileManager.fileExists(atPath: labkeyDir.path) else {
                 print(formatter.error("Expected 05_labkey_bundling/ inside: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
-            let labkeyContents = try FileManager.default.contentsOfDirectory(
+            let labkeyContents = try fileManager.contentsOfDirectory(
                 at: labkeyDir,
                 includingPropertiesForKeys: nil
             )
             guard let csvURL = labkeyContents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
                 print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -96,7 +103,13 @@ struct NvdCommand: AsyncParsableCommand {
             }
 
             let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL)
+            let result: NvdParseResult
+            do {
+                result = try await parser.parse(at: csvURL)
+            } catch let error as NvdParserError {
+                print(formatter.error(error.localizedDescription))
+                throw nvdExitCode(for: error).exitCode
+            }
 
             // Summary before import
             print(formatter.keyValueTable([
@@ -118,8 +131,16 @@ struct NvdCommand: AsyncParsableCommand {
 
             let bundleName = name ?? "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
             let bundleDir = outputDirectory.appendingPathComponent(bundleName, isDirectory: true)
+            let stagingBundleDir = outputDirectory.appendingPathComponent(
+                ".lungfish-nvd-import-\(UUID().uuidString)",
+                isDirectory: true
+            )
 
-            try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            guard !fileManager.fileExists(atPath: bundleDir.path) else {
+                print(formatter.error("NVD import output already exists: \(bundleDir.path)"))
+                throw CLIExitCode.outputError.exitCode
+            }
 
             // Write summary JSON
             let encoder = JSONEncoder()
@@ -182,10 +203,49 @@ struct NvdCommand: AsyncParsableCommand {
             )
 
             let manifestData = try encoder.encode(manifest)
-            let manifestURL = bundleDir.appendingPathComponent("manifest.json")
-            try manifestData.write(to: manifestURL, options: .atomic)
+            let stagingManifestURL = stagingBundleDir.appendingPathComponent("manifest.json")
+            do {
+                try fileManager.createDirectory(at: stagingBundleDir, withIntermediateDirectories: true)
+                try manifestData.write(to: stagingManifestURL, options: .atomic)
+                let finalOutputRecords = try nvdFinalOutputRecords(
+                    stagingBundleDirectory: stagingBundleDir,
+                    finalBundleDirectory: bundleDir
+                )
+                #if DEBUG
+                if testingCreateProvenanceCollision {
+                    try fileManager.createDirectory(
+                        at: stagingBundleDir.appendingPathComponent(
+                            ProvenanceRecorder.provenanceFilename,
+                            isDirectory: true
+                        ),
+                        withIntermediateDirectories: true
+                    )
+                }
+                #endif
+                try await recordNvdImportProvenance(
+                    startedAt: startedAt,
+                    inputURL: inputURL,
+                    csvURL: csvURL,
+                    outputDirectory: outputDirectory,
+                    provenanceDirectory: stagingBundleDir,
+                    bundleName: bundleName,
+                    outputRecords: finalOutputRecords,
+                    result: result
+                )
+                guard !fileManager.fileExists(atPath: bundleDir.path) else {
+                    throw CLIError.outputWriteFailed(
+                        path: bundleDir.path,
+                        reason: "output bundle appeared before finalization"
+                    )
+                }
+                try fileManager.moveItem(at: stagingBundleDir, to: bundleDir)
+            } catch {
+                try? fileManager.removeItem(at: stagingBundleDir)
+                print(formatter.error("Failed to write NVD import output: \(error.localizedDescription)"))
+                throw CLIExitCode.outputError.exitCode
+            }
 
-            print(formatter.success("Manifest written to \(manifestURL.path)"))
+            print(formatter.success("Manifest written to \(bundleDir.appendingPathComponent("manifest.json").path)"))
             print("")
             print(formatter.success(
                 "Imported \(result.hits.count) BLAST hits from \(result.sampleIds.count) samples into \(bundleName)"
@@ -218,7 +278,7 @@ struct NvdCommand: AsyncParsableCommand {
 
             guard FileManager.default.fileExists(atPath: inputURL.path) else {
                 print(formatter.error("Input not found: \(inputPath)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Determine if input is a directory or CSV file
@@ -234,7 +294,7 @@ struct NvdCommand: AsyncParsableCommand {
                 )
                 guard let found = contents.first(where: NvdResultParser.isBlastConcatenatedCSV) else {
                     print(formatter.error("No *_blast_concatenated.csv or *.csv.gz found in 05_labkey_bundling/"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
                 csvURL = found
             } else {
@@ -242,7 +302,13 @@ struct NvdCommand: AsyncParsableCommand {
             }
 
             let parser = NvdResultParser()
-            let result = try await parser.parse(at: csvURL)
+            let result: NvdParseResult
+            do {
+                result = try await parser.parse(at: csvURL)
+            } catch let error as NvdParserError {
+                print(formatter.error(error.localizedDescription))
+                throw nvdExitCode(for: error).exitCode
+            }
 
             switch globalOptions.outputFormat {
             case .json:
@@ -300,6 +366,148 @@ struct NvdCommand: AsyncParsableCommand {
                 nvdPrintTopContigs(result.hits.filter { $0.hitRank == 1 }.prefix(topN), formatter: formatter)
             }
         }
+    }
+}
+
+private func recordNvdImportProvenance(
+    startedAt: Date,
+    inputURL: URL,
+    csvURL: URL,
+    outputDirectory: URL,
+    provenanceDirectory: URL,
+    bundleName: String,
+    outputRecords: [FileRecord],
+    result: NvdParseResult
+) async throws {
+    let command = [
+        "lungfish",
+        "nvd",
+        "import",
+        inputURL.path,
+        "--output-dir",
+        outputDirectory.path,
+        "--name",
+        bundleName,
+    ]
+    let defaultBundleName = "nvd-\(result.experiment.isEmpty ? inputURL.lastPathComponent : result.experiment)"
+
+    try await CLIProvenanceSupport.recordSingleStepRun(
+        name: "lungfish nvd import",
+        parameters: [
+            "inputPath": .string(inputURL.path),
+            "outputDir": .string(outputDirectory.path),
+            "name": .string(bundleName),
+        ],
+        defaults: [
+            "outputDir": .string(FileManager.default.currentDirectoryPath),
+            "name": .string(defaultBundleName),
+        ],
+        resolved: [
+            "inputPath": .string(inputURL.path),
+            "csvPath": .string(csvURL.path),
+            "outputDir": .string(outputDirectory.path),
+            "bundleName": .string(bundleName),
+            "experiment": .string(result.experiment),
+            "sampleCount": .integer(result.sampleIds.count),
+            "hitCount": .integer(result.hits.count),
+        ],
+        toolName: "lungfish nvd import",
+        toolVersion: WorkflowRun.currentAppVersion,
+        command: command,
+        inputs: [
+            ProvenanceRecorder.fileRecord(url: csvURL, format: .unknown, role: .input),
+        ],
+        outputs: outputRecords,
+        exitCode: 0,
+        wallTime: Date().timeIntervalSince(startedAt),
+        stderr: nil,
+        status: .completed,
+        outputDirectory: provenanceDirectory
+    )
+}
+
+func nvdFinalOutputRecords(
+    stagingBundleDirectory: URL,
+    finalBundleDirectory: URL,
+    fileManager: FileManager = .default
+) throws -> [FileRecord] {
+    guard let enumerator = fileManager.enumerator(
+        at: stagingBundleDirectory,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return []
+    }
+
+    var records: [FileRecord] = []
+    for case let stagingURL as URL in enumerator {
+        guard stagingURL.lastPathComponent != ProvenanceRecorder.provenanceFilename else {
+            continue
+        }
+        let values = try stagingURL.resourceValues(forKeys: [.isRegularFileKey])
+        guard values.isRegularFile == true else {
+            continue
+        }
+
+        let relativeComponents = nvdBundleRelativePathComponents(
+            for: stagingURL,
+            stagingBundleDirectory: stagingBundleDirectory
+        )
+        let relativePath = relativeComponents.joined(separator: "/")
+        guard !relativePath.isEmpty else {
+            continue
+        }
+
+        let stagingRecord = ProvenanceRecorder.fileRecord(url: stagingURL, role: .output)
+        let finalURL = finalBundleDirectory.appendingPathComponent(relativePath)
+        records.append(
+            FileRecord(
+                path: finalURL.path,
+                sha256: stagingRecord.sha256,
+                sizeBytes: stagingRecord.sizeBytes,
+                format: stagingRecord.format,
+                role: stagingRecord.role
+            )
+        )
+    }
+    return records.sorted { $0.path < $1.path }
+}
+
+private func nvdBundleRelativePathComponents(
+    for stagingURL: URL,
+    stagingBundleDirectory: URL
+) -> [String] {
+    let stagingMarker = stagingBundleDirectory.lastPathComponent
+    let pathComponents = stagingURL.pathComponents
+    if let markerIndex = pathComponents.lastIndex(of: stagingMarker),
+       markerIndex < pathComponents.index(before: pathComponents.endIndex) {
+        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
+    }
+    if let markerIndex = pathComponents.lastIndex(where: {
+        $0 == ".staging"
+            || $0.hasSuffix(".staging")
+            || $0.hasPrefix(".lungfish-nvd-import-")
+    }), markerIndex < pathComponents.index(before: pathComponents.endIndex) {
+        return Array(pathComponents[pathComponents.index(after: markerIndex)...])
+    }
+
+    let stagingPrefix = stagingBundleDirectory.path.hasSuffix("/")
+        ? stagingBundleDirectory.path
+        : stagingBundleDirectory.path + "/"
+    if stagingURL.path.hasPrefix(stagingPrefix) {
+        return String(stagingURL.path.dropFirst(stagingPrefix.count))
+            .split(separator: "/")
+            .map(String.init)
+    }
+    return [stagingURL.lastPathComponent]
+}
+
+private func nvdExitCode(for error: NvdParserError) -> CLIExitCode {
+    switch error {
+    case .fileNotFound:
+        return .inputError
+    case .invalidHeader, .malformedRow:
+        return .formatError
     }
 }
 

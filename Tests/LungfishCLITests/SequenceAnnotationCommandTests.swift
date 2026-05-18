@@ -200,7 +200,7 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         }
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: escapedURL.path))
-        XCTAssertEqual(try String(contentsOf: escapedURL), "outside\n")
+        XCTAssertEqual(try String(contentsOf: escapedURL, encoding: .utf8), "outside\n")
         XCTAssertEqual(try BundleManifest.load(from: bundleURL).annotations.map(\.id), ["evil"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(".lungfish-provenance.json").path))
     }
@@ -295,7 +295,7 @@ final class SequenceAnnotationCommandTests: XCTestCase {
             XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("annotations/orfs_fail.db").path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(".lungfish-provenance.json").path))
             XCTAssertFalse(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("provenance/bundle.lungfish-provenance.json").path))
-            XCTAssertEqual(try String(contentsOf: annotationsBlockerURL), "not a directory")
+            XCTAssertEqual(try String(contentsOf: annotationsBlockerURL, encoding: .utf8), "not a directory")
         }
     }
 
@@ -330,7 +330,7 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(manifest.annotations.first?.featureCount, 1)
         rows = try AnnotationDatabase(url: dbURL).query(types: ["ORF"], limit: 10)
         XCTAssertEqual(rows.count, 1)
-        let bedRows = try String(contentsOf: bundleURL.appendingPathComponent("annotations/orfs_chr1.bed"))
+        let bedRows = try String(contentsOf: bundleURL.appendingPathComponent("annotations/orfs_chr1.bed"), encoding: .utf8)
             .split(separator: "\n")
         XCTAssertEqual(bedRows.count, 1)
 
@@ -438,7 +438,7 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(remaining.blockCount, 2)
         XCTAssertEqual(remaining.blockSizes, "10,20,")
         XCTAssertEqual(remaining.blockStarts, "0,90,")
-        let rewrittenBED = try String(contentsOf: bedURL)
+        let rewrittenBED = try String(contentsOf: bedURL, encoding: .utf8)
         XCTAssertTrue(rewrittenBED.contains("\t2\t10,20,\t0,90,\tCDS\tgene=multi"))
     }
 
@@ -470,7 +470,7 @@ final class SequenceAnnotationCommandTests: XCTestCase {
             XCTFail("Expected trackPayloadAlreadyExists, got \(error)")
         }
 
-        XCTAssertEqual(try String(contentsOf: staleDBURL), "stale")
+        XCTAssertEqual(try String(contentsOf: staleDBURL, encoding: .utf8), "stale")
         XCTAssertTrue(try BundleManifest.load(from: bundleURL).annotations.isEmpty)
     }
 

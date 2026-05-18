@@ -10,13 +10,49 @@ import LungfishWorkflow
 
 enum AssembleInputResolutionError: LocalizedError {
     case unreadableBundlePayload(String)
+    case derivedBundleRequiresMaterialization(String)
 
     var errorDescription: String? {
         switch self {
         case .unreadableBundlePayload(let path):
             return "Sequence bundle does not contain a readable FASTQ or FASTA payload: \(path)"
+        case .derivedBundleRequiresMaterialization(let path):
+            return "Derived FASTQ bundle must be materialized before assembly execution: \(path)"
         }
     }
+}
+
+enum AssembleReadTypeResolutionError: LocalizedError {
+    case unknownReadType(String)
+    case mixedDetectedAndUnknown
+    case unsupportedDetectedCombination(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unknownReadType(let value):
+            return "Unknown read type: \(value)"
+        case .mixedDetectedAndUnknown:
+            return "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
+        case .unsupportedDetectedCombination(let message):
+            return message
+        }
+    }
+}
+
+protocol AssemblyInputMaterializing {
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL
+}
+
+extension FASTQCLIMaterializer: AssemblyInputMaterializing {}
+
+struct AssemblyResolvedExecutionInputs {
+    let inputURLs: [URL]
+    let materializationStartedAt: Date?
+    let materializationEndedAt: Date?
 }
 
 struct AssembleCommand: AsyncParsableCommand {
@@ -76,51 +112,125 @@ struct AssembleCommand: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
         warnIfDeprecatedAdvancedOptionsUsed()
 
         guard let tool = AssemblyTool(rawValue: assembler.lowercased()) else {
             print(formatter.error("Unknown assembler: \(assembler)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             print(formatter.error("Input file not found: \(inputURL.path)"))
-            throw ExitCode.failure
-        }
-
-        let executionInputURLs: [URL]
-        do {
-            executionInputURLs = try Self.resolveExecutionInputURLs(for: inputURLs)
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
-        }
-
-        if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end assembly requires exactly two sequence inputs."))
-            throw ExitCode.failure
-        }
-
-        let readType = try resolveReadType(for: tool, inputURLs: inputURLs, formatter: formatter)
-        guard AssemblyCompatibility.isSupported(tool: tool, for: readType) else {
-            print(formatter.error("\(tool.displayName) is not available for \(readType.displayName) in v1."))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let projectName = resolvedProjectName(from: inputURLs)
         let outputDirectory = resolvedOutputDirectory(projectName: projectName)
+
+        if pairedEnd && inputURLs.count != 2 {
+            print(formatter.error("Paired-end assembly requires exactly two sequence inputs."))
+            throw CLIExitCode.inputError.exitCode
+        }
+
         let advancedArguments: [String]
         do {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions) + extraArg
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
+
+        let explicitReadType: AssemblyReadType?
+        do {
+            explicitReadType = try Self.parseExplicitReadType(readType)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        if let explicitReadType,
+           !AssemblyCompatibility.isSupported(tool: tool, for: explicitReadType) {
+            print(formatter.error("\(tool.displayName) is not available for \(explicitReadType.displayName) in v1."))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        do {
+            try Self.validatePreMaterializationTopology(
+                tool: tool,
+                inputURLs: inputURLs,
+                pairedEnd: pairedEnd
+            )
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let preMaterializationReadType: AssemblyReadType?
+        do {
+            preMaterializationReadType = try Self.resolvePreMaterializationReadType(
+                for: tool,
+                explicitReadType: explicitReadType,
+                inputURLs: inputURLs
+            )
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        if let preMaterializationReadType,
+           !AssemblyCompatibility.isSupported(tool: tool, for: preMaterializationReadType) {
+            print(formatter.error("\(tool.displayName) is not available for \(preMaterializationReadType.displayName) in v1."))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let executionInputURLs: [URL]
+        let materializationStartedAt: Date?
+        let materializationEndedAt: Date?
+        let resolvedReadType: AssemblyReadType
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
+        do {
+            let resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+            executionInputURLs = resolvedInputs.inputURLs
+            materializationStartedAt = resolvedInputs.materializationStartedAt
+            materializationEndedAt = resolvedInputs.materializationEndedAt
+            resolvedReadType = try preMaterializationReadType ?? Self.resolveReadType(
+                    for: tool,
+                    explicitReadType: readType,
+                    originalInputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs
+                )
+            guard AssemblyCompatibility.isSupported(tool: tool, for: resolvedReadType) else {
+                print(formatter.error("\(tool.displayName) is not available for \(resolvedReadType.displayName) in v1."))
+                try? FileManager.default.removeItem(at: materializationDirectory)
+                throw CLIExitCode.inputError.exitCode
+            }
+        } catch let exit as ExitCode {
+            throw exit
+        } catch let error as AssembleInputResolutionError {
+            try? FileManager.default.removeItem(at: materializationDirectory)
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.formatError.exitCode
+        } catch {
+            try? FileManager.default.removeItem(at: materializationDirectory)
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.workflowError.exitCode
+        }
+
         let request = AssemblyRunRequest(
             tool: tool,
-            readType: readType,
+            readType: resolvedReadType,
             inputURLs: executionInputURLs,
             projectName: projectName,
             outputDirectory: outputDirectory,
@@ -137,7 +247,7 @@ struct AssembleCommand: AsyncParsableCommand {
         print("")
         print(formatter.keyValueTable([
             ("Assembler", tool.displayName),
-            ("Read type", readType.displayName),
+            ("Read type", resolvedReadType.displayName),
             ("Inputs", inputURLs.map(\.lastPathComponent).joined(separator: ", ")),
             ("Paired-end", pairedEnd ? "yes" : "no"),
             ("Threads", "\(executionRequest.threads)"),
@@ -148,11 +258,28 @@ struct AssembleCommand: AsyncParsableCommand {
         ]))
         print("")
 
-        let result = try await ManagedAssemblyPipeline().run(request: executionRequest) { _, message in
-            if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
+        let result: AssemblyResult
+        do {
+            result = try await ManagedAssemblyPipeline().run(request: executionRequest) { _, message in
+                if !globalOptions.quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                }
             }
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.workflowError.exitCode
         }
+        _ = try Self.writeProvenance(
+            request: executionRequest,
+            result: result,
+            originalInputURLs: inputURLs,
+            executionInputURLs: executionInputURLs,
+            argv: CommandLine.arguments,
+            startedAt: startedAt,
+            endedAt: Date(),
+            materializationStartedAt: materializationStartedAt,
+            materializationEndedAt: materializationEndedAt
+        )
 
         if !globalOptions.quiet {
             print("")
@@ -196,35 +323,72 @@ struct AssembleCommand: AsyncParsableCommand {
         FileHandle.standardError.write(Data("warning: --advanced-options is deprecated, use --extra-args\n".utf8))
     }
 
-    private func resolveReadType(
+    static func parseExplicitReadType(_ readType: String?) throws -> AssemblyReadType? {
+        guard let readType else { return nil }
+        guard let parsedReadType = AssemblyReadType(cliArgument: readType) else {
+            throw AssembleReadTypeResolutionError.unknownReadType(readType)
+        }
+        return parsedReadType
+    }
+
+    static func resolvePreMaterializationReadType(
         for tool: AssemblyTool,
-        inputURLs: [URL],
-        formatter: TerminalFormatter
+        explicitReadType: AssemblyReadType?,
+        inputURLs: [URL]
+    ) throws -> AssemblyReadType? {
+        if let explicitReadType {
+            return explicitReadType
+        }
+        let inputDetections = inputURLs.map(detectPreMaterializationReadType)
+        return try evaluateReadTypeDetections(inputDetections, defaultTool: nil)
+    }
+
+    static func resolveReadType(
+        for tool: AssemblyTool,
+        explicitReadType: String?,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
     ) throws -> AssemblyReadType {
-        if let readType {
-            guard let parsedReadType = AssemblyReadType(cliArgument: readType) else {
-                print(formatter.error("Unknown read type: \(readType)"))
-                throw ExitCode.failure
-            }
+        if let parsedReadType = try parseExplicitReadType(explicitReadType) {
             return parsedReadType
         }
 
-        let detectedReadTypes = inputURLs.compactMap(AssemblyReadType.detect(fromFASTQ:))
+        let inputDetections = zipOriginalAndExecutionInputs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        ).map { originalURL, executionURL in
+            AssemblyReadType.detect(fromFASTQ: executionURL)
+                ?? AssemblyReadType.detect(fromInputURL: originalURL)
+        }
+        guard let resolvedReadType = try evaluateReadTypeDetections(inputDetections, defaultTool: tool) else {
+            preconditionFailure("Read type resolution with a default tool must return a read type")
+        }
+        return resolvedReadType
+    }
+
+    private static func evaluateReadTypeDetections(
+        _ inputDetections: [AssemblyReadType?],
+        defaultTool tool: AssemblyTool?
+    ) throws -> AssemblyReadType? {
+        let detectedReadTypes = orderedUniqueReadTypes(inputDetections)
         let evaluation = AssemblyCompatibility.evaluate(detectedReadTypes: detectedReadTypes)
-        let hasKnownAndUnknownMix = !detectedReadTypes.isEmpty && detectedReadTypes.count < inputURLs.count
+        let knownInputCount = inputDetections.compactMap { $0 }.count
+        let hasKnownAndUnknownMix = knownInputCount > 0 && knownInputCount < inputDetections.count
 
         if let blockingMessage = evaluation.blockingMessage {
-            print(formatter.error(blockingMessage))
-            throw ExitCode.failure
+            throw AssembleReadTypeResolutionError.unsupportedDetectedCombination(blockingMessage)
         }
 
         if hasKnownAndUnknownMix {
-            print(formatter.error("Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."))
-            throw ExitCode.failure
+            throw AssembleReadTypeResolutionError.mixedDetectedAndUnknown
         }
 
         if let resolvedReadType = evaluation.resolvedReadType {
             return resolvedReadType
+        }
+
+        guard let tool else {
+            return nil
         }
 
         switch tool {
@@ -235,6 +399,63 @@ struct AssembleCommand: AsyncParsableCommand {
         case .hifiasm:
             return .pacBioHiFi
         }
+    }
+
+    private static func detectPreMaterializationReadType(from inputURL: URL) -> AssemblyReadType? {
+        let standardizedURL = inputURL.standardizedFileURL
+        if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: standardizedURL),
+           let manifest = FASTQBundle.loadDerivedManifest(in: bundleURL) {
+            let rootBundleURL = FASTQBundle.resolveBundle(
+                relativePath: manifest.rootBundleRelativePath,
+                from: bundleURL
+            )
+            let rootPayloadURL = rootBundleURL
+                .appendingPathComponent(manifest.rootFASTQFilename)
+                .standardizedFileURL
+            return AssemblyReadType.detect(fromInputURL: rootPayloadURL)
+        }
+
+        return AssemblyReadType.detect(fromInputURL: standardizedURL)
+    }
+
+    static func validatePreMaterializationTopology(
+        tool: AssemblyTool,
+        inputURLs: [URL],
+        pairedEnd: Bool
+    ) throws {
+        for inputURL in inputURLs {
+            if let unsupportedMessage = AssemblyInputMaterialization.unsupportedAssemblyInputMessage(for: inputURL) {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(unsupportedMessage)
+            }
+        }
+
+        if pairedEnd && inputURLs.count != 2 {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "Paired-end assembly requests must include exactly two sequence inputs."
+            )
+        }
+
+        switch tool {
+        case .flye:
+            guard !pairedEnd, inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Flye expects a single ONT sequence input in v1."
+                )
+            }
+        case .hifiasm:
+            guard !pairedEnd, inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
+                )
+            }
+        case .spades, .megahit, .skesa:
+            break
+        }
+    }
+
+    private static func orderedUniqueReadTypes(_ readTypes: [AssemblyReadType?]) -> [AssemblyReadType] {
+        let detected = Set(readTypes.compactMap { $0 })
+        return AssemblyReadType.allCases.filter { detected.contains($0) }
     }
 
     private func resolvedProjectName(from inputURLs: [URL]) -> String {
@@ -271,10 +492,294 @@ struct AssembleCommand: AsyncParsableCommand {
 
     static func resolveExecutionInputURLs(for inputURLs: [URL]) throws -> [URL] {
         try inputURLs.map { inputURL in
+            if AssemblyInputMaterialization.requiresMaterialization(inputURL) {
+                throw AssembleInputResolutionError.derivedBundleRequiresMaterialization(inputURL.standardizedFileURL.path)
+            }
             guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
                 throw AssembleInputResolutionError.unreadableBundlePayload(inputURL.standardizedFileURL.path)
             }
             return resolvedURL.standardizedFileURL
+        }
+    }
+
+    static func resolveExecutionInputURLs(
+        for inputURLs: [URL],
+        tempDirectory: URL,
+        materializer: AssemblyInputMaterializing,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> [URL] {
+        try await resolveExecutionInputs(
+            for: inputURLs,
+            tempDirectory: tempDirectory,
+            materializer: materializer,
+            progress: progress
+        ).inputURLs
+    }
+
+    static func resolveExecutionInputs(
+        for inputURLs: [URL],
+        tempDirectory: URL,
+        materializer: AssemblyInputMaterializing,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> AssemblyResolvedExecutionInputs {
+        var resolvedURLs: [URL] = []
+        var materializationStartedAt: Date?
+        var materializationEndedAt: Date?
+        for inputURL in inputURLs {
+            if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: inputURL) {
+                if materializationStartedAt == nil {
+                    materializationStartedAt = Date()
+                }
+                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+                let materializedURL = try await materializer.materialize(
+                    bundleURL: bundleURL,
+                    tempDirectory: tempDirectory,
+                    progress: progress
+                )
+                materializationEndedAt = Date()
+                resolvedURLs.append(materializedURL.standardizedFileURL)
+                continue
+            }
+
+            guard let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) else {
+                throw AssembleInputResolutionError.unreadableBundlePayload(inputURL.standardizedFileURL.path)
+            }
+            resolvedURLs.append(resolvedURL.standardizedFileURL)
+        }
+        return AssemblyResolvedExecutionInputs(
+            inputURLs: resolvedURLs,
+            materializationStartedAt: materializationStartedAt,
+            materializationEndedAt: materializationEndedAt
+        )
+    }
+
+    @discardableResult
+    static func writeProvenance(
+        request: AssemblyRunRequest,
+        result: AssemblyResult,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        argv: [String],
+        startedAt: Date,
+        endedAt: Date,
+        materializationStartedAt: Date? = nil,
+        materializationEndedAt: Date? = nil,
+        stderr: String? = nil,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL {
+        let toolVersion = result.assemblerVersion ?? "unknown"
+        var builder = ProvenanceRunBuilder(
+            workflowName: "lungfish.assemble",
+            workflowVersion: LungfishCLI.configuration.version,
+            toolName: request.tool.rawValue,
+            toolVersion: toolVersion
+        )
+        .argv(argv)
+        .options(
+            explicit: assemblyExplicitOptions(for: request, originalInputURLs: originalInputURLs, executionInputURLs: executionInputURLs),
+            defaults: assemblyDefaultOptions(),
+            resolved: assemblyResolvedOptions(for: request, originalInputURLs: originalInputURLs, executionInputURLs: executionInputURLs)
+        )
+        .runtime(
+            ProvenanceRuntimeIdentity(
+                appVersion: LungfishCLI.configuration.version,
+                condaEnvironment: request.tool.environmentName
+            )
+        )
+
+        let inputPairs = zipOriginalAndExecutionInputs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        let executionDescriptors = try inputPairs.map { originalURL, executionURL in
+            try AssemblyInputMaterialization.executionInputDescriptor(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let materializedPairs = inputPairs.filter { originalURL, executionURL in
+            AssemblyInputMaterialization.requiresMaterialization(originalURL)
+                && originalURL.standardizedFileURL != executionURL.standardizedFileURL
+        }
+        let materializedExecutionDescriptors = try materializedPairs.map { originalURL, executionURL in
+            try AssemblyInputMaterialization.executionInputDescriptor(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let materializationInputDescriptors = try materializedPairs.flatMap { originalURL, _ in
+            try AssemblyInputMaterialization.originalInputDescriptors(for: originalURL)
+        }
+        let outputDescriptors = try provenanceOutputDescriptors(for: result)
+
+        if !materializedExecutionDescriptors.isEmpty {
+            let stepStartedAt = materializationStartedAt ?? startedAt
+            let stepCompletedAt = materializationEndedAt ?? stepStartedAt
+            let materializationCommands = materializedPairs.map { originalURL, executionURL in
+                CLISequenceInputMaterialization.materializationCommand(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            }
+            let materializationArgv = materializationCommands.count == 1
+                ? materializationCommands[0]
+                : [
+                    "/bin/sh",
+                    "-lc",
+                    materializationCommands
+                        .map { $0.map(shellEscape).joined(separator: " ") }
+                        .joined(separator: " && "),
+                ]
+            builder = builder.step(
+                ProvenanceStep(
+                    toolName: "lungfish fastq materialize",
+                    toolVersion: LungfishCLI.configuration.version,
+                    argv: materializationArgv,
+                    durableReplayArgv: materializationArgv,
+                    reproducibleCommand: materializationArgv.map(shellEscape).joined(separator: " "),
+                    inputs: materializationInputDescriptors,
+                    outputs: materializedExecutionDescriptors,
+                    exitStatus: 0,
+                    wallTimeSeconds: stepCompletedAt.timeIntervalSince(stepStartedAt),
+                    startedAt: stepStartedAt,
+                    completedAt: stepCompletedAt
+                )
+            )
+        }
+
+        builder = builder.step(
+            ProvenanceStep(
+                toolName: request.tool.rawValue,
+                toolVersion: toolVersion,
+                reproducibleCommand: result.commandLine,
+                inputs: executionDescriptors,
+                outputs: outputDescriptors,
+                exitStatus: 0,
+                wallTimeSeconds: result.wallTimeSeconds,
+                stderr: stderr,
+                startedAt: startedAt,
+                completedAt: endedAt
+            )
+        )
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            stderr: stderr,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return try writer.write(envelope, to: request.outputDirectory)
+    }
+
+    private static func zipOriginalAndExecutionInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [(originalURL: URL, executionURL: URL)] {
+        executionInputURLs.enumerated().map { index, executionURL in
+            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
+            return (originalURL, executionURL)
+        }
+    }
+
+    private static func assemblyDefaultOptions() -> [String: ParameterValue] {
+        [
+            "assembler": .string("spades"),
+            "readType": .null,
+            "projectName": .null,
+            "pairedEnd": .boolean(false),
+            "threads": .null,
+            "memoryGB": .null,
+            "minContigLength": .null,
+            "profile": .string("default"),
+            "extraArguments": .array([]),
+        ]
+    }
+
+    private static func assemblyExplicitOptions(
+        for request: AssemblyRunRequest,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [String: ParameterValue] {
+        assemblyResolvedOptions(
+            for: request,
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+    }
+
+    private static func assemblyResolvedOptions(
+        for request: AssemblyRunRequest,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [String: ParameterValue] {
+        [
+            "assembler": .string(request.tool.rawValue),
+            "readType": .string(request.readType.cliArgument),
+            "projectName": .string(request.projectName),
+            "outputDirectory": .file(request.outputDirectory),
+            "pairedEnd": .boolean(request.pairedEnd),
+            "threads": .integer(request.threads),
+            "memoryGB": request.memoryGB.map(ParameterValue.integer) ?? .null,
+            "minContigLength": request.effectiveMinContigLength.map(ParameterValue.integer) ?? .null,
+            "profile": request.selectedProfileID.map(ParameterValue.string) ?? .string("default"),
+            "extraArguments": .array(request.extraArguments.map(ParameterValue.string)),
+            "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
+            "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
+        ]
+    }
+
+    private static func provenanceOutputDescriptors(
+        for result: AssemblyResult
+    ) throws -> [ProvenanceFileDescriptor] {
+        var outputs: [(url: URL, format: FileFormat?, role: FileRole)] = [
+            (result.contigsPath, .fasta, .output),
+            (result.outputDirectory.appendingPathComponent("assembly-result.json"), .json, .report),
+        ]
+        if let logPath = result.logPath {
+            outputs.append((logPath, .text, .log))
+        }
+        if let graphPath = result.graphPath {
+            outputs.append((graphPath, provenanceFormat(for: graphPath), .output))
+        }
+        if let scaffoldsPath = result.scaffoldsPath {
+            outputs.append((scaffoldsPath, .fasta, .output))
+        }
+        if let paramsPath = result.paramsPath {
+            outputs.append((paramsPath, .text, .report))
+        }
+        return try outputs
+            .filter { FileManager.default.fileExists(atPath: $0.url.path) }
+            .map { output in
+                try ProvenanceFileDescriptor.file(
+                    url: output.url,
+                    format: output.format,
+                    role: output.role
+                )
+            }
+    }
+
+    private static func provenanceFormat(for url: URL) -> FileFormat? {
+        if let sequenceFormat = SequenceFormat.from(url: url) {
+            switch sequenceFormat {
+            case .fasta:
+                return .fasta
+            case .fastq:
+                return .fastq
+            }
+        }
+
+        let pathExtension = url.pathExtension.lowercased()
+        switch pathExtension {
+        case "json":
+            return .json
+        case "log", "txt", "tsv":
+            return .text
+        case "fa", "fasta", "fna":
+            return .fasta
+        case "fq", "fastq":
+            return .fastq
+        default:
+            return .unknown
         }
     }
 }

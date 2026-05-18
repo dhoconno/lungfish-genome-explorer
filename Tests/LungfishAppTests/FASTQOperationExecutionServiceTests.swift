@@ -6,6 +6,190 @@ import LungfishCore
 @testable import LungfishWorkflow
 
 final class FASTQOperationExecutionServiceTests: XCTestCase {
+    func testPlannerSplitsPerInputDerivativeRequestsIntoOnePlanPerInput() throws {
+        let planner = FASTQOperationPlanner()
+        let baseOutputDirectory = URL(fileURLWithPath: "/tmp/fastq-operation-output", isDirectory: true)
+        let originalInputURLs = [
+            URL(fileURLWithPath: "/tmp/source-a.\(FASTQBundle.directoryExtension)", isDirectory: true),
+            URL(fileURLWithPath: "/tmp/source-b.\(FASTQBundle.directoryExtension)", isDirectory: true),
+        ]
+        let resolvedInputURLs = [
+            URL(fileURLWithPath: "/tmp/materialized/source-a.fastq"),
+            URL(fileURLWithPath: "/tmp/materialized/source-b.fastq"),
+        ]
+        let originalRequest = FASTQOperationLaunchRequest.derivative(
+            request: .lengthFilter(min: 20, max: 500),
+            inputURLs: originalInputURLs,
+            outputMode: .perInput
+        )
+        let resolvedRequest = FASTQOperationLaunchRequest.derivative(
+            request: .lengthFilter(min: 20, max: 500),
+            inputURLs: resolvedInputURLs,
+            outputMode: .perInput
+        )
+
+        let plans = planner.makeExecutionPlans(
+            originalRequest: originalRequest,
+            resolvedRequest: resolvedRequest,
+            baseOutputDirectory: baseOutputDirectory
+        )
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertEqual(plans.map(\.originalRequest.inputURLs), originalInputURLs.map { [$0] })
+        XCTAssertEqual(plans.map(\.resolvedRequest.inputURLs), resolvedInputURLs.map { [$0] })
+        XCTAssertEqual(plans.map(\.outputKind), [.fastqFile, .fastqFile])
+        XCTAssertEqual(plans.map(\.outputTarget.lastPathComponent), ["lengthFilter.fastq", "lengthFilter.fastq"])
+        XCTAssertEqual(plans.map { $0.outputTarget.deletingLastPathComponent().lastPathComponent }, ["source-a", "source-b"])
+    }
+
+    func testPlannerUsesWorkingDirectoryForGroupedDemultiplexOutput() throws {
+        let planner = FASTQOperationPlanner()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/grouped-demultiplex", isDirectory: true)
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .demultiplex(
+                kitID: "SQK-RBK004",
+                customCSVPath: nil,
+                location: "bothends",
+                symmetryMode: nil,
+                maxDistanceFrom5Prime: 24,
+                maxDistanceFrom3Prime: 24,
+                errorRate: 0.12,
+                trimBarcodes: true,
+                sampleAssignments: nil,
+                kitOverride: nil
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputMode: .groupedResult
+        )
+
+        let outputDirectory = planner.executionOutputDirectory(for: request, workingDirectory: workingDirectory)
+        let plans = planner.makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(outputDirectory, workingDirectory)
+        XCTAssertEqual(plans.count, 1)
+        XCTAssertEqual(plans[0].outputKind, .directory)
+        XCTAssertEqual(plans[0].outputTarget, workingDirectory)
+    }
+
+    func testPlannerKeepsAssemblyOutputInWorkingDirectory() throws {
+        let planner = FASTQOperationPlanner()
+        let workingDirectory = URL(fileURLWithPath: "/tmp/assembly-output", isDirectory: true)
+        let request = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .megahit,
+                readType: .illuminaShortReads,
+                inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+                projectName: "Demo",
+                outputDirectory: workingDirectory,
+                threads: 4
+            ),
+            outputMode: .perInput
+        )
+
+        XCTAssertEqual(
+            planner.executionOutputDirectory(for: request, workingDirectory: workingDirectory),
+            workingDirectory
+        )
+        XCTAssertEqual(
+            planner.makeExecutionPlans(
+                originalRequest: request,
+                resolvedRequest: request,
+                baseOutputDirectory: workingDirectory
+            ).first?.outputKind,
+            .directory
+        )
+    }
+
+    func testInvocationBuilderBuildsTrimInvocationAndServiceDelegatesCompatibilityEntryPoint() throws {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .fastpTrim(
+                threshold: 20,
+                windowSize: 4,
+                mode: .cutRight,
+                adapterMode: .autoDetect,
+                adapterSequence: nil
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            outputMode: .perInput
+        )
+
+        let builderInvocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request)
+        let serviceInvocation = try FASTQOperationExecutionService().buildInvocation(for: request)
+
+        XCTAssertEqual(builderInvocation, serviceInvocation)
+        XCTAssertEqual(builderInvocation.subcommand, "fastq")
+        XCTAssertEqual(builderInvocation.arguments.first, "trim")
+        XCTAssertTrue(builderInvocation.arguments.contains("--adapter-trimming"))
+        XCTAssertTrue(builderInvocation.arguments.contains("--threshold"))
+        XCTAssertTrue(builderInvocation.arguments.contains("--window"))
+    }
+
+    func testProvenanceRehydratorMapsMaterializedInputPathsToFinalSourcePayload() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecRehydratorPathMap")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = try FASTQOperationTestHelper.makeBundle(named: "source", in: tempDir)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: sourceBundle.fastqURL, readCount: 2, readLength: 20)
+
+        let stagingDir = tempDir.appendingPathComponent("staging", isDirectory: true)
+        let materializedDir = stagingDir.appendingPathComponent("materialized-inputs-test", isDirectory: true)
+        try FileManager.default.createDirectory(at: materializedDir, withIntermediateDirectories: true)
+        let materializedInput = materializedDir.appendingPathComponent("source.fastq")
+        let stagedOutput = stagingDir.appendingPathComponent("source.trimmed.fastq")
+        let finalOutput = tempDir.appendingPathComponent("imported.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: materializedInput, readCount: 2, readLength: 20)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: stagedOutput, readCount: 1, readLength: 18)
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: finalOutput, readCount: 1, readLength: 18)
+        try writeSyntheticProvenance(
+            to: stagingDir,
+            name: "Synthetic trim",
+            toolName: "fastp",
+            toolVersion: "1.0",
+            command: ["fastp", "-i", materializedInput.path, "-o", stagedOutput.path],
+            inputURL: materializedInput,
+            outputURL: stagedOutput,
+            parameters: ["operation": .string("trim")]
+        )
+
+        let pathMap = FASTQOperationProvenanceRehydrator().operationPathMap(
+            sourceURL: stagedOutput,
+            finalOutputURL: finalOutput,
+            sourceInputURL: sourceBundle.bundleURL
+        )
+
+        XCTAssertEqual(pathMap[stagedOutput.path], finalOutput.path)
+        XCTAssertEqual(pathMap[materializedInput.path], sourceBundle.fastqURL.path)
+    }
+
+    func testStagingCleanupRemovesTransientDirectoriesWhilePreservingFinalBundlesAndCallerDirectories() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecCleanup")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cliOutput = tempDir.appendingPathComponent("cli-output-remove", isDirectory: true)
+        let materialized = tempDir.appendingPathComponent("materialized-inputs-remove", isDirectory: true)
+        let preservedStaging = tempDir.appendingPathComponent("cli-output-preserve", isDirectory: true)
+        let finalBundle = preservedStaging.appendingPathComponent("final.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        let callerDirectory = tempDir.appendingPathComponent("caller-output", isDirectory: true)
+        for directory in [cliOutput, materialized, finalBundle, callerDirectory] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        FASTQOperationStagingCleanup().cleanup(
+            directories: [cliOutput, materialized, preservedStaging, callerDirectory],
+            preserving: [finalBundle, callerDirectory]
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: cliOutput.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: materialized.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preservedStaging.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: finalBundle.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: callerDirectory.path))
+    }
+
     func testBuildInvocationRoutesCombinedFastpTrimToFastqTrimCommand() throws {
         let service = FASTQOperationExecutionService()
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
@@ -1624,6 +1808,103 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[minContigIndex + 1], "1")
     }
 
+    func testExecuteAssemblyPreservesOriginalDerivedBundleInputInCLIInvocation() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecAssemblyOriginalInput")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundleURL = try makeVirtualDerivedFASTQBundle(named: "derived-input", in: tempDir)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: materializedURL, readCount: 2, readLength: 20)
+
+        let originalRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [sourceBundleURL],
+                projectName: "Demo",
+                outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                threads: 2
+            ),
+            outputMode: .perInput
+        )
+        let preMaterializedRequest = FASTQOperationLaunchRequest.assemble(
+            request: AssemblyRunRequest(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                inputURLs: [materializedURL],
+                projectName: "Demo",
+                outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                threads: 2
+            ),
+            outputMode: .perInput
+        )
+
+        let resolver = SpyInputResolver(resolvedRequest: preMaterializedRequest)
+        let runner = SpyCommandRunner { _, outputDirectory in
+            FASTQCLIExecutionResult(outputURLs: [outputDirectory])
+        }
+        let service = FASTQOperationExecutionService(
+            inputResolver: resolver,
+            commandRunner: runner,
+            directImporter: SpyDirectImporter()
+        )
+
+        _ = try await service.execute(
+            request: originalRequest,
+            workingDirectory: tempDir
+        )
+
+        XCTAssertTrue(resolver.requests.isEmpty, "Assembly execution should let the assemble CLI own input materialization")
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertTrue(runner.invocations[0].arguments.contains(sourceBundleURL.path))
+        XCTAssertFalse(runner.invocations[0].arguments.contains(materializedURL.path))
+    }
+
+    func testExecuteAssemblyRejectsInvalidFlyeAndHifiasmMultiInputBeforeResolvingInputs() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecAssemblyTopology")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        for (tool, readType, expectedMessage) in [
+            (AssemblyTool.flye, AssemblyReadType.ontReads, "Flye expects a single"),
+            (.hifiasm, .pacBioHiFi, "Hifiasm expects a single"),
+        ] {
+            let request = FASTQOperationLaunchRequest.assemble(
+                request: AssemblyRunRequest(
+                    tool: tool,
+                    readType: readType,
+                    inputURLs: [
+                        tempDir.appendingPathComponent("reads-a.\(FASTQBundle.directoryExtension)", isDirectory: true),
+                        tempDir.appendingPathComponent("reads-b.\(FASTQBundle.directoryExtension)", isDirectory: true),
+                    ],
+                    projectName: "Demo",
+                    outputDirectory: tempDir.appendingPathComponent("assembly-output", isDirectory: true),
+                    threads: 2
+                ),
+                outputMode: .perInput
+            )
+            let resolver = SpyInputResolver(resolvedRequest: request)
+            let runner = SpyCommandRunner()
+            let service = FASTQOperationExecutionService(
+                inputResolver: resolver,
+                commandRunner: runner,
+                directImporter: SpyDirectImporter()
+            )
+
+            do {
+                _ = try await service.execute(request: request, workingDirectory: tempDir)
+                XCTFail("Expected invalid \(tool.rawValue) multi-input launch to fail before resolving inputs")
+            } catch let error as FASTQOperationExecutionError {
+                guard case .unsupportedAssembly(let reason) = error else {
+                    return XCTFail("Expected unsupported assembly error, got \(error)")
+                }
+                XCTAssertTrue(reason.contains(expectedMessage))
+            }
+
+            XCTAssertTrue(resolver.requests.isEmpty)
+            XCTAssertTrue(runner.invocations.isEmpty)
+        }
+    }
+
     func testExecuteKeepsPairedAssemblyAsSinglePerInputPlan() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -2534,7 +2815,7 @@ private func makeReferenceBundle(
     let fastaFilename = "genome/sequence.fa.gz"
     let fastaURL = bundleURL.appendingPathComponent(fastaFilename)
     let fastaContents = records.map { ">\($0.id)\n\($0.sequence)\n" }.joined()
-    try fastaContents.write(to: fastaURL, atomically: true, encoding: .utf8)
+    try writeGzipFixture(fastaContents, to: fastaURL)
 
     let faiContents = records.reduce(into: [String]()) { lines, record in
         lines.append("\(record.id)\t\(record.sequence.count)\t9\t\(record.sequence.count)\t\(record.sequence.count + 1)")
@@ -2557,5 +2838,69 @@ private func makeReferenceBundle(
         )
     )
     try manifest.save(to: bundleURL)
+    return bundleURL
+}
+
+private func writeGzipFixture(_ content: String, to gzipURL: URL) throws {
+    let sourceURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("lungfish-app-gzip-source-\(UUID().uuidString).fa")
+    try content.write(to: sourceURL, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/gzip")
+    process.arguments = ["-c", sourceURL.path]
+
+    let stdoutPipe = Pipe()
+    let stderrPipe = Pipe()
+    process.standardOutput = stdoutPipe
+    process.standardError = stderrPipe
+
+    try process.run()
+    let compressed = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+    let stderr = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+
+    guard process.terminationStatus == 0 else {
+        let message = String(data: stderr, encoding: .utf8) ?? "gzip failed"
+        throw NSError(
+            domain: "FASTQOperationExecutionServiceTests.GzipFixture",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: message]
+        )
+    }
+
+    try compressed.write(to: gzipURL)
+}
+
+private func makeVirtualDerivedFASTQBundle(named name: String, in tempDir: URL) throws -> URL {
+    let root = try FASTQOperationTestHelper.makeBundle(named: "\(name)-root", in: tempDir)
+    try FASTQOperationTestHelper.writeSyntheticFASTQ(to: root.fastqURL, readCount: 4, readLength: 20)
+
+    let bundleURL = tempDir.appendingPathComponent(
+        "\(name).\(FASTQBundle.directoryExtension)",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+    try "read1\nread2\n".write(
+        to: bundleURL.appendingPathComponent("read-ids.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let manifest = FASTQDerivedBundleManifest(
+        name: name,
+        parentBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+        rootBundleRelativePath: "../\(root.bundleURL.lastPathComponent)",
+        rootFASTQFilename: root.fastqURL.lastPathComponent,
+        payload: .subset(readIDListFilename: "read-ids.txt"),
+        lineage: [],
+        operation: FASTQDerivativeOperation(kind: .subsampleCount, count: 2),
+        cachedStatistics: .placeholder(readCount: 2, baseCount: 40),
+        pairingMode: nil,
+        sequenceFormat: .fastq,
+        materializationState: .virtual
+    )
+    try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
     return bundleURL
 }

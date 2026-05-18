@@ -216,46 +216,46 @@ struct EsVirituWizardSheet: View {
     }
 
     private var standaloneBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("EsViritu Viral Detection")
-                        .font(.headline)
-                    Text("Identify viral sequences using the EsViritu pipeline")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                }
-                Spacer()
-                if inputFiles.count == 1 {
-                    Text(inputDisplayName)
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else {
-                    Text("\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") \u{00B7} \(inputFiles.count) files")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                }
+        WizardSheet(
+            title: "EsViritu Viral Detection",
+            subtitle: "Identify viral sequences using the EsViritu pipeline",
+            accessoryText: standaloneAccessoryText,
+            size: WizardSheetSize(width: 520, height: 500),
+            statusText: canRun ? nil : "Finish the settings above to continue",
+            statusColor: Color.lungfishOrangeFallback,
+            isPrimaryEnabled: canRun,
+            onCancel: { onCancel?() },
+            onPrimary: performRun,
+            icon: {
+                Text("e")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.lungfishCreamsicleFallback)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(Color.lungfishMutedFill)
+                    )
+            },
+            content: {
+                configurationSections
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
+        )
+    }
 
-            Divider()
-
-            ScrollView {
-                configurationContent
-            }
-
-            Divider()
-
-            standaloneFooter
+    private var standaloneAccessoryText: String {
+        if inputFiles.count == 1 {
+            return inputDisplayName
         }
-        .frame(width: 520, height: 500)
+        return "\(groupedSamples.count) sample\(groupedSamples.count == 1 ? "" : "s") \u{00B7} \(inputFiles.count) files"
     }
 
     private var configurationContent: some View {
+        configurationSections
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+    }
+
+    private var configurationSections: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Detect viruses from sequencing reads using the EsViritu pipeline. Results will include per-virus detection metrics, genome coverage, and taxonomic profiles.")
                 .font(.system(size: 12))
@@ -278,8 +278,6 @@ struct EsVirituWizardSheet: View {
 
             advancedSettings
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Samples
@@ -447,32 +445,6 @@ struct EsVirituWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
-    }
-
-    private var standaloneFooter: some View {
-        HStack {
-            if !canRun {
-                Text("Finish the settings above to continue")
-                    .font(.caption)
-                    .foregroundStyle(Color.lungfishOrangeFallback)
-            }
-
-            Spacer()
-
-            Button("Cancel") {
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                performRun()
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRun)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Actions

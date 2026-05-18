@@ -202,48 +202,52 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         // Exactly one strategy must be selected
         let strategyCount = [byId, byRegion, byDb, byClassifier].filter { $0 }.count
         guard strategyCount == 1 else {
-            throw ValidationError("Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified")
+            throw CLIError.validationFailed(errors: [
+                "Exactly one of --by-id, --by-region, --by-db, or --by-classifier must be specified"
+            ])
         }
 
         if byId {
             guard idsFile != nil else {
-                throw ValidationError("--ids is required with --by-id")
+                throw CLIError.validationFailed(errors: ["--ids is required with --by-id"])
             }
             guard !sourceFiles.isEmpty else {
-                throw ValidationError("At least one --source file is required with --by-id")
+                throw CLIError.validationFailed(errors: ["At least one --source file is required with --by-id"])
             }
             if keepReadPairs && noKeepReadPairs {
-                throw ValidationError("--keep-read-pairs and --no-keep-read-pairs are mutually exclusive")
+                throw CLIError.validationFailed(errors: ["--keep-read-pairs and --no-keep-read-pairs are mutually exclusive"])
             }
         }
 
         if byRegion {
             guard bamFile != nil else {
-                throw ValidationError("--bam is required with --by-region")
+                throw CLIError.validationFailed(errors: ["--bam is required with --by-region"])
             }
             guard !regions.isEmpty else {
-                throw ValidationError("At least one --region is required with --by-region")
+                throw CLIError.validationFailed(errors: ["At least one --region is required with --by-region"])
             }
         }
 
         if byDb {
             guard databaseFile != nil else {
-                throw ValidationError("--database is required with --by-db")
+                throw CLIError.validationFailed(errors: ["--database is required with --by-db"])
             }
             guard !taxIds.isEmpty || !accessions.isEmpty else {
-                throw ValidationError("At least one --db-taxid or --db-accession is required with --by-db")
+                throw CLIError.validationFailed(errors: ["At least one --db-taxid or --db-accession is required with --by-db"])
             }
         }
 
         if byClassifier {
             guard let toolRaw = classifierTool else {
-                throw ValidationError("--tool is required with --by-classifier")
+                throw CLIError.validationFailed(errors: ["--tool is required with --by-classifier"])
             }
             guard let tool = ClassifierTool(rawValue: toolRaw) else {
-                throw ValidationError("Invalid --tool value '\(toolRaw)'. Must be one of: \(ClassifierTool.allCases.map(\.rawValue).joined(separator: ", "))")
+                throw CLIError.validationFailed(errors: [
+                    "Invalid --tool value '\(toolRaw)'. Must be one of: \(ClassifierTool.allCases.map(\.rawValue).joined(separator: ", "))"
+                ])
             }
             guard classifierResult != nil else {
-                throw ValidationError("--result is required with --by-classifier")
+                throw CLIError.validationFailed(errors: ["--result is required with --by-classifier"])
             }
 
             // Use the flat parsed arrays for the "at least one selection
@@ -257,19 +261,19 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             switch tool {
             case .esviritu, .taxtriage, .naomgs, .nvd:
                 guard hasAccessions else {
-                    throw ValidationError("--tool \(toolRaw) requires at least one --accession")
+                    throw CLIError.validationFailed(errors: ["--tool \(toolRaw) requires at least one --accession"])
                 }
             case .kraken2:
                 guard hasTaxons else {
-                    throw ValidationError("--tool kraken2 requires at least one --taxon")
+                    throw CLIError.validationFailed(errors: ["--tool kraken2 requires at least one --taxon"])
                 }
                 if includeUnmappedMates {
-                    throw ValidationError("--include-unmapped-mates is not supported with --tool kraken2")
+                    throw CLIError.validationFailed(errors: ["--include-unmapped-mates is not supported with --tool kraken2"])
                 }
             }
 
             guard classifierFormat == "fastq" || classifierFormat == "fasta" else {
-                throw ValidationError("--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')")
+                throw CLIError.validationFailed(errors: ["--read-format must be 'fastq' or 'fasta' (got '\(classifierFormat)')"])
             }
         }
     }
@@ -438,7 +442,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let idsURL = URL(fileURLWithPath: idsFile!)
         guard fm.fileExists(atPath: idsURL.path) else {
             print(formatter.error("Read ID file not found: \(idsFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         let idsContent = try String(contentsOf: idsURL, encoding: .utf8)
         let readIDs = Set(
@@ -449,7 +453,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         )
         guard !readIDs.isEmpty else {
             print(formatter.error("Read ID file is empty"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Validate source files
@@ -457,7 +461,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         for url in sourceURLs {
             guard fm.fileExists(atPath: url.path) else {
                 print(formatter.error("Source file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
         }
 
@@ -498,7 +502,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let bamURL = URL(fileURLWithPath: bamFile!)
         guard fm.fileExists(atPath: bamURL.path) else {
             print(formatter.error("BAM file not found: \(bamFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         let config = BAMRegionExtractionConfig(
@@ -538,7 +542,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let dbURL = URL(fileURLWithPath: databaseFile!)
         guard fm.fileExists(atPath: dbURL.path) else {
             print(formatter.error("Database file not found: \(databaseFile!)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // Parse tax IDs
@@ -590,10 +594,10 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let fm = FileManager.default
 
         guard let toolRaw = classifierTool, let tool = ClassifierTool(rawValue: toolRaw) else {
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         guard let resultPathStr = classifierResult else {
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         // Pre-flight existence check, matching the pattern in runByReadID /
         // runByBAMRegion / runByDatabase. The semantics are slightly relaxed
@@ -617,7 +621,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
         let parentExists = fm.fileExists(atPath: resultPath.deletingLastPathComponent().path)
         guard fm.fileExists(atPath: resultPathStr) || parentExists else {
             print(formatter.error("Classifier result not found: \(resultPathStr)"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         // In DEBUG builds, allow tests to inject the simulated argv via the
@@ -677,7 +681,7 @@ struct ExtractReadsSubcommand: AsyncParsableCommand {
             // doesn't silently crash end users.
             print("")
             print(formatter.error("Clipboard / share destinations are not supported from the CLI"))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
         return ReadExtractionResult(
             fastqURLs: [fastqURL],

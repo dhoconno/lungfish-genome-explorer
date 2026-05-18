@@ -203,7 +203,7 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(lock.version, "0.4.0-alpha.16")
-        XCTAssertEqual(lock.tools.count, 15)
+        XCTAssertEqual(lock.tools.count, 14)
         XCTAssertEqual(lock.managedData.count, 2)
 
         let expectedSpecs: [String: String] = [
@@ -220,7 +220,6 @@ final class CondaManagerTests: XCTestCase {
             "vsearch": "bioconda::vsearch=2.30.5=h85a231e_0",
             "pigz": "conda-forge::pigz=2.8=hfab5511_2",
             "sra-tools": "bioconda::sra-tools=3.4.1=h4675bf2_1",
-            "ucsc-bedtobigbed": "bioconda::ucsc-bedtobigbed=482=h1643cc5_0",
             "ucsc-bedgraphtobigwig": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0",
         ]
 
@@ -715,8 +714,7 @@ final class CondaManagerTests: XCTestCase {
         let manager = CondaManager.shared
         // This should not throw even if no environments exist
         let envs = try await manager.listEnvironments()
-        // Just verify it returns an array (may be empty or populated)
-        XCTAssertTrue(envs is [CondaEnvironment])
+        XCTAssertGreaterThanOrEqual(envs.count, 0)
     }
 
     // MARK: - Concurrent Pipe Reading Tests
@@ -731,8 +729,6 @@ final class CondaManagerTests: XCTestCase {
     /// double the pipe buffer size. If the implementation reads pipes
     /// concurrently, this completes in well under the timeout.
     func testRunToolDoesNotDeadlockWithLargeOutput() async throws {
-        let manager = CondaManager.shared
-
         // We bypass micromamba by directly testing the pattern with a known
         // system command. Since runTool requires an environment, we instead
         // test the same continuation+readabilityHandler pattern directly
@@ -857,6 +853,81 @@ final class CondaManagerTests: XCTestCase {
             result.stdout,
             FileManager.default.homeDirectoryForCurrentUser.path
         )
+    }
+
+    func testRunToolCancellationTerminatesMicromambaProcessTree() async throws {
+        let sandbox = try makeMicromambaSandbox()
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let readyURL = sandbox.appendingPathComponent("ready")
+        let rootPIDURL = sandbox.appendingPathComponent("root.pid")
+        let childPIDURL = sandbox.appendingPathComponent("child.pid")
+        let bundledMicromamba = sandbox.appendingPathComponent("bundled-micromamba")
+        try FileManager.default.createDirectory(
+            at: bundledMicromamba.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let script = """
+        #!/bin/sh
+        case "$1" in
+            --version)
+                echo "2.0.5-0"
+                exit 0
+                ;;
+            run)
+                echo $$ > '\(rootPIDURL.path)'
+                /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+                child=$!
+                echo "$child" > '\(childPIDURL.path)'
+                touch '\(readyURL.path)'
+                wait "$child"
+                ;;
+            *)
+                echo "unexpected args: $@" >&2
+                exit 1
+                ;;
+        esac
+        """
+        try script.write(to: bundledMicromamba, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: bundledMicromamba.path
+        )
+
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { bundledMicromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let task = Task {
+            try await manager.runTool(
+                name: "long-tool",
+                environment: "long-env",
+                timeout: 30
+            )
+        }
+
+        try await waitForFile(readyURL)
+        let rootPID = try readPID(rootPIDURL)
+        let childPID = try readPID(childPIDURL)
+        defer {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        let start = Date()
+        task.cancel()
+        let result = await task.result
+        let cancelElapsed = Date().timeIntervalSince(start)
+
+        guard case .failure(let error) = result else {
+            return XCTFail("Expected cancellation to throw")
+        }
+        XCTAssertTrue(error is CancellationError, "Expected CancellationError, got \(error)")
+        XCTAssertLessThan(cancelElapsed, 1.0, "CondaManager cancellation should not wait for the child process to finish naturally")
+        try await waitForProcessExit(pid: childPID)
     }
 
     // MARK: - Private Test Helper
@@ -1051,6 +1122,35 @@ final class CondaManagerTests: XCTestCase {
             let lines = String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init)
             return lines.first?.split(separator: " ").map(String.init)
         }
+    }
+
+    private func waitForFile(_ url: URL, timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for \(url.path)")
+        throw CocoaError(.fileReadNoSuchFile)
+    }
+
+    private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !ProcessTreeTerminator.processExists(pid: pid) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Process \(pid) was still running after cancellation")
+    }
+
+    private func readPID(_ url: URL) throws -> Int32 {
+        let text = try String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }
 
     private final class LockedStrings: @unchecked Sendable {

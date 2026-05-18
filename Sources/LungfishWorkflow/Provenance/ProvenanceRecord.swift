@@ -211,6 +211,9 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
     /// Full command-line as executed (argv).
     public let command: [String]
 
+    /// Durable argv suitable for replay when execution used temporary materialized paths.
+    public let durableReplayArgv: [String]?
+
     /// Input files consumed by this step.
     public let inputs: [FileRecord]
 
@@ -245,6 +248,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         containerImage: String? = nil,
         containerDigest: String? = nil,
         command: [String],
+        durableReplayArgv: [String]? = nil,
         inputs: [FileRecord],
         outputs: [FileRecord] = [],
         exitCode: Int32? = nil,
@@ -261,6 +265,7 @@ public struct StepExecution: Codable, Sendable, Identifiable, Equatable {
         self.containerImage = containerImage
         self.containerDigest = containerDigest
         self.command = command
+        self.durableReplayArgv = durableReplayArgv
         self.inputs = inputs
         self.outputs = outputs
         self.exitCode = exitCode
@@ -588,7 +593,8 @@ extension ProvenanceStep {
             toolName: stepExecution.toolName,
             toolVersion: ProvenanceVersion.required(stepExecution.toolVersion),
             argv: stepExecution.command,
-            reproducibleCommand: stepExecution.commandString,
+            durableReplayArgv: stepExecution.durableReplayArgv,
+            reproducibleCommand: (stepExecution.durableReplayArgv ?? stepExecution.command).map(shellEscape).joined(separator: " "),
             inputs: stepExecution.inputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             outputs: stepExecution.outputs.map { ProvenanceFileDescriptor(fileRecord: $0) },
             exitStatus: stepExecution.exitCode.map(Int.init),

@@ -797,7 +797,7 @@ public class MainSplitViewController: NSSplitViewController {
 
         switch url.pathExtension.lowercased() {
         case "lungfishref":
-            displayReferenceBundleViewportFromSidebar(at: url, forceReload: true)
+            displayReferenceBundleViewportFromSidebar(at: url)
         case MultipleSequenceAlignmentBundle.directoryExtension:
             displayMultipleSequenceAlignmentBundleFromSidebar(at: url)
         case "lungfishtree":
@@ -835,17 +835,7 @@ public class MainSplitViewController: NSSplitViewController {
 
     private func canWriteProjectOutputs(workflowName: String) -> Bool {
         guard projectSession.isReadOnlyRecommended else { return true }
-        let alert = NSAlert()
-        alert.messageText = "Project Is Open Read Only"
-        alert.informativeText = "\(workflowName) writes files into the project. Close the other writer or reopen the project after the lock is released before running this workflow."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.applyLungfishBranding()
-        if let window = view.window ?? NSApp.keyWindow {
-            alert.beginSheetModal(for: window)
-        } else {
-            alert.runModal()
-        }
+        ProjectWriteGatePresenter.presentBlockedWrite(workflowName: workflowName, on: view.window)
         return false
     }
 
@@ -1054,7 +1044,7 @@ public class MainSplitViewController: NSSplitViewController {
                     routeContext: operationRouteContext
                 )
 
-                let result = try await ReferenceBundleImportService.importAsReferenceBundleViaCLI(
+                let result = try await ReferenceBundleImportHelperLauncher.importAsReferenceBundleViaAppHelper(
                     sourceURL: url,
                     outputDirectory: refsDir
                 ) { progress, message in
@@ -1562,14 +1552,15 @@ public class MainSplitViewController: NSSplitViewController {
             alert.addButton(withTitle: "Include Unclassified")
             alert.addButton(withTitle: "Barcoded Only")
             alert.applyLungfishBranding()
-            Task { @MainActor [weak self] in
-                let response = await alert.beginSheetModal(for: window)
+            alert.beginSheetModal(for: window) { [weak self] response in
                 let includeUnclassified = response == .alertFirstButtonReturn
-                self?.performONTImport(
-                    sourceURL: sourceURL, projectURL: projectURL,
-                    includeUnclassified: includeUnclassified,
-                    viewerController: viewerController, requestID: requestID
-                )
+                MainActor.assumeIsolated {
+                    self?.performONTImport(
+                        sourceURL: sourceURL, projectURL: projectURL,
+                        includeUnclassified: includeUnclassified,
+                        viewerController: viewerController, requestID: requestID
+                    )
+                }
             }
         } else {
             performONTImport(
@@ -1586,68 +1577,44 @@ public class MainSplitViewController: NSSplitViewController {
         includeUnclassified: Bool,
         viewerController: ViewerViewController, requestID: String?
     ) {
-        let config = ONTImportConfig(
-            sourceDirectory: sourceURL,
-            outputDirectory: projectURL,
-            includeUnclassified: includeUnclassified
-        )
-
         viewerController.showProgress("Importing ONT directory\u{2026}")
+        let coordinator = ONTImportOperationCoordinator(operationCenter: .shared)
+        let routeContext = operationRouteContext
 
-        let ontCliCmd = "# lungfish import ont \(sourceURL.path) (CLI command not yet available \u{2014} use GUI)"
-        let opID = OperationCenter.shared.start(
-            title: "ONT Import: \(sourceURL.lastPathComponent)",
-            detail: "Detecting layout\u{2026}",
-            operationType: .ingestion,
-            cliCommand: ontCliCmd,
-            routeContext: operationRouteContext
-        )
-
-        Task.detached(priority: .userInitiated) { [weak self] in
+        Task(priority: .userInitiated) { [weak self, weak viewerController] in
             do {
-                let importer = ONTDirectoryImporter()
-                let result = try await importer.importDirectory(config: config) { fraction, message in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            OperationCenter.shared.update(id: opID, progress: fraction, detail: message)
-                        }
-                    }
-                }
+                let workflowResult = try await coordinator.importDirectory(
+                    sourceURL: sourceURL,
+                    projectURL: projectURL,
+                    includeUnclassified: includeUnclassified,
+                    routeContext: routeContext
+                )
+                let result = workflowResult.importResult
 
                 let detail = "\(result.bundleURLs.count) barcode bundles, \(result.totalReadCount) reads"
                 logger.info("importONTDirectoryInBackground: \(detail)")
 
-                DispatchQueue.main.async { [weak self, weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.complete(id: opID, detail: detail, bundleURLs: result.bundleURLs)
-                        self?.sidebarController.reloadFromFilesystem()
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
+                viewerController?.hideProgress()
+                self?.sidebarController.reloadFromFilesystem()
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: true, error: nil)
 
-                        // Display the first bundle
-                        if let firstBundle = result.bundleURLs.first {
-                            self?.displayGenomicsFile(url: firstBundle)
-                        }
-                    }
+                // Display the first bundle
+                if let firstBundle = result.bundleURLs.first {
+                    self?.displayGenomicsFile(url: firstBundle)
                 }
             } catch {
                 logger.error("importONTDirectoryInBackground: \(error)")
-                DispatchQueue.main.async { [weak self, weak viewerController] in
-                    MainActor.assumeIsolated {
-                        viewerController?.hideProgress()
-                        OperationCenter.shared.fail(id: opID, detail: "\(error)")
-                        self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
+                viewerController?.hideProgress()
+                self?.postSidebarFileDropCompleted(requestID: requestID, sourceURL: sourceURL, success: false, error: error.localizedDescription)
 
-                        let alert = NSAlert()
-                        alert.messageText = "ONT Import Failed"
-                        alert.informativeText = "\(error)"
-                        alert.alertStyle = .warning
-                        alert.addButton(withTitle: "OK")
-                        alert.applyLungfishBranding()
-                        if let window = self?.view.window ?? NSApp.keyWindow {
-                            alert.beginSheetModal(for: window)
-                        }
-                    }
+                let alert = NSAlert()
+                alert.messageText = "ONT Import Failed"
+                alert.informativeText = "\(error)"
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.applyLungfishBranding()
+                if let window = self?.view.window ?? NSApp.keyWindow {
+                    alert.beginSheetModal(for: window) { _ in }
                 }
             }
         }
@@ -2906,24 +2873,18 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let toolId = item.userInfo["analysisTool"]
                 ?? AnalysesFolder.readAnalysisMetadata(from: url)?.tool
                 ?? dirName
-            if toolId.hasPrefix("naomgs") {
+            switch AnalysisResultDisplayRoute.route(forToolID: toolId) {
+            case .naoMgs:
                 displayNaoMgsResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("nvd") {
+            case .nvd:
                 displayNvdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("cz-id") {
+            case .czId:
                 displayCzIdResultFromSidebar(at: url, identity: displayIdentity, token: displayToken)
-            } else if toolId.hasPrefix("spades")
-                || toolId.hasPrefix("megahit")
-                || toolId.hasPrefix("skesa")
-                || toolId.hasPrefix("flye")
-                || toolId.hasPrefix("hifiasm") {
+            case .assembly:
                 displayAssemblyAnalysisFromSidebar(at: url)
-            } else if toolId == MappingTool.minimap2.rawValue
-                || toolId == MappingTool.bwaMem2.rawValue
-                || toolId == MappingTool.bowtie2.rawValue
-                || toolId == MappingTool.bbmap.rawValue {
+            case .mapping:
                 displayMappingAnalysisFromSidebar(at: url)
-            } else {
+            case .unknown:
                 logger.warning("displayContent: Unknown analysis type for '\(dirName, privacy: .public)'")
             }
             return
@@ -3017,10 +2978,21 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         }
     }
 
+    /// Display a direct reference bundle opened outside the project sidebar.
+    func displayReferenceBundleFromExternalOpen(at url: URL) throws {
+        inspectorController.clearSelection()
+        try viewerController.displayBundle(at: url)
+        inspectorController.updateProvenanceTarget(
+            url: url,
+            sidebarType: .referenceBundle,
+            displayName: url.lastPathComponent
+        )
+        wireDirectReferenceViewportInspectorUpdates()
+    }
+
     /// Display a direct reference bundle in the shared list/detail reference viewport.
     private func displayReferenceBundleViewportFromSidebar(
         at url: URL,
-        forceReload: Bool = false,
         identity: ContentSelectionIdentity? = nil,
         token: AsyncRequestToken<ContentSelectionIdentity>? = nil
     ) {
@@ -3043,11 +3015,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 do {
                     self.inspectorController.clearSelection()
                     let manifest = try BundleManifest.load(from: url)
-                    let input = ReferenceBundleViewportInput.directBundle(
+                    let route = ViewerDisplayRouteFactory.directReferenceBundle(
                         bundleURL: url,
                         manifest: manifest
                     )
-                    try self.viewerController.displayReferenceBundleViewport(input)
+                    try self.viewerController.display(route)
                     self.wireDirectReferenceViewportInspectorUpdates()
                     logger.info("displayReferenceBundleViewport: Bundle displayed successfully")
                 } catch {
@@ -3135,8 +3107,8 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let result = try MappingResult.load(from: url)
             let provenance = MappingProvenance.load(from: url)
             let projectURL = sidebarController.currentProjectURL ?? DocumentManager.shared.activeProject?.url
-            let input = ReferenceBundleViewportInput.mappingResult(
-                result: result,
+            let route = ViewerDisplayRouteFactory.mappingResult(
+                result,
                 resultDirectoryURL: url,
                 provenance: provenance
             )
@@ -3153,7 +3125,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                     projectURL: projectURL
                 )
             )
-            try viewerController.displayReferenceBundleViewport(input)
+            try viewerController.display(route)
             wireMappingReferenceViewportInspectorUpdates()
             recordUITestEvent(
                 "mapping.display.succeeded tool=\(result.mapper.rawValue) contigs=\(result.contigs.count)"
@@ -3230,21 +3202,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             displayName: dirName
         )
 
-        if toolId.hasPrefix("spades")
-            || toolId.hasPrefix("megahit")
-            || toolId.hasPrefix("skesa")
-            || toolId.hasPrefix("flye")
-            || toolId.hasPrefix("hifiasm") {
+        switch AnalysisResultDisplayRoute.route(forToolID: toolId) {
+        case .assembly:
             displayAssemblyAnalysisFromSidebar(at: batchURL)
             return
-        }
-
-        if toolId == MappingTool.minimap2.rawValue
-            || toolId == MappingTool.bwaMem2.rawValue
-            || toolId == MappingTool.bowtie2.rawValue
-            || toolId == MappingTool.bbmap.rawValue {
+        case .mapping:
             displayMappingAnalysisFromSidebar(at: batchURL)
             return
+        case .naoMgs, .nvd, .czId, .unknown:
+            break
         }
 
         if dirName.hasPrefix("kraken2") || dirName.hasPrefix("classification") {
@@ -4524,10 +4490,10 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
                 logger.info("downloadReferenceForNakedBundle: Genome merged into \(bundleURL.lastPathComponent, privacy: .public)")
 
-                // Reload the bundle in the viewer (force reload since URL hasn't changed)
+                // Reload the bundle in the viewer after the downloaded reference is merged.
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
-                        self?.displayReferenceBundleViewportFromSidebar(at: bundleURL, forceReload: true)
+                        self?.displayReferenceBundleViewportFromSidebar(at: bundleURL)
                     }
                 }
 
@@ -4656,10 +4622,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         alert.alertStyle = .informational
 
         guard let window = self.view.window ?? NSApp.keyWindow else { return }
-        Task { @MainActor [weak self] in
-            let response = await alert.beginSheetModal(for: window)
+        alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            self?.performDownloadReferenceForVCF(inferredRef, assembly: assembly)
+            MainActor.assumeIsolated {
+                self?.performDownloadReferenceForVCF(inferredRef, assembly: assembly)
+            }
         }
     }
 

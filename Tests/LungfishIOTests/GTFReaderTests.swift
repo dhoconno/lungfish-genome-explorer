@@ -52,6 +52,19 @@ final class GTFReaderTests: XCTestCase {
         XCTAssertEqual(features.count, 6)
     }
 
+    func testReadAllFeaturesFromGzippedGTF() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gtf.gz")
+        try GzipTestHelper.writeGzip(sampleGTF, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+        let features = try await reader.readAllFeatures()
+
+        XCTAssertEqual(features.count, 6)
+        XCTAssertEqual(features[0].geneID, "ENSG00000223972")
+    }
+
     func testReadAllAnnotationsFromFixture() async throws {
         let url = try sampleGTFURL()
         let reader = GTFReader(url: url)
@@ -69,6 +82,50 @@ final class GTFReaderTests: XCTestCase {
         let annotations = try reader.readAllSync()
 
         XCTAssertEqual(annotations.count, 6)
+    }
+
+    func testReadAllSyncSupportsGzippedGTF() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gtf.gz")
+        try GzipTestHelper.writeGzip(sampleGTF, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GTFReader(url: url)
+        let annotations = try reader.readAllSync()
+
+        XCTAssertEqual(annotations.count, 6)
+        XCTAssertEqual(annotations[0].name, "DDX11L1")
+    }
+
+    func testReadAllSyncDoesNotLoadPlainGTFWithStringContentsOf() throws {
+        let testURL = URL(fileURLWithPath: #filePath)
+        let packageRoot = testURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourceURL = packageRoot
+            .appendingPathComponent("Sources/LungfishIO/Formats/GFF/GTFReader.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        guard
+            let methodStart = source.range(of: "public func readAllSync() throws -> [SequenceAnnotation]"),
+            let methodEnd = source.range(
+                of: "/// Reads features grouped by sequence ID.",
+                range: methodStart.upperBound..<source.endIndex
+            )
+        else {
+            return XCTFail("Could not locate GTFReader.readAllSync() in source")
+        }
+
+        let methodSource = source[methodStart.lowerBound..<methodEnd.lowerBound]
+        XCTAssertFalse(
+            methodSource.contains("String(contentsOf:"),
+            "readAllSync() must stream plain GTF lines instead of loading the whole file"
+        )
+        XCTAssertTrue(
+            methodSource.contains("FileHandle(forReadingFrom:"),
+            "readAllSync() should use bounded FileHandle streaming for plain GTF files"
+        )
     }
 
     // MARK: - Gene Attribute Tests

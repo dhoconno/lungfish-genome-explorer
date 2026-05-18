@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
+import SQLite3
 import LungfishTestSupport
 @testable import LungfishCLI
 @testable import LungfishIO
@@ -100,7 +101,23 @@ final class MarkdupCommandTests: XCTestCase {
             fi
             ;;
           fixmate)
-            cat
+            if [ "${1:-}" = "-m" ]; then
+              shift
+            fi
+            if [ "${1:-}" = "--reference" ]; then
+              shift 2
+            fi
+            input="${1:--}"
+            output="${2:--}"
+            if [ "$input" = "-" ] && [ "$output" = "-" ]; then
+              cat
+            elif [ "$input" = "-" ]; then
+              cat > "$output"
+            elif [ "$output" = "-" ]; then
+              cat "$input"
+            else
+              cat "$input" > "$output"
+            fi
             ;;
           markdup)
             input="${1:--}"
@@ -169,16 +186,17 @@ final class MarkdupCommandTests: XCTestCase {
         #!/bin/sh
         set -eu
 
-        log="${SAMTOOLS_LOG:?missing SAMTOOLS_LOG}"
         cmd="${1:-}"
         if [ $# -gt 0 ]; then
           shift
         fi
-        printf '%s' "$cmd" >> "$log"
-        for arg in "$@"; do
-          printf '\\t%s' "$arg" >> "$log"
-        done
-        printf '\\n' >> "$log"
+        if [ -n "${SAMTOOLS_LOG:-}" ]; then
+          printf '%s' "$cmd" >> "$SAMTOOLS_LOG"
+          for arg in "$@"; do
+            printf '\\t%s' "$arg" >> "$SAMTOOLS_LOG"
+          done
+          printf '\\n' >> "$SAMTOOLS_LOG"
+        fi
 
         case "$cmd" in
           --version)
@@ -186,18 +204,29 @@ final class MarkdupCommandTests: XCTestCase {
             ;;
           sort)
             output=""
-            input=""
+            input="-"
             while [ $# -gt 0 ]; do
               case "$1" in
                 -o)
                   output="$2"
                   shift 2
                   ;;
-                -@|--reference)
+                -@)
                   shift 2
                   ;;
-                -n)
-                  shift
+                -m)
+                  shift 2
+                  ;;
+                -n|--reference)
+                  if [ "$1" = "--reference" ]; then
+                    shift 2
+                  else
+                    shift
+                  fi
+                  ;;
+                -*)
+                  echo "unexpected sort option: $1" >&2
+                  exit 3
                   ;;
                 *)
                   input="$1"
@@ -205,45 +234,55 @@ final class MarkdupCommandTests: XCTestCase {
                   ;;
               esac
             done
-            if [ -z "$output" ] || [ -z "$input" ] || [ "$input" = "-" ]; then
-              echo "pipeline-only samtools requires sort -o with file input" >&2
-              exit 42
+            if [ -n "$output" ]; then
+              if [ "$input" = "-" ]; then
+                cat > "$output"
+              else
+                cat "$input" > "$output"
+              fi
+            else
+              if [ "$input" = "-" ]; then
+                cat
+              else
+                cat "$input"
+              fi
             fi
-            cat "$input" > "$output"
             ;;
           fixmate)
-            input=""
-            output=""
-            while [ $# -gt 0 ]; do
-              case "$1" in
-                -m)
-                  shift
-                  ;;
-                --reference)
-                  shift 2
-                  ;;
-                *)
-                  if [ -z "$input" ]; then
-                    input="$1"
-                  else
-                    output="$1"
-                  fi
-                  shift
-                  ;;
-              esac
-            done
-            if [ -z "$input" ] || [ -z "$output" ] || [ "$input" = "-" ] || [ "$output" = "-" ]; then
-              echo "pipeline-only samtools requires fixmate file input/output" >&2
-              exit 43
+            if [ "${1:-}" = "-m" ]; then
+              shift
             fi
-            cat "$input" > "$output"
+            if [ "${1:-}" = "--reference" ]; then
+              shift 2
+            fi
+            input="${1:--}"
+            output="${2:--}"
+            if [ "$input" = "-" ] && [ "$output" = "-" ]; then
+              cat
+            elif [ "$input" = "-" ]; then
+              cat > "$output"
+            elif [ "$output" = "-" ]; then
+              cat "$input"
+            else
+              cat "$input" > "$output"
+            fi
             ;;
           markdup)
-            input="${1:?missing input path}"
-            output="${2:?missing output path}"
-            if [ "$input" = "-" ]; then
-              echo "pipeline-only samtools requires markdup file input" >&2
-              exit 44
+            if [ "${1:-}" = "-r" ]; then
+              shift
+            fi
+            input="${1:--}"
+            output="${2:-}"
+            if [ -z "$input" ] || [ "$input" = "-" ] || [ -z "$output" ]; then
+              if [ "$input" = "-" ] && [ -n "$output" ]; then
+                {
+                  printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
+                  cat
+                } > "$output"
+                exit 0
+              fi
+              echo "markdup requires output path" >&2
+              exit 7
             fi
             {
               printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
@@ -251,13 +290,24 @@ final class MarkdupCommandTests: XCTestCase {
             } > "$output"
             ;;
           index)
-            : > "$1.bai"
+            input="${1:-}"
+            if [ -z "$input" ] || [ "$input" = "-" ]; then
+              echo "pipeline index requires file input" >&2
+              exit 8
+            fi
+            printf 'BAI\\n' > "$input.bai"
             ;;
           view)
             header=0
             count=0
+            bam=""
+            bam_from_stdin=0
             while [ $# -gt 0 ]; do
               case "$1" in
+                -bS)
+                  bam_from_stdin=1
+                  shift
+                  ;;
                 -H)
                   header=1
                   shift
@@ -269,27 +319,44 @@ final class MarkdupCommandTests: XCTestCase {
                 -F)
                   shift 2
                   ;;
+                -)
+                  bam="-"
+                  shift
+                  ;;
                 *)
                   bam="$1"
                   shift
                   ;;
               esac
             done
-            if [ "${header:-0}" -eq 1 ]; then
+            if [ "$bam_from_stdin" -eq 1 ] && [ "$bam" = "-" ]; then
+              cat
+              exit 0
+            fi
+            if [ "$header" -eq 1 ]; then
               printf '@HD\\tVN:1.6\\tSO:coordinate\\n'
-              if [ -n "${bam:-}" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
+              if [ -n "$bam" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
                 printf '@PG\\tID:samtools.markdup\\tCL:samtools markdup\\n'
               fi
               exit 0
             fi
-            if [ "${count:-0}" -eq 1 ]; then
-              echo 5
+            if [ "$count" -eq 1 ]; then
+              if [ -n "$bam" ] && [ -f "$bam" ] && /usr/bin/grep -aq 'samtools markdup' "$bam"; then
+                if [ -n "${SAMTOOLS_FAIL_MARKDUP_COUNT:-}" ]; then
+                  echo "forced post-replacement count failure" >&2
+                  exit 42
+                fi
+                echo 4
+              else
+                echo 5
+              fi
               exit 0
             fi
             exit 1
             ;;
           *)
-            exit 1
+            echo "unexpected samtools subcommand: $cmd" >&2
+            exit 9
             ;;
         esac
         """.write(to: samtoolsPath, atomically: true, encoding: .utf8)
@@ -352,6 +419,84 @@ final class MarkdupCommandTests: XCTestCase {
         try BamFixtureBuilder.makeBAM(at: url, references: refs, reads: reads, samtoolsPath: samtools)
     }
 
+    private func makeNaoMgsDatabase(at dbURL: URL, sample: String = "S1") throws {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(
+            dbURL.path,
+            &db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE,
+            nil
+        ) == SQLITE_OK else {
+            throw NSError(domain: "MarkdupCommandTests", code: 1)
+        }
+        defer { sqlite3_close(db) }
+
+        sqlite3_exec(db, """
+        CREATE TABLE virus_hits (
+            rowid INTEGER PRIMARY KEY,
+            sample TEXT NOT NULL,
+            seq_id TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            subject_seq_id TEXT NOT NULL,
+            subject_title TEXT NOT NULL,
+            ref_start INTEGER,
+            cigar TEXT,
+            read_sequence TEXT,
+            read_quality TEXT,
+            percent_identity REAL NOT NULL,
+            bit_score REAL NOT NULL,
+            e_value REAL NOT NULL,
+            edit_distance INTEGER,
+            query_length INTEGER,
+            is_reverse_complement INTEGER,
+            pair_status TEXT NOT NULL,
+            fragment_length INTEGER NOT NULL,
+            best_alignment_score REAL,
+            ref_start_rev INTEGER,
+            read_sequence_rev TEXT,
+            read_quality_rev TEXT,
+            edit_distance_rev INTEGER,
+            query_length_rev INTEGER,
+            is_reverse_complement_rev INTEGER,
+            best_alignment_score_rev REAL
+        );
+        CREATE TABLE reference_lengths (accession TEXT PRIMARY KEY, length INTEGER NOT NULL);
+        CREATE TABLE taxon_summaries (
+            sample TEXT NOT NULL,
+            tax_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            hit_count INTEGER NOT NULL,
+            unique_read_count INTEGER NOT NULL,
+            avg_identity REAL NOT NULL,
+            avg_bit_score REAL NOT NULL,
+            avg_edit_distance REAL NOT NULL,
+            pcr_duplicate_count INTEGER NOT NULL,
+            accession_count INTEGER NOT NULL,
+            top_accessions_json TEXT NOT NULL,
+            bam_path TEXT,
+            bam_index_path TEXT,
+            PRIMARY KEY (sample, tax_id)
+        );
+        """, nil, nil, nil)
+
+        sqlite3_exec(db, "INSERT INTO reference_lengths VALUES ('NC_001', 1000)", nil, nil, nil)
+        sqlite3_exec(db, """
+        INSERT INTO taxon_summaries VALUES (
+            '\(sample)', 1, 'Test virus', 1, 1, 99.0, 100.0, 0.0, 0, 1, '[]', NULL, NULL
+        )
+        """, nil, nil, nil)
+
+        let seq = String(repeating: "A", count: 50)
+        let qual = String(repeating: "I", count: 50)
+        sqlite3_exec(db, """
+        INSERT INTO virus_hits VALUES (
+            NULL, '\(sample)', 'read1', 1, 'NC_001', 'Test virus',
+            100, '50M', '\(seq)', '\(qual)', 99.0, 100.0, 0.001, 0, 50, 0,
+            'unpaired', 50, 90.0, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+        )
+        """, nil, nil, nil)
+    }
+
     private func cliBinaryURL() throws -> URL {
         let thisFile = URL(fileURLWithPath: #filePath)
         let repoRoot = thisFile
@@ -398,6 +543,360 @@ final class MarkdupCommandTests: XCTestCase {
     }
 
     // MARK: - Tests
+
+    func testCliMarkdupDirectoryJSONResultsAreSortedByStandardizedPath() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let zDir = dir.appendingPathComponent("z", isDirectory: true)
+        let aDir = dir.appendingPathComponent("a", isDirectory: true)
+        try FileManager.default.createDirectory(at: zDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: aDir, withIntermediateDirectories: true)
+        let zBam = zDir.appendingPathComponent("z.bam")
+        let aBam = aDir.appendingPathComponent("a.bam")
+        try makeSyntheticBam(at: zBam, samtools: samtools)
+        try makeSyntheticBam(at: aBam, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        var output: [String] = []
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([
+                dir.path,
+                "--format", "json",
+            ])
+            _ = try await cmd.executeForTesting { output.append($0) }
+        }
+
+        let summary = try XCTUnwrap(decodeMarkdupJSONOutput(output.last ?? ""))
+        let normalizeTempPath: (String) -> String = { path in
+            path.hasPrefix("/private/var/") ? String(path.dropFirst("/private".count)) : path
+        }
+        XCTAssertEqual(
+            summary.results.map { normalizeTempPath($0.bamPath) },
+            [aBam, zBam].map { normalizeTempPath($0.path) }
+        )
+    }
+
+    func testCliMarkdupRejectsInvalidSortThreads() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: managedHome.samtoolsPath.path)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([
+                bamURL.path,
+                "--sort-threads", "0",
+                "-q",
+            ])
+            do {
+                try await cmd.run()
+                XCTFail("Expected --sort-threads 0 to be rejected")
+            } catch {
+                XCTAssertTrue("\(error)".contains("sort-threads"))
+                XCTAssertTrue("\(error)".contains(">= 1"))
+            }
+        }
+    }
+
+    func testCliMarkdupRunsSharedPipelineCommandChain() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        let logURL = dir.appendingPathComponent("samtools.log")
+        try Data().write(to: logURL)
+
+        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
+            try await withHomeDirectory(managedHome.home) {
+                let cmd = try MarkdupCommand.parse([
+                    bamURL.path,
+                    "--sort-threads", "7",
+                    "-q",
+                ])
+                try await cmd.run()
+            }
+        }
+
+        let logLines = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let pipelineLines = logLines.filter { line in
+            let command = line.split(separator: "\t", omittingEmptySubsequences: false).first.map(String.init)
+            return command != "view" && command != "--version"
+        }
+        let commandNames = pipelineLines.map {
+            String($0.split(separator: "\t", omittingEmptySubsequences: false).first ?? "")
+        }
+        XCTAssertEqual(commandNames, ["sort", "fixmate", "sort", "markdup", "index"])
+
+        let sortLines = pipelineLines.filter { $0.hasPrefix("sort\t") }
+        XCTAssertEqual(sortLines.count, 2)
+        XCTAssertTrue(sortLines.allSatisfy { $0.contains("\t-@\t7") })
+        XCTAssertTrue(sortLines.allSatisfy { $0.contains("\t-o\t") })
+        let markdupLine = try XCTUnwrap(pipelineLines.first { $0.hasPrefix("markdup\t") })
+        XCTAssertFalse(markdupLine.contains("\t-\t"))
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+    }
+
+    func testCliMarkdupWritesCanonicalProvenanceForBamOutput() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        let logURL = dir.appendingPathComponent("samtools.log")
+        try Data().write(to: logURL)
+
+        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
+            try await withHomeDirectory(managedHome.home) {
+                let cmd = try MarkdupCommand.parse([
+                    bamURL.path,
+                    "--sort-threads", "3",
+                    "-q",
+                ])
+                try await cmd.run()
+            }
+        }
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: bamURL)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "lungfish markdup")
+        XCTAssertEqual(envelope.toolName, "lungfish markdup")
+        XCTAssertEqual(envelope.output?.path, bamURL.path)
+        XCTAssertTrue(envelope.argv.contains("markdup"))
+        XCTAssertTrue(envelope.argv.contains(bamURL.path))
+        XCTAssertEqual(envelope.options.defaults["sortThreads"]?.integerValue, 4)
+        XCTAssertEqual(envelope.options.resolvedDefaults["sortThreads"]?.integerValue, 3)
+        XCTAssertEqual(envelope.options.resolvedDefaults["force"]?.booleanValue, false)
+
+        let outputPaths = Set(envelope.outputs.map(\.path))
+        XCTAssertTrue(outputPaths.contains(bamURL.path))
+        XCTAssertTrue(outputPaths.contains(bamURL.path + ".bai"))
+        XCTAssertTrue(envelope.outputs.allSatisfy { $0.checksumSHA256 != nil && $0.fileSize != nil })
+
+        let samtoolsSteps = envelope.steps.filter { $0.toolName == "samtools" }
+        XCTAssertEqual(
+            samtoolsSteps.compactMap { $0.argv.dropFirst().first },
+            ["sort", "fixmate", "sort", "markdup", "index"]
+        )
+        XCTAssertTrue(samtoolsSteps.allSatisfy { $0.exitStatus == 0 && $0.wallTimeSeconds != nil })
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertNotNil(envelope.wallTimeSeconds)
+    }
+
+    func testCliMarkdupFullRunIndexSidecarFocusesIndexOutput() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
+
+        let envelope = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: baiURL))
+        )
+        XCTAssertEqual(envelope.output?.path, baiURL.path)
+        XCTAssertEqual(envelope.outputs.first?.path, baiURL.path)
+        XCTAssertTrue(envelope.outputs.map(\.path).contains(bamURL.path))
+        XCTAssertEqual(envelope.steps.last?.outputs.map(\.path), [baiURL.path])
+    }
+
+    func testCliMarkdupWritesFailureProvenanceAfterPostReplacementFailure() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        try await withEnvironment(["SAMTOOLS_FAIL_MARKDUP_COUNT": "1"]) {
+            try await withHomeDirectory(managedHome.home) {
+                let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+                do {
+                    try await cmd.run()
+                    XCTFail("Expected post-replacement count failure")
+                } catch {
+                    XCTAssertTrue("\(error)".contains("count") || "\(error)".contains("42"))
+                }
+            }
+        }
+
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: bamURL)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecarURL))
+        XCTAssertNotEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.output?.path, bamURL.path)
+        XCTAssertTrue(envelope.stderr?.contains("forced post-replacement count failure") == true)
+    }
+
+    func testCliMarkdupWritesProvenanceWhenSkipPathRebuildsIndex() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        let bamURL = dir.appendingPathComponent("test.bam")
+        let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
+
+        try FileManager.default.removeItem(at: baiURL)
+        try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: baiURL))
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: baiURL.path))
+        let indexSidecarURL = ProvenanceRecorder.fileSidecarURL(for: baiURL)
+        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: indexSidecarURL))
+        XCTAssertEqual(envelope.output?.path, baiURL.path)
+        XCTAssertEqual(Set(envelope.outputs.map(\.path)), [baiURL.path])
+        XCTAssertEqual(
+            envelope.steps.compactMap { $0.argv.dropFirst().first },
+            ["index"]
+        )
+        XCTAssertEqual(envelope.steps.first?.outputs.map(\.path), [baiURL.path])
+        XCTAssertEqual(envelope.exitStatus, 0)
+    }
+
+    func testCliMarkdupNaoMgsDirectoryUsesSharedPipelineForMaterializedBAMs() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        try makeNaoMgsDatabase(at: dir.appendingPathComponent("hits.sqlite"))
+        let bamsDir = dir.appendingPathComponent("bams", isDirectory: true)
+        try FileManager.default.createDirectory(at: bamsDir, withIntermediateDirectories: true)
+        let bamURL = bamsDir.appendingPathComponent("S1.bam")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        let logURL = dir.appendingPathComponent("samtools.log")
+        try Data().write(to: logURL)
+
+        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
+            try await withHomeDirectory(managedHome.home) {
+                let cmd = try MarkdupCommand.parse([dir.path, "-q"])
+                try await cmd.run()
+            }
+        }
+
+        let logLines = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        let markdupLines = logLines.filter { $0.hasPrefix("markdup\t") }
+        XCTAssertEqual(markdupLines.count, 1)
+        let markdupLine = try XCTUnwrap(markdupLines.first)
+        XCTAssertFalse(
+            markdupLine.contains("\t-\t"),
+            "NAO-MGS CLI directory markdup should be the shared file-based pipeline pass, not MarkdupService's stdin/stdout shell pipeline"
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bamURL.path))
+        XCTAssertNotNil(ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: bamURL)))
+    }
+
+    func testCliMarkdupNaoMgsExistingAlreadyMarkedBamMissingIndexWritesIndexProvenance() async throws {
+        let managedHome = try makeFunctionalManagedSamtoolsHome()
+        let samtools = managedHome.samtoolsPath.path
+        let dir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.removeItem(at: managedHome.home)
+        }
+        try makeNaoMgsDatabase(at: dir.appendingPathComponent("hits.sqlite"))
+        let bamsDir = dir.appendingPathComponent("bams", isDirectory: true)
+        try FileManager.default.createDirectory(at: bamsDir, withIntermediateDirectories: true)
+        let bamURL = bamsDir.appendingPathComponent("S1.bam")
+        let baiURL = URL(fileURLWithPath: bamURL.path + ".bai")
+        try makeSyntheticBam(at: bamURL, samtools: samtools)
+        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
+
+        try await withHomeDirectory(managedHome.home) {
+            let cmd = try MarkdupCommand.parse([bamURL.path, "-q"])
+            try await cmd.run()
+        }
+        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
+
+        try FileManager.default.removeItem(at: baiURL)
+        try? FileManager.default.removeItem(at: ProvenanceRecorder.fileSidecarURL(for: baiURL))
+
+        let logURL = dir.appendingPathComponent("samtools.log")
+        try Data().write(to: logURL)
+        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
+            try await withHomeDirectory(managedHome.home) {
+                let cmd = try MarkdupCommand.parse([dir.path, "-q"])
+                try await cmd.run()
+            }
+        }
+
+        let logLines = try String(contentsOf: logURL, encoding: .utf8)
+            .split(separator: "\n")
+            .map(String.init)
+        XCTAssertEqual(logLines.filter { $0.hasPrefix("index\t") }.count, 1)
+        XCTAssertEqual(logLines.filter { $0.hasPrefix("markdup\t") }.count, 0)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: baiURL.path))
+        let envelope = try XCTUnwrap(
+            ProvenanceRecorder.loadEnvelope(fromSidecar: ProvenanceRecorder.fileSidecarURL(for: baiURL))
+        )
+        let normalizePath: (String) -> String = { path in
+            path.hasPrefix("/private/var/") ? String(path.dropFirst("/private".count)) : path
+        }
+        let expectedIndexPath = normalizePath(baiURL.path)
+        XCTAssertEqual(envelope.output.map { normalizePath($0.path) }, expectedIndexPath)
+        XCTAssertEqual(Set(envelope.outputs.map { normalizePath($0.path) }), [expectedIndexPath])
+        XCTAssertEqual(envelope.steps.compactMap { $0.argv.dropFirst().first }, ["index"])
+        XCTAssertEqual(envelope.steps.first?.outputs.map { normalizePath($0.path) }, [expectedIndexPath])
+    }
 
     func testCliMarkdupSingleBAM() async throws {
         let managedHome = try makeFunctionalManagedSamtoolsHome()
@@ -463,98 +962,6 @@ final class MarkdupCommandTests: XCTestCase {
 
         XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam1, samtoolsPath: samtools))
         XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bam2, samtoolsPath: samtools))
-    }
-
-    func testCliMarkdupRunsSharedPipelineCommandChain() async throws {
-        let managedHome = try makeManagedSamtoolsHome()
-        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
-        let samtools = managedHome.samtoolsPath.path
-        let dir = try makeTempDir()
-        defer {
-            try? FileManager.default.removeItem(at: dir)
-            try? FileManager.default.removeItem(at: managedHome.home)
-        }
-        let bamURL = dir.appendingPathComponent("test.bam")
-        let logURL = dir.appendingPathComponent("samtools.log")
-        try makeSyntheticBam(at: bamURL, samtools: samtools)
-
-        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
-            try await withHomeDirectory(managedHome.home) {
-                let cmd = try MarkdupCommand.parse([
-                    bamURL.path,
-                    "--sort-threads", "7",
-                    "-q"
-                ])
-                try await cmd.run()
-            }
-        }
-
-        let lines = try String(contentsOf: logURL, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-            .filter { !$0.hasPrefix("view\t") && !$0.hasPrefix("--version") }
-        XCTAssertEqual(lines.map { $0.split(separator: "\t").first.map(String.init) }, [
-            "sort",
-            "fixmate",
-            "sort",
-            "markdup",
-            "index"
-        ])
-        XCTAssertTrue(lines[0].contains("\t-n\t"))
-        XCTAssertTrue(lines[0].contains("\t-@\t7\t"))
-        XCTAssertTrue(lines[0].contains("\t-o\t"))
-        XCTAssertTrue(lines[2].contains("\t-@\t7\t"))
-        XCTAssertTrue(lines[2].contains("\t-o\t"))
-        XCTAssertFalse(lines[3].contains("\t-\t"))
-        XCTAssertTrue(MarkdupService.isAlreadyMarkduped(bamURL: bamURL, samtoolsPath: samtools))
-    }
-
-    func testCliMarkdupWritesCanonicalProvenanceForBamOutput() async throws {
-        let managedHome = try makeManagedSamtoolsHome()
-        try writePipelineOnlySamtools(at: managedHome.samtoolsPath)
-        let samtools = managedHome.samtoolsPath.path
-        let dir = try makeTempDir()
-        defer {
-            try? FileManager.default.removeItem(at: dir)
-            try? FileManager.default.removeItem(at: managedHome.home)
-        }
-        let bamURL = dir.appendingPathComponent("test.bam")
-        let logURL = dir.appendingPathComponent("samtools.log")
-        try makeSyntheticBam(at: bamURL, samtools: samtools)
-
-        try await withEnvironment(["SAMTOOLS_LOG": logURL.path]) {
-            try await withHomeDirectory(managedHome.home) {
-                let cmd = try MarkdupCommand.parse([
-                    bamURL.path,
-                    "--sort-threads", "3",
-                    "-q"
-                ])
-                try await cmd.run()
-            }
-        }
-
-        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: bamURL)
-        let envelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(fromSidecar: sidecarURL))
-        XCTAssertEqual(envelope.workflowName, "lungfish markdup")
-        XCTAssertEqual(envelope.toolName, "lungfish markdup")
-        XCTAssertEqual(envelope.output?.path, bamURL.path)
-        XCTAssertEqual(envelope.options.defaults["sortThreads"]?.integerValue, 4)
-        XCTAssertEqual(envelope.options.resolvedDefaults["sortThreads"]?.integerValue, 3)
-        XCTAssertEqual(envelope.options.resolvedDefaults["force"]?.booleanValue, false)
-        XCTAssertTrue(envelope.argv.contains("markdup"))
-        XCTAssertTrue(envelope.argv.contains(bamURL.path))
-        XCTAssertTrue(envelope.outputs.contains { $0.path == bamURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil })
-        XCTAssertTrue(envelope.outputs.contains { $0.path == "\(bamURL.path).bai" && $0.checksumSHA256 != nil && $0.fileSize != nil })
-        XCTAssertEqual(envelope.steps.map(\.toolName), Array(repeating: "samtools", count: 5))
-        XCTAssertEqual(envelope.steps.compactMap { $0.argv.dropFirst().first }, [
-            "sort",
-            "fixmate",
-            "sort",
-            "markdup",
-            "index"
-        ])
-        XCTAssertTrue(envelope.steps.allSatisfy { $0.exitStatus == 0 })
-        XCTAssertTrue(envelope.steps.allSatisfy { $0.wallTimeSeconds != nil })
     }
 
     func testCliMarkdupSkipsAlreadyMarked() async throws {
@@ -638,6 +1045,18 @@ final class MarkdupCommandTests: XCTestCase {
         let help = MarkdupCommand.helpMessage()
         XCTAssertTrue(help.contains("Output format: text, json"))
         XCTAssertFalse(help.contains("tsv"))
+    }
+
+    func testLegacyMarkdupParsesDeduplicatedBundleOption() throws {
+        let command = try MarkdupCommand.parse([
+            "/tmp/source.lungfishref",
+            "--deduplicated-bundle", "/tmp/source-deduplicated.lungfishref",
+            "--format", "json",
+        ])
+
+        XCTAssertEqual(command.path, "/tmp/source.lungfishref")
+        XCTAssertEqual(command.deduplicatedBundlePath, "/tmp/source-deduplicated.lungfishref")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 
     func testRootLevelQuietAppliesToBamMarkdupExecutable() throws {

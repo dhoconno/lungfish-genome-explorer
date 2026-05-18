@@ -122,7 +122,7 @@ public enum FileTypeUtility {
     /// - Parameter url: The file URL to analyze
     /// - Returns: File type information
     public static func detect(url: URL) -> FileTypeInfo {
-        var ext = url.pathExtension.lowercased()
+        let ext = url.pathExtension.lowercased()
 
         // Handle wrapped compressed files by looking at the inner extension
         if ["gz", "gzip", "bgz", "bz2", "xz", "zst", "zstd"].contains(ext) {

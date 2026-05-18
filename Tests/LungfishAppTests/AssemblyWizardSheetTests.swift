@@ -1,72 +1,71 @@
 import XCTest
+@testable import LungfishApp
+@testable import LungfishWorkflow
 
+@MainActor
 final class AssemblyWizardSheetTests: XCTestCase {
-    func testUnknownReadTypeDefaultsAreTreatedAsCurrentManualSelection() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("_hasConfirmedManualReadType = State(initialValue: true)"))
-        XCTAssertTrue(source.contains("if requiresManualReadTypeConfirmation"))
-        XCTAssertTrue(
-            source.contains(
-                "&& !AssemblyCompatibility.isSupported(tool: newValue, for: selectedReadType) {"
-            )
-        )
-        XCTAssertTrue(
-            source.contains("No single read class detected. Review the selected read type below.")
+    func testUnknownReadTypeDefaultsAreTreatedAsCurrentManualSelection() {
+        XCTAssertTrue(AssemblyWizardSheet.initialManualReadTypeConfirmationState())
+        XCTAssertEqual(
+            AssemblyWizardSheet.detectedReadTypeSummary(
+                compatibilityBlockingMessage: nil,
+                resolvedReadType: nil
+            ),
+            "No single read class detected. Review the selected read type below."
         )
     }
 
-    func testRunRequiresManagedAssemblyToolReadiness() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
-            encoding: .utf8
+    func testRunRequiresManagedAssemblyToolReadiness() {
+        let blocked = AssemblyWizardRunPresentation(
+            hasInputFiles: true,
+            hasOutputDirectory: true,
+            projectName: "Demo",
+            requiresManualReadTypeConfirmation: false,
+            hasConfirmedManualReadType: true,
+            advancedOptionsParseError: nil,
+            compatibilityPresentation: AssemblyCompatibilityPresentation(
+                tool: .spades,
+                readType: .illuminaShortReads,
+                packReady: true,
+                toolReady: false,
+                blockingMessage: nil
+            ),
+            configurationBlockingMessage: nil
         )
 
-        XCTAssertTrue(source.contains("guard compatibilityPresentation.state == .ready else { return false }"))
-        XCTAssertTrue(source.contains("return compatibilityPresentation.message"))
+        XCTAssertFalse(blocked.canRun)
+        XCTAssertEqual(blocked.validationMessage, "SPAdes is not ready in the Genome Assembly pack yet.")
     }
 
-    func testAssemblySheetUsesExtraArgumentsWording() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
-            encoding: .utf8
+    func testAssemblySheetUsesExtraArgumentsWording() {
+        XCTAssertEqual(AssemblyWizardSheet.advancedDisclosureTitle, "Curated extra arguments")
+        XCTAssertEqual(AssemblyWizardSheet.extraArgumentsFieldTitle, "Extra arguments")
+    }
+
+    func testHifiasmProfilesDefaultToDiploidAndExposeHaploidViral() {
+        let options = AssemblyWizardSheet.profileOptions(for: .hifiasm)
+
+        XCTAssertEqual(AssemblyWizardSheet.defaultProfileID(for: .hifiasm), "diploid")
+        XCTAssertEqual(options.map(\.id), ["diploid", "haploid-viral"])
+        XCTAssertEqual(
+            AssemblyWizardSheet.curatedAdvancedArguments(
+                for: .hifiasm,
+                spadesCareful: false,
+                spadesSkipErrorCorrection: false,
+                flyeMetagenomeMode: false,
+                hifiasmPrimaryOnly: true
+            ),
+            ["--primary"]
         )
-
-        XCTAssertTrue(source.contains(#"DisclosureGroup("Curated extra arguments""#))
-        XCTAssertTrue(source.contains("_showAdvanced = State(initialValue: AppUITestConfiguration.current.isEnabled)"))
-        XCTAssertTrue(source.contains(#"Text("Extra arguments")"#))
-        XCTAssertFalse(source.contains(#"Text("Advanced Options")"#))
-        XCTAssertFalse(source.contains(#"DisclosureGroup("Curated advanced options""#))
-    }
-
-    func testHifiasmProfilesDefaultToDiploidAndExposeHaploidViral() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Assembly/AssemblyWizardSheet.swift"),
-            encoding: .utf8
+        XCTAssertEqual(
+            AssemblyWizardSheet.curatedAdvancedArguments(
+                for: .hifiasm,
+                spadesCareful: false,
+                spadesSkipErrorCorrection: false,
+                flyeMetagenomeMode: false,
+                hifiasmPrimaryOnly: false
+            ),
+            []
         )
-
-        XCTAssertTrue(source.contains(#"return "diploid""#))
-        XCTAssertTrue(source.contains(#".init(id: "diploid", title: "Diploid""#))
-        XCTAssertTrue(source.contains(#".init(id: "haploid-viral", title: "Haploid/Viral""#))
-        XCTAssertFalse(source.contains(#"if selectedProfileID == "haploid-viral" {"#))
-        XCTAssertFalse(source.contains(#""--n-hap""#))
-        XCTAssertFalse(source.contains(#""-l0""#))
-        XCTAssertFalse(source.contains(#""-f0""#))
-        XCTAssertTrue(source.contains(#"if hifiasmPrimaryOnly {"#))
-        XCTAssertTrue(source.contains(#"arguments.append("--primary")"#))
-    }
-
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 }

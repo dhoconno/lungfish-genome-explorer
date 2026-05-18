@@ -211,73 +211,107 @@ struct ExtractSequenceSubcommand: AsyncParsableCommand {
         // Write output
         if let outputPath = output {
             let outputURL = URL(fileURLWithPath: outputPath)
-            try fastaOutput.write(
-                to: outputURL,
-                atomically: true,
-                encoding: .utf8
-            )
-            let completedAt = Date()
             let effectiveFlank5 = flank5 ?? flank
             let effectiveFlank3 = flank3 ?? flank
-            try await CLIProvenanceSupport.recordSingleStepRun(
-                name: "lungfish extract sequence",
-                parameters: [
-                    "input": .file(inputURL),
-                    "output": .file(outputURL),
-                    "region": .string(region),
-                    "chromosome": .string(targetSequence.name),
-                    "requestedStart": .integer(parsed.start),
-                    "requestedEnd": .integer(parsed.end),
-                    "effectiveStart": .integer(result.effectiveStart),
-                    "effectiveEnd": .integer(result.effectiveEnd),
-                    "reverseComplement": .boolean(reverseComplement),
-                    "flank": .integer(flank),
-                    "flank5": flank5.map(ParameterValue.integer) ?? .null,
-                    "flank3": flank3.map(ParameterValue.integer) ?? .null,
-                    "lineWidth": .integer(lineWidth),
-                    "extractedLength": .integer(result.nucleotideSequence.count)
-                ],
-                defaults: [
-                    "reverseComplement": .boolean(false),
-                    "flank": .integer(0),
-                    "flank5": .null,
-                    "flank3": .null,
-                    "lineWidth": .integer(70)
-                ],
-                resolved: [
-                    "input": .file(inputURL),
-                    "output": .file(outputURL),
-                    "region": .string(region),
-                    "chromosome": .string(targetSequence.name),
-                    "requestedStart": .integer(parsed.start),
-                    "requestedEnd": .integer(parsed.end),
-                    "effectiveStart": .integer(result.effectiveStart),
-                    "effectiveEnd": .integer(result.effectiveEnd),
-                    "reverseComplement": .boolean(reverseComplement),
-                    "flank5": .integer(effectiveFlank5),
-                    "flank3": .integer(effectiveFlank3),
-                    "lineWidth": .integer(lineWidth),
-                    "extractedLength": .integer(result.nucleotideSequence.count)
-                ],
-                toolName: "lungfish extract sequence",
-                toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
-                command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
-                inputs: [
-                    ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
-                ],
-                outputs: [
-                    ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
-                ],
-                exitCode: 0,
-                wallTime: completedAt.timeIntervalSince(startedAt),
-                stderr: nil,
-                status: .completed,
-                outputDirectory: outputURL.deletingLastPathComponent()
-            )
-            if !globalOptions.quiet {
-                print(formatter.success(
-                    "Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"
-                ))
+            let parameters: [String: ParameterValue] = [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "region": .string(region),
+                "chromosome": .string(targetSequence.name),
+                "requestedStart": .integer(parsed.start),
+                "requestedEnd": .integer(parsed.end),
+                "effectiveStart": .integer(result.effectiveStart),
+                "effectiveEnd": .integer(result.effectiveEnd),
+                "reverseComplement": .boolean(reverseComplement),
+                "flank": .integer(flank),
+                "flank5": flank5.map(ParameterValue.integer) ?? .null,
+                "flank3": flank3.map(ParameterValue.integer) ?? .null,
+                "lineWidth": .integer(lineWidth),
+                "extractedLength": .integer(result.nucleotideSequence.count)
+            ]
+            let defaults: [String: ParameterValue] = [
+                "reverseComplement": .boolean(false),
+                "flank": .integer(0),
+                "flank5": .null,
+                "flank3": .null,
+                "lineWidth": .integer(70)
+            ]
+            let resolved: [String: ParameterValue] = [
+                "input": .file(inputURL),
+                "output": .file(outputURL),
+                "region": .string(region),
+                "chromosome": .string(targetSequence.name),
+                "requestedStart": .integer(parsed.start),
+                "requestedEnd": .integer(parsed.end),
+                "effectiveStart": .integer(result.effectiveStart),
+                "effectiveEnd": .integer(result.effectiveEnd),
+                "coordinate_system": .string("0-based half-open"),
+                "reverseComplement": .boolean(reverseComplement),
+                "flank5": .integer(effectiveFlank5),
+                "flank3": .integer(effectiveFlank3),
+                "lineWidth": .integer(lineWidth),
+                "extractedLength": .integer(result.nucleotideSequence.count)
+            ]
+
+            if outputURL.pathExtension.lowercased() == "lungfishref" {
+                let command = provenanceCommand(inputURL: inputURL, outputURL: outputURL)
+                let context = SequenceExtractionBundleCommandContext(
+                    workflowName: "lungfish extract sequence",
+                    toolName: "lungfish extract sequence",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    argv: command,
+                    explicitOptions: parameters,
+                    defaultOptions: defaults,
+                    resolvedOptions: resolved,
+                    inputURLs: [inputURL],
+                    startedAt: startedAt
+                )
+                let bundleURL = try await SequenceExtractionBundleBuilder().buildBundle(
+                    request: SequenceExtractionBundleBuildRequest(
+                        result: result,
+                        outputDirectory: outputURL.deletingLastPathComponent(),
+                        outputBundleURL: outputURL,
+                        desiredBundleName: outputURL.deletingPathExtension().lastPathComponent,
+                        commandContext: context
+                    )
+                )
+                if !globalOptions.quiet {
+                    print(formatter.success(
+                        "Extracted \(result.nucleotideSequence.count) bp to \(bundleURL.path)"
+                    ))
+                }
+            } else {
+                try fastaOutput.write(
+                    to: outputURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+                let completedAt = Date()
+                try await CLIProvenanceSupport.recordSingleStepRun(
+                    name: "lungfish extract sequence",
+                    parameters: parameters,
+                    defaults: defaults,
+                    resolved: resolved,
+                    toolName: "lungfish extract sequence",
+                    toolVersion: "lungfish-cli \(LungfishCLI.configuration.version)",
+                    command: provenanceCommand(inputURL: inputURL, outputURL: outputURL),
+                    inputs: [
+                        ProvenanceRecorder.fileRecord(url: inputURL, format: .fasta, role: .input)
+                    ],
+                    outputs: [
+                        ProvenanceRecorder.fileRecord(url: outputURL, format: .fasta, role: .output)
+                    ],
+                    exitCode: 0,
+                    wallTime: completedAt.timeIntervalSince(startedAt),
+                    stderr: nil,
+                    status: .completed,
+                    outputDirectory: outputURL.deletingLastPathComponent()
+                )
+                if !globalOptions.quiet {
+                    print(formatter.success(
+                        "Extracted \(result.nucleotideSequence.count) bp to \(outputPath)"
+                    ))
+                }
             }
         } else {
             if !globalOptions.quiet && globalOptions.outputFormat == .text {

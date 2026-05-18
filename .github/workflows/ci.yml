@@ -42,7 +42,7 @@ jobs:
         run: swift build --product lungfish-cli
 
       - name: Run smoke package tests
-        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishPluginTests\.PluginRegistryTests|LungfishUITests\.(DisplayModeRegressionTests|ReferenceFrameTests|SidebarItemTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
+        run: swift test --filter '^(LungfishCoreTests\.(BundleManifestTests|GenomicRegionTests|RuntimeResourceLocatorTests|SequenceTests)|LungfishWorkflowTests\.(BAMPrimerTrimProvenanceTests|MappingProvenanceTests))(/|$)'
 
       - name: Install script test dependencies
         run: |

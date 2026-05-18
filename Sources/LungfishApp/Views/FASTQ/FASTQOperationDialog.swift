@@ -1,5 +1,14 @@
 import SwiftUI
 
+enum FASTQOperationDialogRunPresentation {
+    static func shouldRunAfterEmbeddedRequestCapture(
+        selectedToolID: FASTQOperationToolID,
+        hasPendingViralReconRequest: Bool
+    ) -> Bool {
+        selectedToolID == .viralRecon && hasPendingViralReconRequest
+    }
+}
+
 struct FASTQOperationDialog: View {
     @Bindable var state: FASTQOperationDialogState
     let primaryActionTitle: String
@@ -43,7 +52,10 @@ struct FASTQOperationDialog: View {
             onRun()
         }
         .onChange(of: state.pendingViralReconRequest) { _, request in
-            guard state.selectedToolID == .viralRecon, request != nil else {
+            guard FASTQOperationDialogRunPresentation.shouldRunAfterEmbeddedRequestCapture(
+                selectedToolID: state.selectedToolID,
+                hasPendingViralReconRequest: request != nil
+            ) else {
                 return
             }
 

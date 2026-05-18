@@ -4,12 +4,10 @@
 
 import AppKit
 import SwiftUI
-import Combine
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import os.log
-import UniformTypeIdentifiers
 
 /// Logger for inspector operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "InspectorViewController")
@@ -141,9 +139,6 @@ public class InspectorViewController: NSViewController {
     var provenanceSectionViewModel: ProvenanceInspectorViewModel {
         viewModel.provenanceSectionViewModel
     }
-
-    /// Cancellables for Combine subscriptions
-    private var cancellables = Set<AnyCancellable>()
 
     /// Prevents duplicate NotificationCenter observer registration.
     private var hasRegisteredNotificationObservers = false
@@ -848,12 +843,9 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        let savePanel = NSSavePanel()
-        savePanel.title = "Export Provenance"
-        savePanel.message = "Choose a folder name for the exported reproducibility package."
-        savePanel.nameFieldStringValue = "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
-        savePanel.canCreateDirectories = true
-        savePanel.canSelectHiddenExtension = true
+        let savePanel = FeatureFilePanelFactory.inspectorProvenanceExportPanel(
+            defaultDirectoryName: "\(sourceURL.deletingPathExtension().lastPathComponent)-provenance-\(format.cliToken)"
+        )
 
         guard let window = view.window ?? NSApp.keyWindow else { return }
         savePanel.beginSheetModal(for: window) { [weak self] response in
@@ -1422,12 +1414,7 @@ public class InspectorViewController: NSViewController {
     }
 
     private func presentMetadataImportPanel() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.message = "Select a CSV or TSV file with sample metadata"
+        let panel = FeatureFilePanelFactory.inspectorTextMetadataImportPanel()
 
         guard let window = self.view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -1722,14 +1709,7 @@ public class InspectorViewController: NSViewController {
         guard canWriteProjectOutputs(bundleURL: bundle.url, workflowName: "Sample metadata import") else {
             return
         }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "txt")!,
-        ]
-        panel.message = "Select a TSV or CSV file with sample metadata"
-        panel.prompt = "Import"
+        let panel = FeatureFilePanelFactory.variantSampleMetadataImportPanel()
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -1851,13 +1831,15 @@ public class InspectorViewController: NSViewController {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window) { response in
                 completion(response == .alertFirstButtonReturn)
             }
         } else {
-            completion(alert.runModal() == .alertFirstButtonReturn)
+            NSSound.beep()
+            completion(false)
         }
     }
 
@@ -2084,7 +2066,7 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
 
             let sidebarItems = await BAMVariantCallingCatalog().sidebarItems()
@@ -2420,7 +2402,7 @@ public class InspectorViewController: NSViewController {
             return
         }
 
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
 
             let builtIn = BuiltInPrimerSchemeService.listBuiltInSchemes()
@@ -2667,17 +2649,12 @@ public class InspectorViewController: NSViewController {
     private func presentPrimerSchemeBrowseSheet(for state: BAMPrimerTrimDialogState) {
         guard let window = view.window ?? NSApp.keyWindow else { return }
 
-        let panel = NSOpenPanel()
-        panel.title = "Choose Primer Scheme"
-        panel.prompt = "Choose"
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = []
-        panel.directoryURL = (parent as? MainSplitViewController)?
-            .sidebarController
-            .currentProjectURL
-            .flatMap { PrimerSchemesFolder.folderURL(in: $0) }
+        let panel = FeatureFilePanelFactory.primerSchemeFolderPanel(
+            directoryURL: (parent as? MainSplitViewController)?
+                .sidebarController
+                .currentProjectURL
+                .flatMap { PrimerSchemesFolder.folderURL(in: $0) }
+        )
 
         panel.beginSheetModal(for: window) { [weak self, weak state] response in
             guard response == .OK, let url = panel.url else { return }
@@ -3013,57 +2990,57 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .warning
         confirm.addButton(withTitle: "Mark Duplicates")
         confirm.addButton(withTitle: "Cancel")
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let window = self.view.window ?? NSApp.keyWindow else { return }
-            let confirmResponse = await confirm.beginSheetModal(for: window)
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+        confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
             guard confirmResponse == .alertFirstButtonReturn else { return }
-            guard let split = self.parent as? MainSplitViewController else { return }
+            MainActor.assumeIsolated {
+                guard let self, let split = self.parent as? MainSplitViewController else { return }
 
-            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-            split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
+                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+                split.activityIndicator.show(message: "Marking duplicates...", style: .indeterminate)
 
-            Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
+                Task(priority: .userInitiated) { [weak self] in
+                    do {
+                        let result = try await AlignmentDuplicateService.markDuplicatesInBundle(bundleURL: bundleURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
 
-                        do {
-                            try split.viewerController.displayBundle(at: result.bundleURL)
-                            // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
-                            self.viewModel.readStyleSectionViewModel.showDuplicates = false
-                            self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
-                            self.presentSimpleAlert(
-                                title: "Duplicate Marking Complete",
-                                message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks are now loaded."
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: "Reload Failed",
-                                message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
-                            )
+                                do {
+                                    try split.viewerController.displayBundle(at: result.bundleURL)
+                                    // Markdup sets SAM duplicate flag; keep duplicates hidden by default.
+                                    self.viewModel.readStyleSectionViewModel.showDuplicates = false
+                                    self.viewModel.readStyleSectionViewModel.onSettingsChanged?()
+                                    self.presentSimpleAlert(
+                                        title: "Duplicate Marking Complete",
+                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). Duplicate-marked tracks are now loaded."
+                                    )
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: "Reload Failed",
+                                        message: "Duplicate marking completed, but the bundle could not be reloaded: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                self.presentSimpleAlert(
+                                    title: "Duplicate Marking Failed",
+                                    message: error.localizedDescription
+                                )
+                            }
                         }
                     }
                 }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Duplicate Marking Failed",
-                            message: error.localizedDescription
-                        )
-                    }
-                }
             }
-        }
         }
     }
 
@@ -3084,55 +3061,55 @@ public class InspectorViewController: NSViewController {
         confirm.alertStyle = .informational
         confirm.addButton(withTitle: "Create Bundle")
         confirm.addButton(withTitle: "Cancel")
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let window = self.view.window ?? NSApp.keyWindow else { return }
-            let confirmResponse = await confirm.beginSheetModal(for: window)
+        guard let window = view.window ?? NSApp.keyWindow else { return }
+        confirm.beginSheetModal(for: window) { [weak self] confirmResponse in
             guard confirmResponse == .alertFirstButtonReturn else { return }
-            guard let split = self.parent as? MainSplitViewController else { return }
+            MainActor.assumeIsolated {
+                guard let self, let split = self.parent as? MainSplitViewController else { return }
 
-            self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
-            split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
+                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = true
+                split.activityIndicator.show(message: "Creating deduplicated bundle...", style: .indeterminate)
 
-            Task(priority: .userInitiated) { [weak self] in
-            do {
-                let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
+                Task(priority: .userInitiated) { [weak self] in
+                    do {
+                        let result = try await AlignmentDuplicateService.createDeduplicatedBundle(from: sourceBundleURL)
 
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        split.sidebarController.reloadFromFilesystem()
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                split.sidebarController.reloadFromFilesystem()
 
-                        do {
-                            try split.viewerController.displayBundle(at: result.bundleURL)
-                            self.presentSimpleAlert(
-                                title: "Deduplicated Bundle Created",
-                                message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). New bundle: \(result.bundleURL.lastPathComponent)"
-                            )
-                        } catch {
-                            self.presentSimpleAlert(
-                                title: "Open New Bundle Failed",
-                                message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
-                            )
+                                do {
+                                    try split.viewerController.displayBundle(at: result.bundleURL)
+                                    self.presentSimpleAlert(
+                                        title: "Deduplicated Bundle Created",
+                                        message: "Processed \(result.processedTracks) alignment track\(result.processedTracks == 1 ? "" : "s"). New bundle: \(result.bundleURL.lastPathComponent)"
+                                    )
+                                } catch {
+                                    self.presentSimpleAlert(
+                                        title: "Open New Bundle Failed",
+                                        message: "Deduplicated bundle was created at \(result.bundleURL.path), but opening it failed: \(error.localizedDescription)"
+                                    )
+                                }
+                            }
+                        }
+                    } catch {
+                        DispatchQueue.main.async { [weak self] in
+                            guard let self, let split = self.parent as? MainSplitViewController else { return }
+                            MainActor.assumeIsolated {
+                                self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
+                                split.activityIndicator.hide()
+                                self.presentSimpleAlert(
+                                    title: "Deduplicated Bundle Failed",
+                                    message: error.localizedDescription
+                                )
+                            }
                         }
                     }
                 }
-            } catch {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, let split = self.parent as? MainSplitViewController else { return }
-                    MainActor.assumeIsolated {
-                        self.viewModel.readStyleSectionViewModel.isDuplicateWorkflowRunning = false
-                        split.activityIndicator.hide()
-                        self.presentSimpleAlert(
-                            title: "Deduplicated Bundle Failed",
-                            message: error.localizedDescription
-                        )
-                    }
-                }
             }
-        }
         }
     }
 

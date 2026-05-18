@@ -110,32 +110,45 @@ struct ClassifyCommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let startedAt = Date()
         let formatter = TerminalFormatter(useColors: globalOptions.useColors)
 
         // Resolve input files.
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for url in inputURLs {
             guard FileManager.default.fileExists(atPath: url.path) else {
-                print(formatter.error("Input file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIError.inputFileNotFound(path: url.path)
             }
         }
-        let executionInputURLs: [URL]
-        do {
-            executionInputURLs = try Self.resolveExecutionInputURLs(for: inputURLs)
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+
+        if pairedEnd && inputURLs.count != 2 {
+            throw CLIError.validationFailed(errors: ["Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."])
         }
+
+        // Resolve output directory before materialization so virtual FASTQ
+        // payloads are durable and captured in final-location provenance.
+        let outputDirectory: URL
+        if let dir = outputDir {
+            outputDirectory = URL(fileURLWithPath: dir)
+        } else {
+            outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+                .appendingPathComponent("classification-\(databaseName.lowercased())")
+        }
+
         let inputFormat: SequenceFormat
         do {
             inputFormat = try Self.inferInputFormat(from: inputURLs)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
+        }
+        if let confidence, confidence < 0.0 || confidence > 1.0 {
+            print(formatter.error("Confidence must be between 0.0 and 1.0, got \(confidence)"))
+            throw CLIExitCode.inputError.exitCode
         }
 
-        // Resolve database from registry.
+        // Resolve database and parse user options before materializing virtual
+        // inputs so validation errors do not create scientific payloads.
         let registry = MetagenomicsDatabaseRegistry.shared
         guard let dbInfo = try await registry.database(named: databaseName) else {
             print(formatter.error("Database '\(databaseName)' not found in registry"))
@@ -144,7 +157,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             for db in available where db.isDownloaded {
                 print("  \(db.name) [\(db.status.rawValue)]")
             }
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
         }
 
         guard let dbPath = dbInfo.path, dbInfo.status == .ready else {
@@ -152,16 +165,62 @@ struct ClassifyCommand: AsyncParsableCommand {
             if !dbInfo.isDownloaded {
                 print(formatter.info("Download it first: the database has not been installed"))
             }
-            throw ExitCode.failure
+            throw CLIExitCode.dependency.exitCode
         }
 
-        // Resolve output directory.
-        let outputDirectory: URL
-        if let dir = outputDir {
-            outputDirectory = URL(fileURLWithPath: dir)
-        } else {
-            outputDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("classification-\(databaseName.lowercased())")
+        let parsedExtraArguments: [String]
+        do {
+            parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let resolvedInputs: CLISequenceInputMaterializationResult
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        do {
+            resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let executionInputURLs = resolvedInputs.inputURLs
+        let durableReplayArguments = CLISequenceInputMaterialization.durableReplayArgv(
+            argv: CommandLine.arguments,
+            originalInputArguments: fastqFiles,
+            originalInputURLs: inputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        if resolvedInputs.didMaterialize {
+            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? startedAt
+            let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
+            do {
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
+                    workflowName: "lungfish.classify.input-materialization",
+                    workflowVersion: LungfishCLI.configuration.version,
+                    parentArgv: CommandLine.arguments,
+                    parentDurableReplayArgv: durableReplayArguments,
+                    originalInputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs,
+                    outputDirectory: outputDirectory,
+                    operationName: "classification",
+                    startedAt: materializationStartedAt,
+                    endedAt: materializationEndedAt
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(
+                    path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                    reason: error.localizedDescription
+                )
+            }
         }
 
         // Build config from preset, then apply overrides.
@@ -177,7 +236,7 @@ struct ClassifyCommand: AsyncParsableCommand {
             memoryMapping: memoryMapping,
             quickMode: quickMode,
             outputDirectory: outputDirectory,
-            extraArguments: try AdvancedCommandLineOptions.parse(extraArgs)
+            extraArguments: parsedExtraArguments
         )
 
         // Apply explicit overrides if provided.
@@ -187,6 +246,8 @@ struct ClassifyCommand: AsyncParsableCommand {
         if let mhg = minHitGroups {
             config.minimumHitGroups = mhg
         }
+        config.originalInputFiles = inputURLs.map(\.standardizedFileURL)
+        config.sampleDisplayName = inputURLs.first?.deletingPathExtension().lastPathComponent
 
         // Print configuration.
         print(formatter.header("Kraken2 Classification"))
@@ -228,6 +289,29 @@ struct ClassifyCommand: AsyncParsableCommand {
                     print("\r\(formatter.info(message))", terminator: "")
                 }
             }
+        }
+
+        do {
+            _ = try Self.writeProvenance(
+                result: result,
+                originalInputURLs: inputURLs,
+                executionInputURLs: executionInputURLs,
+                argv: CommandLine.arguments,
+                durableReplayArgv: durableReplayArguments,
+                profile: profile,
+                brackenReadLength: brackenReadLength,
+                brackenLevel: brackenLevel,
+                brackenThreshold: brackenThreshold,
+                startedAt: startedAt,
+                endedAt: Date(),
+                materializationStartedAt: resolvedInputs.materializationStartedAt,
+                materializationEndedAt: resolvedInputs.materializationEndedAt
+            )
+        } catch {
+            throw CLIError.outputWriteFailed(
+                path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                reason: error.localizedDescription
+            )
         }
 
         // Clear progress line.
@@ -279,6 +363,259 @@ struct ClassifyCommand: AsyncParsableCommand {
             }
             return resolvedURL.standardizedFileURL
         }
+    }
+
+    static func resolveExecutionInputs(
+        for inputURLs: [URL],
+        tempDirectory: URL,
+        materializer: CLISequenceInputMaterializing,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> CLISequenceInputMaterializationResult {
+        try await CLISequenceInputMaterialization.resolveExecutionInputs(
+            for: inputURLs,
+            tempDirectory: tempDirectory,
+            materializer: materializer,
+            operationName: "classification",
+            progress: progress
+        )
+    }
+
+    @discardableResult
+    static func writeProvenance(
+        result: ClassificationResult,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        argv: [String],
+        durableReplayArgv: [String]? = nil,
+        profile: Bool = false,
+        brackenReadLength: Int = 150,
+        brackenLevel: String = "S",
+        brackenThreshold: Int = 10,
+        startedAt: Date,
+        endedAt: Date,
+        materializationStartedAt: Date? = nil,
+        materializationEndedAt: Date? = nil,
+        stderr: String? = nil,
+        writer: ProvenanceWriter = ProvenanceWriter()
+    ) throws -> URL {
+        let config = result.config
+        let inputPairs = zipOriginalAndExecutionInputs(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs
+        )
+        let executionDescriptors = try inputPairs.map { originalURL, executionURL in
+            try CLISequenceInputMaterialization.executionInputDescriptor(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let materializationSteps = try CLISequenceInputMaterialization.materializationProvenanceSteps(
+            workflowVersion: LungfishCLI.configuration.version,
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: executionInputURLs,
+            startedAt: materializationStartedAt ?? startedAt,
+            endedAt: materializationEndedAt ?? (materializationStartedAt ?? startedAt)
+        )
+        let outputDescriptors = try classificationOutputDescriptors(for: result)
+
+        var builder = ProvenanceRunBuilder(
+            workflowName: "lungfish.classify",
+            workflowVersion: LungfishCLI.configuration.version,
+            toolName: "kraken2",
+            toolVersion: result.toolVersion
+        )
+        .argv(argv)
+        .durableReplayArgv(durableReplayArgv)
+        .options(
+            explicit: classificationResolvedOptions(
+                for: config,
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs,
+                profile: profile,
+                brackenReadLength: brackenReadLength,
+                brackenLevel: brackenLevel,
+                brackenThreshold: brackenThreshold
+            ),
+            defaults: classificationDefaultOptions(),
+            resolved: classificationResolvedOptions(
+                for: config,
+                originalInputURLs: originalInputURLs,
+                executionInputURLs: executionInputURLs,
+                profile: profile,
+                brackenReadLength: brackenReadLength,
+                brackenLevel: brackenLevel,
+                brackenThreshold: brackenThreshold
+            )
+        )
+        .runtime(
+            ProvenanceRuntimeIdentity(
+                appVersion: LungfishCLI.configuration.version,
+                condaEnvironment: ClassificationPipeline.kraken2Environment
+            )
+        )
+
+        for materializationStep in materializationSteps {
+            builder = builder.step(materializationStep)
+        }
+
+        let krakenArgv = ["kraken2"] + config.kraken2Arguments()
+        builder = builder.step(
+            ProvenanceStep(
+                toolName: "kraken2",
+                toolVersion: result.toolVersion,
+                argv: krakenArgv,
+                reproducibleCommand: krakenArgv.map(shellEscape).joined(separator: " "),
+                inputs: executionDescriptors,
+                outputs: outputDescriptors,
+                exitStatus: 0,
+                wallTimeSeconds: result.runtime,
+                stderr: stderr,
+                startedAt: startedAt,
+                completedAt: endedAt
+            )
+        )
+
+        if let brackenStep = try brackenProvenanceStep(
+            result: result,
+            brackenReadLength: brackenReadLength,
+            brackenLevel: brackenLevel,
+            brackenThreshold: brackenThreshold,
+            fallbackStartedAt: endedAt
+        ) {
+            builder = builder.step(brackenStep)
+        }
+
+        let envelope = try builder.complete(
+            exitStatus: 0,
+            stderr: stderr,
+            startedAt: startedAt,
+            endedAt: endedAt
+        )
+        return try writer.write(envelope, to: config.outputDirectory)
+    }
+
+    private static func zipOriginalAndExecutionInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [(originalURL: URL, executionURL: URL)] {
+        executionInputURLs.enumerated().map { index, executionURL in
+            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
+            return (originalURL, executionURL)
+        }
+    }
+
+    private static func classificationDefaultOptions() -> [String: ParameterValue] {
+        [
+            "preset": .string("balanced"),
+            "pairedEnd": .boolean(false),
+            "profile": .boolean(false),
+            "threads": .integer(4),
+            "memoryMapping": .boolean(false),
+            "quickMode": .boolean(false),
+            "brackenReadLength": .integer(150),
+            "brackenLevel": .string("S"),
+            "brackenThreshold": .integer(10),
+            "extraArguments": .array([]),
+        ]
+    }
+
+    private static func classificationResolvedOptions(
+        for config: ClassificationConfig,
+        originalInputURLs: [URL],
+        executionInputURLs: [URL],
+        profile: Bool,
+        brackenReadLength: Int,
+        brackenLevel: String,
+        brackenThreshold: Int
+    ) -> [String: ParameterValue] {
+        [
+            "databaseName": .string(config.databaseName),
+            "databasePath": .file(config.databasePath),
+            "inputFormat": .string(config.inputFormat.rawValue),
+            "pairedEnd": .boolean(config.isPairedEnd),
+            "profile": .boolean(profile),
+            "confidence": .number(config.confidence),
+            "minimumHitGroups": .integer(config.minimumHitGroups),
+            "threads": .integer(config.threads),
+            "memoryMapping": .boolean(config.memoryMapping),
+            "quickMode": .boolean(config.quickMode),
+            "brackenReadLength": .integer(brackenReadLength),
+            "brackenLevel": .string(brackenLevel),
+            "brackenThreshold": .integer(brackenThreshold),
+            "outputDirectory": .file(config.outputDirectory),
+            "extraArguments": .array(config.extraArguments.map(ParameterValue.string)),
+            "originalInputs": .array(originalInputURLs.map { .file($0.standardizedFileURL) }),
+            "executionInputs": .array(executionInputURLs.map { .file($0.standardizedFileURL) }),
+        ]
+    }
+
+    private static func brackenProvenanceStep(
+        result: ClassificationResult,
+        brackenReadLength: Int,
+        brackenLevel: String,
+        brackenThreshold: Int,
+        fallbackStartedAt: Date
+    ) throws -> ProvenanceStep? {
+        guard let brackenURL = result.brackenURL,
+              FileManager.default.fileExists(atPath: brackenURL.path) else {
+            return nil
+        }
+
+        let legacyStep = ProvenanceRecorder.load(from: result.config.outputDirectory)?
+            .steps
+            .first { $0.toolName == "bracken" }
+        let fallbackArgv = [
+            "bracken",
+            "-d", result.config.databasePath.path,
+            "-i", result.reportURL.path,
+            "-o", brackenURL.path,
+            "-r", String(brackenReadLength),
+            "-l", brackenLevel,
+            "-t", String(brackenThreshold),
+        ]
+        let brackenArgv = legacyStep?.command ?? fallbackArgv
+        return ProvenanceStep(
+            toolName: "bracken",
+            toolVersion: legacyStep?.toolVersion ?? "unknown",
+            argv: brackenArgv,
+            reproducibleCommand: brackenArgv.map(shellEscape).joined(separator: " "),
+            inputs: [
+                try ProvenanceFileDescriptor.file(url: result.reportURL, format: .text, role: .input),
+            ],
+            outputs: [
+                try ProvenanceFileDescriptor.file(url: brackenURL, format: .text, role: .output),
+            ],
+            exitStatus: Int(legacyStep?.exitCode ?? 0),
+            wallTimeSeconds: legacyStep?.wallTime ?? 0,
+            stderr: legacyStep?.stderr,
+            startedAt: legacyStep?.startTime ?? fallbackStartedAt,
+            completedAt: legacyStep?.endTime ?? fallbackStartedAt
+        )
+    }
+
+    private static func classificationOutputDescriptors(
+        for result: ClassificationResult
+    ) throws -> [ProvenanceFileDescriptor] {
+        var outputs: [(url: URL, format: FileFormat?, role: FileRole)] = [
+            (result.reportURL, .text, .report),
+            (result.outputURL, .text, .output),
+        ]
+        if let brackenURL = result.brackenURL {
+            outputs.append((brackenURL, .text, .output))
+        }
+        let resultSidecarURL = result.config.outputDirectory.appendingPathComponent("classification-result.json")
+        if FileManager.default.fileExists(atPath: resultSidecarURL.path) {
+            outputs.append((resultSidecarURL, .json, .report))
+        }
+        return try outputs
+            .filter { FileManager.default.fileExists(atPath: $0.url.path) }
+            .map { output in
+                try ProvenanceFileDescriptor.file(
+                    url: output.url,
+                    format: output.format,
+                    role: output.role
+                )
+            }
     }
 
     func makeConfigForTesting(

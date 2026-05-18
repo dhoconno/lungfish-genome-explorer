@@ -98,6 +98,8 @@ public enum Kraken2OutputParserError: Error, LocalizedError, Sendable {
 /// All methods are static and pure.
 public enum Kraken2OutputParser {
 
+    private static let streamingChunkSize = 64 * 1024
+
     // MARK: - Public API
 
     /// Parses a Kraken2 output file from a URL.
@@ -106,13 +108,104 @@ public enum Kraken2OutputParser {
     /// - Returns: An array of ``Kraken2ReadClassification`` records.
     /// - Throws: ``Kraken2OutputParserError`` if the file cannot be read or parsed.
     public static func parse(url: URL) throws -> [Kraken2ReadClassification] {
-        let data: Data
+        var results: [Kraken2ReadClassification] = []
+        _ = try parseRecords(url: url) { record in
+            results.append(record)
+        }
+        return results
+    }
+
+    /// Streams Kraken2 output records from a URL without materializing the whole file.
+    ///
+    /// - Parameters:
+    ///   - url: The file URL to the Kraken2 output file.
+    ///   - onRecord: Callback invoked for each parsed record in file order.
+    /// - Returns: The number of parseable records seen.
+    /// - Throws: ``Kraken2OutputParserError`` if the file cannot be read or contains no parseable records.
+    public static func parseRecords(
+        url: URL,
+        onRecord: (Kraken2ReadClassification) throws -> Void
+    ) throws -> Int {
+        let handle: FileHandle
         do {
-            data = try Data(contentsOf: url)
+            handle = try FileHandle(forReadingFrom: url)
         } catch {
             throw Kraken2OutputParserError.fileReadError(url, error.localizedDescription)
         }
-        return try parse(data: data)
+        defer {
+            try? handle.close()
+        }
+
+        var buffer = Data()
+        var parsedCount = 0
+        var lineNumber = 0
+        var previousDelimiterWasCR = false
+
+        func processLine(_ lineData: Data) throws {
+            lineNumber += 1
+            guard !lineData.isEmpty else { return }
+
+            var normalized = lineData
+            if normalized.last == 13 {
+                normalized.removeLast()
+            }
+
+            guard let line = String(data: normalized, encoding: .utf8) else {
+                logger.warning(
+                    "Skipping non-UTF8 Kraken2 output line \(lineNumber, privacy: .public)"
+                )
+                return
+            }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { return }
+
+            guard let record = parseLine(line, lineNumber: lineNumber) else {
+                return
+            }
+
+            try onRecord(record)
+            parsedCount += 1
+        }
+
+        while true {
+            let chunk: Data?
+            do {
+                chunk = try handle.read(upToCount: streamingChunkSize)
+            } catch {
+                throw Kraken2OutputParserError.fileReadError(url, error.localizedDescription)
+            }
+
+            guard let chunk, !chunk.isEmpty else {
+                break
+            }
+
+            buffer.append(chunk)
+            while let newlineIndex = buffer.firstIndex(where: { $0 == 10 || $0 == 13 }) {
+                let delimiter = buffer[newlineIndex]
+                let lineData = buffer[..<newlineIndex]
+                if previousDelimiterWasCR, delimiter == 10, lineData.isEmpty {
+                    previousDelimiterWasCR = false
+                    buffer.removeSubrange(...newlineIndex)
+                    continue
+                }
+                try processLine(Data(lineData))
+                previousDelimiterWasCR = delimiter == 13
+                buffer.removeSubrange(...newlineIndex)
+            }
+        }
+
+        if !buffer.isEmpty {
+            try processLine(buffer)
+        }
+
+        if parsedCount == 0 {
+            throw Kraken2OutputParserError.emptyFile
+        }
+
+        logger.info(
+            "Parsed Kraken2 output: \(parsedCount, privacy: .public) reads"
+        )
+        return parsedCount
     }
 
     /// Parses Kraken2 output from in-memory data.
@@ -283,6 +376,26 @@ public enum Kraken2OutputParser {
         records.filter { $0.taxId == taxId }.map(\.readId)
     }
 
+    /// Streams read IDs classified to a specific taxonomy ID from a Kraken2 output file.
+    ///
+    /// - Parameters:
+    ///   - url: The file URL to the Kraken2 output file.
+    ///   - taxId: The taxonomy ID to filter for.
+    /// - Returns: An array of read IDs assigned to the given taxon.
+    /// - Throws: ``Kraken2OutputParserError`` if the file cannot be read or contains no parseable records.
+    public static func readIds(
+        url: URL,
+        classifiedTo taxId: Int
+    ) throws -> [String] {
+        var ids: [String] = []
+        _ = try parseRecords(url: url) { record in
+            if record.taxId == taxId {
+                ids.append(record.readId)
+            }
+        }
+        return ids
+    }
+
     /// Extracts read IDs classified to any taxonomy ID in a set.
     ///
     /// This is useful for extracting all reads in a clade (e.g., all descendants
@@ -297,5 +410,28 @@ public enum Kraken2OutputParser {
         classifiedToAnyOf taxIds: Set<Int>
     ) -> [String] {
         records.filter { taxIds.contains($0.taxId) }.map(\.readId)
+    }
+
+    /// Streams read IDs classified to any taxonomy ID in a set from a Kraken2 output file.
+    ///
+    /// This is useful for extracting all reads in a clade without materializing
+    /// every per-read classification record.
+    ///
+    /// - Parameters:
+    ///   - url: The file URL to the Kraken2 output file.
+    ///   - taxIds: The set of taxonomy IDs to include.
+    /// - Returns: An array of read IDs assigned to any of the given taxa.
+    /// - Throws: ``Kraken2OutputParserError`` if the file cannot be read or contains no parseable records.
+    public static func readIds(
+        url: URL,
+        classifiedToAnyOf taxIds: Set<Int>
+    ) throws -> [String] {
+        var ids: [String] = []
+        _ = try parseRecords(url: url) { record in
+            if taxIds.contains(record.taxId) {
+                ids.append(record.readId)
+            }
+        }
+        return ids
     }
 }

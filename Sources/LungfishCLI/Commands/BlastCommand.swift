@@ -134,15 +134,15 @@ extension BlastCommand {
             // Verify files exist
             guard fm.fileExists(atPath: kreportURL.path) else {
                 print(formatter.error("Kreport file not found: \(kreportFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
             guard fm.fileExists(atPath: sourceURL.path) else {
                 print(formatter.error("Source FASTQ not found: \(sourceFile)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
             guard fm.fileExists(atPath: krakenOutputURL.path) else {
                 print(formatter.error("Kraken output not found: \(krakenOutput)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Phase 1: Parse kreport and find the target taxon
@@ -155,7 +155,7 @@ extension BlastCommand {
 
             guard let targetNode = tree.node(taxId: taxId) else {
                 print(formatter.error("Taxon ID \(taxId) not found in kreport"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -190,7 +190,7 @@ extension BlastCommand {
 
             guard !matchingReadIds.isEmpty else {
                 print(formatter.warning("No reads found for taxon \(taxId) in classification output"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if !globalOptions.quiet {
@@ -209,7 +209,7 @@ extension BlastCommand {
 
             guard !allReads.isEmpty else {
                 print(formatter.warning("No matching reads found in source FASTQ"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Phase 5: Subsample
@@ -243,7 +243,7 @@ extension BlastCommand {
                 extraArgs: extraArgs,
                 maxConcurrentSubmissions: maxConcurrent
             )
-            _ = try request.blastURLAPIExtraParameters
+            _ = request.blastURLAPIExtraParameters
 
             let result = try await BlastService.shared.verify(
                 request: request

@@ -9,7 +9,7 @@ import LungfishCore
 /// ## Overview
 ///
 /// This module contains:
-/// - **Formats**: Parsers for FASTA, FASTQ, GenBank, GFF3, BAM, VCF, BigWig, etc.
+/// - **Formats**: Parsers for FASTA, FASTQ, GenBank, GFF3, BAM, VCF, etc.
 /// - **Compression**: Support for gzip, BGZF, Zstandard
 /// - **Index**: Index generation and access (FAI, BAI, CSI, TBI, R-tree)
 ///
@@ -31,10 +31,9 @@ import LungfishCore
 /// - GTF (.gtf)
 /// - BED (.bed)
 /// - VCF (.vcf)
-/// - BigBed (.bb)
+/// - BigBed (.bb) detection only; in-process reader API is unavailable
 ///
 /// ### Coverage/Signal
-/// - BigWig (.bw)
 /// - bedGraph (.bedgraph)
 ///
 /// ## Example

@@ -1,4 +1,5 @@
 import XCTest
+import LungfishWorkflow
 @testable import LungfishApp
 @testable import LungfishCore
 @testable import LungfishIO
@@ -9,17 +10,19 @@ final class ReferenceBundleAnnotationImportServiceTests: XCTestCase {
 
     private var tempRoot: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("AnnotationImportTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         if let tempRoot {
             try? FileManager.default.removeItem(at: tempRoot)
         }
         tempRoot = nil
+        try await super.tearDown()
     }
 
     func testAttachesBEDAsAnnotationTrackToExistingBundle() async throws {

@@ -5,7 +5,6 @@
 import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
-@testable import LungfishUI
 
 /// End-to-end tests verifying core functionality across modules
 @MainActor
@@ -202,36 +201,6 @@ final class EndToEndTests: XCTestCase {
         // Test subsequence via subscript
         let subseq = seq[0..<5]
         XCTAssertEqual(subseq, "ATGCG")
-    }
-
-    // MARK: - Track Rendering Setup
-
-    func testTrackRenderingSetup() throws {
-        // Create a sequence for the track
-        let sequence = try Sequence(
-            name: "render_test",
-            alphabet: .dna,
-            bases: String(repeating: "ATCG", count: 250) // 1000 bp
-        )
-
-        // Create a sequence track
-        let track = SequenceTrack(
-            name: "Test Track",
-            sequence: sequence
-        )
-
-        // Create a reference frame for rendering
-        let frame = ReferenceFrame(
-            chromosome: "render_test",
-            chromosomeLength: 1000,
-            widthInPixels: 700
-        )
-
-        // Verify track is ready
-        XCTAssertEqual(track.name, "Test Track")
-        XCTAssertNotNil(track.currentSequence)
-        XCTAssertEqual(frame.chromosome, "render_test")
-        XCTAssertEqual(frame.chromosomeLength, 1000)
     }
 
     // MARK: - Annotation Interval Operations

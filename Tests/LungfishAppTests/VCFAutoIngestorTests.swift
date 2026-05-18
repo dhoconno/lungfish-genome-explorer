@@ -233,7 +233,6 @@ final class VCFAutoIngestorTests: XCTestCase {
         let bundles = (contents ?? []).filter { $0.pathExtension == "lungfishref" }
         // If a bundle exists, it should either be empty or not exist
         for bundle in bundles {
-            let bundleContents = try? FileManager.default.contentsOfDirectory(at: bundle, includingPropertiesForKeys: nil)
             // If the import failed, the bundle should either not exist or be cleaned up
             // A manifest.json indicates completion — if there is no manifest, the bundle is partial
             let hasManifest = FileManager.default.fileExists(

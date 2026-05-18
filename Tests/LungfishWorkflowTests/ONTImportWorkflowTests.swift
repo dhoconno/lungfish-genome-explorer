@@ -1,21 +1,28 @@
-import XCTest
+import Foundation
 import LungfishIO
 @testable import LungfishWorkflow
+import XCTest
 
 final class ONTImportWorkflowTests: XCTestCase {
-    func testImportWritesRootAndFocusedBundleProvenance() async throws {
-        let workspace = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        let sourceURL = workspace.appendingPathComponent("fastq_pass", isDirectory: true)
-        let outputURL = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
-        let chunkURL = try writeONTChunk(
-            under: sourceURL,
-            barcode: "barcode01",
-            filename: "chunk_0.fastq",
-            readID: "read1"
-        )
+    private var tempDir: URL!
 
+    override func setUp() {
+        super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ont-workflow-tests-\(UUID().uuidString)", isDirectory: true)
+        try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempDir)
+        super.tearDown()
+    }
+
+    func testImportWritesRootAndFocusedBundleProvenance() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
         let workflow = ONTImportWorkflow()
+
         let result = try await workflow.importDirectory(
             config: ONTImportConfig(
                 sourceDirectory: sourceURL,
@@ -25,7 +32,7 @@ final class ONTImportWorkflowTests: XCTestCase {
             context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
         ) { _, _ in }
 
-        let rootEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputURL))
+        let rootEnvelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         XCTAssertEqual(rootEnvelope.workflowName, "lungfish fastq import-ont")
         XCTAssertEqual(rootEnvelope.toolName, "lungfish fastq import-ont")
         XCTAssertEqual(rootEnvelope.exitStatus, 0)
@@ -43,31 +50,24 @@ final class ONTImportWorkflowTests: XCTestCase {
                 .path
         ))
 
-        let payloadURL = bundleURL.appendingPathComponent("chunks/chunk_0.fastq")
-        let focusedURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(for: payloadURL, inBundle: bundleURL))
+        let copiedChunkURL = bundleURL
+            .appendingPathComponent("chunks", isDirectory: true)
+            .appendingPathComponent("chunk_0.fastq")
+        let focusedURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+            for: copiedChunkURL,
+            inBundle: bundleURL
+        ))
         XCTAssertTrue(FileManager.default.fileExists(atPath: focusedURL.path))
     }
 
     func testProvenanceDescriptorsUseOriginalInputsAndFinalOutputs() async throws {
-        let workspace = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        let sourceURL = workspace.appendingPathComponent("fastq_pass", isDirectory: true)
-        let outputURL = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
-        let chunk0 = try writeONTChunk(
-            under: sourceURL,
-            barcode: "barcode01",
-            filename: "chunk_0.fastq",
-            readID: "read1"
-        )
-        let chunk1 = try writeONTChunk(
-            under: sourceURL,
-            barcode: "barcode01",
-            filename: "chunk_1.fastq",
-            readID: "read2"
-        )
-
+        let sourceURL = try makeONTSource(barcodeChunks: [
+            "barcode01": ["chunk_0.fastq", "chunk_1.fastq"],
+        ])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
         let workflow = ONTImportWorkflow()
-        _ = try await workflow.importDirectory(
+
+        let result = try await workflow.importDirectory(
             config: ONTImportConfig(
                 sourceDirectory: sourceURL,
                 outputDirectory: outputURL,
@@ -76,42 +76,43 @@ final class ONTImportWorkflowTests: XCTestCase {
             context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
         ) { _, _ in }
 
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputURL))
-        let inputByPath = Dictionary(uniqueKeysWithValues: envelope.files
-            .filter { $0.role == .input }
-            .map { ($0.path, $0) })
-        XCTAssertNotNil(inputByPath[chunk0.path]?.checksumSHA256)
-        XCTAssertNotNil(inputByPath[chunk0.path]?.fileSize)
-        XCTAssertNotNil(inputByPath[chunk1.path]?.checksumSHA256)
-        XCTAssertNotNil(inputByPath[chunk1.path]?.fileSize)
+        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let originalChunkURLs = [
+            sourceURL.appendingPathComponent("barcode01").appendingPathComponent("chunk_0.fastq"),
+            sourceURL.appendingPathComponent("barcode01").appendingPathComponent("chunk_1.fastq"),
+        ]
+        for chunkURL in originalChunkURLs {
+            let descriptor = try XCTUnwrap(envelope.files.first {
+                $0.path == canonicalPath(chunkURL) && $0.role == .input
+            }, "Missing input \(canonicalPath(chunkURL)); files:\n\(envelope.files.map(\.path).sorted().joined(separator: "\n"))")
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertNotNil(descriptor.fileSize)
+        }
 
         let outputPaths = Set(envelope.outputs.map(\.path))
-        XCTAssertTrue(outputPaths.contains(outputURL.appendingPathComponent(DemultiplexManifest.filename).path))
-        XCTAssertTrue(outputPaths.contains(outputURL.appendingPathComponent("barcode01.lungfishfastq/chunks/chunk_0.fastq").path))
-        XCTAssertTrue(outputPaths.contains(outputURL.appendingPathComponent("barcode01.lungfishfastq/chunks/chunk_1.fastq").path))
-        XCTAssertFalse(outputPaths.contains(chunk0.path), "Original ONT chunks are inputs, not final outputs.")
+        XCTAssertTrue(outputPaths.contains(canonicalPath(outputURL.appendingPathComponent(DemultiplexManifest.filename))))
 
-        for output in envelope.outputs {
-            XCTAssertNotNil(output.checksumSHA256, output.path)
-            XCTAssertNotNil(output.fileSize, output.path)
+        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let copiedChunkURLs = [
+            bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_0.fastq"),
+            bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_1.fastq"),
+        ]
+        for copiedChunkURL in copiedChunkURLs {
+            let descriptor = try XCTUnwrap(envelope.outputs.first { $0.path == canonicalPath(copiedChunkURL) })
+            XCTAssertNotNil(descriptor.checksumSHA256)
+            XCTAssertNotNil(descriptor.fileSize)
+        }
+        for originalChunkURL in originalChunkURLs {
+            XCTAssertFalse(outputPaths.contains(canonicalPath(originalChunkURL)))
         }
     }
 
     func testProvenanceWriteFailureRollsBackCreatedBundlesAndManifest() async throws {
-        let workspace = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        let sourceURL = workspace.appendingPathComponent("fastq_pass", isDirectory: true)
-        let outputURL = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try writeONTChunk(
-            under: sourceURL,
-            barcode: "barcode01",
-            filename: "chunk_0.fastq",
-            readID: "read1"
-        )
-
-        let workflow = ONTImportWorkflow(provenanceWriter: { _, _ in
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow { _, _ in
             throw NSError(domain: "ONTImportWorkflowTests", code: 42)
-        })
+        }
 
         do {
             _ = try await workflow.importDirectory(
@@ -122,35 +123,107 @@ final class ONTImportWorkflowTests: XCTestCase {
                 ),
                 context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
             ) { _, _ in }
-            XCTFail("Expected provenance writer failure to abort the import.")
+            XCTFail("Expected provenance writer failure")
         } catch {
-            XCTAssertFalse(FileManager.default.fileExists(
-                atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq").path
-            ))
-            XCTAssertFalse(FileManager.default.fileExists(
-                atPath: outputURL.appendingPathComponent(DemultiplexManifest.filename).path
-            ))
+            XCTAssertEqual((error as NSError).domain, "ONTImportWorkflowTests")
         }
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent(DemultiplexManifest.filename).path
+        ))
+    }
+
+    func testImporterFailureRollsBackPreviouslyCreatedBundles() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let invalidBarcodeURL = sourceURL.appendingPathComponent("barcode02", isDirectory: true)
+        try FileManager.default.createDirectory(at: invalidBarcodeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: invalidBarcodeURL.appendingPathComponent("chunk_0.fastq", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow()
+
+        do {
+            _ = try await workflow.importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+            XCTFail("Expected importer failure")
+        } catch {
+            XCTAssertFalse(error is ONTImportWorkflow.ImportError)
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode02.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent(DemultiplexManifest.filename).path
+        ))
+    }
+
+    func testPreflightRefusesExistingBundleWithoutDeletingIt() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let existingBundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: existingBundleURL, withIntermediateDirectories: true)
+        let sentinelURL = existingBundleURL.appendingPathComponent("sentinel.txt")
+        try "do not delete".write(to: sentinelURL, atomically: true, encoding: .utf8)
+        let workflow = ONTImportWorkflow()
+
+        do {
+            _ = try await workflow.importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+            ) { _, _ in }
+            XCTFail("Expected output conflict")
+        } catch let error as ONTImportWorkflow.ImportError {
+            guard case .outputAlreadyExists(let paths) = error else {
+                return XCTFail("Expected outputAlreadyExists, got \(error)")
+            }
+            XCTAssertEqual(paths, [existingBundleURL.path])
+        }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
 
     private func makeContext(sourceURL: URL, outputURL: URL) -> ONTImportWorkflow.CommandContext {
-        ONTImportWorkflow.CommandContext(
+        let argv = [
+            "lungfish", "fastq", "import-ont",
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1",
+        ]
+        return ONTImportWorkflow.CommandContext(
             caller: .cli,
             workflowName: "lungfish fastq import-ont",
-            workflowVersion: "test-workflow",
+            workflowVersion: "test-version",
             toolName: "lungfish fastq import-ont",
-            toolVersion: "test-tool",
-            argv: ["lungfish", "fastq", "import-ont", sourceURL.path, "--output", outputURL.path],
-            durableReplayArgv: ["lungfish", "fastq", "import-ont", sourceURL.path, "--output", outputURL.path],
-            reproducibleCommand: "lungfish fastq import-ont \(sourceURL.path) --output \(outputURL.path)",
+            toolVersion: "test-version",
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.joined(separator: " "),
             explicitOptions: [
                 "input": .file(sourceURL),
-                "output": .file(outputURL)
+                "output": .file(outputURL),
+                "concurrency": .integer(1),
             ],
             defaultOptions: [
                 "includeUnclassified": .boolean(false),
                 "concurrency": .integer(4),
-                "useVirtualConcatenation": .boolean(true)
+                "useVirtualConcatenation": .boolean(true),
             ],
             resolvedOptions: [
                 "input": .file(sourceURL),
@@ -158,43 +231,47 @@ final class ONTImportWorkflowTests: XCTestCase {
                 "includeUnclassified": .boolean(false),
                 "concurrency": .integer(1),
                 "useVirtualConcatenation": .boolean(true),
-                "caller": .string("cli")
+                "caller": .string("cli"),
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity(
-                appVersion: "test",
-                executablePath: "/usr/bin/lungfish",
-                processIdentifier: 1,
-                operatingSystemVersion: "macOS test",
-                architecture: "arm64"
+                appVersion: "test-version",
+                executablePath: "/tmp/lungfish-test",
+                processIdentifier: 123,
+                operatingSystemVersion: "test-os",
+                architecture: "test-arch"
             )
         )
     }
 
-    @discardableResult
-    private func writeONTChunk(
-        under sourceURL: URL,
-        barcode: String,
-        filename: String,
-        readID: String
-    ) throws -> URL {
-        let barcodeURL = sourceURL.appendingPathComponent(barcode, isDirectory: true)
-        try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)
-        let chunkURL = barcodeURL.appendingPathComponent(filename)
-        let content = """
-        @\(readID) runid=abc123 flow_cell_id=FBC00001 sample_id=ONT05 barcode=\(barcode) basecall_model_version_id=dna_r10.4.1_sup@v4.3.0
-        ACGTACGT
-        +
-        IIIIIIII
-
-        """
-        try content.write(to: chunkURL, atomically: true, encoding: .utf8)
-        return chunkURL
+    private func makeONTSource(barcodeChunks: [String: [String]]) throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("fastq_pass", isDirectory: true)
+        for (barcode, filenames) in barcodeChunks {
+            let barcodeURL = sourceURL.appendingPathComponent(barcode, isDirectory: true)
+            try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)
+            for filename in filenames {
+                try fastqText(readID: "\(barcode)-\(filename)")
+                    .write(to: barcodeURL.appendingPathComponent(filename), atomically: true, encoding: .utf8)
+            }
+        }
+        return sourceURL
     }
 
-    private func makeTempDir() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ONTImportWorkflowTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    private func fastqText(readID: String) -> String {
+        """
+        @\(readID) runid=test flow_cell_id=FLO-MIN sample_id=S1 barcode=barcode01 basecall_model_version_id=dorado-test
+        ACGT
+        +
+        !!!!
+
+        """
+    }
+
+    private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
+        let data = try Data(contentsOf: url)
+        return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+    }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }

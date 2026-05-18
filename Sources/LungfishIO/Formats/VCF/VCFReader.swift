@@ -75,12 +75,14 @@ public struct VCFVariant: Sendable, Identifiable, Equatable {
 
     /// Whether this is a SNP (single nucleotide polymorphism)
     public var isSNP: Bool {
-        ref.count == 1 && alt.allSatisfy { $0.count == 1 }
+        !alt.isEmpty && !alt.contains(where: VCFAlleleClassifier.isNonSequenceAlt) &&
+            ref.count == 1 && alt.allSatisfy { $0.count == 1 }
     }
 
     /// Whether this is an indel
     public var isIndel: Bool {
-        ref.count != 1 || alt.contains { $0.count != 1 }
+        !alt.isEmpty && !alt.contains(where: VCFAlleleClassifier.isNonSequenceAlt) &&
+            (ref.count != 1 || alt.contains { $0.count != 1 })
     }
 
     /// Whether this has multiple alternate alleles
@@ -121,6 +123,63 @@ public struct VCFVariant: Sendable, Identifiable, Equatable {
             strand: .unknown,
             qualifiers: qualifiers
         )
+    }
+}
+
+// MARK: - VCF Allele Classification
+
+private enum VCFAlleleClassifier {
+    static func isSpanningDeletion(_ allele: String) -> Bool {
+        allele == "*"
+    }
+
+    static func isSymbolic(_ allele: String) -> Bool {
+        allele.count > 2 && allele.first == "<" && allele.last == ">"
+    }
+
+    static func isBreakend(_ allele: String) -> Bool {
+        allele.contains("[") || allele.contains("]")
+    }
+
+    static func isNonSequenceAlt(_ allele: String) -> Bool {
+        isSpanningDeletion(allele) || isSymbolic(allele) || isBreakend(allele)
+    }
+
+    static func summaryType(ref: String, alts: [String], info: [String: String]) -> String {
+        guard !alts.isEmpty, alts.contains(where: { !$0.isEmpty && $0 != "." }) else {
+            return "REF"
+        }
+
+        if alts.contains(where: isSpanningDeletion) {
+            return "OTHER"
+        }
+
+        if alts.contains(where: { isSymbolic($0) || isBreakend($0) }) || info["SVTYPE"] != nil {
+            return "SV"
+        }
+
+        if ref.count == 1 && alts.allSatisfy({ $0.count == 1 }) {
+            return "SNP"
+        }
+
+        guard alts.count == 1, let firstAlt = alts.first else {
+            if ref.count > 1 && alts.allSatisfy({ $0.count == ref.count }) {
+                return "MNP"
+            }
+            return "OTHER"
+        }
+
+        if ref.count < firstAlt.count {
+            return "INS"
+        }
+        if ref.count > firstAlt.count {
+            return "DEL"
+        }
+        if ref.count == firstAlt.count && ref.count > 1 {
+            return "MNP"
+        }
+
+        return "OTHER"
     }
 }
 
@@ -581,6 +640,8 @@ public final class VCFReader: Sendable {
             let afterId = content[idRange.upperBound...]
             if let comma = afterId.firstIndex(of: ",") {
                 id = String(afterId[..<comma])
+            } else {
+                id = String(afterId)
             }
         }
 
@@ -693,18 +754,11 @@ extension VCFReader {
             }
 
             // Classify variant type
-            let variantType: String
-            if variant.isSNP {
-                variantType = "SNP"
-            } else if variant.ref.count < variant.alt.first?.count ?? 0 {
-                variantType = "INS"
-            } else if variant.ref.count > 1 && (variant.alt.first?.count ?? 0) < variant.ref.count {
-                variantType = "DEL"
-            } else if variant.ref.count == (variant.alt.first?.count ?? 0) && variant.ref.count > 1 {
-                variantType = "MNP"
-            } else {
-                variantType = "OTHER"
-            }
+            let variantType = VCFAlleleClassifier.summaryType(
+                ref: variant.ref,
+                alts: variant.alt,
+                info: variant.info
+            )
             typeCounts[variantType, default: 0] += 1
 
             // Quality stats

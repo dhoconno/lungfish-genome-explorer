@@ -191,7 +191,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             let detectedPlatform = try await Self.detectImagePlatform(pulledImage)
 
             let image = ContainerImage(
-                id: pulledImage.digest ?? UUID().uuidString,
+                id: pulledImage.digest,
                 reference: reference,
                 digest: pulledImage.digest,
                 rootfsPath: nil, // Managed by ContainerManager
@@ -413,7 +413,7 @@ public actor AppleContainerRuntime: ContainerRuntimeProtocol {
             path: containerRoot.appendingPathComponent("bootlog.log")
         )
 
-        return try LinuxContainer(
+        return LinuxContainer(
             id,
             rootfs: rootfs,
             vmm: vmm,

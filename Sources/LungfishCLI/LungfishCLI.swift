@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import ArgumentParser
+import Darwin
 import Foundation
 
 /// Lungfish Genome Explorer Command-Line Interface
@@ -106,9 +107,22 @@ struct LungfishCLI: AsyncParsableCommand {
 @main
 enum LungfishCLIMain {
     static func main() async {
-        await LungfishCLI.main(
-            LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
-        )
+        let arguments = LungfishCLI.normalizedArgumentsForParsing(Array(CommandLine.arguments.dropFirst()))
+        do {
+            var command = try LungfishCLI.parseAsRoot(arguments)
+            if var asyncCommand = command as? AsyncParsableCommand {
+                try await asyncCommand.run()
+            } else {
+                try command.run()
+            }
+            Darwin.exit(CLIExitCode.success.rawValue)
+        } catch let error as CLIError {
+            LungfishCLI.exit(withCLIError: error)
+        } catch let exitCode as ExitCode {
+            Darwin.exit(exitCode.rawValue)
+        } catch {
+            LungfishCLI.exitWithNormalizedError(error)
+        }
     }
 }
 
@@ -183,8 +197,10 @@ enum CLIError: Error, LocalizedError {
             return .outputError
         case .formatDetectionFailed, .unsupportedFormat:
             return .formatError
-        case .conversionFailed, .validationFailed:
+        case .conversionFailed:
             return .failure
+        case .validationFailed:
+            return .inputError
         case .workflowFailed:
             return .workflowError
         case .containerUnavailable:
@@ -194,5 +210,44 @@ enum CLIError: Error, LocalizedError {
         case .cancelled:
             return .cancelled
         }
+    }
+}
+
+extension LungfishCLI {
+    static func exitWithNormalizedError(_ error: Error) -> Never {
+        if let cliError = validationCLIError(in: error) {
+            exit(withCLIError: cliError)
+        }
+        LungfishCLI.exit(withError: error)
+    }
+
+    private static func validationCLIError(in error: Error) -> CLIError? {
+        findValidationCLIError(in: error)
+    }
+
+    private static func findValidationCLIError(in value: Any, depth: Int = 0) -> CLIError? {
+        if let cliError = value as? CLIError,
+           case .validationFailed = cliError {
+            return cliError
+        }
+
+        guard depth < 8 else {
+            return nil
+        }
+
+        for child in Mirror(reflecting: value).children {
+            if let cliError = findValidationCLIError(in: child.value, depth: depth + 1) {
+                return cliError
+            }
+        }
+        return nil
+    }
+
+    static func exit(withCLIError error: CLIError) -> Never {
+        let fullText = fullMessage(for: error)
+        if !fullText.isEmpty {
+            FileHandle.standardError.write(Data((fullText + "\n").utf8))
+        }
+        Darwin.exit(error.exitCode.exitCode.rawValue)
     }
 }

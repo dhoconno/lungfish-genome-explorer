@@ -9,6 +9,17 @@ import os.log
 
 private let logger = Logger(subsystem: LogSubsystem.app, category: "CLIImportRunner")
 
+func performCLIOperationCenterUpdate(_ block: @escaping @MainActor @Sendable () -> Void) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                block()
+                continuation.resume()
+            }
+        }
+    }
+}
+
 // MARK: - CLIImportEvent
 
 /// A parsed event type that mirrors the JSON events the CLI emits during FASTQ import.

@@ -4,6 +4,7 @@
 
 import AppKit
 import Foundation
+import LungfishWorkflow
 
 struct ReferenceBundleAnnotationImportConfiguration: Sendable, Equatable {
     let bundleURL: URL
@@ -13,6 +14,8 @@ struct ReferenceBundleAnnotationImportConfiguration: Sendable, Equatable {
 
 @MainActor
 enum ReferenceBundleAnnotationImportConfigurationPresenter {
+    private static let missingPresentationWindowResponse: NSApplication.ModalResponse = .alertSecondButtonReturn
+
     static func choose(
         projectURL: URL,
         preferredBundleURL: URL?,
@@ -104,24 +107,91 @@ enum ReferenceBundleAnnotationImportConfigurationPresenter {
         alert.accessoryView = stack
 
         let finish: (NSApplication.ModalResponse) -> Void = { response in
-            guard response == .alertFirstButtonReturn,
-                  let bundleURL = popup.selectedItem?.representedObject as? URL else {
-                completion(nil)
-                return
-            }
-            let trackID = trackIDField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            let trackName = trackNameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            completion(ReferenceBundleAnnotationImportConfiguration(
-                bundleURL: bundleURL,
-                trackID: trackID.isEmpty ? nil : trackID,
-                trackName: trackName.isEmpty ? nil : trackName
-            ))
+            complete(
+                response: response,
+                selectedBundleURL: popup.selectedItem?.representedObject as? URL,
+                trackID: trackIDField.stringValue,
+                trackName: trackNameField.stringValue,
+                completion: completion
+            )
         }
 
-        if let presentingWindow {
+        if let presentingWindow = presentationWindow(preferred: presentingWindow) {
             alert.beginSheetModal(for: presentingWindow, completionHandler: finish)
         } else {
-            finish(alert.runModal())
+            finish(missingPresentationWindowResponse)
         }
+    }
+
+    private static func presentationWindow(preferred window: NSWindow?) -> NSWindow? {
+        window ?? NSApp.keyWindow ?? NSApp.mainWindow
+    }
+
+    static func complete(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String,
+        completion: (ReferenceBundleAnnotationImportConfiguration?) -> Void
+    ) {
+        completion(makeConfiguration(
+            response: response,
+            selectedBundleURL: selectedBundleURL,
+            trackID: trackID,
+            trackName: trackName
+        ))
+    }
+
+    static func makeConfiguration(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String
+    ) -> ReferenceBundleAnnotationImportConfiguration? {
+        guard response == .alertFirstButtonReturn,
+              let selectedBundleURL else {
+            return nil
+        }
+        let trimmedTrackID = trackID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTrackName = trackName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ReferenceBundleAnnotationImportConfiguration(
+            bundleURL: selectedBundleURL,
+            trackID: trimmedTrackID.isEmpty ? nil : trimmedTrackID,
+            trackName: trimmedTrackName.isEmpty ? nil : trimmedTrackName
+        )
+    }
+
+    static func configurationForTest(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String
+    ) -> ReferenceBundleAnnotationImportConfiguration? {
+        makeConfiguration(
+            response: response,
+            selectedBundleURL: selectedBundleURL,
+            trackID: trackID,
+            trackName: trackName
+        )
+    }
+
+    static func completeForTest(
+        response: NSApplication.ModalResponse,
+        selectedBundleURL: URL?,
+        trackID: String,
+        trackName: String,
+        completion: (ReferenceBundleAnnotationImportConfiguration?) -> Void
+    ) {
+        complete(
+            response: response,
+            selectedBundleURL: selectedBundleURL,
+            trackID: trackID,
+            trackName: trackName,
+            completion: completion
+        )
+    }
+
+    static func missingPresentationWindowResponseForTest() -> NSApplication.ModalResponse {
+        missingPresentationWindowResponse
     }
 }

@@ -15,7 +15,7 @@ final class PluginPackRegistryTests: XCTestCase {
             [
                 "nextflow", "snakemake", "bbtools", "fastp", "deacon",
                 "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-                "vsearch", "pigz", "sra-tools", "ucsc-bedtobigbed", "ucsc-bedgraphtobigwig",
+                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig",
             ]
         )
     }
@@ -27,7 +27,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(environments, [
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-            "vsearch", "pigz", "sra-tools", "ucsc-bedtobigbed", "ucsc-bedgraphtobigwig",
+            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig",
             "deacon-panhuman", "deacon-ribokmers",
         ])
         XCTAssertEqual(pack.estimatedSizeMB, 2600)
@@ -61,7 +61,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
-        XCTAssertEqual(lock.tools.count, 15)
+        XCTAssertEqual(lock.tools.count, 14)
         XCTAssertEqual(lock.managedData.count, 2)
     }
 
@@ -78,10 +78,12 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(bcftools.license, "GPL")
         XCTAssertEqual(bcftools.sourceURL, "https://github.com/samtools/bcftools")
 
-        let ucscBedToBigBed = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "ucsc-bedtobigbed" }))
-        XCTAssertEqual(ucscBedToBigBed.version, "482")
-        XCTAssertEqual(ucscBedToBigBed.license, "Varies; see https://genome.ucsc.edu/license")
-        XCTAssertEqual(ucscBedToBigBed.sourceURL, "https://genome.ucsc.edu/goldenPath/help/bigBed.html")
+        XCTAssertNil(pack.toolRequirements.first(where: { $0.id == "ucsc-bedtobigbed" }))
+
+        let ucscBedGraphToBigWig = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "ucsc-bedgraphtobigwig" }))
+        XCTAssertEqual(ucscBedGraphToBigWig.version, "482")
+        XCTAssertEqual(ucscBedGraphToBigWig.license, "Varies; see https://genome.ucsc.edu/license")
+        XCTAssertEqual(ucscBedGraphToBigWig.sourceURL, "https://genome.ucsc.edu/goldenPath/help/bigWig.html")
     }
 
     func testMetagenomicsPackDefinesSmokeChecksForVisibleTools() {
@@ -195,12 +197,12 @@ final class PluginPackRegistryTests: XCTestCase {
     func testRequiredSetupPackUsesUsageSmokeProbeForUcscTools() {
         let pack = PluginPack.requiredSetupPack
 
-        for environment in ["ucsc-bedtobigbed", "ucsc-bedgraphtobigwig"] {
-            let smokeTest = pack.toolRequirements.first(where: { $0.environment == environment })?.smokeTest
-            XCTAssertEqual(smokeTest?.arguments, [])
-            XCTAssertEqual(smokeTest?.acceptedExitCodes, [255])
-            XCTAssertEqual(smokeTest?.requiredOutputSubstring, "usage:")
-        }
+        XCTAssertNil(pack.toolRequirements.first(where: { $0.environment == "ucsc-bedtobigbed" }))
+
+        let smokeTest = pack.toolRequirements.first(where: { $0.environment == "ucsc-bedgraphtobigwig" })?.smokeTest
+        XCTAssertEqual(smokeTest?.arguments, [])
+        XCTAssertEqual(smokeTest?.acceptedExitCodes, [255])
+        XCTAssertEqual(smokeTest?.requiredOutputSubstring, "usage:")
     }
 
     func testReadMappingPackDefinesExpectedToolsAndMetadata() throws {
@@ -228,6 +230,7 @@ final class PluginPackRegistryTests: XCTestCase {
         let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "variant-calling" }))
 
         XCTAssertEqual(pack.description, "Viral BAM variant calling from bundle-owned alignment tracks")
+        XCTAssertEqual(pack.packages, ["lofreq", "ivar", "medaka", "clair3"])
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["lofreq", "ivar", "medaka", "clair3"])
         XCTAssertTrue(pack.toolRequirements.allSatisfy { $0.smokeTest != nil })
 
@@ -250,9 +253,9 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
 
         let clair3 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "clair3" }))
-        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=1.0.10"])
+        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=2.0.1"])
         XCTAssertEqual(clair3.executables, ["run_clair3.sh"])
-        XCTAssertEqual(clair3.version, "1.0.10")
+        XCTAssertEqual(clair3.version, "2.0.1")
         XCTAssertEqual(clair3.license, "BSD-3-Clause")
         XCTAssertEqual(clair3.sourceURL, "https://github.com/HKU-BAL/Clair3")
     }

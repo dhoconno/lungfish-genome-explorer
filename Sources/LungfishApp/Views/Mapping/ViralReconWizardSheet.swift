@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishIO
 import LungfishWorkflow
 
@@ -564,11 +563,9 @@ struct ViralReconWizardSheet: View {
     }
 
     private func browseForReference() {
-        let panel = NSOpenPanel()
-        panel.title = "Select SARS-CoV-2 Reference FASTA"
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(
+            title: "Select SARS-CoV-2 Reference FASTA"
+        )
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         panel.beginSheetModal(for: window) { response in
@@ -580,11 +577,9 @@ struct ViralReconWizardSheet: View {
     }
 
     private func browseForGFF() {
-        let panel = NSOpenPanel()
-        panel.title = "Select SARS-CoV-2 GFF Annotation"
-        panel.allowedContentTypes = [.item]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = MappingWorkflowFilePanelFactory.gffAnnotationPanel(
+            title: "Select SARS-CoV-2 GFF Annotation"
+        )
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         panel.beginSheetModal(for: window) { response in

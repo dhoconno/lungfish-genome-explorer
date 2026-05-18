@@ -5,6 +5,7 @@
 import XCTest
 @testable import LungfishCLI
 @testable import LungfishIO
+@testable import LungfishWorkflow
 
 // MARK: - MetadataCommand Parsing Tests
 
@@ -122,6 +123,68 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertEqual(meta.collectionDate, "2026-01-15")
     }
 
+    func testSetWritesCanonicalProvenanceForFinalMetadataCSV() async throws {
+        let bundleDir = tmpDir.appendingPathComponent("ProvenanceSample.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)
+        var seededMetadata = FASTQSampleMetadata(sampleName: "ProvenanceSample")
+        seededMetadata.setValue("Swab", forCSVHeader: "sample_type")
+        try FASTQBundleCSVMetadata.save(seededMetadata.toLegacyCSV(), to: bundleDir)
+        let metadataURL = bundleDir.appendingPathComponent("metadata.csv")
+
+        let setCmd = try MetadataSetSubcommand.parse([
+            bundleDir.path,
+            "--field", "sample_type",
+            "--value", "Blood",
+            "--quiet"
+        ])
+        try await setCmd.run()
+
+        let envelope = try readEnvelope(bundleDir.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        XCTAssertEqual(envelope.workflowName, "lungfish metadata set")
+        XCTAssertEqual(envelope.workflowVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.toolName, "lungfish metadata set")
+        XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.argv, [
+            "lungfish", "metadata", "set",
+            bundleDir.path,
+            "--field", "sample_type",
+            "--value", "Blood",
+            "--quiet"
+        ])
+        XCTAssertFalse(envelope.reproducibleCommand.isEmpty)
+        XCTAssertEqual(envelope.options.explicit["bundlePath"]?.fileValue?.path, bundleDir.path)
+        XCTAssertEqual(envelope.options.explicit["field"]?.stringValue, "sample_type")
+        XCTAssertEqual(envelope.options.explicit["value"]?.stringValue, "Blood")
+        XCTAssertEqual(envelope.options.defaults["format"]?.stringValue, "text")
+        XCTAssertEqual(envelope.options.defaults["quiet"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.resolvedDefaults["format"]?.stringValue, "text")
+        XCTAssertEqual(envelope.options.resolvedDefaults["quiet"]?.booleanValue, true)
+        assertRuntimeIdentityRecorded(envelope)
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, 0)
+
+        let step = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0)
+        XCTAssertTrue(step.inputs.contains { $0.path == metadataURL.path && $0.checksumSHA256?.count == 64 && ($0.fileSize ?? 0) > 0 })
+        XCTAssertEqual(step.outputs.map(\.path), [metadataURL.path])
+        let output = try XCTUnwrap(step.outputs.first)
+        XCTAssertEqual(output.path, metadataURL.path)
+        XCTAssertEqual(output.role, .output)
+        XCTAssertEqual(output.format, .text)
+        XCTAssertEqual(output.checksumSHA256?.count, 64)
+        XCTAssertGreaterThan(output.fileSize ?? 0, 0)
+        XCTAssertEqual(envelope.output?.path, metadataURL.path)
+        XCTAssertEqual(envelope.outputs.map(\.path), [metadataURL.path])
+        assertNoStagingOnlyOutputs(envelope)
+
+        let fileEnvelope = try readEnvelope(ProvenanceRecorder.fileSidecarURL(for: metadataURL))
+        XCTAssertEqual(fileEnvelope.workflowName, "lungfish metadata set")
+        XCTAssertEqual(fileEnvelope.output?.path, metadataURL.path)
+        XCTAssertEqual(fileEnvelope.outputs.map(\.path), [metadataURL.path])
+        XCTAssertEqual(fileEnvelope.output?.checksumSHA256, output.checksumSHA256)
+    }
+
     func testImportCSV() async throws {
         // Create a CSV file
         let csvContent = """
@@ -187,6 +250,102 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         XCTAssertEqual(metaA.sampleType, "Blood")
     }
 
+    func testImportWritesCanonicalProvenanceForSamplesAndSyncedBundleMetadata() async throws {
+        let folder = tmpDir.appendingPathComponent("ProvenanceSyncFolder")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let bundleA = folder.appendingPathComponent("SampleA.lungfishfastq")
+        let bundleB = folder.appendingPathComponent("SampleB.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleB, withIntermediateDirectories: true)
+
+        let csvContent = """
+        sample_name,sample_type,sample_role
+        SampleA,Blood,test_sample
+        SampleB,Stool,negative_control
+        """
+        let csvFile = tmpDir.appendingPathComponent("metadata-import-input.csv")
+        try csvContent.write(to: csvFile, atomically: true, encoding: .utf8)
+
+        let importCmd = try MetadataImportSubcommand.parse([
+            folder.path,
+            csvFile.path,
+            "--sync-bundles",
+            "--quiet"
+        ])
+        try await importCmd.run()
+
+        let samplesURL = folder.appendingPathComponent("samples.csv")
+        let metadataAURL = bundleA.appendingPathComponent("metadata.csv")
+        let metadataBURL = bundleB.appendingPathComponent("metadata.csv")
+        let expectedOutputPaths = [
+            samplesURL.path,
+            metadataAURL.path,
+            metadataBURL.path
+        ]
+
+        let envelope = try readEnvelope(folder.appendingPathComponent(ProvenanceRecorder.provenanceFilename))
+        XCTAssertEqual(envelope.workflowName, "lungfish metadata import")
+        XCTAssertEqual(envelope.workflowVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.toolName, "lungfish metadata import")
+        XCTAssertEqual(envelope.toolVersion, WorkflowRun.currentAppVersion)
+        XCTAssertEqual(envelope.argv, [
+            "lungfish", "metadata", "import",
+            folder.path,
+            csvFile.path,
+            "--sync-bundles",
+            "--quiet"
+        ])
+        XCTAssertFalse(envelope.reproducibleCommand.isEmpty)
+        XCTAssertEqual(envelope.options.explicit["folderPath"]?.fileValue?.path, folder.path)
+        XCTAssertEqual(envelope.options.explicit["csvPath"]?.fileValue?.path, csvFile.path)
+        XCTAssertEqual(envelope.options.explicit["syncBundles"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.defaults["syncBundles"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.defaults["format"]?.stringValue, "text")
+        XCTAssertEqual(envelope.options.defaults["quiet"]?.booleanValue, false)
+        XCTAssertEqual(envelope.options.resolvedDefaults["syncBundles"]?.booleanValue, true)
+        XCTAssertEqual(envelope.options.resolvedDefaults["format"]?.stringValue, "text")
+        XCTAssertEqual(envelope.options.resolvedDefaults["quiet"]?.booleanValue, true)
+        assertRuntimeIdentityRecorded(envelope)
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(envelope.wallTimeSeconds ?? -1, 0)
+
+        let step = try XCTUnwrap(envelope.steps.first)
+        XCTAssertEqual(step.exitStatus, 0)
+        XCTAssertGreaterThanOrEqual(step.wallTimeSeconds ?? -1, 0)
+        XCTAssertTrue(step.inputs.contains { $0.path == csvFile.path && $0.checksumSHA256?.count == 64 && ($0.fileSize ?? 0) > 0 })
+        XCTAssertEqual(step.outputs.map(\.path), expectedOutputPaths)
+        for output in step.outputs {
+            XCTAssertEqual(output.role, .output)
+            XCTAssertEqual(output.format, .text)
+            XCTAssertEqual(output.checksumSHA256?.count, 64)
+            XCTAssertGreaterThan(output.fileSize ?? 0, 0)
+        }
+        XCTAssertEqual(envelope.output?.path, samplesURL.path)
+        XCTAssertEqual(envelope.outputs.map(\.path), expectedOutputPaths)
+        assertNoStagingOnlyOutputs(envelope)
+
+        for finalPayloadURL in [samplesURL, metadataAURL, metadataBURL] {
+            let fileEnvelope = try readEnvelope(ProvenanceRecorder.fileSidecarURL(for: finalPayloadURL))
+            XCTAssertEqual(fileEnvelope.workflowName, "lungfish metadata import")
+            XCTAssertEqual(fileEnvelope.output?.path, finalPayloadURL.path)
+            XCTAssertEqual(fileEnvelope.outputs.map(\.path), [finalPayloadURL.path])
+            XCTAssertEqual(fileEnvelope.output?.checksumSHA256?.count, 64)
+            XCTAssertGreaterThan(fileEnvelope.output?.fileSize ?? 0, 0)
+        }
+
+        for (bundleURL, metadataURL) in [(bundleA, metadataAURL), (bundleB, metadataBURL)] {
+            let bundleEnvelope = try readEnvelope(
+                bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+            )
+            XCTAssertEqual(bundleEnvelope.workflowName, "lungfish metadata import")
+            XCTAssertEqual(bundleEnvelope.output?.path, metadataURL.path)
+            XCTAssertEqual(bundleEnvelope.outputs.map(\.path), [metadataURL.path])
+            XCTAssertEqual(bundleEnvelope.output?.checksumSHA256?.count, 64)
+            XCTAssertGreaterThan(bundleEnvelope.output?.fileSize ?? 0, 0)
+            assertNoStagingOnlyOutputs(bundleEnvelope)
+        }
+    }
+
     func testSetFieldOnNonexistentBundleFails() async throws {
         let fakePath = tmpDir.appendingPathComponent("nonexistent.lungfishfastq")
         let setCmd = try MetadataSetSubcommand.parse([
@@ -200,5 +359,41 @@ final class MetadataCommandFunctionalTests: XCTestCase {
         } catch {
             // Expected
         }
+    }
+
+    private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
+        let data = try Data(contentsOf: url)
+        return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+    }
+
+    private func assertRuntimeIdentityRecorded(
+        _ envelope: ProvenanceEnvelope,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertFalse(envelope.runtimeIdentity.appVersion.isEmpty, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.operatingSystemVersion.isEmpty, file: file, line: line)
+        XCTAssertFalse(envelope.runtimeIdentity.architecture.isEmpty, file: file, line: line)
+        XCTAssertGreaterThan(envelope.runtimeIdentity.processIdentifier, 0, file: file, line: line)
+    }
+
+    private func assertNoStagingOnlyOutputs(
+        _ envelope: ProvenanceEnvelope,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let outputPaths = envelope.outputs.map(\.path) + envelope.steps.flatMap(\.outputs).map(\.path)
+        XCTAssertFalse(
+            outputPaths.contains { path in
+                path.contains("/staging/")
+                    || path.contains("/Staging/")
+                    || path.contains(".tmp")
+                    || path.contains(".temporary")
+            },
+            "Output provenance must point at final stored payloads, not staging files: \(outputPaths)",
+            file: file,
+            line: line
+        )
     }
 }

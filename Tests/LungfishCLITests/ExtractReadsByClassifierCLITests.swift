@@ -486,17 +486,15 @@ final class ExtractReadsByClassifierCLITests: XCTestCase {
         cmd.testingRawArgs = argv
         try cmd.validate()
 
-        // The pre-flight check in runByClassifier should throw ExitCode.failure.
+        // The pre-flight check in runByClassifier should classify the missing result as bad user input.
         do {
             try await cmd.run()
             XCTFail("Expected run() to throw when --result points to a nonexistent path")
         } catch {
-            // Accept either ExitCode.failure (what runByClassifier throws) or
-            // any Swift error whose description mentions exit status 1.
             // `ExitCode` is a CustomStringConvertible so the fallback branch
             // is for future refactors that might rethrow a different type.
             if let exit = error as? ExitCode {
-                XCTAssertEqual(exit, ExitCode.failure)
+                XCTAssertEqual(exit, CLIExitCode.inputError.exitCode)
             } else {
                 // Leaving the soft-assert here rather than XCTFail so a
                 // future refactor that switches to a more informative error

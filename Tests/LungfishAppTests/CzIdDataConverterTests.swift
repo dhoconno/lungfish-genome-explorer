@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import XCTest
-@testable import LungfishApp
+@testable import LungfishWorkflow
 
 final class CzIdDataConverterTests: XCTestCase {
     func testParsesMinimalTaxonReportAndMetadata() throws {

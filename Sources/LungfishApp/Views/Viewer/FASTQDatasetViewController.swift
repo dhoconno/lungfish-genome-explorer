@@ -631,7 +631,7 @@ public final class FASTQDatasetViewController: NSViewController {
         middleTabControl.segmentCount = 2
         middleTabControl.setLabel("Operations", forSegment: 0)
         middleTabControl.setLabel("Reads", forSegment: 1)
-        middleTabControl.segmentStyle = .texturedRounded
+        middleTabControl.segmentStyle = .rounded
         middleTabControl.selectedSegment = 0
         middleTabControl.target = self
         middleTabControl.action = #selector(middleTabChanged(_:))
@@ -2250,11 +2250,7 @@ public final class FASTQDatasetViewController: NSViewController {
     }
 
     @objc private func orientBrowseClicked(_ sender: NSButton) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.message = "Select a reference FASTA for read orientation"
+        let panel = ViewerFilePanelFactory.fastqOrientReferencePanel()
         panel.beginSheetModal(for: self.view.window ?? NSApp.mainWindow!) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             self.orientReferenceURL = url

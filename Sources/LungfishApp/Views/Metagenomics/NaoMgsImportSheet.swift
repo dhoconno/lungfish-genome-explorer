@@ -94,13 +94,20 @@ struct NaoMgsImportSheet: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            headerSection
-
-            Divider()
-
-            ScrollView {
+        ImportSheet(
+            title: "NAO-MGS Import",
+            subtitle: "Import metagenomic surveillance results",
+            accessoryText: datasetDisplayName,
+            statusText: selectedPath == nil ? "No results selected" : nil,
+            isPrimaryEnabled: canRun,
+            onCancel: { onCancel?() },
+            onPrimary: performImport,
+            icon: {
+                Image(nsImage: TextBadgeIcon.image(text: "NM", size: NSSize(width: 24, height: 24)))
+                    .resizable()
+                    .frame(width: 24, height: 24)
+            },
+            content: {
                 VStack(alignment: .leading, spacing: 16) {
                     // Results location
                     locationSection
@@ -110,44 +117,8 @@ struct NaoMgsImportSheet: View {
                     // Validation status
                     previewSection
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
             }
-
-            Divider()
-
-            // Action buttons
-            actionButtons
-        }
-        .frame(width: 520, height: 480)
-    }
-
-    // MARK: - Header
-
-    private var headerSection: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: TextBadgeIcon.image(text: "NM", size: NSSize(width: 24, height: 24)))
-                .resizable()
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("NAO-MGS Import")
-                    .font(.headline)
-                Text("Import metagenomic surveillance results")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if !datasetDisplayName.isEmpty {
-                Text(datasetDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        )
     }
 
     // MARK: - Location
@@ -254,45 +225,11 @@ struct NaoMgsImportSheet: View {
         }
     }
 
-    // MARK: - Action Buttons
-
-    private var actionButtons: some View {
-        HStack {
-            if selectedPath == nil {
-                Text("No results selected")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button("Cancel") {
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                performImport()
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRun)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-    }
-
     // MARK: - Actions
 
     /// Opens an NSOpenPanel to browse for results.
     private func browseForResults() {
-        let panel = NSOpenPanel()
-        panel.title = "Select NAO-MGS Results"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [.data, .folder]
-        panel.message = "Select a virus_hits_final.tsv.gz file or results directory"
+        let panel = MetagenomicsFilePanelFactory.naoMgsResultsImportPanel()
 
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }

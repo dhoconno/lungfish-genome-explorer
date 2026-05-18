@@ -275,7 +275,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Update summary bar with cached counts
         let totalHits = manifest.hitCount
-        let taxonCount = rows.count
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
 
@@ -332,7 +331,6 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
         // Update action bar
         let totalHits = (try? database.totalHitCount()) ?? manifest.hitCount
-        let taxonCount = displayedRows.count
         naoMgsTotalHits = totalHits
         actionBar.updateInfoText("Select a taxon to view details")
 
@@ -809,7 +807,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
 
-        guard let database else {
+        guard database != nil else {
             let emptyLabel = NSTextField(labelWithString: "No database available.")
             emptyLabel.font = .systemFont(ofSize: 11)
             emptyLabel.textColor = .secondaryLabelColor
@@ -1005,7 +1003,7 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
 
     /// Locates the samtools binary for on-demand NAO-MGS BAM materialization.
     ///
-    /// `nonisolated` so it can be called from `Task.detached` contexts — the
+    /// `nonisolated` so it can be called from detached task contexts — the
     /// function only performs filesystem probes, so it's safe to run off the
     /// main actor.
     nonisolated fileprivate static func naomgsLocateSamtools() -> String? {
@@ -1069,15 +1067,18 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
                             resultURL: capturedResultURL,
                             samtoolsPath: samtoolsPath
                         )
-                        await MainActor.run {
-                            if FileManager.default.fileExists(atPath: bamURL.path),
-                               capturedIndex < self.miniBAMControllers.count {
-                                self.miniBAMControllers[capturedIndex].displayContig(
-                                    bamURL: bamURL,
-                                    contig: capturedSummary.accession,
-                                    contigLength: max(capturedSummary.referenceLength, 1),
-                                    readNameAllowlist: readNameAllowlist
-                                )
+                        DispatchQueue.main.async { [weak self] in
+                            MainActor.assumeIsolated {
+                                guard let self else { return }
+                                if FileManager.default.fileExists(atPath: bamURL.path),
+                                   capturedIndex < self.miniBAMControllers.count {
+                                    self.miniBAMControllers[capturedIndex].displayContig(
+                                        bamURL: bamURL,
+                                        contig: capturedSummary.accession,
+                                        contigLength: max(capturedSummary.referenceLength, 1),
+                                        readNameAllowlist: readNameAllowlist
+                                    )
+                                }
                             }
                         }
                     }
@@ -2245,10 +2246,10 @@ public final class NaoMgsResultViewController: NSViewController, NSSplitViewDele
         guard database != nil, let window = view.window else { return }
         let sampleName = manifest?.sampleName ?? "naomgs"
 
-        let savePanel = NSSavePanel()
-        savePanel.allowedContentTypes = [.tabSeparatedText]
-        savePanel.nameFieldStringValue = "\(sampleName)_naomgs_summary.tsv"
-        savePanel.title = "Export NAO-MGS Summary"
+        let savePanel = MetagenomicsFilePanelFactory.tsvSummaryExportPanel(
+            title: "Export NAO-MGS Summary",
+            suggestedName: "\(sampleName)_naomgs_summary.tsv"
+        )
 
         savePanel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = savePanel.url, let self else { return }

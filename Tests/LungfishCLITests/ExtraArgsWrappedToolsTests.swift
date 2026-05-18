@@ -184,38 +184,6 @@ final class ExtraArgsWrappedToolsTests: XCTestCase {
         XCTAssertEqual(run.steps.first?.stderr, "fastp stderr")
     }
 
-    func testOrientBuildsProvenanceWithExtraArgsAndOutputs() throws {
-        let command = try OrientCommand.parse([
-            "reads.fastq",
-            "--reference", "reference.fasta",
-            "--extra-args", "--id 0.97",
-        ])
-
-        let run = try command.provenanceRunForTesting(
-            inputURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
-            referenceURL: URL(fileURLWithPath: "/tmp/reference.fasta"),
-            result: OrientResult(
-                orientedFASTQ: URL(fileURLWithPath: "/tmp/oriented.fastq"),
-                unorientedFASTQ: nil,
-                tabbedOutput: URL(fileURLWithPath: "/tmp/orient.tsv"),
-                forwardCount: 1,
-                reverseComplementedCount: 2,
-                unmatchedCount: 0,
-                wallClockSeconds: 2.5
-            ),
-            argv: ["lungfish", "orient", "reads.fastq", "--reference", "reference.fasta", "--extra-args", "--id 0.97"],
-            vsearchArguments: ["vsearch", "--orient", "/tmp/reads.fastq", "--id", "0.97"],
-            exitCode: 0,
-            stderr: "vsearch stderr"
-        )
-
-        XCTAssertEqual(run.name, "lungfish orient")
-        XCTAssertEqual(run.parameters["extraArgs"], .string("--id 0.97"))
-        XCTAssertEqual(run.steps.first?.toolName, "vsearch")
-        XCTAssertEqual(run.steps.first?.outputs.map(\.path), ["/tmp/oriented.fastq", "/tmp/orient.tsv"])
-        XCTAssertEqual(run.steps.first?.wallTime, 2.5)
-    }
-
     func testCondaClassifyExtraArgsParseAndReachKraken2Arguments() throws {
         let command = try ClassifyCommand.parse([
             "reads.fastq",

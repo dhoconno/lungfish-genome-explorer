@@ -12,6 +12,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     // MARK: - NCBI Tests
 
     func testNCBISearch() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting from other tests in the suite
         try await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconds
 
@@ -43,6 +45,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     }
 
     func testNCBIFetchGenBank() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         let service = NCBIService()
 
         // Fetch HIV-1 reference genome (well-known, stable accession)
@@ -60,6 +64,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     }
 
     func testNCBISearchEbola() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting from previous tests
         try await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconds
 
@@ -93,6 +99,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     // MARK: - ENA Tests
 
     func testENASearch() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         let service = ENAService()
 
         // Search for a well-known sequence
@@ -109,6 +117,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     }
 
     func testENAFetchFASTA() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         let service = ENAService()
 
         // Fetch a known ENA sequence
@@ -124,6 +134,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     // MARK: - SRA Tests
 
     func testSRASearch() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting
         try await Task.sleep(nanoseconds: 500_000_000)
 
@@ -152,6 +164,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     }
 
     func testSRAToolkitDetection() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         let service = SRAService()
         let available = await service.isSRAToolkitAvailable
 
@@ -162,6 +176,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     // MARK: - Raw GenBank Download Tests
 
     func testNCBIFetchRawGenBankPreservesAnnotations() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting from previous tests
         try await Task.sleep(nanoseconds: 500_000_000)
 
@@ -192,6 +208,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     }
 
     func testDownloadGenBankToFile() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting
         try await Task.sleep(nanoseconds: 500_000_000)
 
@@ -226,6 +244,8 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
     // MARK: - Download to File Tests
 
     func testDownloadToTemporaryFile() async throws {
+        try Self.requireLiveDatabaseTestsEnabled()
+
         // Wait to avoid rate limiting from previous tests
         try await Task.sleep(nanoseconds: 1_000_000_000)  // 1 second
 
@@ -273,6 +293,21 @@ final class DatabaseServiceIntegrationTests: XCTestCase {
 
         // Clean up
         try? FileManager.default.removeItem(at: fileURL)
+    }
+
+    private static let liveDatabaseTestsEnvironmentKey = "LUNGFISH_RUN_LIVE_DATABASE_TESTS"
+
+    private static func requireLiveDatabaseTestsEnabled() throws {
+        let rawValue = ProcessInfo.processInfo.environment[liveDatabaseTestsEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let enabledValues = ["1", "true", "yes", "on"]
+
+        guard let rawValue, enabledValues.contains(rawValue) else {
+            throw XCTSkip(
+                "Live database integration tests are disabled. Set \(liveDatabaseTestsEnvironmentKey)=1 to run."
+            )
+        }
     }
 
     private static func transientLiveNCBISkipReason(for error: Error) -> String? {

@@ -241,7 +241,6 @@ final class WindowAppearanceTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
             encoding: .utf8
         )
-
         XCTAssertFalse(classificationSource.contains("Image(systemName: \"k.circle\")"))
         XCTAssertFalse(esvirituSource.contains("Image(systemName: \"e.circle\")"))
         XCTAssertFalse(taxtriageSource.contains("Image(systemName: \"t.circle\")"))
@@ -283,6 +282,11 @@ final class WindowAppearanceTests: XCTestCase {
                 .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/TaxTriageWizardSheet.swift"),
             encoding: .utf8
         )
+        let dialogSheetSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/Shared/DialogSheets.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(classificationSource.contains("embeddedInOperationsDialog"))
         XCTAssertTrue(esvirituSource.contains("embeddedInOperationsDialog"))
@@ -291,14 +295,23 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(esvirituSource.contains("if !embeddedInOperationsDialog"))
         XCTAssertTrue(taxtriageSource.contains("if !embeddedInOperationsDialog"))
         XCTAssertTrue(classificationSource.contains(#"Button("Cancel")"#))
-        XCTAssertTrue(esvirituSource.contains(#"Button("Cancel")"#))
-        XCTAssertTrue(taxtriageSource.contains(#"Button("Cancel")"#))
         XCTAssertTrue(classificationSource.contains(#"Button("Run")"#))
-        XCTAssertTrue(esvirituSource.contains(#"Button("Run")"#))
-        XCTAssertTrue(taxtriageSource.contains(#"Button("Run")"#))
         XCTAssertTrue(classificationSource.contains(".frame(width: 520, height: 520)"))
-        XCTAssertTrue(esvirituSource.contains(".frame(width: 520, height: 500)"))
-        XCTAssertTrue(taxtriageSource.contains(".frame(width: 520, height: 520)"))
+
+        XCTAssertTrue(esvirituSource.contains("WizardSheet("))
+        XCTAssertTrue(esvirituSource.contains("size: WizardSheetSize(width: 520, height: 500)"))
+        XCTAssertTrue(esvirituSource.contains("onCancel: { onCancel?() }"))
+        XCTAssertTrue(esvirituSource.contains("onPrimary: performRun"))
+        XCTAssertTrue(taxtriageSource.contains("WizardSheet("))
+        XCTAssertTrue(taxtriageSource.contains("size: standalonePresentation.size"))
+        XCTAssertTrue(taxtriageSource.contains(#"primaryTitle: "Run""#))
+        XCTAssertTrue(taxtriageSource.contains("onCancel: { onCancel?() }"))
+        XCTAssertTrue(taxtriageSource.contains("onPrimary: performRun"))
+        XCTAssertTrue(dialogSheetSource.contains(#"cancelTitle: String = "Cancel""#))
+        XCTAssertTrue(dialogSheetSource.contains(#"primaryTitle: String = "Run""#))
+        XCTAssertTrue(dialogSheetSource.contains(".keyboardShortcut(.cancelAction)"))
+        XCTAssertTrue(dialogSheetSource.contains(".keyboardShortcut(.defaultAction)"))
+        XCTAssertTrue(dialogSheetSource.contains(".frame(width: width, height: height)"))
     }
 
     func testEmbeddedClassificationPanelUsesScrollView() throws {
@@ -315,33 +328,116 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertTrue(source.contains("if !embeddedInOperationsDialog"))
     }
 
+    func testAppKitControlsAvoidDeprecatedTexturedRoundedStyle() throws {
+        let sourceRoot = repositoryRoot().appendingPathComponent("Sources/LungfishApp")
+        let offenders = try swiftSourceFiles(under: sourceRoot).filter { url in
+            let source = try String(contentsOf: url, encoding: .utf8)
+            return source.contains(".texturedRounded")
+        }.map { url in
+            url.path.replacingOccurrences(of: repositoryRoot().path + "/", with: "")
+        }.sorted()
+
+        XCTAssertEqual(offenders, [])
+    }
+
+    func testDestructiveAlertFirstButtonsUseDestructiveAction() throws {
+        struct AlertCase {
+            let path: String
+            let startToken: String
+            let endToken: String
+            let label: String
+        }
+
+        let cases = [
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift",
+                startToken: "@objc public func deleteSelectedItems()",
+                endToken: "/// Performs the actual deletion of items",
+                label: "sidebar move to trash"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Sidebar/SidebarViewController.swift",
+                startToken: "@objc private func contextMenuDeleteVariantTracks",
+                endToken: "private func performDeleteVariantTracks",
+                label: "sidebar variant track deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Inspector/InspectorViewController.swift",
+                startToken: "private func confirmRemoveDerivedAlignment",
+                endToken: "private func runRemoveDerivedAlignmentWorkflow",
+                label: "derived alignment removal"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderViewController.swift",
+                startToken: "private func deleteSelectedWorkflowInLibrary",
+                endToken: "private func promptForWorkflowName",
+                label: "workflow deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift",
+                startToken: "didRequestDeleteAnnotations annotations",
+                endToken: "private func runAnnotationRowDeletion",
+                label: "annotation row deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Viewer/ViewerViewController+AnnotationDrawer.swift",
+                startToken: "didRequestDeleteAnnotationTrack trackID",
+                endToken: "private func runAnnotationTrackDeletion",
+                label: "annotation track deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
+                startToken: "@objc private func deleteSelectedVariantsAction",
+                endToken: "@objc private func deleteAllVariantsAction",
+                label: "selected variant deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
+                startToken: "@objc private func deleteAllVariantsAction",
+                endToken: "private func performVariantDeletion",
+                label: "all variants deletion"
+            ),
+            AlertCase(
+                path: "Sources/LungfishApp/Views/Viewer/AnnotationTableDrawerView.swift",
+                startToken: "@objc private func deleteSampleMetadataFieldAction",
+                endToken: "alert.beginSheetModal(for: window)",
+                label: "sample metadata column deletion"
+            ),
+        ]
+
+        for alertCase in cases {
+            let source = try String(
+                contentsOf: repositoryRoot().appendingPathComponent(alertCase.path),
+                encoding: .utf8
+            )
+            let slice = try sourceSlice(source, from: alertCase.startToken, to: alertCase.endToken)
+            XCTAssertTrue(
+                slice.contains("hasDestructiveAction = true"),
+                "Missing destructive action marker for \(alertCase.label)"
+            )
+        }
+    }
+
     private func sourceSlice(_ source: String, from startToken: String, to endToken: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: startToken)?.lowerBound)
         let end = try XCTUnwrap(source.range(of: endToken, range: start..<source.endIndex)?.lowerBound)
         return String(source[start..<end])
     }
 
-    func testMapReadsSheetSupportsEmbeddedOperationsDialogMode() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/MapReadsWizardSheet.swift"),
-            encoding: .utf8
-        )
+    func testMapReadsWizardSheetIsNotPartOfActiveAppSources() throws {
+        let root = repositoryRoot()
+        let sheetURL = root.appendingPathComponent("Sources/LungfishApp/Views/Metagenomics/MapReadsWizardSheet.swift")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: sheetURL.path))
 
-        XCTAssertTrue(source.contains("embeddedInOperationsDialog"))
-        XCTAssertTrue(source.contains("embeddedRunTrigger"))
-        XCTAssertTrue(source.contains("onRunnerAvailabilityChange"))
-        XCTAssertTrue(source.contains("if embeddedInOperationsDialog"))
-        XCTAssertTrue(source.contains("ScrollView {"))
-        XCTAssertTrue(source.contains(".onChange(of: embeddedRunTrigger)"))
-        XCTAssertTrue(source.contains("performRun()"))
-        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(canRun)"))
-        XCTAssertTrue(source.contains("onRunnerAvailabilityChange?(newValue)"))
-        XCTAssertTrue(source.contains("headerSection"))
-        XCTAssertTrue(source.contains("footerSection"))
-        XCTAssertTrue(source.contains("width: embeddedInOperationsDialog ? nil : 520"))
-        XCTAssertTrue(source.contains("height: embeddedInOperationsDialog ? nil : 520"))
-        XCTAssertFalse(source.contains("embeddedInUnifiedRunner"))
+        let sourceRoot = root.appendingPathComponent("Sources")
+        let references = try swiftSourceFiles(under: sourceRoot).filter { url in
+            let source = try String(contentsOf: url, encoding: .utf8)
+            return source.contains("MapReadsWizardSheet")
+        }.map { url in
+            url.path.replacingOccurrences(of: root.path + "/", with: "")
+        }.sorted()
+
+        XCTAssertEqual(references, [])
     }
 
     func testAssemblySheetSupportsEmbeddedOperationsDialogMode() throws {
@@ -392,5 +488,21 @@ final class WindowAppearanceTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func swiftSourceFiles(under root: URL) throws -> [URL] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return try enumerator.compactMap { item -> URL? in
+            guard let url = item as? URL, url.pathExtension == "swift" else { return nil }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+            return values.isRegularFile == true ? url : nil
+        }
     }
 }

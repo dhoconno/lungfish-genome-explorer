@@ -785,7 +785,7 @@ final class CLIErrorExtendedTests: XCTestCase {
         XCTAssertEqual(CLIError.formatDetectionFailed(path: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.unsupportedFormat(format: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.conversionFailed(reason: "").exitCode, .failure)
-        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .failure)
+        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .inputError)
         XCTAssertEqual(CLIError.workflowFailed(reason: "").exitCode, .workflowError)
         XCTAssertEqual(CLIError.containerUnavailable.exitCode, .containerError)
         XCTAssertEqual(CLIError.networkError(reason: "").exitCode, .networkError)
@@ -1246,28 +1246,52 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(FastqCommand.configuration.commandName, "fastq")
     }
 
-    /// Verifies that FastqCommand has all 26 subcommands registered.
+    /// Verifies that FastqCommand has all 27 subcommands registered.
     func testFastqSubcommandCount() {
         let subcommands = FastqCommand.configuration.subcommands
-        XCTAssertEqual(subcommands.count, 26, "FastqCommand should have 26 subcommands")
+        XCTAssertEqual(subcommands.count, 27, "FastqCommand should have 27 subcommands")
     }
 
     /// Verifies that all expected subcommand names are registered.
     func testFastqSubcommandNames() {
-        let names = FastqCommand.configuration.subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = FastqCommand.configuration.subcommands.map { $0.configuration.commandName }
         let expected = [
             "subsample", "length-filter", "trim", "quality-trim", "adapter-trim", "fixed-trim",
             "contaminant-filter", "primer-remove", "error-correct",
             "merge", "repair", "deinterleave", "interleave", "deduplicate",
-            "demultiplex", "import-ont", "materialize", "qc-summary",
+            "demultiplex", "scout", "import-ont", "materialize", "qc-summary",
             "search-text", "search-motif", "orient", "scrub-human", "sequence-filter",
             "deacon-ribo", "reverse-complement", "translate",
         ]
         for name in expected {
             XCTAssertTrue(names.contains(name), "Missing subcommand: \(name)")
         }
+    }
+
+    func testFastqScoutParsesBarcodeScoutingOptions() throws {
+        let cmd = try FastqScoutSubcommand.parse([
+            "reads.fastq",
+            "--kit", "ont-nbd114",
+            "--output", "/tmp/scout-result.json",
+            "--read-limit", "2500",
+            "--accept-threshold", "7",
+            "--reject-threshold", "2",
+            "--error-rate", "0.12",
+            "--overlap", "16",
+            "--source-platform", "ont",
+            "--no-indels",
+        ])
+
+        XCTAssertEqual(cmd.input, "reads.fastq")
+        XCTAssertEqual(cmd.kit, "ont-nbd114")
+        XCTAssertEqual(cmd.output, "/tmp/scout-result.json")
+        XCTAssertEqual(cmd.readLimit, 2500)
+        XCTAssertEqual(cmd.acceptThreshold, 7)
+        XCTAssertEqual(cmd.rejectThreshold, 2)
+        XCTAssertEqual(cmd.errorRate, 0.12)
+        XCTAssertEqual(cmd.overlap, 16)
+        XCTAssertEqual(cmd.sourcePlatform, "ont")
+        XCTAssertTrue(cmd.useNoIndels)
     }
 
     // MARK: - Subsample Argument Parsing
@@ -1690,9 +1714,7 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that FastqCommand is registered as a subcommand of LungfishCLI.
     func testFastqCommandRegistered() {
         let subcommands = LungfishCLI.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("fastq"), "LungfishCLI should contain fastq subcommand")
     }
 
@@ -1701,9 +1723,7 @@ final class FastqCommandTests: XCTestCase {
     /// Verifies that the blast subcommand is registered at the top level.
     func testBlastCommandRegistered() {
         let subcommands = LungfishCLI.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("blast"), "LungfishCLI should contain blast subcommand")
     }
 }
@@ -1799,9 +1819,7 @@ final class BlastVerifyCommandTests: XCTestCase {
     /// Verifies that the verify subcommand is the default for blast.
     func testBlastDefaultSubcommand() {
         let subcommands = BlastCommand.configuration.subcommands
-        let names = subcommands.compactMap {
-            ($0 as? any ParsableCommand.Type)?.configuration.commandName
-        }
+        let names = subcommands.map { $0.configuration.commandName }
         XCTAssertTrue(names.contains("verify"), "BlastCommand should have verify subcommand")
     }
 }

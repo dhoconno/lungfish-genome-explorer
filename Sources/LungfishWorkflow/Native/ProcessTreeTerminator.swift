@@ -21,9 +21,32 @@ public enum ProcessTreeTerminator {
     public static func processExists(pid: Int32) -> Bool {
         guard pid > 0 else { return false }
         if kill(pid, 0) == 0 {
-            return true
+            return !isZombieProcess(pid: pid)
         }
         return errno != ESRCH
+    }
+
+    private static func isZombieProcess(pid: Int32) -> Bool {
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-o", "stat=", "-p", String(pid)]
+        let stdoutPipe = Pipe()
+        ps.standardOutput = stdoutPipe
+        ps.standardError = Pipe()
+
+        do {
+            try ps.run()
+        } catch {
+            return false
+        }
+
+        let data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        ps.waitUntilExit()
+        guard ps.terminationStatus == 0,
+              let state = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return state.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Z")
     }
 
     public static func descendantProcessIDs(of rootPID: Int32) -> [Int32] {
@@ -93,24 +116,83 @@ public enum ProcessTreeTerminator {
     public static func terminate(rootPID: Int32, gracePeriod: TimeInterval = 0.5) {
         guard rootPID > 0 else { return }
 
-        var orderedPIDs = descendantProcessIDs(of: rootPID)
-        orderedPIDs.append(rootPID)
+        func orderedProcessTree() -> [Int32] {
+            var orderedPIDs = descendantProcessIDs(of: rootPID)
+            orderedPIDs.append(rootPID)
 
-        var seen = Set<Int32>()
-        orderedPIDs = orderedPIDs.filter { pid in
-            pid > 0 && seen.insert(pid).inserted
+            var seen = Set<Int32>()
+            return orderedPIDs.filter { pid in
+                pid > 0 && seen.insert(pid).inserted
+            }
         }
 
-        for pid in orderedPIDs.reversed() where processExists(pid: pid) {
-            kill(pid, SIGTERM)
+        func signalDescendantsBeforeRoot(_ pids: [Int32], signal: Int32, includeRoot: Bool = true) {
+            guard let rootIndex = pids.lastIndex(of: rootPID) else { return }
+            for pid in pids[..<rootIndex].reversed() where processExists(pid: pid) {
+                kill(pid, signal)
+            }
+            if includeRoot && processExists(pid: rootPID) {
+                kill(rootPID, signal)
+            }
         }
 
+        func stopRoot() -> Bool {
+            guard processExists(pid: rootPID) else { return false }
+            return kill(rootPID, SIGSTOP) == 0
+        }
+
+        func continueRoot() {
+            guard processExists(pid: rootPID) else { return }
+            kill(rootPID, SIGCONT)
+        }
+
+        func uniquePIDs(_ pids: [Int32]) -> [Int32] {
+            var seen = Set<Int32>()
+            return pids.filter { pid in
+                pid > 0 && seen.insert(pid).inserted
+            }
+        }
+
+        func expandWithDescendants(_ pids: [Int32]) -> [Int32] {
+            uniquePIDs(pids + pids.flatMap { descendantProcessIDs(of: $0) })
+        }
+
+        func waitForPIDsToExit(_ pids: [Int32], timeout: TimeInterval) {
+            let deadline = Date().addingTimeInterval(timeout)
+            let pids = uniquePIDs(pids.filter { $0 != rootPID })
+            while Date() < deadline {
+                let livePIDs = expandWithDescendants(pids).filter { processExists(pid: $0) }
+                if livePIDs.isEmpty {
+                    return
+                }
+                for pid in livePIDs {
+                    kill(pid, SIGKILL)
+                }
+                usleep(25_000)
+            }
+        }
+
+        let initialTree = orderedProcessTree()
         if gracePeriod > 0 {
+            signalDescendantsBeforeRoot(initialTree, signal: SIGTERM)
             usleep(useconds_t(max(0, gracePeriod) * 1_000_000))
+        } else {
+            signalDescendantsBeforeRoot(initialTree, signal: SIGTERM)
+            usleep(50_000)
         }
 
-        for pid in orderedPIDs.reversed() where processExists(pid: pid) {
-            kill(pid, SIGKILL)
+        let rootWasStopped = stopRoot()
+        // Shell wrappers can spawn helpers immediately after a snapshot. Stop
+        // the root before the late snapshot so it cannot create new direct
+        // children while descendants are being killed.
+        let finalTree = expandWithDescendants(initialTree + orderedProcessTree())
+        signalDescendantsBeforeRoot(finalTree, signal: SIGKILL, includeRoot: false)
+        waitForPIDsToExit(finalTree, timeout: 0.25)
+        if processExists(pid: rootPID) {
+            kill(rootPID, SIGKILL)
+        }
+        if rootWasStopped {
+            continueRoot()
         }
     }
 }
@@ -150,5 +232,129 @@ public final class NativeProcessRegistry: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return processes.count
+    }
+}
+
+enum NativeProcessCompletionReason {
+    case completed
+    case cancelled
+    case timedOut
+}
+
+final class NativeProcessRunState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resumed = false
+    private var cancelled = false
+    private var timedOut = false
+
+    func markCancelled() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func markTimedOut() {
+        lock.lock()
+        timedOut = true
+        lock.unlock()
+    }
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func resumeOnce(_ body: (NativeProcessCompletionReason) -> Void) {
+        let reason: NativeProcessCompletionReason
+        lock.lock()
+        guard !resumed else {
+            lock.unlock()
+            return
+        }
+        resumed = true
+        if cancelled {
+            reason = .cancelled
+        } else if timedOut {
+            reason = .timedOut
+        } else {
+            reason = .completed
+        }
+        lock.unlock()
+        body(reason)
+    }
+}
+
+public final class NativeProcessCancellationHandle: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var terminationRequested = false
+
+    public init() {}
+
+    public func store(_ process: Process) {
+        lock.lock()
+        self.process = process
+        lock.unlock()
+        NativeProcessRegistry.shared.register(process)
+    }
+
+    public func clear(_ process: Process) {
+        let shouldUnregister: Bool
+        lock.lock()
+        if self.process === process {
+            self.process = nil
+            terminationRequested = false
+            shouldUnregister = true
+        } else {
+            shouldUnregister = false
+        }
+        lock.unlock()
+
+        if shouldUnregister {
+            NativeProcessRegistry.shared.unregister(process)
+        }
+    }
+
+    public func terminateProcessTree(gracePeriod: TimeInterval = 0.5) {
+        let process: Process?
+        lock.lock()
+        terminationRequested = true
+        process = self.process
+        lock.unlock()
+
+        guard let process else { return }
+        ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+    }
+
+    public func requestProcessTreeTermination(gracePeriod: TimeInterval = 0.5) {
+        let process: Process?
+        lock.lock()
+        terminationRequested = true
+        process = self.process
+        lock.unlock()
+
+        guard let process else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
+        }
+    }
+
+    public var isTerminationRequested: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return terminationRequested
+    }
+
+    public func terminateIfRequested(gracePeriod: TimeInterval = 0.5) {
+        let shouldTerminate: Bool
+        let process: Process?
+        lock.lock()
+        shouldTerminate = terminationRequested
+        process = self.process
+        lock.unlock()
+
+        guard shouldTerminate, let process else { return }
+        ProcessTreeTerminator.terminate(rootProcess: process, gracePeriod: gracePeriod)
     }
 }

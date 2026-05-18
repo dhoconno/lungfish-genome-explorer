@@ -6,7 +6,6 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishCore
 import LungfishIO
 import LungfishWorkflow
@@ -158,6 +157,14 @@ private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> 
     }
     // Add to run loop with common modes so it fires during modal sessions
     RunLoop.main.add(timer, forMode: .common)
+}
+
+private func performOnMainRunLoopAsync<T: Sendable>(_ block: @escaping @MainActor @Sendable () -> T) async -> T {
+    await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+        performOnMainRunLoop {
+            continuation.resume(returning: block())
+        }
+    }
 }
 
 private func writeGUISRAFASTQImportProvenance(
@@ -1290,19 +1297,23 @@ public class DatabaseBrowserViewModel: ObservableObject {
     }
 
     /// Imports accession list from a CSV or text file.
-    /// Opens NSOpenPanel, parses the file, and triggers batch search.
+    /// Opens a file panel, parses the file, and triggers batch search.
     func importAccessionList() {
-        let panel = NSOpenPanel()
-        panel.title = "Import Accession List"
-        panel.allowedContentTypes = [
-            .commaSeparatedText,
-            .plainText,
-        ]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = DatabaseBrowserFilePanelFactory.accessionListImportPanel()
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let handleSelection: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            self?.handleImportedAccessionList(url: url)
+        }
 
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: handleSelection)
+        } else {
+            panel.begin(completionHandler: handleSelection)
+        }
+    }
+
+    private func handleImportedAccessionList(url: URL) {
         do {
             let accessions = try SRAAccessionParser.parseCSVFile(at: url)
             if accessions.isEmpty {
@@ -1311,7 +1322,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                 alert.informativeText = "No valid SRA accessions were found in the selected file."
                 alert.alertStyle = .informational
                 alert.addButton(withTitle: "OK")
-                alert.runModal()
+                presentDatabaseBrowserAlert(alert)
                 return
             }
 
@@ -1327,7 +1338,16 @@ public class DatabaseBrowserViewModel: ObservableObject {
             alert.informativeText = "Could not read the file: \(error.localizedDescription)"
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
-            alert.runModal()
+            presentDatabaseBrowserAlert(alert)
+        }
+    }
+
+    private func presentDatabaseBrowserAlert(_ alert: NSAlert) {
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.window.center()
+            alert.window.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -1486,7 +1506,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         )
                     )
 
-                    await MainActor.run {
+                    await performOnMainRunLoopAsync {
                         guard let self else { return }
                         self.applySearchUpdate(for: searchToken) {
                             self.errorMessage = nil
@@ -1500,7 +1520,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         }
                     }
                 } catch {
-                    await MainActor.run {
+                    await performOnMainRunLoopAsync {
                         guard let self else { return }
                         self.applySearchUpdate(for: searchToken) {
                             self.errorMessage = error.localizedDescription
@@ -1510,7 +1530,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                     }
                 }
 
-                await MainActor.run {
+                await performOnMainRunLoopAsync {
                     guard let self else { return }
                     self.finishSearchTask(for: searchToken)
                 }
@@ -2353,7 +2373,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
                         source: currentSource
                     )
                 } catch {
-                    await MainActor.run {
+                    await performOnMainRunLoopAsync {
                         self?.errorMessage = error.localizedDescription
                     }
                 }
@@ -2369,10 +2389,21 @@ public class DatabaseBrowserViewModel: ObservableObject {
             alert.alertStyle = .informational
             alert.addButton(withTitle: "Download All")
             alert.addButton(withTitle: "Cancel")
-            let response = alert.runModal()
-            guard response == .alertFirstButtonReturn else { return }
+            guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+                errorMessage = "No window available to confirm batch download"
+                return
+            }
+            alert.beginSheetModal(for: window) { [weak self] response in
+                guard response == .alertFirstButtonReturn else { return }
+                self?.continueBatchDownload(recordsToDownload: recordsToDownload)
+            }
+            return
         }
 
+        continueBatchDownload(recordsToDownload: recordsToDownload)
+    }
+
+    private func continueBatchDownload(recordsToDownload: [SearchResultRecord]) {
         if let projectURL = routeContext?.projectURL {
             guard AppDelegate.shared?.canWriteProjectOutputs(
                 projectURL: projectURL,
@@ -2888,7 +2919,7 @@ public class DatabaseBrowserViewModel: ObservableObject {
             var failureDetails: [String] = []
 
             if let projectURL {
-                let canWriteProject = await MainActor.run {
+                let canWriteProject = await performOnMainRunLoopAsync {
                     AppDelegate.shared?.canWriteProjectOutputs(
                         projectURL: projectURL,
                         windowStateScope: enaRouteContext?.windowStateScopeID.map(WindowStateScope.init(id:)),

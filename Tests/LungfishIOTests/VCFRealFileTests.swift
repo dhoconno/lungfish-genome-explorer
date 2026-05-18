@@ -6,29 +6,32 @@ import XCTest
 @testable import LungfishIO
 @testable import LungfishCore
 
-/// Tests VCF parsing with the actual test_variants.vcf file from the test project.
+/// Tests VCF parsing with a committed fixture that mirrors the original test project shape.
 /// These tests verify real-world VCF parsing capabilities.
 final class VCFRealFileTests: XCTestCase {
 
     // MARK: - Test with Real VCF File
 
-    /// Tests parsing the comprehensive test_variants.vcf file from the test project.
+    private func fixtureURL() throws -> URL {
+        try XCTUnwrap(
+            Bundle.module.url(
+                forResource: "real_file_variants",
+                withExtension: "vcf",
+                subdirectory: "Resources"
+            )
+        )
+    }
+
+    /// Tests parsing a representative VCF fixture.
     /// This file contains:
     /// - VCF v4.2 format
     /// - 4 contigs (TestSequence1, Chromosome1, Chromosome2, LargeChromosome1)
     /// - 3 samples (Sample1, Sample2, Sample3)
-    /// - 22 variants including SNPs, insertions, and deletions
+    /// - SNPs, insertions, and deletions
     /// - Various filter statuses (PASS, q10, LowCov)
     /// - Rich INFO and FORMAT fields
     func testParseTestVariantsFile() async throws {
-        // Path to the actual test file
-        let testFilePath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_variants.vcf"
-        let url = URL(fileURLWithPath: testFilePath)
-
-        // Skip test if file doesn't exist (for CI environments)
-        guard FileManager.default.fileExists(atPath: testFilePath) else {
-            throw XCTSkip("Test VCF file not found at expected location")
-        }
+        let url = try fixtureURL()
 
         let reader = VCFReader()
 
@@ -74,7 +77,7 @@ final class VCFRealFileTests: XCTestCase {
 
         // Parse all variants
         let variants = try await reader.readAll(from: url)
-        XCTAssertEqual(variants.count, 22, "Should have 22 variant records")
+        XCTAssertEqual(variants.count, 6, "Should have all committed fixture variant records")
 
         // Verify variant types
         let snps = variants.filter { $0.isSNP }
@@ -120,7 +123,7 @@ final class VCFRealFileTests: XCTestCase {
 
         // Verify conversion to annotations
         let annotations = try await reader.readAsAnnotations(from: url)
-        XCTAssertEqual(annotations.count, 22, "Should convert all 22 variants to annotations")
+        XCTAssertEqual(annotations.count, 6, "Should convert all variants to annotations")
 
         // Verify annotation types
         let snpAnnotations = annotations.filter { $0.type == .snp }
@@ -136,12 +139,7 @@ final class VCFRealFileTests: XCTestCase {
 
     /// Tests streaming variants from the real file.
     func testStreamVariantsFromRealFile() async throws {
-        let testFilePath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_variants.vcf"
-        let url = URL(fileURLWithPath: testFilePath)
-
-        guard FileManager.default.fileExists(atPath: testFilePath) else {
-            throw XCTSkip("Test VCF file not found at expected location")
-        }
+        let url = try fixtureURL()
 
         let reader = VCFReader()
         var count = 0
@@ -152,104 +150,79 @@ final class VCFRealFileTests: XCTestCase {
             chromosomeCounts[variant.chromosome, default: 0] += 1
         }
 
-        XCTAssertEqual(count, 22, "Should stream all 22 variants")
-        XCTAssertEqual(chromosomeCounts["TestSequence1"], 8)
-        XCTAssertEqual(chromosomeCounts["Chromosome1"], 3)
-        XCTAssertEqual(chromosomeCounts["Chromosome2"], 3)
-        XCTAssertEqual(chromosomeCounts["LargeChromosome1"], 8)
+        XCTAssertEqual(count, 6, "Should stream all fixture variants")
+        XCTAssertEqual(chromosomeCounts["TestSequence1"], 2)
+        XCTAssertEqual(chromosomeCounts["Chromosome1"], 1)
+        XCTAssertEqual(chromosomeCounts["Chromosome2"], 1)
+        XCTAssertEqual(chromosomeCounts["LargeChromosome1"], 2)
     }
 
     /// Tests variant classification (SNP vs indel).
     func testVariantClassification() async throws {
-        let testFilePath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_variants.vcf"
-        let url = URL(fileURLWithPath: testFilePath)
-
-        guard FileManager.default.fileExists(atPath: testFilePath) else {
-            throw XCTSkip("Test VCF file not found at expected location")
-        }
+        let url = try fixtureURL()
 
         let reader = VCFReader()
         let variants = try await reader.readAll(from: url)
 
         // Find specific variants by ID and verify classification
-        let deletion = variants.first { $0.id == "rs004" }
-        XCTAssertNotNil(deletion)
-        XCTAssertTrue(deletion!.isIndel, "rs004 (AT->A) should be classified as indel")
-        XCTAssertEqual(deletion!.info["TYPE"], "DEL")
+        let deletion = try XCTUnwrap(variants.first { $0.id == "rs004" })
+        XCTAssertTrue(deletion.isIndel, "rs004 (AT->A) should be classified as indel")
+        XCTAssertEqual(deletion.info["TYPE"], "DEL")
 
-        let insertion = variants.first { $0.id == "rs005" }
-        XCTAssertNotNil(insertion)
-        XCTAssertTrue(insertion!.isIndel, "rs005 (G->GT) should be classified as indel")
-        XCTAssertEqual(insertion!.info["TYPE"], "INS")
+        let insertion = try XCTUnwrap(variants.first { $0.id == "rs005" })
+        XCTAssertTrue(insertion.isIndel, "rs005 (G->GT) should be classified as indel")
+        XCTAssertEqual(insertion.info["TYPE"], "INS")
 
-        let snp = variants.first { $0.id == "rs001" }
-        XCTAssertNotNil(snp)
-        XCTAssertTrue(snp!.isSNP, "rs001 (A->G) should be classified as SNP")
-        XCTAssertEqual(snp!.info["TYPE"], "SNP")
+        let snp = try XCTUnwrap(variants.first { $0.id == "rs001" })
+        XCTAssertTrue(snp.isSNP, "rs001 (A->G) should be classified as SNP")
+        XCTAssertEqual(snp.info["TYPE"], "SNP")
     }
 
     /// Tests filter status parsing.
     func testFilterStatusParsing() async throws {
-        let testFilePath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_variants.vcf"
-        let url = URL(fileURLWithPath: testFilePath)
-
-        guard FileManager.default.fileExists(atPath: testFilePath) else {
-            throw XCTSkip("Test VCF file not found at expected location")
-        }
+        let url = try fixtureURL()
 
         let reader = VCFReader()
         let variants = try await reader.readAll(from: url)
 
         // Check q10 filter (rs007)
-        let q10Variant = variants.first { $0.id == "rs007" }
-        XCTAssertNotNil(q10Variant)
-        XCTAssertEqual(q10Variant!.filter, "q10")
-        XCTAssertFalse(q10Variant!.isPassing)
+        let q10Variant = try XCTUnwrap(variants.first { $0.id == "rs007" })
+        XCTAssertEqual(q10Variant.filter, "q10")
+        XCTAssertFalse(q10Variant.isPassing)
 
         // Check LowCov filter (rs008)
-        let lowCovVariant = variants.first { $0.id == "rs008" }
-        XCTAssertNotNil(lowCovVariant)
-        XCTAssertEqual(lowCovVariant!.filter, "LowCov")
-        XCTAssertFalse(lowCovVariant!.isPassing)
+        let lowCovVariant = try XCTUnwrap(variants.first { $0.id == "rs008" })
+        XCTAssertEqual(lowCovVariant.filter, "LowCov")
+        XCTAssertFalse(lowCovVariant.isPassing)
 
         // Check PASS variants
-        let passVariant = variants.first { $0.id == "rs001" }
-        XCTAssertNotNil(passVariant)
-        XCTAssertEqual(passVariant!.filter, "PASS")
-        XCTAssertTrue(passVariant!.isPassing)
+        let passVariant = try XCTUnwrap(variants.first { $0.id == "rs001" })
+        XCTAssertEqual(passVariant.filter, "PASS")
+        XCTAssertTrue(passVariant.isPassing)
     }
 
     /// Tests genotype parsing including missing data.
     func testGenotypeParsing() async throws {
-        let testFilePath = "/Users/dho/Desktop/test2/My Genome Project.lungfish/test_variants.vcf"
-        let url = URL(fileURLWithPath: testFilePath)
-
-        guard FileManager.default.fileExists(atPath: testFilePath) else {
-            throw XCTSkip("Test VCF file not found at expected location")
-        }
+        let url = try fixtureURL()
 
         let reader = VCFReader()
         let variants = try await reader.readAll(from: url)
 
         // rs008 has a missing genotype for Sample2 (./.)
-        let variantWithMissing = variants.first { $0.id == "rs008" }
-        XCTAssertNotNil(variantWithMissing)
+        let variantWithMissing = try XCTUnwrap(variants.first { $0.id == "rs008" })
 
-        let missingSample = variantWithMissing!.genotypes["Sample2"]
-        XCTAssertNotNil(missingSample)
-        XCTAssertEqual(missingSample!.rawGenotype, "./.")
+        let missingSample = try XCTUnwrap(variantWithMissing.genotypes["Sample2"])
+        XCTAssertEqual(missingSample.rawGenotype, "./.")
 
         // Test heterozygous genotype
-        let hetVariant = variants.first { $0.id == "rs001" }
-        let hetGT = hetVariant?.genotypes["Sample1"]
-        XCTAssertNotNil(hetGT)
-        XCTAssertTrue(hetGT!.isHet)
-        XCTAssertEqual(hetGT!.alleleIndices, [0, 1])
+        let hetVariant = try XCTUnwrap(variants.first { $0.id == "rs001" })
+        let hetGT = try XCTUnwrap(hetVariant.genotypes["Sample1"])
+        XCTAssertTrue(hetGT.isHet)
+        XCTAssertEqual(hetGT.alleleIndices, [0, 1])
 
         // Test homozygous reference genotype
-        let homRefGT = hetVariant?.genotypes["Sample2"]
-        XCTAssertNotNil(homRefGT)
-        XCTAssertTrue(homRefGT!.isHomRef)
-        XCTAssertEqual(homRefGT!.alleleIndices, [0, 0])
+        let homRefGT = try XCTUnwrap(hetVariant.genotypes["Sample2"])
+        XCTAssertTrue(homRefGT.isHomRef)
+        XCTAssertEqual(homRefGT.alleleIndices, [0, 0])
     }
 }

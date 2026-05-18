@@ -14,7 +14,7 @@ private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destruct
 
 /// Binds a Swift String to a SQLite prepared statement at the given parameter index.
 private func nvdBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
-    text.withCString { cStr in
+    _ = text.withCString { cStr in
         sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
     }
 }
@@ -653,7 +653,7 @@ public final class NvdDatabase: @unchecked Sendable {
     /// Searches best hits using a text query against taxon name, accession, and contig name.
     ///
     /// - Parameters:
-    ///   - query: Text to search for (LIKE matching with wildcards).
+    ///   - query: Literal text to search for.
     ///   - samples: Sample IDs to search within.
     /// - Returns: Matching hits with hit_rank = 1, ordered by sample_id then qseqid.
     public func searchBestHits(query: String, samples: [String]) throws -> [NvdBlastHit] {
@@ -673,7 +673,10 @@ public final class NvdDatabase: @unchecked Sendable {
         FROM blast_hits
         WHERE hit_rank = 1
           AND sample_id IN (\(placeholders))
-          AND (adjusted_taxid_name LIKE ? OR stitle LIKE ? OR sseqid LIKE ? OR qseqid LIKE ?)
+          AND (adjusted_taxid_name LIKE ? ESCAPE '\\'
+               OR stitle LIKE ? ESCAPE '\\'
+               OR sseqid LIKE ? ESCAPE '\\'
+               OR qseqid LIKE ? ESCAPE '\\')
         ORDER BY qlen DESC
         """
 
@@ -687,7 +690,7 @@ public final class NvdDatabase: @unchecked Sendable {
         for (i, sample) in samples.enumerated() {
             nvdBindText(stmt, Int32(i + 1), sample)
         }
-        let likePattern = "%\(query)%"
+        let likePattern = SQLiteLikePattern.contains(query)
         let baseIndex = Int32(samples.count + 1)
         nvdBindText(stmt, baseIndex,     likePattern)
         nvdBindText(stmt, baseIndex + 1, likePattern)

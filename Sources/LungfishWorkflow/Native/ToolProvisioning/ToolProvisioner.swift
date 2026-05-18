@@ -80,15 +80,6 @@ public struct ProvisioningProgress: Sendable {
     }
 }
 
-// MARK: - ToolProvisionerDelegate
-
-/// Delegate for receiving provisioning progress updates.
-public protocol ToolProvisionerDelegate: AnyObject, Sendable {
-    func provisionerDidUpdateProgress(_ progress: ProvisioningProgress)
-    func provisionerDidComplete(tool: String, executables: [URL])
-    func provisionerDidFail(tool: String, error: Error)
-}
-
 // MARK: - ToolProvisioner
 
 /// Protocol for tool provisioners.
@@ -157,17 +148,41 @@ public actor BaseToolProvisioner {
         to destination: URL,
         progress: @escaping @Sendable (Double) -> Void
     ) async throws {
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw ToolProvisioningError.cancelled
+        }
+
         logger.info("Downloading \(url.absoluteString) to \(destination.path)")
 
-        let (tempURL, response) = try await URLSession.shared.download(from: url)
+        let delegate = ToolDownloadProgressDelegate(
+            toolName: toolSpec.name,
+            progress: progress
+        )
+        let session = URLSession(
+            configuration: .default,
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        let taskBox = URLSessionDownloadTaskBox()
+        defer { session.invalidateAndCancel() }
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            throw ToolProvisioningError.downloadFailed(
-                tool: toolSpec.name,
-                reason: "HTTP status \(statusCode)"
-            )
+        let tempURL: URL = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.setContinuation(continuation)
+                let task = session.downloadTask(with: url)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: {
+            taskBox.cancel()
+        }
+
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw ToolProvisioningError.cancelled
         }
 
         let fileManager = FileManager.default
@@ -394,5 +409,123 @@ public actor BaseToolProvisioner {
 
         // shasum output format: "hash  filename"
         return output.split(separator: " ").first.map(String.init) ?? ""
+    }
+}
+
+private final class ToolDownloadProgressDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let toolName: String
+    private let progress: @Sendable (Double) -> Void
+    private let continuationLock = OSAllocatedUnfairLock<CheckedContinuation<URL, Error>?>(initialState: nil)
+    private let resumeLock = OSAllocatedUnfairLock(initialState: false)
+
+    init(toolName: String, progress: @escaping @Sendable (Double) -> Void) {
+        self.toolName = toolName
+        self.progress = progress
+    }
+
+    func setContinuation(_ continuation: CheckedContinuation<URL, Error>) {
+        continuationLock.withLock { $0 = continuation }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        guard totalBytesExpectedToWrite > 0 else { return }
+        progress(min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)))
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        guard let response = downloadTask.response as? HTTPURLResponse,
+              (200...299).contains(response.statusCode) else {
+            let statusCode = (downloadTask.response as? HTTPURLResponse)?.statusCode ?? -1
+            resumeOnce(.failure(ToolProvisioningError.downloadFailed(
+                tool: toolName,
+                reason: "HTTP status \(statusCode)"
+            )))
+            return
+        }
+
+        let tempCopy = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + "-" + location.lastPathComponent)
+        do {
+            try FileManager.default.copyItem(at: location, to: tempCopy)
+            resumeOnce(.success(tempCopy))
+        } catch {
+            resumeOnce(.failure(ToolProvisioningError.downloadFailed(
+                tool: toolName,
+                reason: error.localizedDescription
+            )))
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        guard let error else { return }
+        if (error as? URLError)?.code == .cancelled {
+            resumeOnce(.failure(ToolProvisioningError.cancelled))
+        } else {
+            resumeOnce(.failure(ToolProvisioningError.downloadFailed(
+                tool: toolName,
+                reason: error.localizedDescription
+            )))
+        }
+    }
+
+    private func resumeOnce(_ result: Result<URL, Error>) {
+        let shouldResume = resumeLock.withLock { resumed in
+            if resumed { return false }
+            resumed = true
+            return true
+        }
+        guard shouldResume else { return }
+        guard let continuation = continuationLock.withLock({ continuation -> CheckedContinuation<URL, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }) else { return }
+
+        switch result {
+        case .success(let url):
+            continuation.resume(returning: url)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private final class URLSessionDownloadTaskBox: @unchecked Sendable {
+    private struct State {
+        var task: URLSessionDownloadTask?
+        var cancelled = false
+    }
+
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func store(_ task: URLSessionDownloadTask) {
+        let shouldCancel = lock.withLock { state in
+            state.task = task
+            return state.cancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func cancel() {
+        let task = lock.withLock { state in
+            state.cancelled = true
+            return state.task
+        }
+        task?.cancel()
     }
 }

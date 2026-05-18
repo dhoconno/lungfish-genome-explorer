@@ -63,7 +63,7 @@ public struct SeqkitLengthFilterStep: RecipeStepExecutor {
         )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
-                tool: "seqkit", step: Self.typeID, stderr: result.stderr ?? "")
+                tool: "seqkit", step: Self.typeID, stderr: result.stderr)
         }
 
         return StepOutput(r1: output, format: .single, tool: .seqkit, arguments: result.arguments)

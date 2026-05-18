@@ -1,6 +1,6 @@
 import ArgumentParser
 import Foundation
-import LungfishApp
+import LungfishWorkflow
 
 extension ImportCommand {
     struct GeneiousSubcommand: AsyncParsableCommand {
@@ -41,6 +41,11 @@ extension ImportCommand {
             let emitter = ApplicationExportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
             emitter.emitStart(kind: "geneious-export", source: sourceURL.path)
 
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                emitter.emitFailed("Input file not found: \(sourceURL.path)")
+                throw CLIExitCode.inputError.exitCode
+            }
+
             let options = GeneiousImportOptions(
                 collectionName: collectionName,
                 preserveRawSource: preserveRawSource && !noPreserveRawSource,
@@ -69,11 +74,11 @@ extension ImportCommand {
                 }
             } catch {
                 emitter.emitFailed(error.localizedDescription)
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
         }
 
-        @MainActor private static func importReferenceViaSharedService(
+        private static func importReferenceViaSharedService(
             sourceURL: URL,
             outputDirectory: URL,
             preferredName: String
@@ -126,6 +131,11 @@ extension ImportCommand {
             let emitter = ApplicationExportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
             emitter.emitStart(kind: applicationKind.cliArgument, source: sourceURL.path)
 
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                emitter.emitFailed("Input file not found: \(sourceURL.path)")
+                throw CLIExitCode.inputError.exitCode
+            }
+
             let options = ApplicationExportImportOptions(
                 collectionName: collectionName,
                 preserveRawSource: !noPreserveRawSource,
@@ -155,11 +165,11 @@ extension ImportCommand {
                 }
             } catch {
                 emitter.emitFailed(error.localizedDescription)
-                throw ExitCode.failure
+                throw CLIExitCode.workflowError.exitCode
             }
         }
 
-        @MainActor private static func importReferenceViaSharedService(
+        private static func importReferenceViaSharedService(
             sourceURL: URL,
             outputDirectory: URL,
             preferredName: String

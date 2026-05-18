@@ -1,24 +1,11 @@
-# Slice C IO Fixture Implementation Note
+# Slice C IO Fixture Cleanup Implementation Note
 
 Worker: C
 Branch: `codex/wave2-io-fixtures`
-Date: 2026-05-16
+Scope: `GFF3RealFileTest`, `VCFRealFileTests`, and package resources under `Tests/LungfishIOTests/Resources`.
 
-## Scope
-
-Replace Desktop-only GFF3 and VCF real-file tests with committed package
-fixtures under `Tests/LungfishIOTests/Resources`. Remove silent skips from the
-owned tests and keep assertions at parser behavior level: header metadata,
-feature/variant counts, strand/filter/genotype parsing, grouping, and
-annotation coordinate conversion.
-
-## Approach
-
-- Run the focused GFF3/VCF tests first to confirm the current Desktop-path
-  behavior.
-- Prefer existing `sample.gff3` and `sarscov2_*.vcf` resources when their
-  contents cover the assertions.
-- Add tiny synthetic fixtures only for coverage that existing resources do not
-  express, especially VCF sample genotypes and filtered records.
-- Verify no owned IO tests retain `/Users/dho/Desktop`, `Desktop/test`,
-  `testProjectPath`, or `skipIfTestDirectoryMissing`.
+Plan:
+- Run the focused GFF3/VCF real-file tests first to confirm the current hard-coded Desktop fixtures are silently skipped.
+- Replace `/Users/dho/Desktop/test2/...` dependencies with committed package resources loaded through `Bundle.module`.
+- Keep behavior-level parser coverage for feature/variant counts, headers, sequence distribution, coordinate conversion, parent relationships, strands, phases, filters, INFO fields, streaming, classification, and genotype parsing.
+- Verify no Desktop-only paths or skip helpers remain in `Tests/LungfishIOTests`, then run the focused tests and the full `LungfishIOTests` filter.

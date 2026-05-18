@@ -21,7 +21,7 @@ private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destruct
 /// combined with `SQLITE_TRANSIENT` so SQLite copies the bytes immediately.
 /// This prevents dangling pointer bugs from temporary NSString conversions.
 private func sqliteBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
-    text.withCString { cStr in
+    _ = text.withCString { cStr in
         sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
     }
 }

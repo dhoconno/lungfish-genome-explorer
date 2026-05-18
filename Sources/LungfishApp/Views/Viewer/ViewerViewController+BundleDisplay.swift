@@ -43,10 +43,15 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
     public func displayBundle(at url: URL, mode: BundleDisplayMode) throws {
         saveCurrentViewState()
         let context = try loadBundleDisplayContext(at: url)
+        let displayRoute = ViewerDisplayRouteFactory.referenceBundleDisplayRoute(
+            bundleURL: context.url,
+            manifest: context.manifest,
+            mode: mode
+        )
 
-        switch mode {
-        case .browse:
-            try displayReferenceBundleViewport(.directBundle(bundleURL: context.url, manifest: context.manifest))
+        switch displayRoute {
+        case .referenceViewport(let route):
+            try display(route)
             (parent as? MainSplitViewController)?.wireDirectReferenceViewportInspectorUpdates()
         case .sequence(let name, let restoreViewState):
             activateBundleDisplayContext(context)

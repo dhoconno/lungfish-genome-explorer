@@ -1,0 +1,15 @@
+##gff-version 3
+##sequence-region TestSequence1 1 1000
+##sequence-region Chromosome1 1 500
+##sequence-region Chromosome2 1 400
+TestSequence1	Lungfish	gene	10	90	.	+	.	ID=geneA;Name=testGeneA
+TestSequence1	Lungfish	mRNA	10	90	.	+	.	ID=mrnaA;Parent=geneA;Name=testTranscriptA
+TestSequence1	Lungfish	exon	10	30	.	+	.	ID=exonA1;Parent=mrnaA
+TestSequence1	Lungfish	CDS	20	80	.	+	0	ID=cdsA;Parent=mrnaA
+Chromosome1	Lungfish	gene	100	220	.	-	.	ID=geneB;Name=testGeneB
+Chromosome1	Lungfish	mRNA	100	220	.	-	.	ID=mrnaB;Parent=geneB;Name=testTranscriptB
+Chromosome1	Lungfish	exon	100	150	.	-	.	ID=exonB1;Parent=mrnaB
+Chromosome1	Lungfish	CDS	120	210	.	-	0	ID=cdsB;Parent=mrnaB
+Chromosome2	Lungfish	gene	50	120	.	.	.	ID=geneC;Name=testGeneC
+Chromosome2	Lungfish	mRNA	50	120	.	.	.	ID=mrnaC;Parent=geneC;Name=testTranscriptC
+Chromosome2	Lungfish	exon	50	120	.	.	.	ID=exonC1;Parent=mrnaC

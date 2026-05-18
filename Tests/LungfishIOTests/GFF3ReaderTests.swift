@@ -43,6 +43,19 @@ final class GFF3ReaderTests: XCTestCase {
         XCTAssertEqual(features.count, 6)
     }
 
+    func testReadAllFeaturesFromGzippedGFF3() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_\(UUID().uuidString).gff3.gz")
+        try GzipTestHelper.writeGzip(sampleGFF3, to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = GFF3Reader()
+        let features = try await reader.readAll(from: url)
+
+        XCTAssertEqual(features.count, 6)
+        XCTAssertEqual(features[0].attributes["ID"], "gene1")
+    }
+
     func testParseGeneFeature() async throws {
         let url = try createTempFile(content: sampleGFF3)
         defer { try? FileManager.default.removeItem(at: url) }

@@ -771,7 +771,7 @@ final class BlastServiceTests: XCTestCase {
         let json = mockBlastJSON2Response()
         let data = json.data(using: .utf8)!
 
-        let results = try await service.parseJSON2Results(data)
+        let results = try service.parseJSON2Results(data)
 
         XCTAssertEqual(results.count, 2)
 
@@ -806,7 +806,7 @@ final class BlastServiceTests: XCTestCase {
         let data = htmlWrapped.data(using: .utf8)!
 
         // The parser should extract JSON from the HTML wrapper
-        let results = try await service.parseJSON2Results(data)
+        let results = try service.parseJSON2Results(data)
         XCTAssertEqual(results.count, 2)
     }
 
@@ -814,7 +814,7 @@ final class BlastServiceTests: XCTestCase {
         let data = "this is not json".data(using: .utf8)!
 
         do {
-            _ = try await service.parseJSON2Results(data)
+            _ = try service.parseJSON2Results(data)
             XCTFail("Expected parsing error")
         } catch let error as BlastServiceError {
             if case .resultParsingFailed = error {
@@ -832,7 +832,7 @@ final class BlastServiceTests: XCTestCase {
         let data = json.data(using: .utf8)!
 
         do {
-            _ = try await service.parseJSON2Results(data)
+            _ = try service.parseJSON2Results(data)
             XCTFail("Expected parsing error")
         } catch let error as BlastServiceError {
             if case .resultParsingFailed(let msg) = error {
@@ -870,7 +870,7 @@ final class BlastServiceTests: XCTestCase {
             ]
         )
 
-        let results = await service.assignVerdicts(
+        let results = service.assignVerdicts(
             searchResults: [searchResult],
             eValueThreshold: 1e-10
         )
@@ -905,7 +905,7 @@ final class BlastServiceTests: XCTestCase {
             ]
         )
 
-        let results = await service.assignVerdicts(
+        let results = service.assignVerdicts(
             searchResults: [searchResult],
             eValueThreshold: 1e-10
         )
@@ -937,7 +937,7 @@ final class BlastServiceTests: XCTestCase {
             ]
         )
 
-        let results = await service.assignVerdicts(
+        let results = service.assignVerdicts(
             searchResults: [searchResult],
             eValueThreshold: 1e-10
         )
@@ -969,7 +969,7 @@ final class BlastServiceTests: XCTestCase {
             ]
         )
 
-        let results = await service.assignVerdicts(
+        let results = service.assignVerdicts(
             searchResults: [searchResult],
             eValueThreshold: 1e-10
         )
@@ -984,7 +984,7 @@ final class BlastServiceTests: XCTestCase {
             hits: []
         )
 
-        let results = await service.assignVerdicts(
+        let results = service.assignVerdicts(
             searchResults: [searchResult],
             eValueThreshold: 1e-10
         )
@@ -1025,7 +1025,7 @@ final class BlastServiceTests: XCTestCase {
             ),
         ]
 
-        let results = await service.assignVerdicts(searchResults: searchResults, eValueThreshold: 1e-10)
+        let results = service.assignVerdicts(searchResults: searchResults, eValueThreshold: 1e-10)
 
         XCTAssertEqual(results.count, 3)
         XCTAssertEqual(results[0].verdict, .verified)
@@ -1038,7 +1038,7 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleLongestFirst() async {
         let reads = makeTestReads(count: 10, baseLengths: [100, 200, 50, 300, 150, 250, 80, 120, 180, 90])
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .longestFirst(count: 3)
         )
@@ -1055,7 +1055,7 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleRandom() async {
         let reads = makeTestReads(count: 20, baseLengths: nil)
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .random(count: 5),
             seed: 42
@@ -1064,7 +1064,7 @@ final class BlastServiceTests: XCTestCase {
         XCTAssertEqual(result.count, 5)
 
         // Verify same seed gives same results
-        let result2 = await service.subsampleReads(
+        let result2 = service.subsampleReads(
             from: reads,
             strategy: .random(count: 5),
             seed: 42
@@ -1076,13 +1076,13 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleRandomDifferentSeeds() async {
         let reads = makeTestReads(count: 50, baseLengths: nil)
 
-        let result1 = await service.subsampleReads(
+        let result1 = service.subsampleReads(
             from: reads,
             strategy: .random(count: 10),
             seed: 42
         )
 
-        let result2 = await service.subsampleReads(
+        let result2 = service.subsampleReads(
             from: reads,
             strategy: .random(count: 10),
             seed: 99
@@ -1100,7 +1100,7 @@ final class BlastServiceTests: XCTestCase {
             baseLengths: (0..<100).map { i in 50 + i * 3 }  // lengths 50, 53, 56, ... 347
         )
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .mixed(longest: 5, random: 15),
             seed: 12345
@@ -1124,7 +1124,7 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleFewerReadsThanRequested() async {
         let reads = makeTestReads(count: 3, baseLengths: [100, 200, 150])
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .mixed(longest: 5, random: 15)
         )
@@ -1136,7 +1136,7 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleExactCountMatch() async {
         let reads = makeTestReads(count: 20, baseLengths: nil)
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .mixed(longest: 5, random: 15)
         )
@@ -1146,7 +1146,7 @@ final class BlastServiceTests: XCTestCase {
     }
 
     func testSubsampleEmptyInput() async {
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: [],
             strategy: .mixed(longest: 5, random: 15)
         )
@@ -1157,7 +1157,7 @@ final class BlastServiceTests: XCTestCase {
     func testSubsampleSingleRead() async {
         let reads: [(id: String, sequence: String)] = [("read_0", "ATGCGATCGA")]
 
-        let result = await service.subsampleReads(
+        let result = service.subsampleReads(
             from: reads,
             strategy: .mixed(longest: 5, random: 15)
         )

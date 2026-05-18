@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import UniformTypeIdentifiers
 import LungfishCore
+import LungfishWorkflow
 import os.log
 import Observation
 
@@ -621,15 +622,10 @@ final class ImportCenterViewModel {
             return
         }
 
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = configuration.canChooseFiles
-        panel.canChooseDirectories = configuration.canChooseDirectories
-        panel.allowsMultipleSelection = configuration.allowsMultipleSelection
-        panel.allowsOtherFileTypes = configuration.allowsOtherFileTypes
-        if let allowedTypes = configuration.allowedTypes {
-            panel.allowedContentTypes = allowedTypes
-        }
-        panel.message = panelMessage(for: action)
+        let panel = ImportFilePanelFactory.importCenterPanel(
+            configuration: configuration,
+            message: panelMessage(for: action)
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, !panel.urls.isEmpty else { return }

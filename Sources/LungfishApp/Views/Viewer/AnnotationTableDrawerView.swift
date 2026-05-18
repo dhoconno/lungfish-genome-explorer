@@ -947,7 +947,7 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         tabControl.setLabel("Variants", forSegment: 1)
         tabControl.setLabel("Samples", forSegment: 2)
         tabControl.selectedSegment = 0
-        tabControl.segmentStyle = .texturedRounded
+        tabControl.segmentStyle = .rounded
         tabControl.controlSize = .small
         tabControl.font = .systemFont(ofSize: 10, weight: .medium)
         tabControl.translatesAutoresizingMaskIntoConstraints = false
@@ -5598,18 +5598,24 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         alert.addButton(withTitle: "Cancel")
         alert.accessoryView = form.view
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        guard performAnnotationCreation(
-            name: form.nameField.stringValue,
-            type: form.typeField.stringValue,
-            chromosome: form.chromosomeField.stringValue,
-            startValue: form.startField.stringValue,
-            endValue: form.endField.stringValue,
-            strand: form.strandField.stringValue,
-            attributes: form.attributesField.stringValue
-        ) else {
+        guard let window = self.window else {
             NSSound.beep()
             return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            guard self?.performAnnotationCreation(
+                name: form.nameField.stringValue,
+                type: form.typeField.stringValue,
+                chromosome: form.chromosomeField.stringValue,
+                startValue: form.startField.stringValue,
+                endValue: form.endField.stringValue,
+                strand: form.strandField.stringValue,
+                attributes: form.attributesField.stringValue
+            ) == true else {
+                NSSound.beep()
+                return
+            }
         }
     }
 
@@ -5629,7 +5635,21 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let form = makeAnnotationEditForm(for: result, currentRecord: currentRecord)
         alert.accessoryView = form.view
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let window = self.window else {
+            NSSound.beep()
+            return
+        }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn else { return }
+            self?.performAnnotationEdit(result: result, rowID: rowID, form: form)
+        }
+    }
+
+    private func performAnnotationEdit(
+        result: AnnotationSearchIndex.SearchResult,
+        rowID: Int64,
+        form: AnnotationEditForm
+    ) {
         let name = form.nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let type = form.typeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let chromosome = form.chromosomeField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5643,6 +5663,10 @@ public class AnnotationTableDrawerView: NSView, NSTableViewDataSource, NSTableVi
         let attributes = form.attributesField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let parsedAttrs = attributes.isEmpty ? [:] : AnnotationDatabase.parseAttributes(attributes)
         let geneName = parsedAttrs["gene"] ?? parsedAttrs["gene_name"] ?? parsedAttrs["gene_id"]
+        guard let searchIndex else {
+            NSSound.beep()
+            return
+        }
         guard searchIndex.updateAnnotation(
             trackId: result.trackId,
             rowID: rowID,
@@ -6690,6 +6714,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove the selected variant\(count == 1 ? "" : "s") from the database."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
         alert.alertStyle = .warning
 
         guard let window = window else { return }
@@ -6707,6 +6732,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove all variants from the database. This cannot be undone."
         alert.addButton(withTitle: "Delete All")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
         alert.alertStyle = .critical
 
         guard let window = window else { return }
@@ -8014,14 +8040,9 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
             defaultTemplateStem = "sample-metadata-template"
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Save Sample Metadata Template"
-        panel.prompt = "Save Template"
-        panel.nameFieldStringValue = "\(defaultTemplateStem).tsv"
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-        ]
+        let panel = ViewerFilePanelFactory.sampleMetadataTemplatePanel(
+            suggestedName: "\(defaultTemplateStem).tsv"
+        )
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -8065,14 +8086,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
     @objc private func importMetadataAction(_ sender: Any?) {
         guard let searchIndex else { return }
         guard canWriteVariantDatabaseOutputs(workflowName: "Sample metadata import") else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [
-            .init(filenameExtension: "tsv")!,
-            .init(filenameExtension: "csv")!,
-            .init(filenameExtension: "txt")!,
-        ]
-        panel.message = "Select a TSV or CSV file with sample metadata"
-        panel.prompt = "Import"
+        let panel = ViewerFilePanelFactory.variantSampleMetadataImportPanel()
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

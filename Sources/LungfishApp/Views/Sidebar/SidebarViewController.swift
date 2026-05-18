@@ -2971,6 +2971,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Move to Trash")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         guard let window = view.window else { return }
 
@@ -4114,6 +4115,7 @@ extension SidebarViewController: NSMenuDelegate {
         alert.informativeText = "This will permanently delete \(tracks.count) variant track\(tracks.count == 1 ? "" : "s") (\(trackNames)) and their database files from the bundle. This cannot be undone."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
         alert.alertStyle = .critical
 
         guard let window = self.view.window else { return }

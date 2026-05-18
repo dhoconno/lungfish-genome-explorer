@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
+import LungfishWorkflow
 
 struct CzIdProvenanceView: View {
     let manifest: CzIdImportManifest

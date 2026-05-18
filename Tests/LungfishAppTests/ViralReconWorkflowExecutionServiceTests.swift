@@ -295,6 +295,143 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(result.standardError.contains("stderr-ready"))
         XCTAssertTrue(result.didStreamOutput)
     }
+
+    func testConcreteRunnerCancelTerminatesProcessTree() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-cancel-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
+
+        let fakeCLI = temp.appendingPathComponent("lungfish-cli")
+        let readyURL = temp.appendingPathComponent("ready")
+        let rootPIDURL = temp.appendingPathComponent("root.pid")
+        let childPIDURL = temp.appendingPathComponent("child.pid")
+        let script = """
+        #!/bin/sh
+        echo $$ > '\(rootPIDURL.path)'
+        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        child=$!
+        echo "$child" > '\(childPIDURL.path)'
+        touch '\(readyURL.path)'
+        wait "$child"
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let runner = ProcessViralReconWorkflowProcessRunner(executableURL: fakeCLI)
+        let runTask = Task {
+            try await runner.runLungfishCLI(
+                arguments: [],
+                workingDirectory: temp,
+                outputHandler: nil
+            )
+        }
+
+        try await waitForFile(readyURL)
+        let rootPID = try readPID(rootPIDURL)
+        let childPID = try readPID(childPIDURL)
+        defer {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        let cancelStart = Date()
+        runner.cancel()
+        let cancelReturnElapsed = Date().timeIntervalSince(cancelStart)
+        XCTAssertLessThan(cancelReturnElapsed, 0.25, "ViralRecon cancel() should only request process-tree termination")
+        try await waitForProcessExit(pid: childPID)
+        _ = try await runTask.value
+
+        XCTAssertFalse(ProcessTreeTerminator.processExists(pid: rootPID), "ViralRecon root process should exit after cancellation")
+    }
+
+    func testOperationCenterCancelCallbackCancelsViralReconRunner() async throws {
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-service-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let request = try ViralReconAppTestFixtures.illuminaRequest(root: temp)
+        let operationCenter = OperationCenter()
+        let runner = CancelRecordingViralReconProcessRunner()
+        runner.onRun = {
+            guard let operationID = operationCenter.items.first?.id else {
+                XCTFail("Expected Viral Recon operation to be registered before process launch")
+                return
+            }
+            operationCenter.cancel(id: operationID)
+        }
+        let service = ViralReconWorkflowExecutionService(operationCenter: operationCenter, processRunner: runner)
+
+        let result = try await service.run(
+            request,
+            bundleRoot: temp.appendingPathComponent("Analyses", isDirectory: true)
+        )
+
+        XCTAssertEqual(result.operationItem?.state, .cancelled)
+        try await waitUntil(timeout: 2) {
+            runner.cancelCallCount == 1
+        }
+    }
+
+    func testViralReconProcessRunnerCancelTerminatesCurrentProcessTreeSource() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Services/ViralReconWorkflowExecutionService.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("func cancel()"))
+        let processRunnerSource = try XCTUnwrap(
+            source.range(of: "ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRunning")
+        )
+        let cancelBody = try functionBody(
+            named: "cancel",
+            in: String(source[processRunnerSource.lowerBound...])
+        )
+
+        XCTAssertTrue(cancelBody.contains("requestProcessTreeTermination(gracePeriod: 0)"))
+    }
+}
+
+final class PipelineCancelCallbackRegressionTests: XCTestCase {
+    func testAppDelegateLongRunningPipelineStartSitesInstallCancelCallbacks() throws {
+        let source = try appDelegateSource()
+        for functionName in [
+            "runSequenceAnnotationOperation",
+            "runMinimap2Mapping",
+            "runManagedMapping",
+            "runOrientReads",
+        ] {
+            let body = try functionBody(named: functionName, in: source)
+            XCTAssertTrue(
+                body.contains("let task = Task.detached"),
+                "\(functionName) should keep the detached task handle for cancellation"
+            )
+            XCTAssertTrue(
+                body.contains("OperationCenter.shared.setCancelCallback(for: opID)"),
+                "\(functionName) should wire OperationCenter cancellation"
+            )
+            XCTAssertTrue(
+                body.contains("task.cancel()"),
+                "\(functionName) cancel callback should cancel the detached task"
+            )
+        }
+
+        let sequenceBody = try functionBody(named: "runSequenceAnnotationOperation", in: source)
+        XCTAssertTrue(sequenceBody.contains("LungfishCLIRunner.CancellationHandle()"))
+        XCTAssertTrue(sequenceBody.contains("cancellation: cliCancellation"))
+        XCTAssertTrue(sequenceBody.contains("cliCancellation.cancel()"))
+    }
+
+    func testMAFFTStartSiteCancelsDetachedTaskAndRunnerProcess() throws {
+        let body = try functionBody(named: "runMAFFTAlignment", in: appDelegateSource())
+
+        XCTAssertTrue(body.contains("let runner = CLIMSAAlignmentRunner()"))
+        XCTAssertTrue(body.contains("let task = Task.detached"))
+        XCTAssertTrue(body.contains("try await runner.run("))
+        XCTAssertTrue(body.contains("OperationCenter.shared.setCancelCallback(for: opID)"))
+        XCTAssertTrue(body.contains("task.cancel()"))
+        XCTAssertTrue(body.contains("runner.cancel()"))
+    }
 }
 
 @MainActor
@@ -321,6 +458,8 @@ private final class StubViralReconProcessRunner: ViralReconWorkflowProcessRunnin
         try onRun?()
         return result
     }
+
+    func cancel() {}
 }
 
 @MainActor
@@ -345,8 +484,118 @@ private final class StreamingStubViralReconProcessRunner: ViralReconWorkflowProc
             didStreamOutput: outputHandler != nil
         )
     }
+
+    func cancel() {}
+}
+
+@MainActor
+private final class CancelRecordingViralReconProcessRunner: ViralReconWorkflowProcessRunning {
+    private(set) var cancelCallCount = 0
+    var onRun: (() -> Void)?
+
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> ViralReconWorkflowProcessResult {
+        onRun?()
+        return ViralReconWorkflowProcessResult(
+            exitCode: 0,
+            standardOutput: "cancelled",
+            standardError: "",
+            didStreamOutput: false
+        )
+    }
+
+    func cancel() {
+        cancelCallCount += 1
+    }
 }
 
 private func shellEscapedInner(_ value: String) -> String {
     value.replacingOccurrences(of: "'", with: "'\\''")
+}
+
+private func repositoryRoot() -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private func appDelegateSource() throws -> String {
+    try String(
+        contentsOf: repositoryRoot().appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
+        encoding: .utf8
+    )
+}
+
+private func functionBody(named name: String, in source: String) throws -> String {
+    let signature = "func \(name)"
+    let signatureRange = try XCTUnwrap(source.range(of: signature), "Missing \(signature)")
+    let openBrace = try XCTUnwrap(
+        source[signatureRange.lowerBound...].firstIndex(of: "{"),
+        "Missing opening brace for \(signature)"
+    )
+    var depth = 0
+    var index = openBrace
+    while index < source.endIndex {
+        switch source[index] {
+        case "{":
+            depth += 1
+        case "}":
+            depth -= 1
+            if depth == 0 {
+                return String(source[openBrace...index])
+            }
+        default:
+            break
+        }
+        index = source.index(after: index)
+    }
+    XCTFail("Missing closing brace for \(signature)")
+    return ""
+}
+
+private func waitForFile(_ url: URL, timeout: TimeInterval = 2) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if FileManager.default.fileExists(atPath: url.path) {
+            return
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+    }
+    XCTFail("Timed out waiting for \(url.path)")
+}
+
+@MainActor
+private func waitUntil(
+    timeout: TimeInterval,
+    condition: @escaping () -> Bool
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if condition() {
+            return
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+    }
+    XCTFail("Timed out waiting for condition")
+}
+
+private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if !ProcessTreeTerminator.processExists(pid: pid) {
+            return
+        }
+        try await Task.sleep(nanoseconds: 25_000_000)
+    }
+    XCTFail("Process \(pid) was still running after cancellation")
+}
+
+private func readPID(_ url: URL) throws -> Int32 {
+    let text = try String(contentsOf: url, encoding: .utf8)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
 }

@@ -1,123 +1,114 @@
-# Wave 3 Slice A ONT Provenance Plan
+# Wave 3 Slice A: ONT Import Provenance Plan
 
 Date: 2026-05-16
 Worktree: `/Users/dho/Documents/lungfish-genome-explorer/.worktrees/wave3-ont-provenance`
 Branch: `codex/wave3-ont-provenance`
+Base design: `docs/reviews/2026-05-16-wave3-next-phase-design.md`
 
 ## Slice Spec
 
-Close the GUI ONT import provenance gap by moving `lungfish fastq import-ont`
-provenance writing out of `FastqImportONTSubcommand` and into a shared
-`LungfishWorkflow` API. `ONTDirectoryImporter` remains the low-level ONT layout
-detector and `.lungfishfastq` bundle creator. The new workflow wrapper imports
-the directory, writes canonical `.lungfish-provenance.json` at the final output
-directory, and writes focused bundle provenance for every created
-`.lungfishfastq` payload.
+Close the GUI ONT import provenance gap by moving ONT import provenance from the
+CLI subcommand into a shared `LungfishWorkflow` API. The low-level
+`ONTDirectoryImporter` remains responsible for layout detection and bundle
+creation; the new workflow wrapper owns canonical provenance for the final
+output directory and created `.lungfishfastq` bundles.
 
-The workflow API must accept caller context for CLI and GUI:
-tool/workflow name and version, exact argv, durable replay argv when useful,
-copy-pasteable reproducible command, explicit options, defaults, resolved
-options, runtime identity, and caller kind. Inputs are the durable source chunk
-FASTQs. Outputs are the final demultiplex manifest and final bundle payload
-files, never temporary staging paths. Provenance includes checksums, file sizes,
-exit status, wall time, and useful stderr. If provenance writing fails after
-bundles or the manifest are created, the workflow rolls back created bundles and
-the manifest so missing provenance is blocking.
+The CLI keeps existing user behavior and delegates to the workflow. The GUI uses
+the same workflow through an app coordinator that owns Operation Center command,
+progress, completion, and failure updates. GUI provenance must be CLI-equivalent
+and must point at durable final payload paths, not temporary staging paths.
 
-The CLI keeps existing `lungfish fastq import-ont` behavior and user-visible
-stderr output, but delegates import and provenance writing to the workflow. The
-GUI routes ONT import through `ONTImportOperationCoordinator`, which owns
-Operation Center start/progress/completion/failure updates and keeps the
-copy-pasteable `lungfish fastq import-ont ...` command visible without shelling
-out to the CLI.
+Required provenance fields for this slice:
+
+- workflow/tool name and version
+- exact argv, durable replay argv, and reproducible command
+- explicit options, resolved options, and defaults
+- caller identity (`cli` or `gui`)
+- runtime identity
+- original ONT chunk input paths with checksums and file sizes
+- final manifest and bundle payload output paths with checksums and file sizes
+- exit status, wall time, and useful stderr when present
+- root `.lungfish-provenance.json`, bundle root `.lungfish-provenance.json`,
+  bundle rollup provenance, and focused bundle output sidecars
+
+On provenance write failure, the workflow should roll back created ONT bundles
+and the demultiplex manifest so missing provenance cannot leave imported
+scientific data behind.
 
 ## TDD And Red-Test Plan
 
-1. Add `Tests/LungfishWorkflowTests/ONTImportWorkflowTests.swift`.
-   - Test successful import writes root canonical provenance and per-bundle
-     focused provenance.
-   - Test provenance inputs are original chunk files with checksum/size and
-     outputs are final manifest plus final bundle payloads.
-   - Test injected provenance writer failure rolls back created bundles and the
-     demultiplex manifest.
+Add failing tests before production code:
 
-2. Add `Tests/LungfishCLITests/FastqImportONTProvenanceTests.swift`.
-   - Test `FastqImportONTSubcommand` still writes argv, defaults, resolved
-     options, runtime identity, and final output descriptors through the new
-     workflow path.
+- `ONTImportWorkflowTests.testImportWritesRootAndFocusedBundleProvenance`
+  verifies root and bundle provenance layouts.
+- `ONTImportWorkflowTests.testProvenanceDescriptorsUseOriginalInputsAndFinalOutputs`
+  verifies source chunk inputs and final manifest/bundle output descriptors have
+  checksums and sizes.
+- `ONTImportWorkflowTests.testProvenanceWriteFailureRollsBackCreatedBundlesAndManifest`
+  verifies all-or-nothing rollback on provenance write failure.
+- `FastqImportONTProvenanceTests.testCLIImportONTDelegatesToWorkflowProvenance`
+  verifies CLI argv/default/runtime behavior is preserved through the shared
+  workflow.
+- `ONTImportOperationCoordinatorTests.testCoordinatorRunsWorkflowAndCompletesOperationCenter`
+  verifies GUI coordinator command context, Operation Center command/progress,
+  completion, and bundle URL reporting.
 
-3. Add `Tests/LungfishAppTests/ONTImportOperationCoordinatorTests.swift`.
-   - Test the coordinator passes GUI workflow context, records the equivalent
-     `lungfish fastq import-ont ...` command, updates progress, and completes
-     Operation Center with created bundle URLs.
+Initial red-test attempt before adding tests:
 
-4. Run the focused tests before production code and capture the failing output:
-   `swift test --filter 'ONTImportWorkflowTests|FastqImportONTProvenanceTests|ONTImportOperationCoordinatorTests'`
+```text
+swift test --filter 'ONTImportWorkflowTests|FastqImportONTProvenanceTests|ONTImportOperationCoordinatorTests'
+Build complete! (852.92s)
+warning: No matching test cases were run
+Executed 0 tests, with 0 failures
+```
 
-Red output will be appended below after the tests are written and before
-production implementation.
+This proved the slice tests were not present yet. After adding the red tests,
+rerunning the same filter produced the expected missing API failures:
+
+```text
+swift test --filter 'ONTImportWorkflowTests|FastqImportONTProvenanceTests|ONTImportOperationCoordinatorTests'
+Tests/LungfishWorkflowTests/ONTImportWorkflowTests.swift:139:65: error: cannot find type 'ONTImportWorkflow' in scope
+Tests/LungfishWorkflowTests/ONTImportWorkflowTests.swift:24:24: error: cannot find 'ONTImportWorkflow' in scope
+Tests/LungfishWorkflowTests/ONTImportWorkflowTests.swift:113:24: error: cannot find 'ONTImportWorkflow' in scope
+Tests/LungfishWorkflowTests/ONTImportWorkflowTests.swift:144:16: error: cannot find 'ONTImportWorkflow' in scope
+error: fatalError
+```
 
 ## Implementation Plan
 
-1. Create `Sources/LungfishWorkflow/Ingestion/ONTImportWorkflow.swift`.
-   - Define `ONTImportWorkflow.Context` for workflow/tool identity, caller kind,
-     argv, durable replay argv, reproducible command, explicit/default/resolved
-     options, runtime identity, and optional stderr.
-   - Define `ONTImportWorkflow.Result` that wraps `ONTImportResult`, detected
-     layout details, root provenance URL, and bundle provenance URLs.
-   - Inject `ONTDirectoryImporter` and a provenance writer closure for tests.
-   - Detect layout before import, run `importDirectory`, build
-     `ProvenanceEnvelope` with `ProvenanceRunBuilder`, write root provenance to
-     the output directory, then write the same envelope to each created bundle so
-     `ProvenanceWriter` creates focused bundle sidecars.
-   - Roll back created bundle directories and `demultiplex-manifest.json` if
-     provenance writing fails.
-
-2. Modify `Sources/LungfishCLI/Commands/FastqCommand.swift`.
-   - Keep validation, layout summary, progress lines, and final summary.
-   - Build CLI command context equivalent to the current inline provenance.
-   - Replace inline `CLIProvenanceSupport.recordSingleStepRun` with
-     `ONTImportWorkflow.importDirectory`.
-
-3. Create `Sources/LungfishApp/Services/ONTImportOperationCoordinator.swift`.
-   - Accept `OperationCenter`, `ONTImportWorkflow`, optional route context, and
-     output callbacks.
-   - Build the same visible CLI command string as the current GUI path.
-   - Start an ingestion operation, call the workflow with caller kind `gui`,
-     forward progress to Operation Center, complete with bundle URLs, and fail
-     the operation on errors.
-
-4. Modify `Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift`.
-   - Keep the existing unclassified prompt and viewer progress UI.
-   - Replace the detached direct `ONTDirectoryImporter.importDirectory` call with
-     `ONTImportOperationCoordinator`.
-   - Preserve sidebar reload, drop completion notification, first-bundle display,
-     and alert behavior.
-
-5. Run focused tests after each green step and keep edits scoped to Slice A.
+1. Add the workflow tests, CLI test, and app coordinator test.
+2. Add `ONTImportWorkflow` in `Sources/LungfishWorkflow/Ingestion` with an
+   explicit command context and injectable provenance writer for rollback tests.
+3. Make the workflow call `ONTDirectoryImporter.importDirectory`, collect
+   original chunk input descriptors, collect concrete final output descriptors,
+   build a canonical `ProvenanceEnvelope`, write output-root provenance, then
+   write bundle-root provenance so rollup and focused sidecars are generated.
+4. Replace `FastqImportONTSubcommand` inline provenance recording with a shared
+   workflow call while preserving stderr progress and summary output.
+5. Add `ONTImportOperationCoordinator` in `LungfishApp` to construct GUI command
+   context, start/update/complete/fail Operation Center, and return the workflow
+   result.
+6. Route `MainSplitViewController.performONTImport` through the coordinator and
+   keep existing viewer/sidebar/drop-completion behavior.
+7. Run focused tests, affected product builds, `git diff --check`, review the
+   diff, and commit the slice.
 
 ## Verification Commands
 
-- `swift test --filter 'ONTImportWorkflowTests|ONTDirectoryImporterTests'`
-- `swift test --filter 'FastqImportONTProvenanceTests|ONTImportOperationCoordinatorTests'`
-- `swift build --product lungfish-cli`
-- `swift build --product Lungfish`
-- `git diff --check`
+```bash
+swift test --filter 'ONTImportWorkflowTests|ONTDirectoryImporterTests'
+swift test --filter 'FastqImportONTProvenanceTests|ONTImportOperationCoordinatorTests'
+swift build --product lungfish-cli
+swift build --product Lungfish
+git diff --check
+```
 
 ## Residual Risks
 
-- Existing signing configuration may add provenance signature sidecars in some
-  environments; tests should assert required canonical/focused provenance rather
-  than exact directory listings.
-- `FASTQBundle.resolvePrimaryFASTQURL(for:)` can return `source-files.json` for
-  virtual imports, so tests should verify final bundle-owned payload descriptors
-  and not assume `reads.fastq.gz`.
-- GUI tests should use an injected `OperationCenter` and workflow closure to
-  avoid AppKit window dependencies; `MainSplitViewController` behavior remains
-  covered by narrow routing changes plus build verification.
-- Rollback covers bundles and the manifest created by this import. It will not
-  remove unrelated pre-existing files in the output directory.
-
-## Red-Test Output
-
-Pending. This section will be updated after the red tests are added and run.
+- Existing broad app tests emit Swift 6 actor-isolation warnings unrelated to
+  this slice; focused verification should not introduce new warnings in touched
+  files.
+- Bundle output enumeration must exclude provenance sidecars to avoid
+  self-referential output descriptors.
+- The GUI coordinator records a CLI-equivalent command but still runs in-process;
+  context construction must stay aligned with CLI option/default changes.

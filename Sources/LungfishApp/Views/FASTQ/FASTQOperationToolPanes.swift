@@ -147,29 +147,13 @@ private struct FASTQOperationInputsSection: View {
                 .font(.body)
 
             ForEach(state.requiredInputKinds.filter { $0 != .fastqDataset }, id: \.self) { kind in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .center, spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(kind.title)
-                                .font(.subheadline.weight(.medium))
-                            Text(inputSummary(for: kind))
-                                .font(.caption)
-                                .foregroundStyle(inputSummaryColor(for: kind))
-                        }
-
-                        Spacer()
-
-                        Button(state.auxiliaryInputURL(for: kind) == nil ? "Choose…" : "Replace…") {
-                            browsingInputKind = kind
-                            isImporterPresented = true
-                        }
-
-                        if state.auxiliaryInputURL(for: kind) != nil {
-                            Button("Clear") {
-                                state.removeAuxiliaryInput(for: kind)
-                            }
-                        }
-                    }
+                if usesProjectReferencePicker(for: kind) {
+                    ReferenceSequencePickerView(
+                        projectURL: state.projectURL,
+                        selectedReferenceURL: referenceSelectionBinding(for: kind)
+                    )
+                } else {
+                    auxiliaryInputRow(for: kind)
                 }
             }
         }
@@ -182,6 +166,50 @@ private struct FASTQOperationInputsSection: View {
             guard let browsingInputKind else { return }
             guard case .success(let urls) = result, let url = urls.first else { return }
             state.setAuxiliaryInput(url, for: browsingInputKind)
+        }
+    }
+
+    private func usesProjectReferencePicker(for kind: FASTQOperationInputKind) -> Bool {
+        kind == .referenceSequence && state.selectedToolID == .orientReads
+    }
+
+    private func referenceSelectionBinding(for kind: FASTQOperationInputKind) -> Binding<URL?> {
+        Binding(
+            get: { state.auxiliaryInputURL(for: kind) },
+            set: { url in
+                if let url {
+                    state.setAuxiliaryInput(url, for: kind)
+                } else {
+                    state.removeAuxiliaryInput(for: kind)
+                }
+            }
+        )
+    }
+
+    private func auxiliaryInputRow(for kind: FASTQOperationInputKind) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(kind.title)
+                        .font(.subheadline.weight(.medium))
+                    Text(inputSummary(for: kind))
+                        .font(.caption)
+                        .foregroundStyle(inputSummaryColor(for: kind))
+                }
+
+                Spacer()
+
+                Button(state.auxiliaryInputURL(for: kind) == nil ? "Choose…" : "Replace…") {
+                    browsingInputKind = kind
+                    isImporterPresented = true
+                }
+
+                if state.auxiliaryInputURL(for: kind) != nil {
+                    Button("Clear") {
+                        state.removeAuxiliaryInput(for: kind)
+                    }
+                }
+            }
         }
     }
 

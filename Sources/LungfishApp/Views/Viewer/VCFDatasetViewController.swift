@@ -554,7 +554,7 @@ final class VCFSummaryBar: NSView {
     func update(with summary: VCFSummary) {
         // Title: organism/assembly or chromosome names
         if let ref = summary.inferredReference {
-            titleLabel.stringValue = "\(ref.organism) (\(ref.assembly))"
+            titleLabel.stringValue = "\(ref.organism ?? "Unknown organism") (\(ref.assembly ?? "Unknown assembly"))"
             inferredReference = ref
             downloadButton.isHidden = false
         } else if !summary.chromosomes.isEmpty {

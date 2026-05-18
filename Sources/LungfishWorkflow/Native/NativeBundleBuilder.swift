@@ -15,7 +15,6 @@ import LungfishIO
 /// - `bgzip` - FASTA compression (from htslib)
 /// - `samtools faidx` - FASTA indexing
 /// - `bcftools` - VCF to BCF conversion
-/// - `bedToBigBed` - BED to BigBed conversion (UCSC)
 /// - `bedGraphToBigWig` - bedGraph to BigWig conversion (UCSC)
 ///
 /// Only the micromamba bootstrap remains bundled; the actual build tools are
@@ -255,10 +254,6 @@ public final class NativeBundleBuilder: ObservableObject {
 
         if !configuration.variantFiles.isEmpty {
             tools.insert(.bcftools)
-        }
-
-        if !configuration.annotationFiles.isEmpty {
-            tools.insert(.bedToBigBed)
         }
 
         if !configuration.signalFiles.isEmpty {
@@ -635,13 +630,6 @@ public final class NativeBundleBuilder: ObservableObject {
         var annotationInfos: [AnnotationTrackInfo] = []
         let annotationsDir = bundleURL.appendingPathComponent("annotations")
 
-        // Create chrom.sizes file for bedToBigBed
-        let chromSizesURL = annotationsDir.appendingPathComponent("chrom.sizes")
-        let chromSizesContent = chromosomeSizes
-            .map { "\($0.0)\t\($0.1)" }
-            .joined(separator: "\n")
-        try chromSizesContent.write(to: chromSizesURL, atomically: true, encoding: .utf8)
-
         for (index, input) in configuration.annotationFiles.enumerated() {
             let subProgress = Double(index) / Double(configuration.annotationFiles.count)
             updateProgress(
@@ -744,8 +732,6 @@ public final class NativeBundleBuilder: ObservableObject {
                 annotationInfos.append(trackInfo)
             }
         }
-
-        try? FileManager.default.removeItem(at: chromSizesURL)
 
         updateProgress(
             .convertingAnnotations,
@@ -1113,7 +1099,7 @@ public final class NativeBundleBuilder: ObservableObject {
                 let itemRgb = "\(r),\(g),\(b)"
 
                 // BED columns 10-12: blockCount, blockSizes, blockStarts
-                // bedToBigBed requires blocks in ascending order without overlap.
+                // Keep blocks in ascending order without overlap for BED12 validity.
                 // GenBank ribosomal frameshift joins can produce overlapping intervals.
                 var resolvedIntervals = intervals
                 for i in 1..<resolvedIntervals.count {
@@ -1188,8 +1174,7 @@ public final class NativeBundleBuilder: ObservableObject {
         return entries.count
     }
 
-    /// Clips BED coordinates to chromosome boundaries to ensure bedToBigBed compatibility.
-    /// bedToBigBed requires all coordinates to be within the chromosome size.
+    /// Clips BED coordinates to chromosome boundaries before SQLite import.
     private func clipBEDCoordinates(bedURL: URL, chromosomeSizes: [(String, Int64)]) throws {
         let chromSizeMap = Dictionary(uniqueKeysWithValues: chromosomeSizes)
 
@@ -1285,8 +1270,7 @@ public final class NativeBundleBuilder: ObservableObject {
     }
 
     /// Strips extra columns beyond `keepColumns` from a BED file in-place.
-    /// bedToBigBed only handles standard BED3-12 columns; extra columns (like
-    /// feature type and attributes in columns 13-14) must be removed first.
+    /// SQLite annotation import only needs the retained BED columns.
     private func stripExtraBEDColumns(bedURL: URL, keepColumns: Int) throws {
         guard let content = try? String(contentsOf: bedURL, encoding: .utf8) else { return }
 

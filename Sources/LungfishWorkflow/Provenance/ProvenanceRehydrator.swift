@@ -37,13 +37,17 @@ public enum ProvenanceRehydrator {
     public static func rehydrateSelectedOutputs(
         sourceDirectory: URL,
         finalDirectory: URL,
-        pathMap: [String: String]
+        pathMap: [String: String],
+        argumentPathMap: [String: String]? = nil,
+        preserveOriginMetadata: Bool = true
     ) throws -> ProvenanceEnvelope {
         try rehydrate(
             sourceDirectory: sourceDirectory,
             finalDirectory: finalDirectory,
             pathMap: pathMap,
-            outputMode: .selectedOnly
+            argumentPathMap: argumentPathMap,
+            outputMode: .selectedOnly,
+            preserveOriginMetadata: preserveOriginMetadata
         )
     }
 
@@ -51,7 +55,9 @@ public enum ProvenanceRehydrator {
         sourceDirectory: URL,
         finalDirectory: URL,
         pathMap: [String: String],
-        outputMode: OutputMode
+        argumentPathMap: [String: String]? = nil,
+        outputMode: OutputMode,
+        preserveOriginMetadata: Bool = true
     ) throws -> ProvenanceEnvelope {
         guard let loadedSource = try loadSourceProvenance(
             sourceDirectory: sourceDirectory,
@@ -61,6 +67,7 @@ public enum ProvenanceRehydrator {
         }
         let sourceProvenanceURL = loadedSource.url
         let sourceEnvelope = loadedSource.envelope
+        let replayPathMap = pathMap.merging(argumentPathMap ?? [:]) { _, argumentPath in argumentPath }
         let selectedProjection = outputMode == .selectedOnly
             ? selectedProjection(for: sourceEnvelope.steps, pathMap: pathMap)
             : nil
@@ -68,22 +75,30 @@ public enum ProvenanceRehydrator {
             sourceEnvelope.outputs,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            selectedProjection: selectedProjection
+            selectedProjection: selectedProjection,
+            preserveOriginMetadata: preserveOriginMetadata
         )
         let output = try rewritePrimaryOutput(
             sourceEnvelope.output,
             rewrittenOutputs: outputs,
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            selectedProjection: selectedProjection
+            selectedProjection: selectedProjection,
+            preserveOriginMetadata: preserveOriginMetadata
         )
         let steps = try rewriteSteps(
             sourceEnvelope.steps,
             pathMap: pathMap,
+            replayPathMap: replayPathMap,
             sourceProvenancePath: sourceProvenanceURL.path,
-            selectedProjection: selectedProjection
+            selectedProjection: selectedProjection,
+            preserveOriginMetadata: preserveOriginMetadata
         )
 
+        let topLevelReplayArgv = rewriteArguments(
+            sourceEnvelope.durableReplayArgv ?? sourceEnvelope.argv,
+            pathMap: replayPathMap
+        )
         let rehydrated = try ProvenanceEnvelope(
             schemaVersion: sourceEnvelope.schemaVersion,
             id: sourceEnvelope.id,
@@ -94,14 +109,20 @@ public enum ProvenanceRehydrator {
             toolVersion: sourceEnvelope.toolVersion,
             tool: sourceEnvelope.tool,
             argv: sourceEnvelope.argv,
-            reproducibleCommand: sourceEnvelope.reproducibleCommand,
-            options: sourceEnvelope.options,
+            durableReplayArgv: topLevelReplayArgv,
+            reproducibleCommand: commandLine(
+                from: topLevelReplayArgv,
+                fallback: sourceEnvelope.reproducibleCommand,
+                pathMap: replayPathMap
+            ),
+            options: rewriteOptions(sourceEnvelope.options, pathMap: replayPathMap),
             runtimeIdentity: sourceEnvelope.runtimeIdentity,
             files: rewriteTopLevelFiles(
                 sourceEnvelope.files,
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenanceURL.path,
-                selectedProjection: selectedProjection
+                selectedProjection: selectedProjection,
+                preserveOriginMetadata: preserveOriginMetadata
             ),
             output: output,
             outputs: outputs,
@@ -269,7 +290,8 @@ public enum ProvenanceRehydrator {
         _ descriptors: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        selectedProjection: SelectedProjection?
+        selectedProjection: SelectedProjection?,
+        preserveOriginMetadata: Bool
     ) throws -> [ProvenanceFileDescriptor] {
         try descriptors.compactMap { descriptor in
             if descriptor.role == .output {
@@ -278,7 +300,8 @@ public enum ProvenanceRehydrator {
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
                     selectedProjection: selectedProjection,
-                    preserveConsumedIntermediates: true
+                    preserveConsumedIntermediates: true,
+                    preserveOriginMetadata: preserveOriginMetadata
                 )
             }
             if let selectedProjection,
@@ -289,7 +312,8 @@ public enum ProvenanceRehydrator {
             return try rewriteInputDescriptor(
                 descriptor,
                 pathMap: pathMap,
-                sourceProvenancePath: sourceProvenancePath
+                sourceProvenancePath: sourceProvenancePath,
+                preserveOriginMetadata: preserveOriginMetadata
             )
         }
     }
@@ -299,7 +323,8 @@ public enum ProvenanceRehydrator {
         rewrittenOutputs: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        selectedProjection: SelectedProjection?
+        selectedProjection: SelectedProjection?,
+        preserveOriginMetadata: Bool
     ) throws -> ProvenanceFileDescriptor? {
         guard let output else {
             return rewrittenOutputs.first
@@ -312,7 +337,8 @@ public enum ProvenanceRehydrator {
             pathMap: pathMap,
             sourceProvenancePath: sourceProvenancePath,
             selectedProjection: selectedProjection,
-            preserveConsumedIntermediates: false
+            preserveConsumedIntermediates: false,
+            preserveOriginMetadata: preserveOriginMetadata
         )
     }
 
@@ -320,7 +346,8 @@ public enum ProvenanceRehydrator {
         _ outputs: [ProvenanceFileDescriptor],
         pathMap: [String: String],
         sourceProvenancePath: String,
-        selectedProjection: SelectedProjection?
+        selectedProjection: SelectedProjection?,
+        preserveOriginMetadata: Bool
     ) throws -> [ProvenanceFileDescriptor] {
         let rewritten = try outputs.compactMap {
             try rewriteOutputDescriptor(
@@ -328,7 +355,8 @@ public enum ProvenanceRehydrator {
                 pathMap: pathMap,
                 sourceProvenancePath: sourceProvenancePath,
                 selectedProjection: selectedProjection,
-                preserveConsumedIntermediates: false
+                preserveConsumedIntermediates: false,
+                preserveOriginMetadata: preserveOriginMetadata
             )
         }
         if selectedProjection != nil, rewritten.isEmpty, let firstOutput = outputs.first {
@@ -340,8 +368,10 @@ public enum ProvenanceRehydrator {
     private static func rewriteSteps(
         _ steps: [ProvenanceStep],
         pathMap: [String: String],
+        replayPathMap: [String: String],
         sourceProvenancePath: String,
-        selectedProjection: SelectedProjection?
+        selectedProjection: SelectedProjection?,
+        preserveOriginMetadata: Bool
     ) throws -> [ProvenanceStep] {
         let retainedSteps = selectedProjection.map { projection in
             steps.filter { projection.retainedStepIDs.contains($0.id) }
@@ -350,8 +380,10 @@ public enum ProvenanceRehydrator {
             try rewriteStep(
                 step,
                 pathMap: pathMap,
+                replayPathMap: replayPathMap,
                 sourceProvenancePath: sourceProvenancePath,
-                selectedProjection: selectedProjection
+                selectedProjection: selectedProjection,
+                preserveOriginMetadata: preserveOriginMetadata
             )
         }
     }
@@ -359,20 +391,29 @@ public enum ProvenanceRehydrator {
     private static func rewriteStep(
         _ step: ProvenanceStep,
         pathMap: [String: String],
+        replayPathMap: [String: String],
         sourceProvenancePath: String,
-        selectedProjection: SelectedProjection?
+        selectedProjection: SelectedProjection?,
+        preserveOriginMetadata: Bool
     ) throws -> ProvenanceStep {
-        ProvenanceStep(
+        let replayArgv = rewriteArguments(step.durableReplayArgv ?? step.argv, pathMap: replayPathMap)
+        return ProvenanceStep(
             id: step.id,
             toolName: step.toolName,
             toolVersion: step.toolVersion,
             argv: step.argv,
-            reproducibleCommand: step.reproducibleCommand,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: commandLine(
+                from: replayArgv,
+                fallback: step.reproducibleCommand,
+                pathMap: replayPathMap
+            ),
             inputs: try step.inputs.map {
                 try rewriteInputDescriptor(
                     $0,
                     pathMap: pathMap,
-                    sourceProvenancePath: sourceProvenancePath
+                    sourceProvenancePath: sourceProvenancePath,
+                    preserveOriginMetadata: preserveOriginMetadata
                 )
             },
             outputs: try step.outputs.compactMap {
@@ -381,7 +422,8 @@ public enum ProvenanceRehydrator {
                     pathMap: pathMap,
                     sourceProvenancePath: sourceProvenancePath,
                     selectedProjection: selectedProjection,
-                    preserveConsumedIntermediates: true
+                    preserveConsumedIntermediates: true,
+                    preserveOriginMetadata: preserveOriginMetadata
                 )
             },
             exitStatus: step.exitStatus,
@@ -396,7 +438,8 @@ public enum ProvenanceRehydrator {
     private static func rewriteInputDescriptor(
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
-        sourceProvenancePath: String
+        sourceProvenancePath: String,
+        preserveOriginMetadata: Bool
     ) throws -> ProvenanceFileDescriptor {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
             return descriptor
@@ -404,7 +447,8 @@ public enum ProvenanceRehydrator {
         return try rewriteMappedDescriptor(
             descriptor,
             pathMap: pathMap,
-            sourceProvenancePath: sourceProvenancePath
+            sourceProvenancePath: sourceProvenancePath,
+            preserveOriginMetadata: preserveOriginMetadata
         )
     }
 
@@ -413,7 +457,8 @@ public enum ProvenanceRehydrator {
         pathMap: [String: String],
         sourceProvenancePath: String,
         selectedProjection: SelectedProjection?,
-        preserveConsumedIntermediates: Bool
+        preserveConsumedIntermediates: Bool,
+        preserveOriginMetadata: Bool
     ) throws -> ProvenanceFileDescriptor? {
         guard mappedPath(for: descriptor.path, in: pathMap) != nil else {
             if preserveConsumedIntermediates,
@@ -428,14 +473,16 @@ public enum ProvenanceRehydrator {
         return try rewriteMappedDescriptor(
             descriptor,
             pathMap: pathMap,
-            sourceProvenancePath: sourceProvenancePath
+            sourceProvenancePath: sourceProvenancePath,
+            preserveOriginMetadata: preserveOriginMetadata
         )
     }
 
     private static func rewriteMappedDescriptor(
         _ descriptor: ProvenanceFileDescriptor,
         pathMap: [String: String],
-        sourceProvenancePath: String
+        sourceProvenancePath: String,
+        preserveOriginMetadata: Bool
     ) throws -> ProvenanceFileDescriptor {
         guard let finalPath = mappedPath(for: descriptor.path, in: pathMap) else {
             return descriptor
@@ -445,8 +492,8 @@ public enum ProvenanceRehydrator {
             url: finalURL,
             format: descriptor.format,
             role: descriptor.role,
-            originPath: descriptor.path,
-            sourceProvenancePath: sourceProvenancePath
+            originPath: preserveOriginMetadata ? descriptor.path : nil,
+            sourceProvenancePath: preserveOriginMetadata ? sourceProvenancePath : nil
         )
     }
 
@@ -455,5 +502,93 @@ public enum ProvenanceRehydrator {
             return mapped
         }
         return pathMap[URL(fileURLWithPath: path).standardizedFileURL.path]
+    }
+
+    private static func rewriteArguments(_ arguments: [String], pathMap: [String: String]) -> [String] {
+        arguments.map { rewriteArgument($0, pathMap: pathMap) }
+    }
+
+    private static func commandLine(
+        from argv: [String],
+        fallback: String,
+        pathMap: [String: String]
+    ) -> String {
+        if !argv.isEmpty {
+            return argv.map(shellEscape).joined(separator: " ")
+        }
+        return rewriteShellLikeString(fallback, pathMap: pathMap)
+    }
+
+    private static func rewriteArgument(_ argument: String, pathMap: [String: String]) -> String {
+        for (source, destination) in replacementPairs(for: pathMap) where argument == source {
+            return destination
+        }
+
+        guard let equalsIndex = argument.firstIndex(of: "=") else {
+            return argument
+        }
+        let prefix = argument[...equalsIndex]
+        let value = String(argument[argument.index(after: equalsIndex)...])
+        for (source, destination) in replacementPairs(for: pathMap) where value == source {
+            return String(prefix) + destination
+        }
+        return argument
+    }
+
+    private static func replacementPairs(for pathMap: [String: String]) -> [(source: String, destination: String)] {
+        var pairs: [(String, String)] = []
+        var seen = Set<String>()
+        for (source, destination) in pathMap {
+            if seen.insert(source).inserted {
+                pairs.append((source, destination))
+            }
+            let standardizedSource = URL(fileURLWithPath: source).standardizedFileURL.path
+            if seen.insert(standardizedSource).inserted {
+                pairs.append((standardizedSource, destination))
+            }
+        }
+        return pairs.sorted {
+            if $0.0.count != $1.0.count {
+                return $0.0.count > $1.0.count
+            }
+            return $0.0 < $1.0
+        }
+    }
+
+    private static func rewriteOptions(_ options: ProvenanceOptions, pathMap: [String: String]) -> ProvenanceOptions {
+        ProvenanceOptions(
+            explicit: options.explicit.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
+            defaults: options.defaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) },
+            resolvedDefaults: options.resolvedDefaults.mapValues { rewriteParameterValue($0, pathMap: pathMap) }
+        )
+    }
+
+    private static func rewriteParameterValue(_ value: ParameterValue, pathMap: [String: String]) -> ParameterValue {
+        switch value {
+        case .file(let url):
+            let rewritten = rewriteArgument(url.path, pathMap: pathMap)
+            return .file(URL(fileURLWithPath: rewritten))
+        case .string(let string):
+            return .string(rewriteShellLikeString(string, pathMap: pathMap))
+        case .array(let values):
+            return .array(values.map { rewriteParameterValue($0, pathMap: pathMap) })
+        case .dictionary(let values):
+            return .dictionary(values.mapValues { rewriteParameterValue($0, pathMap: pathMap) })
+        case .integer, .number, .boolean, .null:
+            return value
+        }
+    }
+
+    private static func rewriteShellLikeString(_ string: String, pathMap: [String: String]) -> String {
+        do {
+            let arguments = try AdvancedCommandLineOptions.parse(string)
+            let rewritten = rewriteArguments(arguments, pathMap: pathMap)
+            guard rewritten != arguments else {
+                return rewriteArgument(string, pathMap: pathMap)
+            }
+            return rewritten.map(shellEscape).joined(separator: " ")
+        } catch {
+            return rewriteArgument(string, pathMap: pathMap)
+        }
     }
 }

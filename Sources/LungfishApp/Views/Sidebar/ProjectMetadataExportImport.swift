@@ -5,7 +5,6 @@
 import AppKit
 import LungfishCore
 import LungfishIO
-import UniformTypeIdentifiers
 import os.log
 
 private let logger = Logger(subsystem: "com.lungfish.app", category: "ProjectMetadataExportImport")
@@ -220,9 +219,9 @@ final class MetadataExportSheet: NSViewController {
             return
         }
 
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.nameFieldStringValue = "\(folderURL.lastPathComponent)_metadata.csv"
+        let panel = FeatureFilePanelFactory.metadataCSVExportPanel(
+            suggestedName: "\(folderURL.lastPathComponent)_metadata.csv"
+        )
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -564,11 +563,9 @@ final class MetadataImportSheet: NSViewController {
     // MARK: - Actions
 
     @objc private func chooseFile(_ sender: Any?) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Choose a CSV file with sample metadata"
+        let panel = FeatureFilePanelFactory.metadataCSVImportPanel(
+            message: "Choose a CSV file with sample metadata"
+        )
 
         guard let window = view.window else { return }
         panel.beginSheetModal(for: window) { [weak self] response in

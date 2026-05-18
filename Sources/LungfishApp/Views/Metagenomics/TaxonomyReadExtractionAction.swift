@@ -58,8 +58,7 @@ struct DefaultAlertPresenter: AlertPresenting {
 @MainActor
 struct DefaultSavePanelPresenter: SavePanelPresenting {
     func present(suggestedName: String, on window: NSWindow) async -> URL? {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = suggestedName
+        let panel = MetagenomicsFilePanelFactory.readExtractionSavePanel(suggestedName: suggestedName)
         return await withCheckedContinuation { continuation in
             panel.beginSheetModal(for: window) { response in
                 continuation.resume(returning: response == .OK ? panel.url : nil)

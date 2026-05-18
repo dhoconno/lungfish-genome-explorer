@@ -5,7 +5,6 @@
 import AppKit
 import LungfishIO
 import LungfishWorkflow
-import UniformTypeIdentifiers
 
 @MainActor
 public protocol FASTQMetadataDrawerViewDelegate: AnyObject {
@@ -417,7 +416,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
         tabControl.setLabel("Primer Trim", forSegment: 2)
         tabControl.setLabel("Dedup", forSegment: 3)
         tabControl.selectedSegment = 0
-        tabControl.segmentStyle = .texturedRounded
+        tabControl.segmentStyle = .rounded
         tabControl.controlSize = .small
         tabControl.translatesAutoresizingMaskIntoConstraints = false
         tabControl.target = self
@@ -1891,10 +1890,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func importClicked(_ sender: NSButton) {
         guard let window else { return }
 
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Import"
+        let panel = ViewerFilePanelFactory.fastqMetadataImportPanel(prompt: "Import")
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
@@ -1924,19 +1920,18 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
     @objc private func exportClicked(_ sender: NSButton) {
         guard let window else { return }
 
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.prompt = "Export"
-
+        let suggestedName: String
         switch activeTab {
         case .samples:
-            panel.nameFieldStringValue = "fastq-sample-metadata.csv"
+            suggestedName = "fastq-sample-metadata.csv"
         case .demux:
-            panel.nameFieldStringValue = "demux-pattern.csv"
+            suggestedName = "demux-pattern.csv"
         case .primerTrim, .dedup:
             statusLabel.stringValue = "Export is not available for this tab."
             return
         }
+
+        let panel = ViewerFilePanelFactory.fastqMetadataExportPanel(suggestedName: suggestedName)
 
         panel.beginSheetModal(for: window) { [weak self] response in
             MainActor.assumeIsolated {
@@ -1961,10 +1956,7 @@ public final class FASTQMetadataDrawerView: NSView, NSTableViewDataSource, NSTab
 
     @objc private func importCustomKitClicked(_ sender: NSButton) {
         guard let window else { return }
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .plainText]
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Import Kit"
+        let panel = ViewerFilePanelFactory.fastqMetadataImportPanel(prompt: "Import Kit")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             MainActor.assumeIsolated {

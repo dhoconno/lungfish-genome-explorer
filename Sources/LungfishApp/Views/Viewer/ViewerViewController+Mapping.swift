@@ -10,6 +10,13 @@ import os.log
 private let mappingDisplayLogger = Logger(subsystem: LogSubsystem.app, category: "ViewerMapping")
 
 extension ViewerViewController {
+    func display(_ route: ViewerDisplayRoute) throws {
+        switch route {
+        case .referenceBundle(let input):
+            try displayReferenceBundleViewport(input)
+        }
+    }
+
     var activeMappingViewportController: ReferenceBundleViewportController? {
         if let mappingResultController {
             return mappingResultController
@@ -125,7 +132,7 @@ extension ViewerViewController {
         hideCollectionBackButton()
         contentMode = .mapping
 
-        let controller = ReferenceBundleViewportController()
+        let controller = ViewerDisplayRouteFactory.makeReferenceBundleViewportController()
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

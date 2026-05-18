@@ -230,8 +230,13 @@ struct ProvenanceCoverageMonitor {
         if envelope.wallTimeSeconds == nil {
             issues.append("Wall time is missing.")
         }
-        if envelope.stderr == nil {
-            issues.append("stderr is missing; use an explicit empty value when no stderr was emitted.")
+        if let exitStatus = envelope.exitStatus,
+           exitStatus != 0,
+           envelope.stderr == nil {
+            issues.append("stderr is missing for the failed workflow.")
+        }
+        if envelope.steps.contains(where: { ($0.exitStatus ?? 0) != 0 && $0.stderr == nil }) {
+            issues.append("stderr is missing for one or more failed workflow steps.")
         }
 
         let descriptorIssues = missingFileMetadataDescriptors(in: envelope)
@@ -366,6 +371,7 @@ final class ProvenanceInspectorViewModel {
     var optionRows: [ProvenanceOptionRow] = []
     var runtimeRows: [ProvenanceRuntimeRow] = []
     var rawJSON: String = ""
+    var copyableText: String = ""
     var resolvedEnvelope: ProvenanceEnvelope?
     var resolvedSidecarURL: URL?
     var searchText: String = ""
@@ -391,6 +397,7 @@ final class ProvenanceInspectorViewModel {
         optionRows = []
         runtimeRows = []
         rawJSON = ""
+        copyableText = ""
         resolvedEnvelope = nil
         resolvedSidecarURL = nil
         searchText = ""
@@ -445,6 +452,7 @@ final class ProvenanceInspectorViewModel {
         optionRows = []
         runtimeRows = []
         rawJSON = ""
+        copyableText = warnings.map { "\($0.title)\n\($0.message)" }.joined(separator: "\n\n")
     }
 
     private func buildPresentState(envelope: ProvenanceEnvelope, sidecarURL: URL) {
@@ -482,7 +490,7 @@ final class ProvenanceInspectorViewModel {
                         outputPaths: step.outputs.map(\.path),
                         exitStatus: step.exitStatus,
                         wallTimeSeconds: step.wallTimeSeconds,
-                        stderr: step.stderr,
+                        stderr: step.stderr?.strippingANSIEscapeSequences(),
                         dependsOn: step.dependsOn
                     )
                 }
@@ -492,6 +500,7 @@ final class ProvenanceInspectorViewModel {
         optionRows = buildOptionRows(envelope.options)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
         rawJSON = encodedJSON(envelope)
+        copyableText = buildCopyableText()
     }
 
     private func warningRows(for audit: ProvenanceAuditResult) -> [ProvenanceWarningRow] {
@@ -612,6 +621,106 @@ final class ProvenanceInspectorViewModel {
         return String(data: data, encoding: .utf8) ?? ""
     }
 
+    private func buildCopyableText() -> String {
+        var sections: [String] = []
+
+        sections.append(
+            labeledLines(
+                title: "Run Summary",
+                rows: [
+                    ("Workflow", summary.workflowName),
+                    ("Workflow Version", summary.workflowVersion),
+                    ("Tool", summary.toolVersion.isEmpty ? summary.toolName : "\(summary.toolName) \(summary.toolVersion)"),
+                    ("Created", summary.createdAt?.formatted(date: .abbreviated, time: .shortened) ?? ""),
+                    ("Exit Status", summary.exitStatus.map(String.init) ?? ""),
+                    ("Wall Time", summary.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? ""),
+                    ("Steps", "\(summary.stepCount)"),
+                    ("Inputs", "\(summary.inputCount)"),
+                    ("Outputs", "\(summary.outputCount)"),
+                    ("Sidecar", summary.sidecarPath ?? ""),
+                ]
+            )
+        )
+
+        if !warnings.isEmpty {
+            sections.append(
+                "Warnings\n" + warnings.map { "\($0.title): \($0.message)" }.joined(separator: "\n")
+            )
+        }
+
+        if !lineageRuns.isEmpty {
+            var lines = ["Lineage"]
+            for run in lineageRuns {
+                lines.append("\(run.title) - \(run.subtitle)")
+                for step in run.steps {
+                    lines.append("\(step.ordinal). \(step.toolName) \(step.toolVersion)".trimmingCharacters(in: .whitespaces))
+                    appendIfPresent("Command", step.command, to: &lines)
+                    appendList("Inputs", step.inputPaths, to: &lines)
+                    appendList("Outputs", step.outputPaths, to: &lines)
+                    appendIfPresent("Exit Status", step.exitStatus.map(String.init) ?? "", to: &lines)
+                    appendIfPresent("Wall Time", step.wallTimeSeconds.map { "\(String(format: "%.2f", $0)) s" } ?? "", to: &lines)
+                    appendIfPresent("stderr", step.stderr ?? "", to: &lines)
+                }
+            }
+            sections.append(lines.joined(separator: "\n"))
+        }
+
+        if !fileRows.isEmpty {
+            var lines = ["Files & Outputs"]
+            for row in fileRows {
+                lines.append("\(row.role): \(row.path)")
+                lines.append("  \(fileMetadataSummary(for: row))")
+                appendIfPresent("  sha256", row.checksumSHA256 ?? "", to: &lines)
+            }
+            sections.append(lines.joined(separator: "\n"))
+        }
+
+        if !optionRows.isEmpty {
+            sections.append(
+                labeledLines(
+                    title: "Invocation & Options",
+                    rows: optionRows.map { ("\($0.name) (\($0.kind))", $0.value) }
+                )
+            )
+        }
+
+        if !runtimeRows.isEmpty {
+            sections.append(labeledLines(title: "Runtime", rows: runtimeRows.map { ($0.label, $0.value) }))
+        }
+
+        return sections
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n\n")
+    }
+
+    private func labeledLines(title: String, rows: [(String, String)]) -> String {
+        var lines = [title]
+        for row in rows {
+            appendIfPresent(row.0, row.1, to: &lines)
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendList(_ label: String, _ values: [String], to lines: inout [String]) {
+        guard !values.isEmpty else { return }
+        lines.append("\(label):")
+        lines.append(contentsOf: values.map { "  \($0)" })
+    }
+
+    private func appendIfPresent(_ label: String, _ value: String, to lines: inout [String]) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        lines.append("\(label): \(value)")
+    }
+
+    private func fileMetadataSummary(for row: ProvenanceFileRow) -> String {
+        var parts = [row.fileSizeLabel]
+        if let format = row.format, !format.isEmpty {
+            parts.append("Format: \(format)")
+        }
+        return parts.joined(separator: " | ")
+    }
+
     static func formatBytes(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
@@ -628,6 +737,13 @@ private extension String {
         let headCount = max(4, maxLength / 2 - 2)
         let tailCount = max(4, maxLength - headCount - 1)
         return "\(prefix(headCount))...\(suffix(tailCount))"
+    }
+
+    func strippingANSIEscapeSequences() -> String {
+        let escape = "\u{001B}"
+        let bell = "\u{0007}"
+        let pattern = "\(escape)(?:\\[[0-?]*[ -/]*[@-~]|\\][^\(bell)\(escape)]*(?:\(bell)|\(escape)\\\\)|[@-Z\\\\-_])"
+        return replacingOccurrences(of: pattern, with: "", options: .regularExpression)
     }
 }
 

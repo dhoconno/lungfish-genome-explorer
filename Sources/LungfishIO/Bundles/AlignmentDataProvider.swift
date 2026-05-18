@@ -9,6 +9,23 @@ import os.log
 /// Logger for alignment data operations
 private let alignmentLogger = Logger(subsystem: LogSubsystem.io, category: "AlignmentDataProvider")
 
+private final class PipeReadBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func store(_ newData: Data) {
+        lock.lock()
+        data = newData
+        lock.unlock()
+    }
+
+    func load() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
 // MARK: - DepthPoint
 
 /// Per-position read depth from `samtools depth`.
@@ -434,8 +451,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
             // If we read sequentially, filling one pipe's buffer (64 KB) blocks
             // the child process, which prevents it from writing to the other pipe,
             // which prevents us from finishing our read — classic deadlock.
-            var stdoutData = Data()
-            var stderrData = Data()
+            let stdoutBuffer = PipeReadBuffer()
+            let stderrBuffer = PipeReadBuffer()
             let group = DispatchGroup()
 
             // Guard against double-resume: only the first path to set this resumes the continuation.
@@ -445,17 +462,18 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+                var data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
                 // Truncate if excessively large to prevent memory exhaustion
-                if stdoutData.count > AlignmentDataProvider.maxStdoutSize {
-                    stdoutData = stdoutData.prefix(AlignmentDataProvider.maxStdoutSize)
+                if data.count > AlignmentDataProvider.maxStdoutSize {
+                    data = data.prefix(AlignmentDataProvider.maxStdoutSize)
                 }
+                stdoutBuffer.store(data)
                 group.leave()
             }
 
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async {
-                stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                stderrBuffer.store(stderrPipe.fileHandleForReading.readDataToEndOfFile())
                 group.leave()
             }
 
@@ -467,7 +485,7 @@ public final class AlignmentDataProvider: @unchecked Sendable {
                 stdoutPipe.fileHandleForReading.closeFile()
                 stderrPipe.fileHandleForReading.closeFile()
                 // Wait for GCD blocks to complete (they will now return quickly since pipes are closed)
-                group.wait(timeout: .now() + 5)
+                _ = group.wait(timeout: .now() + 5)
 
                 lock.lock()
                 let shouldResume = !resumed
@@ -481,8 +499,8 @@ public final class AlignmentDataProvider: @unchecked Sendable {
 
             process.waitUntilExit()
 
-            let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-            let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+            let stdout = String(data: stdoutBuffer.load(), encoding: .utf8) ?? ""
+            let stderr = String(data: stderrBuffer.load(), encoding: .utf8) ?? ""
 
             lock.lock()
             let shouldResume = !resumed

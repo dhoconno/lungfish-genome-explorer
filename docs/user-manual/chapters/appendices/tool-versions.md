@@ -60,7 +60,6 @@ Managed tools are installed from the Lungfish managed-tool lock through the cond
 | VSEARCH | 2.30.5 | managed | `vsearch` | GPL-3.0-or-later OR BSD-2-Clause | `vsearch` |
 | pigz | 2.8 | managed | `pigz` | Zlib | `pigz` |
 | SRA Tools | 3.4.1 | managed | `sra-tools` | Public Domain | `prefetch`, `fasterq-dump` |
-| UCSC bedToBigBed | 482 | managed | `ucsc-bedtobigbed` | UCSC license | `bedToBigBed` |
 | UCSC bedGraphToBigWig | 482 | managed | `ucsc-bedgraphtobigwig` | UCSC license | `bedGraphToBigWig` |
 
 ## Supported Workflow Pins

@@ -253,8 +253,12 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
         // Image reference
         args.append(image.reference)
 
-        // Default command to keep container running
-        args.append(contentsOf: ["tail", "-f", "/dev/null"])
+        if let command = config.command, !command.isEmpty {
+            args.append(contentsOf: command)
+        } else {
+            // Default command to keep container running for exec-based workflows.
+            args.append(contentsOf: ["tail", "-f", "/dev/null"])
+        }
 
         // Run docker create
         let (exitCode, stdout, stderr) = await runDockerCommand(args)
@@ -321,6 +325,30 @@ public actor DockerRuntime: ContainerRuntimeProtocol {
         }
 
         logger.info("Container started: \(container.name, privacy: .public)")
+    }
+
+    public func runAndWait(_ container: Container) async throws -> Int32 {
+        logger.info("Running container to completion: \(container.name, privacy: .public)")
+
+        let (exitCode, _, stderr) = await runDockerCommand(
+            ["start", "--attach", container.id],
+            timeout: 24 * 60 * 60
+        )
+
+        if var updatedContainer = activeContainers[container.id] {
+            try? updatedContainer.updateState(.stopped)
+            activeContainers[container.id] = updatedContainer
+        }
+
+        guard exitCode >= 0 else {
+            throw ContainerRuntimeError.containerStartFailed(
+                containerID: container.id,
+                reason: stderr.isEmpty ? "Docker start failed" : stderr
+            )
+        }
+
+        logger.info("Container completed: \(container.name, privacy: .public) [exit \(exitCode)]")
+        return exitCode
     }
 
     public func stopContainer(_ container: Container) async throws {

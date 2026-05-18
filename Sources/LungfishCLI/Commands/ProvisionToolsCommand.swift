@@ -131,7 +131,7 @@ struct ProvisionToolsCommand: AsyncParsableCommand {
 
             // Exit with error if any tools failed
             if !result.failed.isEmpty {
-                throw ExitCode.failure
+                throw CLIExitCode.dependency.exitCode
             }
 
         } catch {

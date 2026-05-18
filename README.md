@@ -104,9 +104,12 @@ The `fastq` command groups subcommands for `materialize`, `orient`, `qc-summary`
 | Sequences   | FASTA, FASTQ, GenBank, 2bit         | FASTA, FASTQ         |
 | Alignments  | BAM, CRAM, SAM (via HTSlib)         | sorted/indexed BAM   |
 | Variants    | VCF, VCF.GZ + TBI                   | VCF                  |
-| Annotations | GFF3, GTF, BED, BigBed              | BED, BigBed          |
+| Annotations | GFF3, GTF, BED                      | BED                  |
 | Coverage    | BigWig, bedGraph                    | BigWig               |
 | Reports     | Kraken2 kreport, EsViritu, TaxTriage, NAO-MGS | JSON, TSV |
+
+BigBed files are recognized as bundle artifacts, but the incomplete in-process
+BigBed reader API is intentionally unavailable until parser support is complete.
 
 ## Requirements
 
@@ -186,7 +189,7 @@ Lungfish Genome Explorer stands on the shoulders of the open-source bioinformati
 | SAMtools                  | 1.22.1     | MIT           | https://github.com/samtools/samtools                      |
 | BCFtools                  | 1.22       | MIT           | https://github.com/samtools/bcftools                      |
 | HTSlib (bgzip, tabix)     | 1.22.1     | MIT           | https://github.com/samtools/htslib                        |
-| UCSC Tools (bedToBigBed, bedGraphToBigWig) | v469 | MIT | https://github.com/ucscGenomeBrowser/kent             |
+| UCSC bedGraphToBigWig     | v469       | MIT           | https://github.com/ucscGenomeBrowser/kent             |
 | SeqKit                    | 2.9.0      | MIT           | https://github.com/shenwei356/seqkit                      |
 | cutadapt                  | 4.9        | MIT           | https://github.com/marcelm/cutadapt                       |
 | VSEARCH                   | 2.29.2     | BSD-2-Clause  | https://github.com/torognes/vsearch                       |

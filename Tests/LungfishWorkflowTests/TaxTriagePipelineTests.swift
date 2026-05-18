@@ -868,7 +868,7 @@ final class TaxTriagePipelineTests: XCTestCase {
 
     // MARK: - Pipeline Argument Building Tests
 
-    func testBuildNextflowArguments() async {
+    func testBuildNextflowArguments() {
         let pipeline = TaxTriagePipeline()
 
         let sample = TaxTriageSample(
@@ -891,7 +891,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             revision: "dev"
         )
 
-        let args = await pipeline.buildNextflowArguments(config: config)
+        let args = pipeline.buildNextflowArguments(config: config)
 
         // Verify structure
         XCTAssertEqual(args[0], "run")
@@ -918,7 +918,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertTrue(args.contains("-with-trace"))
     }
 
-    func testBuildNextflowLaunchArgumentsPrependRuntimeConfigOverride() async {
+    func testBuildNextflowLaunchArgumentsPrependRuntimeConfigOverride() {
         let pipeline = TaxTriagePipeline()
 
         let sample = TaxTriageSample(
@@ -932,7 +932,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
         let runtimeConfigURL = URL(fileURLWithPath: "/tmp/lungfish-taxtriage.config")
 
-        let args = await pipeline.buildNextflowLaunchArguments(
+        let args = pipeline.buildNextflowLaunchArguments(
             config: config,
             runtimeConfigURL: runtimeConfigURL
         )
@@ -940,7 +940,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         XCTAssertEqual(args.prefix(4), ["-c", runtimeConfigURL.path, "run", "jhuapl-bio/taxtriage"])
     }
 
-    func testBuildNextflowArgumentsWithLocalProjectSourceOmitsRevisionFlag() async {
+    func testBuildNextflowArgumentsWithLocalProjectSourceOmitsRevisionFlag() {
         let pipeline = TaxTriagePipeline()
         let sample = TaxTriageSample(
             sampleId: "Test",
@@ -953,7 +953,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             revision: "deadbeef"
         )
 
-        let args = await pipeline.buildNextflowArguments(
+        let args = pipeline.buildNextflowArguments(
             config: config,
             pipelineLaunchTarget: "/tmp/taxtriage-export",
             pipelineRevision: nil
@@ -974,7 +974,7 @@ final class TaxTriagePipelineTests: XCTestCase {
     func testBuildLaunchEnvironmentIncludesMambaRootPrefixForCondaProfile() async {
         let pipeline = TaxTriagePipeline()
         let environment = await pipeline.buildLaunchEnvironment(useNextflowConda: true)
-        let condaRoot = await CondaManager.shared.rootPrefix
+        let condaRoot = CondaManager.shared.rootPrefix
 
         XCTAssertEqual(environment["MAMBA_ROOT_PREFIX"], condaRoot.path)
         XCTAssertEqual(environment["NXF_CONDA_ENABLED"], "true")
@@ -995,7 +995,7 @@ final class TaxTriagePipelineTests: XCTestCase {
     func testBuildLaunchEnvironmentOmitsCondaOverridesForDockerProfile() async {
         let pipeline = TaxTriagePipeline()
         let environment = await pipeline.buildLaunchEnvironment(useNextflowConda: false)
-        let condaRoot = await CondaManager.shared.rootPrefix
+        let condaRoot = CondaManager.shared.rootPrefix
 
         XCTAssertEqual(environment["MAMBA_ROOT_PREFIX"], condaRoot.path)
         XCTAssertNil(environment["NXF_CONDA_ENABLED"])
@@ -1012,7 +1012,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
     }
 
-    func testPrepareExecutionConfigRedirectsSpaceSensitivePathsIntoSystemTemp() async throws {
+    func testPrepareExecutionConfigRedirectsSpaceSensitivePathsIntoSystemTemp() throws {
         let workspace = FileManager.default.temporaryDirectory
             .appendingPathComponent("taxtriage space redirect \(UUID().uuidString)", isDirectory: true)
         let projectDir = workspace.appendingPathComponent("Lungfish Docs.lungfish", isDirectory: true)
@@ -1036,7 +1036,7 @@ final class TaxTriagePipelineTests: XCTestCase {
         )
 
         let pipeline = TaxTriagePipeline()
-        let execution = try await pipeline.prepareExecutionConfig(for: config)
+        let execution = try pipeline.prepareExecutionConfig(for: config)
 
         XCTAssertNotNil(execution.redirectDirectory)
         XCTAssertFalse(execution.effectiveConfig.outputDirectory.path.contains(" "))
@@ -1310,7 +1310,7 @@ final class TaxTriagePipelineTests: XCTestCase {
             outputDirectory: tmpDir,
             sourceBundleURLs: bundles
         )
-        var result = TaxTriageResult(
+        let result = TaxTriageResult(
             config: config,
             runtime: 100,
             exitCode: 0,

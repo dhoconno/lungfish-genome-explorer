@@ -25,10 +25,15 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         ])
 
         XCTAssertEqual(result.exitCode, 0, result.stderr)
-        try assertCLIImportOutput(
+        let collectionURL = try assertCLIImportOutput(
             result.stdout,
             expectedCollectionName: "Representative Geneious Import",
             expectsBinaryArtifacts: false
+        )
+        try assertReferenceBundleProvenance(
+            in: collectionURL,
+            containsDurableSourcePaths: durablePathSpellings(for: sourceURL),
+            temporaryPathMarker: "/Project.lungfish/.tmp/geneious-import-"
         )
     }
 
@@ -71,15 +76,23 @@ final class ApplicationExportImportE2ETests: XCTestCase {
             ])
 
             XCTAssertEqual(result.exitCode, 0, "\(fixture.kindArgument) stderr: \(result.stderr)")
-            try assertCLIImportOutput(
+            let collectionURL = try assertCLIImportOutput(
                 result.stdout,
                 expectedCollectionNamePrefix: fixture.sourceName,
                 expectedBundleExtensions: fixture.expectedBundleExtensions,
                 expectsBinaryArtifacts: fixture.expectsBinaryArtifacts
             )
+            if fixture.expectedBundleExtensions.contains("lungfishref"), fixture.archiveExtension != nil {
+                try assertReferenceBundleProvenance(
+                    in: collectionURL,
+                    containsDurableSourcePaths: durablePathSpellings(for: sourceURL),
+                    temporaryPathMarker: "/Project.lungfish/.tmp/application-export-import-"
+                )
+            }
         }
     }
 
+    @discardableResult
     private func assertCLIImportOutput(
         _ stdout: String,
         expectedCollectionName: String? = nil,
@@ -88,7 +101,7 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         expectsBinaryArtifacts: Bool = true,
         file: StaticString = #filePath,
         line: UInt = #line
-    ) throws {
+    ) throws -> URL {
         let events = try parseJSONLineEvents(stdout)
         XCTAssertTrue(events.contains { $0["event"] as? String == "applicationExportImportStart" }, file: file, line: line)
         XCTAssertTrue(events.contains { $0["event"] as? String == "applicationExportProgress" }, file: file, line: line)
@@ -124,6 +137,44 @@ final class ApplicationExportImportE2ETests: XCTestCase {
         } else {
             XCTAssertFalse(fileManager.fileExists(atPath: collectionURL.appendingPathComponent("Binary Artifacts").path), file: file, line: line)
         }
+        return collectionURL
+    }
+
+    private func assertReferenceBundleProvenance(
+        in collectionURL: URL,
+        containsDurableSourcePaths durableSourcePaths: Set<String>,
+        temporaryPathMarker: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let bundles = try recursiveDirectories(at: collectionURL.appendingPathComponent("LGE Bundles"))
+            .filter { $0.pathExtension == "lungfishref" }
+        XCTAssertFalse(bundles.isEmpty, file: file, line: line)
+        for bundleURL in bundles {
+            let provenanceURL = bundleURL.appendingPathComponent(".lungfish-provenance.json")
+            let sidecar = try String(contentsOf: provenanceURL, encoding: .utf8)
+            let normalizedSidecar = sidecar.replacingOccurrences(of: "\\/", with: "/")
+            XCTAssertTrue(
+                durableSourcePaths.contains { normalizedSidecar.contains($0) },
+                "Expected \(provenanceURL.path) to reference one durable source spelling from \(durableSourcePaths.sorted())",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                normalizedSidecar.contains(temporaryPathMarker),
+                "Expected \(provenanceURL.path) to omit temporary path marker \(temporaryPathMarker)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func durablePathSpellings(for url: URL) -> Set<String> {
+        [
+            url.path,
+            url.standardizedFileURL.path,
+            url.resolvingSymlinksInPath().path,
+        ]
     }
 
     private func makeApplicationExportFixture(

@@ -18,6 +18,44 @@ private struct TaxTriagePrerequisiteToken: Sendable {
     let identity: Int
 }
 
+struct TaxTriageStandalonePresentation: Equatable {
+    let title = "TaxTriage"
+    let subtitle = "End-to-end pathogen detection for metagenomic samples"
+    let accessoryText: String?
+    let statusText: String?
+    let statusColor: Color
+    let size = WizardSheetSize(width: 520, height: 520)
+    let isPrimaryEnabled: Bool
+
+    init(
+        initialFileCount: Int,
+        inputDisplayName: String,
+        sampleCount: Int,
+        canRun: Bool,
+        validationMessage: String?
+    ) {
+        if initialFileCount == 1 {
+            self.accessoryText = inputDisplayName
+        } else if sampleCount > 0 {
+            self.accessoryText = "\(sampleCount) sample\(sampleCount == 1 ? "" : "s")"
+        } else {
+            self.accessoryText = nil
+        }
+        self.statusText = canRun ? nil : validationMessage ?? "Finish the settings above to continue"
+        self.statusColor = canRun ? .secondary : Color.lungfishOrangeFallback
+        self.isPrimaryEnabled = canRun
+    }
+
+    static func == (lhs: TaxTriageStandalonePresentation, rhs: TaxTriageStandalonePresentation) -> Bool {
+        lhs.title == rhs.title
+            && lhs.subtitle == rhs.subtitle
+            && lhs.accessoryText == rhs.accessoryText
+            && lhs.statusText == rhs.statusText
+            && lhs.size == rhs.size
+            && lhs.isPrimaryEnabled == rhs.isPrimaryEnabled
+    }
+}
+
 // MARK: - TaxTriageWizardSheet
 
 /// A SwiftUI sheet for configuring and launching a TaxTriage run.
@@ -117,6 +155,16 @@ struct TaxTriageWizardSheet: View {
         && samples.allSatisfy { !$0.sampleId.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 
+    private var standalonePresentation: TaxTriageStandalonePresentation {
+        TaxTriageStandalonePresentation(
+            initialFileCount: initialFiles.count,
+            inputDisplayName: inputDisplayName,
+            sampleCount: samples.count,
+            canRun: canRun,
+            validationMessage: validationMessageText
+        )
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -159,43 +207,24 @@ struct TaxTriageWizardSheet: View {
     }
 
     private var standaloneBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("TaxTriage")
-                        .font(.headline)
-                    Text("End-to-end pathogen detection for metagenomic samples")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                }
-                Spacer()
-                if initialFiles.count == 1 {
-                    Text(inputDisplayName)
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if !samples.isEmpty {
-                    Text("\(samples.count) sample\(samples.count == 1 ? "" : "s")")
-                        .font(.caption)
-                        .foregroundStyle(Color.lungfishSecondaryText)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            ScrollView {
+        WizardSheet(
+            title: standalonePresentation.title,
+            subtitle: standalonePresentation.subtitle,
+            accessoryText: standalonePresentation.accessoryText,
+            size: standalonePresentation.size,
+            statusText: standalonePresentation.statusText,
+            statusColor: standalonePresentation.statusColor,
+            primaryTitle: "Run",
+            isPrimaryEnabled: standalonePresentation.isPrimaryEnabled,
+            onCancel: { onCancel?() },
+            onPrimary: performRun,
+            icon: {
+                EmptyView()
+            },
+            content: {
                 configurationContent
             }
-
-            Divider()
-
-            standaloneFooter
-        }
-        .frame(width: 520, height: 520)
+        )
     }
 
     private var configurationContent: some View {
@@ -231,31 +260,33 @@ struct TaxTriageWizardSheet: View {
             // Advanced settings
             advancedSettings
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 8)
     }
 
     // MARK: - Validation Message
 
     @ViewBuilder
     private var validationMessage: some View {
-        if samples.isEmpty {
-            Text("Add at least one sample")
+        if let validationMessageText {
+            Text(validationMessageText)
                 .font(.caption)
-                .foregroundStyle(Color.lungfishOrangeFallback)
-        } else if nextflowAvailable == false {
-            Text("Nextflow is not installed")
-                .font(.caption)
-                .foregroundStyle(Color.lungfishOrangeFallback)
-        } else if containerAvailable == false {
-            Text("No container runtime available")
-                .font(.caption)
-                .foregroundStyle(Color.lungfishOrangeFallback)
-        } else if nextflowAvailable == nil || containerAvailable == nil {
-            Text("Checking prerequisites...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(validationMessageText == "Checking prerequisites..." ? .secondary : Color.lungfishOrangeFallback)
         }
+    }
+
+    private var validationMessageText: String? {
+        if samples.isEmpty {
+            return "Add at least one sample"
+        }
+        if nextflowAvailable == false {
+            return "Nextflow is not installed"
+        }
+        if containerAvailable == false {
+            return "No container runtime available"
+        }
+        if nextflowAvailable == nil || containerAvailable == nil {
+            return "Checking prerequisites..."
+        }
+        return nil
     }
 
     // MARK: - Prerequisites
@@ -492,32 +523,6 @@ struct TaxTriageWizardSheet: View {
             .padding(.top, 8)
         }
         .font(.system(size: 12, weight: .medium))
-    }
-
-    private var standaloneFooter: some View {
-        HStack {
-            if !canRun {
-                Text("Finish the settings above to continue")
-                    .font(.caption)
-                    .foregroundStyle(Color.lungfishOrangeFallback)
-            }
-
-            Spacer()
-
-            Button("Cancel") {
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                performRun()
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRun)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     // MARK: - Actions

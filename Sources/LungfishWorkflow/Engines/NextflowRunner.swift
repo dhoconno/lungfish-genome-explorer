@@ -218,7 +218,7 @@ public actor NextflowRunner: WorkflowRunner {
                 environment[key] = value
             }
             // Ensure micromamba is on PATH
-            let condaRoot = await CondaManager.shared.rootPrefix
+            let condaRoot = CondaManager.shared.rootPrefix
             let existingPath = environment["PATH"] ?? "/usr/bin:/bin"
             environment["PATH"] = "\(condaRoot.appendingPathComponent("bin").path):\(existingPath)"
         }

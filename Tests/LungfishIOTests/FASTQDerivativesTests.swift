@@ -858,7 +858,7 @@ final class FASTQDerivativesTests: XCTestCase {
     // MARK: - Phase 1 Edge-Case Tests: Schema Versioning
 
     func testSchemaVersionDefaultIsCurrentVersion() throws {
-        let (tempDir, bundleURL) = try makeTempBundle()
+        let (tempDir, _) = try makeTempBundle()
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
         let op = FASTQDerivativeOperation(kind: .subsampleCount, count: 100)

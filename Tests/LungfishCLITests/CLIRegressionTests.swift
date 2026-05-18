@@ -16,7 +16,7 @@ import XCTest
 @testable import LungfishCLI
 import LungfishCore
 import LungfishIO
-import LungfishWorkflow
+@testable import LungfishWorkflow
 
 // MARK: - Top-Level CLI Structure
 
@@ -243,6 +243,277 @@ final class ClassifyCommandInputFormatRegressionTests: XCTestCase {
     }
 }
 
+final class ClassifyCommandMaterializationRegressionTests: XCTestCase {
+
+    func testClassifyMaterializesVirtualDerivedBundleInsteadOfRootPayload() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-derived-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let materializer = RecordingCLISequenceMaterializer(materializedURL: materializedURL)
+        let resolved = try await ClassifyCommand.resolveExecutionInputs(
+            for: [fixture.derivedBundleURL],
+            tempDirectory: materializedURL.deletingLastPathComponent(),
+            materializer: materializer
+        )
+
+        XCTAssertEqual(resolved.inputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL])
+        XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
+    }
+
+    func testClassifyMaterializationPreflightsAllInputsBeforeWritingOutputs() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-preflight-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let materializer = RecordingCLISequenceMaterializer(materializedURL: materializedURL)
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [fixture.derivedBundleURL, tempDir.appendingPathComponent("missing.txt")],
+                tempDirectory: materializedURL.deletingLastPathComponent(),
+                materializer: materializer
+            )
+            XCTFail("Expected unreadable second input to fail before materialization starts")
+        } catch {
+            XCTAssertTrue(materializer.bundleURLs.isEmpty)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: materializedURL.path))
+        }
+    }
+
+    func testMaterializationCleanupRemovesOutputsWhenLaterMaterializationFails() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-cleanup-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let first = try makeVirtualDerivedFASTQFixture(under: tempDir.appendingPathComponent("first", isDirectory: true))
+        let second = try makeVirtualDerivedFASTQFixture(under: tempDir.appendingPathComponent("second", isDirectory: true))
+        let materializationDirectory = tempDir.appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+        let materializer = FailingSecondCLISequenceMaterializer()
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [first.derivedBundleURL, second.derivedBundleURL],
+                tempDirectory: materializationDirectory,
+                materializer: materializer
+            )
+            XCTFail("Expected second materialization to fail")
+        } catch {
+            let remaining = (try? FileManager.default.contentsOfDirectory(atPath: materializationDirectory.path)) ?? []
+            XCTAssertTrue(remaining.isEmpty, "Failed materialization should not leave unprovenanced FASTQ outputs: \(remaining)")
+        }
+    }
+
+    func testMaterializationCleanupPreservesPreexistingNonDirectoryPath() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-file-path-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let blockingURL = tempDir.appendingPathComponent(".lungfish-classify-inputs")
+        try "preexisting".write(to: blockingURL, atomically: true, encoding: .utf8)
+
+        do {
+            _ = try await ClassifyCommand.resolveExecutionInputs(
+                for: [fixture.derivedBundleURL],
+                tempDirectory: blockingURL,
+                materializer: RecordingCLISequenceMaterializer(
+                    materializedURL: blockingURL.appendingPathComponent("materialized.fastq")
+                )
+            )
+            XCTFail("Expected directory creation to fail when materialization path is a file")
+        } catch {
+            XCTAssertEqual(try String(contentsOf: blockingURL, encoding: .utf8), "preexisting")
+        }
+    }
+
+    func testDurableReplayArgvRewritesRelativeVirtualInputArgument() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-relative-replay-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let replayArgv = CLISequenceInputMaterialization.durableReplayArgv(
+            argv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            originalInputArguments: ["derived.lungfishfastq"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL]
+        )
+
+        XCTAssertEqual(replayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+    }
+
+    func testMaterializationOnlyProvenanceUsesReplayableTopLevelCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-provenance-command-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let sidecarURL = try XCTUnwrap(CLISequenceInputMaterialization.writeMaterializationProvenance(
+            workflowName: "lungfish.classify.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "classify", "derived.lungfishfastq", "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: tempDir,
+            operationName: "classification",
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11),
+            writer: ProvenanceWriter(signingProvider: nil)
+        ))
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        let expected = ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+        XCTAssertEqual(envelope.argv, expected)
+        XCTAssertEqual(envelope.durableReplayArgv, expected)
+        XCTAssertEqual(envelope.steps.first?.argv, expected)
+        XCTAssertEqual(envelope.options.explicit["parentArgv"], .array([
+            .string("lungfish"), .string("classify"), .string("derived.lungfishfastq"), .string("--db"), .string("FixtureDB")
+        ]))
+    }
+
+    func testMaterializationProvenanceWriteFailureCleansMaterializedPayload() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-materialize-provenance-failure-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let blockedOutputDirectory = tempDir.appendingPathComponent("blocked-output")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: blockedOutputDirectory, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
+            workflowName: "lungfish.classify.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            parentDurableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: blockedOutputDirectory,
+            operationName: "classification",
+            startedAt: Date(timeIntervalSince1970: 10),
+            endedAt: Date(timeIntervalSince1970: 11),
+            writer: ProvenanceWriter(signingProvider: nil)
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: materializedURL.path))
+    }
+
+    func testClassifyProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("classify-virtual-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-classify-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let reportURL = tempDir.appendingPathComponent("classification.kreport")
+        let outputURL = tempDir.appendingPathComponent("classification.kraken")
+        try """
+          0.00\t0\t0\tU\t0\tunclassified
+        100.00\t1\t1\tR\t1\troot
+        """.write(to: reportURL, atomically: true, encoding: .utf8)
+        try "C\tselected\t1\t4\t1:4\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        let dbURL = tempDir.appendingPathComponent("kraken-db", isDirectory: true)
+        try FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
+
+        let config = ClassificationConfig.fromPreset(
+            .balanced,
+            inputFiles: [materializedURL],
+            isPairedEnd: false,
+            databaseName: "FixtureDB",
+            databasePath: dbURL,
+            threads: 2,
+            outputDirectory: tempDir
+        )
+        let result = ClassificationResult(
+            config: config,
+            tree: try KreportParser.parse(url: reportURL),
+            reportURL: reportURL,
+            outputURL: outputURL,
+            brackenURL: nil,
+            runtime: 4.0,
+            toolVersion: "2.1.3",
+            provenanceId: nil
+        )
+
+        let sidecarURL = try ClassifyCommand.writeProvenance(
+            result: result,
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            argv: ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"],
+            durableReplayArgv: ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"],
+            startedAt: Date(timeIntervalSince1970: 100),
+            endedAt: Date(timeIntervalSince1970: 104),
+            materializationStartedAt: Date(timeIntervalSince1970: 100),
+            materializationEndedAt: Date(timeIntervalSince1970: 101),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+        XCTAssertEqual(envelope.workflowName, "lungfish.classify")
+        XCTAssertEqual(envelope.argv, ["lungfish", "classify", fixture.derivedBundleURL.path, "--db", "FixtureDB"])
+        XCTAssertEqual(envelope.durableReplayArgv, ["lungfish", "classify", materializedURL.path, "--db", "FixtureDB"])
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == fixture.derivedBundleURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == fixture.rootFASTQURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == materializedURL.path
+                && $0.originPath == fixture.derivedBundleURL.path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let materializationStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+        )
+        XCTAssertEqual(
+            materializationStep.argv,
+            ["lungfish", "fastq", "materialize", fixture.derivedBundleURL.path, "--output", materializedURL.path]
+        )
+        XCTAssertTrue(materializationStep.inputs.contains { $0.path == fixture.derivedBundleURL.path })
+        XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
+    }
+
+}
+
 // MARK: - CLIError
 
 final class CLIErrorRegressionTests: XCTestCase {
@@ -270,7 +541,7 @@ final class CLIErrorRegressionTests: XCTestCase {
         XCTAssertEqual(CLIError.formatDetectionFailed(path: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.unsupportedFormat(format: "").exitCode, .formatError)
         XCTAssertEqual(CLIError.conversionFailed(reason: "").exitCode, .failure)
-        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .failure)
+        XCTAssertEqual(CLIError.validationFailed(errors: []).exitCode, .inputError)
         XCTAssertEqual(CLIError.workflowFailed(reason: "").exitCode, .workflowError)
         XCTAssertEqual(CLIError.containerUnavailable.exitCode, .containerError)
         XCTAssertEqual(CLIError.networkError(reason: "").exitCode, .networkError)
@@ -1032,7 +1303,23 @@ final class BundleCommandRegressionTests: XCTestCase {
 
     func testSubcommands() {
         let subs = BundleCommand.configuration.subcommands
-        XCTAssertEqual(subs.count, 6)
+        let names = subs.map { $0.configuration.commandName }
+        XCTAssertEqual(subs.count, 7)
+        XCTAssertTrue(names.contains("deduplicate-alignments"))
+    }
+
+    func testDeduplicateAlignmentsSubcommandParsesBundleOptions() throws {
+        let parsed = try BundleCommand.parseAsRoot([
+            "deduplicate-alignments",
+            "/tmp/source.lungfishref",
+            "--output", "/tmp/source-deduplicated.lungfishref",
+            "--format", "json",
+        ])
+        let command = try XCTUnwrap(parsed as? BundleDeduplicateAlignmentsSubcommand)
+
+        XCTAssertEqual(command.bundlePath, "/tmp/source.lungfishref")
+        XCTAssertEqual(command.output, "/tmp/source-deduplicated.lungfishref")
+        XCTAssertEqual(command.globalOptions.outputFormat, .json)
     }
 }
 
@@ -1147,7 +1434,7 @@ final class AssembleCommandRegressionTests: XCTestCase {
             "--advanced-options", "--meta",
         ])
 
-        let stderr = try await captureStandardError {
+        let stderr = await captureStandardError {
             do {
                 try await command.run()
             } catch {
@@ -1207,6 +1494,169 @@ final class AssembleCommandRegressionTests: XCTestCase {
         )
     }
 
+    func testVirtualDerivedBundleIsMaterializedForAssemblyExecution() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-virtual-bundle-input-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try "@root\nACGT\n+\nIIII\n".write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+        try "root\n".write(
+            to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "@root\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fastq",
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .searchText, query: "root"),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let materializer = RecordingAssemblyMaterializer(materializedURL: materializedURL)
+        let resolved = try await AssembleCommand.resolveExecutionInputURLs(
+            for: [derivedBundleURL],
+            tempDirectory: tempDir,
+            materializer: materializer
+        )
+
+        XCTAssertEqual(resolved.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(materializer.bundleURLs, [derivedBundleURL.standardizedFileURL])
+        XCTAssertFalse(resolved.map(\.standardizedFileURL).contains(rootFASTQURL.standardizedFileURL))
+    }
+
+    func testLongReadAssemblerTopologyValidationDoesNotMaterializeVirtualDerivedInputs() async throws {
+        let cases = [
+            (assembler: "flye", readType: "ont-reads"),
+            (assembler: "hifiasm", readType: "pacbio-hifi"),
+        ]
+
+        for testCase in cases {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("assemble-\(testCase.assembler)-topology-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+            let rootFASTAURL = rootBundleURL.appendingPathComponent("root.fasta")
+            let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+            let secondInputURL = tempDir.appendingPathComponent("second.fasta")
+            try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+            try ">read1\nACGT\n".write(to: rootFASTAURL, atomically: true, encoding: .utf8)
+            try ">read2\nTGCA\n".write(to: secondInputURL, atomically: true, encoding: .utf8)
+            try "read1\n".write(
+                to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let manifest = FASTQDerivedBundleManifest(
+                name: "derived",
+                parentBundleRelativePath: "../root.lungfishfastq",
+                rootBundleRelativePath: "../root.lungfishfastq",
+                rootFASTQFilename: "root.fasta",
+                payload: .subset(readIDListFilename: "read-ids.txt"),
+                lineage: [],
+                operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
+                cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+                pairingMode: nil,
+                sequenceFormat: .fasta
+            )
+            try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+            let outputDir = tempDir.appendingPathComponent("assembly-out", isDirectory: true)
+            let command = try AssembleCommand.parse([
+                derivedBundleURL.path,
+                secondInputURL.path,
+                "--assembler", testCase.assembler,
+                "--read-type", testCase.readType,
+                "--output", outputDir.path,
+            ])
+
+            do {
+                try await command.run()
+                XCTFail("Expected \(testCase.assembler) topology validation to fail before materialization")
+            } catch {
+                XCTAssertFalse(
+                    FileManager.default.fileExists(
+                        atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
+                    ),
+                    "\(testCase.assembler) should reject invalid topology before materializing derived inputs"
+                )
+            }
+        }
+    }
+
+    func testDemuxGroupInputIsRejectedBeforeMaterialization() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-demux-group-no-materialize-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let groupBundleURL = tempDir.appendingPathComponent("group.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: groupBundleURL, withIntermediateDirectories: true)
+        try """
+        @ont-read runid=0123456789abcdef0123456789abcdef01234567 flow_cell_id=FLO-MIN106 start_time=2026-05-15T00:00:00Z
+        ACGT
+        +
+        IIII
+
+        """.write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQDerivedBundleManifest(
+            name: "group",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fastq",
+            payload: .demuxGroup(barcodeCount: 2),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .demultiplex),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: groupBundleURL)
+
+        let outputDir = tempDir.appendingPathComponent("assembly-out", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            groupBundleURL.path,
+            "--assembler", "flye",
+            "--output", outputDir.path,
+        ])
+
+        let output = await captureStandardOutputForRegression {
+            do {
+                try await command.run()
+                XCTFail("Expected demux-group topology to fail before materialization")
+            } catch {
+                // Expected: demux groups are containers, not single assembly inputs.
+            }
+        }
+
+        XCTAssertTrue(output.contains("Demultiplexed group bundles are container-only"))
+        XCTAssertFalse(output.contains("Materializing pointer dataset"))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
+            )
+        )
+    }
+
     func testReferenceBundleInputResolvesToContainedFASTAForExecution() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-reference-bundle-input-\(UUID().uuidString)", isDirectory: true)
@@ -1227,64 +1677,19 @@ final class AssembleCommandRegressionTests: XCTestCase {
         )
     }
 
-    func testVirtualDerivedBundleIsMaterializedForAssemblyExecution() async throws {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("assemble-virtual-derived-input-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: tempDir) }
-
-        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
-        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
-        let derivedBundleURL = tempDir.appendingPathComponent("subset.lungfishfastq", isDirectory: true)
-        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
-        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
-        try "@read1\nACGT\n+\nIIII\n@read2\nTTTT\n+\nIIII\n".write(to: rootFASTQURL, atomically: true, encoding: .utf8)
-        try "read1\n".write(
-            to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
-            atomically: true,
-            encoding: .utf8
-        )
-        try "@read1\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
-        let operation = FASTQDerivativeOperation(kind: .subsampleCount, count: 1)
-        let manifest = FASTQDerivedBundleManifest(
-            name: "subset",
-            parentBundleRelativePath: "../root.lungfishfastq",
-            rootBundleRelativePath: "../root.lungfishfastq",
-            rootFASTQFilename: rootFASTQURL.lastPathComponent,
-            payload: .subset(readIDListFilename: "read-ids.txt"),
-            lineage: [operation],
-            operation: operation,
-            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
-            pairingMode: .singleEnd,
-            sequenceFormat: .fastq
-        )
-        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
-
-        let materializer = RecordingAssemblyMaterializer(materializedURL: materializedURL)
-
-        let resolved = try await AssembleCommand.resolveExecutionInputURLs(
-            for: [derivedBundleURL],
-            tempDirectory: tempDir,
-            materializer: materializer
-        )
-
-        XCTAssertEqual(resolved, [materializedURL.standardizedFileURL])
-        XCTAssertEqual(materializer.bundleURLs, [derivedBundleURL.standardizedFileURL])
-        XCTAssertFalse(resolved.contains(rootFASTQURL.standardizedFileURL))
-    }
-
     func testAssembleCommandWritesCanonicalOutputProvenance() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("assemble-provenance-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
-
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
         let inputURL = tempDir.appendingPathComponent("reads.fastq")
         let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
         let logURL = tempDir.appendingPathComponent("assembly.log")
-        try "@read1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
-        try ">contig1\nACGT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
-        try "assembler stderr summary\n".write(to: logURL, atomically: true, encoding: .utf8)
+        try "@r1\nACGT\n+\nIIII\n".write(to: inputURL, atomically: true, encoding: .utf8)
+        try ">contig1\nACGTACGT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
+        try "assembler log\n".write(to: logURL, atomically: true, encoding: .utf8)
+
         let result = AssemblyResult(
             tool: .megahit,
             readType: .illuminaShortReads,
@@ -1292,32 +1697,31 @@ final class AssembleCommandRegressionTests: XCTestCase {
             graphPath: nil,
             logPath: logURL,
             assemblerVersion: "1.2.9",
-            commandLine: "megahit -r \(inputURL.path) -o \(tempDir.path)",
+            commandLine: "megahit -r reads.fastq -o out --min-contig-len 500",
             outputDirectory: tempDir,
             statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
-            wallTimeSeconds: 2.0
+            wallTimeSeconds: 6.0
         )
         try result.save(to: tempDir)
-        let argv = [
-            "lungfish-cli",
-            "assemble",
-            inputURL.path,
-            "--assembler",
-            "megahit",
-            "--threads",
-            "4",
-        ]
+
         let request = AssemblyRunRequest(
             tool: .megahit,
             readType: .illuminaShortReads,
             inputURLs: [inputURL],
             projectName: "demo",
             outputDirectory: tempDir,
+            pairedEnd: false,
             threads: 4,
+            memoryGB: nil,
             minContigLength: 500,
             selectedProfileID: "meta-sensitive",
             extraArguments: ["--k-min", "21"]
         )
+        let argv = [
+            "lungfish", "assemble", inputURL.path,
+            "--assembler", "megahit",
+            "--threads", "4",
+        ]
 
         let sidecarURL = try AssembleCommand.writeProvenance(
             request: request,
@@ -1330,9 +1734,11 @@ final class AssembleCommandRegressionTests: XCTestCase {
             stderr: "assembler stderr summary",
             writer: ProvenanceWriter(signingProvider: nil)
         )
-        let envelope = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: sidecarURL))
 
         XCTAssertEqual(sidecarURL, tempDir.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        let data = try Data(contentsOf: sidecarURL)
+        let envelope = try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+
         XCTAssertEqual(envelope.workflowName, "lungfish.assemble")
         XCTAssertEqual(envelope.workflowVersion, LungfishCLI.configuration.version)
         XCTAssertEqual(envelope.toolName, "megahit")
@@ -1346,9 +1752,350 @@ final class AssembleCommandRegressionTests: XCTestCase {
         XCTAssertEqual(envelope.wallTimeSeconds, 6.0)
         XCTAssertEqual(envelope.stderr, "assembler stderr summary")
         XCTAssertEqual(envelope.output?.path, contigsURL.path)
-        XCTAssertNotNil(envelope.files.first { $0.path == inputURL.path }?.checksumSHA256)
-        XCTAssertNotNil(envelope.outputs.first { $0.path == contigsURL.path }?.checksumSHA256)
+        XCTAssertTrue(envelope.files.contains { $0.path == inputURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil })
+        XCTAssertTrue(envelope.outputs.contains { $0.path == contigsURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil })
         XCTAssertTrue(envelope.outputs.contains { $0.path == tempDir.appendingPathComponent("assembly-result.json").path })
+    }
+
+    func testAssembleProvenanceRecordsOriginalVirtualBundleAndMaterializationStep() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-virtual-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try "@read1\nACGT\n+\nIIII\n".write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+        try "read1\n".write(
+            to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fastq",
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@read1\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        let contigsURL = tempDir.appendingPathComponent("contigs.fasta")
+        try ">contig1\nACGT\n".write(to: contigsURL, atomically: true, encoding: .utf8)
+
+        let result = AssemblyResult(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            contigsPath: contigsURL,
+            graphPath: nil,
+            logPath: nil,
+            assemblerVersion: "1.2.9",
+            commandLine: "megahit -r \(materializedURL.path) -o \(tempDir.path)",
+            outputDirectory: tempDir,
+            statistics: try AssemblyStatisticsCalculator.compute(from: contigsURL),
+            wallTimeSeconds: 3.0
+        )
+        try result.save(to: tempDir)
+
+        let request = AssemblyRunRequest(
+            tool: .megahit,
+            readType: .illuminaShortReads,
+            inputURLs: [materializedURL],
+            projectName: "demo",
+            outputDirectory: tempDir,
+            threads: 2
+        )
+
+        let sidecarURL = try AssembleCommand.writeProvenance(
+            request: request,
+            result: result,
+            originalInputURLs: [derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            argv: ["lungfish", "assemble", derivedBundleURL.path],
+            startedAt: Date(timeIntervalSince1970: 200),
+            endedAt: Date(timeIntervalSince1970: 203),
+            materializationStartedAt: Date(timeIntervalSince1970: 200),
+            materializationEndedAt: Date(timeIntervalSince1970: 201),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+        let envelope = try ProvenanceJSON.decoder.decode(
+            ProvenanceEnvelope.self,
+            from: Data(contentsOf: sidecarURL)
+        )
+
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == derivedBundleURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == rootFASTQURL.path && $0.checksumSHA256 != nil && $0.fileSize != nil
+        })
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == materializedURL.path
+                && $0.originPath == derivedBundleURL.path
+                && $0.checksumSHA256 != nil
+                && $0.fileSize != nil
+        })
+        let materializationStep = try XCTUnwrap(
+            envelope.steps.first { $0.toolName == "lungfish fastq materialize" }
+        )
+        let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
+            originalURL: derivedBundleURL,
+            executionURL: materializedURL
+        )
+        XCTAssertEqual(materializationStep.argv, expectedCommand)
+        XCTAssertEqual(materializationStep.durableReplayArgv, expectedCommand)
+        XCTAssertEqual(materializationStep.reproducibleCommand, expectedCommand.map(shellEscape).joined(separator: " "))
+        XCTAssertTrue(materializationStep.inputs.contains { $0.path == derivedBundleURL.path })
+        XCTAssertTrue(materializationStep.outputs.contains { $0.path == materializedURL.path })
+        XCTAssertEqual(materializationStep.startedAt, Date(timeIntervalSince1970: 200))
+        XCTAssertEqual(materializationStep.completedAt, Date(timeIntervalSince1970: 201))
+        XCTAssertEqual(materializationStep.wallTimeSeconds, 1.0)
+    }
+
+    func testInvalidExplicitReadTypeDoesNotMaterializeVirtualDerivedInput() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-invalid-no-materialize-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTAURL = rootBundleURL.appendingPathComponent("root.fasta")
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try ">read1\nACGT\n".write(to: rootFASTAURL, atomically: true, encoding: .utf8)
+        try "read1\n".write(
+            to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fasta",
+            payload: .subset(readIDListFilename: "read-ids.txt"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .searchText, query: "read1"),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fasta
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let outputDir = tempDir.appendingPathComponent("assembly-out", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            derivedBundleURL.path,
+            "--assembler", "flye",
+            "--read-type", "not-a-read-type",
+            "--output", outputDir.path,
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected invalid read type to fail before materialization")
+        } catch {
+            XCTAssertFalse(
+                FileManager.default.fileExists(
+                    atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
+                )
+            )
+        }
+    }
+
+    func testInferredUnsupportedReadTypeMetadataDoesNotMaterializeVirtualDerivedInput() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-inferred-no-materialize-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try "@unknown-read\nACGT\n+\nIIII\n".write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(assemblyReadType: .illuminaShortReads),
+            for: rootFASTQURL
+        )
+        try "".write(
+            to: derivedBundleURL.appendingPathComponent("trim-positions.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fastq",
+            payload: .trim(trimPositionFilename: "trim-positions.tsv"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let outputDir = tempDir.appendingPathComponent("assembly-out", isDirectory: true)
+        let command = try AssembleCommand.parse([
+            derivedBundleURL.path,
+            "--assembler", "flye",
+            "--output", outputDir.path,
+        ])
+
+        let output = await captureStandardOutputForRegression {
+            do {
+                try await command.run()
+                XCTFail("Expected inferred unsupported read type to fail before materialization")
+            } catch {
+                // Expected: the CLI should reject from root metadata before
+                // invoking the derived-bundle materializer.
+            }
+        }
+
+        XCTAssertTrue(output.contains("Flye is not available for Illumina short reads"))
+        XCTAssertFalse(output.contains("Materializing pointer dataset"))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: outputDir.appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true).path
+            )
+        )
+    }
+
+    func testExplicitReadTypeTakesPrecedenceOverPreMaterializationMetadata() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-explicit-read-type-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+        let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try """
+        @ont-read runid=0123456789abcdef0123456789abcdef01234567 flow_cell_id=FLO-MIN106 start_time=2026-05-15T00:00:00Z
+        ACGT
+        +
+        IIII
+
+        """.write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(assemblyReadType: .ontReads),
+            for: rootFASTQURL
+        )
+        try "".write(
+            to: derivedBundleURL.appendingPathComponent("trim-positions.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let manifest = FASTQDerivedBundleManifest(
+            name: "derived",
+            parentBundleRelativePath: "../root.lungfishfastq",
+            rootBundleRelativePath: "../root.lungfishfastq",
+            rootFASTQFilename: "root.fastq",
+            payload: .trim(trimPositionFilename: "trim-positions.tsv"),
+            lineage: [],
+            operation: FASTQDerivativeOperation(kind: .qualityTrim, qualityThreshold: 20),
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: nil,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+        let resolvedReadType = try AssembleCommand.resolvePreMaterializationReadType(
+            for: .hifiasm,
+            explicitReadType: .pacBioHiFi,
+            inputURLs: [derivedBundleURL]
+        )
+        let request = AssemblyRunRequest(
+            tool: .hifiasm,
+            readType: try XCTUnwrap(resolvedReadType),
+            inputURLs: [rootFASTQURL],
+            projectName: "explicit",
+            outputDirectory: tempDir.appendingPathComponent("assembly-out", isDirectory: true),
+            threads: 2
+        )
+        let command = try ManagedAssemblyPipeline.buildCommand(for: request)
+
+        XCTAssertEqual(resolvedReadType, .pacBioHiFi)
+        XCTAssertFalse(command.arguments.contains("--ont"))
+    }
+
+    func testReadTypeInferenceUsesMaterializedDerivedExecutionInput() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-read-type-materialized-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+        let materializedURL = tempDir.appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+        try """
+        @read1 runid=0123456789abcdef0123456789abcdef01234567 flow_cell_id=FLO-MIN106 start_time=2026-05-15T00:00:00Z
+        ACGTACGT
+        +
+        IIIIIIII
+
+        """.write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let readType = try AssembleCommand.resolveReadType(
+            for: .flye,
+            explicitReadType: nil,
+            originalInputURLs: [derivedBundleURL],
+            executionInputURLs: [materializedURL]
+        )
+
+        XCTAssertEqual(readType, .ontReads)
+    }
+
+    func testReadTypeInferenceRejectsMixedKnownAndUnknownPerInputMetadata() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("assemble-read-type-mixed-metadata-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let knownBundleURL = tempDir.appendingPathComponent("known.lungfishfastq", isDirectory: true)
+        let unknownBundleURL = tempDir.appendingPathComponent("unknown.lungfishfastq", isDirectory: true)
+        let knownOriginalFASTQ = knownBundleURL.appendingPathComponent("known.fastq")
+        let unknownOriginalFASTQ = unknownBundleURL.appendingPathComponent("unknown.fastq")
+        let knownExecutionFASTQ = tempDir.appendingPathComponent("known-materialized.fastq")
+        let unknownExecutionFASTQ = tempDir.appendingPathComponent("unknown-materialized.fastq")
+        try FileManager.default.createDirectory(at: knownBundleURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unknownBundleURL, withIntermediateDirectories: true)
+        try "@unknown-known-original\nACGT\n+\n!!!!\n".write(to: knownOriginalFASTQ, atomically: true, encoding: .utf8)
+        try "@unknown-original\nTGCA\n+\n!!!!\n".write(to: unknownOriginalFASTQ, atomically: true, encoding: .utf8)
+        try "@unknown-known-execution\nACGT\n+\n!!!!\n".write(to: knownExecutionFASTQ, atomically: true, encoding: .utf8)
+        try "@unknown-execution\nTGCA\n+\n!!!!\n".write(to: unknownExecutionFASTQ, atomically: true, encoding: .utf8)
+        FASTQMetadataStore.save(
+            PersistedFASTQMetadata(assemblyReadType: .illuminaShortReads),
+            for: knownOriginalFASTQ
+        )
+
+        XCTAssertThrowsError(
+            try AssembleCommand.resolveReadType(
+                for: .spades,
+                explicitReadType: nil,
+                originalInputURLs: [knownBundleURL, unknownBundleURL],
+                executionInputURLs: [knownExecutionFASTQ, unknownExecutionFASTQ]
+            )
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                AssembleReadTypeResolutionError.mixedDetectedAndUnknown.localizedDescription
+            )
+        }
     }
 
     func testInvalidReadTypeIsRejectedBeforeFallbackInference() async {
@@ -1377,38 +2124,21 @@ final class AssembleCommandRegressionTests: XCTestCase {
         }
     }
 
-    func testSourceIncludesManagedAssemblyLaunchAliases() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishCLI/Commands/AssembleCommand.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testManagedAssemblyLaunchAliasesParseToCommandOptions() throws {
+        let command = try AssembleCommand.parse([
+            "reads.fastq.gz",
+            "--assembler", "megahit",
+            "--read-type", "illumina-short-reads",
+            "--name", "alias-demo",
+            "--output", "/tmp/alias-demo-output",
+            "--profile", "meta-sensitive",
+        ])
 
-        XCTAssertTrue(source.contains(#"customLong("assembler")"#))
-        XCTAssertTrue(source.contains(#"customLong("read-type")"#))
-        XCTAssertTrue(source.contains(#"customLong("project-name")"#))
-        XCTAssertTrue(source.contains(#"customLong("output")"#))
-        XCTAssertTrue(source.contains(#"customLong("profile")"#))
-        XCTAssertTrue(source.contains("ManagedAssemblyPipeline"))
-    }
-}
-
-private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
-    let materializedURL: URL
-    private(set) var bundleURLs: [URL] = []
-
-    init(materializedURL: URL) {
-        self.materializedURL = materializedURL
-    }
-
-    func materialize(
-        bundleURL: URL,
-        tempDirectory: URL,
-        progress: (@Sendable (String) -> Void)?
-    ) async throws -> URL {
-        bundleURLs.append(bundleURL.standardizedFileURL)
-        return materializedURL
+        XCTAssertEqual(command.assembler, "megahit")
+        XCTAssertEqual(command.readType, "illumina-short-reads")
+        XCTAssertEqual(command.projectName, "alias-demo")
+        XCTAssertEqual(command.outputDir, "/tmp/alias-demo-output")
+        XCTAssertEqual(command.profile, "meta-sensitive")
     }
 }
 
@@ -1459,6 +2189,56 @@ private func makeReferenceBundle(
     )
     try manifest.save(to: bundleURL)
     return bundleURL
+}
+
+private struct VirtualDerivedFASTQFixture {
+    let rootBundleURL: URL
+    let rootFASTQURL: URL
+    let derivedBundleURL: URL
+}
+
+private func makeVirtualDerivedFASTQFixture(under tempDir: URL) throws -> VirtualDerivedFASTQFixture {
+    let rootBundleURL = tempDir.appendingPathComponent("root.lungfishfastq", isDirectory: true)
+    let rootFASTQURL = rootBundleURL.appendingPathComponent("root.fastq")
+    let derivedBundleURL = tempDir.appendingPathComponent("derived.lungfishfastq", isDirectory: true)
+    try FileManager.default.createDirectory(at: rootBundleURL, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: derivedBundleURL, withIntermediateDirectories: true)
+    try """
+    @selected
+    ACGT
+    +
+    IIII
+    @excluded
+    TGCA
+    +
+    IIII
+
+    """.write(to: rootFASTQURL, atomically: true, encoding: .utf8)
+    try "selected\n".write(
+        to: derivedBundleURL.appendingPathComponent("read-ids.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let manifest = FASTQDerivedBundleManifest(
+        name: "derived",
+        parentBundleRelativePath: "../root.lungfishfastq",
+        rootBundleRelativePath: "../root.lungfishfastq",
+        rootFASTQFilename: "root.fastq",
+        payload: .subset(readIDListFilename: "read-ids.txt"),
+        lineage: [],
+        operation: FASTQDerivativeOperation(kind: .searchText, query: "selected"),
+        cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+        pairingMode: nil,
+        sequenceFormat: .fastq
+    )
+    try FASTQBundle.saveDerivedManifest(manifest, in: derivedBundleURL)
+
+    return VirtualDerivedFASTQFixture(
+        rootBundleURL: rootBundleURL,
+        rootFASTQURL: rootFASTQURL,
+        derivedBundleURL: derivedBundleURL
+    )
 }
 
 // MARK: - MapCommand
@@ -1512,7 +2292,7 @@ final class MapCommandRegressionTests: XCTestCase {
             "--advanced-options", "--eqx",
         ])
 
-        let stderr = try await captureStandardError {
+        let stderr = await captureStandardError {
             do {
                 try await command.run()
             } catch {
@@ -1572,6 +2352,184 @@ final class MapCommandRegressionTests: XCTestCase {
             resolved.map(\.standardizedFileURL),
             [fastaURL.standardizedFileURL]
         )
+    }
+
+    func testMapMaterializesVirtualDerivedBundleInsteadOfRootPayload() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-materialize-derived-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+
+        let materializer = RecordingCLISequenceMaterializer(materializedURL: materializedURL)
+        let resolved = try await MapCommand.resolveExecutionInputs(
+            for: [fixture.derivedBundleURL],
+            tempDirectory: materializedURL.deletingLastPathComponent(),
+            materializer: materializer
+        )
+
+        XCTAssertEqual(resolved.inputURLs.map(\.standardizedFileURL), [materializedURL.standardizedFileURL])
+        XCTAssertEqual(materializer.bundleURLs, [fixture.derivedBundleURL.standardizedFileURL])
+        XCTAssertFalse(resolved.inputURLs.map(\.standardizedFileURL).contains(fixture.rootFASTQURL.standardizedFileURL))
+    }
+
+    func testMapProvenanceRecordsOriginalVirtualBundleAndMaterializedExecutionInput() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-virtual-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let referenceURL = tempDir.appendingPathComponent("reference.fa")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        try ">chr1\nACGTACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+        try CLISequenceInputMaterialization.writeMaterializationProvenance(
+            workflowName: "lungfish.map.input-materialization",
+            workflowVersion: "test-version",
+            parentArgv: ["lungfish", "map", fixture.derivedBundleURL.path, "--reference", referenceURL.path],
+            parentDurableReplayArgv: ["lungfish", "map", materializedURL.path, "--reference", referenceURL.path],
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL],
+            outputDirectory: tempDir,
+            operationName: "mapping",
+            startedAt: Date(timeIntervalSince1970: 1),
+            endedAt: Date(timeIntervalSince1970: 2),
+            writer: ProvenanceWriter(signingProvider: nil)
+        )
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [materializedURL],
+            originalInputFASTQURLs: [fixture.derivedBundleURL],
+            referenceFASTAURL: referenceURL,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 2
+        )
+        let bamURL = tempDir.appendingPathComponent("sample.sorted.bam")
+        let baiURL = tempDir.appendingPathComponent("sample.sorted.bam.bai")
+        try Data("bam".utf8).write(to: bamURL)
+        try Data("bai".utf8).write(to: baiURL)
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: bamURL,
+            baiURL: baiURL,
+            totalReads: 1,
+            mappedReads: 1,
+            unmappedReads: 0,
+            wallClockSeconds: 2.0,
+            contigs: []
+        )
+
+        let inputRecords = try CLISequenceInputMaterialization.inputRecordsPreservingLineage(
+            originalInputURLs: [fixture.derivedBundleURL],
+            executionInputURLs: [materializedURL]
+        ) + [
+            ProvenanceRecorder.fileRecord(url: referenceURL, format: .fasta, role: .reference)
+        ]
+        let mapperInvocation = MappingCommandInvocation(
+            label: "minimap2",
+            argv: ["minimap2", "-x", "sr", referenceURL.path, materializedURL.path],
+            durableReplayArgv: ["minimap2", "-x", "sr", referenceURL.path, materializedURL.path]
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: mapperInvocation,
+            normalizationInvocations: [],
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            inputFiles: inputRecords,
+            outputFiles: [
+                ProvenanceRecorder.fileRecord(url: bamURL, format: .bam, role: .output),
+                ProvenanceRecorder.fileRecord(url: baiURL, role: .index)
+            ],
+            exitStatus: 0
+        )
+        try provenance.save(to: tempDir)
+        try provenance.saveCanonicalEnvelope(to: tempDir, writer: ProvenanceWriter(signingProvider: nil))
+
+        let loaded = try XCTUnwrap(MappingProvenance.load(from: tempDir))
+        XCTAssertTrue(loaded.inputFiles.contains {
+            $0.path == fixture.derivedBundleURL.path && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertTrue(loaded.inputFiles.contains {
+            $0.path == fixture.rootFASTQURL.path && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertTrue(loaded.inputFiles.contains {
+            $0.path == materializedURL.path && $0.sha256 != nil && $0.sizeBytes != nil
+        })
+        XCTAssertEqual(loaded.mapperInvocation.durableReplayArgv, mapperInvocation.durableReplayArgv)
+        XCTAssertFalse(loaded.mapperInvocation.durableReplayArgv?.contains { $0.contains("TemporaryItems") } ?? true)
+
+        let envelope = loaded.canonicalEnvelope(sourceDirectory: tempDir)
+        XCTAssertTrue(envelope.files.contains { $0.path == fixture.derivedBundleURL.path })
+        XCTAssertTrue(envelope.files.contains { $0.path == materializedURL.path })
+        XCTAssertEqual(envelope.durableReplayArgv, mapperInvocation.durableReplayArgv)
+        let resolved = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: tempDir))
+        XCTAssertEqual(resolved.sidecarURL.lastPathComponent, ProvenanceWriter.provenanceFilename)
+        XCTAssertEqual(resolved.envelope.workflowName, "lungfish map")
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == bamURL.path })
+        XCTAssertFalse(resolved.envelope.outputs.contains { $0.path == materializedURL.path })
+    }
+
+    func testManagedMappingMaterializationProvenanceUsesRealFastqMaterializeCommand() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("map-materialization-step-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        let fixture = try makeVirtualDerivedFASTQFixture(under: tempDir)
+        let materializedURL = tempDir
+            .appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+            .appendingPathComponent("materialized.fastq")
+        let referenceURL = tempDir.appendingPathComponent("reference.fa")
+        try FileManager.default.createDirectory(at: materializedURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "@selected\nACGT\n+\nIIII\n".write(to: materializedURL, atomically: true, encoding: .utf8)
+        try ">chr1\nACGTACGT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.defaultShortRead.id,
+            inputFASTQURLs: [materializedURL],
+            originalInputFASTQURLs: [fixture.derivedBundleURL],
+            inputMaterializationStartedAt: Date(timeIntervalSince1970: 10),
+            inputMaterializationEndedAt: Date(timeIntervalSince1970: 13),
+            referenceFASTAURL: referenceURL,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            pairedEnd: false,
+            threads: 2
+        )
+        let pipeline = ManagedMappingPipeline()
+
+        let steps = try pipeline.mappingInputMaterializationStepsForTesting(request: request)
+
+        let step = try XCTUnwrap(steps.first)
+        let expectedCommand = CLISequenceInputMaterialization.materializationCommand(
+            originalURL: fixture.derivedBundleURL,
+            executionURL: materializedURL
+        )
+        XCTAssertEqual(steps.count, 1)
+        XCTAssertEqual(step.toolName, "lungfish fastq materialize")
+        XCTAssertEqual(step.command, expectedCommand)
+        XCTAssertEqual(step.durableReplayArgv, expectedCommand)
+        XCTAssertFalse(step.command.contains("materialize-inputs"))
+        XCTAssertEqual(step.exitCode, 0)
+        XCTAssertEqual(step.wallTime, 3)
+        XCTAssertTrue(step.inputs.contains { $0.path == fixture.derivedBundleURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
+        XCTAssertTrue(step.outputs.contains { $0.path == materializedURL.path && $0.sha256 != nil && $0.sizeBytes != nil })
     }
 }
 
@@ -1865,6 +2823,28 @@ final class ResultTypeCodableRegressionTests: XCTestCase {
     }
 }
 
+private func captureStandardOutputForRegression(_ operation: () async throws -> Void) async rethrows -> String {
+    let pipe = Pipe()
+    let originalStdout = dup(STDOUT_FILENO)
+    dup2(pipe.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+
+    do {
+        try await operation()
+        fflush(stdout)
+        dup2(originalStdout, STDOUT_FILENO)
+        close(originalStdout)
+        pipe.fileHandleForWriting.closeFile()
+        return String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    } catch {
+        fflush(stdout)
+        dup2(originalStdout, STDOUT_FILENO)
+        close(originalStdout)
+        pipe.fileHandleForWriting.closeFile()
+        _ = pipe.fileHandleForReading.readDataToEndOfFile()
+        throw error
+    }
+}
+
 private func captureStandardError(_ operation: () async throws -> Void) async rethrows -> String {
     let pipe = Pipe()
     let originalStderr = dup(STDERR_FILENO)
@@ -1884,5 +2864,60 @@ private func captureStandardError(_ operation: () async throws -> Void) async re
         pipe.fileHandleForWriting.closeFile()
         _ = pipe.fileHandleForReading.readDataToEndOfFile()
         throw error
+    }
+}
+
+private final class RecordingAssemblyMaterializer: AssemblyInputMaterializing {
+    let materializedURL: URL
+    private(set) var bundleURLs: [URL] = []
+
+    init(materializedURL: URL) {
+        self.materializedURL = materializedURL
+    }
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        bundleURLs.append(bundleURL.standardizedFileURL)
+        return materializedURL
+    }
+}
+
+private final class RecordingCLISequenceMaterializer: CLISequenceInputMaterializing {
+    let materializedURL: URL
+    private(set) var bundleURLs: [URL] = []
+
+    init(materializedURL: URL) {
+        self.materializedURL = materializedURL
+    }
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        bundleURLs.append(bundleURL.standardizedFileURL)
+        return materializedURL
+    }
+}
+
+private final class FailingSecondCLISequenceMaterializer: CLISequenceInputMaterializing {
+    private var invocationCount = 0
+
+    func materialize(
+        bundleURL: URL,
+        tempDirectory: URL,
+        progress: (@Sendable (String) -> Void)?
+    ) async throws -> URL {
+        invocationCount += 1
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        let outputURL = tempDirectory.appendingPathComponent("materialized-\(invocationCount).fastq")
+        try "@read\(invocationCount)\nACGT\n+\nIIII\n".write(to: outputURL, atomically: true, encoding: .utf8)
+        if invocationCount == 2 {
+            throw CLISequenceInputMaterializationError.unsupportedSequenceInput("fixture failure")
+        }
+        return outputURL
     }
 }

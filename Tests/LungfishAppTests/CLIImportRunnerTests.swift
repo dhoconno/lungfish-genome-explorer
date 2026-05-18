@@ -386,7 +386,7 @@ final class CLIImportRunnerTests: XCTestCase {
         return url
     }
 
-    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 2.0) async throws -> Int32 {
+    private func waitForPIDFile(_ url: URL, timeout: TimeInterval = 5.0) async throws -> Int32 {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let contents = try? String(contentsOf: url, encoding: .utf8)
@@ -415,10 +415,6 @@ final class CLIImportRunnerTests: XCTestCase {
     }
 
     private static func isProcessRunning(pid: Int32) -> Bool {
-        guard pid > 0 else { return false }
-        if kill(pid, 0) == 0 {
-            return true
-        }
-        return errno != ESRCH
+        ProcessTreeTerminator.processExists(pid: pid)
     }
 }

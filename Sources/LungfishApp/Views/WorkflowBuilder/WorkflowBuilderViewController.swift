@@ -198,7 +198,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Creates a new empty workflow.
     public func newWorkflow() {
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
             if self.hasUnsavedChanges {
                 guard let window = self.view.window ?? NSApp.keyWindow else { return }
@@ -231,11 +231,9 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Opens a workflow from a file.
     public func openWorkflow() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = Self.workflowContentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = true
-        panel.message = "Select a Lungfish workflow bundle or workflow JSON file"
+        let panel = MappingWorkflowFilePanelFactory.workflowOpenPanel(
+            contentTypes: Self.workflowContentTypes
+        )
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -282,10 +280,11 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Saves the current workflow with a new name.
     public func saveWorkflowAs() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = Self.workflowContentTypes
-        panel.nameFieldStringValue = "\(graph.name).lungfishflow"
-        panel.message = "Save workflow as"
+        let panel = MappingWorkflowFilePanelFactory.workflowSavePanel(
+            contentTypes: Self.workflowContentTypes,
+            suggestedName: "\(graph.name).lungfishflow",
+            message: "Save workflow as"
+        )
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url else { return }
@@ -566,10 +565,41 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     private func deleteSelectedWorkflowInLibrary() {
         guard canWriteProjectOutputs(workflowName: "Workflow deletion") else { return }
-        do {
-            try deleteSelectedWorkflowInLibrary(confirm: true)
-        } catch {
-            presentLibraryError(error, title: "Failed to Delete Workflow")
+        guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
+            presentLibraryError(
+                CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to delete."]),
+                title: "Failed to Delete Workflow"
+            )
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Delete Workflow?"
+        alert.informativeText = "This removes \(selectedURL.lastPathComponent) from the project workflow library."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
+
+        let performDelete: () -> Void = { [weak self] in
+            guard let self else { return }
+            do {
+                try self.deleteSelectedWorkflowInLibrary(confirm: false)
+            } catch {
+                self.presentLibraryError(error, title: "Failed to Delete Workflow")
+            }
+        }
+
+        if let window = view.window ?? NSApp.keyWindow {
+            alert.beginSheetModal(for: window) { response in
+                guard response == .alertFirstButtonReturn else { return }
+                performDelete()
+            }
+        } else {
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to confirm workflow deletion."]),
+                title: "Failed to Delete Workflow"
+            )
         }
     }
 
@@ -578,15 +608,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         guard let selectedURL = sidebarViewController.libraryView.selectedEntry?.bundleURL ?? workflowURL else {
             throw CocoaError(.fileNoSuchFile, userInfo: [NSLocalizedDescriptionKey: "Select a workflow to delete."])
         }
-        if confirm {
-            let alert = NSAlert()
-            alert.messageText = "Delete Workflow?"
-            alert.informativeText = "This removes \(selectedURL.lastPathComponent) from the project workflow library."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Delete")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
-        }
+        guard !confirm else { throw CocoaError(.userCancelled) }
 
         let deletingCurrentWorkflow = workflowURL?.standardizedFileURL.path == selectedURL.standardizedFileURL.path
         try WorkflowLibraryStore.deleteWorkflow(at: selectedURL)
@@ -618,8 +640,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
         let handle: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .alertFirstButtonReturn else { return }
-            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else {
+            guard let name = Self.workflowNamePromptResult(
+                response: response,
+                rawName: field.stringValue
+            ) else {
                 NSSound.beep()
                 return
             }
@@ -629,7 +653,10 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window, completionHandler: handle)
         } else {
-            handle(alert.runModal())
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to name this workflow."]),
+                title: "Failed to Name Workflow"
+            )
         }
     }
 
@@ -677,15 +704,31 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
                 self?.startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
             }
         } else {
-            let response = alert.runModal()
-            guard response == .alertFirstButtonReturn,
-                  let sampleURL = popup.selectedItem?.representedObject as? URL else { return }
-            startWorkflowRun(sampleURL: sampleURL, projectURL: projectURL)
+            presentLibraryError(
+                CocoaError(.userCancelled, userInfo: [NSLocalizedDescriptionKey: "No window is available to bind workflow inputs before running."]),
+                title: "Failed to Run Workflow"
+            )
         }
     }
 
+    static func workflowNamePromptResult(
+        response: NSApplication.ModalResponse,
+        rawName: String
+    ) -> String? {
+        guard response == .alertFirstButtonReturn else { return nil }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    static func workflowNamePromptResultForTest(
+        response: NSApplication.ModalResponse,
+        rawName: String
+    ) -> String? {
+        workflowNamePromptResult(response: response, rawName: rawName)
+    }
+
     private func startWorkflowRun(sampleURL: URL, projectURL: URL) {
-        Task { @MainActor [weak self] in
+        Task { [weak self] in
             guard let self else { return }
             do {
                 try self.requireWritableProject(workflowName: "Workflow run")
@@ -790,7 +833,8 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            alert.window.center()
+            alert.window.makeKeyAndOrderFront(nil)
         }
     }
 
@@ -817,10 +861,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Exports the workflow to Nextflow DSL2.
     public func exportToNextflow() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [UTType(filenameExtension: "nf") ?? .plainText]
-        panel.nameFieldStringValue = "\(graph.name).nf"
-        panel.message = "Export as Nextflow pipeline"
+        let panel = MappingWorkflowFilePanelFactory.nextflowExportPanel(suggestedName: "\(graph.name).nf")
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self = self else { return }
@@ -856,10 +897,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
 
     /// Exports the workflow to Snakemake.
     public func exportToSnakemake() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.plainText]
-        panel.nameFieldStringValue = "Snakefile"
-        panel.message = "Export as Snakemake workflow"
+        let panel = MappingWorkflowFilePanelFactory.snakemakeExportPanel()
 
         panel.begin { [weak self] response in
             guard response == .OK, let url = panel.url, let self = self else { return }
@@ -964,15 +1002,22 @@ extension WorkflowBuilderViewController: NSWindowDelegate {
         alert.addButton(withTitle: "Don't Save")
         alert.addButton(withTitle: "Cancel")
 
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:
-            saveWorkflow()
-            return !hasUnsavedChanges
-        case .alertSecondButtonReturn:
-            return true
-        default:
-            return false
+        alert.beginSheetModal(for: sender) { [weak self, weak sender] response in
+            guard let self, let sender else { return }
+            switch response {
+            case .alertFirstButtonReturn:
+                self.saveWorkflow()
+                if !self.hasUnsavedChanges {
+                    sender.close()
+                }
+            case .alertSecondButtonReturn:
+                self.hasUnsavedChanges = false
+                sender.close()
+            default:
+                break
+            }
         }
+        return false
     }
 }
 
@@ -1213,7 +1258,6 @@ class WorkflowCanvasViewController: NSViewController {
         banner.material = .contentBackground
         banner.blendingMode = .withinWindow
         banner.state = .active
-        banner.wantsLayer = true
         banner.layer?.borderWidth = 1
         banner.layer?.borderColor = NSColor.separatorColor.cgColor
         banner.setAccessibilityIdentifier(WorkflowBuilderAccessibilityID.experimentalBanner)

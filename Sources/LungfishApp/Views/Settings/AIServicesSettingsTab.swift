@@ -202,8 +202,9 @@ struct AIServicesSettingsTab: View {
         }
     }
 
+    @MainActor
     private func loadKeys() {
-        Task { @MainActor in
+        Task {
             isLoadingKeys = true
             defer { isLoadingKeys = false }
             do {
@@ -221,12 +222,13 @@ struct AIServicesSettingsTab: View {
     }
 
     /// Debounces Keychain writes by 500ms to avoid writing on every keystroke.
+    @MainActor
     private func debouncedStore(_ value: String, forKey key: String, task: inout Task<Void, Never>?) {
         guard !isLoadingKeys else { return }
         let provider = providerForKey(key)
         setValidationState(value.isEmpty ? .empty : .unverified, for: provider)
         task?.cancel()
-        task = Task { @MainActor in
+        task = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
             do {
@@ -246,9 +248,10 @@ struct AIServicesSettingsTab: View {
         }
     }
 
+    @MainActor
     private func clearAllKeys() {
         cancelPendingSaves()
-        Task { @MainActor in
+        Task {
             do {
                 try await KeychainSecretStorage.shared.deleteAll()
                 isLoadingKeys = true

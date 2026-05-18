@@ -324,17 +324,13 @@ final class ComprehensiveParserTests: XCTestCase {
 
     // 16. Tab-separated header fields
     func testFASTA_specialChars_tabSeparatedFields() async throws {
-        // FASTAReader splits on space, so a tab is treated as part of the name
-        // unless the header contains spaces. Test the exact behavior.
         let url = writeFASTA(">seq1\tsome\tfields\nATCG\n")
         let reader = try FASTAReader(url: url)
         let seqs = try await reader.readAll()
 
         XCTAssertEqual(seqs.count, 1)
-        // The parser splits on space. If no space exists, the entire header
-        // (after >) is the name. Tabs are not treated as whitespace separators.
-        XCTAssertEqual(seqs[0].name, "seq1\tsome\tfields")
-        XCTAssertNil(seqs[0].description)
+        XCTAssertEqual(seqs[0].name, "seq1")
+        XCTAssertEqual(seqs[0].description, "some\tfields")
     }
 
     // =========================================================================

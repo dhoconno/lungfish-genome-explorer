@@ -3,6 +3,7 @@ import XCTest
 @testable import LungfishCore
 @testable import LungfishIO
 @testable import LungfishApp
+@testable import LungfishWorkflow
 
 @MainActor
 final class SequenceMenuOperationTests: XCTestCase {
@@ -71,6 +72,67 @@ final class SequenceMenuOperationTests: XCTestCase {
             "--allow-alternative-starts",
             "--quiet",
         ])
+    }
+
+    nonisolated func testORFAnnotationRunnerCancellationTerminatesCLIProcessTree() async throws {
+        let tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-sequence-menu-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+        let fakeCLI = tempDirectory.appendingPathComponent("lungfish-cli")
+        let readyURL = tempDirectory.appendingPathComponent("ready")
+        let rootPIDURL = tempDirectory.appendingPathComponent("root.pid")
+        let childPIDURL = tempDirectory.appendingPathComponent("child.pid")
+        let script = """
+        #!/bin/sh
+        echo $$ > '\(rootPIDURL.path)'
+        /bin/sh -c 'trap "" TERM HUP; sleep 3 & wait' &
+        child=$!
+        echo "$child" > '\(childPIDURL.path)'
+        touch '\(readyURL.path)'
+        wait "$child"
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        let request = SequenceAnnotationOperationRequest(
+            operation: .orf,
+            bundleURL: tempDirectory.appendingPathComponent("reference.lungfishref", isDirectory: true),
+            sequenceName: "chr1",
+            start: 1,
+            end: 100,
+            frames: ["+1"],
+            codonTableID: 1,
+            trackName: "ORFs"
+        )
+        let cancellation = LungfishCLIRunner.CancellationHandle()
+        let task = Task.detached {
+            try SequenceAnnotationOperationRunner.run(
+                request,
+                cliURLOverride: fakeCLI,
+                cancellation: cancellation
+            )
+        }
+
+        try await waitForFile(readyURL)
+        let rootPID = try readPID(rootPIDURL)
+        let childPID = try readPID(childPIDURL)
+        defer {
+            ProcessTreeTerminator.terminate(rootPID: rootPID, gracePeriod: 0)
+            ProcessTreeTerminator.terminate(rootPID: childPID, gracePeriod: 0)
+        }
+
+        let start = Date()
+        cancellation.cancel()
+        let result = await task.result
+        let cancelElapsed = Date().timeIntervalSince(start)
+
+        guard case .failure(LungfishCLIRunner.RunError.cancelled) = result else {
+            return XCTFail("Expected cancelled sequence annotation CLI to throw RunError.cancelled, got \(result)")
+        }
+        XCTAssertLessThan(cancelElapsed, 1.0, "Sequence annotation cancellation should not wait for the child process to finish naturally")
+        try await waitForProcessExit(pid: childPID)
     }
 
     func testReverseComplementSelectionOperationUsesFASTQCLIInvocation() throws {
@@ -586,6 +648,34 @@ final class SequenceMenuOperationTests: XCTestCase {
         XCTAssertTrue(viewerSource.contains("viewController?.selectAnnotationInDrawer(annotation)"))
         XCTAssertFalse(viewerSource.contains("viewController?.selectAnnotationInDrawer(variant)"))
         XCTAssertTrue(drawerSource.contains("func selectAnnotationInDrawer(_ annotation: SequenceAnnotation)"))
+    }
+
+    nonisolated private func waitForFile(_ url: URL, timeout: TimeInterval = 5) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for \(url.path)")
+    }
+
+    nonisolated private func waitForProcessExit(pid: Int32, timeout: TimeInterval = 2) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !ProcessTreeTerminator.processExists(pid: pid) {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Process \(pid) was still running after cancellation")
+    }
+
+    nonisolated private func readPID(_ url: URL) throws -> Int32 {
+        let text = try String(contentsOf: url, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return try XCTUnwrap(Int32(text), "Expected pid in \(url.path)")
     }
 
     private func makeReferenceBundle(

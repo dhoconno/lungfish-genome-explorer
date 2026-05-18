@@ -1637,13 +1637,11 @@ public final class EsVirituResultViewController: NSViewController, NSSplitViewDe
             return
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Export Detections as \(fileTypeName)"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-
         let baseName = result.sampleId
-        panel.nameFieldStringValue = "\(baseName)_detections.\(fileExtension)"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export Detections as \(fileTypeName)",
+            suggestedName: "\(baseName)_detections.\(fileExtension)"
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }

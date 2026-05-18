@@ -176,7 +176,7 @@ class BatchTableView<Row>: NSView, NSTableViewDataSource, NSTableViewDelegate {
     var unfilteredRows: [Row] = []
 
     /// Per-column filters applied via column header click menus.
-    internal(set) var columnFilterSet = ColumnFilterSet()
+    var columnFilterSet = ColumnFilterSet()
 
     /// Compatibility view of active filters keyed by column identifier.
     var columnFilters: [String: ColumnFilter] {

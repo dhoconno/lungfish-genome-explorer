@@ -66,7 +66,7 @@ extension EsVirituCommand {
             parsing: .upToNextOption,
             help: "Input FASTQ file(s). Provide two files for paired-end."
         )
-        var inputFiles: [String]
+        var inputFiles: [String] = []
 
         @Option(
             name: [.customLong("sample"), .customShort("s")],
@@ -120,7 +120,7 @@ extension EsVirituCommand {
                 ? Array(arguments.dropFirst())
                 : arguments
             guard let parsed = try Self.parseAsRoot(trimmed) as? Self else {
-                throw ValidationError("Failed to parse esviritu detect arguments.")
+                throw CLIError.validationFailed(errors: ["Failed to parse esviritu detect arguments."])
             }
             return parsed
         }
@@ -130,17 +130,21 @@ extension EsVirituCommand {
 
             // Resolve input files.
             let inputURLs = inputFiles.map { URL(fileURLWithPath: $0) }
+            guard !inputURLs.isEmpty else {
+                print(formatter.error("At least one --input file is required"))
+                throw CLIExitCode.inputError.exitCode
+            }
             for url in inputURLs {
                 guard FileManager.default.fileExists(atPath: url.path) else {
                     print(formatter.error("Input file not found: \(url.path)"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.inputError.exitCode
                 }
             }
 
             // Validate paired-end input count.
             if pairedEnd && inputURLs.count != 2 {
                 print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Resolve database path.
@@ -156,13 +160,13 @@ extension EsVirituCommand {
                 } else {
                     print(formatter.error("EsViritu database not found. Download it first:"))
                     print(formatter.info("  lungfish esviritu download-db"))
-                    throw ExitCode.failure
+                    throw CLIExitCode.dependency.exitCode
                 }
             }
 
             guard FileManager.default.fileExists(atPath: dbURL.path) else {
                 print(formatter.error("Database directory not found: \(dbURL.path)"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             // Resolve output directory.

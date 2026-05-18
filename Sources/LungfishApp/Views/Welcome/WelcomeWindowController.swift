@@ -145,6 +145,8 @@ final class WelcomeViewModel: ObservableObject {
     @Published var selectedAction: WelcomeAction?
     @Published var isLoading = false
     @Published private(set) var isRefreshingSetup = false
+    @Published private(set) var isRefreshingRequiredSetup = false
+    @Published private(set) var isRefreshingOptionalPacks = false
     @Published var isInstallingRequiredSetup = false
     @Published var requiredSetupProgress: Double?
     @Published var requiredSetupProgressMessage: String?
@@ -167,7 +169,10 @@ final class WelcomeViewModel: ObservableObject {
     private let storageCoordinator: ManagedStorageCoordinator
     private let storageConfigStore: ManagedStorageConfigStore
     private let notificationCenter: NotificationCenter
-    private var setupRefreshSequence = 0
+    private var setupRefreshTask: Task<Void, Never>?
+    private var scheduledSetupRefreshTask: Task<Void, Never>?
+    private var scheduledSetupRefreshGeneration = 0
+    private var pendingSetupInvalidation = false
 
     var onCreateProject: ((URL) -> Void)?
     var onOpenProject: ((URL) -> Void)?
@@ -196,18 +201,23 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     deinit {
+        setupRefreshTask?.cancel()
+        scheduledSetupRefreshTask?.cancel()
         notificationCenter.removeObserver(self)
     }
 
     @objc private func handleManagedResourcesDidChange(_ notification: Notification) {
-        Task { @MainActor in
-            await refreshSetup()
+        if let source = notification.object as AnyObject?, source === self {
+            return
         }
+        scheduleSetupRefresh(requiresFreshRead: true)
     }
 
     var canLaunch: Bool {
         let requiredSetupReady = requiredSetupStatus?.state == .ready
-        return (requiredSetupReady || debugLaunchConfiguration.bypassRequiredSetup) && !isInstallingRequiredSetup
+        return (requiredSetupReady || debugLaunchConfiguration.bypassRequiredSetup)
+            && !isInstallingRequiredSetup
+            && !isRefreshingRequiredSetup
     }
 
     var currentStorageRootURL: URL {
@@ -290,16 +300,81 @@ final class WelcomeViewModel: ObservableObject {
     }
 
     func refreshSetup() async {
-        setupRefreshSequence += 1
-        let refreshID = setupRefreshSequence
-        isRefreshingSetup = true
+        await refreshSetup(requiresFreshRead: false)
+    }
+
+    private func refreshSetup(requiresFreshRead: Bool) async {
+        if let setupRefreshTask {
+            if requiresFreshRead {
+                pendingSetupInvalidation = true
+            }
+            await setupRefreshTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.performSetupRefreshLoop()
+        }
+        setupRefreshTask = task
+        await task.value
+    }
+
+    private func scheduleSetupRefresh(requiresFreshRead: Bool) {
+        scheduledSetupRefreshTask?.cancel()
+        scheduledSetupRefreshGeneration += 1
+        let generation = scheduledSetupRefreshGeneration
+        scheduledSetupRefreshTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.refreshSetup(requiresFreshRead: requiresFreshRead)
+            guard self.scheduledSetupRefreshGeneration == generation else { return }
+            self.scheduledSetupRefreshTask = nil
+        }
+    }
+
+    private func performSetupRefreshLoop() async {
+        defer {
+            setRefreshingRequiredSetup(false)
+            setRefreshingOptionalPacks(false)
+            setupRefreshTask = nil
+            pendingSetupInvalidation = false
+        }
+
+        repeat {
+            pendingSetupInvalidation = false
+            await performSetupRefreshPass()
+        } while pendingSetupInvalidation
+    }
+
+    private func performSetupRefreshPass() async {
+        setRefreshingRequiredSetup(true)
         requiredSetupStatus = nil
         optionalPackStatuses = []
+
+        let requiredStatus = await statusProvider.status(for: .requiredSetupPack)
+        guard !Task.isCancelled else { return }
+
+        requiredSetupStatus = requiredStatus
+        setRefreshingRequiredSetup(false)
+        setRefreshingOptionalPacks(true)
+
         let statuses = await statusProvider.visibleStatuses()
-        guard refreshID == setupRefreshSequence else { return }
-        requiredSetupStatus = statuses.first(where: { $0.pack.isRequiredBeforeLaunch })
+        guard !Task.isCancelled else { return }
+
         optionalPackStatuses = statuses.filter { !$0.pack.isRequiredBeforeLaunch }
-        isRefreshingSetup = false
+        setRefreshingOptionalPacks(false)
+    }
+
+    private func refreshRequiredSetupStatus() async {
+        setRefreshingRequiredSetup(true)
+        requiredSetupStatus = nil
+        defer {
+            setRefreshingRequiredSetup(false)
+        }
+
+        let requiredStatus = await statusProvider.status(for: .requiredSetupPack)
+        guard !Task.isCancelled else { return }
+        requiredSetupStatus = requiredStatus
     }
 
     func installRequiredSetup() {
@@ -332,11 +407,11 @@ final class WelcomeViewModel: ObservableObject {
                         }
                     }
                 )
-                await refreshSetup()
+                await refreshRequiredSetupStatus()
                 requiredSetupItemProgress = [:]
                 requiredSetupProgress = nil
                 requiredSetupProgressMessage = nil
-                notificationCenter.post(name: .managedResourcesDidChange, object: nil)
+                notificationCenter.post(name: .managedResourcesDidChange, object: self)
             } catch {
                 setupErrorMessage = error.localizedDescription
             }
@@ -423,7 +498,21 @@ final class WelcomeViewModel: ObservableObject {
         storageValidationResult = .valid
         storageOperationErrorMessage = nil
         storageOperationMessage = "Refreshing setup…"
-        await refreshSetup()
+        await refreshSetup(requiresFreshRead: true)
+    }
+
+    private func setRefreshingRequiredSetup(_ isRefreshing: Bool) {
+        isRefreshingRequiredSetup = isRefreshing
+        updateCombinedRefreshState()
+    }
+
+    private func setRefreshingOptionalPacks(_ isRefreshing: Bool) {
+        isRefreshingOptionalPacks = isRefreshing
+        updateCombinedRefreshState()
+    }
+
+    private func updateCombinedRefreshState() {
+        isRefreshingSetup = isRefreshingRequiredSetup || isRefreshingOptionalPacks
     }
 }
 
@@ -497,7 +586,7 @@ struct WelcomeView: View {
 
     private var navigationSections: [WelcomeSection] {
         var sections: [WelcomeSection] = [.getStarted, .recentProjects, .requiredSetup]
-        if !viewModel.optionalPackStatuses.isEmpty {
+        if viewModel.isRefreshingOptionalPacks || !viewModel.optionalPackStatuses.isEmpty {
             sections.append(.optionalTools)
         }
         return sections
@@ -573,9 +662,9 @@ struct WelcomeView: View {
                     title: status.state == .ready ? "Core Tools Installed" : "Setup Needed",
                     color: status.state == .ready ? .lungfishSageFallback : .lungfishCreamsicleFallback
                 )
-            } else if viewModel.isRefreshingSetup {
+            } else if viewModel.isRefreshingRequiredSetup {
                 StatusPill(
-                    title: "Checking Setup",
+                    title: "Checking Core Setup",
                     color: .lungfishWarmGreyFallback
                 )
             }
@@ -649,10 +738,10 @@ struct WelcomeView: View {
                     }
                 }
 
-                if viewModel.isRefreshingSetup && viewModel.requiredSetupStatus == nil {
+                if viewModel.isRefreshingRequiredSetup && viewModel.requiredSetupStatus == nil {
                     SetupLoadingCard(
-                        title: "Checking Required Setup",
-                        message: "Please wait while Lungfish checks the third-party tools and data it needs before you begin."
+                        title: "Checking Core Setup",
+                        message: "Lungfish is checking required tool launchers and managed data."
                     )
                 } else if let requiredStatus = viewModel.requiredSetupStatus {
                     RequiredSetupCard(
@@ -672,12 +761,12 @@ struct WelcomeView: View {
 
         case .recentProjects:
             VStack(alignment: .leading, spacing: 16) {
-                if viewModel.isRefreshingSetup && viewModel.requiredSetupStatus == nil {
+                if viewModel.isRefreshingRequiredSetup && viewModel.requiredSetupStatus == nil {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
                             .tint(.lungfishCreamsicleFallback)
-                        Text("Checking required setup before recent projects become available.")
+                        Text("Checking core setup before recent projects become available.")
                             .font(.subheadline)
                             .foregroundColor(.lungfishWelcomeSecondaryText)
                     }
@@ -704,9 +793,9 @@ struct WelcomeView: View {
             }
 
         case .requiredSetup:
-            if viewModel.isRefreshingSetup && viewModel.requiredSetupStatus == nil {
+            if viewModel.isRefreshingRequiredSetup && viewModel.requiredSetupStatus == nil {
                 SetupLoadingCard(
-                    title: "Checking Required Setup",
+                    title: "Checking Core Setup",
                     message: "Lungfish is checking each required third-party tool and required data item."
                 )
             } else if let requiredStatus = viewModel.requiredSetupStatus {
@@ -725,10 +814,12 @@ struct WelcomeView: View {
             }
 
         case .optionalTools:
-            if viewModel.isRefreshingSetup && viewModel.requiredSetupStatus == nil {
+            if viewModel.isRefreshingOptionalPacks {
                 SetupLoadingCard(
                     title: "Checking Optional Tools",
-                    message: "Lungfish is checking optional tools that are available in this build."
+                    message: viewModel.requiredSetupStatus?.state == .ready
+                        ? "Core tools installed. Checking optional tools..."
+                        : "Lungfish is checking optional tools that are available in this build."
                 )
             } else if viewModel.optionalPackStatuses.isEmpty {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -852,14 +943,7 @@ struct WelcomeView: View {
             return
         }
 
-        let savePanel = NSSavePanel()
-        savePanel.title = "Create New Project"
-        savePanel.message = "Choose a location for your new Lungfish project"
-        savePanel.nameFieldLabel = "Project Name:"
-        savePanel.nameFieldStringValue = "My Genome Project"
-        savePanel.canCreateDirectories = true
-        savePanel.allowedContentTypes = [.folder]
-        savePanel.isExtensionHidden = false
+        let savePanel = AppFilePanelFactory.newProjectPanel()
 
         guard let window = NSApp.keyWindow else { return }
         let response = await savePanel.beginSheetModal(for: window)
@@ -881,13 +965,7 @@ struct WelcomeView: View {
             return
         }
 
-        let openPanel = NSOpenPanel()
-        openPanel.title = "Open Project"
-        openPanel.message = "Select a Lungfish project folder"
-        openPanel.canChooseFiles = false
-        openPanel.canChooseDirectories = true
-        openPanel.allowsMultipleSelection = false
-        openPanel.canCreateDirectories = false
+        let openPanel = AppFilePanelFactory.welcomeProjectOpenPanel()
 
         guard let window = NSApp.keyWindow else { return }
         let response = await openPanel.beginSheetModal(for: window)
@@ -901,14 +979,7 @@ struct WelcomeView: View {
     }
 
     private func showStorageLocationPanel() async {
-        let openPanel = NSOpenPanel()
-        openPanel.title = "Choose Storage Location"
-        openPanel.message = "Select a storage location for managed tools and databases. The full resolved path cannot contain spaces."
-        openPanel.canChooseFiles = false
-        openPanel.canChooseDirectories = true
-        openPanel.allowsMultipleSelection = false
-        openPanel.canCreateDirectories = true
-        openPanel.prompt = "Choose"
+        let openPanel = AppFilePanelFactory.managedStorageLocationPanel(title: "Choose Storage Location")
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         let response = await openPanel.beginSheetModal(for: window)
@@ -1023,6 +1094,20 @@ private struct LaunchActionTile: View {
 
 // MARK: - Setup Cards
 
+struct RequiredSetupCardPresentation: Equatable {
+    let isReady: Bool
+    let statusTitle: String
+    let primaryActionTitle: String?
+    let showsAlternateStorageAction: Bool
+
+    init(status: PluginPackStatus) {
+        isReady = status.state == .ready
+        statusTitle = isReady ? "Ready" : "Needs Attention"
+        primaryActionTitle = isReady ? nil : (status.shouldReinstall ? "Reinstall" : "Install")
+        showsAlternateStorageAction = !isReady
+    }
+}
+
 private struct RequiredSetupCard: View {
     let status: PluginPackStatus
     let isInstalling: Bool
@@ -1035,12 +1120,12 @@ private struct RequiredSetupCard: View {
     let onChooseAlternateStorage: () -> Void
     let isStorageChooserEnabled: Bool
 
-    private var isReady: Bool {
-        status.state == .ready
+    private var presentation: RequiredSetupCardPresentation {
+        RequiredSetupCardPresentation(status: status)
     }
 
-    private var actionTitle: String {
-        status.shouldReinstall ? "Reinstall" : "Install"
+    private var isReady: Bool {
+        presentation.isReady
     }
 
     private var statusColor: Color {
@@ -1067,21 +1152,23 @@ private struct RequiredSetupCard: View {
                 Spacer()
 
                 StatusPill(
-                    title: isReady ? "Ready" : "Needs Attention",
+                    title: presentation.statusTitle,
                     color: statusColor
                 )
             }
 
             HStack(spacing: 12) {
-                Button(actionTitle) {
-                    onInstall()
+                if let actionTitle = presentation.primaryActionTitle {
+                    Button(actionTitle) {
+                        onInstall()
+                    }
+                    .accessibilityIdentifier("welcome-required-setup-primary-action")
+                    .accessibilityLabel("Install required setup")
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(.lungfishCreamsicleFallback)
+                    .disabled(isInstalling)
                 }
-                .accessibilityIdentifier("welcome-required-setup-primary-action")
-                .accessibilityLabel("Install required setup")
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(.lungfishCreamsicleFallback)
-                .disabled(isInstalling)
 
                 Button(showingDetails ? "Hide Details" : "Show Details") {
                     showingDetails.toggle()
@@ -1093,7 +1180,7 @@ private struct RequiredSetupCard: View {
                 .tint(.lungfishCreamsicleFallback)
             }
 
-            if !isReady {
+            if presentation.showsAlternateStorageAction {
                 Button("Need more space? Choose another storage location…") {
                     onChooseAlternateStorage()
                 }
@@ -1586,11 +1673,12 @@ public final class WelcomeWindowController: NSWindowController {
             alert.addButton(withTitle: "Cancel")
 
             if let window = self.window {
-                Task { @MainActor [weak self] in
-                    let response = await alert.beginSheetModal(for: window)
+                alert.beginSheetModal(for: window) { [weak self] response in
                     if response == .alertFirstButtonReturn {
                         // Set as working directory without creating a full project
-                        self?.setWorkingDirectory(url)
+                        MainActor.assumeIsolated {
+                            self?.setWorkingDirectory(url)
+                        }
                     }
                 }
             }

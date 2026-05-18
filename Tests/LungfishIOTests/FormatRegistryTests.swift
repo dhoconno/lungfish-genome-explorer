@@ -163,6 +163,26 @@ final class FormatRegistryTests: XCTestCase {
         XCTAssertNotNil(importer, "GFF3 importer should be registered")
     }
 
+    func testBigBedDescriptorDoesNotAdvertiseUnsupportedReader() async {
+        let registry = FormatRegistry.shared
+        let descriptor = await registry.descriptor(for: .bigbed)
+
+        XCTAssertNotNil(descriptor, "BigBed should remain detectable as a known format")
+        XCTAssertFalse(descriptor?.canRead ?? true, "BigBed should not advertise a supported reader")
+        let importer = await registry.importer(for: .bigbed)
+        XCTAssertNil(importer, "BigBed should not expose an importer without a supported reader")
+    }
+
+    func testBigWigDescriptorDoesNotAdvertiseUnsupportedReader() async {
+        let registry = FormatRegistry.shared
+        let descriptor = await registry.descriptor(for: .bigwig)
+
+        XCTAssertNotNil(descriptor, "BigWig should remain detectable as a known format")
+        XCTAssertFalse(descriptor?.canRead ?? true, "BigWig should not advertise a supported reader")
+        let importer = await registry.importer(for: .bigwig)
+        XCTAssertNil(importer, "BigWig should not expose an importer without a supported reader")
+    }
+
     /// Readable formats should contain at least the three built-in importers.
     func testReadableFormatsContainsBuiltInImporters() async {
         let registry = FormatRegistry.shared

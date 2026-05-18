@@ -66,6 +66,13 @@ private struct PreparedMappingExecution: Sendable {
     let cleanupURLs: [URL]
 }
 
+struct PreparedMappingExecutionForTesting: Sendable {
+    let request: MappingRunRequest
+    let referenceURL: URL
+    let indexPrefixURL: URL
+    let cleanupURLs: [URL]
+}
+
 public final class ManagedMappingPipeline: @unchecked Sendable {
     public typealias ProgressHandler = @Sendable (Double, String) -> Void
 
@@ -118,10 +125,14 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
 
         let rawAlignmentURL = MappingCommandBuilder.rawAlignmentURL(for: prepared.request)
         progress?(0.1, "Running \(prepared.request.tool.displayName)...")
+        let mapperInputRecords = mapperExecutionInputRecords(
+            for: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL
+        )
         let mapperStep = try await executeMappingCommand(
             command,
             outputURL: rawAlignmentURL,
-            inputRecords: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            inputRecords: mapperInputRecords,
             mapperVersion: mapperVersion,
             progress: progress
         )
@@ -166,13 +177,20 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             ProvenanceRecorder.fileRecord(url: result.baiURL, role: .index),
             ProvenanceRecorder.fileRecord(url: mappingResultURL, format: .json, role: .output)
         ]
-        let steps = indexSteps + [mapperStep] + normalized.steps
+        let inputFiles = try mappingInputRecords(
+            for: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL
+        )
+        let mapperArgv = [command.executable] + command.arguments
+        let materializationSteps = try mappingInputMaterializationSteps(for: prepared.request)
+        let steps = materializationSteps + indexSteps + [mapperStep] + normalized.steps
         let provenance = MappingProvenance.build(
             request: prepared.request,
             result: result,
             mapperInvocation: MappingCommandInvocation(
                 label: prepared.request.tool.displayName,
-                argv: [command.executable] + command.arguments
+                argv: mapperArgv,
+                durableReplayArgv: mapperDurableReplayArgv(for: prepared.request, argv: mapperArgv)
             ),
             normalizationInvocations: MappingProvenance.normalizationInvocations(
                 rawAlignmentURL: rawAlignmentURL,
@@ -185,7 +203,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             ),
             mapperVersion: mapperVersion,
             samtoolsVersion: samtoolsVersion,
-            inputFiles: mappingInputRecords(for: prepared.request, referenceURL: prepared.referenceLocator.referenceURL),
+            inputFiles: inputFiles,
             outputFiles: outputFiles,
             runtimeIdentity: mappingRuntimeIdentity(for: command),
             steps: steps,
@@ -193,6 +211,7 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             stderr: combinedStderr(steps.map(\.stderr))
         )
         try provenance.save(to: prepared.request.outputDirectory)
+        try provenance.saveCanonicalEnvelope(to: prepared.request.outputDirectory)
         progress?(1.0, "Mapping complete.")
         return result
     }
@@ -304,6 +323,24 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             unmappedReads: max(0, totalReads - mappedReads),
             steps: steps
         )
+    }
+
+    func prepareExecutionForTesting(request: MappingRunRequest) async throws -> PreparedMappingExecutionForTesting {
+        let prepared = try await prepareExecution(for: request)
+        return PreparedMappingExecutionForTesting(
+            request: prepared.request,
+            referenceURL: prepared.referenceLocator.referenceURL,
+            indexPrefixURL: prepared.referenceLocator.indexPrefixURL,
+            cleanupURLs: prepared.cleanupURLs
+        )
+    }
+
+    func validateInputsForTesting(request: MappingRunRequest) async throws {
+        try await validateInputs(for: request)
+    }
+
+    func mappingInputMaterializationStepsForTesting(request: MappingRunRequest) throws -> [StepExecution] {
+        try mappingInputMaterializationSteps(for: request)
     }
 
     static func validateCompatibility(for request: MappingRunRequest) throws {
@@ -638,56 +675,123 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = micromambaPath
-            process.arguments = ["run", "-n", environment, executable] + arguments
-            process.currentDirectoryURL = workingDirectory
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
 
-            var processEnvironment: [String: String] = [
-                "MAMBA_ROOT_PREFIX": rootPath,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "HOME": homePath,
-            ]
-            if let tempDirectory {
-                processEnvironment["TMPDIR"] = tempDirectory
-            }
-            process.environment = processEnvironment
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let process = Process()
+                process.executableURL = micromambaPath
+                process.arguments = ["run", "-n", environment, executable] + arguments
+                process.currentDirectoryURL = workingDirectory
 
-            let stderrPipe = Pipe()
-            let outputHandle: FileHandle
-            do {
-                FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
-                outputHandle = try FileHandle(forWritingTo: stdoutURL)
-            } catch {
-                continuation.resume(throwing: error)
-                return
-            }
+                var processEnvironment: [String: String] = [
+                    "MAMBA_ROOT_PREFIX": rootPath,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "HOME": homePath,
+                ]
+                if let tempDirectory {
+                    processEnvironment["TMPDIR"] = tempDirectory
+                }
+                process.environment = processEnvironment
 
-            process.standardOutput = outputHandle
-            process.standardError = stderrPipe
+                let stderrPipe = Pipe()
+                let outputHandle: FileHandle
+                do {
+                    FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+                    outputHandle = try FileHandle(forWritingTo: stdoutURL)
+                } catch {
+                    continuation.resume(throwing: error)
+                    return
+                }
 
-            let timeoutWorkItem = DispatchWorkItem {
-                if process.isRunning {
-                    process.terminate()
+                process.standardOutput = outputHandle
+                process.standardError = stderrPipe
+
+                let outputGroup = DispatchGroup()
+                let stderrCapture = ProcessDataCapture()
+                let startStderrDrain: @Sendable () -> Void = {
+                    outputGroup.enter()
+                    DispatchQueue(label: "com.lungfish.workflow.mapping-streaming-stderr", qos: .userInitiated).async {
+                        stderrCapture.data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+                        outputGroup.leave()
+                    }
+                }
+                cancellationHandle.store(process)
+
+                let timeoutWorkItem = DispatchWorkItem {
+                    guard process.isRunning else { return }
+                    runState.markTimedOut()
+                    cancellationHandle.terminateProcessTree()
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
+
+                process.terminationHandler = { terminatedProcess in
+                    timeoutWorkItem.cancel()
+                    outputGroup.notify(queue: .global(qos: .userInitiated)) {
+                        cancellationHandle.clear(terminatedProcess)
+                        try? outputHandle.close()
+                        let stderr = String(data: stderrCapture.data, encoding: .utf8) ?? ""
+
+                        runState.resumeOnce { reason in
+                            switch reason {
+                            case .cancelled:
+                                continuation.resume(throwing: CancellationError())
+                            case .timedOut:
+                                continuation.resume(
+                                    throwing: CondaError.timeout(tool: executable, seconds: timeout)
+                                )
+                            case .completed:
+                                continuation.resume(returning: (stderr, terminatedProcess.terminationStatus))
+                            }
+                        }
+                    }
+                }
+
+                do {
+                    startStderrDrain()
+                    try process.run()
+                    cancellationHandle.terminateIfRequested()
+                    if runState.isCancelled {
+                        cancellationHandle.requestProcessTreeTermination()
+                    }
+                } catch {
+                    timeoutWorkItem.cancel()
+                    cancellationHandle.clear(process)
+                    stderrPipe.fileHandleForWriting.closeFile()
+                    try? outputHandle.close()
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled:
+                            continuation.resume(throwing: CancellationError())
+                        case .completed, .timedOut:
+                            continuation.resume(throwing: error)
+                        }
+                    }
                 }
             }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-
-            do {
-                try process.run()
-                let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-                process.waitUntilExit()
-                timeoutWorkItem.cancel()
-                try? outputHandle.close()
-                let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-                continuation.resume(returning: (stderr, process.terminationStatus))
-            } catch {
-                timeoutWorkItem.cancel()
-                try? outputHandle.close()
-                continuation.resume(throwing: error)
-            }
+        } onCancel: {
+            runState.markCancelled()
+            cancellationHandle.requestProcessTreeTermination()
         }
+    }
+
+    func runCondaToolStreamingStdoutForTesting(
+        executable: String,
+        arguments: [String],
+        environment: String,
+        workingDirectory: URL,
+        stdoutURL: URL,
+        timeout: TimeInterval
+    ) async throws -> (stderr: String, exitCode: Int32) {
+        try await runCondaToolStreamingStdout(
+            executable: executable,
+            arguments: arguments,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            stdoutURL: stdoutURL,
+            timeout: timeout
+        )
     }
 
     private func samtoolsViewToBAM(
@@ -834,13 +938,110 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         ["micromamba", "run", "-n", environment, name] + arguments
     }
 
-    private func mappingInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
+    private func mappingInputRecords(for request: MappingRunRequest, referenceURL: URL) throws -> [FileRecord] {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        let sequenceInputs = try CLISequenceInputMaterialization.inputRecordsPreservingLineage(
+            originalInputURLs: originalInputURLs,
+            executionInputURLs: request.inputFASTQURLs
+        )
+        return deduplicatedInputRecords(sequenceInputs + [
+            ProvenanceRecorder.fileRecord(url: referenceURL, format: fileFormat(for: referenceURL), role: .reference)
+        ])
+    }
+
+    private func mapperExecutionInputRecords(for request: MappingRunRequest, referenceURL: URL) -> [FileRecord] {
         let sequenceInputs = request.inputFASTQURLs.map {
             ProvenanceRecorder.fileRecord(url: $0, format: fileFormat(for: $0), role: .input)
         }
         return sequenceInputs + [
             ProvenanceRecorder.fileRecord(url: referenceURL, format: fileFormat(for: referenceURL), role: .reference)
         ]
+    }
+
+    private func mappingInputMaterializationSteps(for request: MappingRunRequest) throws -> [StepExecution] {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        var materializationInputs: [ProvenanceFileDescriptor] = []
+        var materializationOutputs: [ProvenanceFileDescriptor] = []
+        var materializationCommands: [[String]] = []
+
+        for (index, originalURL) in originalInputURLs.enumerated() {
+            guard request.inputFASTQURLs.indices.contains(index) else { continue }
+            let executionURL = request.inputFASTQURLs[index]
+            guard originalURL.standardizedFileURL != executionURL.standardizedFileURL,
+                  CLISequenceInputMaterialization.requiresMaterialization(originalURL) else {
+                continue
+            }
+
+            materializationInputs.append(
+                contentsOf: try CLISequenceInputMaterialization.originalInputDescriptors(for: originalURL)
+            )
+            materializationOutputs.append(
+                try CLISequenceInputMaterialization.executionInputDescriptor(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            )
+            materializationCommands.append(
+                CLISequenceInputMaterialization.materializationCommand(
+                    originalURL: originalURL,
+                    executionURL: executionURL
+                )
+            )
+        }
+
+        guard !materializationOutputs.isEmpty else {
+            return []
+        }
+
+        let startTime = request.inputMaterializationStartedAt ?? Date()
+        let endTime = request.inputMaterializationEndedAt ?? startTime
+        let wallTime = max(0, endTime.timeIntervalSince(startTime))
+        let command = materializationCommands.count == 1
+            ? materializationCommands[0]
+            : ["/bin/sh", "-lc", materializationCommands.map { $0.map(shellEscape).joined(separator: " ") }.joined(separator: " && ")]
+        return [
+            StepExecution(
+                toolName: "lungfish fastq materialize",
+                toolVersion: WorkflowRun.currentAppVersion,
+                command: command,
+                durableReplayArgv: command,
+                inputs: deduplicatedInputRecords(materializationInputs.map { fileRecord(from: $0) }),
+                outputs: deduplicatedInputRecords(materializationOutputs.map { fileRecord(from: $0) }),
+                exitCode: 0,
+                wallTime: wallTime,
+                startTime: startTime,
+                endTime: endTime
+            )
+        ]
+    }
+
+    private func mapperDurableReplayArgv(for request: MappingRunRequest, argv: [String]) -> [String]? {
+        let originalInputURLs = request.originalInputFASTQURLs ?? request.inputFASTQURLs
+        let hasDurableMaterializedInput = originalInputURLs.enumerated().contains { index, originalURL in
+            guard request.inputFASTQURLs.indices.contains(index) else { return false }
+            return originalURL.standardizedFileURL != request.inputFASTQURLs[index].standardizedFileURL
+                && CLISequenceInputMaterialization.requiresMaterialization(originalURL)
+        }
+        return hasDurableMaterializedInput ? argv : nil
+    }
+
+    private func fileRecord(from descriptor: ProvenanceFileDescriptor) -> FileRecord {
+        FileRecord(
+            path: descriptor.path,
+            sha256: descriptor.checksumSHA256,
+            sizeBytes: descriptor.fileSize,
+            format: descriptor.format,
+            role: descriptor.role
+        )
+    }
+
+    private func deduplicatedInputRecords(_ records: [FileRecord]) -> [FileRecord] {
+        var seen = Set<String>()
+        var result: [FileRecord] = []
+        for record in records where seen.insert("\(record.role.rawValue)\u{0}\(record.path)").inserted {
+            result.append(record)
+        }
+        return result
     }
 
     private func mappingRuntimeIdentity(for command: ManagedMappingCommand) -> [String: String] {
@@ -984,6 +1185,10 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
         }
         return name
     }
+}
+
+private final class ProcessDataCapture: @unchecked Sendable {
+    var data = Data()
 }
 
 private struct MappingTimedNativeToolResult {

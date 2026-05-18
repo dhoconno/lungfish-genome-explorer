@@ -6,9 +6,14 @@ import XCTest
 
 private actor StubVariantCallingPackStatusProvider: PluginPackStatusProviding {
     let states: [String: PluginPackState]
+    let toolStatusesByPackID: [String: [PackToolStatus]]
 
-    init(states: [String: PluginPackState]) {
+    init(
+        states: [String: PluginPackState],
+        toolStatusesByPackID: [String: [PackToolStatus]] = [:]
+    ) {
         self.states = states
+        self.toolStatusesByPackID = toolStatusesByPackID
     }
 
     func visibleStatuses() async -> [PluginPackStatus] {
@@ -19,7 +24,7 @@ private actor StubVariantCallingPackStatusProvider: PluginPackStatusProviding {
         PluginPackStatus(
             pack: pack,
             state: states[pack.id] ?? .needsInstall,
-            toolStatuses: [],
+            toolStatuses: toolStatusesByPackID[pack.id] ?? [],
             failureMessage: nil
         )
     }
@@ -298,6 +303,42 @@ final class BAMVariantCallingDialogRoutingTests: XCTestCase {
 
         XCTAssertGreaterThanOrEqual(items.count, ViralVariantCaller.allCases.count)
         XCTAssertTrue(items.allSatisfy { $0.availability != .available })
+    }
+
+    func testCatalogAllowsReadyVariantCallersWhenOnlyClair3IsMissing() async throws {
+        let variantPack = try XCTUnwrap(PluginPack.builtInPack(id: "variant-calling"))
+        let statuses = variantPack.toolRequirements.map { requirement in
+            PackToolStatus(
+                requirement: requirement,
+                environmentExists: requirement.id != "clair3",
+                missingExecutables: requirement.id == "clair3" ? requirement.executables : [],
+                smokeTestFailure: nil,
+                storageUnavailablePath: nil
+            )
+        }
+        let catalog = BAMVariantCallingCatalog(
+            statusProvider: StubVariantCallingPackStatusProvider(
+                states: [
+                    "variant-calling": .needsInstall,
+                    "lungfish-tools": .ready,
+                    "gatk-core": .needsInstall,
+                    "phasing": .needsInstall,
+                ],
+                toolStatusesByPackID: [
+                    "variant-calling": statuses,
+                ]
+            )
+        )
+
+        let items = await catalog.sidebarItems()
+
+        XCTAssertEqual(items.first(where: { $0.id == "lofreq" })?.availability, .available)
+        XCTAssertEqual(items.first(where: { $0.id == "ivar" })?.availability, .available)
+        XCTAssertEqual(items.first(where: { $0.id == "medaka" })?.availability, .available)
+        XCTAssertEqual(
+            items.first(where: { $0.id == "clair3" })?.availability,
+            .disabled(reason: "Requires Clair3")
+        )
     }
 
     func testCatalogGatesGATKHaplotypeCallerOnGATKCorePack() async throws {

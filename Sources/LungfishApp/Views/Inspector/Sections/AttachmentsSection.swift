@@ -67,10 +67,7 @@ struct AttachmentsSection: View {
     }
 
     private func attachFile() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
+        let panel = FeatureFilePanelFactory.attachmentImportPanel()
         panel.begin { response in
             guard response == .OK else { return }
             for url in panel.urls {

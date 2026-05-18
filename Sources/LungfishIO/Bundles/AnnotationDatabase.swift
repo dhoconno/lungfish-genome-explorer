@@ -303,9 +303,10 @@ public final class AnnotationDatabase: @unchecked Sendable {
         var bindings: [String] = []
 
         if !nameFilter.isEmpty {
-            conditions.append("(name LIKE ? OR gene_name LIKE ?)")
-            bindings.append("%\(nameFilter)%")
-            bindings.append("%\(nameFilter)%")
+            let pattern = SQLiteLikePattern.contains(nameFilter)
+            conditions.append("(name LIKE ? ESCAPE '\\' OR gene_name LIKE ? ESCAPE '\\')")
+            bindings.append(pattern)
+            bindings.append(pattern)
         }
         if !types.isEmpty {
             let placeholders = types.map { _ in "?" }.joined(separator: ",")
@@ -442,9 +443,10 @@ public final class AnnotationDatabase: @unchecked Sendable {
         var bindings: [String] = []
 
         if !nameFilter.isEmpty {
-            conditions.append("(name LIKE ? OR gene_name LIKE ?)")
-            bindings.append("%\(nameFilter)%")
-            bindings.append("%\(nameFilter)%")
+            let pattern = SQLiteLikePattern.contains(nameFilter)
+            conditions.append("(name LIKE ? ESCAPE '\\' OR gene_name LIKE ? ESCAPE '\\')")
+            bindings.append(pattern)
+            bindings.append(pattern)
         }
         if !types.isEmpty {
             let placeholders = types.map { _ in "?" }.joined(separator: ",")
@@ -520,9 +522,10 @@ public final class AnnotationDatabase: @unchecked Sendable {
         var bindings: [String] = []
 
         if !nameFilter.isEmpty {
-            conditions.append("(name LIKE ? OR gene_name LIKE ?)")
-            bindings.append("%\(nameFilter)%")
-            bindings.append("%\(nameFilter)%")
+            let pattern = SQLiteLikePattern.contains(nameFilter)
+            conditions.append("(name LIKE ? ESCAPE '\\' OR gene_name LIKE ? ESCAPE '\\')")
+            bindings.append(pattern)
+            bindings.append(pattern)
         }
         if !types.isEmpty {
             let placeholders = types.map { _ in "?" }.joined(separator: ",")
@@ -604,20 +607,20 @@ public final class AnnotationDatabase: @unchecked Sendable {
             }
         case "!~":
             guard !normalized.isEmpty else { return }
-            conditions.append("\(column) NOT LIKE ? COLLATE NOCASE")
-            bindings.append("%\(normalized)%")
+            conditions.append("\(column) COLLATE NOCASE NOT LIKE ? ESCAPE '\\'")
+            bindings.append(SQLiteLikePattern.contains(normalized))
         case "^=":
             guard !normalized.isEmpty else { return }
-            conditions.append("\(column) LIKE ? COLLATE NOCASE")
-            bindings.append("\(normalized)%")
+            conditions.append("\(column) COLLATE NOCASE LIKE ? ESCAPE '\\'")
+            bindings.append(SQLiteLikePattern.prefix(normalized))
         case "$=":
             guard !normalized.isEmpty else { return }
-            conditions.append("\(column) LIKE ? COLLATE NOCASE")
-            bindings.append("%\(normalized)")
+            conditions.append("\(column) COLLATE NOCASE LIKE ? ESCAPE '\\'")
+            bindings.append(SQLiteLikePattern.suffix(normalized))
         default:
             guard !normalized.isEmpty else { return }
-            conditions.append("\(column) LIKE ? COLLATE NOCASE")
-            bindings.append("%\(normalized)%")
+            conditions.append("\(column) COLLATE NOCASE LIKE ? ESCAPE '\\'")
+            bindings.append(SQLiteLikePattern.contains(normalized))
         }
     }
 
@@ -636,8 +639,8 @@ public final class AnnotationDatabase: @unchecked Sendable {
             return
         }
         guard Double(normalized) != nil else {
-            conditions.append("CAST(\(expression) AS TEXT) LIKE ? COLLATE NOCASE")
-            bindings.append("%\(normalized)%")
+            conditions.append("CAST(\(expression) AS TEXT) COLLATE NOCASE LIKE ? ESCAPE '\\'")
+            bindings.append(SQLiteLikePattern.contains(normalized))
             return
         }
 
@@ -1590,8 +1593,6 @@ extension AnnotationDatabaseRecord {
         isReverseComplement: Bool,
         newChromosome: String
     ) -> AnnotationDatabaseRecord? {
-        let seqLength = extractionEnd - extractionStart
-
         // Parse blocks into absolute intervals
         var absoluteBlocks: [(start: Int, end: Int)]
         if let bc = blockCount, bc > 1,

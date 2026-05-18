@@ -44,6 +44,24 @@ final class VCFReaderTests: XCTestCase {
         XCTAssertEqual(header.contigs["chr1"], 248956422)
     }
 
+    func testReadHeaderParsesFilterIDWhenIDIsLastField() async throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##FILTER=<Description="No-call filter",ID=NoCall>
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\t.\tA\tG\t30\tNoCall\t.
+        """
+
+        let url = try createTempVCF(content: vcf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = VCFReader()
+        let header = try await reader.readHeader(from: url)
+
+        XCTAssertEqual(header.filters["NoCall"], "No-call filter")
+        XCTAssertFalse(header.filters.keys.contains(""))
+    }
+
     // MARK: - Variant Parsing
 
     func testReadSNP() async throws {
@@ -111,6 +129,38 @@ final class VCFReaderTests: XCTestCase {
         let v = variants[0]
         XCTAssertEqual(v.alt, ["G", "T", "C"])
         XCTAssertTrue(v.isMultiAllelic)
+    }
+
+    func testSymbolicAltAndSpanningDeletionClassification() async throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=END,Number=1,Type=Integer,Description="End coordinate">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\tsv-del\tN\t<DEL>\t50\tPASS\tEND=150;SVTYPE=DEL
+        chr1\t200\tspan-del\tA\t*\t50\tPASS\t.
+        chr1\t300\tbreakend\tN\tN]chr2:100]\t50\tPASS\tSVTYPE=BND
+        """
+
+        let url = try createTempVCF(content: vcf)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let reader = VCFReader()
+        let variants = try await reader.readAll(from: url)
+
+        XCTAssertEqual(variants.count, 3)
+        XCTAssertEqual(variants[0].end, 150)
+
+        for variant in variants {
+            XCTAssertFalse(variant.isSNP, "\(variant.id) must not be classified as SNP")
+            XCTAssertFalse(variant.isIndel, "\(variant.id) must not be classified as indel")
+        }
+
+        let summary = try await reader.summarize(from: url)
+        XCTAssertNil(summary.variantTypes["SNP"])
+        XCTAssertNil(summary.variantTypes["INS"])
+        XCTAssertNil(summary.variantTypes["DEL"])
+        XCTAssertEqual(summary.variantTypes["SV"], 2)
+        XCTAssertEqual(summary.variantTypes["OTHER"], 1)
     }
 
     func testReadMultipleVariants() async throws {

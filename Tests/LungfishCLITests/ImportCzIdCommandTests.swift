@@ -4,7 +4,6 @@
 
 import ArgumentParser
 import XCTest
-@testable import LungfishApp
 @testable import LungfishCLI
 @testable import LungfishWorkflow
 

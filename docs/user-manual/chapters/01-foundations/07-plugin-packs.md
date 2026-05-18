@@ -172,7 +172,7 @@ state (or **Download** action if not installed), install date, version,
 and whether the local copy is **Up to date**.
 
 <!-- SHOT: plugin-manager-databases-tab -->
-![The Plugin Manager on the Databases tab. Kraken2 databases are listed first; the EuPathDB46, MinusB, PlusPF, PlusPF-16, PlusPF-8, Standard, and Standard-8 databases show a Download button (not installed), while Standard-16 and Viral show the green Installed badge with a Remove action. A "Recommended for your system" banner at the top suggests the Standard database for a 48 GB Mac. The EsViritu Viral DB and NCBI Taxonomy are installed at the bottom.](../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-databases-tab.png)
+![The Plugin Manager on the Databases tab. Kraken2 databases are listed first; the EuPathDB46, MinusB, PlusPF, PlusPF-16, PlusPF-8, Standard, and Standard-8 databases show a Download button (not installed), while Standard-16 and Viral show the green Installed badge with a Remove action. A "Recommended for your system" banner at the top suggests the PlusPF-16 database for a 48 GB Mac. The EsViritu Viral DB and NCBI Taxonomy are installed at the bottom.](../../assets/screenshots/01-foundations/07-plugin-packs/plugin-manager-databases-tab.png)
 
 A "Recommended for your system" banner at the top of the Databases tab
 suggests the database that best fits the RAM available on your Mac.

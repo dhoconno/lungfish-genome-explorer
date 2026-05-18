@@ -245,7 +245,7 @@ private let SQLITE_TRANSIENT_DESTRUCTOR = unsafeBitCast(-1, to: sqlite3_destruct
 /// combined with `SQLITE_TRANSIENT` so SQLite copies the bytes immediately.
 /// This prevents dangling pointer bugs from temporary NSString conversions.
 private func sqliteBindText(_ stmt: OpaquePointer?, _ index: Int32, _ text: String) {
-    text.withCString { cStr in
+    _ = text.withCString { cStr in
         sqlite3_bind_text(stmt, index, cStr, -1, SQLITE_TRANSIENT_DESTRUCTOR)
     }
 }
@@ -862,7 +862,8 @@ public final class VariantDatabase: @unchecked Sendable {
             let keyParam = paramIndex; paramIndex += 1
             let valueParam = paramIndex; paramIndex += 1
             bindings.append((keyParam, key))
-            bindings.append((valueParam, value))
+            let boundValue = op == .like ? SQLiteLikePattern.contains(value) : value
+            bindings.append((valueParam, boundValue))
 
             let cast = "CAST(vi.value AS REAL)"
             let cmp: String
@@ -873,7 +874,7 @@ public final class VariantDatabase: @unchecked Sendable {
             case .lte:  cmp = "\(cast) <= CAST(? AS REAL)"
             case .eq:   cmp = "vi.value = ?"
             case .neq:  cmp = "vi.value != ?"
-            case .like: cmp = "vi.value LIKE '%' || ? || '%'"
+            case .like: cmp = "vi.value LIKE ? ESCAPE '\\'"
             }
 
             let sql = "EXISTS (SELECT 1 FROM variant_info vi WHERE vi.variant_id = variants.id AND vi.key COLLATE NOCASE = ? AND \(cmp))"
@@ -930,8 +931,8 @@ public final class VariantDatabase: @unchecked Sendable {
         }
 
         if !nameFilter.isEmpty {
-            conditions.append("variants.variant_id LIKE ?")
-            bindings.append((paramIndex, .text("%\(nameFilter)%")))
+            conditions.append("variants.variant_id LIKE ? ESCAPE '\\'")
+            bindings.append((paramIndex, .text(SQLiteLikePattern.contains(nameFilter))))
             paramIndex += 1
         }
 
@@ -1071,8 +1072,8 @@ public final class VariantDatabase: @unchecked Sendable {
         }
 
         if !nameFilter.isEmpty {
-            conditions.append("variants.variant_id LIKE ?")
-            bindings.append((paramIndex, .text("%\(nameFilter)%")))
+            conditions.append("variants.variant_id LIKE ? ESCAPE '\\'")
+            bindings.append((paramIndex, .text(SQLiteLikePattern.contains(nameFilter))))
             paramIndex += 1
         }
 
@@ -1170,8 +1171,8 @@ public final class VariantDatabase: @unchecked Sendable {
         var paramIndex: Int32 = 4
 
         if !nameFilter.isEmpty {
-            conditions.append("\(colPrefix)variant_id LIKE ?\(paramIndex)")
-            bindings.append((paramIndex, .text("%\(nameFilter)%")))
+            conditions.append("\(colPrefix)variant_id LIKE ?\(paramIndex) ESCAPE '\\'")
+            bindings.append((paramIndex, .text(SQLiteLikePattern.contains(nameFilter))))
             paramIndex += 1
         }
 
@@ -1262,8 +1263,8 @@ public final class VariantDatabase: @unchecked Sendable {
         var paramIndex: Int32 = 4
 
         if !nameFilter.isEmpty {
-            conditions.append("variants.variant_id LIKE ?\(paramIndex)")
-            bindings.append((paramIndex, .text("%\(nameFilter)%")))
+            conditions.append("variants.variant_id LIKE ?\(paramIndex) ESCAPE '\\'")
+            bindings.append((paramIndex, .text(SQLiteLikePattern.contains(nameFilter))))
             paramIndex += 1
         }
 
@@ -1322,12 +1323,12 @@ public final class VariantDatabase: @unchecked Sendable {
     public func searchByID(idFilter: String, limit: Int = 1000) -> [VariantDatabaseRecord] {
         guard let db, !idFilter.isEmpty else { return [] }
 
-        let sql = "SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants WHERE variant_id LIKE ? ORDER BY variant_id COLLATE NOCASE LIMIT ?"
+        let sql = "SELECT id, chromosome, position, end_pos, variant_id, ref, alt, variant_type, quality, filter, info, sample_count FROM variants WHERE variant_id LIKE ? ESCAPE '\\' ORDER BY variant_id COLLATE NOCASE LIMIT ?"
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [] }
 
-        sqliteBindText(stmt, 1, "%\(idFilter)%")
+        sqliteBindText(stmt, 1, SQLiteLikePattern.contains(idFilter))
         sqlite3_bind_int(stmt, 2, Int32(limit))
 
         return readVariantRows(stmt: stmt!)
@@ -1356,6 +1357,10 @@ public final class VariantDatabase: @unchecked Sendable {
         "rare_amino_acid_variant",
     ]
 
+    private static func sqliteStringLiteral(_ value: String) -> String {
+        "'\(value.replacingOccurrences(of: "'", with: "''"))'"
+    }
+
     private static func biologicalHighImpactTokenSQL(
         impactKeys: [String],
         consequenceKeys: [String]
@@ -1378,13 +1383,15 @@ public final class VariantDatabase: @unchecked Sendable {
     }
 
     private static func biologicalHighImpactRawInfoSQL() -> String {
-        let highImpactMatches = [
-            "UPPER(info) LIKE '%IMPACT=HIGH%'",
-            "UPPER(info) LIKE '%ANN_IMPACT=HIGH%'",
-            "UPPER(info) LIKE '%CSQ_IMPACT=HIGH%'",
-        ].joined(separator: " OR ")
+        let normalizedInfo = "';' || UPPER(info) || ';'"
+        let highImpactMatches = Set(impactInfoKeys.map { $0.uppercased() })
+            .sorted()
+            .map { key in
+                "INSTR(\(normalizedInfo), \(sqliteStringLiteral(";\(key)=HIGH;"))) > 0"
+            }
+            .joined(separator: " OR ")
         let severeConsequenceMatches = biologicalHighImpactConsequenceTerms
-            .map { "LOWER(info) LIKE '%\($0)%'" }
+            .map { "INSTR(LOWER(info), \(sqliteStringLiteral($0))) > 0" }
             .joined(separator: " OR ")
         return """
         SELECT id AS variant_id FROM variants
@@ -2148,7 +2155,9 @@ public final class VariantDatabase: @unchecked Sendable {
 
         do {
             for (key, value) in values {
-                Self.insertMetadataRow(db, key: key, value: value, replace: true)
+                guard Self.insertMetadataRow(db, key: key, value: value, replace: true) else {
+                    throw VariantDatabaseError.createFailed("Failed to insert metadata value for \(key)")
+                }
             }
             sqlite3_exec(db, "COMMIT", nil, nil, nil)
         } catch {
@@ -5827,8 +5836,13 @@ public final class VariantDatabase: @unchecked Sendable {
 
     /// Classifies a variant based on ref/alt alleles.
     static func classifyVariant(ref: String, alts: [String]) -> String {
-        guard let firstAlt = alts.first, !firstAlt.isEmpty, firstAlt != "." else {
+        let concreteAlts = alts.filter { !$0.isEmpty && $0 != "." }
+        guard let firstAlt = concreteAlts.first else {
             return VariantType.reference.rawValue
+        }
+
+        guard !concreteAlts.contains(where: isNonSequenceAlt) else {
+            return VariantType.complex.rawValue
         }
 
         if ref.count == 1 && firstAlt.count == 1 {
@@ -5846,11 +5860,15 @@ public final class VariantDatabase: @unchecked Sendable {
 
     /// Classifies a variant using the first ALT allele without allocating intermediate strings.
     static func classifyVariant(ref: Substring, altField: Substring) -> String {
-        guard let firstAlt = altField.split(separator: ",", omittingEmptySubsequences: false).first,
-              !firstAlt.isEmpty,
-              firstAlt != "."
-        else {
+        let concreteAlts = altField
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .filter { !$0.isEmpty && $0 != "." }
+        guard let firstAlt = concreteAlts.first else {
             return VariantType.reference.rawValue
+        }
+
+        guard !concreteAlts.contains(where: isNonSequenceAlt) else {
+            return VariantType.complex.rawValue
         }
 
         if ref.count == 1 && firstAlt.count == 1 {
@@ -5864,6 +5882,12 @@ public final class VariantDatabase: @unchecked Sendable {
         } else {
             return VariantType.complex.rawValue
         }
+    }
+
+    private static func isNonSequenceAlt<S: StringProtocol>(_ alt: S) -> Bool {
+        (alt.count == 1 && alt.first == "*") ||
+            (alt.count > 2 && alt.first == "<" && alt.last == ">") ||
+            alt.contains { $0 == "[" || $0 == "]" }
     }
 
     /// Parses a VCF ##INFO=<ID=X,Number=Y,Type=Z,Description="..."> header line.

@@ -785,7 +785,7 @@ final class ImageCategoryPurposeRegressionTests: XCTestCase {
 final class DefaultContainerImagesRegressionTests: XCTestCase {
 
     func testCoreImageCount() {
-        XCTAssertEqual(DefaultContainerImages.coreImages.count, 5)
+        XCTAssertEqual(DefaultContainerImages.coreImages.count, 4)
     }
 
     func testOptionalImageCount() {
@@ -804,7 +804,6 @@ final class DefaultContainerImagesRegressionTests: XCTestCase {
         XCTAssertTrue(ids.contains("samtools"))
         XCTAssertTrue(ids.contains("bcftools"))
         XCTAssertTrue(ids.contains("htslib"))
-        XCTAssertTrue(ids.contains("ucsc-bedtobigbed"))
         XCTAssertTrue(ids.contains("ucsc-bedgraphtobigwig"))
     }
 
@@ -827,7 +826,7 @@ final class DefaultContainerImagesRegressionTests: XCTestCase {
 
     func testImagesByCategory() {
         let core = DefaultContainerImages.images(for: .core)
-        XCTAssertEqual(core.count, 5)
+        XCTAssertEqual(core.count, 4)
         for image in core {
             XCTAssertEqual(image.category, .core)
         }
@@ -1368,7 +1367,7 @@ final class BundledToolSpecRegressionTests: XCTestCase {
     func testUCSCToolsFactory() {
         let spec = BundledToolSpec.ucscTools()
         XCTAssertEqual(spec.name, "ucsc-tools")
-        XCTAssertEqual(spec.executables, ["bedToBigBed", "bedGraphToBigWig"])
+        XCTAssertEqual(spec.executables, ["bedGraphToBigWig"])
         XCTAssertEqual(spec.supportedArchitectures, [.x86_64])
         XCTAssertNotNil(spec.notes)
     }
@@ -2197,99 +2196,6 @@ final class DatabaseStatusRegressionTests: XCTestCase {
         XCTAssertEqual(DatabaseStatus.corrupt.rawValue, "corrupt")
         XCTAssertEqual(DatabaseStatus.volumeNotMounted.rawValue, "volumeNotMounted")
         XCTAssertEqual(DatabaseStatus.missing.rawValue, "missing")
-    }
-}
-
-// MARK: - ValidationResult Tests
-
-final class ValidationResultRegressionTests: XCTestCase {
-
-    func testValid() {
-        let result = ValidationResult.valid
-        XCTAssertTrue(result.isValid)
-        XCTAssertTrue(result.errors.isEmpty)
-    }
-
-    func testInvalid() {
-        let error = ValidationError(message: "Something wrong")
-        let result = ValidationResult.invalid(reasons: [error])
-        XCTAssertFalse(result.isValid)
-        XCTAssertEqual(result.errors.count, 1)
-    }
-
-    func testCombinedBothValid() {
-        let combined = ValidationResult.valid.combined(with: .valid)
-        XCTAssertTrue(combined.isValid)
-    }
-
-    func testCombinedOneInvalid() {
-        let error = ValidationError(message: "err")
-        let combined = ValidationResult.valid.combined(with: .invalid(reasons: [error]))
-        XCTAssertFalse(combined.isValid)
-        XCTAssertEqual(combined.errors.count, 1)
-    }
-
-    func testCombinedBothInvalid() {
-        let e1 = ValidationError(message: "a")
-        let e2 = ValidationError(message: "b")
-        let combined = ValidationResult.invalid(reasons: [e1])
-            .combined(with: .invalid(reasons: [e2]))
-        XCTAssertEqual(combined.errors.count, 2)
-    }
-
-    func testEquatable() {
-        XCTAssertEqual(ValidationResult.valid, ValidationResult.valid)
-    }
-
-    func testDescription() {
-        XCTAssertEqual(ValidationResult.valid.description, "Valid")
-        let invalid = ValidationResult.invalid(reasons: [ValidationError(message: "oops")])
-        XCTAssertTrue(invalid.description.contains("oops"))
-    }
-}
-
-// MARK: - ValidationError Tests
-
-final class ValidationErrorRegressionTests: XCTestCase {
-
-    func testConstruction() {
-        let error = ValidationError(message: "missing file", suggestion: "add a file")
-        XCTAssertEqual(error.message, "missing file")
-        XCTAssertEqual(error.suggestion, "add a file")
-        XCTAssertEqual(error.category, .requirement)
-    }
-
-    func testCategories() {
-        XCTAssertEqual(ErrorCategory.allCases.count, 5)
-        XCTAssertTrue(ErrorCategory.allCases.contains(.capability))
-        XCTAssertTrue(ErrorCategory.allCases.contains(.count))
-        XCTAssertTrue(ErrorCategory.allCases.contains(.format))
-        XCTAssertTrue(ErrorCategory.allCases.contains(.requirement))
-        XCTAssertTrue(ErrorCategory.allCases.contains(.compatibility))
-    }
-
-    func testFactoryMethods() {
-        let tooFew = ValidationError.tooFewInputs(expected: 2, actual: 1)
-        XCTAssertEqual(tooFew.category, .count)
-        XCTAssertTrue(tooFew.message.contains("2"))
-
-        let tooMany = ValidationError.tooManyInputs(expected: 1, actual: 3)
-        XCTAssertEqual(tooMany.category, .count)
-
-        let missing = ValidationError.missingCapabilities("alignment", inputIndex: 0)
-        XCTAssertEqual(missing.category, .capability)
-        XCTAssertTrue(missing.message.contains("input 0"))
-
-        let format = ValidationError.formatMismatch(preferred: "BAM", actual: "SAM")
-        XCTAssertEqual(format.category, .format)
-    }
-
-    func testDescription() {
-        let withSuggestion = ValidationError(message: "err", suggestion: "fix it")
-        XCTAssertTrue(withSuggestion.description.contains("fix it"))
-
-        let withoutSuggestion = ValidationError(message: "err")
-        XCTAssertEqual(withoutSuggestion.description, "err")
     }
 }
 

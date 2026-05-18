@@ -81,7 +81,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
 
     // MARK: - Command Construction Tests
 
-    @available(macOS 26, *)
     func testBuildCommandIsolateMode() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -117,7 +116,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.contains("/output"))
     }
 
-    @available(macOS 26, *)
     func testBuildCommandMetaMode() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -144,7 +142,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.contains("32")) // memory
     }
 
-    @available(macOS 26, *)
     func testBuildCommandCustomKmers() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -166,7 +163,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.contains("21,33,55"))
     }
 
-    @available(macOS 26, *)
     func testBuildCommandSkipErrorCorrection() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -187,7 +183,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertTrue(command.contains("--only-assembler"))
     }
 
-    @available(macOS 26, *)
     func testBuildCommandNoErrorCorrectionFlag() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -208,7 +203,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         XCTAssertFalse(command.contains("--only-assembler"))
     }
 
-    @available(macOS 26, *)
     func testCommandNeverContainsCareful() {
         let pipeline = SPAdesAssemblyPipeline()
         for mode in SPAdesMode.allCases {
@@ -230,7 +224,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
         }
     }
 
-    @available(macOS 26, *)
     func testBuildCommandMultiplePairedLibraries() {
         let pipeline = SPAdesAssemblyPipeline()
         let config = SPAdesAssemblyConfig(
@@ -324,7 +317,6 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
 
     // MARK: - Image Reference Tests
 
-    @available(macOS 26, *)
     func testSPAdesImageReference() {
         let ref = SPAdesAssemblyPipeline.spadesImageReference
         XCTAssertTrue(ref.contains("spades"), "Image reference should contain 'spades'")
@@ -354,7 +346,7 @@ final class SPAdesAssemblyPipelineTests: XCTestCase {
 
     func testCoreImagesExist() {
         let coreImages = DefaultContainerImages.coreImages
-        XCTAssertGreaterThanOrEqual(coreImages.count, 5)
+        XCTAssertGreaterThanOrEqual(coreImages.count, 4)
 
         let coreIds = Set(coreImages.map(\.id))
         XCTAssertTrue(coreIds.contains("samtools"))

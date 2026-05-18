@@ -9,6 +9,7 @@ import LungfishCore
 public enum AppIcon {
     /// Returns the app icon image loaded from the bundled resources
     /// Falls back to NSApp.applicationIconImage if the resource cannot be loaded
+    @MainActor
     public static var image: NSImage {
         if let url = RuntimeResourceLocator.path("Images/about-logo.png", in: .app),
            let image = NSImage(contentsOf: url) {

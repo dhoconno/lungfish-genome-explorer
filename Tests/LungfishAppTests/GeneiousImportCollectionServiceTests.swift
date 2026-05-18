@@ -58,6 +58,71 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(provenance.status, .completed)
         XCTAssertGreaterThanOrEqual(provenance.steps.count, 3)
         XCTAssertTrue(provenance.steps.contains { $0.toolName == "Geneious Import" })
+        XCTAssertEqual(
+            provenance.steps.first?.command,
+            ["lungfish", "import", "geneious", archiveURL.path, "--project", projectURL.path]
+        )
+        XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--collection"))
+        XCTAssertFalse(provenance.steps.flatMap(\.command).contains("--geneious-source"))
+
+        let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
+        let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(bundleProvenance.workflowName, "Geneious Import")
+        XCTAssertEqual(bundleProvenance.argv, provenance.steps.first?.command)
+        XCTAssertEqual(bundleProvenance.options.explicit["project"]?.fileValue, projectURL)
+        XCTAssertEqual(bundleProvenance.options.explicit["collection"]?.fileValue, result.collectionURL)
+        XCTAssertEqual(bundleProvenance.options.explicit["preserveRawSource"]?.booleanValue, false)
+        XCTAssertEqual(bundleProvenance.options.explicit["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.explicit["preserveUnsupportedArtifacts"]?.booleanValue, false)
+        XCTAssertTrue(bundleProvenance.options.explicit["collectionName"]?.isNull == true)
+        XCTAssertEqual(bundleProvenance.options.defaults["collectionName"], .null)
+        XCTAssertEqual(bundleProvenance.options.defaults["preserveRawSource"]?.booleanValue, false)
+        XCTAssertEqual(bundleProvenance.options.defaults["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.defaults["preserveUnsupportedArtifacts"]?.booleanValue, false)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["project"]?.fileValue, projectURL)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["collection"]?.fileValue, result.collectionURL)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["preserveRawSource"]?.booleanValue, false)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["importStandaloneReferences"]?.booleanValue, true)
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["preserveUnsupportedArtifacts"]?.booleanValue, false)
+        XCTAssertTrue(bundleProvenance.options.resolvedDefaults["collectionName"]?.isNull == true)
+        XCTAssertEqual(bundleProvenance.durableReplayArgv, provenance.steps.first?.command)
+
+        let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+        let expectedManifestRecord = ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)
+        let manifestOutput = try XCTUnwrap(bundleProvenance.outputs.first { $0.path == manifestURL.path })
+        XCTAssertEqual(manifestOutput.checksumSHA256, expectedManifestRecord.sha256)
+        XCTAssertEqual(manifestOutput.fileSize, expectedManifestRecord.sizeBytes)
+    }
+
+    func testCollectionProvenanceCommandRecordsCollectionNameWithRealCLIFlag() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let archiveURL = try makeGeneiousArchive(root: root, name: "Example.geneious")
+
+        let result = try await makeService().importGeneiousExport(
+            sourceURL: archiveURL,
+            projectURL: projectURL,
+            options: GeneiousImportOptions(collectionName: "Reviewed Batch")
+        )
+
+        let provenanceData = try Data(contentsOf: result.provenanceURL)
+        let provenanceDecoder = JSONDecoder()
+        provenanceDecoder.dateDecodingStrategy = .iso8601
+        let provenance = try provenanceDecoder.decode(WorkflowRun.self, from: provenanceData)
+        XCTAssertEqual(
+            provenance.steps.first?.command,
+            [
+                "lungfish", "import", "geneious", archiveURL.path,
+                "--project", projectURL.path,
+                "--collection-name", "Reviewed Batch",
+            ]
+        )
+
+        let bundleURL = try XCTUnwrap(result.nativeBundleURLs.first)
+        let bundleProvenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: bundleURL))
+        XCTAssertEqual(bundleProvenance.options.explicit["collectionName"]?.stringValue, "Reviewed Batch")
+        XCTAssertEqual(bundleProvenance.options.resolvedDefaults["collectionName"]?.stringValue, "Reviewed Batch")
     }
 
     func testImportPreservesUnsupportedArchiveMembersAsBinaryArtifactsWhenRequested() async throws {
@@ -96,6 +161,11 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
                 await capture.record(sourceURL: sourceURL, outputDirectory: outputDirectory, preferredName: preferredName)
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
                 try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try writeMinimalReferenceBundleProvenance(
+                    bundleURL: bundle,
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory
+                )
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
             }
         )
@@ -113,6 +183,35 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
         XCTAssertEqual(calls.first?.preferredName, "reference")
         XCTAssertEqual(result.nativeBundleURLs.count, 1)
         XCTAssertEqual(result.nativeBundleURLs.first?.lastPathComponent, "reference.lungfishref")
+    }
+
+    func testImportRejectsReferenceBundleWithoutProvenanceSidecar() async throws {
+        let root = try makeTempDirectory()
+        let projectURL = root.appendingPathComponent("Project.lungfish", isDirectory: true)
+        try fileManager.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        let archiveURL = try makeGeneiousArchive(root: root, name: "Example.geneious")
+        let service = GeneiousImportCollectionService(
+            scanner: GeneiousImportScanner(),
+            referenceImporter: { _, outputDirectory, preferredName in
+                let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
+                try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
+            }
+        )
+
+        do {
+            _ = try await service.importGeneiousExport(
+                sourceURL: archiveURL,
+                projectURL: projectURL,
+                options: .default
+            )
+            XCTFail("Import should fail when the created reference bundle has no provenance sidecar")
+        } catch let error as ReferenceBundleImportProvenanceError {
+            guard case .missingSidecar(let bundleURL) = error else {
+                return XCTFail("Unexpected provenance error: \(error)")
+            }
+            XCTAssertEqual(bundleURL.pathExtension, "lungfishref")
+        }
     }
 
     func testImportDecodesPackedGeneiousNucleotideSequencesIntoReferenceBundle() async throws {
@@ -139,6 +238,11 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
                 )
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
                 try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+                try writeMinimalReferenceBundleProvenance(
+                    bundleURL: bundle,
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory
+                )
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
             },
             annotationImporter: { gffURL, bundleURL in
@@ -207,10 +311,16 @@ final class GeneiousImportCollectionServiceTests: XCTestCase {
             referenceImporter: { sourceURL, outputDirectory, preferredName in
                 let bundle = outputDirectory.appendingPathComponent("\(preferredName).lungfishref", isDirectory: true)
                 try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
-                try "bundle for \(sourceURL.lastPathComponent)".write(
-                    to: bundle.appendingPathComponent("manifest.txt"),
-                    atomically: true,
-                    encoding: .utf8
+                let manifest = BundleManifest(
+                    name: preferredName,
+                    identifier: "org.lungfish.test.\(UUID().uuidString.lowercased())",
+                    source: SourceInfo(organism: "Synthetic", assembly: "test")
+                )
+                try manifest.save(to: bundle)
+                try writeMinimalReferenceBundleProvenance(
+                    bundleURL: bundle,
+                    sourceURL: sourceURL,
+                    outputDirectory: outputDirectory
                 )
                 return ReferenceBundleImportResult(bundleURL: bundle, bundleName: preferredName)
             }
@@ -441,4 +551,42 @@ private actor AnnotationImportCapture {
             featureCount: gff3Text.split(separator: "\n").filter { !$0.hasPrefix("#") }.count
         )
     }
+}
+
+private func writeMinimalReferenceBundleProvenance(
+    bundleURL: URL,
+    sourceURL: URL,
+    outputDirectory: URL
+) throws {
+    let command = [
+        "lungfish", "import", "fasta", sourceURL.path,
+        "--output-dir", outputDirectory.path,
+    ]
+    let input = ProvenanceRecorder.fileRecord(url: sourceURL, role: .input)
+    let manifestURL = bundleURL.appendingPathComponent(BundleManifest.filename)
+    let outputs = FileManager.default.fileExists(atPath: manifestURL.path)
+        ? [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
+        : [ProvenanceRecorder.fileRecord(url: bundleURL, role: .output)]
+    let step = StepExecution(
+        toolName: "ReferenceBundleImportService",
+        toolVersion: "test",
+        command: command,
+        inputs: [input],
+        outputs: outputs,
+        exitCode: 0,
+        wallTime: 0.1,
+        endTime: Date()
+    )
+    let run = WorkflowRun(
+        name: "NativeBundleBuilder.build",
+        status: .completed,
+        steps: [step],
+        parameters: [
+            "source_url": .file(sourceURL),
+            "input_files": .array([.file(sourceURL)]),
+            "output_directory": .file(outputDirectory),
+            "bundle_path": .file(bundleURL),
+        ]
+    )
+    try ProvenanceWriter(signingProvider: nil).write(run.canonicalEnvelope(), to: bundleURL)
 }

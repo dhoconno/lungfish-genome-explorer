@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishWorkflow
 import os.log
 
 private let applicationExportImportLogger = Logger(
@@ -232,7 +233,7 @@ actor CLIApplicationExportImportRunner {
             consumeStderr(chunk)
         }
 
-        await MainActor.run {
+        await performCLIOperationCenterUpdate {
             OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 

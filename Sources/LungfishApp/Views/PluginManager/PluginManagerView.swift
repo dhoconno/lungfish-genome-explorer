@@ -11,6 +11,8 @@ enum PluginManagerAccessibilityID {
     static let root = "plugin-manager-root"
     static let toolbarSegmentedControl = "plugin-manager-segmented-control"
     static let installedBrowsePacksButton = "plugin-manager-installed-browse-packs-button"
+    static let orphanedEnvironmentsRecovery = "plugin-manager-orphaned-environments-recovery"
+    static let orphanedEnvironmentsRemoveButton = "plugin-manager-orphaned-environments-remove-button"
     static let databasesRefreshButton = "plugin-manager-databases-refresh-button"
     static let storageSettingsButton = "plugin-manager-storage-settings-button"
 
@@ -139,9 +141,9 @@ private struct InstalledTabView: View {
     @State private var expandedEnvironments: Set<String> = []
 
     var body: some View {
-        if viewModel.isLoading && viewModel.environments.isEmpty {
+        if viewModel.isLoading && viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
             loadingPlaceholder
-        } else if viewModel.environments.isEmpty {
+        } else if viewModel.environments.isEmpty && viewModel.orphanedEnvironments.isEmpty {
             emptyPlaceholder
         } else {
             environmentList
@@ -181,6 +183,19 @@ private struct InstalledTabView: View {
 
     private var environmentList: some View {
         List {
+            if !viewModel.orphanedEnvironments.isEmpty {
+                OrphanedEnvironmentRecoveryRow(
+                    diagnosticText: viewModel.orphanedEnvironmentDiagnosticText,
+                    isRemoving: viewModel.orphanedEnvironments.contains {
+                        viewModel.removingEnvironments.contains($0.name)
+                    },
+                    onRemove: {
+                        viewModel.removeOrphanedEnvironments()
+                    }
+                )
+                .listRowBackground(Color.lungfishCardBackground)
+            }
+
             ForEach(viewModel.environments) { env in
                 EnvironmentRow(
                     environment: env,
@@ -219,6 +234,48 @@ private struct InstalledTabView: View {
                 viewModel.loadPackages(for: name)
             }
         }
+    }
+}
+
+// MARK: - Orphaned Environment Recovery Row
+
+private struct OrphanedEnvironmentRecoveryRow: View {
+
+    let diagnosticText: String
+    let isRemoving: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.lungfishCreamsicleFallback)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Orphaned Environments")
+                    .font(.headline)
+                Text(diagnosticText)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishSecondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            if isRemoving {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button(role: .destructive) {
+                    onRemove()
+                } label: { Text("Remove") }
+                .controlSize(.small)
+                .tint(.red)
+                .help("Remove orphaned hash-named environments")
+                .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRemoveButton)
+            }
+        }
+        .padding(.vertical, 8)
+        .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRecovery)
     }
 }
 
@@ -266,6 +323,7 @@ private struct EnvironmentRow: View {
                     }
                     label: { Text("Remove") }
                     .controlSize(.small)
+                    .tint(.red)
                     .help("Remove this environment and all its packages")
                     .accessibilityIdentifier(PluginManagerAccessibilityID.environmentRemoveButton(environment.name))
                 }
@@ -447,6 +505,34 @@ private struct PacksTabView: View {
 
 // MARK: - Pack Card
 
+enum PackCardPrimaryAction: Equatable {
+    case none
+    case install(title: String)
+    case removeAll
+}
+
+struct PackCardPresentation: Equatable {
+    let installedCount: Int
+    let isReady: Bool
+    let primaryAction: PackCardPrimaryAction
+
+    init(status: PluginPackStatus, isInstalling: Bool, canRemove: Bool) {
+        installedCount = status.toolStatuses.filter(\.isReady).count
+        isReady = status.state == .ready
+
+        if isInstalling {
+            primaryAction = .none
+        } else if isReady {
+            primaryAction = status.pack.isRequiredBeforeLaunch ? .none : (canRemove ? .removeAll : .none)
+        } else {
+            let title = status.shouldReinstall
+                ? "Reinstall"
+                : (status.pack.isRequiredBeforeLaunch ? "Install" : "Install All")
+            primaryAction = .install(title: title)
+        }
+    }
+}
+
 /// A card view for a single plugin pack.
 private struct PackCard: View {
 
@@ -462,18 +548,22 @@ private struct PackCard: View {
         status.pack
     }
 
+    private var presentation: PackCardPresentation {
+        PackCardPresentation(
+            status: status,
+            isInstalling: isInstalling,
+            canRemove: onRemoveAll != nil
+        )
+    }
+
     /// How many of this pack's tools are ready to use.
     private var installedCount: Int {
-        status.toolStatuses.filter(\.isReady).count
+        presentation.installedCount
     }
 
     /// Whether this pack is currently ready to use.
     private var isReady: Bool {
-        status.state == .ready
-    }
-
-    private var installActionTitle: String {
-        status.shouldReinstall ? "Reinstall" : (pack.isRequiredBeforeLaunch ? "Install" : "Install All")
+        presentation.isReady
     }
 
     var body: some View {
@@ -517,26 +607,27 @@ private struct PackCard: View {
                         }
                     }
                     .frame(width: 140)
-                } else if pack.isRequiredBeforeLaunch {
-                    Button {
-                        onInstallAll()
-                    } label: { Text(installActionTitle) }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
-                } else if isReady, let onRemoveAll {
-                    Button(role: .destructive) {
-                        onRemoveAll()
-                    } label: { Text("Remove All") }
-                    .controlSize(.small)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                 } else {
-                    Button {
-                        onInstallAll()
-                    } label: { Text(installActionTitle) }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
+                    switch presentation.primaryAction {
+                    case .none:
+                        EmptyView()
+                    case .install(let title):
+                        Button {
+                            onInstallAll()
+                        } label: { Text(title) }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
+                    case .removeAll:
+                        if let onRemoveAll {
+                            Button(role: .destructive) {
+                                onRemoveAll()
+                            } label: { Text("Remove All") }
+                            .controlSize(.small)
+                            .tint(.red)
+                            .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 14)
@@ -780,7 +871,7 @@ struct DatabasesTabView: View {
                     ForEach(section.databases) { db in
                         DatabaseRow(
                             database: db,
-                            isRecommended: db.name == viewModel.recommendedDatabaseName,
+                            isRecommended: viewModel.isRecommendedDatabase(db),
                             isDownloading: viewModel.downloadingDatabases.contains(db.name),
                             isRemoving: viewModel.removingDatabases.contains(db.name),
                             progress: viewModel.downloadProgress[db.name],
@@ -1043,6 +1134,7 @@ private struct DatabaseRow: View {
                     onRemove()
                 } label: { Text("Remove") }
                 .controlSize(.small)
+                .tint(.red)
                 .help("Remove this database and free disk space")
                 .accessibilityIdentifier(PluginManagerAccessibilityID.databaseRemoveButton(database.name))
             }

@@ -33,24 +33,19 @@ final class GenomicRegionEdgeCaseTests: XCTestCase {
     func testEmptyRegionDoesNotOverlapContainingRegion() {
         let empty = GenomicRegion(chromosome: "chr1", start: 500, end: 500)
         let big = GenomicRegion(chromosome: "chr1", start: 400, end: 600)
-        // big.start(400) < empty.end(500) && big.end(600) > empty.start(500) => true
-        // But empty: empty.start(500) < big.end(600) && empty.end(500) > big.start(400) => 500 > 400 is true AND 500 < 600 is true => true
-        // Actually both overlap from the non-empty side's perspective.
-        // Let's test the empty region perspective:
-        XCTAssertFalse(empty.overlaps(empty),
-            "Empty-empty overlap should be false")
+        XCTAssertFalse(empty.overlaps(big),
+            "Empty region should not overlap a containing region")
+        XCTAssertFalse(big.overlaps(empty),
+            "Containing region should not overlap an empty region")
     }
 
     func testEmptyRegionIntersectionIsNil() {
         let empty = GenomicRegion(chromosome: "chr1", start: 500, end: 500)
         let other = GenomicRegion(chromosome: "chr1", start: 400, end: 600)
-        // intersection depends on overlaps; if empty doesn't overlap itself, check with other
-        // empty.overlaps(other): empty.start(500) < other.end(600) && empty.end(500) > other.start(400) => true && true => true
-        // So intersection should work:
+        // Empty half-open intervals do not overlap any region, so their
+        // intersection is absent rather than a zero-length region.
         let result = empty.intersection(other)
-        // max(500,400)=500, min(500,600)=500 => [500,500) which is empty
-        XCTAssertNotNil(result)
-        XCTAssertEqual(result?.length, 0)
+        XCTAssertNil(result)
     }
 
     // MARK: - Distance Symmetry

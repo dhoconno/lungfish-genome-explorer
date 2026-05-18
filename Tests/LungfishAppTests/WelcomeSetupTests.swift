@@ -37,23 +37,51 @@ private actor StubWelcomePackStatusProvider: PluginPackStatusProviding {
 private final class DelayedWelcomePackStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
     let statuses: [PluginPackStatus]
     private let lock = NSLock()
-    private var continuations: [CheckedContinuation<Void, Never>] = []
+    private var statusContinuation: CheckedContinuation<Void, Never>?
+    private var visibleContinuation: CheckedContinuation<Void, Never>?
+    private var statusCallCount = 0
+    private var visibleCallCount = 0
+    private let delayedStatusPackID: String?
+    private let delaysVisibleStatuses: Bool
 
-    init(statuses: [PluginPackStatus]) {
+    init(
+        statuses: [PluginPackStatus],
+        delayedStatusPackID: String? = nil,
+        delaysVisibleStatuses: Bool = true
+    ) {
         self.statuses = statuses
+        self.delayedStatusPackID = delayedStatusPackID
+        self.delaysVisibleStatuses = delaysVisibleStatuses
     }
 
     func visibleStatuses() async -> [PluginPackStatus] {
-        await withCheckedContinuation { continuation in
-            lock.withLock {
-                continuations.append(continuation)
+        let shouldDelay = lock.withLock {
+            visibleCallCount += 1
+            return delaysVisibleStatuses
+        }
+        if shouldDelay {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    visibleContinuation = continuation
+                }
             }
         }
         return statuses
     }
 
     func status(for pack: PluginPack) async -> PluginPackStatus {
-        statuses.first(where: { $0.pack.id == pack.id })!
+        let shouldDelay = lock.withLock {
+            statusCallCount += 1
+            return delayedStatusPackID == pack.id
+        }
+        if shouldDelay {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    statusContinuation = continuation
+                }
+            }
+        }
+        return statuses.first(where: { $0.pack.id == pack.id })!
     }
 
     func invalidateVisibleStatusesCache() async {}
@@ -64,19 +92,38 @@ private final class DelayedWelcomePackStatusProvider: @unchecked Sendable, Plugi
         progress: (@Sendable (PluginPackInstallProgress) -> Void)?
     ) async throws {}
 
-    func release() {
-        let pending = lock.withLock {
-            let pending = continuations
-            continuations.removeAll()
-            return pending
+    func releaseStatus() {
+        let continuation = lock.withLock {
+            let continuation = statusContinuation
+            statusContinuation = nil
+            return continuation
         }
-        for continuation in pending {
-            continuation.resume()
+        continuation?.resume()
+    }
+
+    func releaseVisibleStatuses() {
+        let continuation = lock.withLock {
+            let continuation = visibleContinuation
+            visibleContinuation = nil
+            return continuation
         }
+        continuation?.resume()
+    }
+
+    func hasPendingStatusRequest() -> Bool {
+        lock.withLock { statusContinuation != nil }
     }
 
     func hasPendingVisibleStatusesRequest() -> Bool {
-        lock.withLock { !continuations.isEmpty }
+        lock.withLock { visibleContinuation != nil }
+    }
+
+    func recordedStatusCallCount() -> Int {
+        lock.withLock { statusCallCount }
+    }
+
+    func recordedVisibleStatusesCallCount() -> Int {
+        lock.withLock { visibleCallCount }
     }
 }
 
@@ -109,7 +156,9 @@ private final class StatefulWelcomePackStatusProvider: @unchecked Sendable, Plug
     }
 
     func status(for pack: PluginPack) async -> PluginPackStatus {
-        loadingStatuses.first(where: { $0.pack.id == pack.id }) ?? initialStatuses.first(where: { $0.pack.id == pack.id })!
+        let currentCallCount = lock.withLock { callCount }
+        let statuses = currentCallCount == 0 ? initialStatuses : loadingStatuses
+        return statuses.first(where: { $0.pack.id == pack.id })!
     }
 
     func invalidateVisibleStatusesCache() async {}
@@ -139,14 +188,33 @@ private final class InstallingWelcomePackStatusProvider: @unchecked Sendable, Pl
     private let readyStatus: PluginPackStatus
     private let lock = NSLock()
     private var installed = false
+    private let delaysVisibleStatuses: Bool
+    private var visibleContinuation: CheckedContinuation<Void, Never>?
+    private var visibleCallCount = 0
 
-    init(missingStatus: PluginPackStatus, readyStatus: PluginPackStatus) {
+    init(
+        missingStatus: PluginPackStatus,
+        readyStatus: PluginPackStatus,
+        delaysVisibleStatuses: Bool = false
+    ) {
         self.missingStatus = missingStatus
         self.readyStatus = readyStatus
+        self.delaysVisibleStatuses = delaysVisibleStatuses
     }
 
     func visibleStatuses() async -> [PluginPackStatus] {
-        lock.withLock { installed } ? [readyStatus] : [missingStatus]
+        let shouldDelay = lock.withLock {
+            visibleCallCount += 1
+            return delaysVisibleStatuses
+        }
+        if shouldDelay {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    visibleContinuation = continuation
+                }
+            }
+        }
+        return lock.withLock { installed } ? [readyStatus] : [missingStatus]
     }
 
     func status(for pack: PluginPack) async -> PluginPackStatus {
@@ -170,6 +238,72 @@ private final class InstallingWelcomePackStatusProvider: @unchecked Sendable, Pl
             itemFraction: 1.0,
             message: "Installed"
         ))
+    }
+
+    func releaseVisibleStatuses() {
+        let continuation = lock.withLock {
+            let continuation = visibleContinuation
+            visibleContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+
+    func hasPendingVisibleStatusesRequest() -> Bool {
+        lock.withLock { visibleContinuation != nil }
+    }
+}
+
+private final class SequencedRequiredStatusProvider: @unchecked Sendable, PluginPackStatusProviding {
+    private let initialStatus: PluginPackStatus
+    private let refreshedStatus: PluginPackStatus
+    private let lock = NSLock()
+    private var statusCallCount = 0
+    private var statusContinuation: CheckedContinuation<Void, Never>?
+
+    init(initialStatus: PluginPackStatus, refreshedStatus: PluginPackStatus) {
+        self.initialStatus = initialStatus
+        self.refreshedStatus = refreshedStatus
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        lock.withLock { statusCallCount <= 1 } ? [initialStatus] : [refreshedStatus]
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        let callCount = lock.withLock {
+            statusCallCount += 1
+            return statusCallCount
+        }
+        if callCount > 1 {
+            await withCheckedContinuation { continuation in
+                lock.withLock {
+                    statusContinuation = continuation
+                }
+            }
+        }
+        return callCount == 1 ? initialStatus : refreshedStatus
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {}
+
+    func releaseStatus() {
+        let continuation = lock.withLock {
+            let continuation = statusContinuation
+            statusContinuation = nil
+            return continuation
+        }
+        continuation?.resume()
+    }
+
+    func hasPendingStatusRequest() -> Bool {
+        lock.withLock { statusContinuation != nil }
     }
 }
 
@@ -276,78 +410,60 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertLessThanOrEqual(window.contentMinSize.height, 700)
     }
 
-    func testWelcomeViewSourceOmitsBrandingHeaderStack() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+    func testWelcomeNavigationSectionsExposeExpectedLabelsAndIdentifiers() {
+        XCTAssertEqual(
+            WelcomeSection.allCases.map(\.rawValue),
+            ["Get Started", "Recent Projects", "Required Setup", "Optional Tools"]
         )
-
-        XCTAssertFalse(source.contains("Image(nsImage: Self.loadLogo())"))
-        XCTAssertFalse(source.contains("Text(\"Lungfish Genome Explorer\")"))
-        XCTAssertFalse(source.contains("Text(\"Seeing the invisible. Informing action.\")"))
+        XCTAssertEqual(
+            WelcomeSection.allCases.map(\.accessibilityIdentifier),
+            [
+                "welcome-nav-get-started",
+                "welcome-nav-recent-projects",
+                "welcome-nav-required-setup",
+                "welcome-nav-optional-tools",
+            ]
+        )
     }
 
-    func testWelcomeViewSourceIncludesSidebarNavigationSections() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+    func testRequiredSetupPresentationHidesPrimaryInstallWhenReady() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
         )
 
-        XCTAssertTrue(source.contains("Get Started"))
-        XCTAssertTrue(source.contains("Recent Projects"))
-        XCTAssertTrue(source.contains("Required Setup"))
-        XCTAssertTrue(source.contains("Optional Tools"))
+        let presentation = RequiredSetupCardPresentation(status: status)
+
+        XCTAssertTrue(presentation.isReady)
+        XCTAssertEqual(presentation.statusTitle, "Ready")
+        XCTAssertNil(presentation.primaryActionTitle)
+        XCTAssertFalse(presentation.showsAlternateStorageAction)
     }
 
-    func testWelcomeViewSourceUsesRequiredPackCopy() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
+    func testRequiredSetupPresentationShowsInstallWhenSetupIsMissing() {
+        let status = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
         )
 
-        XCTAssertFalse(source.contains("Lungfish Tools"))
-        XCTAssertTrue(source.contains("Checking Required Setup"))
-        XCTAssertTrue(source.contains("Preparing \\(pack.name)"))
-        XCTAssertTrue(source.contains("Text(status.pack.name)"))
-    }
+        let presentation = RequiredSetupCardPresentation(status: status)
 
-    func testWelcomeViewSourceIncludesAlternateStorageAction() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("Need more space? Choose another storage location…"))
-        XCTAssertTrue(source.contains("url.resolvingSymlinksInPath().standardizedFileURL"))
-        XCTAssertTrue(source.contains("var isStorageChooserEnabled: Bool"))
-        XCTAssertTrue(source.contains("Button(\"Use This Location\")"))
-        XCTAssertTrue(source.contains(".disabled(!viewModel.isStorageChooserEnabled)"))
-        XCTAssertTrue(source.contains(".disabled(!viewModel.canConfirmStorageSelection)"))
-    }
-
-    func testWelcomeViewSourceUsesWarmPaletteAndNoVerticalFixedSize() throws {
-        let source = try String(
-            contentsOf: repositoryRoot()
-                .appendingPathComponent("Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains("Color.lungfishWelcomeSidebarBackground"))
-        XCTAssertTrue(source.contains("Color.lungfishWelcomeCardBackground"))
-        XCTAssertTrue(source.contains("Color.lungfishCreamsicleFallback"))
-        XCTAssertTrue(source.contains("Color.lungfishSageFallback"))
-        XCTAssertFalse(source.contains("Color.accentColor"))
-        XCTAssertFalse(source.contains("? .green"))
-        XCTAssertFalse(source.contains("? .red"))
-        XCTAssertFalse(source.contains(".fixedSize(horizontal: false, vertical: true)"))
+        XCTAssertFalse(presentation.isReady)
+        XCTAssertEqual(presentation.statusTitle, "Needs Attention")
+        XCTAssertEqual(presentation.primaryActionTitle, "Install")
+        XCTAssertTrue(presentation.showsAlternateStorageAction)
     }
 
     func testAvailableActionsExcludeOpenFiles() {
         XCTAssertEqual(WelcomeAction.allCases, [.createProject, .openProject])
+        XCTAssertEqual(
+            WelcomeAction.allCases.map(\.accessibilityIdentifier),
+            ["welcome-create-project", "welcome-open-project"]
+        )
     }
 
     func testLaunchRemainsDisabledUntilRequiredSetupIsReady() async {
@@ -452,7 +568,7 @@ final class WelcomeSetupTests: XCTestCase {
         #endif
     }
 
-    func testRefreshSetupExposesLoadingStateWhileStatusesArePending() async {
+    func testRefreshSetupExposesLoadingStateWhileRequiredStatusIsPending() async {
         let required = PluginPackStatus(
             pack: .requiredSetupPack,
             state: .ready,
@@ -460,7 +576,52 @@ final class WelcomeSetupTests: XCTestCase {
             failureMessage: nil
         )
 
-        let provider = DelayedWelcomePackStatusProvider(statuses: [required])
+        let provider = DelayedWelcomePackStatusProvider(
+            statuses: [required],
+            delayedStatusPackID: PluginPack.requiredSetupPack.id,
+            delaysVisibleStatuses: false
+        )
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        let refreshTask = Task { await viewModel.refreshSetup() }
+        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(provider.hasPendingStatusRequest())
+        XCTAssertTrue(viewModel.isRefreshingSetup)
+        XCTAssertTrue(viewModel.isRefreshingRequiredSetup)
+        XCTAssertFalse(viewModel.isRefreshingOptionalPacks)
+        XCTAssertNil(viewModel.requiredSetupStatus)
+
+        provider.releaseStatus()
+        await refreshTask.value
+
+        XCTAssertFalse(viewModel.isRefreshingSetup)
+        XCTAssertFalse(viewModel.isRefreshingRequiredSetup)
+        XCTAssertFalse(viewModel.isRefreshingOptionalPacks)
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
+    func testRequiredSetupEnablesLaunchWhileOptionalStatusesArePending() async {
+        guard let readMapping = PluginPack.activeOptionalPacks.first(where: { $0.id == "read-mapping" }) else {
+            XCTFail("Expected active read-mapping pack")
+            return
+        }
+        let required = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let readMappingStatus = PluginPackStatus(
+            pack: readMapping,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+
+        let provider = DelayedWelcomePackStatusProvider(statuses: [required, readMappingStatus])
         let viewModel = WelcomeViewModel(statusProvider: provider)
 
         let refreshTask = Task { await viewModel.refreshSetup() }
@@ -469,14 +630,18 @@ final class WelcomeSetupTests: XCTestCase {
         }
 
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
-        XCTAssertTrue(viewModel.isRefreshingSetup)
-        XCTAssertNil(viewModel.requiredSetupStatus)
+        XCTAssertEqual(provider.recordedStatusCallCount(), 1)
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertTrue(viewModel.canLaunch)
+        XCTAssertFalse(viewModel.isRefreshingRequiredSetup)
+        XCTAssertTrue(viewModel.isRefreshingOptionalPacks)
+        XCTAssertTrue(viewModel.optionalPackStatuses.isEmpty)
 
-        provider.release()
+        provider.releaseVisibleStatuses()
         await refreshTask.value
 
         XCTAssertFalse(viewModel.isRefreshingSetup)
-        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping"])
     }
 
     func testRefreshSetupClearsLoadedStatusesWhileReloading() async {
@@ -544,7 +709,8 @@ final class WelcomeSetupTests: XCTestCase {
 
         XCTAssertTrue(provider.hasPendingVisibleStatusesRequest())
         XCTAssertTrue(viewModel.isRefreshingSetup)
-        XCTAssertNil(viewModel.requiredSetupStatus)
+        XCTAssertTrue(viewModel.isRefreshingOptionalPacks)
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
         XCTAssertTrue(viewModel.optionalPackStatuses.isEmpty)
 
         provider.release()
@@ -592,6 +758,91 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
     }
 
+    func testManagedResourceNotificationsCoalesceIntoOneFollowUpWhileRefreshIsInFlight() async {
+        let center = NotificationCenter()
+        let ready = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = DelayedWelcomePackStatusProvider(
+            statuses: [ready],
+            delayedStatusPackID: PluginPack.requiredSetupPack.id,
+            delaysVisibleStatuses: false
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: center
+        )
+
+        center.post(name: .managedResourcesDidChange, object: nil)
+        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(provider.hasPendingStatusRequest())
+        XCTAssertEqual(provider.recordedStatusCallCount(), 1)
+
+        center.post(name: .managedResourcesDidChange, object: nil)
+        center.post(name: .managedResourcesDidChange, object: nil)
+        provider.releaseStatus()
+        for _ in 0..<20 where provider.recordedStatusCallCount() < 2 || !provider.hasPendingStatusRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(provider.hasPendingStatusRequest())
+        XCTAssertEqual(provider.recordedStatusCallCount(), 2)
+
+        provider.releaseStatus()
+        for _ in 0..<20 where viewModel.isRefreshingSetup {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(provider.recordedStatusCallCount(), 2)
+        XCTAssertEqual(provider.recordedVisibleStatusesCallCount(), 2)
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+    }
+
+    func testRequiredRecheckDisablesLaunchUntilRequiredStatusReturns() async {
+        let ready = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let missing = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = SequencedRequiredStatusProvider(
+            initialStatus: ready,
+            refreshedStatus: missing
+        )
+        let viewModel = WelcomeViewModel(statusProvider: provider)
+
+        await viewModel.refreshSetup()
+        XCTAssertTrue(viewModel.canLaunch)
+
+        let refreshTask = Task { await viewModel.refreshSetup() }
+        for _ in 0..<20 where !provider.hasPendingStatusRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertTrue(provider.hasPendingStatusRequest())
+        XCTAssertNil(viewModel.requiredSetupStatus)
+        XCTAssertFalse(viewModel.canLaunch)
+        XCTAssertTrue(viewModel.isRefreshingRequiredSetup)
+
+        provider.releaseStatus()
+        await refreshTask.value
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
+        XCTAssertFalse(viewModel.canLaunch)
+    }
+
     func testInstallRequiredSetupPostsManagedResourcesDidChange() async {
         let center = NotificationCenter()
         let missing = PluginPackStatus(
@@ -636,7 +887,49 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
     }
 
-    func testRefreshSetupIgnoresStaleOverlappingResults() async {
+    func testInstallRequiredSetupRefreshesRequiredStatusWhenOptionalRefreshIsInFlight() async {
+        let missing = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let ready = PluginPackStatus(
+            pack: .requiredSetupPack,
+            state: .ready,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = InstallingWelcomePackStatusProvider(
+            missingStatus: missing,
+            readyStatus: ready,
+            delaysVisibleStatuses: true
+        )
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: NotificationCenter()
+        )
+
+        let refreshTask = Task { await viewModel.refreshSetup() }
+        for _ in 0..<20 where !provider.hasPendingVisibleStatusesRequest() {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .needsInstall)
+        XCTAssertTrue(viewModel.isRefreshingOptionalPacks)
+
+        viewModel.installRequiredSetup()
+        provider.releaseVisibleStatuses()
+        await refreshTask.value
+        for _ in 0..<20 where viewModel.isInstallingRequiredSetup || viewModel.isRefreshingSetup {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        XCTAssertTrue(viewModel.canLaunch)
+    }
+
+    func testRefreshSetupCoalescesOverlappingRequests() async {
         let stale = PluginPackStatus(
             pack: .requiredSetupPack,
             state: .needsInstall,
@@ -663,27 +956,16 @@ final class WelcomeSetupTests: XCTestCase {
         XCTAssertTrue(provider.hasPendingFirstRequest())
 
         let secondRefresh = Task { await viewModel.refreshSetup() }
-        for _ in 0..<20 where !provider.hasPendingSecondRequest() {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        XCTAssertEqual(provider.recordedCallCount(), 2)
-        XCTAssertTrue(provider.hasPendingSecondRequest())
-
-        provider.releaseSecond()
-        await secondRefresh.value
-
-        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(provider.recordedCallCount(), 1)
+        XCTAssertFalse(provider.hasPendingSecondRequest())
 
         provider.releaseFirst()
+        await secondRefresh.value
+        XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
+
         await firstRefresh.value
 
         XCTAssertEqual(viewModel.requiredSetupStatus?.state, .ready)
-    }
-
-    private func repositoryRoot() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
     }
 }

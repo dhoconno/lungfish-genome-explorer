@@ -842,123 +842,153 @@ public actor CondaManager {
         let homePath = FileManager.default.homeDirectoryForCurrentUser.path
         let tempDirectory = ProcessInfo.processInfo.environment["TMPDIR"]
 
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = executablePath
-            process.arguments = args
-            var env: [String: String] = [
-                "MAMBA_ROOT_PREFIX": rootPath,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "HOME": homePath,
-            ]
-            if let tempDirectory {
-                env["TMPDIR"] = tempDirectory
-            }
-            if let extraVars = environmentVariables {
-                env.merge(extraVars) { _, new in new }
-            }
-            process.environment = env
-            if let wd = workingDirectory {
-                process.currentDirectoryURL = wd
-            }
+        let cancellationHandle = NativeProcessCancellationHandle()
+        let runState = NativeProcessRunState()
 
-            let stdoutPipe = Pipe()
-            let stderrPipe = Pipe()
-            process.standardOutput = stdoutPipe
-            process.standardError = stderrPipe
-
-            // Use nonisolated(unsafe) for mutable buffers accessed from
-            // readabilityHandler callbacks and the termination handler.
-            // These closures are serialized by Process: readabilityHandler
-            // fires on the pipe's dispatch source queue, and the termination
-            // handler fires after the process exits (after all pipe data has
-            // been written). The asyncAfter delay ensures all pending
-            // readabilityHandler calls have drained before we read the buffers.
-            nonisolated(unsafe) let stdoutBuffer = NSMutableData()
-            nonisolated(unsafe) let stderrBuffer = NSMutableData()
-            nonisolated(unsafe) var continuationResumed = false
-
-            stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stdoutBuffer.append(data)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let process = Process()
+                process.executableURL = executablePath
+                process.arguments = args
+                var env: [String: String] = [
+                    "MAMBA_ROOT_PREFIX": rootPath,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "HOME": homePath,
+                ]
+                if let tempDirectory {
+                    env["TMPDIR"] = tempDirectory
                 }
-            }
+                if let extraVars = environmentVariables {
+                    env.merge(extraVars) { _, new in new }
+                }
+                process.environment = env
+                if let wd = workingDirectory {
+                    process.currentDirectoryURL = wd
+                }
 
-            stderrPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
+                let stdoutPipe = Pipe()
+                let stderrPipe = Pipe()
+                process.standardOutput = stdoutPipe
+                process.standardError = stderrPipe
+
+                // Use nonisolated(unsafe) for mutable buffers accessed from
+                // readabilityHandler callbacks and the termination handler.
+                // These closures are serialized by Process: readabilityHandler
+                // fires on the pipe's dispatch source queue, and the termination
+                // handler fires after the process exits (after all pipe data has
+                // been written). The asyncAfter delay ensures all pending
+                // readabilityHandler calls have drained before we read the buffers.
+                nonisolated(unsafe) let stdoutBuffer = NSMutableData()
+                nonisolated(unsafe) let stderrBuffer = NSMutableData()
+                cancellationHandle.store(process)
+
+                stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if data.isEmpty {
+                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                    } else {
+                        stdoutBuffer.append(data)
+                    }
+                }
+
+                stderrPipe.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if data.isEmpty {
+                        stderrPipe.fileHandleForReading.readabilityHandler = nil
+                    } else {
+                        stderrBuffer.append(data)
+                        // Forward lines to the stderrHandler if provided.
+                        if let handler = stderrHandler,
+                           let text = String(data: data, encoding: .utf8) {
+                            for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
+                                handler(String(line))
+                            }
+                        }
+                    }
+                }
+
+                // Timeout timer: terminates the process if it runs too long.
+                // nonisolated(unsafe) because DispatchWorkItem is not Sendable,
+                // but we only cancel it from the terminationHandler or catch
+                // block, never concurrently with its execution.
+                nonisolated(unsafe) let timeoutItem = DispatchWorkItem { [weak process] in
+                    guard let process, process.isRunning else { return }
+                    logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s, terminating")
+                    runState.markTimedOut()
+                    cancellationHandle.terminateProcessTree()
+                }
+                DispatchQueue.global().asyncAfter(
+                    deadline: .now() + timeout,
+                    execute: timeoutItem
+                )
+
+                process.terminationHandler = { terminatedProcess in
+                    // Cancel the timeout timer since the process finished.
+                    timeoutItem.cancel()
+
+                    // Small delay to let any remaining readabilityHandler
+                    // callbacks drain before we read the final buffer contents.
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                        cancellationHandle.clear(terminatedProcess)
+                        // Nil out handlers to break retain cycles.
+                        stdoutPipe.fileHandleForReading.readabilityHandler = nil
+                        stderrPipe.fileHandleForReading.readabilityHandler = nil
+
+                        let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
+                        let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
+
+                        runState.resumeOnce { reason in
+                            switch reason {
+                            case .cancelled:
+                                continuation.resume(throwing: CancellationError())
+                            case .timedOut:
+                                continuation.resume(
+                                    throwing: CondaError.timeout(tool: name, seconds: timeout)
+                                )
+                            case .completed:
+                                // Check if this was a timeout (SIGTERM = exit 15 or 143).
+                                if terminatedProcess.terminationReason == .uncaughtSignal
+                                    && (terminatedProcess.terminationStatus == 15
+                                        || terminatedProcess.terminationStatus == 143) {
+                                    continuation.resume(
+                                        throwing: CondaError.timeout(tool: name, seconds: timeout)
+                                    )
+                                } else {
+                                    continuation.resume(
+                                        returning: (stdout, stderr, terminatedProcess.terminationStatus)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                do {
+                    try process.run()
+                    cancellationHandle.terminateIfRequested(gracePeriod: 0)
+                    if runState.isCancelled {
+                        cancellationHandle.terminateProcessTree(gracePeriod: 0)
+                    }
+                } catch {
+                    timeoutItem.cancel()
+                    cancellationHandle.clear(process)
+                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stderrBuffer.append(data)
-                    // Forward lines to the stderrHandler if provided.
-                    if let handler = stderrHandler,
-                       let text = String(data: data, encoding: .utf8) {
-                        for line in text.split(separator: "\n", omittingEmptySubsequences: true) {
-                            handler(String(line))
+                    runState.resumeOnce { reason in
+                        switch reason {
+                        case .cancelled:
+                            continuation.resume(
+                                throwing: CancellationError()
+                            )
+                        case .completed, .timedOut:
+                            continuation.resume(throwing: error)
                         }
                     }
                 }
             }
-
-            // Timeout timer: terminates the process if it runs too long.
-            // nonisolated(unsafe) because DispatchWorkItem is not Sendable,
-            // but we only cancel it from the terminationHandler or catch
-            // block, never concurrently with its execution.
-            nonisolated(unsafe) let timeoutItem = DispatchWorkItem { [weak process] in
-                guard let process, process.isRunning else { return }
-                logger.warning("Tool '\(name, privacy: .public)' timed out after \(Int(timeout))s, terminating")
-                process.terminate()
-            }
-            DispatchQueue.global().asyncAfter(
-                deadline: .now() + timeout,
-                execute: timeoutItem
-            )
-
-            process.terminationHandler = { terminatedProcess in
-                // Cancel the timeout timer since the process finished.
-                timeoutItem.cancel()
-
-                // Small delay to let any remaining readabilityHandler
-                // callbacks drain before we read the final buffer contents.
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
-                    // Nil out handlers to break retain cycles.
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-
-                    guard !continuationResumed else { return }
-                    continuationResumed = true
-
-                    let stdout = String(data: stdoutBuffer as Data, encoding: .utf8) ?? ""
-                    let stderr = String(data: stderrBuffer as Data, encoding: .utf8) ?? ""
-
-                    // Check if this was a timeout (SIGTERM = exit 15 or 143).
-                    if terminatedProcess.terminationReason == .uncaughtSignal
-                        && (terminatedProcess.terminationStatus == 15
-                            || terminatedProcess.terminationStatus == 143) {
-                        continuation.resume(
-                            throwing: CondaError.timeout(tool: name, seconds: timeout)
-                        )
-                    } else {
-                        continuation.resume(
-                            returning: (stdout, stderr, terminatedProcess.terminationStatus)
-                        )
-                    }
-                }
-            }
-
-            do {
-                try process.run()
-            } catch {
-                timeoutItem.cancel()
-                stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                stderrPipe.fileHandleForReading.readabilityHandler = nil
-                guard !continuationResumed else { return }
-                continuationResumed = true
-                continuation.resume(throwing: error)
-            }
+        } onCancel: {
+            runState.markCancelled()
+            cancellationHandle.terminateProcessTree(gracePeriod: 0)
         }
     }
 

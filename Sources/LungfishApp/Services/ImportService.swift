@@ -11,9 +11,6 @@ import os.log
 /// Logger for import operations
 private let logger = Logger(subsystem: LogSubsystem.app, category: "ImportService")
 
-/// Type alias for backward compatibility - use UICategory from LungfishIO
-public typealias FileCategory = UICategory
-
 /// Detected file format information
 public struct DetectedFormat: Sendable {
     public let category: UICategory
@@ -144,14 +141,7 @@ public final class ImportService {
     ) async -> [URL] {
         logger.info("showImportDialogAndImport: Starting for project at '\(projectURL.path, privacy: .public)'")
 
-        // Create and configure the open panel
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.allowsOtherFileTypes = true
-        panel.message = "Select files to import into the project"
-        panel.prompt = "Import"
+        let panel = ImportFilePanelFactory.projectImportPanel()
 
         // Show the panel as a sheet and wait for response
         let response = await panel.beginSheetModal(for: window)

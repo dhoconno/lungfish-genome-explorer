@@ -226,25 +226,15 @@ final class OperationRoutingTests: XCTestCase {
     }
 
     func testProjectSampleMetadataImportUsesOriginWindowScope() throws {
-        let appDelegateURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
-        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
-        let body = try sourceFunctionBody(
-            named: "@objc func importProjectSampleMetadata",
-            endingBefore: "/// Returns the current project folder URL",
-            in: source
-        )
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let scope = WindowStateScope()
 
-        XCTAssertTrue(body.contains("activeMainWindowController(sender: sender)"))
-        XCTAssertTrue(body.contains("projectFolderURLForMetadata(controller: controller)"))
-        XCTAssertTrue(body.contains("MetadataImportSheet("))
-        XCTAssertTrue(body.contains("windowStateScope: controller.projectSession.windowStateScope"))
-        XCTAssertFalse(
-            body.contains("let sheet = MetadataImportSheet(folderURL: projectURL)"),
-            "Project metadata import sheets must carry the originating window scope into the save-time write guard"
+        XCTAssertEqual(
+            ProjectSampleMetadataModalRouter.importRoute(
+                projectURL: projectURL,
+                windowStateScope: scope
+            ),
+            .importSheet(.init(projectURL: projectURL, windowStateScope: scope))
         )
     }
 

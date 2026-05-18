@@ -2,6 +2,72 @@ import XCTest
 @testable import LungfishWorkflow
 
 final class PluginPackStatusServiceTests: XCTestCase {
+    func testStatusForRequiredSetupPackDoesNotEvaluateActiveOptionalPackRequirements() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("required-status-excludes-optional-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        for requirement in PluginPack.requiredSetupPack.toolRequirements where requirement.managedDatabaseID == nil {
+            let binDir = await manager.environmentURL(named: requirement.environment).appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+            for executable in requirement.executables {
+                try writeSmokeReadyExecutable(
+                    for: requirement,
+                    executable: executable,
+                    at: binDir.appendingPathComponent(executable)
+                )
+            }
+        }
+
+        let optionalRequirement = try XCTUnwrap(
+            PluginPack.activeOptionalPacks
+                .flatMap(\.toolRequirements)
+                .first { $0.managedDatabaseID == nil && $0.smokeTest != nil }
+        )
+        let optionalExecutable = try XCTUnwrap(
+            optionalRequirement.smokeTest?.executable ?? optionalRequirement.executables.first
+        )
+        let optionalBinDir = await manager.environmentURL(named: optionalRequirement.environment)
+            .appendingPathComponent("bin")
+        try FileManager.default.createDirectory(at: optionalBinDir, withIntermediateDirectories: true)
+        let optionalSmokeLog = sandbox.appendingPathComponent("optional-smoke.log")
+        let optionalScript = """
+        #!/bin/sh
+        printf 'smoke\\n' >> "\(optionalSmokeLog.path)"
+        printf 'Usage\\n' >&2
+        exit 0
+        """
+        let optionalExecutableURL = optionalBinDir.appendingPathComponent(optionalExecutable)
+        try optionalScript.write(to: optionalExecutableURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: optionalExecutableURL.path)
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            databaseInstalledCheck: { _ in true },
+            cacheLifetime: 60
+        )
+
+        let status = await service.status(for: .requiredSetupPack)
+
+        let requiredRequirementIDs = PluginPack.requiredSetupPack.toolRequirements.map(\.id)
+        XCTAssertEqual(status.pack.id, PluginPack.requiredSetupPack.id)
+        XCTAssertEqual(status.state, .ready)
+        XCTAssertEqual(status.toolStatuses.map { $0.requirement.id }, requiredRequirementIDs)
+        XCTAssertEqual(try smokeInvocationCount(at: optionalSmokeLog), 0)
+    }
+
     func testStatusForVisiblePackDoesNotEvaluateUnrelatedVisiblePackRequirements() async throws {
         actor DatabaseRecorder {
             var callCount = 0
@@ -563,6 +629,51 @@ final class PluginPackStatusServiceTests: XCTestCase {
         XCTAssertEqual(try smokeInvocationCount(at: toolLogURL), 2)
     }
 
+    func testStatusForPackRefreshesFreshPersistedSnapshotWhenFingerprintChanges() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-fingerprint-fresh-change-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let toolLogURL = sandbox.appendingPathComponent("smoke.log")
+        let pack = try await makeSmokeCountingPack(
+            manager: manager,
+            toolID: "fingerprint-fresh-change",
+            toolLogURL: toolLogURL
+        )
+
+        let firstService = PluginPackStatusService(
+            condaManager: manager,
+            cacheLifetime: 60
+        )
+        let readyStatus = await firstService.status(for: pack)
+        XCTAssertEqual(readyStatus.state, .ready)
+        XCTAssertEqual(try smokeInvocationCount(at: toolLogURL), 1)
+
+        let executableURL = await manager.environmentURL(named: "fingerprint-fresh-change")
+            .appendingPathComponent("bin/fingerprint-fresh-change")
+        try FileManager.default.removeItem(at: executableURL)
+
+        let secondService = PluginPackStatusService(
+            condaManager: manager,
+            cacheLifetime: 60
+        )
+        let refreshedStatus = await secondService.status(for: pack)
+
+        XCTAssertEqual(refreshedStatus.state, .needsInstall)
+    }
+
     func testRequiredPackNeedsInstallWhenBBToolsExecutablesAreMissing() async throws {
         let sandbox = FileManager.default.temporaryDirectory
             .appendingPathComponent("pack-status-\(UUID().uuidString)", isDirectory: true)
@@ -949,6 +1060,236 @@ final class PluginPackStatusServiceTests: XCTestCase {
         let snapshot = await recorder.snapshot()
         XCTAssertEqual(snapshot.0, 0)
         XCTAssertEqual(snapshot.1, 0)
+    }
+
+    func testInstallFailureRollsBackNewlyCreatedEnvironmentsAndRefreshesStatus() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-install-failure-rollback-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let firstRequirement = PackToolRequirement(
+            id: "rollback-first",
+            displayName: "Rollback First",
+            environment: "rollback-first",
+            installPackages: ["rollback-first"],
+            executables: ["rollback-first"]
+        )
+        let secondRequirement = PackToolRequirement(
+            id: "rollback-second",
+            displayName: "Rollback Second",
+            environment: "rollback-second",
+            installPackages: ["rollback-second"],
+            executables: ["rollback-second"]
+        )
+        let pack = PluginPack(
+            id: "rollback-pack",
+            name: "Rollback Pack",
+            description: "Test pack for partial install rollback",
+            sfSymbol: "wrench.and.screwdriver",
+            packages: [],
+            category: "Testing",
+            requirements: [firstRequirement, secondRequirement]
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, _, _ in
+                if environment == firstRequirement.environment {
+                    let binDir = await manager.environmentURL(named: environment).appendingPathComponent("bin")
+                    try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+                    let executable = binDir.appendingPathComponent(environment)
+                    try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+                    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+                    return
+                }
+                throw NSError(domain: "PluginPackStatusServiceTests", code: 42)
+            },
+            cacheLifetime: 60
+        )
+
+        _ = await service.status(for: pack)
+
+        do {
+            try await service.install(pack: pack, reinstall: false, progress: nil)
+            XCTFail("Expected install to fail after the second tool")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 42)
+        }
+
+        let firstEnvironmentURL = await manager.environmentURL(named: firstRequirement.environment)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: firstEnvironmentURL.path),
+            "A failed multi-tool install should remove environments created earlier in the same install attempt."
+        )
+
+        let refreshedStatus = await service.status(for: pack)
+        XCTAssertEqual(refreshedStatus.state, .needsInstall)
+        XCTAssertEqual(
+            refreshedStatus.toolStatuses.first(where: { $0.requirement.id == firstRequirement.id })?.environmentExists,
+            false
+        )
+        XCTAssertEqual(
+            refreshedStatus.toolStatuses.first(where: { $0.requirement.id == firstRequirement.id })?.missingExecutables,
+            ["rollback-first"]
+        )
+    }
+
+    func testInstallFailureRollsBackEnvironmentCreatedByFailingInstallAction() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-install-failure-current-env-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let requirement = PackToolRequirement(
+            id: "rollback-current",
+            displayName: "Rollback Current",
+            environment: "rollback-current",
+            installPackages: ["rollback-current"],
+            executables: ["rollback-current"]
+        )
+        let pack = PluginPack(
+            id: "rollback-current-pack",
+            name: "Rollback Current Pack",
+            description: "Test pack for current install rollback",
+            sfSymbol: "wrench.and.screwdriver",
+            packages: [],
+            category: "Testing",
+            requirements: [requirement]
+        )
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, _, _ in
+                let binDir = await manager.environmentURL(named: environment).appendingPathComponent("bin")
+                try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+                let executable = binDir.appendingPathComponent(environment)
+                try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+                throw NSError(domain: "PluginPackStatusServiceTests", code: 43)
+            },
+            cacheLifetime: 60
+        )
+
+        do {
+            try await service.install(pack: pack, reinstall: false, progress: nil)
+            XCTFail("Expected install to fail after creating the current environment")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 43)
+        }
+
+        let environmentURL = await manager.environmentURL(named: requirement.environment)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: environmentURL.path),
+            "The environment created by a failing install action should be rolled back."
+        )
+
+        let refreshedStatus = await service.status(for: pack)
+        XCTAssertEqual(
+            refreshedStatus.toolStatuses.first?.environmentExists,
+            false
+        )
+    }
+
+    func testFailedExplicitReinstallRemovesRecreatedEnvironmentAndRefreshesStatus() async throws {
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("pack-install-failure-reinstall-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sandbox) }
+
+        let micromamba = try makeFakeMicromamba(
+            at: sandbox.appendingPathComponent("micromamba"),
+            version: "2.0.5-0"
+        )
+        let manager = CondaManager(
+            rootPrefix: sandbox.appendingPathComponent("conda"),
+            bundledMicromambaProvider: { micromamba },
+            bundledMicromambaVersionProvider: { "2.0.5-0" }
+        )
+        _ = try await manager.ensureMicromamba()
+
+        let requirement = PackToolRequirement(
+            id: "rollback-reinstall",
+            displayName: "Rollback Reinstall",
+            environment: "rollback-reinstall",
+            installPackages: ["rollback-reinstall"],
+            executables: ["rollback-reinstall"]
+        )
+        let pack = PluginPack(
+            id: "rollback-reinstall-pack",
+            name: "Rollback Reinstall Pack",
+            description: "Test pack for reinstall rollback",
+            sfSymbol: "wrench.and.screwdriver",
+            packages: [],
+            category: "Testing",
+            requirements: [requirement]
+        )
+
+        let environmentURL = await manager.environmentURL(named: requirement.environment)
+        let initialBinDir = environmentURL.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: initialBinDir, withIntermediateDirectories: true)
+        let initialExecutable = initialBinDir.appendingPathComponent(requirement.environment)
+        try "#!/bin/sh\nexit 0\n".write(to: initialExecutable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: initialExecutable.path)
+
+        let service = PluginPackStatusService(
+            condaManager: manager,
+            installAction: { _, environment, reinstall, _ in
+                XCTAssertTrue(reinstall)
+                let envURL = await manager.environmentURL(named: environment)
+                try? FileManager.default.removeItem(at: envURL)
+                let binDir = envURL.appendingPathComponent("bin", isDirectory: true)
+                try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+                try "partial\n".write(
+                    to: binDir.appendingPathComponent("partial"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                throw NSError(domain: "PluginPackStatusServiceTests", code: 44)
+            },
+            cacheLifetime: 60
+        )
+
+        let readyStatus = await service.status(for: pack)
+        XCTAssertEqual(readyStatus.state, .ready)
+
+        do {
+            try await service.install(pack: pack, reinstall: true, progress: nil)
+            XCTFail("Expected reinstall to fail after recreating the environment")
+        } catch {
+            XCTAssertEqual((error as NSError).code, 44)
+        }
+
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: environmentURL.path),
+            "A failed explicit reinstall should not leave the recreated partial environment behind."
+        )
+
+        let refreshedStatus = await service.status(for: pack)
+        XCTAssertEqual(refreshedStatus.state, .needsInstall)
+        XCTAssertEqual(refreshedStatus.toolStatuses.first?.environmentExists, false)
     }
 
     func testInstallPackExplicitReinstallRefreshesAllToolRequirements() async throws {

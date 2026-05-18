@@ -497,6 +497,52 @@ final class VariantDatabaseTests: XCTestCase {
         XCTAssertTrue(results.isEmpty, "Empty filter should return no results")
     }
 
+    func testVariantLikeFiltersEscapeWildcards() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=GENE,Number=1,Type=String,Description="Gene">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trs%literal\tA\tG\t30\tPASS\tGENE=BRCA%1
+        chr1\t200\trsXliteral\tA\tG\t30\tPASS\tGENE=BRCAX1
+        chr1\t300\trs_literal\tA\tG\t30\tPASS\tGENE=BRCA_1
+        chr1\t400\trsAliteral\tA\tG\t30\tPASS\tGENE=BRCAA1
+        chr1\t500\trs\\literal\tA\tG\t30\tPASS\tGENE=BRCA\\1
+        chr1\t600\tNC_045512\tA\tG\t30\tPASS\tGENE=SARS_CoV_2
+        chr1\t700\tNCX045512\tA\tG\t30\tPASS\tGENE=SARSXCoVY2
+        """
+        let (db, _) = try createDatabase(from: vcf)
+
+        XCTAssertEqual(db.searchByID(idFilter: "rs%literal").map(\.variantID), ["rs%literal"])
+        XCTAssertEqual(db.searchByID(idFilter: "rs_literal").map(\.variantID), ["rs_literal"])
+        XCTAssertEqual(db.searchByID(idFilter: "rs\\literal").map(\.variantID), ["rs\\literal"])
+        XCTAssertEqual(db.searchByID(idFilter: "NC_045512").map(\.variantID), ["NC_045512"])
+
+        XCTAssertEqual(db.queryForTable(nameFilter: "rs%literal").map(\.variantID), ["rs%literal"])
+        XCTAssertEqual(db.queryCountForTable(nameFilter: "rs%literal"), 1)
+        XCTAssertEqual(
+            db.queryForTableInRegion(chromosome: "chr1", start: 0, end: 1_000, nameFilter: "NC_045512")
+                .map(\.variantID),
+            ["NC_045512"]
+        )
+        XCTAssertEqual(db.queryCountInRegion(chromosome: "chr1", start: 0, end: 1_000, nameFilter: "NC_045512"), 1)
+
+        XCTAssertEqual(
+            db.queryForTable(infoFilters: [.init(key: "GENE", op: .like, value: "BRCA%1")])
+                .map(\.variantID),
+            ["rs%literal"]
+        )
+        XCTAssertEqual(
+            db.queryForTable(infoFilters: [.init(key: "GENE", op: .like, value: "BRCA_1")])
+                .map(\.variantID),
+            ["rs_literal"]
+        )
+        XCTAssertEqual(
+            db.queryForTable(infoFilters: [.init(key: "GENE", op: .like, value: "BRCA\\1")])
+                .map(\.variantID),
+            ["rs\\literal"]
+        )
+    }
+
     // MARK: - Record Conversion Tests
 
     func testToBundleVariant() throws {
@@ -1857,6 +1903,37 @@ final class VariantDatabaseTests: XCTestCase {
         let results = db.queryForTable(activeTokens: Set(["highImpactBiological"]), limit: 100)
         let ids = Set(results.map(\.variantID))
         XCTAssertEqual(ids, Set(["rsBio1", "rsBio2", "rsBio4"]))
+    }
+
+    func testBiologicalHighImpactRawInfoDoesNotWildcardInfoKeyUnderscores() throws {
+        let vcf = """
+        ##fileformat=VCFv4.3
+        ##INFO=<ID=ANNXIMPACT,Number=1,Type=String,Description="Near miss SnpEff impact key">
+        ##INFO=<ID=CSQXIMPACT,Number=1,Type=String,Description="Near miss VEP impact key">
+        ##INFO=<ID=ANN_IMPACT,Number=1,Type=String,Description="SnpEff impact key">
+        ##INFO=<ID=CSQ_IMPACT,Number=1,Type=String,Description="VEP impact key">
+        #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+        chr1\t100\trsNearAnn\tA\tG\t30.0\tPASS\tANNXIMPACT=HIGH
+        chr1\t200\trsNearCsq\tA\tT\t30.0\tPASS\tCSQXIMPACT=HIGH
+        chr1\t300\trsRealAnn\tC\tG\t30.0\tPASS\tANN_IMPACT=HIGH
+        chr1\t400\trsRealCsq\tG\tA\t30.0\tPASS\tCSQ_IMPACT=HIGH
+        """
+        let vcfURL = try createTempVCF(content: vcf, name: "bio_impact_raw_info_literal_keys.vcf")
+        let dbURL = tempDir.appendingPathComponent("bio_impact_raw_info_literal_keys.db")
+        try VariantDatabase.createFromVCF(
+            vcfURL: vcfURL,
+            outputURL: dbURL,
+            parseGenotypes: true,
+            importProfile: .ultraLowMemory
+        )
+        let db = try VariantDatabase(url: dbURL)
+
+        XCTAssertTrue(db.variantInfoSkipped)
+        XCTAssertEqual(db.tokenCacheState["highImpactBiological"]?.count, 2)
+
+        let results = db.queryForTable(activeTokens: Set(["highImpactBiological"]), limit: 100)
+        let ids = Set(results.map(\.variantID))
+        XCTAssertEqual(ids, Set(["rsRealAnn", "rsRealCsq"]))
     }
 
     // MARK: - INFO Key Discovery Tests

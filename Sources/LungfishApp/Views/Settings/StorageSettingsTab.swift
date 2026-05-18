@@ -295,13 +295,7 @@ struct StorageSettingsTab: View {
     }
 
     private func chooseDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = "Choose"
-        panel.message = "Select a storage location for managed tools and databases. The full resolved path cannot contain spaces."
+        let panel = AppFilePanelFactory.managedStorageLocationPanel()
 
         let completionHandler: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
@@ -325,6 +319,7 @@ struct StorageSettingsTab: View {
         ])
     }
 
+    @MainActor
     private func updateManagedStorageLocation(to url: URL) {
         let targetURL = url.standardizedFileURL
         let defaultRoot = ManagedStorageConfigStore.shared.defaultLocation.rootURL
@@ -340,25 +335,20 @@ struct StorageSettingsTab: View {
                 } else {
                     try await storageCoordinator.changeLocation(to: targetURL)
                 }
-                await MainActor.run {
-                    NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
-                    refreshDisplay()
-                }
+                NotificationCenter.default.post(name: .databaseStorageLocationChanged, object: nil)
+                refreshDisplay()
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingErrorAlert = true
-                    refreshDisplay()
-                }
+                errorMessage = error.localizedDescription
+                showingErrorAlert = true
+                refreshDisplay()
             }
 
-            await MainActor.run {
-                isWorking = false
-                currentOperationMessage = nil
-            }
+            isWorking = false
+            currentOperationMessage = nil
         }
     }
 
+    @MainActor
     private func removeOldLocalCopies() {
         isWorking = true
         currentOperationMessage = "Removing old local copies..."
@@ -366,24 +356,19 @@ struct StorageSettingsTab: View {
         Task {
             do {
                 try await storageCoordinator.removeOldLocalCopies()
-                await MainActor.run {
-                    refreshDisplay()
-                }
+                refreshDisplay()
             } catch {
-                await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    showingErrorAlert = true
-                    refreshDisplay()
-                }
+                errorMessage = error.localizedDescription
+                showingErrorAlert = true
+                refreshDisplay()
             }
 
-            await MainActor.run {
-                isWorking = false
-                currentOperationMessage = nil
-            }
+            isWorking = false
+            currentOperationMessage = nil
         }
     }
 
+    @MainActor
     private func refreshDisplay() {
         let viewState = Self.makeViewState()
         displayPath = viewState.displayPath

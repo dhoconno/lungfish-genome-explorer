@@ -118,7 +118,7 @@ final class MaterializationPipelineTests: XCTestCase {
 
         // Create a manifest that is already materialized
         let op = FASTQDerivativeOperation(kind: .subsampleCount, count: 100)
-        var manifest = FASTQDerivedBundleManifest(
+        let manifest = FASTQDerivedBundleManifest(
             name: "test",
             parentBundleRelativePath: "../parent.lungfishfastq",
             rootBundleRelativePath: "../parent.lungfishfastq",

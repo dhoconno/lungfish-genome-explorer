@@ -411,7 +411,7 @@ This issue is closed; left here for traceability.
 
 **Status:** Multi-part issue; can be split into sub-issues by Codex if useful. Sub-parts are tagged `040.A` through `040.G` below.
 
-**Background.** The Workflow Builder ships with a substantial codebase (`Sources/LungfishApp/Views/WorkflowBuilder/` ≈ 2,800 lines, plus `Sources/LungfishWorkflow/Builder/` and `Sources/LungfishApp/Views/Workflow/`), including a canvas, a palette, node and connection views, parameter forms, an execution view, a log view, a configuration panel, a runner, two exporters (Nextflow and Snakemake), and a CLI command. A user can open the Builder, drag nodes, connect them, and run a workflow today. Several pieces are not feature-complete enough to support the Workflow Builder chapter (`08-workflows/01-the-workflow-builder.md`) and the export chapter (`08-workflows/02-exporting-as-nextflow-or-snakemake.md`) as written. This issue catalogs the gaps.
+**Background.** The Workflow Builder ships with a substantial codebase (`Sources/LungfishApp/Views/WorkflowBuilder/` plus `Sources/LungfishWorkflow/Builder/`), including a canvas, palette, node and connection views, node inspector, run service, runner-backed engine support, two exporters (Nextflow and Snakemake), and a CLI command. The deprecated standalone AppKit workflow configuration/execution panel has been removed; active workflow editing and execution now route through the Workflow Builder surfaces. Several pieces are not feature-complete enough to support the Workflow Builder chapter (`08-workflows/01-the-workflow-builder.md`) and the export chapter (`08-workflows/02-exporting-as-nextflow-or-snakemake.md`) as written. This issue catalogs the gaps.
 
 **Where the chapter overshoots the implementation today:**
 
@@ -430,7 +430,7 @@ The palette today shows abstract categories. A user dragging an `alignment` node
 
 **Acceptance criteria:**
 
-- [ ] Each abstract category (alignment, variant calling, assembly, classification, trimming, qc) supports per-node tool selection. Dragging an `alignment` node onto the canvas shows minimap2 / BWA-MEM2 / Bowtie2 / BBMap as switchable tools, with per-tool parameter forms.
+- [ ] Each abstract category (alignment, variant calling, assembly, classification, trimming, qc) supports per-node tool selection. Dragging an `alignment` node onto the canvas shows minimap2 / BWA-MEM2 / Bowtie2 / BBMap as switchable tools, with per-tool parameter editing in the active node inspector.
 - [ ] The palette also exposes concrete tool nodes for unambiguous-tool operations: MAFFT (MSA build), IQ-TREE (tree inference), Deacon (decontamination), RiboDetector (rRNA removal), fastp (qc / trim — the existing combined-pass dialog), bcftools (when docs-010 lands), Freyja.
 - [ ] Result-import operations (NAO-MGS, NVD, CZ-ID) and search-online operations (Pathoplexus) are NOT exposed in the palette. The Workflow Builder produces new data; result-import paths load existing data. This boundary is documented in the chapter.
 - [ ] Reference and read fetching from accessions (`lungfish fetch ncbi`, `lungfish fetch genome`, `lungfish fetch sra download`) appear as palette nodes whose input is a text accession and whose output is a reference or FASTQ bundle.
@@ -477,9 +477,9 @@ The chapter promises typed ports (a `BAM` output port can only connect to a `BAM
 - [ ] The canvas refuses type-mismatched connections with a visible feedback animation (the chapter's "thin red flash" promise)
 - [ ] A type-promotion table allows compatible types (e.g., a `Reference bundle` output can connect to an input port that accepts either a `Reference bundle` or an `Assembly bundle`, since both are `.lungfishref` folders)
 
-#### 040.D: Per-node parameter forms must mirror dialog parameters
+#### 040.D: Per-node parameter editing must mirror dialog parameters
 
-The chapter says "every parameter that appears in the run dialog appears here too." Today the parameter forms (`Sources/LungfishApp/Views/Workflow/ParameterFormView.swift`) need verification against every wrapped tool's dialog. A per-node parameter form that exposes only half the iVar dialog's parameters would silently drop the other half on workflow save.
+The chapter says "every parameter that appears in the run dialog appears here too." Today the workflow-builder node inspector (`Sources/LungfishApp/Views/WorkflowBuilder/WorkflowNodeInspectorView.swift`) and dialog bridge (`Sources/LungfishApp/Views/WorkflowBuilder/WorkflowBuilderOperationDialogBridge.swift`) need verification against every wrapped tool's dialog. A per-node parameter editor that exposes only half the iVar dialog's parameters would silently drop the other half on workflow save.
 
 **Acceptance criteria:**
 

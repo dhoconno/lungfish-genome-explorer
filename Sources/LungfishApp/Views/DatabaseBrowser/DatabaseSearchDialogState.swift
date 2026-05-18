@@ -211,3 +211,28 @@ final class DatabaseSearchDialogState {
             .replacingOccurrences(of: " ", with: "")
     }
 }
+
+@MainActor
+struct DatabaseSearchDialogPresentation {
+    let title: String
+    let subtitle: String
+    let datasetLabel: String
+    let tools: [DatasetOperationToolSidebarItem]
+    let selectedToolID: String
+    let statusText: String
+    let isRunEnabled: Bool
+    let primaryActionTitle: String
+    let accessibilityNamespace: String
+
+    init(state: DatabaseSearchDialogState) {
+        self.title = state.dialogTitle
+        self.subtitle = state.dialogSubtitle
+        self.datasetLabel = state.contextLabel
+        self.tools = state.sidebarItems
+        self.selectedToolID = state.selectedToolID
+        self.statusText = state.statusText
+        self.isRunEnabled = state.isPrimaryActionEnabled
+        self.primaryActionTitle = state.primaryActionTitle
+        self.accessibilityNamespace = "database-search"
+    }
+}

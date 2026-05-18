@@ -4,7 +4,88 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
+import LungfishWorkflow
+
+struct CzIdImportDialogPresentation: Equatable {
+    let selectedPathText: String
+    let selectedPathIsPlaceholder: Bool
+    let accessoryText: String?
+    let destinationText: String
+    let statusText: String
+    let statusColor: Color
+    let isPrimaryEnabled: Bool
+
+    init(
+        selectedPath: URL?,
+        isScanning: Bool,
+        scanError: String?,
+        preview: CzIdImportPreview?,
+        projectURL: URL?,
+        datasetURL: URL?
+    ) {
+        self.selectedPathText = selectedPath?.path ?? "No file or folder selected"
+        self.selectedPathIsPlaceholder = selectedPath == nil
+        self.accessoryText = datasetURL?.deletingPathExtension().lastPathComponent
+        self.destinationText = Self.destinationText(projectURL: projectURL)
+        self.isPrimaryEnabled = selectedPath != nil && preview != nil && !isScanning
+
+        if isScanning {
+            self.statusText = "Scanning CZ-ID export..."
+            self.statusColor = .secondary
+        } else if let scanError, !scanError.isEmpty {
+            self.statusText = scanError
+            self.statusColor = .orange
+        } else if isPrimaryEnabled {
+            self.statusText = "Ready to import CZ-ID report."
+            self.statusColor = .secondary
+        } else {
+            self.statusText = "Select a CZ-ID export."
+            self.statusColor = .secondary
+        }
+    }
+
+    private static func destinationText(projectURL: URL?) -> String {
+        guard let projectURL else { return "Current project / Analyses" }
+        return projectURL
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("cz-id-\(timestampHint)")
+            .path
+    }
+
+    private static var timestampHint: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
+        return formatter.string(from: Date())
+    }
+
+    static func == (lhs: CzIdImportDialogPresentation, rhs: CzIdImportDialogPresentation) -> Bool {
+        lhs.selectedPathText == rhs.selectedPathText
+            && lhs.selectedPathIsPlaceholder == rhs.selectedPathIsPlaceholder
+            && lhs.accessoryText == rhs.accessoryText
+            && lhs.destinationText == rhs.destinationText
+            && lhs.statusText == rhs.statusText
+            && lhs.isPrimaryEnabled == rhs.isPrimaryEnabled
+    }
+}
+
+enum CzIdImportDialogActions {
+    static func importIfReady(
+        selectedPath: URL?,
+        isPrimaryEnabled: Bool,
+        onImport: ((URL) -> Void)?
+    ) {
+        guard isPrimaryEnabled, let selectedPath else { return }
+        onImport?(selectedPath)
+    }
+
+    static func cancel(
+        cancelScan: () -> Void,
+        onCancel: (() -> Void)?
+    ) {
+        cancelScan()
+        onCancel?()
+    }
+}
 
 struct CzIdImportSheet: View {
     let projectURL: URL?
@@ -18,70 +99,50 @@ struct CzIdImportSheet: View {
     @State private var preview: CzIdImportPreview?
     @State private var scanValidationGate = ImportPathValidationGate<CzIdImportPreview>()
 
-    private var datasetDisplayName: String {
-        guard let url = datasetURL else { return "" }
-        return url.deletingPathExtension().lastPathComponent
-    }
-
-    private var destinationText: String {
-        guard let projectURL else { return "Current project / Analyses" }
-        return projectURL
-            .appendingPathComponent("Analyses", isDirectory: true)
-            .appendingPathComponent("cz-id-\(CzIdImportSheet.timestampHint)")
-            .path
-    }
-
-    private var canRun: Bool {
-        selectedPath != nil && preview != nil && !isScanning
+    private var presentation: CzIdImportDialogPresentation {
+        CzIdImportDialogPresentation(
+            selectedPath: selectedPath,
+            isScanning: isScanning,
+            scanError: scanError,
+            preview: preview,
+            projectURL: projectURL,
+            datasetURL: datasetURL
+        )
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerSection
-            Divider()
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    locationSection
-                    Divider()
-                    previewSection
-                    Divider()
-                    destinationSection
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+        ImportSheet(
+            title: "CZ-ID Import",
+            subtitle: "Hosted metagenomics taxon report",
+            accessoryText: presentation.accessoryText,
+            size: ImportSheetSize(width: 520, height: 460),
+            statusText: presentation.statusText,
+            statusColor: presentation.statusColor,
+            primaryTitle: "Run",
+            isPrimaryEnabled: presentation.isPrimaryEnabled,
+            onCancel: cancelImport,
+            onPrimary: runImport,
+            icon: {
+                Image(nsImage: TextBadgeIcon.image(text: "CZ", size: NSSize(width: 24, height: 24)))
+                    .resizable()
+                    .frame(width: 24, height: 24)
+            },
+            content: {
+                contentSections
             }
-            Divider()
-            actionButtons
-        }
-        .frame(width: 520, height: 460)
+        )
         .accessibilityIdentifier("czid-import-sheet")
         .help("dialog.CzIdImportSheet")
     }
 
-    private var headerSection: some View {
-        HStack(spacing: 10) {
-            Image(nsImage: TextBadgeIcon.image(text: "CZ", size: NSSize(width: 24, height: 24)))
-                .resizable()
-                .frame(width: 24, height: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("CZ-ID Import")
-                    .font(.headline)
-                Text("Hosted metagenomics taxon report")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if !datasetDisplayName.isEmpty {
-                Text(datasetDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
+    private var contentSections: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            locationSection
+            Divider()
+            previewSection
+            Divider()
+            destinationSection
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
     }
 
     private var locationSection: some View {
@@ -91,9 +152,9 @@ struct CzIdImportSheet: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                Text(selectedPath?.path ?? "No file or folder selected")
+                Text(presentation.selectedPathText)
                     .font(.system(size: 12))
-                    .foregroundStyle(selectedPath == nil ? .secondary : .primary)
+                    .foregroundStyle(presentation.selectedPathIsPlaceholder ? .secondary : .primary)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,7 +243,7 @@ struct CzIdImportSheet: View {
             Text("Project Destination")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text(destinationText)
+            Text(presentation.destinationText)
                 .font(.system(size: 12))
                 .lineLimit(2)
                 .truncationMode(.middle)
@@ -195,26 +256,6 @@ struct CzIdImportSheet: View {
                         .fill(Color(nsColor: .controlBackgroundColor))
                 )
         }
-    }
-
-    private var actionButtons: some View {
-        HStack {
-            Spacer()
-            Button("Cancel") {
-                scanValidationGate.cancel()
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                guard let selectedPath, canRun else { return }
-                onImport?(selectedPath)
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(!canRun)
-        }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
     }
 
     private func previewRow(label: String, value: String) -> some View {
@@ -232,23 +273,13 @@ struct CzIdImportSheet: View {
     }
 
     private func browseForSource() {
-        let panel = NSOpenPanel()
-        panel.title = "Select CZ-ID Export"
-        panel.message = "Select a CZ-ID taxon report TSV, ZIP archive, or extracted folder"
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "zip") ?? .zip,
-            UTType(filenameExtension: "tsv") ?? .tabSeparatedText,
-            UTType(filenameExtension: "txt") ?? .plainText,
-            UTType(filenameExtension: "csv") ?? .commaSeparatedText,
-        ]
-        panel.allowsOtherFileTypes = true
+        let panel = MetagenomicsFilePanelFactory.czIdExportImportPanel()
 
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        selectedPath = url
-        scan(url)
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            selectedPath = url
+            scan(url)
+        }
     }
 
     private func scan(_ url: URL) {
@@ -275,15 +306,25 @@ struct CzIdImportSheet: View {
         }
     }
 
+    private func cancelImport() {
+        CzIdImportDialogActions.cancel(
+            cancelScan: { scanValidationGate.cancel() },
+            onCancel: onCancel
+        )
+    }
+
+    private func runImport() {
+        CzIdImportDialogActions.importIfReady(
+            selectedPath: selectedPath,
+            isPrimaryEnabled: presentation.isPrimaryEnabled,
+            onImport: onImport
+        )
+    }
+
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
         return formatter
     }()
 
-    private static var timestampHint: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd'T'HH-mm-ss"
-        return formatter.string(from: Date())
-    }
 }

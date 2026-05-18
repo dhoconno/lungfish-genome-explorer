@@ -112,7 +112,7 @@ extension DbCommand {
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
                 print(formatter.info("Use 'lungfish conda db list' to see available databases"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             let installedDate = db.installedAt ?? db.lastUpdated
@@ -167,7 +167,7 @@ extension DbCommand {
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found in catalog"))
                 print(formatter.info("Use 'lungfish conda db list' to see available databases"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if db.status == .ready {
@@ -220,7 +220,7 @@ extension DbCommand {
 
             guard let db = try await registry.database(named: name) else {
                 print(formatter.error("Database '\(name)' not found"))
-                throw ExitCode.failure
+                throw CLIExitCode.inputError.exitCode
             }
 
             if deleteFiles, let path = db.path {
@@ -254,10 +254,18 @@ extension DbCommand {
             let ram = ProcessInfo.processInfo.physicalMemory
             let ramGB = String(format: "%.0f", Double(ram) / 1_073_741_824)
 
-            let recommended = try await registry.recommendedDatabase()
-
             print(formatter.header("Database Recommendation"))
             print("")
+
+            guard let recommended = try await registry.recommendedDatabase() else {
+                print(formatter.keyValueTable([
+                    ("System RAM", "\(ramGB) GB"),
+                    ("Recommended DB", "None"),
+                    ("Reason", "No bundled database fits in available RAM"),
+                ]))
+                return
+            }
+
             print(formatter.keyValueTable([
                 ("System RAM", "\(ramGB) GB"),
                 ("Recommended DB", recommended.name),

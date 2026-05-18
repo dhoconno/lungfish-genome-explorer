@@ -6,19 +6,24 @@ import XCTest
 private actor SequencedWelcomeStorageStatusProvider: PluginPackStatusProviding {
     private let sequences: [[PluginPackStatus]]
     private var index = 0
+    private var activeRefreshIndex: Int?
 
     init(sequences: [[PluginPackStatus]]) {
         self.sequences = sequences
     }
 
     func visibleStatuses() async -> [PluginPackStatus] {
-        let current = sequences[min(index, sequences.count - 1)]
-        index += 1
+        let currentIndex = activeRefreshIndex ?? min(index, sequences.count - 1)
+        let current = sequences[currentIndex]
+        index = min(currentIndex + 1, sequences.count)
+        activeRefreshIndex = nil
         return current
     }
 
     func status(for pack: PluginPack) async -> PluginPackStatus {
-        sequences.flatMap { $0 }.first(where: { $0.pack.id == pack.id })!
+        let currentIndex = min(index, sequences.count - 1)
+        activeRefreshIndex = currentIndex
+        return sequences[currentIndex].first(where: { $0.pack.id == pack.id })!
     }
 
     func invalidateVisibleStatusesCache() async {}
@@ -339,7 +344,8 @@ final class WelcomeStorageFlowTests: XCTestCase {
         let viewModel = WelcomeViewModel(
             statusProvider: provider,
             storageCoordinator: coordinator,
-            storageConfigStore: store
+            storageConfigStore: store,
+            notificationCenter: NotificationCenter()
         )
 
         await viewModel.refreshSetup()
@@ -471,7 +477,10 @@ final class WelcomeStorageFlowTests: XCTestCase {
     @MainActor
     func testInstallRequiredSetupClearsStaleItemProgressAfterRefresh() async {
         let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
-        let viewModel = WelcomeViewModel(statusProvider: provider)
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: NotificationCenter()
+        )
 
         await viewModel.refreshSetup()
         viewModel.installRequiredSetup()
@@ -496,7 +505,10 @@ final class WelcomeStorageFlowTests: XCTestCase {
     @MainActor
     func testChooseAlternateStorageLocationIsRejectedWhileInstallIsActive() async throws {
         let provider = DelayedInstallWelcomeStatusProvider(statuses: [requiredStatus(state: .needsInstall)])
-        let viewModel = WelcomeViewModel(statusProvider: provider)
+        let viewModel = WelcomeViewModel(
+            statusProvider: provider,
+            notificationCenter: NotificationCenter()
+        )
         let alternateRoot = tempHome.appendingPathComponent("AlternateManagedRoot", isDirectory: true)
 
         await viewModel.refreshSetup()

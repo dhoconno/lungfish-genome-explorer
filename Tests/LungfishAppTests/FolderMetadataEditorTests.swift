@@ -10,12 +10,12 @@ import XCTest
 ///
 /// Note: We test the data model operations (load, save, import, export)
 /// rather than the NSViewController lifecycle, which requires a window.
-@MainActor
 final class FolderMetadataEditorTests: XCTestCase {
 
     private var tmpDir: URL!
 
     override func setUp() async throws {
+        try await super.setUp()
         tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("FolderMetaEditorTest_\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
@@ -25,6 +25,7 @@ final class FolderMetadataEditorTests: XCTestCase {
         if let tmpDir {
             try? FileManager.default.removeItem(at: tmpDir)
         }
+        try await super.tearDown()
     }
 
     func testLoadResolvedFromFolderWithBundles() throws {
@@ -92,7 +93,7 @@ final class FolderMetadataEditorTests: XCTestCase {
         }
 
         // Merge
-        var resolved = FASTQFolderMetadata.loadResolved(from: tmpDir)
+        let resolved = FASTQFolderMetadata.loadResolved(from: tmpDir)
         var mergedSamples = resolved.samples
         var mergedOrder = resolved.sampleOrder
 
@@ -137,13 +138,14 @@ final class FolderMetadataEditorTests: XCTestCase {
         try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
 
         let expectation = XCTestExpectation(description: "Notification posted")
+        let expectedFolderURL = tmpDir
         let observer = NotificationCenter.default.addObserver(
             forName: .sampleMetadataDidChange,
             object: nil,
             queue: .main
         ) { notification in
             if let url = notification.userInfo?["folderURL"] as? URL {
-                XCTAssertEqual(url, self.tmpDir)
+                XCTAssertEqual(url, expectedFolderURL)
                 expectation.fulfill()
             }
         }
@@ -152,7 +154,7 @@ final class FolderMetadataEditorTests: XCTestCase {
         NotificationCenter.default.post(
             name: .sampleMetadataDidChange,
             object: self,
-            userInfo: ["folderURL": tmpDir!]
+            userInfo: ["folderURL": expectedFolderURL!]
         )
 
         wait(for: [expectation], timeout: 2.0)

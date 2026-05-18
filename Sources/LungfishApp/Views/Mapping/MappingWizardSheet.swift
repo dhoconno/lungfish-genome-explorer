@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import SwiftUI
-import UniformTypeIdentifiers
 import LungfishIO
 import LungfishWorkflow
 
@@ -169,6 +168,10 @@ struct MappingWizardSheet: View {
     private var selectedMode: MappingMode? {
         MappingMode(rawValue: selectedModeID)
     }
+
+    static let readGroupSectionTitle = "Read Group"
+    static let advancedSectionTitle = "Advanced Settings"
+    static let extraArgumentsFieldTitle = "Extra arguments"
 
     static func advancedOptionsPlaceholder(for tool: MappingTool) -> String {
         switch tool {
@@ -472,7 +475,7 @@ struct MappingWizardSheet: View {
     }
 
     private var readGroupSection: some View {
-        DisclosureGroup("Read Group", isExpanded: $showReadGroup) {
+        DisclosureGroup(Self.readGroupSectionTitle, isExpanded: $showReadGroup) {
             VStack(alignment: .leading, spacing: 10) {
                 readGroupField(label: "ID (--rg-id)", text: $readGroupIDText)
                 readGroupField(label: "Sample (--rg-sm)", text: $readGroupSampleText)
@@ -497,7 +500,7 @@ struct MappingWizardSheet: View {
     }
 
     private var advancedSection: some View {
-        DisclosureGroup("Advanced Settings", isExpanded: $showAdvanced) {
+        DisclosureGroup(Self.advancedSectionTitle, isExpanded: $showAdvanced) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Threads:")
@@ -535,7 +538,7 @@ struct MappingWizardSheet: View {
 
                 Divider().padding(.vertical, 4)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Extra arguments")
+                    Text(Self.extraArgumentsFieldTitle)
                         .font(.system(size: 12))
                     TextField(Self.advancedOptionsPlaceholder(for: initialTool), text: $advancedOptionsText)
                         .font(.system(size: 12, design: .monospaced))
@@ -612,11 +615,7 @@ struct MappingWizardSheet: View {
     }
 
     private func browseForReference() {
-        let panel = NSOpenPanel()
-        panel.title = "Select Reference FASTA"
-        panel.allowedContentTypes = FASTAFileTypes.readableContentTypes
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
+        let panel = MappingWorkflowFilePanelFactory.referenceFASTAPanel(title: "Select Reference FASTA")
 
         guard let window = NSApp.keyWindow ?? NSApp.mainWindow else { return }
         panel.beginSheetModal(for: window) { response in

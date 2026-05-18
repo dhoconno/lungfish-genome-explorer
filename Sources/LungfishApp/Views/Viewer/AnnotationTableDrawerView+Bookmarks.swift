@@ -147,11 +147,7 @@ extension AnnotationTableDrawerView {
             return
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Export Bookmarked Variants"
-        panel.nameFieldStringValue = "bookmarked_variants.tsv"
-        panel.allowedContentTypes = [.tabSeparatedText]
-        panel.canCreateDirectories = true
+        let panel = ViewerFilePanelFactory.bookmarkedVariantsExportPanel()
 
         guard let window = self.window else { return }
         panel.beginSheetModal(for: window) { response in

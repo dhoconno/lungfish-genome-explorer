@@ -428,7 +428,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
             ExpansionSectionID.errorBox,
         ]
         cell.subviews
-            .filter { expansionIDs.contains($0.accessibilityIdentifier() ?? "") }
+            .filter { expansionIDs.contains($0.accessibilityIdentifier()) }
             .forEach { $0.removeFromSuperview() }
     }
 
@@ -938,7 +938,6 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
         let box = NSView()
         box.translatesAutoresizingMaskIntoConstraints = false
-        box.wantsLayer = true
         box.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         box.layer?.cornerRadius = 4
         container.addSubview(box)

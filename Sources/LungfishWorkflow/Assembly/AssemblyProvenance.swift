@@ -80,6 +80,9 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
     /// Input file records with checksums.
     public let inputs: [InputFileRecord]
 
+    /// Ordered reproducibility steps for app-managed assembly workflows.
+    public let steps: [ProvenanceStep]
+
     // MARK: - Output Statistics
 
     /// Assembly statistics from the output.
@@ -104,6 +107,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         case commandLine = "command_line"
         case parameters
         case inputs
+        case steps
         case statistics
     }
 
@@ -124,6 +128,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         commandLine: String,
         parameters: AssemblyParameters,
         inputs: [InputFileRecord],
+        steps: [ProvenanceStep] = [],
         statistics: AssemblyStatistics?
     ) {
         self.assembler = assembler
@@ -142,6 +147,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         self.commandLine = commandLine
         self.parameters = parameters
         self.inputs = inputs
+        self.steps = steps
         self.statistics = statistics
     }
 
@@ -166,6 +172,7 @@ public struct AssemblyProvenance: Codable, Sendable, Equatable {
         self.commandLine = try container.decode(String.self, forKey: .commandLine)
         self.parameters = try container.decode(AssemblyParameters.self, forKey: .parameters)
         self.inputs = try container.decode([InputFileRecord].self, forKey: .inputs)
+        self.steps = try container.decodeIfPresent([ProvenanceStep].self, forKey: .steps) ?? []
         self.statistics = try container.decodeIfPresent(AssemblyStatistics.self, forKey: .statistics)
     }
 }
@@ -316,6 +323,7 @@ public enum ProvenanceBuilder {
         config: SPAdesAssemblyConfig,
         result: SPAdesAssemblyResult,
         inputRecords: [InputFileRecord],
+        steps: [ProvenanceStep] = [],
         lungfishVersion: String = "1.0.0"
     ) -> AssemblyProvenance {
         let parameters = AssemblyParameters(
@@ -346,6 +354,7 @@ public enum ProvenanceBuilder {
             commandLine: result.commandLine,
             parameters: parameters,
             inputs: inputRecords,
+            steps: steps,
             statistics: result.statistics
         )
     }
@@ -355,6 +364,7 @@ public enum ProvenanceBuilder {
         request: AssemblyRunRequest,
         result: AssemblyResult,
         inputRecords: [InputFileRecord],
+        steps: [ProvenanceStep] = [],
         lungfishVersion: String = "1.0.0"
     ) -> AssemblyProvenance {
         let parameters = AssemblyParameters(
@@ -385,6 +395,7 @@ public enum ProvenanceBuilder {
             commandLine: result.commandLine,
             parameters: parameters,
             inputs: inputRecords,
+            steps: steps,
             statistics: result.statistics
         )
     }

@@ -385,7 +385,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
     override func loadView() {
         view = NSView()
         view.setAccessibilityIdentifier(MultipleSequenceAlignmentAccessibilityID.root)
-        view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         configureLayout()
     }
@@ -646,7 +645,6 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
 
     private func configureCanvas() {
         canvasContainer.translatesAutoresizingMaskIntoConstraints = false
-        canvasContainer.wantsLayer = true
         canvasContainer.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
 
         cornerHeaderView.translatesAutoresizingMaskIntoConstraints = false
@@ -1593,18 +1591,19 @@ final class MultipleSequenceAlignmentViewController: NSViewController {
         accessoryView.addSubview(typePopup)
         alert.accessoryView = accessoryView
 
-        Task { @MainActor [weak self, weak window] in
-            guard let self, let window else { return }
-            let response = await alert.beginSheetModal(for: window)
+        alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            do {
-                try self.addAnnotationFromSelection(
-                    name: name.isEmpty ? "New Annotation" : name,
-                    type: typePopup.selectedItem?.title ?? "region"
-                )
-            } catch {
-                self.presentError(error, title: "Add Annotation Failed")
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                do {
+                    try self.addAnnotationFromSelection(
+                        name: name.isEmpty ? "New Annotation" : name,
+                        type: typePopup.selectedItem?.title ?? "region"
+                    )
+                } catch {
+                    self.presentError(error, title: "Add Annotation Failed")
+                }
             }
         }
     }

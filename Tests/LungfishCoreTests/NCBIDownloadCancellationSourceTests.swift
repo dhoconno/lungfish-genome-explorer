@@ -1,0 +1,32 @@
+// NCBIDownloadCancellationSourceTests.swift - source regression for NCBI delegate downloads
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import XCTest
+
+final class NCBIDownloadCancellationSourceTests: XCTestCase {
+    func testGenomeFileDownloadsBridgeTaskCancellationToURLSessionTask() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishCore/Services/NCBI/NCBIService.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("withTaskCancellationHandler"))
+        XCTAssertTrue(source.contains("URLSessionDownloadTask"))
+        XCTAssertTrue(source.contains(".cancel()"))
+        XCTAssertTrue(source.contains("ContinuationDownloadDelegate"))
+        XCTAssertTrue(source.contains("resumeOnce"))
+        XCTAssertTrue(source.contains("try Task.checkCancellation()"))
+        XCTAssertTrue(source.contains("var cancelled = false"))
+        XCTAssertTrue(source.contains("state.cancelled = true"))
+        XCTAssertTrue(source.contains("return state.cancelled"))
+    }
+
+    private func repositoryRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+}

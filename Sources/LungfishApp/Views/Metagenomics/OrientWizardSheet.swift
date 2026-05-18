@@ -106,56 +106,28 @@ struct OrientWizardSheet: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            Divider()
-
-            ScrollView {
+        WizardSheet(
+            title: "Orient Reads",
+            subtitle: "Align read strand to reference",
+            accessoryText: inputDisplayName,
+            statusText: footerStatusText,
+            statusColor: Color.lungfishOrangeFallback,
+            isPrimaryEnabled: canRun,
+            onCancel: { onCancel?() },
+            onPrimary: performRun,
+            icon: {
+                Image(systemName: "arrow.uturn.right")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.accentColor)
+            },
+            content: {
                 VStack(alignment: .leading, spacing: 16) {
                     referenceSection
                     Divider()
                     advancedSettings
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
             }
-
-            Divider()
-            footer
-        }
-        .frame(width: 520, height: 480)
-    }
-
-    // MARK: - Header
-
-    /// Tool identity header with icon, title, subtitle, and dataset name.
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.uturn.right")
-                .font(.system(size: 20))
-                .foregroundStyle(Color.accentColor)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Orient Reads")
-                    .font(.headline)
-                Text("Align read strand to reference")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            if !inputDisplayName.isEmpty {
-                Text(inputDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        )
     }
 
     // MARK: - Reference Section
@@ -251,37 +223,14 @@ struct OrientWizardSheet: View {
         .font(.system(size: 12, weight: .medium))
     }
 
-    // MARK: - Footer
-
-    /// Action buttons: Cancel and Run.
-    private var footer: some View {
-        HStack {
-            if !canRun && inputFiles.isEmpty {
-                Text("No input files selected")
-                    .font(.caption)
-                    .foregroundStyle(Color.lungfishOrangeFallback)
-            } else if !canRun && selectedReferenceURL == nil {
-                Text("Select a reference sequence")
-                    .font(.caption)
-                    .foregroundStyle(Color.lungfishOrangeFallback)
-            }
-
-            Spacer()
-
-            Button("Cancel") {
-                onCancel?()
-            }
-            .keyboardShortcut(.cancelAction)
-
-            Button("Run") {
-                performRun()
-            }
-            .keyboardShortcut(.defaultAction)
-            .buttonStyle(.borderedProminent)
-            .disabled(!canRun)
+    private var footerStatusText: String? {
+        if !canRun && inputFiles.isEmpty {
+            return "No input files selected"
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        if !canRun && selectedReferenceURL == nil {
+            return "Select a reference sequence"
+        }
+        return nil
     }
 
     // MARK: - Actions

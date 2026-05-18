@@ -114,7 +114,7 @@ final class ReadSelectionTests: XCTestCase {
 
     func testReadWithQualityScoresShowsStats() {
         let qualities: [UInt8] = [30, 35, 40, 20, 10, 42, 38, 25]
-        let read = AlignedRead(
+        _ = AlignedRead(
             name: "R1", flag: 0, chromosome: "chr1", position: 0,
             mapq: 60, cigar: CIGAROperation.parse("8M") ?? [],
             sequence: "ACGTACGT", qualities: qualities

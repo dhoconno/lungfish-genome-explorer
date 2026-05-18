@@ -118,12 +118,16 @@ final class HoverTooltipView: NSView {
         showTimer?.invalidate()
         if isHidden {
             showTimer = Timer.scheduledTimer(withTimeInterval: Self.showDelay, repeats: false) { [weak self] _ in
-                guard let self, !self.currentText.isEmpty else { return }
-                self.isHidden = false
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.1
-                    ctx.allowsImplicitAnimation = true
-                    self.alphaValue = 1
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, !self.currentText.isEmpty else { return }
+                        self.isHidden = false
+                        NSAnimationContext.runAnimationGroup { ctx in
+                            ctx.duration = 0.1
+                            ctx.allowsImplicitAnimation = true
+                            self.alphaValue = 1
+                        }
+                    }
                 }
             }
         }
@@ -142,7 +146,11 @@ final class HoverTooltipView: NSView {
             ctx.allowsImplicitAnimation = true
             alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.isHidden = true
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.isHidden = true
+                }
+            }
         })
     }
 

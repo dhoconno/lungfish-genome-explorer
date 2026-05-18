@@ -89,6 +89,32 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(center.items.first?.detail, "Starting...")
     }
 
+    func testUpdateWithLogDeduplicatesAdjacentProgressMessages() {
+        let id = center.start(title: "Test", detail: "Starting...")
+
+        center.updateWithLog(id: id, progress: 0.1, detail: "Parsing reads")
+        center.updateWithLog(id: id, progress: 0.2, detail: "Parsing reads")
+        center.updateWithLog(id: id, progress: 0.3, detail: "Writing bundle")
+
+        let item = center.items.first
+        XCTAssertEqual(item?.detail, "Writing bundle")
+        XCTAssertEqual(item?.progress ?? -1, 0.3, accuracy: 0.001)
+        XCTAssertEqual(item?.logEntries.map(\.message), ["Parsing reads", "Writing bundle"])
+    }
+
+    func testUpdateDoesNotAppendVolatileProgressDetailsToLogHistory() {
+        let id = center.start(title: "Test", detail: "Starting...")
+        center.log(id: id, level: .info, message: "Import started")
+
+        center.update(id: id, progress: 0.1, detail: "Processed 10,000 variants · ETA 8m")
+        center.update(id: id, progress: 0.2, detail: "Processed 20,000 variants · ETA 6m")
+
+        let item = center.items.first
+        XCTAssertEqual(item?.detail, "Processed 20,000 variants · ETA 6m")
+        XCTAssertEqual(item?.progress ?? -1, 0.2, accuracy: 0.001)
+        XCTAssertEqual(item?.logEntries.map(\.message), ["Import started"])
+    }
+
     // MARK: - Complete
 
     func testCompleteSetsStateAndFinishedAt() {
@@ -439,7 +465,7 @@ final class DownloadCenterTests: XCTestCase {
 
     // MARK: - Cancel
 
-    func testCancelInvokesCallbackAndMarksCancelled() {
+    func testCancelInvokesCallbackAndMarksCancelled() async throws {
         let cancelFlag = OSAllocatedUnfairLock(initialState: false)
         let id = center.start(
             title: "Import",
@@ -450,14 +476,32 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancel(id: id)
 
-        XCTAssertTrue(cancelFlag.withLock { $0 })
         let item = center.items.first { $0.id == id }
         XCTAssertEqual(item?.state, .cancelled)
         XCTAssertEqual(item?.detail, "Cancelled by user")
         XCTAssertEqual(item?.displayStateLabel, "Cancelled")
+        try await waitUntil(timeout: 2) {
+            cancelFlag.withLock { $0 }
+        }
     }
 
-    func testCancelReleaseBundleLock() {
+    func testCancelReleasesBundleLockWhenCallbackExists() {
+        let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
+        let id = center.start(
+            title: "Import",
+            detail: "...",
+            operationType: .bamImport,
+            targetBundleURL: bundleURL,
+            onCancel: {}
+        )
+
+        center.cancel(id: id)
+
+        XCTAssertTrue(center.canStartOperation(on: bundleURL))
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
+    }
+
+    func testCancelWithoutCallbackMarksCancelledAndReleasesBundleLock() {
         let bundleURL = URL(fileURLWithPath: "/tmp/test.lungfishref")
         let id = center.start(
             title: "Import",
@@ -469,6 +513,8 @@ final class DownloadCenterTests: XCTestCase {
         center.cancel(id: id)
 
         XCTAssertTrue(center.canStartOperation(on: bundleURL))
+        XCTAssertNil(center.activeLockHolder(for: bundleURL))
+        XCTAssertEqual(center.items.first { $0.id == id }?.state, .cancelled)
     }
 
     func testCancelIgnoresCompletedItem() {
@@ -487,7 +533,7 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertEqual(item?.state, .completed)
     }
 
-    func testCancelAllCancelsAllRunning() {
+    func testCancelAllCancelsAllRunning() async throws {
         let flag1 = OSAllocatedUnfairLock(initialState: false)
         let flag2 = OSAllocatedUnfairLock(initialState: false)
         _ = center.start(title: "A", detail: "", onCancel: { flag1.withLock { $0 = true } })
@@ -495,9 +541,32 @@ final class DownloadCenterTests: XCTestCase {
 
         center.cancelAll()
 
-        XCTAssertTrue(flag1.withLock { $0 })
-        XCTAssertTrue(flag2.withLock { $0 })
         XCTAssertEqual(center.activeCount, 0)
+        try await waitUntil(timeout: 2) {
+            flag1.withLock { $0 } && flag2.withLock { $0 }
+        }
+    }
+
+    func testCancelAllMarksRowsCancelledBeforeSlowCallbacksReturn() async throws {
+        let callbackCount = OSAllocatedUnfairLock(initialState: 0)
+        for index in 0..<3 {
+            _ = center.start(title: "Slow \(index)", detail: "", onCancel: {
+                Thread.sleep(forTimeInterval: 0.5)
+                callbackCount.withLock { $0 += 1 }
+            })
+        }
+
+        let start = Date()
+        center.cancelAll()
+        let elapsed = Date().timeIntervalSince(start)
+
+        XCTAssertLessThan(elapsed, 0.2, "cancelAll should not wait for each operation's teardown callback")
+        XCTAssertEqual(center.activeCount, 0)
+        XCTAssertTrue(center.items.allSatisfy { $0.state == .cancelled })
+
+        try await waitUntil(timeout: 2) {
+            callbackCount.withLock { $0 } == 3
+        }
     }
 
     // MARK: - OperationCenter Typealias
@@ -505,6 +574,20 @@ final class DownloadCenterTests: XCTestCase {
     func testDownloadCenterTypealiasWorks() {
         let dc: DownloadCenter = center
         XCTAssertEqual(dc.activeCount, 0)
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval,
+        condition: @escaping @Sendable () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        XCTFail("Timed out waiting for condition")
     }
 
     // MARK: - All Operation Types
@@ -662,6 +745,16 @@ final class DownloadCenterTests: XCTestCase {
         XCTAssertTrue(cmd.hasPrefix("lungfish classify"))
         XCTAssertTrue(cmd.contains("'/path with spaces/file.fastq.gz'"),
                       "Paths with spaces should be shell-quoted: \(cmd)")
+    }
+
+    func testBuildCLICommandSplitsNestedSubcommands() {
+        let cmd = OperationCenter.buildCLICommand(
+            subcommand: "fastq import-ont",
+            args: ["/data/run", "--output", "/tmp/project"]
+        )
+
+        XCTAssertEqual(cmd, "lungfish fastq import-ont /data/run --output /tmp/project")
+        XCTAssertFalse(cmd.contains("'fastq import-ont'"))
     }
 
     // MARK: - Log Entries

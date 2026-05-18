@@ -805,15 +805,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_LEFT\nAAAA"))
         XCTAssertTrue(stagedFASTA.contains(">amplicon_1_RIGHT\nGGGG"))
 
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let wizardSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(wizardSource.contains("genomeAccession: genomeReferenceName ?? genomeAccession"))
+        XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
     }
 
     func testViralReconBundledPrimerFastaKeepsBedAlignedToEquivalentGenomeAccession() throws {
@@ -853,15 +845,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertTrue(stagedBED.contains("NC_045512.2\t0\t4\tamplicon_1_LEFT"))
         XCTAssertFalse(stagedBED.contains("MN908947.3\t0\t4\tamplicon_1_LEFT"))
 
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let wizardSource = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("Sources/LungfishApp/Views/Mapping/ViralReconWizardSheet.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(wizardSource.contains("stageBundledGenomePrimerSelection"))
+        XCTAssertEqual(selection.bedURL.lastPathComponent, "primers.bed")
     }
 
     func testViralReconReadinessRejectsBlankGenomeBeforeRun() {
@@ -934,6 +918,11 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     }
 
     func testViralReconBuildFailureDoesNotForceParentReadinessFalse() throws {
+        // ViralReconWizardSheet owns this SwiftUI callback choreography privately:
+        // build failures should surface an error without forcing the parent FASTQ
+        // dialog disabled, and later input changes must clear the error. There is
+        // no state/result seam for that view behavior yet, so this is intentionally
+        // kept as a narrow source guard rather than a broad implementation scan.
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -1335,118 +1324,125 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(state.datasetLabel, "Samples/A/reads.fastq")
     }
 
-    func testToolPaneFileRoutesSpecialToolsThroughEmbeddedSheets() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testSpecialToolsUseEmbeddedConfigurationPresentation() {
+        let embeddedTools: [FASTQOperationToolID] = [
+            .minimap2, .bwaMem2, .bowtie2, .bbmap,
+            .viralRecon,
+            .spades, .megahit, .skesa, .flye, .hifiasm,
+            .kraken2, .esViritu, .taxTriage,
+        ]
 
-        XCTAssertTrue(source.contains("MappingWizardSheet("))
-        XCTAssertTrue(source.contains("AssemblyWizardSheet("))
-        XCTAssertTrue(source.contains("ClassificationWizardSheet("))
-        XCTAssertTrue(source.contains("embeddedInOperationsDialog: true"))
+        XCTAssertTrue(embeddedTools.allSatisfy(\.usesEmbeddedConfiguration))
+        XCTAssertEqual(FASTQOperationToolID.minimap2.mappingTool, .minimap2)
+        XCTAssertEqual(FASTQOperationToolID.spades.assemblyTool, .spades)
+        XCTAssertEqual(FASTQOperationToolID.kraken2.embeddedReadinessText, "Complete the classifier settings to continue.")
     }
 
-    func testToolPaneFileRoutesAllAssemblyToolsThroughSharedAssemblyWizard() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-        XCTAssertTrue(source.contains("case .spades, .megahit, .skesa, .flye, .hifiasm:"))
-        XCTAssertTrue(source.contains("initialTool: state.selectedToolID.assemblyTool ?? .spades"))
-        XCTAssertTrue(source.contains("onRun: state.captureAssemblyRequest(_:),"))
-        XCTAssertFalse(source.contains("Embedded managed assembly execution is not available in this FASTQ dialog yet."))
+    func testAllAssemblyToolsMapToSharedAssemblyWizardInputs() {
+        for toolID in [FASTQOperationToolID.spades, .megahit, .skesa, .flye, .hifiasm] {
+            XCTAssertTrue(toolID.usesEmbeddedConfiguration)
+            XCTAssertEqual(toolID.assemblyTool?.rawValue, toolID.rawValue)
+            XCTAssertEqual(toolID.embeddedReadinessText, "Complete the assembly settings to continue.")
+        }
     }
 
-    func testDerivativeToolPaneProvidesAuxiliaryInputChooser() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testDerivativeToolPaneAuxiliarySelectionUpdatesState() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+        let primerURL = URL(fileURLWithPath: "/tmp/primers.fasta")
 
-        XCTAssertTrue(source.contains(".fileImporter("))
-        XCTAssertTrue(source.contains("state.setAuxiliaryInput(url, for: browsingInputKind)"))
-        XCTAssertTrue(source.contains(#"Button(state.auxiliaryInputURL(for: kind) == nil ? "Choose…" : "Replace…")"#))
+        state.selectTool(.primerTrimming)
+        state.primerTrimmingSource = .reference
+
+        XCTAssertEqual(state.requiredInputKinds, [.fastqDataset, .primerSource])
+        XCTAssertFalse(state.isRunEnabled)
+
+        state.setAuxiliaryInput(primerURL, for: .primerSource)
+
+        XCTAssertEqual(state.auxiliaryInputURL(for: .primerSource), primerURL)
+        XCTAssertTrue(state.isRunEnabled)
     }
 
-    func testDialogRunButtonWiresEmbeddedRunTriggerIntoSpecialToolPanes() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let toolPanesSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift"),
-            encoding: .utf8
-        )
-        let dialogSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationDialog.swift"),
-            encoding: .utf8
-        )
-        let stateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationDialogState.swift"),
-            encoding: .utf8
+    func testDialogRunButtonStateIncrementsEmbeddedRunTriggerForSpecialToolPanes() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
         )
 
-        XCTAssertTrue(toolPanesSource.contains("embeddedRunTrigger: state.embeddedRunTrigger"))
-        XCTAssertTrue(dialogSource.contains("state.prepareForRun()"))
-        XCTAssertTrue(stateSource.contains("var embeddedRunTrigger"))
+        state.selectTool(.minimap2)
+        let initialTrigger = state.embeddedRunTrigger
+
+        state.prepareForRun()
+
+        XCTAssertEqual(state.embeddedRunTrigger, initialTrigger + 1)
+        XCTAssertNil(state.pendingLaunchRequest)
     }
 
-    func testDialogRunsWhenEmbeddedViralReconRequestIsCaptured() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let dialogSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationDialog.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(dialogSource.contains(".onChange(of: state.pendingViralReconRequest)"))
-        XCTAssertTrue(dialogSource.contains("state.selectedToolID == .viralRecon"))
-        XCTAssertTrue(dialogSource.contains("request != nil"))
-        XCTAssertTrue(dialogSource.contains("onRun()"))
+    func testDialogRunPresentationRunsWhenEmbeddedViralReconRequestIsCaptured() {
+        XCTAssertTrue(FASTQOperationDialogRunPresentation.shouldRunAfterEmbeddedRequestCapture(
+            selectedToolID: .viralRecon,
+            hasPendingViralReconRequest: true
+        ))
+        XCTAssertFalse(FASTQOperationDialogRunPresentation.shouldRunAfterEmbeddedRequestCapture(
+            selectedToolID: .kraken2,
+            hasPendingViralReconRequest: true
+        ))
+        XCTAssertFalse(FASTQOperationDialogRunPresentation.shouldRunAfterEmbeddedRequestCapture(
+            selectedToolID: .viralRecon,
+            hasPendingViralReconRequest: false
+        ))
     }
 
-    func testAppDelegateRoutesPendingMSAAlignmentRequestToMAFFTRunner() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
+    func testMAFFTPrepareForRunBuildsAlignmentRequestInsteadOfGenericLaunchRequest() throws {
+        let project = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
         )
 
-        XCTAssertTrue(appDelegateSource.contains("state.pendingMSAAlignmentRequest"))
-        XCTAssertTrue(appDelegateSource.contains("self.runMAFFTAlignment(request: request, routeContext: routeContext)"))
-        XCTAssertTrue(appDelegateSource.contains("CLIMSAAlignmentRunner.buildArguments"))
-        XCTAssertTrue(appDelegateSource.contains("operationType: .multipleSequenceAlignmentGeneration"))
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertEqual(request.inputSequenceURLs, [input])
+        XCTAssertEqual(request.projectURL, project)
+        XCTAssertEqual(request.name, "input")
+        XCTAssertNil(state.pendingLaunchRequest)
+        XCTAssertNil(state.pendingMappingRequest)
+        XCTAssertNil(state.pendingMinimap2Config)
     }
 
-    func testMAFFTToolPaneExposesAdvancedOptionsDisclosure() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let toolPanesSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift"),
-            encoding: .utf8
+    func testMAFFTAdvancedOptionsRouteIntoPendingMSARequest() throws {
+        let project = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let input = project.appendingPathComponent("input.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .alignment,
+            selectedInputURLs: [input],
+            projectURL: project
         )
 
-        XCTAssertTrue(toolPanesSource.contains(#"DisclosureGroup("Advanced Options""#))
-        XCTAssertTrue(toolPanesSource.contains("$state.mafftAdvancedOptionsExpanded"))
-        XCTAssertTrue(toolPanesSource.contains("$state.mafftExtraOptionsText"))
+        XCTAssertFalse(state.mafftAdvancedOptionsExpanded)
+
+        state.mafftAdvancedOptionsExpanded = true
+        state.mafftDirectionAdjustment = .accurate
+        state.mafftSymbolPolicy = .any
+        state.mafftThreads = 8
+        state.mafftDeterministicThreads = false
+        state.mafftAllowFASTQAssemblyInputs = true
+        state.mafftExtraOptionsText = #"--op 1.53 --retree "2""#
+        state.prepareForRun()
+
+        let request = try XCTUnwrap(state.pendingMSAAlignmentRequest)
+        XCTAssertTrue(state.mafftAdvancedOptionsExpanded)
+        XCTAssertEqual(request.directionAdjustment, .accurate)
+        XCTAssertEqual(request.symbolPolicy, .any)
+        XCTAssertEqual(request.threads, 8)
+        XCTAssertFalse(request.deterministicThreads)
+        XCTAssertTrue(request.allowFASTQAssemblyInputs)
+        XCTAssertEqual(request.extraArguments, ["--op", "1.53", "--retree", "2"])
     }
 
     func testMAFFTRequestUsesAnalysesMSAFolderAndAvoidsExistingBundle() throws {
@@ -1488,51 +1484,134 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         XCTAssertEqual(request.name, "sars-cov-2-genomes-2")
     }
 
-    func testOperationsDialogRoutesCurrentWindowProjectIntoDialogState() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let presenterSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationsDialogPresenter.swift"),
-            encoding: .utf8
-        )
-        let appDelegateSource = try String(
-            contentsOf: root.appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
-            encoding: .utf8
+    func testOperationsDialogStateUsesCurrentProjectForRelativeDatasetLabel() {
+        let projectURL = URL(fileURLWithPath: "/tmp/project.lungfish", isDirectory: true)
+        let state = FASTQOperationDialogState(
+            initialCategory: .readProcessing,
+            selectedInputURLs: [
+                projectURL.appendingPathComponent("Reads/sample.lungfishfastq", isDirectory: true)
+            ],
+            projectURL: projectURL
         )
 
-        XCTAssertTrue(presenterSource.contains("projectURL: projectURL"))
-        XCTAssertTrue(appDelegateSource.contains("projectURL: currentProjectURL"))
+        XCTAssertEqual(state.projectURL, projectURL)
+        XCTAssertEqual(state.datasetLabel, "Reads/sample.lungfishfastq")
     }
 
-    func testDerivativeToolPaneContainsRealHonestControls() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testRepresentativeDerivativeSettingsRouteIntoLaunchRequests() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let trimState = FASTQOperationDialogState(
+            initialCategory: .trimmingFiltering,
+            selectedInputURLs: [inputURL]
+        )
 
-        XCTAssertTrue(source.contains("qualityTrimThreshold"))
-        XCTAssertTrue(source.contains("adapterRemovalMode"))
-        XCTAssertTrue(source.contains("selectReadsBySequenceValue"))
-        XCTAssertTrue(source.contains("demultiplexLocation"))
+        trimState.qualityTrimThreshold = 31
+        trimState.adapterRemovalMode = .specified
+        trimState.adapterRemovalSequence = "AGATCGGAAGAGC"
+        trimState.prepareForRun()
+
+        XCTAssertEqual(
+            trimState.pendingLaunchRequest,
+            .derivative(
+                request: .fastpTrim(
+                    threshold: 31,
+                    windowSize: 4,
+                    mode: .cutRight,
+                    adapterMode: .specified,
+                    adapterSequence: "AGATCGGAAGAGC"
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        let sequenceState = FASTQOperationDialogState(
+            initialCategory: .searchSubsetting,
+            selectedInputURLs: [inputURL]
+        )
+        sequenceState.selectTool(.selectReadsBySequence)
+        sequenceState.selectReadsBySequenceValue = "TTAGGG"
+        sequenceState.selectReadsBySequenceSearchEnd = .threePrime
+        sequenceState.prepareForRun()
+
+        XCTAssertEqual(
+            sequenceState.pendingLaunchRequest,
+            .derivative(
+                request: .sequencePresenceFilter(
+                    sequence: "TTAGGG",
+                    fastaPath: nil,
+                    searchEnd: .threePrime,
+                    minOverlap: 16,
+                    errorRate: 0.15,
+                    keepMatched: true,
+                    searchReverseComplement: false
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
+
+        let demultiplexState = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [inputURL]
+        )
+        demultiplexState.selectTool(.demultiplexBarcodes)
+        demultiplexState.demultiplexKitID = "rapid-kit"
+        demultiplexState.demultiplexLocation = "start"
+        demultiplexState.demultiplexMaxDistanceFrom5Prime = 3
+        demultiplexState.demultiplexMaxDistanceFrom3Prime = 5
+        demultiplexState.demultiplexErrorRate = 0.05
+        demultiplexState.demultiplexTrimBarcodes = false
+        demultiplexState.prepareForRun()
+
+        XCTAssertEqual(
+            demultiplexState.pendingLaunchRequest,
+            .derivative(
+                request: .demultiplex(
+                    kitID: "rapid-kit",
+                    customCSVPath: nil,
+                    location: "start",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 3,
+                    maxDistanceFrom3Prime: 5,
+                    errorRate: 0.05,
+                    trimBarcodes: false,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
     }
 
-    func testDerivativeToolPaneExposesEditableControlsForCustomDeduplication() throws {
-        let root = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let sourceURL = root
-            .appendingPathComponent("Sources/LungfishApp/Views/FASTQ/FASTQOperationToolPanes.swift")
-        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+    func testCustomDeduplicationSettingsRouteIntoLaunchRequest() {
+        let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
+        let state = FASTQOperationDialogState(
+            initialCategory: .decontamination,
+            selectedInputURLs: [inputURL]
+        )
 
-        XCTAssertTrue(source.contains("removeDuplicatesSubstitutions"))
-        XCTAssertTrue(source.contains("removeDuplicatesOptical"))
-        XCTAssertTrue(source.contains("removeDuplicatesOpticalDistance"))
+        state.selectTool(.removeDuplicates)
+        state.removeDuplicatesPreset = .custom
+        state.removeDuplicatesSubstitutions = 2
+        state.removeDuplicatesOptical = true
+        state.removeDuplicatesOpticalDistance = 450
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .deduplicate(
+                    preset: .custom,
+                    substitutions: 2,
+                    optical: true,
+                    opticalDistance: 450
+                ),
+                inputURLs: [inputURL],
+                outputMode: .perInput
+            )
+        )
     }
 
     func testClassificationCapturePreservesAllBatchInputs() {

@@ -1007,7 +1007,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
     /// Initially hidden; shown only when the result contains multiple samples.
     /// Segment 0 is "All Samples"; subsequent segments are per-sample IDs.
     private func setupSampleFilterControl() {
-        sampleFilterControl.segmentStyle = .texturedRounded
+        sampleFilterControl.segmentStyle = .rounded
         sampleFilterControl.segmentCount = 1
         sampleFilterControl.setLabel("All Samples", forSegment: 0)
         sampleFilterControl.selectedSegment = 0
@@ -2982,7 +2982,7 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
         }
 
         // Action bar BLAST verify (TaxTriage triggers BLAST via table context menu)
-        actionBar.onBlastVerify = { [weak self] in
+        actionBar.onBlastVerify = {
             // TaxTriage BLAST is triggered via the table context menu per-organism;
             // the action bar button is intentionally a no-op placeholder
         }
@@ -3447,11 +3447,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             negativeControlSampleIds: negativeControlSampleIds()
         )
 
-        let panel = NSSavePanel()
-        panel.title = "Export Organism Matrix"
-        panel.allowedContentTypes = [.commaSeparatedText]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "organism_matrix.csv"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export Organism Matrix",
+            suggestedName: "organism_matrix.csv",
+            contentTypes: [.commaSeparatedText]
+        )
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
@@ -3471,11 +3471,10 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             sampleIds: sampleIds
         )
 
-        let panel = NSSavePanel()
-        panel.title = "Export Batch Report"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "batch_report.txt"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export Batch Report",
+            suggestedName: "batch_report.txt"
+        )
 
         panel.beginSheetModal(for: window) { response in
             guard response == .OK, let url = panel.url else { return }
@@ -3492,13 +3491,11 @@ public final class TaxTriageResultViewController: NSViewController, NSSplitViewD
             return
         }
 
-        let panel = NSSavePanel()
-        panel.title = "Export TaxTriage Results as \(fileTypeName)"
-        panel.allowedContentTypes = [.plainText]
-        panel.canCreateDirectories = true
-
         let baseName = taxTriageConfig?.samples.first?.sampleId ?? "taxtriage"
-        panel.nameFieldStringValue = "\(baseName)_results.\(fileExtension)"
+        let panel = MetagenomicsFilePanelFactory.delimitedExportPanel(
+            title: "Export TaxTriage Results as \(fileTypeName)",
+            suggestedName: "\(baseName)_results.\(fileExtension)"
+        )
 
         panel.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }

@@ -177,6 +177,91 @@ final class ProjectUniversalSearchTests: XCTestCase {
         )
     }
 
+    func testSearchEscapesLikeWildcardsInTextAndAttributeFilters() throws {
+        _ = try makeFASTQBundle(
+            name: "Alpha%Literal",
+            metadataRows: [
+                ("sample_name", "Alpha percent literal"),
+                ("notes", "batch_1"),
+                ("sample_role", "control"),
+            ]
+        )
+        _ = try makeFASTQBundle(
+            name: "AlphaXLiteral",
+            metadataRows: [
+                ("sample_name", "Alpha wildcard impostor"),
+                ("notes", "batchA1"),
+                ("sample_role", "control"),
+            ]
+        )
+        _ = try makeFASTQBundle(
+            name: "Slash\\Literal",
+            metadataRows: [
+                ("sample_name", "Slash backslash literal"),
+                ("notes", #"path\segment"#),
+                ("sample_role", "control"),
+            ]
+        )
+        _ = try makeFASTQBundle(
+            name: "SlashLiteral",
+            metadataRows: [
+                ("sample_name", "Slash impostor"),
+                ("notes", "pathsegment"),
+                ("sample_role", "control"),
+            ]
+        )
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+
+        let percentResults = try index.search(ProjectUniversalSearchQuery(
+            rawText: "Alpha%Literal",
+            textTerms: ["alpha%literal"],
+            kinds: ["fastq_dataset"],
+            limit: 20
+        ))
+        XCTAssertEqual(percentResults.map(\.title), ["Alpha%Literal"])
+
+        let underscoreResults = try index.search(ProjectUniversalSearchQuery(
+            rawText: "notes:batch_1",
+            kinds: ["fastq_dataset"],
+            attributeFilters: [
+                .init(key: "notes", value: "batch_1", match: .contains),
+            ],
+            limit: 20
+        ))
+        XCTAssertEqual(underscoreResults.map(\.title), ["Alpha%Literal"])
+
+        let backslashResults = try index.search(ProjectUniversalSearchQuery(
+            rawText: #"notes:path\segment"#,
+            kinds: ["fastq_dataset"],
+            attributeFilters: [
+                .init(key: "notes", value: #"path\segment"#, match: .contains),
+            ],
+            limit: 20
+        ))
+        XCTAssertEqual(backslashResults.map(\.title), ["Slash\\Literal"])
+    }
+
+    func testDeleteEntitiesEscapesLikeWildcardsInPathPrefix() throws {
+        _ = try makeFASTQBundle(name: "Literal_%_Bundle", metadataRows: [("sample_name", "literal one")])
+        _ = try makeFASTQBundle(name: "Literal_A_Bundle", metadataRows: [("sample_name", "literal two")])
+
+        let index = try ProjectUniversalSearchIndex(projectURL: projectURL)
+        _ = try index.rebuild()
+
+        let deleted = try index.deleteEntities(matchingPathPrefix: "Literal_%_Bundle.lungfishfastq")
+
+        XCTAssertEqual(deleted, 1)
+
+        let remaining = try index.search(ProjectUniversalSearchQuery(
+            rawText: "type:fastq_dataset",
+            kinds: ["fastq_dataset"],
+            limit: 20
+        ))
+        XCTAssertEqual(remaining.map(\.title), ["Literal_A_Bundle"])
+    }
+
     // MARK: - Fixtures
 
     @discardableResult

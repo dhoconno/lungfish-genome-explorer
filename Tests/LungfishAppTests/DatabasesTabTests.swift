@@ -218,35 +218,128 @@ final class DatabasesTabTests: XCTestCase {
 
     /// Verifies that the recommended database changes based on system RAM.
     func testRecommendedDatabaseHighlight() {
-        // 8 GB RAM -> Standard-8
+        // 8 GB RAM -> PlusPF-8
         let rec8GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 8 * 1_073_741_824
         )
-        XCTAssertEqual(rec8GB, .standard8, "8 GB RAM should recommend Standard-8")
+        XCTAssertEqual(rec8GB, .plusPF8, "8 GB RAM should recommend PlusPF-8")
 
-        // 16 GB RAM -> Standard-16
+        // 16 GB RAM -> PlusPF-8
         let rec16GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 16 * 1_073_741_824
         )
-        XCTAssertEqual(rec16GB, .standard16, "16 GB RAM should recommend Standard-16")
+        XCTAssertEqual(rec16GB, .plusPF8, "16 GB RAM should recommend PlusPF-8")
 
-        // 32 GB RAM -> Standard
+        // 32 GB RAM -> PlusPF-16
         let rec32GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 32 * 1_073_741_824
         )
-        XCTAssertEqual(rec32GB, .standard, "32 GB RAM should recommend Standard")
+        XCTAssertEqual(rec32GB, .plusPF16, "32 GB RAM should recommend PlusPF-16")
 
-        // 72 GB RAM -> PlusPF
+        // 72 GB RAM -> PlusPF-16
         let rec72GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 72 * 1_073_741_824
         )
-        XCTAssertEqual(rec72GB, .plusPF, "72 GB RAM should recommend PlusPF")
+        XCTAssertEqual(rec72GB, .plusPF16, "72 GB RAM should recommend PlusPF-16")
 
         // 128 GB RAM -> PlusPF
         let rec128GB = MetagenomicsDatabaseRegistry.recommendedCollection(
             forRAMBytes: 128 * 1_073_741_824
         )
         XCTAssertEqual(rec128GB, .plusPF, "128 GB RAM should recommend PlusPF")
+    }
+
+    func testRecommendedDatabaseFor48GBRAMUsesLargestHeadroomFit() {
+        let ramBytes: UInt64 = 48 * 1_073_741_824
+
+        let recommended = MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: ramBytes)
+
+        XCTAssertEqual(recommended, .plusPF16)
+        XCTAssertLessThanOrEqual(
+            UInt64(recommended?.approximateRAMBytes ?? .max),
+            UInt64(Double(ramBytes) * 0.6)
+        )
+    }
+
+    func testRecommendedDatabaseFor128GBRAMUsesLargestHeadroomFit() {
+        let ramBytes: UInt64 = 128 * 1_073_741_824
+
+        let recommended = MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: ramBytes)
+
+        XCTAssertEqual(recommended, .plusPF)
+        XCTAssertLessThanOrEqual(
+            UInt64(recommended?.approximateRAMBytes ?? .max),
+            UInt64(Double(ramBytes) * 0.6)
+        )
+    }
+
+    func testRecommendedDatabaseFor8GBRAMUsesSmallestViableFallback() {
+        let ramBytes: UInt64 = 8 * 1_073_741_824
+
+        let recommended = MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: ramBytes)
+
+        XCTAssertEqual(recommended, .plusPF8)
+        XCTAssertLessThanOrEqual(UInt64(recommended?.approximateRAMBytes ?? .max), ramBytes)
+    }
+
+    func testRecommendedDatabaseForVeryLowRAMHasNoRecommendation() {
+        let ramBytes: UInt64 = 4 * 1_073_741_824
+
+        let recommended = MetagenomicsDatabaseRegistry.recommendedCollection(forRAMBytes: ramBytes)
+
+        XCTAssertNil(recommended)
+    }
+
+    func testRecommendationBadgeUsesHeaderRecommendationName() {
+        let vm = PluginManagerViewModel(automaticallyRefresh: false)
+        let recommended = makeDatabaseInfo(
+            name: "PlusPF-16",
+            recommendedRAM: 1,
+            collection: .plusPF16
+        )
+        vm.applyDatabaseRecommendation(databases: [recommended], recommended: recommended)
+
+        XCTAssertTrue(vm.isRecommendedDatabase(recommended))
+        XCTAssertFalse(vm.isRecommendedDatabase(makeDatabaseInfo(name: "Standard")))
+    }
+
+    func testRecommendationBadgeRequiresRegistrySelectedSource() {
+        let vm = PluginManagerViewModel(automaticallyRefresh: false)
+        vm.recommendedDatabaseName = "Oversized"
+
+        XCTAssertFalse(vm.isRecommendedDatabase(makeDatabaseInfo(
+            name: "Oversized",
+            recommendedRAM: Int64.max
+        )))
+    }
+
+    func testRecommendationBadgeUsesRegistrySelectedSourceForStalePersistedRow() throws {
+        let vm = PluginManagerViewModel(automaticallyRefresh: false)
+        let physicalRAMBytes: UInt64 = 48 * 1_073_741_824
+        let policyLimitBytes = UInt64(Double(physicalRAMBytes) * 0.6)
+        let stalePersistedRAMBytes: Int64 = 32 * 1_073_741_824
+        let persistedPlusPF16 = makeDatabaseInfo(
+            name: "PlusPF-16",
+            recommendedRAM: stalePersistedRAMBytes,
+            collection: .plusPF16
+        )
+        let registrySelectedPlusPF16 = try XCTUnwrap(
+            MetagenomicsDatabaseInfo.catalogEntry(for: .plusPF16)
+        )
+
+        XCTAssertGreaterThan(UInt64(stalePersistedRAMBytes), policyLimitBytes)
+        XCTAssertLessThanOrEqual(UInt64(stalePersistedRAMBytes), physicalRAMBytes)
+
+        vm.applyDatabaseRecommendation(
+            databases: [persistedPlusPF16],
+            recommended: registrySelectedPlusPF16
+        )
+
+        let displayedPlusPF16 = try XCTUnwrap(vm.databases.first)
+        XCTAssertEqual(vm.recommendedDatabaseName, "PlusPF-16")
+        XCTAssertEqual(displayedPlusPF16.recommendedRAM, 16 * 1_073_741_824)
+        XCTAssertTrue(vm.isRecommendedDatabase(displayedPlusPF16))
+        XCTAssertFalse(vm.isRecommendedDatabase(persistedPlusPF16))
     }
 
     /// Verifies that recommended database name is correctly set in the view model.

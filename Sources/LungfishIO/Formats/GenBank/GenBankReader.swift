@@ -51,6 +51,8 @@ public final class GenBankReader: Sendable {
     /// Internal qualifier key used to preserve the original GenBank feature key.
     /// This allows downstream exporters to emit the exact source feature type.
     public static let rawFeatureTypeQualifierKey = "_lf_raw_feature_type"
+    /// Internal qualifier key used to preserve the original GenBank location expression.
+    public static let rawLocationQualifierKey = "_lf_raw_genbank_location"
     /// The file URL being read
     public let url: URL
 
@@ -97,22 +99,142 @@ public final class GenBankReader: Sendable {
 
     /// Returns an async stream of GenBank records.
     ///
-    /// This is memory-efficient for large files as it yields records
-    /// one at a time.
+    /// This is memory-efficient for large files as it parses one record for
+    /// each iterator request instead of letting a producer task run ahead.
     ///
     /// - Returns: An async stream of records
     public func records() -> AsyncThrowingStream<GenBankRecord, Error> {
-        AsyncThrowingStream { continuation in
-            Task {
-                do {
-                    try self.parseFileSync { record in
-                        continuation.yield(record)
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
+        do {
+            let scanner = try makeRecordScanner()
+            return AsyncThrowingStream(unfolding: {
+                if Task.isCancelled {
+                    scanner.close()
+                    return nil
+                }
+                return try scanner.nextRecord()
+            })
+        } catch {
+            return AsyncThrowingStream(unfolding: {
+                throw error
+            })
+        }
+    }
+
+    private func makeRecordScanner() throws -> GenBankRecordScanner {
+        try GenBankRecordScanner(url: url) { [self] lines in
+            let (record, _) = try parseRecord(lines: lines, startIndex: 0)
+            return record
+        }
+    }
+
+    private final class GenBankRecordScanner: @unchecked Sendable {
+        private static let lineFeed = UInt8(ascii: "\n")
+        private static let carriageReturn = UInt8(ascii: "\r")
+        private static let chunkSize = 64 * 1024
+
+        private let handle: FileHandle
+        private let parseRecord: ([String]) throws -> GenBankRecord?
+        private var pending = Data()
+        private var recordLines: [String] = []
+        private var reachedEndOfFile = false
+        private var closed = false
+        private var previousDelimiterWasCR = false
+
+        init(url: URL, parseRecord: @escaping ([String]) throws -> GenBankRecord?) throws {
+            self.handle = try FileHandle(forReadingFrom: url)
+            self.parseRecord = parseRecord
+            self.recordLines.reserveCapacity(512)
+        }
+
+        deinit {
+            close()
+        }
+
+        func close() {
+            guard !closed else { return }
+            try? handle.close()
+            closed = true
+        }
+
+        func nextRecord() throws -> GenBankRecord? {
+            while let line = try nextLine() {
+                let trimmedLine = line.trimmingCharacters(in: .whitespaces)
+                if recordLines.isEmpty && trimmedLine.isEmpty {
+                    continue
+                }
+
+                recordLines.append(line)
+                if trimmedLine == "//", let record = try emitCurrentRecord() {
+                    return record
                 }
             }
+
+            close()
+            guard !recordLines.isEmpty else {
+                return nil
+            }
+            return try emitCurrentRecord()
+        }
+
+        private func nextLine() throws -> String? {
+            while true {
+                if let line = try consumePendingLine() {
+                    return line
+                }
+
+                guard !reachedEndOfFile else {
+                    return nil
+                }
+
+                guard let chunk = try handle.read(upToCount: Self.chunkSize), !chunk.isEmpty else {
+                    reachedEndOfFile = true
+                    if pending.isEmpty {
+                        return nil
+                    }
+                    let finalLine = try decodeLine(pending)
+                    pending.removeAll(keepingCapacity: true)
+                    return finalLine
+                }
+
+                pending.append(chunk)
+            }
+        }
+
+        private func consumePendingLine() throws -> String? {
+            while let delimiterIndex = pending.firstIndex(where: { byte in
+                byte == Self.lineFeed || byte == Self.carriageReturn
+            }) {
+                let delimiter = pending[delimiterIndex]
+                let lineData = pending[..<delimiterIndex]
+                if previousDelimiterWasCR, delimiter == Self.lineFeed, lineData.isEmpty {
+                    previousDelimiterWasCR = false
+                    pending.removeSubrange(...delimiterIndex)
+                    continue
+                }
+
+                previousDelimiterWasCR = delimiter == Self.carriageReturn
+                pending.removeSubrange(...delimiterIndex)
+                return try decodeLine(Data(lineData))
+            }
+            return nil
+        }
+
+        private func decodeLine(_ data: Data) throws -> String {
+            var lineData = data
+            if lineData.last == Self.carriageReturn {
+                lineData.removeLast()
+            }
+            guard let line = String(data: lineData, encoding: .utf8) else {
+                throw GenBankError.invalidEncoding
+            }
+            return line
+        }
+
+        private func emitCurrentRecord() throws -> GenBankRecord? {
+            defer {
+                recordLines.removeAll(keepingCapacity: true)
+            }
+            return try parseRecord(recordLines)
         }
     }
 
@@ -123,36 +245,9 @@ public final class GenBankReader: Sendable {
     private func parseFileSync(
         onRecord: (GenBankRecord) -> Void
     ) throws {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-
-        guard let data = try handle.readToEnd() else {
-            return
-        }
-
-        guard let content = String(data: data, encoding: .utf8) else {
-            throw GenBankError.invalidEncoding
-        }
-
-        let lines = content.components(separatedBy: .newlines)
-        var lineIndex = 0
-
-        while lineIndex < lines.count {
-            // Skip empty lines between records
-            while lineIndex < lines.count && lines[lineIndex].trimmingCharacters(in: .whitespaces).isEmpty {
-                lineIndex += 1
-            }
-
-            if lineIndex >= lines.count {
-                break
-            }
-
-            // Parse a single record
-            let (record, nextIndex) = try parseRecord(lines: lines, startIndex: lineIndex)
-            if let record = record {
-                onRecord(record)
-            }
-            lineIndex = nextIndex
+        let scanner = try makeRecordScanner()
+        while let record = try scanner.nextRecord() {
+            onRecord(record)
         }
     }
 
@@ -387,6 +482,7 @@ public final class GenBankReader: Sendable {
 
             // Preserve the exact GenBank feature key for downstream serialization.
             qualifierDict[Self.rawFeatureTypeQualifierKey] = AnnotationQualifier(featureType)
+            qualifierDict[Self.rawLocationQualifierKey] = AnnotationQualifier(locationStr)
 
             // Determine feature name from qualifiers
             let name = qualifierDict["gene"]?.firstValue
@@ -519,24 +615,33 @@ public final class GenBankReader: Sendable {
 
     // MARK: - Location Parsing
 
+    private struct LocationParseResult {
+        let intervals: [AnnotationInterval]
+
+        var featureStrand: Strand {
+            let intervalStrands = Set(intervals.compactMap(\.strand))
+            if intervalStrands.count == 1, let strand = intervalStrands.first {
+                return strand
+            }
+            return .unknown
+        }
+    }
+
     private func parseLocation(_ locationStr: String, lineNumber: Int) throws -> ([AnnotationInterval], Strand) {
         let location = locationStr.trimmingCharacters(in: .whitespaces)
 
-        // Parse the location and determine strand
-        let (intervals, isComplement) = try parseLocationExpression(location, lineNumber: lineNumber)
+        let parsedLocation = try parseLocationExpression(location, lineNumber: lineNumber, strand: .forward)
 
-        let strand: Strand = isComplement ? .reverse : .forward
-        return (intervals, strand)
+        return (parsedLocation.intervals, parsedLocation.featureStrand)
     }
 
-    private func parseLocationExpression(_ expr: String, lineNumber: Int) throws -> ([AnnotationInterval], Bool) {
+    private func parseLocationExpression(_ expr: String, lineNumber: Int, strand: Strand) throws -> LocationParseResult {
         var expression = expr.trimmingCharacters(in: .whitespaces)
-        var isComplement = false
 
         // Handle complement()
         if expression.hasPrefix("complement(") && expression.hasSuffix(")") {
-            isComplement = true
             expression = String(expression.dropFirst(11).dropLast(1))
+            return try parseLocationExpression(expression, lineNumber: lineNumber, strand: complemented(strand))
         }
 
         // Handle join()
@@ -545,10 +650,10 @@ public final class GenBankReader: Sendable {
             let parts = splitLocationParts(inner)
             var intervals: [AnnotationInterval] = []
             for part in parts {
-                let (partIntervals, _) = try parseLocationExpression(part, lineNumber: lineNumber)
-                intervals.append(contentsOf: partIntervals)
+                let parsedPart = try parseLocationExpression(part, lineNumber: lineNumber, strand: strand)
+                intervals.append(contentsOf: parsedPart.intervals)
             }
-            return (intervals, isComplement)
+            return LocationParseResult(intervals: intervals)
         }
 
         // Handle order()
@@ -557,15 +662,26 @@ public final class GenBankReader: Sendable {
             let parts = splitLocationParts(inner)
             var intervals: [AnnotationInterval] = []
             for part in parts {
-                let (partIntervals, _) = try parseLocationExpression(part, lineNumber: lineNumber)
-                intervals.append(contentsOf: partIntervals)
+                let parsedPart = try parseLocationExpression(part, lineNumber: lineNumber, strand: strand)
+                intervals.append(contentsOf: parsedPart.intervals)
             }
-            return (intervals, isComplement)
+            return LocationParseResult(intervals: intervals)
         }
 
         // Parse simple range: start..end or start^end or single position
-        let interval = try parseSimpleLocation(expression, lineNumber: lineNumber)
-        return ([interval], isComplement)
+        let interval = try parseSimpleLocation(expression, lineNumber: lineNumber, strand: strand)
+        return LocationParseResult(intervals: [interval])
+    }
+
+    private func complemented(_ strand: Strand) -> Strand {
+        switch strand {
+        case .forward:
+            return .reverse
+        case .reverse:
+            return .forward
+        case .unknown:
+            return .unknown
+        }
     }
 
     private func splitLocationParts(_ inner: String) -> [String] {
@@ -594,7 +710,7 @@ public final class GenBankReader: Sendable {
         return parts
     }
 
-    private func parseSimpleLocation(_ expr: String, lineNumber: Int) throws -> AnnotationInterval {
+    private func parseSimpleLocation(_ expr: String, lineNumber: Int, strand: Strand) throws -> AnnotationInterval {
         var expression = expr
 
         // Handle complement() if still present (nested complement)
@@ -615,7 +731,7 @@ public final class GenBankReader: Sendable {
                 throw GenBankError.invalidLocation(expression)
             }
             // GenBank uses 1-based coordinates, convert to 0-based
-            return AnnotationInterval(start: start - 1, end: end)
+            return AnnotationInterval(start: start - 1, end: end, strand: strand)
         }
 
         // Handle insertion point: start^end
@@ -627,13 +743,13 @@ public final class GenBankReader: Sendable {
                 throw GenBankError.invalidLocation(expression)
             }
             // For insertion points, the feature is between the two positions
-            return AnnotationInterval(start: start - 1, end: end)
+            return AnnotationInterval(start: start - 1, end: end, strand: strand)
         }
 
         // Single position
         if let pos = parsePosition(expression) {
             // Single position becomes a 1-bp interval
-            return AnnotationInterval(start: pos - 1, end: pos)
+            return AnnotationInterval(start: pos - 1, end: pos, strand: strand)
         }
 
         throw GenBankError.invalidLocation(expression)

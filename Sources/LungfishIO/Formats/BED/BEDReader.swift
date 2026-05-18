@@ -186,7 +186,7 @@ public final class BEDReader: Sendable {
                 do {
                     var lineNumber = 0
 
-                    for try await line in url.lines {
+                    for try await line in url.linesAutoDecompressing() {
                         lineNumber += 1
 
                         // Skip empty lines, comments, and track/browser lines

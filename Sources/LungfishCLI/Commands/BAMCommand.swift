@@ -979,7 +979,8 @@ extension BAMCommand {
                     force: force,
                     sortThreads: sortThreads,
                     quiet: resolvedGlobalOptions.quiet,
-                    outputFormat: resolvedGlobalOptions.outputFormat
+                    outputFormat: resolvedGlobalOptions.outputFormat,
+                    deduplicatedBundlePath: nil
                 ),
                 runtime: runtime,
                 emit: emit

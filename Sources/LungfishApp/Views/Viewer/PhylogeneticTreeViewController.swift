@@ -77,7 +77,6 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
     override func loadView() {
         view = NSView()
         view.setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.root)
-        view.wantsLayer = true
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         configureLayout()
     }
@@ -189,14 +188,12 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
         let toolbar = configureToolbar()
         toolbar.translatesAutoresizingMaskIntoConstraints = false
         toolbarContainer.translatesAutoresizingMaskIntoConstraints = false
-        toolbarContainer.wantsLayer = true
         toolbarContainer.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         toolbarContainer.addSubview(summaryLabel)
         toolbarContainer.addSubview(toolbar)
 
         let nodeDrawer = NSView()
         nodeDrawer.translatesAutoresizingMaskIntoConstraints = false
-        nodeDrawer.wantsLayer = true
         nodeDrawer.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         let nodeDrawerTitle = NSTextField(labelWithString: "Nodes")
         nodeDrawerTitle.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -738,17 +735,17 @@ final class PhylogeneticTreeViewController: NSViewController, NSTableViewDataSou
               let bundle else { return }
         do {
             let export = try bundle.subtreeExport(nodeID: selectedNodeID)
-            let panel = NSSavePanel()
-            panel.allowedContentTypes = [.plainText]
-            panel.nameFieldStringValue = "\(export.selectedLabel).nwk"
+            let panel = ViewerFilePanelFactory.phylogeneticSubtreeExportPanel(
+                suggestedName: "\(export.selectedLabel).nwk"
+            )
             let completion: (NSApplication.ModalResponse) -> Void = { response in
                 guard response == .OK, let url = panel.url else { return }
                 try? Data(export.newick.utf8).write(to: url, options: .atomic)
             }
             if let window = view.window {
                 panel.beginSheetModal(for: window, completionHandler: completion)
-            } else if panel.runModal() == .OK {
-                completion(.OK)
+            } else {
+                panel.begin(completionHandler: completion)
             }
         } catch {
             NSSound.beep()
@@ -1123,7 +1120,6 @@ private final class PhylogeneticTreeCanvasView: NSView {
     }
 
     private func commonInit() {
-        wantsLayer = true
         layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         setAccessibilityIdentifier(PhylogeneticTreeAccessibilityID.canvasView)
         setAccessibilityElement(true)

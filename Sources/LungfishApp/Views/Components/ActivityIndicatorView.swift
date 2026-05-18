@@ -206,8 +206,12 @@ public final class ActivityIndicatorView: NSView {
             context.allowsImplicitAnimation = true
             alphaValue = 0
         }, completionHandler: { [weak self] in
-            self?.isHidden = true
-            self?.isVisible = false
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.isHidden = true
+                    self?.isVisible = false
+                }
+            }
         })
     }
 

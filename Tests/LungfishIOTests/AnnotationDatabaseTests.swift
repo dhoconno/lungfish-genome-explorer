@@ -64,6 +64,53 @@ final class AnnotationDatabaseTests: XCTestCase {
         ]
     }
 
+    // MARK: - Tests: Literal LIKE Search
+
+    func testQueryNameFilterEscapesLikeWildcards() throws {
+        let lines = [
+            bed14(chrom: "chr1", start: 100, end: 150, name: "literal%feature", type: "gene"),
+            bed14(chrom: "chr1", start: 200, end: 250, name: "literalXfeature", type: "gene"),
+            bed14(chrom: "chr1", start: 300, end: 350, name: "literal_feature", type: "gene"),
+            bed14(chrom: "chr1", start: 400, end: 450, name: "literalAfeature", type: "gene"),
+            bed14(chrom: "chr1", start: 500, end: 550, name: "literal\\feature", type: "gene"),
+            bed14(chrom: "chr1", start: 600, end: 650, name: "literalfeature", type: "gene"),
+            bed14(chrom: "chr1", start: 700, end: 750, name: "NC_045512", type: "gene"),
+            bed14(chrom: "chr1", start: 800, end: 850, name: "NCX045512", type: "gene"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+
+        XCTAssertEqual(db.query(nameFilter: "literal%feature").map(\.name), ["literal%feature"])
+        XCTAssertEqual(db.queryCount(nameFilter: "literal%feature"), 1)
+        XCTAssertEqual(db.query(nameFilter: "literal_feature").map(\.name), ["literal_feature"])
+        XCTAssertEqual(db.query(nameFilter: "literal\\feature").map(\.name), ["literal\\feature"])
+        XCTAssertEqual(db.query(nameFilter: "NC_045512").map(\.name), ["NC_045512"])
+    }
+
+    func testTableTextFiltersEscapeLikeWildcardsForContainsAndPrefixes() throws {
+        let lines = [
+            bed14(chrom: "analysis/run_1/file", start: 100, end: 150, name: "percent%literal", type: "gene"),
+            bed14(chrom: "analysis/runA1/file", start: 200, end: 250, name: "percentXliteral", type: "gene"),
+            bed14(chrom: "analysis/run_2/file", start: 300, end: 350, name: "slash\\literal", type: "gene"),
+            bed14(chrom: "analysis/runA2/file", start: 400, end: 450, name: "slashliteral", type: "gene"),
+        ]
+        let (db, _) = try createAndOpenDB(lines: lines)
+
+        let percentMatches = db.queryForTable(columnFilters: [
+            .init(key: "name", op: "~", value: "percent%literal"),
+        ])
+        XCTAssertEqual(percentMatches.map(\.name), ["percent%literal"])
+
+        let prefixMatches = db.queryForTable(columnFilters: [
+            .init(key: "chromosome", op: "^=", value: "analysis/run_1"),
+        ])
+        XCTAssertEqual(prefixMatches.map(\.name), ["percent%literal"])
+
+        let backslashMatches = db.queryForTable(columnFilters: [
+            .init(key: "name", op: "~", value: "slash\\literal"),
+        ])
+        XCTAssertEqual(backslashMatches.map(\.name), ["slash\\literal"])
+    }
+
     // MARK: - Tests: createFromBED with GenBank Types
 
     func testCreateFromBEDWithGenBankTypes() throws {

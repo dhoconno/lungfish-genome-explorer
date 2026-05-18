@@ -140,6 +140,20 @@ final class FASTAReaderTests: XCTestCase {
         XCTAssertEqual(sequences[0].description, "This is a description with spaces")
     }
 
+    func testParseHeaderSplitsOnTabWhitespace() async throws {
+        let content = """
+        >seq1\tThis is a tab separated description
+        ATCG
+        """
+
+        let fileURL = try createTempFASTA(content)
+        let reader = try FASTAReader(url: fileURL)
+        let sequences = try await reader.readAll()
+
+        XCTAssertEqual(sequences[0].name, "seq1")
+        XCTAssertEqual(sequences[0].description, "This is a tab separated description")
+    }
+
     func testParseHeaderWithSpecialCharacters() async throws {
         let content = """
         >chr1:100-200|gene=BRCA1|organism=Homo_sapiens
@@ -173,6 +187,67 @@ final class FASTAReaderTests: XCTestCase {
         XCTAssertEqual(headers[1].name, "seq2")
         XCTAssertEqual(headers[2].name, "seq3")
         XCTAssertNil(headers[2].description)
+    }
+
+    func testReadAllSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1 gzip description
+        ATCGATCG
+        >seq2
+        GGGGCCCC
+        """
+        let fileURL = tempDirectory.appendingPathComponent("test.fa.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        let sequences = try await reader.readAll()
+
+        XCTAssertTrue(reader.isCompressed)
+        XCTAssertEqual(sequences.count, 2)
+        XCTAssertEqual(sequences[0].name, "seq1")
+        XCTAssertEqual(sequences[0].description, "gzip description")
+        XCTAssertEqual(sequences[0].asString(), "ATCGATCG")
+        XCTAssertEqual(sequences[1].name, "seq2")
+        XCTAssertEqual(sequences[1].asString(), "GGGGCCCC")
+    }
+
+    func testSequencesSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1
+        ATCG
+        >seq2
+        GCTA
+        """
+        let fileURL = tempDirectory.appendingPathComponent("stream.fasta.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        var names: [String] = []
+        for try await sequence in reader.sequences() {
+            names.append(sequence.name)
+        }
+
+        XCTAssertEqual(names, ["seq1", "seq2"])
+    }
+
+    func testReadHeadersSupportsGzippedFASTA() async throws {
+        let content = """
+        >seq1 first compressed header
+        ATCG
+        >seq2
+        GCTA
+        """
+        let fileURL = tempDirectory.appendingPathComponent("headers.fa.gz")
+        try GzipTestHelper.writeGzip(content, to: fileURL)
+
+        let reader = try FASTAReader(url: fileURL)
+        let headers = try await reader.readHeaders()
+
+        XCTAssertEqual(headers.count, 2)
+        XCTAssertEqual(headers[0].name, "seq1")
+        XCTAssertEqual(headers[0].description, "first compressed header")
+        XCTAssertEqual(headers[1].name, "seq2")
+        XCTAssertNil(headers[1].description)
     }
 
     // MARK: - Alphabet Detection Tests
@@ -715,60 +790,44 @@ final class FASTAErrorTests: XCTestCase {
 /// These tests verify the parser works with real-world FASTA files.
 final class FASTARealFileTests: XCTestCase {
 
-    /// Base path to the test project directory
-    static let testProjectPath = "/Users/dho/Desktop/test2/My Genome Project.lungfish"
+    /// Helper to get URL for a checked-in test resource.
+    private func testFileURL(_ filename: String) throws -> URL {
+        let resourceRoot = try XCTUnwrap(Bundle.module.resourceURL, "Missing test resource bundle")
+        let candidates = [
+            resourceRoot.appendingPathComponent(filename),
+            resourceRoot
+                .appendingPathComponent("Resources", isDirectory: true)
+                .appendingPathComponent(filename),
+        ]
 
-    /// Helper to get URL for a test file
-    private func testFileURL(_ filename: String) -> URL {
-        URL(fileURLWithPath: Self.testProjectPath).appendingPathComponent(filename)
+        return try XCTUnwrap(
+            candidates.first { FileManager.default.fileExists(atPath: $0.path) },
+            "Missing FASTA test resource \(filename) in \(resourceRoot.path)"
+        )
     }
 
-    /// Skip tests if the test directory does not exist
-    private func skipIfTestDirectoryMissing() throws {
-        let exists = FileManager.default.fileExists(atPath: Self.testProjectPath)
-        try XCTSkipUnless(exists, "Test data directory not found at \(Self.testProjectPath)")
-    }
-
-    // MARK: - test_dna.fasta Tests
+    // MARK: - sample_multi.fasta Tests
 
     func testLoadTestDnaFasta() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_dna.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let sequences = try await reader.readAll()
 
-        // Verify we got exactly one sequence
-        XCTAssertEqual(sequences.count, 1, "test_dna.fasta should contain exactly 1 sequence")
+        XCTAssertEqual(sequences.count, 5, "sample_multi.fasta should contain five sequences")
 
         let seq = sequences[0]
 
-        // Verify name extraction
-        XCTAssertEqual(seq.name, "TestSequence1", "Name should be 'TestSequence1'")
+        XCTAssertEqual(seq.name, "seq1")
 
-        // Verify description extraction
-        XCTAssertNotNil(seq.description, "Description should not be nil")
-        XCTAssertTrue(
-            seq.description?.contains("Sample DNA sequence") ?? false,
-            "Description should contain 'Sample DNA sequence'"
-        )
-        XCTAssertTrue(
-            seq.description?.contains("length=1000bp") ?? false,
-            "Description should contain 'length=1000bp'"
-        )
+        XCTAssertEqual(seq.description, "First test sequence")
 
-        // Verify alphabet detection
         XCTAssertEqual(seq.alphabet, .dna, "Should be detected as DNA")
 
-        // Verify sequence length (actual parsed length from file)
-        // The file has 17 lines of 60 bp minus a short last line = 991 bp
-        XCTAssertEqual(seq.length, 991, "Sequence length should be 991 bp")
+        XCTAssertEqual(seq.length, 40, "First sample sequence should be 40 bp")
 
-        // Verify sequence starts correctly
         let prefix = seq[0..<10]
-        XCTAssertEqual(prefix, "ATGCGTACGA", "Sequence should start with ATGCGTACGA")
+        XCTAssertEqual(prefix, "ATCGATCGAT", "Sequence should start with checked-in fixture bases")
 
-        // Verify sequence contains only valid DNA bases
         let seqString = seq.asString()
         let validDNA = Set("ATCGatcg")
         for char in seqString {
@@ -777,66 +836,47 @@ final class FASTARealFileTests: XCTestCase {
     }
 
     func testTestDnaFastaHeaders() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_dna.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let headers = try await reader.readHeaders()
 
-        XCTAssertEqual(headers.count, 1)
-        XCTAssertEqual(headers[0].name, "TestSequence1")
-        XCTAssertTrue(headers[0].description?.contains("Sample DNA sequence") ?? false)
+        XCTAssertEqual(headers.count, 5)
+        XCTAssertEqual(headers[0].name, "seq1")
+        XCTAssertEqual(headers[0].description, "First test sequence")
+        XCTAssertEqual(headers[2].name, "seq3")
+        XCTAssertNil(headers[2].description)
     }
 
-    // MARK: - test_multi.fasta Tests
+    // MARK: - Multi-sequence Resource Tests
 
     func testLoadTestMultiFasta() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_multi.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let sequences = try await reader.readAll()
 
-        // Verify we got exactly 4 sequences
-        XCTAssertEqual(sequences.count, 4, "test_multi.fasta should contain exactly 4 sequences")
+        XCTAssertEqual(sequences.count, 5, "sample_multi.fasta should contain exactly 5 sequences")
 
-        // Verify sequence names
-        let expectedNames = ["Chromosome1", "Chromosome2", "Mitochondrion", "Plasmid1"]
+        let expectedNames = ["seq1", "seq2", "seq3", "protein_seq", "rna_seq"]
         let actualNames = sequences.map { $0.name }
         XCTAssertEqual(actualNames, expectedNames, "Sequence names should match expected")
 
-        // Verify each sequence has a description
-        for seq in sequences {
-            XCTAssertNotNil(seq.description, "Sequence \(seq.name) should have a description")
-        }
+        XCTAssertEqual(sequences[0].description, "First test sequence")
+        XCTAssertEqual(sequences[1].description, "Second test sequence with longer description")
+        XCTAssertNil(sequences[2].description)
+        XCTAssertEqual(sequences[3].description, "This is a protein sequence")
+        XCTAssertEqual(sequences[4].description, "RNA sequence with uracil")
 
-        // Verify organism metadata is preserved in descriptions
-        XCTAssertTrue(
-            sequences[0].description?.contains("organism=TestOrganism") ?? false,
-            "Chromosome1 description should contain organism info"
-        )
-        XCTAssertTrue(
-            sequences[3].description?.contains("organism=E.coli") ?? false,
-            "Plasmid1 description should contain E.coli organism info"
-        )
+        XCTAssertEqual(sequences[0].alphabet, .dna)
+        XCTAssertEqual(sequences[1].alphabet, .dna)
+        XCTAssertEqual(sequences[2].alphabet, .dna)
+        XCTAssertEqual(sequences[3].alphabet, .protein)
+        XCTAssertEqual(sequences[4].alphabet, .rna)
 
-        // Verify all sequences are DNA
-        for seq in sequences {
-            XCTAssertEqual(seq.alphabet, .dna, "Sequence \(seq.name) should be DNA")
-        }
-
-        // Verify sequence lengths (actual parsed lengths from file)
-        // Chromosome1: 494 bp, Chromosome2: 394 bp, Mitochondrion: 355 bp, Plasmid1: 300 bp
-        XCTAssertEqual(sequences[0].length, 494, "Chromosome1 should be 494 bp")
-        XCTAssertEqual(sequences[1].length, 394, "Chromosome2 should be 394 bp")
-        XCTAssertGreaterThan(sequences[2].length, 300, "Mitochondrion should be > 300 bp")
-        XCTAssertGreaterThan(sequences[3].length, 250, "Plasmid1 should be > 250 bp")
+        XCTAssertEqual(sequences.map(\.length), [40, 20, 20, 20, 20])
     }
 
     func testMultiFastaStreaming() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_multi.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
 
         var count = 0
@@ -848,33 +888,28 @@ final class FASTARealFileTests: XCTestCase {
             XCTAssertGreaterThan(sequence.length, 0, "Sequence \(sequence.name) should have non-zero length")
         }
 
-        XCTAssertEqual(count, 4, "Should stream exactly 4 sequences")
-        XCTAssertEqual(names, ["Chromosome1", "Chromosome2", "Mitochondrion", "Plasmid1"])
+        XCTAssertEqual(count, 5, "Should stream exactly 5 sequences")
+        XCTAssertEqual(names, ["seq1", "seq2", "seq3", "protein_seq", "rna_seq"])
     }
 
     func testMultiFastaHeadersOnly() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_multi.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let headers = try await reader.readHeaders()
 
-        XCTAssertEqual(headers.count, 4)
+        XCTAssertEqual(headers.count, 5)
 
-        // Verify header parsing extracts name and description correctly
-        XCTAssertEqual(headers[0].name, "Chromosome1")
-        XCTAssertTrue(headers[0].description?.contains("Lungfish test chromosome 1") ?? false)
+        XCTAssertEqual(headers[0].name, "seq1")
+        XCTAssertEqual(headers[0].description, "First test sequence")
 
-        XCTAssertEqual(headers[2].name, "Mitochondrion")
-        XCTAssertTrue(headers[2].description?.contains("mitochondrial genome fragment") ?? false)
+        XCTAssertEqual(headers[3].name, "protein_seq")
+        XCTAssertEqual(headers[3].description, "This is a protein sequence")
     }
 
-    // MARK: - test_large.fasta Tests
+    // MARK: - large_test.fasta Tests
 
     func testLoadTestLargeFasta() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_large.fasta")
+        let fileURL = try testFileURL("large_test.fasta")
         let reader = try FASTAReader(url: fileURL)
 
         // Measure performance
@@ -882,22 +917,17 @@ final class FASTARealFileTests: XCTestCase {
         let sequences = try await reader.readAll()
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-        // Verify we got exactly one sequence
-        XCTAssertEqual(sequences.count, 1, "test_large.fasta should contain exactly 1 sequence")
+        // Verify we got all large resource sequences
+        XCTAssertEqual(sequences.count, 10, "large_test.fasta should contain exactly 10 sequences")
 
         let seq = sequences[0]
 
         // Verify name
-        XCTAssertEqual(seq.name, "LargeChromosome1")
+        XCTAssertEqual(seq.name, "seq1")
 
-        // Verify description mentions performance testing
-        XCTAssertTrue(
-            seq.description?.contains("performance testing") ?? false,
-            "Description should mention performance testing"
-        )
+        XCTAssertEqual(seq.description, "Test sequence 1 length=10000")
 
-        // Verify it's a reasonably large sequence (actual: 9359 bp)
-        XCTAssertEqual(seq.length, 9359, "Large sequence should be 9359 bp")
+        XCTAssertEqual(seq.length, 10000, "Each large resource sequence should be 10000 bp")
 
         // Verify performance is acceptable (should parse in under 1 second)
         XCTAssertLessThan(elapsed, 1.0, "Parsing should complete in under 1 second")
@@ -907,9 +937,7 @@ final class FASTARealFileTests: XCTestCase {
     }
 
     func testLargeFastaStreamingPerformance() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_large.fasta")
+        let fileURL = try testFileURL("large_test.fasta")
         let reader = try FASTAReader(url: fileURL)
 
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -921,7 +949,7 @@ final class FASTARealFileTests: XCTestCase {
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-        XCTAssertEqual(totalLength, 9359, "Total length should be 9359 bp")
+        XCTAssertEqual(totalLength, 100000, "Total length should be 100000 bp")
         XCTAssertLessThan(elapsed, 1.0, "Streaming should complete in under 1 second")
 
         print("Large FASTA streaming took \(String(format: "%.3f", elapsed)) seconds for \(totalLength) bp")
@@ -930,9 +958,7 @@ final class FASTARealFileTests: XCTestCase {
     // MARK: - Sequence Data Integrity Tests
 
     func testSequenceDataIntegrity() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_dna.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let sequences = try await reader.readAll()
 
@@ -944,13 +970,13 @@ final class FASTARealFileTests: XCTestCase {
         // Test subscript access at various positions
         XCTAssertEqual(seq[0], "A", "First base should be A")
         XCTAssertEqual(seq[1], "T", "Second base should be T")
-        XCTAssertEqual(seq[2], "G", "Third base should be G")
-        XCTAssertEqual(seq[3], "C", "Fourth base should be C")
+        XCTAssertEqual(seq[2], "C", "Third base should be C")
+        XCTAssertEqual(seq[3], "G", "Fourth base should be G")
 
         // Test range subscript
         let firstTen = seq[0..<10]
         XCTAssertEqual(firstTen.count, 10)
-        XCTAssertEqual(firstTen, "ATGCGTACGA")
+        XCTAssertEqual(firstTen, "ATCGATCGAT")
 
         // Test that asString() returns consistent results
         let str1 = seq.asString()
@@ -960,36 +986,32 @@ final class FASTARealFileTests: XCTestCase {
     }
 
     func testMultiSequenceDataIntegrity() async throws {
-        try skipIfTestDirectoryMissing()
-
-        let fileURL = testFileURL("test_multi.fasta")
+        let fileURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: fileURL)
         let sequences = try await reader.readAll()
 
         // Verify first sequence starts correctly
-        let chr1 = sequences[0]
-        XCTAssertEqual(chr1[0..<4], "ATGC", "Chromosome1 should start with ATGC")
+        let seq1 = sequences[0]
+        XCTAssertEqual(seq1[0..<4], "ATCG", "seq1 should start with ATCG")
 
         // Verify second sequence is different
-        let chr2 = sequences[1]
-        XCTAssertEqual(chr2[0..<4], "GGGG", "Chromosome2 should start with GGGG")
+        let seq2 = sequences[1]
+        XCTAssertEqual(seq2[0..<4], "GGGG", "seq2 should start with GGGG")
 
-        // Verify mitochondrion sequence
-        let mito = sequences[2]
-        XCTAssertEqual(mito[0..<3], "ATG", "Mitochondrion should start with ATG")
+        // Verify third sequence
+        let seq3 = sequences[2]
+        XCTAssertEqual(seq3[0..<4], "AAAA", "seq3 should start with AAAA")
 
-        // Verify plasmid sequence
-        let plasmid = sequences[3]
-        XCTAssertEqual(plasmid[0..<3], "ATG", "Plasmid1 should start with ATG")
+        // Verify protein sequence
+        let protein = sequences[3]
+        XCTAssertEqual(protein[0..<3], "MKT", "protein_seq should start with MKT")
     }
 
     // MARK: - Round-trip Tests
 
     func testRoundTripWithRealFiles() async throws {
-        try skipIfTestDirectoryMissing()
-
         // Read the multi-sequence file
-        let sourceURL = testFileURL("test_multi.fasta")
+        let sourceURL = try testFileURL("sample_multi.fasta")
         let reader = try FASTAReader(url: sourceURL)
         let originalSequences = try await reader.readAll()
 

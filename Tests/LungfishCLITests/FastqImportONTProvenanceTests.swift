@@ -1,73 +1,90 @@
 import ArgumentParser
-import XCTest
+import Foundation
 import LungfishIO
+import LungfishWorkflow
 @testable import LungfishCLI
-@testable import LungfishWorkflow
+import XCTest
 
 final class FastqImportONTProvenanceTests: XCTestCase {
-    func testImportONTRecordsCLIContextDefaultsRuntimeAndFinalOutputs() async throws {
-        let workspace = try makeTempDir()
-        defer { try? FileManager.default.removeItem(at: workspace) }
-        let sourceURL = workspace.appendingPathComponent("fastq_pass", isDirectory: true)
-        let outputURL = workspace.appendingPathComponent("Project.lungfish", isDirectory: true)
-        try writeONTChunk(under: sourceURL, barcode: "barcode01", filename: "chunk_0.fastq")
+    private var tempDir: URL!
 
+    override func setUp() {
+        super.setUp()
+        tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("fastq-import-ont-cli-tests-\(UUID().uuidString)", isDirectory: true)
+        try! FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        try? FileManager.default.removeItem(at: tempDir)
+        super.tearDown()
+    }
+
+    func testCLIImportONTDelegatesToWorkflowProvenance() async throws {
+        let sourceURL = try makeONTSource()
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
         let command = try FastqImportONTSubcommand.parse([
             sourceURL.path,
             "--output", outputURL.path,
-            "--concurrency", "1"
+            "--concurrency", "1",
         ])
+
         try await command.run()
 
-        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputURL))
+        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         XCTAssertEqual(envelope.workflowName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
         XCTAssertEqual(envelope.exitStatus, 0)
         XCTAssertEqual(envelope.argv, [
             "lungfish", "fastq", "import-ont",
-            sourceURL.path,
-            "--output", outputURL.path,
-            "--concurrency", "1"
+            sourceURL.path, "--output", outputURL.path, "--concurrency", "1",
         ])
-        XCTAssertEqual(envelope.options.defaults["includeUnclassified"]?.booleanValue, false)
-        XCTAssertEqual(envelope.options.defaults["concurrency"]?.integerValue, 4)
-        XCTAssertEqual(envelope.options.resolvedDefaults["includeUnclassified"]?.booleanValue, false)
-        XCTAssertEqual(envelope.options.resolvedDefaults["concurrency"]?.integerValue, 1)
-        XCTAssertEqual(envelope.options.resolvedDefaults["caller"]?.stringValue, "cli")
+        XCTAssertEqual(envelope.options.defaults["includeUnclassified"], .boolean(false))
+        XCTAssertEqual(envelope.options.defaults["concurrency"], .integer(4))
+        XCTAssertEqual(envelope.options.resolvedDefaults["includeUnclassified"], .boolean(false))
+        XCTAssertEqual(envelope.options.resolvedDefaults["concurrency"], .integer(1))
+        XCTAssertEqual(envelope.options.resolvedDefaults["caller"], .string("cli"))
         XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
 
+        let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
+        let copiedChunkURL = outputURL
+            .appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+            .appendingPathComponent("chunks")
+            .appendingPathComponent("chunk_0.fastq")
         let outputPaths = Set(envelope.outputs.map(\.path))
-        XCTAssertTrue(outputPaths.contains(outputURL.appendingPathComponent(DemultiplexManifest.filename).path))
-        XCTAssertTrue(outputPaths.contains(outputURL.appendingPathComponent("barcode01.lungfishfastq/chunks/chunk_0.fastq").path))
+        XCTAssertTrue(outputPaths.contains(canonicalPath(manifestURL)))
+        XCTAssertTrue(
+            outputPaths.contains(canonicalPath(copiedChunkURL)),
+            "Missing output \(canonicalPath(copiedChunkURL)); outputs:\n\(outputPaths.sorted().joined(separator: "\n"))"
+        )
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq/.lungfish-provenance.json").path
+            atPath: outputURL
+                .appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.provenanceFilename)
+                .path
         ))
     }
 
-    @discardableResult
-    private func writeONTChunk(
-        under sourceURL: URL,
-        barcode: String,
-        filename: String
-    ) throws -> URL {
-        let barcodeURL = sourceURL.appendingPathComponent(barcode, isDirectory: true)
+    private func makeONTSource() throws -> URL {
+        let sourceURL = tempDir.appendingPathComponent("fastq_pass", isDirectory: true)
+        let barcodeURL = sourceURL.appendingPathComponent("barcode01", isDirectory: true)
         try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)
-        let chunkURL = barcodeURL.appendingPathComponent(filename)
-        let content = """
-        @read1 runid=abc123 flow_cell_id=FBC00001 sample_id=ONT05 barcode=\(barcode) basecall_model_version_id=dna_r10.4.1_sup@v4.3.0
-        ACGTACGT
+        try """
+        @read1 runid=test flow_cell_id=FLO-MIN sample_id=S1 barcode=barcode01 basecall_model_version_id=dorado-test
+        ACGT
         +
-        IIIIIIII
+        !!!!
 
-        """
-        try content.write(to: chunkURL, atomically: true, encoding: .utf8)
-        return chunkURL
+        """.write(to: barcodeURL.appendingPathComponent("chunk_0.fastq"), atomically: true, encoding: .utf8)
+        return sourceURL
     }
 
-    private func makeTempDir() throws -> URL {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("FastqImportONTProvenanceTests-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
+    private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
+        let data = try Data(contentsOf: url)
+        return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
+    }
+
+    private func canonicalPath(_ url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }

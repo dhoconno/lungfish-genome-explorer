@@ -5,7 +5,6 @@
 // Owner: Storage & Indexing Lead (Role 18)
 
 import Foundation
-import AppKit
 import os.log
 
 /// Logger for appearance settings persistence.
@@ -34,7 +33,7 @@ private let logger = Logger(subsystem: LogSubsystem.core, category: "SequenceApp
 ///
 /// // Modify and save
 /// var modified = appearance
-/// modified.setColor(.systemPurple, forBase: "A")
+/// modified.setColor(HexColor(red: 0.5, green: 0.0, blue: 0.5), forBase: "A")
 /// modified.save()
 /// ```
 public struct SequenceAppearance: Codable, Sendable {
@@ -107,14 +106,13 @@ public struct SequenceAppearance: Codable, Sendable {
     /// is not found in the configuration.
     ///
     /// - Parameter base: The base character (e.g., 'A', 'T', 'G', 'C', 'N')
-    /// - Returns: The NSColor for the specified base
-    public func color(forBase base: Character) -> NSColor {
+    /// - Returns: The color value for the specified base
+    public func color(forBase base: Character) -> HexColor {
         let key = String(base).uppercased()
         if let hexString = baseColors[key] {
             return Self.color(from: hexString)
         }
-        // Fallback to gray for unknown bases
-        return Self.color(from: "#808080")
+        return .fallbackGray
     }
 
     /// Set the color for a specific base character.
@@ -125,32 +123,14 @@ public struct SequenceAppearance: Codable, Sendable {
     /// - Parameters:
     ///   - color: The new color to use for the base
     ///   - base: The base character to configure (e.g., 'A', 'T', 'G', 'C', 'N')
-    public mutating func setColor(_ color: NSColor, forBase base: Character) {
+    public mutating func setColor(_ color: HexColor, forBase base: Character) {
         let key = String(base).uppercased()
-        baseColors[key] = Self.hexString(from: color)
+        baseColors[key] = color.hexString
     }
 
     // MARK: - Hex Color Conversion
 
-    /// Converts an NSColor to a hex string representation.
-    ///
-    /// - Parameter color: The color to convert
-    /// - Returns: A hex string in the format "#RRGGBB"
-    private static func hexString(from color: NSColor) -> String {
-        // Convert to RGB color space if needed
-        guard let rgbColor = color.usingColorSpace(.sRGB) else {
-            // Fallback for colors that can't be converted
-            return "#808080"
-        }
-
-        let red = Int(round(rgbColor.redComponent * 255))
-        let green = Int(round(rgbColor.greenComponent * 255))
-        let blue = Int(round(rgbColor.blueComponent * 255))
-
-        return String(format: "#%02X%02X%02X", red, green, blue)
-    }
-
-    /// Converts a hex string to an NSColor.
+    /// Converts a hex string to a color value.
     ///
     /// Supports formats:
     /// - "#RRGGBB" (6 digits with hash)
@@ -159,35 +139,9 @@ public struct SequenceAppearance: Codable, Sendable {
     /// - "RGB" (3 digits without hash, expanded to 6)
     ///
     /// - Parameter hexString: The hex color string to parse
-    /// - Returns: The corresponding NSColor, or gray if parsing fails
-    private static func color(from hexString: String) -> NSColor {
-        var hex = hexString.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        // Remove leading hash if present
-        if hex.hasPrefix("#") {
-            hex = String(hex.dropFirst())
-        }
-
-        // Expand 3-digit hex to 6-digit
-        if hex.count == 3 {
-            hex = hex.map { "\($0)\($0)" }.joined()
-        }
-
-        // Validate hex string length
-        guard hex.count == 6 else {
-            return NSColor.gray
-        }
-
-        // Parse hex components
-        guard let hexValue = UInt32(hex, radix: 16) else {
-            return NSColor.gray
-        }
-
-        let red = CGFloat((hexValue >> 16) & 0xFF) / 255.0
-        let green = CGFloat((hexValue >> 8) & 0xFF) / 255.0
-        let blue = CGFloat(hexValue & 0xFF) / 255.0
-
-        return NSColor(srgbRed: red, green: green, blue: blue, alpha: 1.0)
+    /// - Returns: The corresponding color value, or gray if parsing fails
+    public static func color(from hexString: String) -> HexColor {
+        (try? HexColor(hex: hexString)) ?? .fallbackGray
     }
 }
 

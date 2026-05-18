@@ -6,7 +6,6 @@ import AppKit
 import LungfishCore
 import LungfishIO
 import os.log
-import UniformTypeIdentifiers
 
 private let blastLogger = Logger(subsystem: LogSubsystem.app, category: "BlastResultsDrawer")
 
@@ -721,7 +720,6 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
 
     private func setupSummaryBar() {
         summaryBar.translatesAutoresizingMaskIntoConstraints = false
-        summaryBar.wantsLayer = true
         resultsContainer.addSubview(summaryBar)
 
         summaryIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -1426,12 +1424,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     private func exportResults(separator: String, fileExtension: String) {
         guard case .results(let result) = displayState else { return }
 
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "blast_results.\(fileExtension)"
-        panel.allowedContentTypes = fileExtension == "csv"
-            ? [UTType.commaSeparatedText]
-            : [UTType.tabSeparatedText]
-        panel.canCreateDirectories = true
+        let panel = MetagenomicsFilePanelFactory.blastDelimitedExportPanel(fileExtension: fileExtension)
 
         guard let parentWindow = window else {
             blastLogger.warning("No parent window for export save panel")

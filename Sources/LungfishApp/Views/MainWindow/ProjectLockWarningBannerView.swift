@@ -12,7 +12,6 @@ final class ProjectLockWarningBannerView: NSView {
         label.alignment = .center
         label.font = .systemFont(ofSize: 13, weight: .bold)
         label.textColor = .labelColor
-        label.wantsLayer = true
         label.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.55).cgColor
         label.layer?.cornerRadius = 9
         return label
@@ -59,7 +58,6 @@ final class ProjectLockWarningBannerView: NSView {
 
     private func configureView() {
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
         layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.14).cgColor
         layer?.borderColor = NSColor.separatorColor.cgColor
         layer?.borderWidth = 1

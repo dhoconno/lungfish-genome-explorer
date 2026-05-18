@@ -159,11 +159,6 @@ public enum DocumentCategory: String, Codable, Sendable {
     case variants
 }
 
-/// Backwards-compatibility alias for code that still references the old name.
-/// Prefer ``DocumentCategory`` in new code.
-@available(*, deprecated, renamed: "DocumentCategory")
-public typealias DocumentType = DocumentCategory
-
 // MARK: - DocumentMetadata
 
 /// Metadata for a genomic document

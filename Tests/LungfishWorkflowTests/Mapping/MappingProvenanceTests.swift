@@ -291,6 +291,192 @@ final class MappingProvenanceTests: XCTestCase {
         }
     }
 
+    func testCanonicalEnvelopeDoesNotAppendExistingOutputsToFlagstatStep() throws {
+        let inputFASTQ = try writeFASTQ(name: "reads.fastq", header: "@read-1", sequenceLength: 100)
+        let referenceFASTA = try writeText(name: "reference.fa", contents: ">chr1\nACGT\n")
+        let rawSAM = tempDir.appendingPathComponent("sample.raw.sam")
+        let sortedBAM = tempDir.appendingPathComponent("sample.sorted.bam")
+        let bai = tempDir.appendingPathComponent("sample.sorted.bam.bai")
+        let resultSidecar = tempDir.appendingPathComponent("mapping-result.json")
+        let viewerBundle = tempDir.appendingPathComponent("viewer.lungfishref", isDirectory: true)
+        try "sam\n".write(to: rawSAM, atomically: true, encoding: .utf8)
+        try "bam\n".write(to: sortedBAM, atomically: true, encoding: .utf8)
+        try "bai\n".write(to: bai, atomically: true, encoding: .utf8)
+        try "{}\n".write(to: resultSidecar, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: viewerBundle, withIntermediateDirectories: true)
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [inputFASTQ],
+            referenceFASTAURL: referenceFASTA,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            threads: 2
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            bamURL: sortedBAM,
+            baiURL: bai,
+            totalReads: 10,
+            mappedReads: 8,
+            unmappedReads: 2,
+            wallClockSeconds: 2,
+            contigs: []
+        )
+        let inputRecords = [
+            ProvenanceRecorder.fileRecord(url: inputFASTQ, format: .fastq, role: .input),
+            ProvenanceRecorder.fileRecord(url: referenceFASTA, format: .fasta, role: .reference),
+        ]
+        let rawSAMRecord = ProvenanceRecorder.fileRecord(url: rawSAM, format: .sam, role: .output)
+        let bamRecord = ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .output)
+        let baiRecord = ProvenanceRecorder.fileRecord(url: bai, role: .index)
+        let resultSidecarRecord = ProvenanceRecorder.fileRecord(url: resultSidecar, format: .json, role: .output)
+        let viewerBundleRecord = ProvenanceRecorder.fileRecord(url: viewerBundle, role: .output)
+        let steps = [
+            StepExecution(
+                toolName: "minimap2",
+                toolVersion: "2.28",
+                command: ["minimap2", "-o", rawSAM.path],
+                inputs: inputRecords,
+                outputs: [rawSAMRecord],
+                exitCode: 0
+            ),
+            StepExecution(
+                toolName: "samtools",
+                toolVersion: "1.21",
+                command: ["samtools", "sort", "-o", sortedBAM.path, rawSAM.path],
+                inputs: [rawSAMRecord],
+                outputs: [bamRecord],
+                exitCode: 0
+            ),
+            StepExecution(
+                toolName: "samtools",
+                toolVersion: "1.21",
+                command: ["samtools", "index", sortedBAM.path],
+                inputs: [bamRecord],
+                outputs: [baiRecord],
+                exitCode: 0
+            ),
+            StepExecution(
+                toolName: "samtools",
+                toolVersion: "1.21",
+                command: ["samtools", "flagstat", sortedBAM.path],
+                inputs: [bamRecord],
+                outputs: [],
+                exitCode: 0
+            ),
+        ]
+
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: MappingCommandInvocation(label: "minimap2", argv: ["minimap2", "-o", rawSAM.path]),
+            normalizationInvocations: [],
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            inputFiles: inputRecords,
+            outputFiles: [bamRecord, baiRecord, resultSidecarRecord, viewerBundleRecord],
+            steps: steps,
+            exitStatus: 0
+        )
+        try provenance.save(to: tempDir)
+
+        let resolved = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: tempDir))
+        XCTAssertTrue(resolved.envelope.steps[1].outputs.contains { $0.path == sortedBAM.path })
+        XCTAssertTrue(resolved.envelope.steps[2].outputs.contains { $0.path == bai.path })
+        XCTAssertTrue(
+            resolved.envelope.steps[3].outputs.isEmpty,
+            "flagstat should not inherit top-level outputs produced by other steps or app workflows"
+        )
+        let stepOutputPaths = resolved.envelope.steps.flatMap { $0.outputs.map(\.path) }
+        XCTAssertFalse(stepOutputPaths.contains(resultSidecar.path))
+        XCTAssertFalse(stepOutputPaths.contains(viewerBundle.path))
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == resultSidecar.path })
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == viewerBundle.path })
+    }
+
+    func testCanonicalEnvelopeDoesNotAssignTopLevelOutputsToSynthesizedFlagstatStep() throws {
+        let inputFASTQ = try writeFASTQ(name: "reads.fastq", header: "@read-1", sequenceLength: 100)
+        let referenceFASTA = try writeText(name: "reference.fa", contents: ">chr1\nACGT\n")
+        let rawSAM = tempDir.appendingPathComponent("sample.raw.sam")
+        let sortedBAM = tempDir.appendingPathComponent("sample.sorted.bam")
+        let bai = tempDir.appendingPathComponent("sample.sorted.bam.bai")
+        let resultSidecar = tempDir.appendingPathComponent("mapping-result.json")
+        let viewerBundle = tempDir.appendingPathComponent("viewer.lungfishref", isDirectory: true)
+        try "sam\n".write(to: rawSAM, atomically: true, encoding: .utf8)
+        try "bam\n".write(to: sortedBAM, atomically: true, encoding: .utf8)
+        try "bai\n".write(to: bai, atomically: true, encoding: .utf8)
+        try "{}\n".write(to: resultSidecar, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: viewerBundle, withIntermediateDirectories: true)
+
+        let request = MappingRunRequest(
+            tool: .minimap2,
+            modeID: MappingMode.minimap2MapONT.id,
+            inputFASTQURLs: [inputFASTQ],
+            referenceFASTAURL: referenceFASTA,
+            outputDirectory: tempDir,
+            sampleName: "sample",
+            threads: 2,
+            minimumMappingQuality: 12
+        )
+        let result = MappingResult(
+            mapper: .minimap2,
+            modeID: request.modeID,
+            viewerBundleURL: viewerBundle,
+            bamURL: sortedBAM,
+            baiURL: bai,
+            totalReads: 10,
+            mappedReads: 8,
+            unmappedReads: 2,
+            wallClockSeconds: 2,
+            contigs: []
+        )
+
+        let mapperInvocation = try MappingProvenance.mapperInvocation(for: request)
+        let normalizationInvocations = MappingProvenance.normalizationInvocations(
+            rawAlignmentURL: rawSAM,
+            outputDirectory: tempDir,
+            sampleName: request.sampleName,
+            threads: request.threads,
+            minimumMappingQuality: request.minimumMappingQuality,
+            includeSecondary: request.includeSecondary,
+            includeSupplementary: request.includeSupplementary
+        )
+        let provenance = MappingProvenance.build(
+            request: request,
+            result: result,
+            mapperInvocation: mapperInvocation,
+            normalizationInvocations: normalizationInvocations,
+            mapperVersion: "2.28",
+            samtoolsVersion: "1.21",
+            outputFiles: [
+                ProvenanceRecorder.fileRecord(url: sortedBAM, format: .bam, role: .output),
+                ProvenanceRecorder.fileRecord(url: bai, role: .index),
+                ProvenanceRecorder.fileRecord(url: resultSidecar, format: .json, role: .output),
+                ProvenanceRecorder.fileRecord(url: viewerBundle, role: .output),
+            ],
+            exitStatus: 0
+        )
+        try provenance.save(to: tempDir)
+
+        let resolved = try XCTUnwrap(ProvenanceRecorder.findProvenanceEnvelope(for: tempDir))
+        let flagstatStep = try XCTUnwrap(resolved.envelope.steps.last)
+        XCTAssertEqual(flagstatStep.toolName, "samtools")
+        XCTAssertTrue(flagstatStep.argv.contains("flagstat"))
+        XCTAssertTrue(flagstatStep.outputs.isEmpty)
+        let stepOutputPaths = resolved.envelope.steps.flatMap { $0.outputs.map(\.path) }
+        XCTAssertTrue(stepOutputPaths.contains(sortedBAM.path))
+        XCTAssertTrue(stepOutputPaths.contains(bai.path))
+        XCTAssertFalse(stepOutputPaths.contains(resultSidecar.path))
+        XCTAssertFalse(stepOutputPaths.contains(viewerBundle.path))
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == sortedBAM.path })
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == bai.path })
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == resultSidecar.path })
+        XCTAssertTrue(resolved.envelope.outputs.contains { $0.path == viewerBundle.path })
+    }
+
     func testProvenanceExporterExpandsMappingInputLineage() throws {
         let projectURL = tempDir.appendingPathComponent("SARS-CoV-2.lungfish", isDirectory: true)
         let importsURL = projectURL.appendingPathComponent("Imports", isDirectory: true)

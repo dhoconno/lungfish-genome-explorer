@@ -8,12 +8,12 @@ import LungfishWorkflow
 final class BAMPrimerTrimDialogStateTests: XCTestCase {
     private var temporaryURLs: [URL] = []
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         for url in temporaryURLs {
             try? FileManager.default.removeItem(at: url)
         }
         temporaryURLs.removeAll()
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     func testIsRunEnabledFalseWhenNoSchemeSelected() {

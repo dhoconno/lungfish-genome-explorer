@@ -170,7 +170,7 @@ final class VariantTrackRendererTests: XCTestCase {
         // SNP at position 500 in range 0-1000 with 800px width → pixel ~400
         let snpPx = Int(frame.screenPosition(for: 500))
 
-        let (r, g, b, _) = pixelColor(at: snpPx, y: 10, in: ctx)
+        let (r, g, _, _) = pixelColor(at: snpPx, y: 10, in: ctx)
         // SNP color is green (0, 0.6, 0.2) → green channel should dominate
         XCTAssertGreaterThan(g, r, "SNP pixel should have green > red")
         XCTAssertGreaterThan(g, 100, "SNP pixel green channel should be significant")

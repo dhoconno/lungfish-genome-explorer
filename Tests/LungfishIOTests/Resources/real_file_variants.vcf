@@ -1,0 +1,27 @@
+##fileformat=VCFv4.2
+##contig=<ID=TestSequence1,length=1000>
+##contig=<ID=Chromosome1,length=500>
+##contig=<ID=Chromosome2,length=400>
+##contig=<ID=LargeChromosome1,length=10000>
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total Depth">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
+##INFO=<ID=DB,Number=0,Type=Flag,Description="dbSNP membership">
+##INFO=<ID=TYPE,Number=1,Type=String,Description="Variant type">
+##INFO=<ID=GENE,Number=1,Type=String,Description="Gene name">
+##INFO=<ID=EFFECT,Number=1,Type=String,Description="Predicted effect">
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read Depth">
+##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allelic depths">
+##FORMAT=<ID=PL,Number=G,Type=Integer,Description="Phred-scaled genotype likelihoods">
+##FILTER=<ID=q10,Description="Quality below 10">
+##FILTER=<ID=s50,Description="Less than 50% samples have data">
+##FILTER=<ID=LowCov,Description="Low coverage">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	Sample1	Sample2	Sample3
+TestSequence1	50	rs001	A	G	99	PASS	DP=150;AF=0.33;NS=3;DB;TYPE=SNP;GENE=testGeneA;EFFECT=synonymous	GT:GQ:DP:AD:PL	0/1:99:52:25,27:99,0,99	0/0:80:48:48,0:0,80,99	1/1:70:50:0,50:99,70,0
+TestSequence1	75	rs002	C	T	60	PASS	DP=90;AF=0.2;NS=3;TYPE=SNP;GENE=testGeneA;EFFECT=missense	GT:GQ:DP:AD:PL	0/0:60:30:30,0:0,60,99	0/1:60:30:15,15:60,0,60	0/0:60:30:30,0:0,60,99
+Chromosome1	120	rs004	AT	A	50	PASS	DP=80;AF=0.4;NS=3;TYPE=DEL;GENE=testGeneB;EFFECT=frameshift	GT:GQ:DP:AD:PL	0/1:50:25:12,13:50,0,50	0/0:50:25:25,0:0,50,99	0/1:50:30:14,16:50,0,50
+Chromosome2	180	rs005	G	GT	45	PASS	DP=70;AF=0.5;NS=3;TYPE=INS;GENE=testGeneC;EFFECT=inframe	GT:GQ:DP:AD:PL	0/1:45:20:10,10:45,0,45	0/1:45:25:12,13:45,0,45	1/1:45:25:0,25:99,45,0
+LargeChromosome1	500	rs007	T	C	8	q10	DP=30;AF=0.1;NS=3;TYPE=SNP;GENE=testGeneD;EFFECT=intronic	GT:GQ:DP:AD:PL	0/1:8:10:5,5:8,0,8	0/0:8:10:10,0:0,8,99	0/0:8:10:10,0:0,8,99
+LargeChromosome1	700	rs008	G	A	20	LowCov	DP=12;AF=0.2;NS=2;TYPE=SNP;GENE=testGeneE;EFFECT=intergenic	GT:GQ:DP:AD:PL	0/1:20:6:3,3:20,0,20	./.:.:.:.:.	0/0:20:6:6,0:0,20,99

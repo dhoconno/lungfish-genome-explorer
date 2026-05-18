@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: MIT
 
 import AppKit
-import Combine
 import SwiftUI
 import LungfishCore
 import LungfishIO
@@ -65,9 +64,6 @@ public class MainWindowController: NSWindowController {
 
     /// Current viewport content mode for toolbar adaptation.
     private var currentContentMode: ViewportContentMode = .empty
-
-    /// Combine subscriptions for toolbar state bindings.
-    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 

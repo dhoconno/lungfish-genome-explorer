@@ -5,9 +5,57 @@
 import SwiftUI
 import LungfishWorkflow
 
+struct AssemblyWizardRunPresentation {
+    let hasInputFiles: Bool
+    let hasOutputDirectory: Bool
+    let projectName: String
+    let requiresManualReadTypeConfirmation: Bool
+    let hasConfirmedManualReadType: Bool
+    let advancedOptionsParseError: String?
+    let compatibilityPresentation: AssemblyCompatibilityPresentation
+    let configurationBlockingMessage: String?
+
+    var canRun: Bool {
+        guard hasInputFiles else { return false }
+        guard hasOutputDirectory else { return false }
+        guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !requiresManualReadTypeConfirmation || hasConfirmedManualReadType else { return false }
+        guard advancedOptionsParseError == nil else { return false }
+        guard compatibilityPresentation.state == .ready else { return false }
+        return configurationBlockingMessage == nil
+    }
+
+    var validationMessage: String? {
+        if !hasInputFiles {
+            return "Select at least one FASTQ input."
+        }
+        if !hasOutputDirectory {
+            return "No output directory is available for this assembly."
+        }
+        if projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Project name is required."
+        }
+        if requiresManualReadTypeConfirmation && !hasConfirmedManualReadType {
+            return "Choose a read type before running this assembly."
+        }
+        if let advancedOptionsParseError {
+            return advancedOptionsParseError
+        }
+        if let configurationBlockingMessage {
+            return configurationBlockingMessage
+        }
+        if compatibilityPresentation.state != .ready {
+            return compatibilityPresentation.message
+        }
+        return nil
+    }
+}
+
 struct AssemblyWizardSheet: View {
     private static let mixedDetectedAndUnclassifiedInputsMessage =
         "Selected FASTQ inputs mix detected and unclassified read classes. Select one read class per run."
+    static let advancedDisclosureTitle = "Curated extra arguments"
+    static let extraArgumentsFieldTitle = "Extra arguments"
 
     let inputFiles: [URL]
     let outputDirectory: URL?
@@ -64,7 +112,7 @@ struct AssemblyWizardSheet: View {
         // Treat that displayed choice as the current manual choice when
         // auto-detection is inconclusive so the outer run gating stays aligned
         // with what the user sees.
-        _hasConfirmedManualReadType = State(initialValue: true)
+        _hasConfirmedManualReadType = State(initialValue: Self.initialManualReadTypeConfirmationState())
     }
 
     private var availableMemoryGB: Int {
@@ -137,33 +185,7 @@ struct AssemblyWizardSheet: View {
     }
 
     private var profileOptions: [AssemblyProfileOption] {
-        switch selectedTool {
-        case .spades:
-            return [
-                AssemblyProfileOption(id: "isolate", title: "Isolate", detail: "Conservative short-read isolate assembly."),
-                AssemblyProfileOption(id: "meta", title: "Meta", detail: "Metagenome assembly for mixed short-read data."),
-                AssemblyProfileOption(id: "plasmid", title: "Plasmid", detail: "Plasmid-focused short-read assembly."),
-            ]
-        case .megahit:
-            return [
-                AssemblyProfileOption(id: "", title: "Default", detail: "Balanced short-read assembly."),
-                AssemblyProfileOption(id: "meta-sensitive", title: "Meta Sensitive", detail: "Higher-sensitivity metagenome preset."),
-                AssemblyProfileOption(id: "meta-large", title: "Meta Large", detail: "Preset for larger metagenome assemblies."),
-            ]
-        case .skesa:
-            return []
-        case .flye:
-            return [
-                AssemblyProfileOption(id: "nano-hq", title: "Nano HQ", detail: "High-quality ONT reads."),
-                AssemblyProfileOption(id: "nano-raw", title: "Nano Raw", detail: "Raw ONT reads."),
-                AssemblyProfileOption(id: "nano-corr", title: "Nano Corrected", detail: "Corrected ONT reads."),
-            ]
-        case .hifiasm:
-            return [
-                .init(id: "diploid", title: "Diploid", detail: "Default diploid assembly."),
-                .init(id: "haploid-viral", title: "Haploid/Viral", detail: "Single-haplotype assembly for haploid or viral genomes."),
-            ]
-        }
+        Self.profileOptions(for: selectedTool)
     }
 
     private var availableTools: [AssemblyTool] {
@@ -211,38 +233,24 @@ struct AssemblyWizardSheet: View {
     }
 
     private var canRun: Bool {
-        guard !inputFiles.isEmpty else { return false }
-        guard outputDirectory != nil else { return false }
-        guard !projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
-        guard !requiresManualReadTypeConfirmation || hasConfirmedManualReadType else { return false }
-        guard advancedOptionsParseError == nil else { return false }
-        guard compatibilityPresentation.state == .ready else { return false }
-        return configurationBlockingMessage == nil
+        runPresentation.canRun
     }
 
     private var validationMessage: String? {
-        if inputFiles.isEmpty {
-            return "Select at least one FASTQ input."
-        }
-        if outputDirectory == nil {
-            return "No output directory is available for this assembly."
-        }
-        if projectName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Project name is required."
-        }
-        if requiresManualReadTypeConfirmation && !hasConfirmedManualReadType {
-            return "Choose a read type before running this assembly."
-        }
-        if let advancedOptionsParseError {
-            return advancedOptionsParseError
-        }
-        if let configurationBlockingMessage {
-            return configurationBlockingMessage
-        }
-        if compatibilityPresentation.state != .ready {
-            return compatibilityPresentation.message
-        }
-        return nil
+        runPresentation.validationMessage
+    }
+
+    private var runPresentation: AssemblyWizardRunPresentation {
+        AssemblyWizardRunPresentation(
+            hasInputFiles: !inputFiles.isEmpty,
+            hasOutputDirectory: outputDirectory != nil,
+            projectName: projectName,
+            requiresManualReadTypeConfirmation: requiresManualReadTypeConfirmation,
+            hasConfirmedManualReadType: hasConfirmedManualReadType,
+            advancedOptionsParseError: advancedOptionsParseError,
+            compatibilityPresentation: compatibilityPresentation,
+            configurationBlockingMessage: configurationBlockingMessage
+        )
     }
 
     private var sectionPadding: CGFloat {
@@ -513,7 +521,7 @@ struct AssemblyWizardSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionTitle("Advanced Settings")
 
-            DisclosureGroup("Curated extra arguments", isExpanded: $showAdvanced) {
+            DisclosureGroup(Self.advancedDisclosureTitle, isExpanded: $showAdvanced) {
                 VStack(alignment: .leading, spacing: 12) {
                     switch selectedTool {
                     case .spades:
@@ -541,7 +549,7 @@ struct AssemblyWizardSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Extra arguments")
+                        Text(Self.extraArgumentsFieldTitle)
                             .font(.subheadline.weight(.medium))
                         TextField("--meta --tmp-dir '/Volumes/Fast Scratch'", text: $advancedOptionsText)
                             .textFieldStyle(.roundedBorder)
@@ -669,7 +677,10 @@ struct AssemblyWizardSheet: View {
         if let detected = compatibilityEvaluation.resolvedReadType {
             return detected.displayName
         }
-        return "No single read class detected. Review the selected read type below."
+        return Self.detectedReadTypeSummary(
+            compatibilityBlockingMessage: compatibilityBlockingMessage,
+            resolvedReadType: compatibilityEvaluation.resolvedReadType
+        )
     }
 
     private var readLayoutSummary: String {
@@ -715,27 +726,13 @@ struct AssemblyWizardSheet: View {
     }
 
     private var curatedAdvancedArguments: [String] {
-        var arguments: [String] = []
-        switch selectedTool {
-        case .spades:
-            if spadesCareful {
-                arguments.append("--careful")
-            }
-            if spadesSkipErrorCorrection {
-                arguments.append("--only-assembler")
-            }
-        case .flye:
-            if flyeMetagenomeMode {
-                arguments.append("--meta")
-            }
-        case .hifiasm:
-            if hifiasmPrimaryOnly {
-                arguments.append("--primary")
-            }
-        case .megahit, .skesa:
-            break
-        }
-        return arguments
+        Self.curatedAdvancedArguments(
+            for: selectedTool,
+            spadesCareful: spadesCareful,
+            spadesSkipErrorCorrection: spadesSkipErrorCorrection,
+            flyeMetagenomeMode: flyeMetagenomeMode,
+            hifiasmPrimaryOnly: hifiasmPrimaryOnly
+        )
     }
 
     private var parsedAdvancedOptions: [String] {
@@ -800,7 +797,84 @@ struct AssemblyWizardSheet: View {
         ).resolvedReadType
     }
 
-    private static func defaultProfileID(for tool: AssemblyTool) -> String? {
+    static func initialManualReadTypeConfirmationState() -> Bool {
+        true
+    }
+
+    static func detectedReadTypeSummary(
+        compatibilityBlockingMessage: String?,
+        resolvedReadType: AssemblyReadType?
+    ) -> String {
+        if let compatibilityBlockingMessage {
+            return compatibilityBlockingMessage
+        }
+        if let resolvedReadType {
+            return resolvedReadType.displayName
+        }
+        return "No single read class detected. Review the selected read type below."
+    }
+
+    static func profileOptions(for tool: AssemblyTool) -> [AssemblyProfileOption] {
+        switch tool {
+        case .spades:
+            return [
+                AssemblyProfileOption(id: "isolate", title: "Isolate", detail: "Conservative short-read isolate assembly."),
+                AssemblyProfileOption(id: "meta", title: "Meta", detail: "Metagenome assembly for mixed short-read data."),
+                AssemblyProfileOption(id: "plasmid", title: "Plasmid", detail: "Plasmid-focused short-read assembly."),
+            ]
+        case .megahit:
+            return [
+                AssemblyProfileOption(id: "", title: "Default", detail: "Balanced short-read assembly."),
+                AssemblyProfileOption(id: "meta-sensitive", title: "Meta Sensitive", detail: "Higher-sensitivity metagenome preset."),
+                AssemblyProfileOption(id: "meta-large", title: "Meta Large", detail: "Preset for larger metagenome assemblies."),
+            ]
+        case .skesa:
+            return []
+        case .flye:
+            return [
+                AssemblyProfileOption(id: "nano-hq", title: "Nano HQ", detail: "High-quality ONT reads."),
+                AssemblyProfileOption(id: "nano-raw", title: "Nano Raw", detail: "Raw ONT reads."),
+                AssemblyProfileOption(id: "nano-corr", title: "Nano Corrected", detail: "Corrected ONT reads."),
+            ]
+        case .hifiasm:
+            return [
+                .init(id: "diploid", title: "Diploid", detail: "Default diploid assembly."),
+                .init(id: "haploid-viral", title: "Haploid/Viral", detail: "Single-haplotype assembly for haploid or viral genomes."),
+            ]
+        }
+    }
+
+    static func curatedAdvancedArguments(
+        for tool: AssemblyTool,
+        spadesCareful: Bool,
+        spadesSkipErrorCorrection: Bool,
+        flyeMetagenomeMode: Bool,
+        hifiasmPrimaryOnly: Bool
+    ) -> [String] {
+        var arguments: [String] = []
+        switch tool {
+        case .spades:
+            if spadesCareful {
+                arguments.append("--careful")
+            }
+            if spadesSkipErrorCorrection {
+                arguments.append("--only-assembler")
+            }
+        case .flye:
+            if flyeMetagenomeMode {
+                arguments.append("--meta")
+            }
+        case .hifiasm:
+            if hifiasmPrimaryOnly {
+                arguments.append("--primary")
+            }
+        case .megahit, .skesa:
+            break
+        }
+        return arguments
+    }
+
+    static func defaultProfileID(for tool: AssemblyTool) -> String? {
         switch tool {
         case .spades:
             return "isolate"
@@ -876,7 +950,7 @@ struct AssemblyWizardSheet: View {
     }
 }
 
-private struct AssemblyProfileOption: Identifiable, Equatable {
+struct AssemblyProfileOption: Identifiable, Equatable {
     let id: String
     let title: String
     let detail: String

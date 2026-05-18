@@ -2,25 +2,20 @@
 
 ## Scope
 
-Address assembly execution only. Managed assembly must receive the exact dataset selected by the user, so virtual `.lungfishfastq` derivatives such as subset, trim, demuxed virtual, and orient-map bundles must be materialized before `ManagedAssemblyPipeline` sees them. Physical FASTQ/FASTA files, physical `.lungfishfastq` bundles, reference bundles, and already materialized full FASTQ/FASTA derivatives may continue to resolve to their stored sequence payloads.
+Worker A owns the assembly path only in this wave. The blocking defect is that managed assembly can receive a derived virtual FASTQ bundle and then fall back to the root payload through `SequenceInputResolver`, changing the scientific dataset under analysis. `lungfish assemble` also needs canonical reproducibility provenance for the output directory it creates.
 
 ## Implementation Plan
 
-1. Add an assemble-specific input materialization helper that detects derived FASTQ bundles whose manifest resolves to a virtual state.
-2. Update `lungfish assemble` to use the async materializing resolver before building `AssemblyRunRequest`, while preserving the existing synchronous resolver for non-virtual regression coverage.
-3. Update the GUI managed assembly path to materialize virtual derived FASTQ inputs with `FASTQDerivativeService` before launching `ManagedAssemblyPipeline`.
-4. Add canonical `.lungfish-provenance.json` writing for successful `lungfish assemble` output directories. Capture workflow/tool names and versions, top-level argv or reproducible command, options/defaults/resolved values, runtime identity with managed environment, original and execution input paths, checksums and sizes, primary output files, exit status, wall time, and stderr when present.
-5. Keep legacy assembly result sidecars intact; the canonical provenance sidecar supplements them and satisfies the scientific provenance policy for CLI-created output directories.
+1. Add assembly-specific virtual FASTQ detection in workflow code so both CLI and app can tell when an input bundle must be materialized before execution.
+2. Add an async CLI assembly input resolver that materializes virtual derived `.lungfishfastq` bundles with `FASTQCLIMaterializer`; keep physical bundles, full materialized derivatives, FASTA bundles, reference bundles, and raw sequence files on the existing direct path.
+3. Update the GUI managed assembly runner to materialize virtual derived FASTQ inputs before calling `ManagedAssemblyPipeline`, using `FASTQDerivativeService` and preserving the existing request fields.
+4. Write canonical `.lungfish-provenance.json` for successful `lungfish assemble` outputs, including workflow/tool versions, exact argv, resolved options/defaults, runtime identity, input/output descriptors with checksums and sizes, exit status, wall time, and useful stderr when supplied.
+5. Audit classify/map derived FASTQ handling. Both currently use `SequenceInputResolver.resolvePrimarySequenceURL` through local `resolveExecutionInputURLs` helpers and can therefore inherit the same root-payload fallback for virtual derived FASTQ bundles. A follow-up should extract the async materializing resolver into a shared helper with workflow-specific topology rules: classify should materialize single/mixed read inputs as classifier-ready FASTQ/FASTA, while map should preserve paired-end topology and materialize each virtual mate bundle before staging.
 
-## TDD Targets
+## Tests First
 
-- CLI resolver test: a virtual derived bundle should call a materializer and return the materialized FASTQ, not the root FASTQ.
-- CLI resolver regression: physical bundles and full FASTA/full FASTQ derivatives should still resolve directly.
-- CLI provenance test: a fake successful assembly result should write `.lungfish-provenance.json` with assemble workflow identity, argv, options, runtime identity, input/output checksums, exit status, and wall time.
-- App helper test or source-level regression: GUI managed assembly should route virtual derived inputs through `FASTQDerivativeService` before `ManagedAssemblyPipeline`.
+Add regression tests proving that:
 
-## Classify/Map Audit
-
-`ClassifyCommand.resolveExecutionInputURLs` and `MapCommand.resolveExecutionInputURLs` use the same `SequenceInputResolver.resolvePrimarySequenceURL` fallback and therefore have the same virtual-derived risk. Both commands should move to a shared async sequence-input materialization helper that accepts a materializer dependency and workflow-specific topology rules. That helper should live below CLI/App-specific services only if it models decisions, not materialization mechanics; CLI can use `FASTQCLIMaterializer`, while the app can use `FASTQDerivativeService`.
-
-This wave implements assemble first because assembly is the highest-priority blocker and has both CLI and GUI managed-pipeline call sites. Classify/map should be handled as a follow-up slice with separate tests because their paired-end, database/reference, and mapping-reference semantics need independent validation.
+- CLI assemble materializes a virtual derived bundle instead of passing the root FASTQ.
+- GUI managed assembly request preparation materializes a virtual derived bundle before pipeline execution.
+- CLI assemble writes canonical provenance with required argv, options/defaults, runtime identity, file checksums/sizes, exit status, wall time, and stderr.

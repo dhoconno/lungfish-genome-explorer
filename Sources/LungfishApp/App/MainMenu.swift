@@ -717,7 +717,7 @@ public final class MainMenu {
         }
 
         // Online databases
-        let searchDatabasesItem = NSMenuItem(title: "Search Online Databases...", action: nil, keyEquivalent: "")
+        let searchDatabasesItem = NSMenuItem(title: "Search Online Databases", action: nil, keyEquivalent: "")
         let searchDatabasesMenu = NSMenu(title: "Search Online Databases")
 
         searchDatabasesMenu.addItem(

@@ -20,14 +20,16 @@ import XCTest
 final class PrimerSchemeSidebarTests: XCTestCase {
     private var tempProjectURL: URL!
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
+        try await super.setUp()
         tempProjectURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("PrimerSchemeSidebarTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempProjectURL, withIntermediateDirectories: true)
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: tempProjectURL)
+        try await super.tearDown()
     }
 
     func testPrimerSchemeBundleTypeIsOpaque() {

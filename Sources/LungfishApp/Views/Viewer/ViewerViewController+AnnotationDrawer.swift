@@ -367,11 +367,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Choose One Annotation Track"
             alert.informativeText = "Delete annotations from one annotation track at a time."
             alert.alertStyle = .warning
-            if let window = view.window {
-                alert.beginSheetModal(for: window)
-            } else {
-                alert.runModal()
-            }
+            presentAnnotationDrawerAlert(alert)
             return
         }
         guard let bundleURL = currentBundleURL ?? viewerView.currentReferenceBundle?.url else {
@@ -386,6 +382,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: editable.count == 1 ? "Delete Annotation" : "Delete Annotations")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -413,7 +410,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Choose One Annotation Track"
             alert.informativeText = "Delete annotations from one annotation track at a time."
             alert.alertStyle = .warning
-            alert.runModal()
+            presentAnnotationDrawerAlert(alert)
             return
         }
         guard OperationCenter.shared.canStartOperation(on: bundleURL) else {
@@ -421,7 +418,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Bundle Busy"
             alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting annotations."
             alert.alertStyle = .warning
-            alert.runModal()
+            presentAnnotationDrawerAlert(alert)
             return
         }
 
@@ -503,6 +500,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete Track")
         alert.addButton(withTitle: "Cancel")
+        alert.buttons.first?.hasDestructiveAction = true
 
         guard let window = view.window else { return }
         alert.beginSheetModal(for: window) { [weak self] response in
@@ -521,7 +519,7 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             alert.messageText = "Bundle Busy"
             alert.informativeText = "Another operation is already modifying this reference bundle. Wait for it to finish before deleting an annotation track."
             alert.alertStyle = .warning
-            alert.runModal()
+            presentAnnotationDrawerAlert(alert)
             return
         }
 
@@ -580,10 +578,14 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
         alert.messageText = title
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .critical
+        presentAnnotationDrawerAlert(alert)
+    }
+
+    private func presentAnnotationDrawerAlert(_ alert: NSAlert) {
         if let window = view.window {
             alert.beginSheetModal(for: window)
         } else {
-            alert.runModal()
+            NSApp.presentError(AnnotationDrawerWarning(title: alert.messageText, message: alert.informativeText))
         }
     }
 
@@ -714,6 +716,14 @@ extension ViewerViewController: AnnotationTableDrawerDelegate {
             }
         }
     }
+}
+
+private struct AnnotationDrawerWarning: LocalizedError {
+    let title: String
+    let message: String
+
+    var errorDescription: String? { title }
+    var recoverySuggestion: String? { message }
 }
 
 // MARK: - GeneTabBarDelegate

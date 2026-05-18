@@ -111,46 +111,17 @@ struct MapCommand: AsyncParsableCommand {
         let inputURLs = fastqFiles.map { URL(fileURLWithPath: $0) }
         for url in inputURLs {
             guard FileManager.default.fileExists(atPath: url.path) else {
-                print(formatter.error("Input file not found: \(url.path)"))
-                throw ExitCode.failure
+                throw CLIError.inputFileNotFound(path: url.path)
             }
-        }
-        let executionInputURLs: [URL]
-        do {
-            executionInputURLs = try Self.resolveExecutionInputURLs(for: inputURLs)
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
         }
 
         if pairedEnd && inputURLs.count != 2 {
-            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)"))
-            throw ExitCode.failure
+            print(formatter.error("Paired-end mode requires exactly 2 input files, got \(inputURLs.count)."))
+            throw CLIExitCode.inputError.exitCode
         }
-
-        let referenceInputURL = URL(fileURLWithPath: reference)
-        guard FileManager.default.fileExists(atPath: referenceInputURL.path) else {
-            print(formatter.error("Reference file not found: \(referenceInputURL.path)"))
-            throw ExitCode.failure
-        }
-        guard let referenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: referenceInputURL),
-              SequenceInputResolver.inputSequenceFormat(for: referenceInputURL) == .fasta else {
-            print(formatter.error(MapInputResolutionError.unreadableSequenceInput(referenceInputURL.path).localizedDescription))
-            throw ExitCode.failure
-        }
-
-        guard let selectedTool = MappingTool(rawValue: mapper) else {
-            let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
-            print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
-            throw ExitCode.failure
-        }
-
-        let selectedMode: MappingMode
-        do {
-            selectedMode = try resolveMode(tool: selectedTool, preset: preset)
-        } catch {
-            print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+        if minMapQ < 0 {
+            print(formatter.error("--min-mapq must be greater than or equal to 0."))
+            throw CLIExitCode.inputError.exitCode
         }
 
         let outputDirectory: URL
@@ -160,6 +131,29 @@ struct MapCommand: AsyncParsableCommand {
             let runToken = String(UUID().uuidString.prefix(8))
             outputDirectory = inputURLs.first!.deletingLastPathComponent()
                 .appendingPathComponent("mapping-\(runToken)")
+        }
+
+        let referenceInputURL = URL(fileURLWithPath: reference)
+        guard FileManager.default.fileExists(atPath: referenceInputURL.path) else {
+            throw CLIError.inputFileNotFound(path: referenceInputURL.path)
+        }
+        guard let referenceURL = SequenceInputResolver.resolvePrimarySequenceURL(for: referenceInputURL),
+              SequenceInputResolver.inputSequenceFormat(for: referenceInputURL) == .fasta else {
+            throw CLIError.formatDetectionFailed(path: referenceInputURL.path)
+        }
+
+        guard let selectedTool = MappingTool(rawValue: mapper) else {
+            let valid = MappingTool.allCases.map(\.rawValue).joined(separator: ", ")
+            print(formatter.error("Invalid mapper '\(mapper)'. Valid mappers: \(valid)"))
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let selectedMode: MappingMode
+        do {
+            selectedMode = try resolveMode(tool: selectedTool, preset: preset)
+        } catch {
+            print(formatter.error(error.localizedDescription))
+            throw CLIExitCode.inputError.exitCode
         }
 
         let effectiveSampleName = sampleName ?? deriveSampleName(from: inputURLs.first!, pairedEnd: pairedEnd)
@@ -177,13 +171,69 @@ struct MapCommand: AsyncParsableCommand {
             advancedArguments = try Self.parseExtraArgs(extraArgs, deprecatedAdvancedOptions: advancedOptions)
         } catch {
             print(formatter.error(error.localizedDescription))
-            throw ExitCode.failure
+            throw CLIExitCode.inputError.exitCode
+        }
+
+        let resolvedInputs: CLISequenceInputMaterializationResult
+        let materializationDirectory = outputDirectory.appendingPathComponent(".lungfish-map-inputs", isDirectory: true)
+        do {
+            resolvedInputs = try await Self.resolveExecutionInputs(
+                for: inputURLs,
+                tempDirectory: materializationDirectory,
+                materializer: FASTQCLIMaterializer(runner: NativeToolRunner.shared),
+                progress: { message in
+                    if !globalOptions.quiet {
+                        print(formatter.info(message))
+                    }
+                }
+            )
+        } catch let error as CLISequenceInputMaterializationError {
+            switch error {
+            case .unreadableSequenceInput(let path):
+                throw CLIError.formatDetectionFailed(path: path)
+            case .unsupportedSequenceInput(let message):
+                throw CLIError.workflowFailed(reason: message)
+            }
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
+        }
+        let executionInputURLs = resolvedInputs.inputURLs
+        if resolvedInputs.didMaterialize {
+            let materializationStartedAt = resolvedInputs.materializationStartedAt ?? Date()
+            let materializationEndedAt = resolvedInputs.materializationEndedAt ?? materializationStartedAt
+            do {
+                _ = try CLISequenceInputMaterialization.writeMaterializationProvenanceOrCleanup(
+                    workflowName: "lungfish.map.input-materialization",
+                    workflowVersion: LungfishCLI.configuration.version,
+                    parentArgv: CommandLine.arguments,
+                    parentDurableReplayArgv: CLISequenceInputMaterialization.durableReplayArgv(
+                        argv: CommandLine.arguments,
+                        originalInputArguments: fastqFiles,
+                        originalInputURLs: inputURLs,
+                        executionInputURLs: executionInputURLs
+                    ),
+                    originalInputURLs: inputURLs,
+                    executionInputURLs: executionInputURLs,
+                    outputDirectory: outputDirectory,
+                    operationName: "mapping",
+                    startedAt: materializationStartedAt,
+                    endedAt: materializationEndedAt
+                )
+            } catch {
+                throw CLIError.outputWriteFailed(
+                    path: outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path,
+                    reason: error.localizedDescription
+                )
+            }
         }
 
         let request = MappingRunRequest(
             tool: selectedTool,
             modeID: selectedMode.id,
             inputFASTQURLs: executionInputURLs,
+            originalInputFASTQURLs: inputURLs.map(\.standardizedFileURL),
+            inputMaterializationStartedAt: resolvedInputs.materializationStartedAt,
+            inputMaterializationEndedAt: resolvedInputs.materializationEndedAt,
             referenceFASTAURL: referenceURL,
             outputDirectory: outputDirectory,
             sampleName: effectiveSampleName,
@@ -220,11 +270,16 @@ struct MapCommand: AsyncParsableCommand {
         print("")
 
         let pipeline = ManagedMappingPipeline()
-        let result = try await pipeline.run(request: request) { _, message in
-            if !globalOptions.quiet {
-                print("\r\(formatter.info(message))", terminator: "")
-                fflush(stdout)
+        let result: MappingResult
+        do {
+            result = try await pipeline.run(request: request) { _, message in
+                if !globalOptions.quiet {
+                    print("\r\(formatter.info(message))", terminator: "")
+                    fflush(stdout)
+                }
             }
+        } catch {
+            throw CLIError.workflowFailed(reason: error.localizedDescription)
         }
 
         print("")
@@ -263,6 +318,21 @@ struct MapCommand: AsyncParsableCommand {
             }
             return resolvedURL.standardizedFileURL
         }
+    }
+
+    static func resolveExecutionInputs(
+        for inputURLs: [URL],
+        tempDirectory: URL,
+        materializer: CLISequenceInputMaterializing,
+        progress: (@Sendable (String) -> Void)? = nil
+    ) async throws -> CLISequenceInputMaterializationResult {
+        try await CLISequenceInputMaterialization.resolveExecutionInputs(
+            for: inputURLs,
+            tempDirectory: tempDirectory,
+            materializer: materializer,
+            operationName: "mapping",
+            progress: progress
+        )
     }
 
     private func resolveMode(tool: MappingTool, preset: String?) throws -> MappingMode {

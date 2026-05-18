@@ -32,16 +32,19 @@ extension ImportCommand {
             let emitter = NativeBundleImportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
             emitter.emitStart(kind: "multiple-sequence-alignment", source: sourceURL.path)
 
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                emitter.emitFailed("Input file not found: \(sourceURL.path)")
+                throw CLIExitCode.inputError.exitCode
+            }
+
             do {
-                guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                    throw ValidationError("Input file not found: \(sourceURL.path)")
-                }
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
                 let resolvedFormat: MultipleSequenceAlignmentBundle.SourceFormat?
                 if let sourceFormat {
                     guard let parsed = MultipleSequenceAlignmentBundle.SourceFormat(rawValue: sourceFormat) else {
-                        throw ValidationError("Unsupported source format '\(sourceFormat)'")
+                        emitter.emitFailed("Unsupported source format '\(sourceFormat)'")
+                        throw CLIExitCode.inputError.exitCode
                     }
                     resolvedFormat = parsed
                 } else {
@@ -89,9 +92,11 @@ extension ImportCommand {
                     print("Rows: \(bundle.manifest.rowCount)")
                     print("Columns: \(bundle.manifest.alignedLength)")
                 }
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
                 emitter.emitFailed(error.localizedDescription)
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
         }
     }
@@ -125,10 +130,12 @@ extension ImportCommand {
             let emitter = NativeBundleImportCLIEventEmitter(enabled: globalOptions.outputFormat == .json)
             emitter.emitStart(kind: "phylogenetic-tree", source: sourceURL.path)
 
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                emitter.emitFailed("Input file not found: \(sourceURL.path)")
+                throw CLIExitCode.inputError.exitCode
+            }
+
             do {
-                guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                    throw ValidationError("Input file not found: \(sourceURL.path)")
-                }
                 try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
 
                 emitter.emitProgress(0.12, message: "Preparing tree bundle destination...")
@@ -172,9 +179,11 @@ extension ImportCommand {
                     print("Tips: \(bundle.manifest.tipCount)")
                     print("Internal nodes: \(bundle.manifest.internalNodeCount)")
                 }
+            } catch let exitCode as ExitCode {
+                throw exitCode
             } catch {
                 emitter.emitFailed(error.localizedDescription)
-                throw ExitCode.failure
+                throw CLIExitCode.formatError.exitCode
             }
         }
     }

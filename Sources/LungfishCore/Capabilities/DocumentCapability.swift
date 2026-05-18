@@ -308,11 +308,6 @@ extension DocumentCapability: ExpressibleByArrayLiteral {
     }
 }
 
-// MARK: - Type Alias
-
-/// Type alias for a set of capabilities (for clarity in API).
-public typealias DocumentCapabilities = DocumentCapability
-
 // MARK: - CapabilityProvider Protocol
 
 /// A type that can provide document capabilities.

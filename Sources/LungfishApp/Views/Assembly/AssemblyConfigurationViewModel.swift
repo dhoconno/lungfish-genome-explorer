@@ -13,6 +13,17 @@ import LungfishCore
 /// Logger for assembly runner operations.
 private let logger = Logger(subsystem: LogSubsystem.app, category: "AssemblyRunner")
 
+private func performAssemblyOperationCenterUpdate(_ block: @escaping @MainActor @Sendable () -> Void) async {
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                block()
+                continuation.resume()
+            }
+        }
+    }
+}
+
 // MARK: - AssemblyRunner
 
 /// Runs an assembly as a background operation tracked by ``OperationCenter``.
@@ -38,7 +49,7 @@ public enum AssemblyRunner {
     /// Task 4 routes the shared UI through ``AssemblyRunRequest`` even while
     /// the standalone execution backend is being generalized.
     public static func run(request: AssemblyRunRequest, routeContext: OperationRouteContext? = nil) {
-        Task { @MainActor in
+        Task {
             if let warning = await AssemblyRuntimePreflight.warningMessage(for: request) {
                 AssemblyRuntimePreflight.presentWarning(
                     message: warning,
@@ -97,35 +108,14 @@ public enum AssemblyRunner {
 
         logger.info("Starting managed assembly: tool=\(request.tool.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        var args = request.inputURLs.map(\.path)
-        if request.pairedEnd {
-            args.append("--paired")
-        }
-        args += [
-            "--assembler", request.tool.rawValue,
-            "--read-type", request.readType.cliArgument,
-            "--project-name", request.projectName,
-            "--threads", "\(request.threads)",
-        ]
-        if let memoryGB = request.memoryGB {
-            args += ["--memory-gb", "\(memoryGB)"]
-        }
-        if let minContigLength = request.effectiveMinContigLength {
-            args += ["--min-contig-length", "\(minContigLength)"]
-        }
-        if let profile = request.selectedProfileID {
-            args += ["--profile", profile]
-        }
-        if !request.extraArguments.isEmpty {
-            args += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
-        }
-        args += ["--output", executionRequest.outputDirectory.path]
-
         let opID = OperationCenter.shared.start(
             title: "\(request.tool.displayName) Assembly: \(projectName)",
             detail: "Initializing...",
             operationType: .assembly,
-            cliCommand: "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args),
+            cliCommand: cliCommandPreview(
+                request: request,
+                outputDirectory: executionRequest.outputDirectory
+            ),
             routeContext: routeContext
         )
 
@@ -169,15 +159,7 @@ public enum AssemblyRunner {
 
         logger.info("Starting SPAdes assembly: mode=\(config.mode.displayName, privacy: .public), project=\(projectName, privacy: .public)")
 
-        let cliCmd: String = {
-            var args: [String] = []
-            for r in config.forwardReads { args += ["--pe1-1", r.path] }
-            for r in config.reverseReads { args += ["--pe1-2", r.path] }
-            for r in config.unpairedReads { args += ["-s", r.path] }
-            args += ["-o", config.outputDirectory.path]
-            return "# " + OperationCenter.buildCLICommand(subcommand: "assemble", args: args)
-                + " (CLI command not yet available)"
-        }()
+        let cliCmd = cliCommandPreview(config: config)
 
         let opID = OperationCenter.shared.start(
             title: "SPAdes Assembly: \(projectName)",
@@ -220,7 +202,178 @@ public enum AssemblyRunner {
         )
     }
 
+    nonisolated static func cliCommandPreview(config: SPAdesAssemblyConfig) -> String {
+        cliCommandPreview(
+            request: assemblyRunRequest(from: config),
+            outputDirectory: config.outputDirectory
+        )
+    }
+
+    nonisolated static func cliCommandPreview(
+        request: AssemblyRunRequest,
+        outputDirectory: URL? = nil
+    ) -> String {
+        guard let invocation = try? FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .assemble(request: request, outputMode: .groupedResult),
+            outputTargetPath: (outputDirectory ?? request.outputDirectory).path
+        ) else {
+            return OperationCenter.buildCLICommand(subcommand: "assemble", args: [])
+        }
+
+        return OperationCenter.buildCLICommand(
+            subcommand: invocation.subcommand,
+            args: invocation.arguments
+        )
+    }
+
+    nonisolated private static func assemblyRunRequest(from config: SPAdesAssemblyConfig) -> AssemblyRunRequest {
+        var extraArguments: [String] = []
+        if config.skipErrorCorrection {
+            extraArguments.append("--only-assembler")
+        }
+        if config.careful {
+            extraArguments.append("--careful")
+        }
+        if let kmerSizes = config.kmerSizes, !kmerSizes.isEmpty {
+            extraArguments += ["-k", kmerSizes.map(String.init).joined(separator: ",")]
+        }
+        if let covCutoff = config.covCutoff, !covCutoff.isEmpty {
+            extraArguments += ["--cov-cutoff", covCutoff]
+        }
+        if let phredOffset = config.phredOffset {
+            extraArguments += ["--phred-offset", "\(phredOffset)"]
+        }
+        extraArguments += config.customArgs
+
+        return AssemblyRunRequest(
+            tool: .spades,
+            readType: .illuminaShortReads,
+            inputURLs: config.forwardReads + config.reverseReads + config.unpairedReads,
+            projectName: config.projectName,
+            outputDirectory: config.outputDirectory,
+            pairedEnd: !config.forwardReads.isEmpty || !config.reverseReads.isEmpty,
+            threads: config.threads,
+            memoryGB: config.memoryGB,
+            minContigLength: config.minContigLength,
+            selectedProfileID: config.mode.rawValue,
+            extraArguments: extraArguments
+        )
+    }
+
     // MARK: - Pipeline Execution
+
+    typealias ManagedAssemblyMaterializer = (URL, URL, (@Sendable (String) -> Void)?) async throws -> URL
+
+    struct ManagedAssemblyMaterializationResult {
+        let request: AssemblyRunRequest
+        let materializationStartedAt: Date?
+        let materializationEndedAt: Date?
+    }
+
+    static func materializedManagedAssemblyRequest(
+        from request: AssemblyRunRequest,
+        tempDirectory: URL,
+        materialize: ManagedAssemblyMaterializer
+    ) async throws -> AssemblyRunRequest {
+        try await materializedManagedAssemblyRequestResult(
+            from: request,
+            tempDirectory: tempDirectory,
+            materialize: materialize
+        ).request
+    }
+
+    static func materializedManagedAssemblyRequestResult(
+        from request: AssemblyRunRequest,
+        tempDirectory: URL,
+        materialize: ManagedAssemblyMaterializer
+    ) async throws -> ManagedAssemblyMaterializationResult {
+        try validatePreMaterializationTopology(for: request)
+
+        var resolvedInputURLs: [URL] = []
+        var materializationStartedAt: Date?
+        var materializationEndedAt: Date?
+        for inputURL in request.inputURLs {
+            if let bundleURL = AssemblyInputMaterialization.bundleRequiringMaterialization(for: inputURL) {
+                if materializationStartedAt == nil {
+                    materializationStartedAt = Date()
+                }
+                try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+                let materializedURL = try await materialize(bundleURL, tempDirectory, nil)
+                materializationEndedAt = Date()
+                resolvedInputURLs.append(materializedURL.standardizedFileURL)
+                continue
+            }
+
+            let resolvedURL = SequenceInputResolver.resolvePrimarySequenceURL(for: inputURL) ?? inputURL
+            resolvedInputURLs.append(resolvedURL.standardizedFileURL)
+        }
+
+        let executionRequest = AssemblyRunRequest(
+            tool: request.tool,
+            readType: request.readType,
+            inputURLs: resolvedInputURLs,
+            projectName: request.projectName,
+            outputDirectory: request.outputDirectory,
+            pairedEnd: request.pairedEnd,
+            threads: request.threads,
+            memoryGB: request.memoryGB,
+            minContigLength: request.minContigLength,
+            selectedProfileID: request.selectedProfileID,
+            extraArguments: request.extraArguments
+        )
+        return ManagedAssemblyMaterializationResult(
+            request: executionRequest,
+            materializationStartedAt: materializationStartedAt,
+            materializationEndedAt: materializationEndedAt
+        )
+    }
+
+    static func validatePreMaterializationTopology(for request: AssemblyRunRequest) throws {
+        guard AssemblyCompatibility.isSupported(tool: request.tool, for: request.readType) else {
+            throw ManagedAssemblyPipelineError.incompatibleSelection(
+                "\(request.tool.displayName) is not available for \(request.readType.displayName) in v1."
+            )
+        }
+
+        for inputURL in request.inputURLs {
+            if let unsupportedMessage = AssemblyInputMaterialization.unsupportedAssemblyInputMessage(for: inputURL) {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(unsupportedMessage)
+            }
+        }
+
+        if request.pairedEnd && request.inputURLs.count != 2 {
+            throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                "Paired-end assembly requests must include exactly two sequence inputs."
+            )
+        }
+
+        switch request.tool {
+        case .flye:
+            guard !request.pairedEnd, request.inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Flye expects a single ONT sequence input in v1."
+                )
+            }
+        case .hifiasm:
+            guard !request.pairedEnd, request.inputURLs.count == 1 else {
+                throw ManagedAssemblyPipelineError.unsupportedInputTopology(
+                    "Hifiasm expects a single ONT or PacBio HiFi/CCS sequence input in v1."
+                )
+            }
+        case .spades, .megahit, .skesa:
+            break
+        }
+    }
+
+    static func managedAssemblyInputRecords(
+        originalRequest: AssemblyRunRequest,
+        executionRequest: AssemblyRunRequest
+    ) -> [InputFileRecord] {
+        AssemblyInputMaterialization.inputRecordsPreservingLineage(
+            originalInputURLs: originalRequest.inputURLs,
+            executionInputURLs: executionRequest.inputURLs
+        )
+    }
 
     private static func runManagedAssemblyOperation(
         request: AssemblyRunRequest,
@@ -229,13 +382,29 @@ public enum AssemblyRunner {
         operationID opID: UUID
     ) async {
         do {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Running \(request.tool.displayName)...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Launching managed assembly pipeline")
             }
 
+            let materializationDirectory = request.outputDirectory
+                .appendingPathComponent(".lungfish-assembly-inputs", isDirectory: true)
+            try validatePreMaterializationTopology(for: request)
+            let materializationResult = try await materializedManagedAssemblyRequestResult(
+                from: request,
+                tempDirectory: materializationDirectory,
+                materialize: { bundleURL, tempDirectory, progress in
+                    try await FASTQDerivativeService.shared.materializeDatasetFASTQ(
+                        fromBundle: bundleURL,
+                        tempDirectory: tempDirectory,
+                        progress: progress
+                    )
+                }
+            )
+            let executionRequest = materializationResult.request
+
             let pipeline = ManagedAssemblyPipeline()
-            let result = try await pipeline.run(request: request) { fraction, message in
+            let result = try await pipeline.run(request: executionRequest) { fraction, message in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         let scaledProgress = 0.05 + fraction * 0.85
@@ -245,23 +414,31 @@ public enum AssemblyRunner {
                 }
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.92, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
 
+            let materializationStep = try managedAssemblyMaterializationStep(
+                originalRequest: request,
+                executionRequest: executionRequest,
+                startedAt: materializationResult.materializationStartedAt,
+                endedAt: materializationResult.materializationEndedAt
+            )
             let provenance = ProvenanceBuilder.build(
-                request: request,
+                request: executionRequest,
                 result: result,
-                inputRecords: request.inputURLs.map { url in
-                    ProvenanceBuilder.inputRecord(for: url)
-                }
+                inputRecords: managedAssemblyInputRecords(
+                    originalRequest: request,
+                    executionRequest: executionRequest
+                ),
+                steps: materializationStep.map { [$0] } ?? []
             )
 
             let bundleBuilder = AssemblyBundleBuilder()
             let bundleURL = try await bundleBuilder.build(
                 result: result,
-                request: request,
+                request: executionRequest,
                 provenance: provenance,
                 outputDirectory: baseOutputDirectory,
                 bundleName: projectName
@@ -275,7 +452,7 @@ public enum AssemblyRunner {
                 }
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 if result.outcome == .completedWithNoContigs {
                     OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: result), bundleURLs: [bundleURL])
                 } else {
@@ -297,7 +474,7 @@ public enum AssemblyRunner {
                 isSuccess: true
             )
         } catch {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: error.localizedDescription)
                 OperationCenter.shared.log(id: opID, level: .error, message: error.localizedDescription)
             }
@@ -306,6 +483,74 @@ public enum AssemblyRunner {
                 body: error.localizedDescription,
                 isSuccess: false
             )
+        }
+    }
+
+    static func managedAssemblyMaterializationStep(
+        originalRequest: AssemblyRunRequest,
+        executionRequest: AssemblyRunRequest,
+        startedAt: Date?,
+        endedAt: Date?
+    ) throws -> ProvenanceStep? {
+        let inputPairs = zipOriginalAndExecutionInputs(
+            originalInputURLs: originalRequest.inputURLs,
+            executionInputURLs: executionRequest.inputURLs
+        )
+        let materializedPairs = inputPairs.filter { originalURL, executionURL in
+            AssemblyInputMaterialization.requiresMaterialization(originalURL)
+                && originalURL.standardizedFileURL != executionURL.standardizedFileURL
+        }
+        guard !materializedPairs.isEmpty else { return nil }
+        guard let startedAt else { return nil }
+
+        let completedAt = endedAt ?? startedAt
+        let inputs = try materializedPairs.flatMap { originalURL, _ in
+            try AssemblyInputMaterialization.originalInputDescriptors(for: originalURL)
+        }
+        let outputs = try materializedPairs.map { originalURL, executionURL in
+            try AssemblyInputMaterialization.executionInputDescriptor(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let materializationCommands = materializedPairs.map { originalURL, executionURL in
+            CLISequenceInputMaterialization.materializationCommand(
+                originalURL: originalURL,
+                executionURL: executionURL
+            )
+        }
+        let argv = materializationCommands.count == 1
+            ? materializationCommands[0]
+            : [
+                "/bin/sh",
+                "-lc",
+                materializationCommands
+                    .map { $0.map(shellEscape).joined(separator: " ") }
+                    .joined(separator: " && "),
+            ]
+
+        return ProvenanceStep(
+            toolName: "lungfish fastq materialize",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
+    private static func zipOriginalAndExecutionInputs(
+        originalInputURLs: [URL],
+        executionInputURLs: [URL]
+    ) -> [(originalURL: URL, executionURL: URL)] {
+        executionInputURLs.enumerated().map { index, executionURL in
+            let originalURL = originalInputURLs.indices.contains(index) ? originalInputURLs[index] : executionURL
+            return (originalURL, executionURL)
         }
     }
 
@@ -320,7 +565,7 @@ public enum AssemblyRunner {
     ) async {
         do {
             // Materialize virtual FASTQ bundles (subset/trim/demux produce only preview.fastq)
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Resolving input files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Checking for virtual FASTQ materialization")
             }
@@ -397,7 +642,7 @@ public enum AssemblyRunner {
 
             let runtime = try await AppleContainerRuntime()
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.05, detail: "Container runtime initialized")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Container runtime initialized")
             }
@@ -424,7 +669,7 @@ public enum AssemblyRunner {
             try? SPAdesAssemblyPipeline.saveConfig(config, to: spadesOutputDir)
 
             // Clean intermediate files
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.94, detail: "Cleaning intermediate files...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Cleaning intermediate files")
             }
@@ -434,7 +679,7 @@ public enum AssemblyRunner {
                 logger.info("Freed \(freedStr) of intermediate files")
             }
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.update(id: opID, progress: 0.95, detail: "Creating reference bundle...")
                 OperationCenter.shared.log(id: opID, level: .info, message: "Creating reference bundle")
             }
@@ -466,7 +711,7 @@ public enum AssemblyRunner {
             }
             let normalizedResult = AssemblyResult.fromLegacy(result)
 
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 if normalizedResult.outcome == .completedWithNoContigs {
                     OperationCenter.shared.completeWithWarning(id: opID, detail: completionDetail(for: normalizedResult), bundleURLs: [bundleURL])
                 } else {
@@ -489,13 +734,13 @@ public enum AssemblyRunner {
             )
 
         } catch is CancellationError {
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: "Cancelled by user")
             }
         } catch {
             let errorMessage = "\(error)"
             logger.error("Assembly failed: \(error)")
-            await MainActor.run {
+            await performAssemblyOperationCenterUpdate {
                 OperationCenter.shared.fail(id: opID, detail: errorMessage)
             }
 
@@ -557,19 +802,19 @@ public enum AssemblyRunner {
 
     // MARK: - Notifications
 
-    private static func completionDetail(for result: AssemblyResult) -> String {
+    nonisolated static func completionDetail(for result: AssemblyResult) -> String {
         result.outcome == .completedWithNoContigs
             ? "Assembly completed, but no contigs were generated."
             : "Assembly complete"
     }
 
-    private static func completionNotificationTitle(for result: AssemblyResult) -> String {
+    nonisolated static func completionNotificationTitle(for result: AssemblyResult) -> String {
         result.outcome == .completedWithNoContigs
             ? "No Contigs Generated"
             : "Assembly Complete"
     }
 
-    private static func completionNotificationBody(
+    nonisolated static func completionNotificationBody(
         for result: AssemblyResult,
         toolDisplayName: String,
         projectName: String

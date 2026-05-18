@@ -63,7 +63,7 @@ public struct FastpMergeStep: RecipeStepExecutor {
         )
         if result.exitCode != 0 {
             throw RecipeEngineError.toolFailed(
-                tool: "fastp", step: Self.typeID, stderr: result.stderr ?? "")
+                tool: "fastp", step: Self.typeID, stderr: result.stderr)
         }
 
         // r1 = merged reads, r2 = unmerged R1, r3 = unmerged R2

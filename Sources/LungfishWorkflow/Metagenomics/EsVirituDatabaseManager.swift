@@ -207,26 +207,6 @@ public actor EsVirituDatabaseManager {
         return hasFasta
     }
 
-    /// Returns the names of required Kraken2 files missing from a directory.
-    /// Kept for backward compatibility but no longer used for EsViritu validation.
-    private func _legacyCheck(_ dbDir: URL) -> Bool {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbDir.path) else { return false }
-
-        let markerFiles = ["refseq_viral.fasta", "taxonomy", "metadata"]
-        for marker in markerFiles {
-            let markerPath = dbDir.appendingPathComponent(marker)
-            if fm.fileExists(atPath: markerPath.path) {
-                return true
-            }
-        }
-
-        // If the directory exists but has no known markers, check if it
-        // has any contents at all (may be a different db layout version).
-        let contents = (try? fm.contentsOfDirectory(atPath: dbDir.path)) ?? []
-        return !contents.isEmpty
-    }
-
     /// Returns information about the installed database, if any.
     ///
     /// - Returns: A tuple of (version, path, sizeBytes), or `nil` if not installed.
@@ -402,22 +382,35 @@ public actor EsVirituDatabaseManager {
         expectedSize: Int64,
         progress: @Sendable @escaping (Double) -> Void
     ) async throws -> URL {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            let delegate = DownloadProgressDelegate(
-                destination: destination,
-                expectedSize: expectedSize,
-                progress: progress,
-                continuation: continuation
-            )
+        do {
+            try Task.checkCancellation()
+        } catch {
+            throw EsVirituDatabaseError.downloadCancelled
+        }
 
-            let session = URLSession(
-                configuration: .default,
-                delegate: delegate,
-                delegateQueue: nil
-            )
+        let taskBox = URLSessionDownloadTaskBox()
+        let delegate = DownloadProgressDelegate(
+            destination: destination,
+            expectedSize: expectedSize,
+            progress: progress
+        )
 
-            let task = session.downloadTask(with: url)
-            task.resume()
+        let session = URLSession(
+            configuration: .default,
+            delegate: delegate,
+            delegateQueue: nil
+        )
+        defer { session.invalidateAndCancel() }
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                delegate.setContinuation(continuation)
+                let task = session.downloadTask(with: url)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: {
+            taskBox.cancel()
         }
     }
 
@@ -490,19 +483,21 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
     private let destination: URL
     private let expectedSize: Int64
     private let progress: @Sendable (Double) -> Void
-    private let continuation: CheckedContinuation<URL, Error>
-    private var resumed = false
+    private let continuationLock = OSAllocatedUnfairLock<CheckedContinuation<URL, Error>?>(initialState: nil)
+    private let resumeLock = OSAllocatedUnfairLock(initialState: false)
 
     init(
         destination: URL,
         expectedSize: Int64,
-        progress: @Sendable @escaping (Double) -> Void,
-        continuation: CheckedContinuation<URL, Error>
+        progress: @Sendable @escaping (Double) -> Void
     ) {
         self.destination = destination
         self.expectedSize = expectedSize
         self.progress = progress
-        self.continuation = continuation
+    }
+
+    func setContinuation(_ continuation: CheckedContinuation<URL, Error>) {
+        continuationLock.withLock { $0 = continuation }
     }
 
     func urlSession(
@@ -532,9 +527,7 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
             }
             try fm.copyItem(at: location, to: destination)
         } catch {
-            guard !resumed else { return }
-            resumed = true
-            continuation.resume(throwing: EsVirituDatabaseError.downloadFailed(error.localizedDescription))
+            resumeOnce(.failure(EsVirituDatabaseError.downloadFailed(error.localizedDescription)))
         }
     }
 
@@ -543,13 +536,61 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
-        guard !resumed else { return }
-        resumed = true
-
         if let error {
-            continuation.resume(throwing: EsVirituDatabaseError.downloadFailed(error.localizedDescription))
+            if (error as? URLError)?.code == .cancelled {
+                resumeOnce(.failure(EsVirituDatabaseError.downloadCancelled))
+            } else {
+                resumeOnce(.failure(EsVirituDatabaseError.downloadFailed(error.localizedDescription)))
+            }
         } else {
-            continuation.resume(returning: destination)
+            resumeOnce(.success(destination))
         }
+    }
+
+    private func resumeOnce(_ result: Result<URL, Error>) {
+        let shouldResume = resumeLock.withLock { resumed in
+            if resumed { return false }
+            resumed = true
+            return true
+        }
+        guard shouldResume else { return }
+        guard let continuation = continuationLock.withLock({ continuation -> CheckedContinuation<URL, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }) else { return }
+
+        switch result {
+        case .success(let url):
+            continuation.resume(returning: url)
+        case .failure(let error):
+            continuation.resume(throwing: error)
+        }
+    }
+}
+
+private final class URLSessionDownloadTaskBox: @unchecked Sendable {
+    private struct State {
+        var task: URLSessionDownloadTask?
+        var cancelled = false
+    }
+
+    private let lock = OSAllocatedUnfairLock<State>(initialState: State())
+
+    func store(_ task: URLSessionDownloadTask) {
+        let shouldCancel = lock.withLock { state in
+            state.task = task
+            return state.cancelled
+        }
+        if shouldCancel {
+            task.cancel()
+        }
+    }
+
+    func cancel() {
+        let task = lock.withLock { state in
+            state.cancelled = true
+            return state.task
+        }
+        task?.cancel()
     }
 }

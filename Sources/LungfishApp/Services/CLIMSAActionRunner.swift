@@ -239,7 +239,7 @@ actor CLIMSAActionRunner {
             consumeStderr(chunk)
         }
 
-        await MainActor.run {
+        await performCLIOperationCenterUpdate {
             OperationCenter.shared.update(id: opID, progress: 0.01, detail: "Launching lungfish-cli...")
         }
 
@@ -299,7 +299,7 @@ actor CLIMSAActionRunner {
         }
 
         let outputURL = URL(fileURLWithPath: outputPath, isDirectory: Self.isNativeBundlePath(outputPath))
-        await MainActor.run {
+        await performCLIOperationCenterUpdate {
             if Self.isNativeBundleURL(outputURL) {
                 OperationCenter.shared.complete(
                     id: opID,

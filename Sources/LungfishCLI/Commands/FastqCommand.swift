@@ -42,6 +42,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqInterleaveSubcommand.self,
             FastqDeduplicateSubcommand.self,
             FastqDemultiplexSubcommand.self,
+            FastqScoutSubcommand.self,
             FastqImportONTSubcommand.self,
             FastqMaterializeSubcommand.self,
             FastqQCSummarySubcommand.self,
@@ -240,6 +241,25 @@ func validateInput(_ path: String) throws -> URL {
         throw CLIError.inputFileNotFound(path: path)
     }
     return URL(fileURLWithPath: path)
+}
+
+private let barcodeKitHelpText = """
+Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or path to custom CSV
+"""
+
+func resolveBarcodeKitArgument(_ kit: String) throws -> (definition: BarcodeKitDefinition, customURL: URL?) {
+    if let builtin = BarcodeKitRegistry.kit(byID: kit) {
+        return (builtin, nil)
+    }
+    if FileManager.default.fileExists(atPath: kit) {
+        let csvURL = URL(fileURLWithPath: kit)
+        let name = csvURL.deletingPathExtension().lastPathComponent
+        return (try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: name), csvURL)
+    }
+    throw ValidationError(
+        "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
+        + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or a path to a custom CSV."
+    )
 }
 
 private extension String {
@@ -1907,7 +1927,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var input: String
 
     @Option(name: .customLong("kit"),
-            help: "Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or path to custom CSV")
+            help: .init(barcodeKitHelpText))
     var kit: String
 
     @Option(name: [.customLong("output"), .customShort("o")],
@@ -1958,22 +1978,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let outputURL = URL(fileURLWithPath: output)
 
         // Resolve barcode kit
-        let barcodeKit: BarcodeKitDefinition
-        let customKitURL: URL?
-        if let builtin = BarcodeKitRegistry.kit(byID: kit) {
-            barcodeKit = builtin
-            customKitURL = nil
-        } else if FileManager.default.fileExists(atPath: kit) {
-            let csvURL = URL(fileURLWithPath: kit)
-            let name = csvURL.deletingPathExtension().lastPathComponent
-            barcodeKit = try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: name)
-            customKitURL = csvURL
-        } else {
-            throw ValidationError(
-                "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
-                + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or a path to a custom CSV."
-            )
-        }
+        let resolvedKit = try resolveBarcodeKitArgument(kit)
+        let barcodeKit = resolvedKit.definition
+        let customKitURL = resolvedKit.customURL
 
         // Parse barcode location
         let barcodeLocation: BarcodeLocation
@@ -2097,6 +2104,195 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     }
 }
 
+struct FastqScoutSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "scout",
+        abstract: "Scout barcode assignments before FASTQ demultiplexing",
+        discussion: """
+            Scans a subset of reads against a barcode kit and writes a
+            scout-result.json file with per-barcode hit counts and suggested
+            accept/reject dispositions.
+            """
+    )
+
+    @Argument(help: "Input FASTQ file or .lungfishfastq bundle")
+    var input: String
+
+    @Option(name: .customLong("kit"), help: .init(barcodeKitHelpText))
+    var kit: String
+
+    @Option(name: [.customLong("output"), .customShort("o")], help: "Output scout-result.json path")
+    var output: String
+
+    @Option(name: .customLong("read-limit"), help: "Maximum reads to scan (default: 10000)")
+    var readLimit: Int = 10_000
+
+    @Option(name: .customLong("accept-threshold"), help: "Minimum hits to auto-accept a barcode (default: 10)")
+    var acceptThreshold: Int = 10
+
+    @Option(name: .customLong("reject-threshold"), help: "Maximum hits to auto-reject a barcode (default: 3)")
+    var rejectThreshold: Int = 3
+
+    @Option(name: .customLong("error-rate"), help: "Override barcode matching error rate")
+    var errorRate: Double?
+
+    @Option(name: .customLong("overlap"), help: "Override minimum barcode overlap")
+    var overlap: Int?
+
+    @Option(name: .customLong("source-platform"), help: "Source platform: illumina, ont, pacbio, element, ultima, mgi")
+    var sourcePlatform: String?
+
+    @Flag(name: .customLong("no-indels"), help: "Disallow indels in barcode matching")
+    var useNoIndels: Bool = false
+
+    @OptionGroup var globalOptions: GlobalOptions
+
+    func run() async throws {
+        guard readLimit > 0 else {
+            throw ValidationError("--read-limit must be greater than zero")
+        }
+        guard acceptThreshold >= 0, rejectThreshold >= 0 else {
+            throw ValidationError("Scout thresholds must be non-negative")
+        }
+        if let errorRate {
+            guard errorRate >= 0 && errorRate <= 1 else {
+                throw ValidationError("--error-rate must be between 0 and 1")
+            }
+        }
+        if let overlap {
+            guard overlap > 0 else {
+                throw ValidationError("--overlap must be greater than zero")
+            }
+        }
+
+        let inputURL = try validateInput(input)
+        let outputURL = URL(fileURLWithPath: output)
+        let outputDirectory = outputURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let resolvedKit = try resolveBarcodeKitArgument(kit)
+        let resolvedSourcePlatform: LungfishIO.SequencingPlatform?
+        if let sourcePlatform {
+            let parsed = LungfishIO.SequencingPlatform(vendor: sourcePlatform)
+            guard parsed != .unknown else {
+                throw ValidationError("Unknown source platform '\(sourcePlatform)'")
+            }
+            resolvedSourcePlatform = parsed
+        } else {
+            resolvedSourcePlatform = nil
+        }
+
+        let pipeline = DemultiplexingPipeline()
+        let startedAt = Date()
+        let result = try await pipeline.scout(
+            inputURL: inputURL,
+            kit: resolvedKit.definition,
+            sourcePlatform: resolvedSourcePlatform,
+            errorRate: errorRate,
+            minimumOverlap: overlap,
+            useNoIndels: useNoIndels,
+            readLimit: readLimit,
+            acceptThreshold: acceptThreshold,
+            rejectThreshold: rejectThreshold
+        ) { fraction, message in
+            guard !globalOptions.quiet else { return }
+            FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(result).write(to: outputURL, options: .atomic)
+
+        var command = [
+            "lungfish", "fastq", "scout",
+            inputURL.path,
+            "--kit", kit,
+            "--output", outputURL.path,
+        ]
+        if readLimit != 10_000 {
+            command += ["--read-limit", String(readLimit)]
+        }
+        if acceptThreshold != 10 {
+            command += ["--accept-threshold", String(acceptThreshold)]
+        }
+        if rejectThreshold != 3 {
+            command += ["--reject-threshold", String(rejectThreshold)]
+        }
+        if let errorRate {
+            command += ["--error-rate", String(errorRate)]
+        }
+        if let overlap {
+            command += ["--overlap", String(overlap)]
+        }
+        if let sourcePlatform {
+            command += ["--source-platform", sourcePlatform]
+        }
+        if useNoIndels {
+            command.append("--no-indels")
+        }
+
+        var inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
+        if let customURL = resolvedKit.customURL {
+            inputRecords += provenanceRecords(for: customURL, format: .text, role: .reference)
+        }
+        let customBarcodeKitParameter: ParameterValue = resolvedKit.customURL.map { .file($0) } ?? .null
+        let errorRateParameter: ParameterValue = errorRate.map { .number($0) } ?? .null
+        let overlapParameter: ParameterValue = overlap.map { .integer($0) } ?? .null
+        let sourcePlatformParameter: ParameterValue = sourcePlatform.map { .string($0) } ?? .null
+        let resolvedSourcePlatformParameter: ParameterValue = resolvedSourcePlatform.map { .string($0.rawValue) } ?? .null
+        let parameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "kit": .string(kit),
+            "resolvedKit": .string(resolvedKit.definition.id),
+            "customBarcodeKit": customBarcodeKitParameter,
+            "output": .file(outputURL),
+            "readLimit": .integer(readLimit),
+            "acceptThreshold": .integer(acceptThreshold),
+            "rejectThreshold": .integer(rejectThreshold),
+            "errorRate": errorRateParameter,
+            "overlap": overlapParameter,
+            "sourcePlatform": sourcePlatformParameter,
+            "resolvedSourcePlatform": resolvedSourcePlatformParameter,
+            "noIndels": .boolean(useNoIndels),
+        ]
+        let defaults: [String: ParameterValue] = [
+            "readLimit": .integer(10_000),
+            "acceptThreshold": .integer(10),
+            "rejectThreshold": .integer(3),
+            "errorRate": .null,
+            "overlap": .null,
+            "sourcePlatform": .null,
+            "noIndels": .boolean(false),
+        ]
+        let outputRecords = [
+            ProvenanceRecorder.fileRecord(url: outputURL, format: .json, role: .output),
+        ]
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish fastq scout",
+            parameters: parameters,
+            defaults: defaults,
+            toolName: "lungfish fastq scout",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: command,
+            inputs: inputRecords,
+            outputs: outputRecords,
+            exitCode: 0,
+            wallTime: Date().timeIntervalSince(startedAt),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: outputDirectory
+        )
+
+        if !globalOptions.quiet {
+            FileHandle.standardError.write(Data("\n--- Barcode Scout Summary ---\n".utf8))
+            FileHandle.standardError.write(Data("Kit: \(resolvedKit.definition.displayName)\n".utf8))
+            FileHandle.standardError.write(Data("Reads scanned: \(result.readsScanned)\n".utf8))
+            FileHandle.standardError.write(Data("Assigned: \(result.readsScanned - result.unassignedCount) (\(String(format: "%.1f%%", result.assignmentRate * 100)))\n".utf8))
+            FileHandle.standardError.write(Data("Accepted barcodes: \(result.acceptedCount)\n".utf8))
+            FileHandle.standardError.write(Data("Output: \(outputURL.path)\n".utf8))
+        }
+    }
+}
+
 // MARK: - Import ONT
 
 struct FastqImportONTSubcommand: AsyncParsableCommand {
@@ -2158,49 +2354,47 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             includeUnclassified: includeUnclassified
         )
 
-        let startedAt = Date()
-        let result = try await importer.importDirectory(config: config) { fraction, message in
+        let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
+        let argv = ["lungfish", "fastq"] + cliArguments
+        let workflow = ONTImportWorkflow()
+        let workflowResult = try await workflow.importDirectory(
+            config: config,
+            context: ONTImportWorkflow.CommandContext(
+                caller: .cli,
+                workflowName: "lungfish fastq import-ont",
+                workflowVersion: WorkflowRun.currentAppVersion,
+                toolName: "lungfish fastq import-ont",
+                toolVersion: WorkflowRun.currentAppVersion,
+                argv: argv,
+                durableReplayArgv: argv,
+                reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                explicitOptions: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "includeUnclassified": .boolean(includeUnclassified),
+                    "concurrency": .integer(concurrency)
+                ],
+                defaultOptions: [
+                    "includeUnclassified": .boolean(false),
+                    "concurrency": .integer(4),
+                    "useVirtualConcatenation": .boolean(true)
+                ],
+                resolvedOptions: [
+                    "input": .file(inputURL),
+                    "output": .file(outputURL),
+                    "includeUnclassified": .boolean(includeUnclassified),
+                    "concurrency": .integer(concurrency),
+                    "useVirtualConcatenation": .boolean(true),
+                    "caller": .string("cli"),
+                    "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
+                    "chunkCount": .integer(layout.totalChunkCount)
+                ],
+                runtimeIdentity: ProvenanceRuntimeIdentity()
+            )
+        ) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
-        var cliArguments = ["import-ont", inputURL.path, "--output", output]
-        if includeUnclassified {
-            cliArguments.append("--include-unclassified")
-        }
-        if concurrency != 4 {
-            cliArguments += ["--concurrency", String(concurrency)]
-        }
-        let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
-        let outputPayloads = result.bundleURLs.compactMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
-        let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
-            + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
-        let chunkURLs = layout.barcodeDirectories.flatMap(\.chunkFiles)
-        let parameters: [String: ParameterValue] = [
-            "input": .file(inputURL),
-            "output": .file(outputURL),
-            "includeUnclassified": .boolean(includeUnclassified),
-            "concurrency": .integer(concurrency),
-            "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
-            "chunkCount": .integer(layout.totalChunkCount)
-        ]
-        try await CLIProvenanceSupport.recordSingleStepRun(
-            name: "lungfish fastq import-ont",
-            parameters: parameters,
-            defaults: [
-                "includeUnclassified": .boolean(false),
-                "concurrency": .integer(4)
-            ],
-            toolName: "lungfish fastq import-ont",
-            toolVersion: WorkflowRun.currentAppVersion,
-            command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: ["lungfish", "fastq"] + cliArguments,
-            inputs: chunkURLs.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .input) },
-            outputs: outputRecords,
-            exitCode: 0,
-            wallTime: Date().timeIntervalSince(startedAt),
-            stderr: nil,
-            status: .completed,
-            outputDirectory: outputURL
-        )
+        let result = workflowResult.importResult
 
         // Summary output
         FileHandle.standardError.write(Data("\n--- ONT Import Summary ---\n".utf8))
@@ -2221,5 +2415,16 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         for barcode in result.manifest.barcodes {
             FileHandle.standardError.write(Data("  \(barcode.barcodeID): \(barcode.readCount) reads\n".utf8))
         }
+    }
+
+    private func cliArguments(inputURL: URL, outputURL: URL) -> [String] {
+        var cliArguments = ["import-ont", inputURL.path, "--output", outputURL.path]
+        if includeUnclassified {
+            cliArguments.append("--include-unclassified")
+        }
+        if concurrency != 4 {
+            cliArguments += ["--concurrency", String(concurrency)]
+        }
+        return cliArguments
     }
 }

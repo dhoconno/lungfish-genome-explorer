@@ -59,7 +59,6 @@ LungfishIO/
 │   ├── BED/
 │   │   └── BEDReader.swift            # PRIMARY OWNER
 │   └── BigWig/
-│       ├── BigWigReader.swift         # PRIMARY OWNER
 │       └── BigBedReader.swift         # PRIMARY OWNER
 ├── Index/
 │   ├── FASTAIndex.swift               # PRIMARY OWNER
@@ -269,7 +268,6 @@ public final class FormatRegistry {
         register(GFF3Reader.self)
         register(BAMReader.self)
         register(VCFReader.self)
-        register(BigWigReader.self)
     }
 
     public func reader(for url: URL) throws -> any FormatReader {

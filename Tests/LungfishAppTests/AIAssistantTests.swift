@@ -360,8 +360,8 @@ final class AIToolRegistryTests: XCTestCase {
 @MainActor
 final class AIAssistantServiceTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         // Clear any persisted settings before each test
         UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
         AppSettings.shared.resetToDefaults()
@@ -654,8 +654,8 @@ final class AIMessageBubbleViewTests: XCTestCase {
 @MainActor
 final class AISettingsIntegrationTests: XCTestCase {
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    override func setUp() async throws {
+        try await super.setUp()
         UserDefaults.standard.removeObject(forKey: "com.lungfish.appSettings")
         AppSettings.shared.resetToDefaults()
     }

@@ -14,10 +14,10 @@ private let logger = Logger(subsystem: LogSubsystem.app, category: "BundleDataPr
 
 /// Provides on-demand access to sequence and annotation data from a `.lungfishref` bundle.
 ///
-/// `BundleDataProvider` wraps `BgzipIndexedFASTAReader` (via `ReferenceBundle`) and
-/// `BigBedReader` to lazily fetch data for the currently visible genomic region. This
-/// avoids loading the entire genome into memory, which is critical for large reference
-/// genomes (e.g., 3 Gb human genome).
+/// `BundleDataProvider` wraps `BgzipIndexedFASTAReader` (via `ReferenceBundle`)
+/// and SQLite-backed annotation stores to lazily fetch data for the currently
+/// visible genomic region. This avoids loading the entire genome into memory,
+/// which is critical for large reference genomes (e.g., 3 Gb human genome).
 ///
 /// ## Thread Safety
 ///
@@ -151,8 +151,8 @@ public final class BundleDataProvider {
 
     /// Fetches annotation features for a genomic region from all annotation tracks.
     ///
-    /// Queries each BigBed annotation track in the bundle and aggregates the results
-    /// into `SequenceAnnotation` objects suitable for display in the viewer.
+    /// Queries each annotation track in the bundle and aggregates the results into
+    /// `SequenceAnnotation` objects suitable for display in the viewer.
     ///
     /// - Parameters:
     ///   - chromosome: Chromosome name
