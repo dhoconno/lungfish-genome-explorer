@@ -14,6 +14,7 @@ final class CondaPacksCommandTests: XCTestCase {
                 "variant-calling",
                 "gatk-core",
                 "phasing",
+                "amplicon-genotyping",
                 "assembly",
                 "multiple-sequence-alignment",
                 "phylogenetics",

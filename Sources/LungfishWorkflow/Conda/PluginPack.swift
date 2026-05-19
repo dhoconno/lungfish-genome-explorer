@@ -394,7 +394,7 @@ public extension PluginPack {
                     id: "clair3",
                     displayName: "Clair3",
                     environment: "clair3",
-                    installPackages: ["bioconda::clair3=2.0.1"],
+                    installPackages: ["bioconda::clair3=2.0.0=py311h9aa1f4a_2"],
                     executables: ["run_clair3.sh"],
                     smokeTest: .command(
                         executable: "run_clair3.sh",
@@ -403,7 +403,7 @@ public extension PluginPack {
                         acceptedExitCodes: [0, 1],
                         requiredOutputSubstring: "Usage"
                     ),
-                    version: "2.0.1",
+                    version: "2.0.0",
                     license: "BSD-3-Clause",
                     sourceURL: "https://github.com/HKU-BAL/Clair3"
                 ),
@@ -464,6 +464,34 @@ public extension PluginPack {
                 ),
             ],
             estimatedSizeMB: 180
+        ),
+        PluginPack(
+            id: "amplicon-genotyping",
+            name: "Amplicon Genotyping",
+            description: "PacBio amplicon clustering and consensus genotyping from HiFi reads",
+            sfSymbol: "circle.hexagongrid",
+            packages: ["pbaa"],
+            category: "Amplicon",
+            isActive: true,
+            requirements: [
+                PackToolRequirement(
+                    id: "pbaa",
+                    displayName: "pbAA",
+                    environment: "pbaa",
+                    installPackages: ["bioconda::pbaa=1.0.3=hdfd78af_0"],
+                    executables: ["pbaa"],
+                    smokeTest: .command(
+                        executable: "pbaa",
+                        arguments: ["--help"],
+                        timeoutSeconds: 10,
+                        requiredOutputSubstring: "usage:"
+                    ),
+                    version: "1.0.3",
+                    license: "BSD-3-Clause-Clear",
+                    sourceURL: "https://github.com/PacificBiosciences/pbAA"
+                ),
+            ],
+            estimatedSizeMB: 120
         ),
         PluginPack(
             id: "assembly",
