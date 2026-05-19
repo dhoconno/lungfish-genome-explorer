@@ -125,6 +125,23 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(invocation.arguments.contains("--extra-args"))
     }
 
+    func testPBAAInvocationUsesScopedExecutionDirectoryWhenProvided() throws {
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/analyses", isDirectory: true),
+            outputName: "sample"
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: .pbaa(request: request),
+            outputTargetPath: "/tmp/run-scoped"
+        )
+
+        let outputDirIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--output-dir"))
+        XCTAssertEqual(invocation.arguments[outputDirIndex + 1], "/tmp/run-scoped")
+    }
+
     func testPlannerDiscoversPBAAReferenceBundles() throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAARefs")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -153,6 +170,45 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 $0.resolvingSymlinksInPath()
             },
             [referenceBundle.resolvingSymlinksInPath()]
+        )
+    }
+
+    func testPlannerScopesPBAADiscoveryToCurrentExecutionDirectory() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAAScopedRefs")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let analysesDirectory = tempDir.appendingPathComponent("Analyses", isDirectory: true)
+        let oldReferenceBundle = analysesDirectory.appendingPathComponent("old.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldReferenceBundle, withIntermediateDirectories: true)
+
+        let request = try FASTQOperationLaunchRequest.pbaa(request: PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
+            outputDirectory: analysesDirectory,
+            outputName: "sample"
+        ))
+        let planner = FASTQOperationPlanner()
+        let executionDirectory = planner.executionOutputDirectory(for: request, workingDirectory: tempDir)
+        let currentReferenceBundle = executionDirectory.appendingPathComponent("sample.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: currentReferenceBundle, withIntermediateDirectories: true)
+
+        let plan = try XCTUnwrap(planner.makeExecutionPlans(
+            originalRequest: request,
+            resolvedRequest: request,
+            baseOutputDirectory: executionDirectory
+        ).first)
+
+        XCTAssertNotEqual(executionDirectory.standardizedFileURL, analysesDirectory.standardizedFileURL)
+        XCTAssertTrue(executionDirectory.lastPathComponent.hasPrefix("cli-output-pbaa-"))
+        XCTAssertEqual(plan.outputTarget.standardizedFileURL, executionDirectory.standardizedFileURL)
+        XCTAssertEqual(
+            planner.discoverOutputs(for: plan, in: executionDirectory).map { $0.resolvingSymlinksInPath() },
+            [currentReferenceBundle.resolvingSymlinksInPath()]
+        )
+        XCTAssertFalse(
+            planner.discoverOutputs(for: plan, in: executionDirectory).contains {
+                $0.standardizedFileURL == oldReferenceBundle.standardizedFileURL
+            }
         )
     }
 

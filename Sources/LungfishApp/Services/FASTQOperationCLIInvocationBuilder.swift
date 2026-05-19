@@ -87,11 +87,14 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             }
 
         case .pbaa(let request):
+            let outputDirectoryPath = outputTargetPath == "<derived>"
+                ? request.outputDirectory.path
+                : outputTargetPath
             var arguments = [
                 "pbaa-cluster",
                 request.inputFASTQURL.path,
                 "--guide", request.guideSourceURL.path,
-                "--output-dir", request.outputDirectory.path,
+                "--output-dir", outputDirectoryPath,
                 "--output-name", request.outputName,
                 "--threads", String(request.threads),
                 "--seed", String(request.seed),

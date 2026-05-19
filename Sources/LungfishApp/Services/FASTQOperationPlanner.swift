@@ -28,8 +28,11 @@ struct FASTQOperationPlanner: Sendable {
             return workingDirectory
         }
 
-        if case .pbaa(let request) = request {
-            return request.outputDirectory
+        if case .pbaa = request {
+            return workingDirectory.appendingPathComponent(
+                "cli-output-pbaa-\(UUID().uuidString)",
+                isDirectory: true
+            )
         }
 
         return workingDirectory.appendingPathComponent(
