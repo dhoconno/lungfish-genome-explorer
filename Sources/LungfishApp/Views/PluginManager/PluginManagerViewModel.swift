@@ -75,6 +75,24 @@ struct OfflinePackCommandGuidance: Equatable {
     let copyText: String
 }
 
+private final class PluginPackInstallProgressLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var events: [PluginPackInstallProgress] = []
+
+    func append(_ event: PluginPackInstallProgress) {
+        lock.lock()
+        events.append(event)
+        lock.unlock()
+    }
+
+    func snapshot() -> [PluginPackInstallProgress] {
+        lock.lock()
+        let copy = events
+        lock.unlock()
+        return copy
+    }
+}
+
 /// View model for the Plugin Manager window.
 ///
 /// Bridges between the ``CondaManager`` actor and the SwiftUI view layer.
@@ -171,6 +189,7 @@ final class PluginManagerViewModel {
 
     private let packStatusProvider: any PluginPackStatusProviding
     private let notificationCenter: NotificationCenter
+    private let operationCenter: OperationCenter
 
     /// Current status for the required setup pack.
     var requiredSetupPack: PluginPackStatus?
@@ -265,10 +284,12 @@ final class PluginManagerViewModel {
     init(
         packStatusProvider: any PluginPackStatusProviding = PluginPackStatusService.shared,
         notificationCenter: NotificationCenter = .default,
-        automaticallyRefresh: Bool = true
+        automaticallyRefresh: Bool = true,
+        operationCenter: OperationCenter = .shared
     ) {
         self.packStatusProvider = packStatusProvider
         self.notificationCenter = notificationCenter
+        self.operationCenter = operationCenter
         refreshStorageLocationState()
         self.storageLocationChangeObserver = StorageLocationChangeObserver(
             notificationCenter: notificationCenter
@@ -370,7 +391,9 @@ final class PluginManagerViewModel {
     func loadPackStatuses() async {
         isLoadingPackStatuses = true
         defer { isLoadingPackStatuses = false }
-        let statuses = await packStatusProvider.visibleStatuses()
+        let statuses = await packStatusProvider.visibleStatuses(
+            includeExperimental: AppSettings.shared.experimentalFeaturesEnabled
+        )
         requiredSetupPack = statuses.first(where: { $0.pack.isRequiredBeforeLaunch })
         optionalPackStatuses = statuses.filter { !$0.pack.isRequiredBeforeLaunch }
     }
@@ -422,6 +445,9 @@ final class PluginManagerViewModel {
     func installPack(_ pack: PluginPack, reinstall: Bool = false) {
         installingPacks.insert(pack.id)
         packProgressMessage[pack.id] = reinstall ? "Reinstalling..." : "Installing..."
+        let operationID = startPluginPackOperation(pack: pack, reinstall: reinstall)
+        let progressLog = PluginPackInstallProgressLog()
+        let packID = pack.id
 
         Task {
             var didSucceed = false
@@ -431,15 +457,32 @@ final class PluginManagerViewModel {
             }
 
             do {
-                try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self] event in
-                    DispatchQueue.main.async {
-                        MainActor.assumeIsolated {
-                            self?.packProgressMessage[pack.id] = event.message
-                        }
+                try await packStatusProvider.install(pack: pack, reinstall: reinstall) { [weak self, progressLog] event in
+                    progressLog.append(event)
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.packProgressMessage[packID] = event.message
+                        self.updatePluginPackOperationProgress(operationID: operationID, event: event)
                     }
                 }
+                recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
+                let finalStatus = await packStatusProvider.status(for: pack)
+                recordPluginPackStatus(finalStatus, operationID: operationID)
+                completePluginPackOperation(pack: pack, status: finalStatus, operationID: operationID)
                 didSucceed = true
             } catch {
+                recordPluginPackProgressEvents(progressLog.snapshot(), operationID: operationID)
+                operationCenter.log(
+                    id: operationID,
+                    level: .error,
+                    message: "Install failed: \(error.localizedDescription)"
+                )
+                operationCenter.fail(
+                    id: operationID,
+                    detail: "Failed to \(reinstall ? "reinstall" : "install") \(pack.name)",
+                    errorMessage: error.localizedDescription,
+                    errorDetail: pluginPackDiagnosticText(pack: pack)
+                )
                 handleError(error, context: "\(reinstall ? "reinstalling" : "installing") '\(pack.name)'")
             }
             refreshInstalled()
@@ -447,6 +490,76 @@ final class PluginManagerViewModel {
             if didSucceed {
                 postManagedResourcesDidChange()
             }
+        }
+    }
+
+    private func startPluginPackOperation(pack: PluginPack, reinstall: Bool) -> UUID {
+        let operationID = operationCenter.start(
+            title: "Plugin Pack: \(pack.name)",
+            detail: "\(reinstall ? "Preparing to reinstall" : "Preparing to install") \(pack.name)",
+            operationType: .condaPluginPack,
+            cliCommand: OperationCenter.buildCLICommand(
+                subcommand: "conda install",
+                args: ["--pack", pack.id]
+            )
+        )
+        operationCenter.log(
+            id: operationID,
+            level: .info,
+            message: "Action: \(reinstall ? "Reinstall" : "Install") requested from Plugin Manager"
+        )
+        for line in pluginPackDiagnosticLines(pack: pack) {
+            operationCenter.log(id: operationID, level: .info, message: line)
+        }
+        return operationID
+    }
+
+    private func updatePluginPackOperationProgress(
+        operationID: UUID,
+        event: PluginPackInstallProgress
+    ) {
+        guard operationCenter.items.first(where: { $0.id == operationID })?.state == .running else {
+            return
+        }
+        operationCenter.update(
+            id: operationID,
+            progress: event.overallFraction,
+            detail: event.message
+        )
+    }
+
+    private func recordPluginPackProgressEvents(
+        _ events: [PluginPackInstallProgress],
+        operationID: UUID
+    ) {
+        for event in events {
+            operationCenter.updateWithLog(
+                id: operationID,
+                progress: event.overallFraction,
+                detail: event.message
+            )
+        }
+    }
+
+    private func recordPluginPackStatus(
+        _ status: PluginPackStatus,
+        operationID: UUID
+    ) {
+        for line in pluginPackStatusDiagnosticLines(status) {
+            let level: OperationLogLevel = status.state == .ready || line.contains(" - Ready") ? .info : .warning
+            operationCenter.log(id: operationID, level: level, message: line)
+        }
+    }
+
+    private func completePluginPackOperation(
+        pack: PluginPack,
+        status: PluginPackStatus,
+        operationID: UUID
+    ) {
+        if let warningDetail = pluginPackWarningDetail(pack: pack, status: status) {
+            operationCenter.completeWithWarning(id: operationID, detail: warningDetail)
+        } else {
+            operationCenter.complete(id: operationID, detail: "\(pack.name) ready")
         }
     }
 
@@ -709,6 +822,130 @@ final class PluginManagerViewModel {
 
 private func shellCommand(_ argv: [String]) -> String {
     argv.map(shellEscape).joined(separator: " ")
+}
+
+private func pluginPackDiagnosticText(pack: PluginPack, status: PluginPackStatus? = nil) -> String {
+    var lines = pluginPackDiagnosticLines(pack: pack)
+    if let status {
+        lines.append(contentsOf: pluginPackStatusDiagnosticLines(status))
+    }
+    return lines.joined(separator: "\n")
+}
+
+private func pluginPackDiagnosticLines(pack: PluginPack) -> [String] {
+    var lines: [String] = [
+        "Pack ID: \(pack.id)",
+        "Pack name: \(pack.name)",
+        "Category: \(pack.category)",
+        "Estimated size: \(pack.estimatedSizeMB) MB",
+    ]
+
+    for requirement in pack.toolRequirements {
+        lines.append("Requirement: \(requirement.displayName) (\(requirement.id))")
+        lines.append("Environment: \(requirement.environment)")
+        lines.append("Package specs: \(requirement.installPackages.isEmpty ? "none" : requirement.installPackages.joined(separator: ", "))")
+        if !requirement.executables.isEmpty {
+            lines.append("Executables: \(requirement.executables.joined(separator: ", "))")
+        }
+        if let version = requirement.version {
+            lines.append("Version: \(version)")
+        }
+        if let license = requirement.license {
+            lines.append("License: \(license)")
+        }
+        if let sourceURL = requirement.sourceURL {
+            lines.append("Source: \(sourceURL)")
+        }
+        if let smokeTest = requirement.smokeTest {
+            lines.append(smokeTestDiagnosticLine(smokeTest, requirement: requirement))
+        }
+    }
+
+    for hook in pack.postInstallHooks {
+        lines.append("Post-install hook: \(hook.description)")
+        lines.append("Hook environment: \(hook.environment)")
+        lines.append("Hook command: \(shellCommand(hook.command))")
+    }
+
+    return lines
+}
+
+private func pluginPackStatusDiagnosticLines(_ status: PluginPackStatus) -> [String] {
+    var lines: [String] = []
+
+    if status.toolStatuses.isEmpty {
+        lines.append("Verification: \(status.pack.name) - \(status.state.rawValue)")
+    }
+
+    for toolStatus in status.toolStatuses {
+        lines.append("Verification: \(toolStatus.requirement.displayName) - \(toolStatus.statusText)")
+        lines.append("Environment exists: \(toolStatus.environmentExists ? "yes" : "no")")
+        if !toolStatus.missingExecutables.isEmpty {
+            lines.append("Missing executables: \(toolStatus.missingExecutables.joined(separator: ", "))")
+        }
+        if let smokeTestFailure = toolStatus.smokeTestFailure, !smokeTestFailure.isEmpty {
+            lines.append("Smoke test failure: \(smokeTestFailure)")
+        }
+        if let storageUnavailablePath = toolStatus.storageUnavailablePath {
+            lines.append("Storage unavailable: \(storageUnavailablePath)")
+        }
+    }
+
+    if let failureMessage = status.failureMessage, !failureMessage.isEmpty {
+        lines.append("Verification failure: \(failureMessage)")
+    }
+
+    return lines
+}
+
+private func pluginPackWarningDetail(pack: PluginPack, status: PluginPackStatus) -> String? {
+    guard status.state != .ready else { return nil }
+
+    if let needsReinstall = status.toolStatuses.first(where: \.needsReinstall) {
+        return "\(pack.name) installed but \(needsReinstall.requirement.displayName) reports \(needsReinstall.statusText)"
+    }
+
+    if let firstProblem = status.toolStatuses.first(where: { !$0.isReady }) {
+        return "\(pack.name) installed but \(firstProblem.requirement.displayName) reports \(firstProblem.statusText)"
+    }
+
+    if let failureMessage = status.failureMessage, !failureMessage.isEmpty {
+        return "\(pack.name) verification needs attention: \(failureMessage)"
+    }
+
+    return "\(pack.name) verification needs attention"
+}
+
+private func smokeTestDiagnosticLine(
+    _ smokeTest: PackToolSmokeTest,
+    requirement: PackToolRequirement
+) -> String {
+    let command: String
+    switch smokeTest.kind {
+    case .command:
+        let executable = smokeTest.executable ?? requirement.executables.first ?? requirement.id
+        command = shellCommand([executable] + smokeTest.arguments)
+    case .bbtoolsReformat:
+        command = shellCommand([smokeTest.executable ?? "reformat.sh"])
+    }
+
+    var parts = [
+        "Smoke test: \(command)",
+        "timeout \(formatSeconds(smokeTest.timeoutSeconds))s",
+        "accepted exit codes \(smokeTest.acceptedExitCodes.map { String($0) }.joined(separator: ", "))",
+    ]
+    if let requiredOutputSubstring = smokeTest.requiredOutputSubstring {
+        parts.append("requires output containing \(requiredOutputSubstring)")
+    }
+    return parts.joined(separator: "; ")
+}
+
+private func formatSeconds(_ seconds: Double) -> String {
+    let rounded = seconds.rounded()
+    if abs(seconds - rounded) < 0.001 {
+        return String(Int(rounded))
+    }
+    return String(format: "%.1f", seconds)
 }
 
 private struct PluginManagerOrphanCleanupError: LocalizedError {

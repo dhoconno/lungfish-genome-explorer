@@ -115,14 +115,10 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
-            "gatk-core",
-            "phasing",
-            "amplicon-genotyping",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
-            "wastewater-surveillance",
         ])
     }
 
@@ -378,12 +374,9 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(pack!.postInstallHooks.contains { $0.environment == "pangolin" })
     }
 
-    func testAmpliconGenotypingPack() {
+    func testAmpliconGenotypingPackIsNotBuiltIn() {
         let pack = PluginPack.builtIn.first { $0.id == "amplicon-genotyping" }
-        XCTAssertNotNil(pack)
-        XCTAssertEqual(pack!.name, "Amplicon Genotyping")
-        XCTAssertEqual(pack!.packages, ["pbaa"])
-        XCTAssertEqual(pack!.toolRequirements.map(\.installPackages), [["bioconda::pbaa=1.0.3=hdfd78af_0"]])
+        XCTAssertNil(pack)
     }
 
     func testRNASeqPack() {
@@ -638,7 +631,7 @@ final class CondaManagerTests: XCTestCase {
             .packageNotFound("nonexistent"),
             .toolNotFound(tool: "samtools", environment: "test"),
             .executionFailed(tool: "bwa", exitCode: 1, stderr: "error"),
-            .linuxOnlyPackage("pbaa"),
+            .linuxOnlyPackage("linux-only-tool"),
             .networkError("timeout"),
             .diskSpaceError("insufficient"),
             .timeout(tool: "kraken2", seconds: 3600),

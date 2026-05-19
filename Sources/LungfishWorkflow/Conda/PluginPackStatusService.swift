@@ -114,6 +114,7 @@ public struct PluginPackStatus: Sendable, Codable, Hashable, Identifiable {
 
 public protocol PluginPackStatusProviding: Sendable {
     func visibleStatuses() async -> [PluginPackStatus]
+    func visibleStatuses(includeExperimental: Bool) async -> [PluginPackStatus]
     func status(for pack: PluginPack) async -> PluginPackStatus
     func status(forPackID packID: String) async -> PluginPackStatus?
     func invalidateVisibleStatusesCache() async
@@ -125,6 +126,12 @@ public protocol PluginPackStatusProviding: Sendable {
 }
 
 public extension PluginPackStatusProviding {
+    func visibleStatuses(includeExperimental: Bool) async -> [PluginPackStatus] {
+        let statuses = await visibleStatuses()
+        guard !includeExperimental else { return statuses }
+        return statuses.filter { !$0.pack.isExperimental }
+    }
+
     func status(forPackID packID: String) async -> PluginPackStatus? {
         guard let pack = PluginPack.builtInPack(id: packID) else { return nil }
         return await status(for: pack)
@@ -253,6 +260,18 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     }
 
     public func visibleStatuses() async -> [PluginPackStatus] {
+        await visibleStatuses(includeExperimental: false)
+    }
+
+    public func visibleStatuses(includeExperimental: Bool) async -> [PluginPackStatus] {
+        let statuses = await allVisibleStatuses()
+        guard includeExperimental else {
+            return statuses.filter { !$0.pack.isExperimental }
+        }
+        return statuses
+    }
+
+    private func allVisibleStatuses() async -> [PluginPackStatus] {
         loadPersistedSnapshotsIfNeeded()
         let generation = cacheGeneration
         if let cachedVisibleStatuses,
@@ -530,9 +549,10 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     }
 
     private func computeVisibleStatuses(forGeneration generation: Int) async -> [PluginPackStatus] {
+        let visiblePacks = PluginPack.visibleForApp(experimentalFeaturesEnabled: true)
         let storageAvailability = storageAvailability()
         if case .unavailable(let unavailableRoot) = storageAvailability {
-            let statuses = PluginPack.visibleForCLI.map { pack in
+            let statuses = visiblePacks.map { pack in
                 makePackStatus(
                     pack: pack,
                     toolStatuses: unavailableToolStatuses(for: pack, root: unavailableRoot),
@@ -548,8 +568,8 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
         var requirementCache: [PackToolRequirement: PackToolStatus] = [:]
         var statuses: [PluginPackStatus] = []
         var fingerprints: [String: PackStatusFingerprint] = [:]
-        statuses.reserveCapacity(PluginPack.visibleForCLI.count)
-        for pack in PluginPack.visibleForCLI {
+        statuses.reserveCapacity(visiblePacks.count)
+        for pack in visiblePacks {
             var toolStatuses: [PackToolStatus] = []
             toolStatuses.reserveCapacity(pack.toolRequirements.count)
             for requirement in pack.toolRequirements {
@@ -728,7 +748,7 @@ public actor PluginPackStatusService: PluginPackStatusProviding {
     }
 
     private func visibleStatusesFingerprintMatches(forGeneration generation: Int) async -> Bool {
-        for pack in PluginPack.visibleForCLI {
+        for pack in PluginPack.visibleForApp(experimentalFeaturesEnabled: true) {
             guard let cached = cachedPackStatuses[pack.id], cached.generation == generation else {
                 return false
             }

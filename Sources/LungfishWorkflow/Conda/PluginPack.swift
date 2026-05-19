@@ -211,6 +211,7 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
     public let category: String
     public let kind: PluginPackKind
     public let isActive: Bool
+    public let isExperimental: Bool
     public let requirements: [PackToolRequirement]
     public let postInstallHooks: [PostInstallHook]
     public let estimatedSizeMB: Int
@@ -224,6 +225,7 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
         category: String,
         kind: PluginPackKind = .optionalTools,
         isActive: Bool = false,
+        isExperimental: Bool = false,
         requirements: [PackToolRequirement] = [],
         postInstallHooks: [PostInstallHook] = [],
         estimatedSizeMB: Int = 0
@@ -236,9 +238,41 @@ public struct PluginPack: Sendable, Codable, Identifiable, Hashable {
         self.category = category
         self.kind = kind
         self.isActive = isActive
+        self.isExperimental = isExperimental
         self.requirements = requirements
         self.postInstallHooks = postInstallHooks
         self.estimatedSizeMB = estimatedSizeMB
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case description
+        case sfSymbol
+        case packages
+        case category
+        case kind
+        case isActive
+        case isExperimental
+        case requirements
+        case postInstallHooks
+        case estimatedSizeMB
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.name = try container.decode(String.self, forKey: .name)
+        self.description = try container.decode(String.self, forKey: .description)
+        self.sfSymbol = try container.decode(String.self, forKey: .sfSymbol)
+        self.packages = try container.decode([String].self, forKey: .packages)
+        self.category = try container.decode(String.self, forKey: .category)
+        self.kind = try container.decodeIfPresent(PluginPackKind.self, forKey: .kind) ?? .optionalTools
+        self.isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? false
+        self.isExperimental = try container.decodeIfPresent(Bool.self, forKey: .isExperimental) ?? false
+        self.requirements = try container.decodeIfPresent([PackToolRequirement].self, forKey: .requirements) ?? []
+        self.postInstallHooks = try container.decodeIfPresent([PostInstallHook].self, forKey: .postInstallHooks) ?? []
+        self.estimatedSizeMB = try container.decodeIfPresent(Int.self, forKey: .estimatedSizeMB) ?? 0
     }
 
     public var isRequiredBeforeLaunch: Bool {
@@ -418,6 +452,7 @@ public extension PluginPack {
             packages: ["gatk4"],
             category: "Variant Calling",
             isActive: true,
+            isExperimental: true,
             requirements: [
                 PackToolRequirement(
                     id: "gatk4",
@@ -446,6 +481,7 @@ public extension PluginPack {
             packages: ["whatshap"],
             category: "Variant Calling",
             isActive: true,
+            isExperimental: true,
             requirements: [
                 PackToolRequirement(
                     id: "whatshap",
@@ -464,34 +500,6 @@ public extension PluginPack {
                 ),
             ],
             estimatedSizeMB: 180
-        ),
-        PluginPack(
-            id: "amplicon-genotyping",
-            name: "Amplicon Genotyping",
-            description: "PacBio amplicon clustering and consensus genotyping from HiFi reads",
-            sfSymbol: "circle.hexagongrid",
-            packages: ["pbaa"],
-            category: "Amplicon",
-            isActive: true,
-            requirements: [
-                PackToolRequirement(
-                    id: "pbaa",
-                    displayName: "pbAA",
-                    environment: "pbaa",
-                    installPackages: ["bioconda::pbaa=1.0.3=hdfd78af_0"],
-                    executables: ["pbaa"],
-                    smokeTest: .command(
-                        executable: "pbaa",
-                        arguments: ["--help"],
-                        timeoutSeconds: 10,
-                        requiredOutputSubstring: "usage:"
-                    ),
-                    version: "1.0.3",
-                    license: "BSD-3-Clause-Clear",
-                    sourceURL: "https://github.com/PacificBiosciences/pbAA"
-                ),
-            ],
-            estimatedSizeMB: 120
         ),
         PluginPack(
             id: "assembly",
@@ -695,6 +703,7 @@ public extension PluginPack {
             packages: ["freyja", "ivar", "pangolin", "nextclade", "minimap2"],
             category: "Surveillance",
             isActive: true,
+            isExperimental: true,
             requirements: [
                 PackToolRequirement(
                     id: "freyja",
@@ -812,10 +821,26 @@ public extension PluginPack {
     ]
 
     static var activeOptionalPacks: [PluginPack] {
-        builtIn.filter { $0.kind == .optionalTools && $0.isActive }
+        activeOptionalPacks(includeExperimental: false)
+    }
+
+    static var experimentalOptionalPacks: [PluginPack] {
+        builtIn.filter { $0.kind == .optionalTools && $0.isActive && $0.isExperimental }
+    }
+
+    static func activeOptionalPacks(includeExperimental: Bool) -> [PluginPack] {
+        builtIn.filter {
+            $0.kind == .optionalTools
+                && $0.isActive
+                && (includeExperimental || !$0.isExperimental)
+        }
     }
 
     static var visibleForCLI: [PluginPack] {
         [requiredSetupPack] + activeOptionalPacks
+    }
+
+    static func visibleForApp(experimentalFeaturesEnabled: Bool) -> [PluginPack] {
+        [requiredSetupPack] + activeOptionalPacks(includeExperimental: experimentalFeaturesEnabled)
     }
 }

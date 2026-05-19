@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+@testable import LungfishCore
 @testable import LungfishWorkflow
 
 private actor StubPluginManagerPackStatusProvider: PluginPackStatusProviding {
@@ -114,6 +115,56 @@ private actor CacheAwarePluginManagerPackStatusProvider: PluginPackStatusProvidi
     }
 }
 
+private struct TestPluginPackInstallError: LocalizedError, Sendable {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+private actor OperationReportingPluginPackStatusProvider: PluginPackStatusProviding {
+    let initialStatus: PluginPackStatus
+    let installedStatus: PluginPackStatus
+    let progressEvents: [PluginPackInstallProgress]
+    let failure: TestPluginPackInstallError?
+    private var didInstall = false
+
+    init(
+        initialStatus: PluginPackStatus,
+        installedStatus: PluginPackStatus,
+        progressEvents: [PluginPackInstallProgress],
+        failure: TestPluginPackInstallError? = nil
+    ) {
+        self.initialStatus = initialStatus
+        self.installedStatus = installedStatus
+        self.progressEvents = progressEvents
+        self.failure = failure
+    }
+
+    func visibleStatuses() async -> [PluginPackStatus] {
+        [didInstall ? installedStatus : initialStatus]
+    }
+
+    func status(for pack: PluginPack) async -> PluginPackStatus {
+        didInstall ? installedStatus : initialStatus
+    }
+
+    func invalidateVisibleStatusesCache() async {}
+
+    func install(
+        pack: PluginPack,
+        reinstall: Bool,
+        progress: (@Sendable (PluginPackInstallProgress) -> Void)?
+    ) async throws {
+        for event in progressEvents {
+            progress?(event)
+        }
+        if let failure {
+            throw failure
+        }
+        didInstall = true
+    }
+}
+
 @MainActor
 final class PluginPackVisibilityTests: XCTestCase {
 
@@ -218,6 +269,55 @@ final class PluginPackVisibilityTests: XCTestCase {
 
         XCTAssertEqual(viewModel.selectedTab, .packs)
         XCTAssertEqual(viewModel.focusedPackID, "metagenomics")
+    }
+
+    func testPackStatusesExcludeExperimentalPacksWhenExperimentalFeaturesAreOff() async throws {
+        let previousExperimentalSetting = AppSettings.shared.experimentalFeaturesEnabled
+        AppSettings.shared.experimentalFeaturesEnabled = false
+        defer { AppSettings.shared.experimentalFeaturesEnabled = previousExperimentalSetting }
+
+        let readMapping = try XCTUnwrap(PluginPack.builtInPack(id: "read-mapping"))
+        let gatkCore = try XCTUnwrap(PluginPack.builtInPack(id: "gatk-core"))
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [
+                PluginPackStatus(pack: readMapping, state: .ready, toolStatuses: [], failureMessage: nil),
+                PluginPackStatus(pack: gatkCore, state: .ready, toolStatuses: [], failureMessage: nil),
+            ]),
+            automaticallyRefresh: false
+        )
+
+        await viewModel.loadPackStatuses()
+
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping"])
+    }
+
+    func testPackStatusesIncludeExperimentalPacksWhenExperimentalFeaturesAreOn() async throws {
+        let previousExperimentalSetting = AppSettings.shared.experimentalFeaturesEnabled
+        AppSettings.shared.experimentalFeaturesEnabled = true
+        defer { AppSettings.shared.experimentalFeaturesEnabled = previousExperimentalSetting }
+
+        let readMapping = try XCTUnwrap(PluginPack.builtInPack(id: "read-mapping"))
+        let gatkCore = try XCTUnwrap(PluginPack.builtInPack(id: "gatk-core"))
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: StubPluginManagerPackStatusProvider(statuses: [
+                PluginPackStatus(pack: readMapping, state: .ready, toolStatuses: [], failureMessage: nil),
+                PluginPackStatus(pack: gatkCore, state: .ready, toolStatuses: [], failureMessage: nil),
+            ]),
+            automaticallyRefresh: false
+        )
+
+        await viewModel.loadPackStatuses()
+
+        XCTAssertEqual(viewModel.optionalPackStatuses.map(\.pack.id), ["read-mapping", "gatk-core"])
+    }
+
+    func testPBAAIsNotShownAsPluginPack() {
+        XCTAssertNil(PluginPack.builtInPack(id: "amplicon-genotyping"))
+        XCTAssertFalse(
+            PluginPack.visibleForApp(experimentalFeaturesEnabled: true)
+                .map(\.id)
+                .contains("amplicon-genotyping")
+        )
     }
 
     func testReadyRequiredSetupPackDoesNotExposePrimaryInstallAction() {
@@ -448,5 +548,185 @@ final class PluginPackVisibilityTests: XCTestCase {
 
         viewModel.removePack(pack)
         await fulfillment(of: [exp], timeout: 1.0)
+    }
+
+    func testInstallPackReportsCondaPackCompletionToOperationCenter() async throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "multiple-sequence-alignment"))
+        let initialStatus = PluginPackStatus(
+            pack: pack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let installedStatus = PluginPackStatus(
+            pack: pack,
+            state: .ready,
+            toolStatuses: readyToolStatuses(for: pack),
+            failureMessage: nil
+        )
+        let provider = OperationReportingPluginPackStatusProvider(
+            initialStatus: initialStatus,
+            installedStatus: installedStatus,
+            progressEvents: [
+                PluginPackInstallProgress(
+                    requirementID: "mafft",
+                    requirementDisplayName: "MAFFT",
+                    overallFraction: 0.25,
+                    itemFraction: 0.25,
+                    message: "Solving environment for MAFFT"
+                ),
+                PluginPackInstallProgress(
+                    requirementID: "mafft",
+                    requirementDisplayName: "MAFFT",
+                    overallFraction: 1.0,
+                    itemFraction: 1.0,
+                    message: "MAFFT installed"
+                ),
+            ]
+        )
+        let operationCenter = OperationCenter()
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: provider,
+            automaticallyRefresh: false,
+            operationCenter: operationCenter
+        )
+
+        viewModel.installPack(pack, reinstall: true)
+
+        let finishedItem = await finishedPluginPackOperation(in: operationCenter, packName: pack.name)
+        let item = try XCTUnwrap(finishedItem)
+        XCTAssertEqual(item.title, "Plugin Pack: Multiple Sequence Alignment")
+        XCTAssertEqual(item.operationType, .condaPluginPack)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed")
+        XCTAssertTrue(item.detail.contains("Multiple Sequence Alignment ready"))
+
+        let logText = item.logEntries.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(logText.contains("Pack ID: multiple-sequence-alignment"))
+        XCTAssertTrue(logText.contains("Requirement: MAFFT (mafft)"))
+        XCTAssertTrue(logText.contains("Environment: mafft"))
+        XCTAssertTrue(logText.contains("Package specs: conda-forge::mafft=7.526"))
+        XCTAssertTrue(logText.contains("Solving environment for MAFFT"))
+        XCTAssertTrue(logText.contains("Verification: MAFFT - Ready"))
+    }
+
+    func testInstallPackReportsNeedsReinstallVerificationWarningToOperationCenter() async throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "multiple-sequence-alignment"))
+        let brokenStatus = PluginPackStatus(
+            pack: pack,
+            state: .needsInstall,
+            toolStatuses: [
+                PackToolStatus(
+                    requirement: try XCTUnwrap(pack.toolRequirements.first),
+                    environmentExists: true,
+                    missingExecutables: ["mafft"],
+                    smokeTestFailure: "mafft --help exited 1",
+                    storageUnavailablePath: nil
+                ),
+            ],
+            failureMessage: "mafft --help exited 1"
+        )
+        let provider = OperationReportingPluginPackStatusProvider(
+            initialStatus: brokenStatus,
+            installedStatus: brokenStatus,
+            progressEvents: [
+                PluginPackInstallProgress(
+                    requirementID: "mafft",
+                    requirementDisplayName: "MAFFT",
+                    overallFraction: 1.0,
+                    itemFraction: 1.0,
+                    message: "MAFFT installed"
+                ),
+            ]
+        )
+        let operationCenter = OperationCenter()
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: provider,
+            automaticallyRefresh: false,
+            operationCenter: operationCenter
+        )
+
+        viewModel.installPack(pack, reinstall: true)
+
+        let finishedItem = await finishedPluginPackOperation(in: operationCenter, packName: pack.name)
+        let item = try XCTUnwrap(finishedItem)
+        XCTAssertEqual(item.operationType, .condaPluginPack)
+        XCTAssertEqual(item.state, .completed)
+        XCTAssertEqual(item.displayStateLabel, "Completed with Warnings")
+        XCTAssertTrue(item.detail.contains("Needs reinstall"))
+
+        let logText = item.logEntries.map(\.message).joined(separator: "\n")
+        XCTAssertTrue(logText.contains("Verification: MAFFT - Needs reinstall"))
+        XCTAssertTrue(logText.contains("Missing executables: mafft"))
+        XCTAssertTrue(logText.contains("Smoke test failure: mafft --help exited 1"))
+    }
+
+    func testInstallPackReportsCondaPackFailureToOperationCenter() async throws {
+        let pack = try XCTUnwrap(PluginPack.builtInPack(id: "multiple-sequence-alignment"))
+        let initialStatus = PluginPackStatus(
+            pack: pack,
+            state: .needsInstall,
+            toolStatuses: [],
+            failureMessage: nil
+        )
+        let provider = OperationReportingPluginPackStatusProvider(
+            initialStatus: initialStatus,
+            installedStatus: initialStatus,
+            progressEvents: [
+                PluginPackInstallProgress(
+                    requirementID: "mafft",
+                    requirementDisplayName: "MAFFT",
+                    overallFraction: 0.3,
+                    itemFraction: 0.3,
+                    message: "Solving environment for MAFFT"
+                ),
+            ],
+            failure: TestPluginPackInstallError(message: "mafft solver failed")
+        )
+        let operationCenter = OperationCenter()
+        let viewModel = PluginManagerViewModel(
+            packStatusProvider: provider,
+            automaticallyRefresh: false,
+            operationCenter: operationCenter
+        )
+
+        viewModel.installPack(pack, reinstall: true)
+
+        let finishedItem = await finishedPluginPackOperation(in: operationCenter, packName: pack.name)
+        let item = try XCTUnwrap(finishedItem)
+        XCTAssertEqual(item.operationType, .condaPluginPack)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertEqual(item.errorMessage, "mafft solver failed")
+        XCTAssertEqual(item.detail, "Failed to reinstall Multiple Sequence Alignment")
+        XCTAssertTrue(item.errorDetail?.contains("Package specs: conda-forge::mafft=7.526") == true)
+        XCTAssertTrue(item.logEntries.map(\.message).joined(separator: "\n").contains("Solving environment for MAFFT"))
+    }
+
+    private func readyToolStatuses(for pack: PluginPack) -> [PackToolStatus] {
+        pack.toolRequirements.map {
+            PackToolStatus(
+                requirement: $0,
+                environmentExists: true,
+                missingExecutables: [],
+                smokeTestFailure: nil,
+                storageUnavailablePath: nil
+            )
+        }
+    }
+
+    private func finishedPluginPackOperation(
+        in operationCenter: OperationCenter,
+        packName: String,
+        timeout: TimeInterval = 1
+    ) async -> OperationCenter.Item? {
+        let title = "Plugin Pack: \(packName)"
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let item = operationCenter.items.first(where: { $0.title == title && $0.state != .running }) {
+                return item
+            }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return operationCenter.items.first(where: { $0.title == title && $0.state != .running })
     }
 }

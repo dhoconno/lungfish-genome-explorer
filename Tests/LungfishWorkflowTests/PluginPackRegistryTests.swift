@@ -270,9 +270,10 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testGATKCorePackDefinesPinnedBiocondaToolMetadata() throws {
-        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "gatk-core" }))
+        let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "gatk-core" }))
 
         XCTAssertEqual(pack.name, "GATK Core")
+        XCTAssertTrue(pack.isExperimental)
         XCTAssertEqual(pack.description, "GATK4 command construction and dry-run support for human germline workflows")
         XCTAssertEqual(pack.category, "Variant Calling")
         XCTAssertEqual(pack.packages, ["gatk4"])
@@ -293,9 +294,10 @@ final class PluginPackRegistryTests: XCTestCase {
     }
 
     func testPhasingPackDefinesWhatsHapForPhasedVariantPlans() throws {
-        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "phasing" }))
+        let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "phasing" }))
 
         XCTAssertEqual(pack.name, "Variant Phasing")
+        XCTAssertTrue(pack.isExperimental)
         XCTAssertEqual(pack.category, "Variant Calling")
         XCTAssertEqual(pack.packages, ["whatshap"])
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["phasing"])
@@ -310,10 +312,11 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(whatshap.sourceURL, "https://github.com/whatshap/whatshap")
     }
 
-    func testWastewaterSurveillancePackIsActiveAndDefinesFreyja() throws {
-        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "wastewater-surveillance" }))
+    func testWastewaterSurveillancePackIsExperimentalAndDefinesFreyja() throws {
+        let pack = try XCTUnwrap(PluginPack.experimentalOptionalPacks.first(where: { $0.id == "wastewater-surveillance" }))
 
         XCTAssertEqual(pack.name, "Wastewater Surveillance")
+        XCTAssertTrue(pack.isExperimental)
         XCTAssertTrue(pack.packages.contains("freyja"))
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["freyja", "ivar", "pangolin", "nextclade", "minimap2"])
         XCTAssertFalse(pack.packages.contains("nextflow"))
@@ -339,33 +342,37 @@ final class PluginPackRegistryTests: XCTestCase {
         }
     }
 
-    func testAmpliconGenotypingPackDefinesNoarchPBAA() throws {
-        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "amplicon-genotyping" }))
-
-        XCTAssertEqual(pack.name, "Amplicon Genotyping")
-        XCTAssertEqual(pack.description, "PacBio amplicon clustering and consensus genotyping from HiFi reads")
-        XCTAssertEqual(pack.category, "Amplicon")
-        XCTAssertEqual(pack.packages, ["pbaa"])
-        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["pbaa"])
-
-        let pbaa = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "pbaa" }))
-        XCTAssertEqual(pbaa.displayName, "pbAA")
-        XCTAssertEqual(pbaa.installPackages, ["bioconda::pbaa=1.0.3=hdfd78af_0"])
-        XCTAssertEqual(pbaa.executables, ["pbaa"])
-        XCTAssertEqual(pbaa.smokeTest?.executable, "pbaa")
-        XCTAssertEqual(pbaa.smokeTest?.arguments, ["--help"])
-        XCTAssertEqual(pbaa.version, "1.0.3")
-        XCTAssertEqual(pbaa.license, "BSD-3-Clause-Clear")
-        XCTAssertEqual(pbaa.sourceURL, "https://github.com/PacificBiosciences/pbAA")
+    func testAmpliconGenotypingPackIsNotBuiltIn() {
+        XCTAssertNil(PluginPack.builtInPack(id: "amplicon-genotyping"))
+        XCTAssertFalse(PluginPack.builtIn.contains { $0.id == "amplicon-genotyping" })
     }
 
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
+            "assembly",
+            "multiple-sequence-alignment",
+            "phylogenetics",
+            "metagenomics",
+        ])
+    }
+
+    func testExperimentalOptionalPacksAreExcludedFromReleaseVisiblePacks() {
+        XCTAssertEqual(PluginPack.experimentalOptionalPacks.map(\.id), [
             "gatk-core",
             "phasing",
-            "amplicon-genotyping",
+            "wastewater-surveillance",
+        ])
+        XCTAssertFalse(PluginPack.activeOptionalPacks.contains(where: { $0.isExperimental }))
+    }
+
+    func testOptionalPacksCanIncludeExperimentalWhenRequested() {
+        XCTAssertEqual(PluginPack.activeOptionalPacks(includeExperimental: true).map(\.id), [
+            "read-mapping",
+            "variant-calling",
+            "gatk-core",
+            "phasing",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
@@ -388,14 +395,10 @@ final class PluginPackRegistryTests: XCTestCase {
             "lungfish-tools",
             "read-mapping",
             "variant-calling",
-            "gatk-core",
-            "phasing",
-            "amplicon-genotyping",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
             "metagenomics",
-            "wastewater-surveillance",
         ])
     }
 

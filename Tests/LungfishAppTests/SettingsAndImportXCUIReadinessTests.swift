@@ -59,8 +59,9 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
     func testSettingsWindowDefaultWidthShowsAllTabs() throws {
         let window = try XCTUnwrap(SettingsWindowController().window)
 
-        XCTAssertGreaterThanOrEqual(window.frame.width, 640)
-        XCTAssertGreaterThanOrEqual(window.minSize.width, 640)
+        XCTAssertGreaterThanOrEqual(window.frame.width, 820)
+        XCTAssertGreaterThanOrEqual(window.minSize.width, 820)
+        XCTAssertEqual(window.toolbarStyle, .unified)
     }
 
     func testStorageSettingsUsesSheetModalChooserAndStableIdentifiers() throws {
