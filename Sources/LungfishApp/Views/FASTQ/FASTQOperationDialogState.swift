@@ -134,6 +134,11 @@ final class FASTQOperationDialogState {
     var mafftExtraOptionsText: String
     var mafftAllowFASTQAssemblyInputs: Bool
 
+    var pbaaOutputName: String
+    var pbaaThreads: Int
+    var pbaaSeed: Int
+    var pbaaExtraArguments: String
+
     private let availableToolIDsOverride: [FASTQOperationToolID]?
     private var embeddedToolReady: Bool
 
@@ -231,6 +236,11 @@ final class FASTQOperationDialogState {
         self.mafftThreads = nil
         self.mafftExtraOptionsText = ""
         self.mafftAllowFASTQAssemblyInputs = false
+        self.pbaaOutputName = selectedInputURLs.first?.deletingPathExtension().lastPathComponent.appending("-pbaa")
+            ?? "pbaa-clusters"
+        self.pbaaThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        self.pbaaSeed = 1984
+        self.pbaaExtraArguments = ""
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
 
         if self.selectedCategory == .assembly {
@@ -519,6 +529,22 @@ final class FASTQOperationDialogState {
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )
+
+        case .pbaa:
+            guard selectedInputURLs.count == 1,
+                  let inputURL = selectedInputURLs.first,
+                  let guideURL = auxiliaryInputURL(for: .referenceSequence),
+                  let outputDirectoryURL else { return nil }
+            guard let request = try? PBAAClusteringRunRequest(
+                inputFASTQURL: inputURL,
+                guideSourceURL: guideURL,
+                outputDirectory: outputDirectoryURL,
+                outputName: pbaaOutputName,
+                threads: pbaaThreads,
+                seed: pbaaSeed,
+                extraArgumentsText: pbaaExtraArguments
+            ) else { return nil }
+            return .pbaa(request: request)
 
         case .correctSequencingErrors:
             return .derivative(
@@ -920,6 +946,8 @@ final class FASTQOperationDialogState {
             return "Extract reads containing the requested motif."
         case .selectReadsBySequence:
             return "Keep reads matching a target sequence."
+        case .pbaa:
+            return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
         case .mafft:
             return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:
@@ -990,6 +1018,8 @@ final class FASTQOperationDialogState {
             return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
+        case .clustering:
+            return [.pbaa]
         case .classification:
             return [.kraken2, .esViritu, .taxTriage]
         }
@@ -1082,6 +1112,23 @@ final class FASTQOperationDialogState {
             return auxiliaryInputURL(for: .referenceSequence) == nil
                 ? "Select a reference sequence to continue."
                 : nil
+
+        case .pbaa:
+            if selectedInputURLs.count != 1 {
+                return "pbAA clustering runs one demultiplexed HiFi FASTQ dataset at a time."
+            }
+            if auxiliaryInputURL(for: .referenceSequence) == nil {
+                return "Select a guide sequence to continue."
+            }
+            if pbaaThreads <= 0 {
+                return "Enter a positive thread count."
+            }
+            do {
+                _ = try AdvancedCommandLineOptions.parse(pbaaExtraArguments)
+                return nil
+            } catch {
+                return "Advanced options are not valid: \(error.localizedDescription)"
+            }
 
         case .correctSequencingErrors:
             return correctSequencingErrorsKmerSize > 0
@@ -1472,6 +1519,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case extractReadsByID
     case extractReadsByMotif
     case selectReadsBySequence
+    case pbaa
     case mafft
     case minimap2
     case bwaMem2 = "bwa-mem2"
@@ -1512,6 +1560,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Extract Reads by ID"
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
+        case .pbaa: return "pbAA Amplicon Clustering"
         case .mafft: return "MAFFT"
         case .minimap2: return "minimap2"
         case .bwaMem2: return "BWA-MEM2"
@@ -1554,6 +1603,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByID: return "Select reads matching identifiers."
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
+        case .pbaa: return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
         case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
         case .minimap2: return "Map reads to a reference sequence with minimap2."
         case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
@@ -1587,6 +1637,8 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .searchSubsetting
         case .mafft:
             return .alignment
+        case .pbaa:
+            return .clustering
         case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -1616,11 +1668,14 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .contaminantReference]
         case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return [.fastqDataset, .referenceSequence]
+        case .pbaa:
+            return [.fastqDataset, .referenceSequence]
         }
     }
 
     var defaultOutputMode: FASTQOperationOutputMode {
         if self == .mafft { return .fixedBatch }
+        if self == .pbaa { return .perInput }
         return categoryID == .classification ? .fixedBatch : .perInput
     }
 
@@ -1646,6 +1701,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
 
     var supportsConfigurableOutput: Bool {
         if self == .mafft { return false }
+        if self == .pbaa { return false }
         return categoryID != .classification && self != .removeRibosomalRNA
     }
 
@@ -1717,7 +1773,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .fastpTrim, .qualityTrim, .mergeOverlappingPairs,
+        case .refreshQCSummary, .fastpTrim, .qualityTrim, .pbaa, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -1803,6 +1859,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case map(inputURLs: [URL], referenceURL: URL, outputMode: FASTQOperationOutputMode)
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
+    case pbaa(request: PBAAClusteringRunRequest)
 }
 
 private extension AssemblyTool {
@@ -1839,6 +1896,8 @@ extension FASTQOperationCategoryID {
             return .minimap2
         case .assembly:
             return .spades
+        case .clustering:
+            return .pbaa
         case .classification:
             return .kraken2
         }

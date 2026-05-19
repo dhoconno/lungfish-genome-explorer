@@ -346,6 +346,35 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
+    func testPBAABuildsLaunchRequestWithSimpleAndAdvancedOptions() throws {
+        let input = URL(fileURLWithPath: "/tmp/reads.fastq")
+        let guide = URL(fileURLWithPath: "/tmp/guide.fasta")
+        let state = FASTQOperationDialogState(
+            initialCategory: .clustering,
+            selectedInputURLs: [input],
+            projectURL: URL(fileURLWithPath: "/tmp/project", isDirectory: true)
+        )
+
+        state.selectTool(.pbaa)
+        state.setAuxiliaryInput(guide, for: .referenceSequence)
+        state.pbaaOutputName = "sample clusters"
+        state.pbaaThreads = 4
+        state.pbaaSeed = 7
+        state.pbaaExtraArguments = "--min-cluster-read-count 2"
+        state.prepareForRun()
+
+        guard case .pbaa(let request)? = state.pendingLaunchRequest else {
+            return XCTFail("Expected pbaa launch request")
+        }
+
+        XCTAssertEqual(request.inputFASTQURL, input)
+        XCTAssertEqual(request.guideSourceURL, guide)
+        XCTAssertEqual(request.outputName, "sample-clusters")
+        XCTAssertEqual(request.threads, 4)
+        XCTAssertEqual(request.seed, 7)
+        XCTAssertEqual(request.extraArguments, ["--min-cluster-read-count", "2"])
+    }
+
     func testReverseComplementBuildsGenericOperationLaunchRequest() {
         let inputURL = URL(fileURLWithPath: "/tmp/sample.lungfishfastq")
         let state = FASTQOperationDialogState(

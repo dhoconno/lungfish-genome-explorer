@@ -170,7 +170,7 @@ private struct FASTQOperationInputsSection: View {
     }
 
     private func usesProjectReferencePicker(for kind: FASTQOperationInputKind) -> Bool {
-        kind == .referenceSequence && state.selectedToolID == .orientReads
+        kind == .referenceSequence && (state.selectedToolID == .orientReads || state.selectedToolID == .pbaa)
     }
 
     private func referenceSelectionBinding(for kind: FASTQOperationInputKind) -> Binding<URL?> {
@@ -405,6 +405,16 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+            case .pbaa:
+                labeledTextField("Output Name", text: $state.pbaaOutputName)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.pbaaThreads))
+                    labeledCompactTextField("Seed", text: Self.intBinding(state, \.pbaaSeed))
+                }
+                Text("Select the guide sequence in the Inputs section.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
             case .correctSequencingErrors:
                 labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize))
 
@@ -632,6 +642,16 @@ private struct FASTQOperationAdvancedSettingsSection: View {
             case .orientReads:
                 Text("Orient reads against the selected reference sequence without saving a separate unoriented bundle.")
                     .foregroundStyle(.secondary)
+            case .pbaa:
+                DisclosureGroup("Advanced Options") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        labeledTextField("pbAA arguments", text: $state.pbaaExtraArguments)
+                        Text("Arguments are passed to `pbaa cluster` after the simple settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
             case .correctSequencingErrors:
                 Text("The k-mer size controls Tadpole error correction.")
                     .foregroundStyle(.secondary)

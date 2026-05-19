@@ -46,9 +46,16 @@ final class FASTQOperationsCatalogTests: XCTestCase {
                 "ALIGNMENT",
                 "MAPPING",
                 "ASSEMBLY",
+                "CLUSTERING",
                 "CLASSIFICATION",
             ]
         )
+    }
+
+    func testCatalogIncludesClusteringCategory() {
+        XCTAssertTrue(FASTQOperationCategoryID.allCases.contains(.clustering))
+        XCTAssertEqual(FASTQOperationCategoryID.clustering.title, "CLUSTERING")
+        XCTAssertEqual(FASTQOperationCategoryID.clustering.requiredPackIDs, [])
     }
 
     func testClassificationCategoryRequiresMetagenomicsPack() async throws {

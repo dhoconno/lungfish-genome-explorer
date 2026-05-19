@@ -85,6 +85,21 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             default:
                 return CLIInvocation(subcommand: "classify", arguments: arguments)
             }
+
+        case .pbaa(let request):
+            var arguments = [
+                "pbaa-cluster",
+                request.inputFASTQURL.path,
+                "--guide", request.guideSourceURL.path,
+                "--output-dir", request.outputDirectory.path,
+                "--output-name", request.outputName,
+                "--threads", String(request.threads),
+                "--seed", String(request.seed),
+            ]
+            if !request.extraArgumentsText.isEmpty {
+                arguments += ["--extra-args", request.extraArgumentsText]
+            }
+            return CLIInvocation(subcommand: "fastq", arguments: arguments)
         }
     }
 

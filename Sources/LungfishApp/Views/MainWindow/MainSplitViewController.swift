@@ -34,6 +34,8 @@ private extension FASTQOperationLaunchRequest {
             return request.inputURLs.first
         case .classify(_, let inputURLs, _, _):
             return inputURLs.first
+        case .pbaa(let request):
+            return request.inputFASTQURL
         }
     }
 
@@ -49,6 +51,8 @@ private extension FASTQOperationLaunchRequest {
             return outputMode
         case .classify:
             return .fixedBatch
+        case .pbaa:
+            return .perInput
         }
     }
 
@@ -71,6 +75,8 @@ private extension FASTQOperationLaunchRequest {
             return request.tool.displayName
         case .classify(let tool, _, _, _):
             return tool.title
+        case .pbaa:
+            return "pbAA Amplicon Clustering"
         }
     }
 }

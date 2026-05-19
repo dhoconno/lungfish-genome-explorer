@@ -105,6 +105,82 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertFalse(invocation.arguments.contains("--no-trim"))
     }
 
+    func testPBAAInvocationUsesFastqPBAAClusterCLI() throws {
+        let request = try PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
+            outputDirectory: URL(fileURLWithPath: "/tmp/out", isDirectory: true),
+            outputName: "sample",
+            threads: 4,
+            seed: 7,
+            extraArgumentsText: "--min-cluster-read-count 2"
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: .pbaa(request: request))
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["pbaa-cluster", "/tmp/reads.fastq"])
+        XCTAssertTrue(invocation.arguments.contains("--guide"))
+        XCTAssertTrue(invocation.arguments.contains("/tmp/guide.fasta"))
+        XCTAssertTrue(invocation.arguments.contains("--extra-args"))
+    }
+
+    func testPlannerDiscoversPBAAReferenceBundles() throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAARefs")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDirectory = tempDir.appendingPathComponent("pbaa-output", isDirectory: true)
+        let referenceBundle = outputDirectory.appendingPathComponent("passed.lungfishref", isDirectory: true)
+        let fastqBundle = outputDirectory.appendingPathComponent("ignored.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: fastqBundle, withIntermediateDirectories: true)
+
+        let request = try FASTQOperationLaunchRequest.pbaa(request: PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
+            outputDirectory: outputDirectory,
+            outputName: "sample"
+        ))
+        let plan = FASTQOperationPlan(
+            originalRequest: request,
+            resolvedRequest: request,
+            outputTarget: outputDirectory,
+            outputKind: .directory
+        )
+
+        XCTAssertEqual(
+            FASTQOperationPlanner().discoverOutputs(for: plan, in: outputDirectory).map {
+                $0.resolvingSymlinksInPath()
+            },
+            [referenceBundle.resolvingSymlinksInPath()]
+        )
+    }
+
+    func testPBAAReferenceBundlesPassThroughImporterWithoutWrapping() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAAImport")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let outputDirectory = tempDir.appendingPathComponent("pbaa-output", isDirectory: true)
+        let referenceBundle = outputDirectory.appendingPathComponent("passed.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceBundle, withIntermediateDirectories: true)
+
+        let request = try FASTQOperationLaunchRequest.pbaa(request: PBAAClusteringRunRequest(
+            inputFASTQURL: URL(fileURLWithPath: "/tmp/reads.fastq"),
+            guideSourceURL: URL(fileURLWithPath: "/tmp/guide.fasta"),
+            outputDirectory: outputDirectory,
+            outputName: "sample"
+        ))
+
+        let imported = try await BundleFASTQOperationImporter(destinationDirectory: tempDir).importOutputs(
+            at: [referenceBundle],
+            forResolvedRequest: request,
+            originalRequest: request,
+            outputDirectory: outputDirectory
+        )
+
+        XCTAssertEqual(imported, [referenceBundle])
+    }
+
     func testPlannerKeepsAssemblyOutputInWorkingDirectory() throws {
         let planner = FASTQOperationPlanner()
         let workingDirectory = URL(fileURLWithPath: "/tmp/assembly-output", isDirectory: true)

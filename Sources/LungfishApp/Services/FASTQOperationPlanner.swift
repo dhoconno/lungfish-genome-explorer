@@ -28,6 +28,10 @@ struct FASTQOperationPlanner: Sendable {
             return workingDirectory
         }
 
+        if case .pbaa(let request) = request {
+            return request.outputDirectory
+        }
+
         return workingDirectory.appendingPathComponent(
             "cli-output-\(UUID().uuidString)",
             isDirectory: true
@@ -46,6 +50,8 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return outputMode
     case .classify:
         return .fixedBatch
+    case .pbaa:
+        return .perInput
     }
 }
 
@@ -102,6 +108,9 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             let directory = plan.outputTarget.standardizedFileURL
             if (try? AssemblyResult.load(from: directory)) != nil {
                 return [directory]
+            }
+            if case .pbaa = plan.originalRequest {
+                return Self.discoverReferenceBundles(in: directory)
             }
             if plan.originalRequest.isRibosomalRNAFilterRequest {
                 return Self.discoverSequenceFiles(in: directory)
@@ -288,7 +297,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return .jsonReport
         case .derivative(let derivativeRequest, _, _):
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
-        case .map, .assemble, .classify:
+        case .map, .assemble, .classify, .pbaa:
             return .directory
         }
     }
@@ -423,6 +432,20 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
         }
     }
 
+    static func discoverReferenceBundles(in directory: URL) -> [URL] {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        return contents.filter { $0.pathExtension.lowercased() == "lungfishref" }.sorted {
+            $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
+        }
+    }
+
     static func sanitizedStem(for url: URL) -> String {
         let stem = url.deletingPathExtension().lastPathComponent
         return stem.isEmpty ? "output" : stem
@@ -462,6 +485,8 @@ extension FASTQOperationLaunchRequest {
             return request.inputURLs
         case .classify(_, let inputURLs, _, _):
             return inputURLs
+        case .pbaa(let request):
+            return [request.inputFASTQURL]
         }
     }
 
@@ -477,6 +502,8 @@ extension FASTQOperationLaunchRequest {
             if FileManager.default.fileExists(atPath: databaseURL.path) {
                 urls.append(databaseURL)
             }
+        case .pbaa(let request):
+            urls.append(request.guideSourceURL)
         default:
             break
         }
@@ -496,6 +523,19 @@ extension FASTQOperationLaunchRequest {
             return .assemble(request: request.replacingInputURLs(with: inputURLs), outputMode: outputMode)
         case .classify(let tool, _, let databaseName, let extraArguments):
             return .classify(tool: tool, inputURLs: inputURLs, databaseName: databaseName, extraArguments: extraArguments)
+        case .pbaa(let request):
+            guard let inputURL = inputURLs.first,
+                  let updatedRequest = try? PBAAClusteringRunRequest(
+                    inputFASTQURL: inputURL,
+                    guideSourceURL: request.guideSourceURL,
+                    outputDirectory: request.outputDirectory,
+                    outputName: request.outputName,
+                    threads: request.threads,
+                    seed: request.seed,
+                    extraArgumentsText: request.extraArgumentsText,
+                    containerPins: request.containerPins
+                  ) else { return self }
+            return .pbaa(request: updatedRequest)
         }
     }
 
@@ -511,6 +551,8 @@ extension FASTQOperationLaunchRequest {
             return request.tool.displayName
         case .classify(let tool, _, _, _):
             return tool.title
+        case .pbaa:
+            return "pbAA Amplicon Clustering"
         }
     }
 
@@ -526,6 +568,8 @@ extension FASTQOperationLaunchRequest {
             return "assembly"
         case .classify:
             return "classification"
+        case .pbaa:
+            return "pbaaClustering"
         }
     }
 
@@ -546,6 +590,17 @@ extension FASTQOperationLaunchRequest {
             var params = ["database": databaseName]
             if !extraArguments.isEmpty {
                 params["extraArgs"] = AdvancedCommandLineOptions.join(extraArguments)
+            }
+            return params
+        case .pbaa(let request):
+            var params = [
+                "guide": request.guideSourceURL.lastPathComponent,
+                "outputName": request.outputName,
+                "threads": String(request.threads),
+                "seed": String(request.seed),
+            ]
+            if !request.extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(request.extraArguments)
             }
             return params
         }
@@ -571,12 +626,14 @@ extension FASTQOperationLaunchRequest {
             return "assembly-\(request.tool.rawValue)"
         case .classify(let tool, _, _, _):
             return tool.title.lowercased()
+        case .pbaa:
+            return "pbaa"
         }
     }
 
     var requiresSingleResolvedFASTQPerInput: Bool {
         switch self {
-        case .refreshQCSummary, .derivative:
+        case .refreshQCSummary, .derivative, .pbaa:
             return true
         case .map, .assemble, .classify:
             return false
@@ -603,7 +660,7 @@ extension FASTQOperationLaunchRequest {
             default:
                 return false
             }
-        case .map, .assemble:
+        case .map, .assemble, .pbaa:
             return false
         }
     }

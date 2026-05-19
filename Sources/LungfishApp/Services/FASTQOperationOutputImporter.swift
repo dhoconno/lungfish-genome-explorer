@@ -315,6 +315,9 @@ struct BundleFASTQOperationImporter: FASTQOperationDirectImporting {
         case .derivative:
             return try await importSequenceOutputs(outputURLs, originalRequest: originalRequest)
 
+        case .pbaa:
+            return outputURLs
+
         default:
             return outputURLs
         }

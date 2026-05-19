@@ -11,6 +11,7 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
     case alignment
     case mapping
     case assembly
+    case clustering
     case classification
 
     var title: String {
@@ -24,13 +25,14 @@ enum FASTQOperationCategoryID: String, CaseIterable, Sendable {
         case .alignment: return "ALIGNMENT"
         case .mapping: return "MAPPING"
         case .assembly: return "ASSEMBLY"
+        case .clustering: return "CLUSTERING"
         case .classification: return "CLASSIFICATION"
         }
     }
 
     var requiredPackIDs: [String] {
         switch self {
-        case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting:
+        case .qcReporting, .demultiplexing, .trimmingFiltering, .decontamination, .readProcessing, .searchSubsetting, .clustering:
             return []
         case .alignment:
             return ["multiple-sequence-alignment"]

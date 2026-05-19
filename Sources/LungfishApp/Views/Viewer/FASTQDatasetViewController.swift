@@ -2291,6 +2291,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Mapping"
         case .assembly:
             return "Assembly"
+        case .clustering:
+            return "Clustering"
         case .classification:
             return "Classification"
         }
@@ -2316,6 +2318,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "arrow.left.and.right.text.vertical"
         case .assembly:
             return "puzzlepiece.extension"
+        case .clustering:
+            return "circle.hexagongrid"
         case .classification:
             return "square.stack.3d.up"
         }
@@ -2341,6 +2345,8 @@ public final class FASTQDatasetViewController: NSViewController {
             return "Open the FASTQ/FASTA operations dialog with mapping tools selected."
         case .assembly:
             return "Open the FASTQ/FASTA operations dialog with assembly tools selected."
+        case .clustering:
+            return "Open the FASTQ/FASTA operations dialog with clustering tools selected."
         case .classification:
             return "Open the FASTQ/FASTA operations dialog with classification tools selected."
         }
