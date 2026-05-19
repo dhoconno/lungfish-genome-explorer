@@ -18,6 +18,19 @@ final class PBAAClusteringPipelineTests: XCTestCase {
             try FileManager.default.createDirectory(at: raw, withIntermediateDirectories: true)
             let passed = raw.appendingPathComponent("\(request.prefix)_passed_cluster_sequences.fasta")
             try ">cluster1\nACGT\n".write(to: passed, atomically: true, encoding: .utf8)
+            try ">failed1\nTGCA\n".write(
+                to: raw.appendingPathComponent("\(request.prefix)_failed_cluster_sequences.fasta"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "read_id\tcluster\nr1\tcluster1\n".write(
+                to: raw.appendingPathComponent("\(request.prefix)_read_info.txt"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try Data([0x42, 0x41, 0x4d]).write(
+                to: raw.appendingPathComponent("\(request.prefix)_reads_to_clusters.bam")
+            )
             return PBAANextflowRunResult(exitCode: 0, stdout: "ok", stderr: "", rawOutputDirectory: raw)
         }
 
@@ -60,6 +73,21 @@ final class PBAAClusteringPipelineTests: XCTestCase {
         let genomePath = try XCTUnwrap(manifest.genome?.path)
         let finalPayloadURL = result.referenceBundleURL.appendingPathComponent(genomePath)
         XCTAssertTrue(envelope.outputs.contains { $0.path == finalPayloadURL.path })
+
+        let rawEnvelope = try XCTUnwrap(ProvenanceRecorder.loadEnvelope(from: result.rawOutputDirectory))
+        XCTAssertEqual(rawEnvelope.id, envelope.id)
+        for expectedRawOutput in [
+            "sample_passed_cluster_sequences.fasta",
+            "sample_failed_cluster_sequences.fasta",
+            "sample_read_info.txt",
+            "sample_reads_to_clusters.bam",
+        ] {
+            let outputURL = result.rawOutputDirectory.appendingPathComponent(expectedRawOutput)
+            let descriptor = try XCTUnwrap(envelope.outputs.first { $0.path == outputURL.path })
+            XCTAssertNotNil(descriptor.checksumSHA256, expectedRawOutput)
+            XCTAssertNotNil(descriptor.fileSize, expectedRawOutput)
+            XCTAssertTrue(rawEnvelope.outputs.contains { $0.path == outputURL.path }, expectedRawOutput)
+        }
     }
 
     func testPipelineFailsWhenPassedFastaIsEmpty() async throws {

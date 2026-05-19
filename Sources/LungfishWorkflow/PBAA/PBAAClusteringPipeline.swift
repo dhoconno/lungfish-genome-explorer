@@ -181,9 +181,10 @@ public struct PBAAClusteringPipeline: Sendable {
             ? ProcessPBAANextflowRunner.nextflowArguments(workflowDirectory: workflowDirectory)
             : runResult.argv
         let bundleDescriptor = ProvenanceFileDescriptor(path: referenceBundleURL.path, role: .output)
+        let rawDirectoryDescriptor = ProvenanceFileDescriptor(path: runResult.rawOutputDirectory.path, role: .output)
+        let rawOutputDescriptors = try rawPBAAOutputDescriptors(in: runResult.rawOutputDirectory)
         let outputDescriptors = try finalBundleOutputDescriptors(bundleURL: referenceBundleURL)
-        let passedDescriptor = try ProvenanceFileDescriptor.file(url: passedFASTA, format: .fasta, role: .output)
-        let stepOutputs = [bundleDescriptor] + outputDescriptors + [passedDescriptor]
+        let stepOutputs = [bundleDescriptor] + outputDescriptors + [rawDirectoryDescriptor] + rawOutputDescriptors
 
         let envelope = try ProvenanceRunBuilder(
             workflowName: "pbAA Amplicon Clustering",
@@ -224,7 +225,7 @@ public struct PBAAClusteringPipeline: Sendable {
                     role: .input
                 ),
             ],
-            outputs: [passedDescriptor],
+            outputs: [rawDirectoryDescriptor] + rawOutputDescriptors,
             exitStatus: Int(runResult.exitCode),
             wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
             stderr: runResult.stderr.isEmpty ? nil : runResult.stderr,
@@ -253,7 +254,89 @@ public struct PBAAClusteringPipeline: Sendable {
             endedAt: completedAt
         )
 
-        try ProvenanceWriter(signingProvider: nil).write(envelope, to: referenceBundleURL)
+        let writer = ProvenanceWriter(signingProvider: nil)
+        try writer.write(envelope, to: referenceBundleURL)
+        try writer.write(envelope, to: runResult.rawOutputDirectory)
+    }
+
+    private func rawPBAAOutputDescriptors(in directory: URL) throws -> [ProvenanceFileDescriptor] {
+        guard let enumerator = FileManager.default.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var descriptors: [ProvenanceFileDescriptor] = []
+        for case let url as URL in enumerator {
+            let descriptorURL = canonicalRawOutputURL(for: url, rootedAt: directory)
+            guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                  !descriptorURL.lastPathComponent.hasSuffix(".lungfish-provenance.json") else {
+                continue
+            }
+            descriptors.append(try ProvenanceFileDescriptor.file(
+                url: descriptorURL,
+                format: rawOutputFormat(for: descriptorURL),
+                role: rawOutputRole(for: descriptorURL)
+            ))
+        }
+        return descriptors.sorted {
+            $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+        }
+    }
+
+    private func canonicalRawOutputURL(for url: URL, rootedAt directory: URL) -> URL {
+        let resolvedRootPath = directory.resolvingSymlinksInPath().standardizedFileURL.path
+        let normalizedRootPath = resolvedRootPath.hasSuffix("/") ? resolvedRootPath : resolvedRootPath + "/"
+        let resolvedPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        guard resolvedPath.hasPrefix(normalizedRootPath) else {
+            return url.standardizedFileURL
+        }
+
+        let relativePath = String(resolvedPath.dropFirst(normalizedRootPath.count))
+        guard !relativePath.isEmpty else {
+            return directory.standardizedFileURL
+        }
+        return directory.standardizedFileURL.appendingPathComponent(relativePath)
+    }
+
+    private func rawOutputFormat(for url: URL) -> FileFormat {
+        let filename = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "fa", "fasta", "fna", "fas":
+            return .fasta
+        case "fq", "fastq":
+            return .fastq
+        case "bam":
+            return .bam
+        case "sam":
+            return .sam
+        case "json":
+            return .json
+        case "txt", "tsv", "csv", "log", "fai", "bai", "pbi":
+            return .text
+        default:
+            if filename.hasSuffix(".fastq.gz") || filename.hasSuffix(".fq.gz") {
+                return .fastq
+            }
+            if filename.hasSuffix(".fasta.gz") || filename.hasSuffix(".fa.gz") {
+                return .fasta
+            }
+            return .unknown
+        }
+    }
+
+    private func rawOutputRole(for url: URL) -> FileRole {
+        switch url.pathExtension.lowercased() {
+        case "fai", "bai", "pbi", "csi":
+            return .index
+        case "log":
+            return .log
+        default:
+            return .output
+        }
     }
 
     private func finalBundleOutputDescriptors(bundleURL: URL) throws -> [ProvenanceFileDescriptor] {
