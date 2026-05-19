@@ -251,7 +251,16 @@ public struct ProvenanceRunBuilder: Sendable {
     }
 
     private func isIncompleteDescriptor(_ descriptor: ProvenanceFileDescriptor) -> Bool {
-        descriptor.checksumSHA256 == nil || descriptor.fileSize == nil
+        if descriptorLooksLikeDirectory(descriptor) {
+            return false
+        }
+        return descriptor.checksumSHA256 == nil || descriptor.fileSize == nil
+    }
+
+    private func descriptorLooksLikeDirectory(_ descriptor: ProvenanceFileDescriptor) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: descriptor.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
     }
 
     private func replacing(

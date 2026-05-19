@@ -54,6 +54,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 maxDistanceFrom5Prime: 24,
                 maxDistanceFrom3Prime: 24,
                 errorRate: 0.12,
+                engine: .cutadapt,
                 trimBarcodes: true,
                 sampleAssignments: nil,
                 kitOverride: nil
@@ -73,6 +74,35 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans[0].outputKind, .directory)
         XCTAssertEqual(plans[0].outputTarget, workingDirectory)
+    }
+
+    func testDemultiplexInvocationIncludesSelectedEngine() throws {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .demultiplex(
+                kitID: "fluidigm-access-array",
+                customCSVPath: nil,
+                location: "fiveprime",
+                symmetryMode: nil,
+                maxDistanceFrom5Prime: 100,
+                maxDistanceFrom3Prime: 0,
+                errorRate: 0.15,
+                engine: .exactBareBarcode,
+                trimBarcodes: true,
+                sampleAssignments: nil,
+                kitOverride: nil
+            ),
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.lungfishfastq")],
+            outputMode: .groupedResult
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(for: request)
+        let engineIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--engine"))
+        XCTAssertEqual(invocation.arguments[engineIndex + 1], "exact-bare")
+        XCTAssertFalse(invocation.arguments.contains("--location"))
+        XCTAssertFalse(invocation.arguments.contains("--max-distance-5prime"))
+        XCTAssertFalse(invocation.arguments.contains("--max-distance-3prime"))
+        XCTAssertFalse(invocation.arguments.contains("--error-rate"))
+        XCTAssertFalse(invocation.arguments.contains("--no-trim"))
     }
 
     func testPlannerKeepsAssemblyOutputInWorkingDirectory() throws {
@@ -1258,6 +1288,76 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         )
     }
 
+    func testAppFASTQOutputBundleWriterMakesFullSourceOutputsSelfRooted() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportFullRoot")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sourceBundle = tempDir.appendingPathComponent("oriented.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceBundle, withIntermediateDirectories: true)
+        let orientedFASTQ = sourceBundle.appendingPathComponent("orient.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: orientedFASTQ,
+            readCount: 2,
+            readLength: 20
+        )
+
+        let orientOperation = FASTQDerivativeOperation(kind: .orient)
+        let sourceManifest = FASTQDerivedBundleManifest(
+            name: "oriented",
+            parentBundleRelativePath: "@/source.\(FASTQBundle.directoryExtension)",
+            rootBundleRelativePath: "@/source.\(FASTQBundle.directoryExtension)",
+            rootFASTQFilename: "missing-root.fastq",
+            payload: .full(fastqFilename: orientedFASTQ.lastPathComponent),
+            lineage: [orientOperation],
+            operation: orientOperation,
+            cachedStatistics: .placeholder(readCount: 2, baseCount: 40),
+            pairingMode: .singleEnd,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(sourceManifest, in: sourceBundle)
+
+        let stagedFASTQ = tempDir.appendingPathComponent("oriented.filtered.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(
+            to: stagedFASTQ,
+            readCount: 1,
+            readLength: 18
+        )
+        try writeSyntheticProvenance(
+            to: tempDir,
+            name: "Sequential FASTQ trim",
+            toolName: "fastp",
+            toolVersion: "1.3.2",
+            command: ["fastp", "-i", orientedFASTQ.path, "-o", stagedFASTQ.path],
+            inputURL: orientedFASTQ,
+            outputURL: stagedFASTQ,
+            parameters: ["operation": .string("adapter trim")]
+        )
+
+        let destinationBundle = tempDir.appendingPathComponent(
+            "oriented-filtered.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let writer = AppFASTQOutputBundleWriter(ingestor: SpyFASTQOutputIngestor())
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .adapterTrim(mode: .autoDetect, sequence: nil, sequenceR2: nil, fastaFilename: nil),
+            inputURLs: [sourceBundle],
+            outputMode: .perInput
+        )
+
+        let bundleURL = try await writer.importFASTQOutput(
+            sourceURL: stagedFASTQ,
+            bundleURL: destinationBundle,
+            originalRequest: request,
+            sourceInputURL: sourceBundle
+        )
+
+        let manifest = try XCTUnwrap(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        let bundledFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        XCTAssertEqual(manifest.rootBundleRelativePath, ".")
+        XCTAssertEqual(manifest.rootFASTQFilename, bundledFASTQ.lastPathComponent)
+        XCTAssertEqual(manifest.parentBundleRelativePath, "../oriented.\(FASTQBundle.directoryExtension)")
+    }
+
     func testAppFASTQOutputBundleWriterPreservesMultiOutputCLIProvenanceOneBundleAtATime() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecImportMultiOutputProvenance")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -2354,6 +2454,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
                 maxDistanceFrom5Prime: 0,
                 maxDistanceFrom3Prime: 0,
                 errorRate: 0.15,
+                engine: .cutadapt,
                 trimBarcodes: true,
                 sampleAssignments: [
                     FASTQSampleBarcodeAssignment(sampleID: "sample-1", forwardBarcodeID: "BC01")

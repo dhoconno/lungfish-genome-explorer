@@ -65,10 +65,7 @@ public enum ReferenceSequenceScanner {
         var candidates: [ReferenceCandidate] = []
 
         // Source 1: Explicit references from Reference Sequences folder
-        let projectRefs = ReferenceSequenceFolder.listReferences(in: projectURL)
-        for ref in projectRefs {
-            candidates.append(.projectReference(url: ref.url, manifest: ref.manifest))
-        }
+        candidates.append(contentsOf: referenceFolderCandidates(in: projectURL))
 
         // Source 2 & 3: Scan project tree for genome bundles and standalone FASTAs
         scanDirectory(projectURL, projectURL: projectURL, candidates: &candidates)
@@ -90,9 +87,8 @@ public enum ReferenceSequenceScanner {
         AsyncStream { continuation in
             Task.detached {
                 // Source 1: Project references (fast)
-                let projectRefs = ReferenceSequenceFolder.listReferences(in: projectURL)
-                for ref in projectRefs {
-                    continuation.yield(.projectReference(url: ref.url, manifest: ref.manifest))
+                for candidate in referenceFolderCandidates(in: projectURL) {
+                    continuation.yield(candidate)
                 }
 
                 // Source 2 & 3: Scan tree
@@ -134,6 +130,68 @@ public enum ReferenceSequenceScanner {
         }
     }
 
+    private static func referenceFolderCandidates(in projectURL: URL) -> [ReferenceCandidate] {
+        var candidates: [ReferenceCandidate] = []
+
+        for ref in ReferenceSequenceFolder.listReferences(in: projectURL) {
+            candidates.append(.projectReference(url: ref.url, manifest: ref.manifest))
+        }
+
+        guard let referenceFolderURL = ReferenceSequenceFolder.folderURL(in: projectURL) else {
+            return candidates
+        }
+
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
+            at: referenceFolderURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return candidates
+        }
+
+        for url in contents where isReferenceBundleURL(url) {
+            appendResolvedBundleCandidate(url, to: &candidates)
+        }
+
+        return candidates
+    }
+
+    private static func appendResolvedBundleCandidate(
+        _ bundleURL: URL,
+        to candidates: inout [ReferenceCandidate]
+    ) {
+        guard let resolved = resolveFASTAInBundle(bundleURL),
+              !containsCandidate(candidates, forFASTAURL: resolved.fastaURL)
+        else {
+            return
+        }
+
+        candidates.append(
+            .genomeBundleFASTA(
+                fastaURL: resolved.fastaURL,
+                bundleURL: bundleURL,
+                displayName: resolved.displayName
+            )
+        )
+    }
+
+    private static func containsCandidate(_ candidates: [ReferenceCandidate], forFASTAURL fastaURL: URL) -> Bool {
+        candidates.contains { sameFileURL($0.fastaURL, fastaURL) }
+    }
+
+    private static func sameFileURL(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.path == rhs.standardizedFileURL.path
+    }
+
+    private static func isReferenceBundleURL(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "lungfishref"
+    }
+
+    private static func isFASTQBundleURL(_ url: URL) -> Bool {
+        url.pathExtension.lowercased() == "lungfishfastq"
+    }
+
     /// Recursively scans a directory for genome bundles and standalone FASTAs.
     private static func scanDirectory(
         _ directoryURL: URL,
@@ -161,22 +219,11 @@ public enum ReferenceSequenceScanner {
 
             if isDir.boolValue {
                 // Check for genome bundle (.lungfishref)
-                if url.pathExtension == "lungfishref" {
-                    if let resolved = resolveFASTAInBundle(url) {
-                        let alreadyAdded = candidates.contains { $0.fastaURL == resolved.fastaURL }
-                        if !alreadyAdded {
-                            candidates.append(
-                                .genomeBundleFASTA(
-                                    fastaURL: resolved.fastaURL,
-                                    bundleURL: url,
-                                    displayName: resolved.displayName
-                                )
-                            )
-                        }
-                    }
+                if isReferenceBundleURL(url) {
+                    appendResolvedBundleCandidate(url, to: &candidates)
                 }
                 // Skip .lungfishfastq directories (not references)
-                else if url.pathExtension != "lungfishfastq" {
+                else if !isFASTQBundleURL(url) {
                     scanDirectory(url, projectURL: projectURL, candidates: &candidates, depth: depth + 1)
                 }
             } else {
@@ -216,7 +263,7 @@ public enum ReferenceSequenceScanner {
             guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { continue }
 
             if isDir.boolValue {
-                if url.pathExtension == "lungfishref" {
+                if isReferenceBundleURL(url) {
                     if let resolved = resolveFASTAInBundle(url) {
                         continuation.yield(
                             .genomeBundleFASTA(
@@ -226,7 +273,7 @@ public enum ReferenceSequenceScanner {
                             )
                         )
                     }
-                } else if url.pathExtension != "lungfishfastq" {
+                } else if !isFASTQBundleURL(url) {
                     scanDirectoryAsync(url, projectURL: projectURL, continuation: continuation, depth: depth + 1)
                 }
             } else {

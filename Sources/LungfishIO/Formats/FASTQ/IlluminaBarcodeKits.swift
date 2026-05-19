@@ -145,6 +145,17 @@ public struct BarcodeEntry: Codable, Sendable, Equatable {
     public var secondarySequence: String? { i5Sequence }
 }
 
+public enum BarcodeKitLoadError: LocalizedError, Sendable {
+    case noBarcodeRows
+
+    public var errorDescription: String? {
+        switch self {
+        case .noBarcodeRows:
+            return "Barcode definition contains no barcode rows. Use CSV or TSV with at least two columns: id,sequence; for example: FLD0001,GTATCGTCGT or FLD0001<TAB>GTATCGTCGT."
+        }
+    }
+}
+
 // MARK: - Barcode Location
 
 /// Where barcodes are located within reads, affecting cutadapt adapter specification.
@@ -226,6 +237,7 @@ public enum BarcodeKitRegistry {
             truseqHTDual,
             nexteraXTv2,
             idtUDIndexes,
+            fluidigmAccessArray,
             pacbioSequel16V3,
             pacbioSequel96V2,
             pacbioSequel384V1,
@@ -248,12 +260,13 @@ public enum BarcodeKitRegistry {
         builtinKits().first { $0.id == id }
     }
 
-    /// Loads a custom barcode kit from a CSV file.
+    /// Loads a custom barcode kit from a delimited text file.
     ///
-    /// CSV format (header optional):
+    /// CSV, TSV, or whitespace-delimited format (header optional):
     /// ```
     /// id,i7_sequence[,i5_sequence][,sample_name]
     /// A01,ATCACG
+    /// FLD0001    GTATCGTCGT
     /// A02,CGATGT,,Sample-42
     /// ```
     public static func loadCustomKit(
@@ -261,34 +274,8 @@ public enum BarcodeKitRegistry {
         name: String
     ) throws -> BarcodeKitDefinition {
         let content = try String(contentsOf: url, encoding: .utf8)
-        let lines = content.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-
-        var barcodes: [BarcodeEntry] = []
-        var isDualIndexed = false
-
-        for line in lines {
-            let cols = line.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-            guard cols.count >= 2 else { continue }
-
-            // Skip header row
-            if cols[0].lowercased() == "id" || cols[0].lowercased() == "barcode_id" { continue }
-
-            let id = cols[0]
-            let i7 = cols[1].uppercased()
-            let i5: String? = cols.count > 2 && !cols[2].isEmpty ? cols[2].uppercased() : nil
-            let sample: String? = cols.count > 3 && !cols[3].isEmpty ? cols[3] : nil
-
-            if i5 != nil { isDualIndexed = true }
-
-            barcodes.append(BarcodeEntry(
-                id: id,
-                i7Sequence: i7,
-                i5Sequence: i5,
-                sampleName: sample
-            ))
-        }
+        let barcodes = try parseDelimitedBarcodeRecords(content)
+        let isDualIndexed = barcodes.contains { $0.i5Sequence != nil }
 
         let sanitizedID = name.lowercased()
             .replacingOccurrences(of: " ", with: "-")
@@ -394,6 +381,67 @@ public enum BarcodeKitRegistry {
         case .bothEnds:
             return "^\(sequence)"  // For single-end generation, treat as 5' anchored.
         }
+    }
+
+    private static func parseDelimitedBarcodeRecords(_ content: String) throws -> [BarcodeEntry] {
+        let lines = content.components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
+
+        var barcodes: [BarcodeEntry] = []
+        for line in lines {
+            let cols = splitBarcodeDefinitionLine(line)
+            guard cols.count >= 2 else { continue }
+            if isBarcodeDefinitionHeader(cols) { continue }
+
+            let id = cols[0]
+            let i7 = cols[1].uppercased()
+            let i5: String? = cols.count > 2 && !cols[2].isEmpty ? cols[2].uppercased() : nil
+            let sample: String? = cols.count > 3 && !cols[3].isEmpty ? cols[3] : nil
+
+            barcodes.append(BarcodeEntry(
+                id: id,
+                i7Sequence: i7,
+                i5Sequence: i5,
+                sampleName: sample
+            ))
+        }
+
+        guard !barcodes.isEmpty else {
+            throw BarcodeKitLoadError.noBarcodeRows
+        }
+
+        return barcodes
+    }
+
+    private static func splitBarcodeDefinitionLine(_ line: String) -> [String] {
+        if line.contains(",") {
+            return line.split(separator: ",", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+
+        if line.contains("\t") {
+            return line.split(separator: "\t", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+
+        return line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            .map(String.init)
+    }
+
+    private static func isBarcodeDefinitionHeader(_ columns: [String]) -> Bool {
+        guard columns.count >= 2 else { return false }
+        let first = normalizedHeader(columns[0])
+        let second = normalizedHeader(columns[1])
+        let idHeaders: Set<String> = ["id", "barcode_id", "barcode", "barcode_name", "index", "index_id"]
+        let sequenceHeaders: Set<String> = ["sequence", "i7_sequence", "barcode_sequence", "index_sequence", "i7"]
+        return idHeaders.contains(first) && sequenceHeaders.contains(second)
+    }
+
+    private static func normalizedHeader(_ header: String) -> String {
+        header.lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     // MARK: - Built-In Kit Definitions
@@ -547,6 +595,30 @@ public enum BarcodeKitRegistry {
             }
         }()
     )
+
+    /// Fluidigm Access Array 10 bp indexes as a symmetric long-read barcode set.
+    ///
+    /// These are bare barcode sequences. In ONT-style both-end demultiplexing, the
+    /// expected read structure is `[barcode]-[insert]-[barcode_rc]`.
+    public static let fluidigmAccessArray: BarcodeKitDefinition = {
+        let barcodes: [BarcodeEntry]
+        do {
+            barcodes = try parseDelimitedBarcodeRecords(FluidigmBarcodeData.accessArrayCSV)
+        } catch {
+            preconditionFailure("Bundled Fluidigm barcode data is invalid: \(error)")
+        }
+
+        return BarcodeKitDefinition(
+            id: "fluidigm-access-array",
+            displayName: "Fluidigm Access Array (864)",
+            vendor: "fluidigm",
+            platform: .oxfordNanopore,
+            kitType: .fluidigmAccessArray,
+            isDualIndexed: false,
+            pairingMode: .symmetric,
+            barcodes: barcodes
+        )
+    }()
 
     /// PacBio Sequel 16 barcodes (v3) as a combinatorial asymmetric set.
     ///

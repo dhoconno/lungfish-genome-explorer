@@ -2024,7 +2024,13 @@ public struct AnalysisSection: View {
                 HStack {
                     Text("Minimum alignment confidence")
                     Spacer()
+                    Text("MAPQ \(viewModel.alignmentFilterMinimumMAPQ)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .frame(minWidth: 56, alignment: .trailing)
                     Stepper(
+                        "",
                         value: Binding(
                             get: { viewModel.alignmentFilterMinimumMAPQ },
                             set: { newValue in
@@ -2033,11 +2039,7 @@ public struct AnalysisSection: View {
                             }
                         ),
                         in: 0...255
-                    ) {
-                        Text("\(viewModel.alignmentFilterMinimumMAPQ)")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
+                    )
                     .labelsHidden()
                 }
                 Text("Uses SAM MAPQ. Set to 0 to keep every alignment confidence level.")

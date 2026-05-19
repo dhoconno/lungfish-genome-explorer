@@ -60,6 +60,7 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
         maxDistanceFrom5Prime: Int,
         maxDistanceFrom3Prime: Int,
         errorRate: Double,
+        engine: DemultiplexEngine,
         trimBarcodes: Bool,
         sampleAssignments: [FASTQSampleBarcodeAssignment]?,
         kitOverride: BarcodeKitDefinition?
@@ -289,8 +290,17 @@ public enum FASTQDerivativeRequest: Sendable, Equatable {
             return [:]
         case .translate(let frameOffset):
             return ["frame": "\(frameOffset + 1)"]
-        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
-            return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "trimBarcodes": "\(trimBarcodes)"]
+        case .demultiplex(let kitID, _, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _):
+            if engine == .exactBareBarcode {
+                return [
+                    "kitID": kitID,
+                    "engine": engine.rawValue,
+                    "searchMode": "whole-read",
+                    "searchReverseComplement": "true",
+                    "trimBarcodes": "false",
+                ]
+            }
+            return ["kitID": kitID, "location": location, "errorRate": "\(errorRate)", "engine": engine.rawValue, "trimBarcodes": "\(trimBarcodes)"]
         case .orient(_, let wordLength, _, _, let extraArguments):
             var params = ["wordLength": "\(wordLength)"]
             if !extraArguments.isEmpty {
@@ -523,9 +533,14 @@ extension FASTQDerivativeRequest {
         case .translate(let frameOffset):
             return buildToolCommand(parts: ["seqkit", "translate", "--frame", String(frameOffset + 1), inputPath, "-o", outputPath])
 
-        case .demultiplex(let kitID, let customCSVPath, let location, _, _, _, let errorRate, let trimBarcodes, _, _):
+        case .demultiplex(let kitID, let customCSVPath, let location, _, _, _, let errorRate, let engine, let trimBarcodes, _, _):
             var args = [inputPath, "--kit", customCSVPath ?? kitID, "-o", outputPath]
+            if engine == .exactBareBarcode {
+                args += ["--engine", engine.rawValue]
+                return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
+            }
             args += ["--location", location, "--error-rate", String(format: "%.2f", errorRate)]
+            if engine != .cutadapt { args += ["--engine", engine.rawValue] }
             if !trimBarcodes { args.append("--no-trim") }
             return buildLungfishCommand(subcommand: "fastq demultiplex", args: args)
 
@@ -644,13 +659,26 @@ private extension FASTQDerivativeRequest {
             return []
         case .translate(let frameOffset):
             return ["--frame-offset", String(frameOffset)]
-        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let trimBarcodes, let sampleAssignments, let kitOverride):
+        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let engine, let trimBarcodes, let sampleAssignments, let kitOverride):
+            if engine == .exactBareBarcode {
+                return [
+                    "--kit-id", kitID,
+                    "--engine", engine.rawValue,
+                    "--search-mode", "whole-read",
+                    "--search-reverse-complement", "true",
+                    "--trim-barcodes", "false",
+                    "--sample-assignment-count", String(sampleAssignments?.count ?? 0),
+                ] + optionalFlag("--custom-csv", customCSVPath)
+                    + optionalFlag("--symmetry-mode", symmetryMode?.rawValue)
+                    + optionalFlag("--kit-override-id", kitOverride?.id)
+            }
             return [
                 "--kit-id", kitID,
                 "--location", location,
                 "--max-distance-from-5-prime", String(maxDistanceFrom5Prime),
                 "--max-distance-from-3-prime", String(maxDistanceFrom3Prime),
                 "--error-rate", String(errorRate),
+                "--engine", engine.rawValue,
                 "--trim-barcodes", String(trimBarcodes),
                 "--sample-assignment-count", String(sampleAssignments?.count ?? 0),
             ] + optionalFlag("--custom-csv", customCSVPath)
@@ -761,7 +789,20 @@ private extension FASTQDerivativeRequest {
             return [:]
         case .translate(let frameOffset):
             return ["frameOffset": .integer(frameOffset), "frame": .integer(frameOffset + 1)]
-        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let trimBarcodes, let sampleAssignments, let kitOverride):
+        case .demultiplex(let kitID, let customCSVPath, let location, let symmetryMode, let maxDistanceFrom5Prime, let maxDistanceFrom3Prime, let errorRate, let engine, let trimBarcodes, let sampleAssignments, let kitOverride):
+            if engine == .exactBareBarcode {
+                return [
+                    "kitID": .string(kitID),
+                    "customCSVPath": optionalString(customCSVPath),
+                    "symmetryMode": optionalString(symmetryMode?.rawValue),
+                    "engine": .string(engine.rawValue),
+                    "searchMode": .string("whole-read"),
+                    "searchReverseComplement": .boolean(true),
+                    "trimBarcodes": .boolean(false),
+                    "sampleAssignmentCount": .integer(sampleAssignments?.count ?? 0),
+                    "kitOverrideID": optionalString(kitOverride?.id),
+                ]
+            }
             return [
                 "kitID": .string(kitID),
                 "customCSVPath": optionalString(customCSVPath),
@@ -770,6 +811,7 @@ private extension FASTQDerivativeRequest {
                 "maxDistanceFrom5Prime": .integer(maxDistanceFrom5Prime),
                 "maxDistanceFrom3Prime": .integer(maxDistanceFrom3Prime),
                 "errorRate": .number(errorRate),
+                "engine": .string(engine.rawValue),
                 "trimBarcodes": .boolean(trimBarcodes),
                 "sampleAssignmentCount": .integer(sampleAssignments?.count ?? 0),
                 "kitOverrideID": optionalString(kitOverride?.id),
@@ -1136,6 +1178,7 @@ public actor FASTQDerivativeService {
             let maxDistanceFrom5Prime,
             let maxDistanceFrom3Prime,
             let errorRate,
+            let engine,
             let trimBarcodes,
             let sampleAssignments,
             let kitOverride
@@ -1153,6 +1196,7 @@ public actor FASTQDerivativeService {
                 maxDistanceFrom5Prime: maxDistanceFrom5Prime,
                 maxDistanceFrom3Prime: maxDistanceFrom3Prime,
                 errorRate: errorRate,
+                engine: engine,
                 symmetryMode: symmetryMode,
                 trimBarcodes: trimBarcodes,
                 sampleAssignments: sampleAssignments ?? [],
@@ -2420,7 +2464,7 @@ public actor FASTQDerivativeService {
             if let fastaURL = resolveReferenceInputURL(fastaPath, relativeTo: sourceBundleURL) {
                 references.append((fastaURL, .fasta))
             }
-        case .demultiplex(_, let customCSVPath, _, _, _, _, _, _, _, _):
+        case .demultiplex(_, let customCSVPath, _, _, _, _, _, _, _, _, _):
             if let csvURL = resolveReferenceInputURL(customCSVPath, relativeTo: sourceBundleURL) {
                 references.append((csvURL, .text))
             }
@@ -2785,6 +2829,7 @@ public actor FASTQDerivativeService {
         maxDistanceFrom5Prime: Int,
         maxDistanceFrom3Prime: Int,
         errorRate: Double,
+        engine: DemultiplexEngine = .cutadapt,
         minimumOverlap: Int? = nil,
         symmetryMode: BarcodeSymmetryMode? = nil,
         searchReverseComplement: Bool? = nil,
@@ -2849,6 +2894,7 @@ public actor FASTQDerivativeService {
 
         progress?("Demultiplexing reads...")
         let pipeline = DemultiplexingPipeline()
+        let effectiveTrimBarcodes = engine == .exactBareBarcode ? false : trimBarcodes
         let result = try await pipeline.run(
             config: DemultiplexConfig(
                 inputURL: sourceFASTQ,
@@ -2861,9 +2907,10 @@ public actor FASTQDerivativeService {
                 minimumOverlap: minimumOverlap,
                 maxDistanceFrom5Prime: maxDistanceFrom5Prime,
                 maxDistanceFrom3Prime: maxDistanceFrom3Prime,
-                trimBarcodes: trimBarcodes,
+                trimBarcodes: effectiveTrimBarcodes,
                 searchReverseComplement: searchReverseComplement,
                 unassignedDisposition: unassignedDisposition,
+                engine: engine,
                 sampleAssignments: sampleAssignments,
                 rootBundleURL: rootBundleURL,
                 rootFASTQFilename: rootFASTQFilename,
@@ -2903,7 +2950,8 @@ public actor FASTQDerivativeService {
                 maxDistanceFrom5Prime: maxDistanceFrom5Prime,
                 maxDistanceFrom3Prime: maxDistanceFrom3Prime,
                 errorRate: errorRate,
-                trimBarcodes: trimBarcodes,
+                engine: engine,
+                trimBarcodes: effectiveTrimBarcodes,
                 sampleAssignments: sampleAssignments,
                 kitOverride: kitOverride
             ),

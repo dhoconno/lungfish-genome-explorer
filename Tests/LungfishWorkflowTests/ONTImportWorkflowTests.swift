@@ -93,17 +93,111 @@ final class ONTImportWorkflowTests: XCTestCase {
         XCTAssertTrue(outputPaths.contains(canonicalPath(outputURL.appendingPathComponent(DemultiplexManifest.filename))))
 
         let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        XCTAssertTrue(outputPaths.contains(canonicalPath(bundleURL)))
+        XCTAssertFalse(outputPaths.contains {
+            $0.contains(".lungfishfastq/chunks/")
+                || $0.contains(".lungfishfastq/source-files.json")
+                || $0.contains(".lungfishfastq/preview.fastq")
+        })
+
+        let bundleEnvelope = try readEnvelope(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         let copiedChunkURLs = [
             bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_0.fastq"),
             bundleURL.appendingPathComponent("chunks").appendingPathComponent("chunk_1.fastq"),
         ]
         for copiedChunkURL in copiedChunkURLs {
-            let descriptor = try XCTUnwrap(envelope.outputs.first { $0.path == canonicalPath(copiedChunkURL) })
+            let descriptor = try XCTUnwrap(bundleEnvelope.outputs.first { $0.path == canonicalPath(copiedChunkURL) })
             XCTAssertNotNil(descriptor.checksumSHA256)
             XCTAssertNotNil(descriptor.fileSize)
         }
         for originalChunkURL in originalChunkURLs {
             XCTAssertFalse(outputPaths.contains(canonicalPath(originalChunkURL)))
+        }
+    }
+
+    func testParentProvenanceDoesNotWriteChildBundleOutputSidecars() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: [
+            "barcode01": ["chunk_0.fastq"],
+            "barcode02": ["chunk_0.fastq"],
+        ])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow()
+
+        let result = try await workflow.importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: sourceURL,
+                outputDirectory: outputURL,
+                maxConcurrentBarcodes: 1
+            ),
+            context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+        ) { _, _ in }
+
+        let rootEnvelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertFalse(rootEnvelope.outputs.contains {
+            $0.path.contains(".lungfishfastq/chunks/")
+                || $0.path.contains(".lungfishfastq/source-files.json")
+                || $0.path.contains(".lungfishfastq/preview.fastq")
+        })
+
+        for bundleURL in result.importResult.bundleURLs {
+            let copiedChunkURL = bundleURL
+                .appendingPathComponent("chunks", isDirectory: true)
+                .appendingPathComponent("chunk_0.fastq")
+            let childSidecarURL = try XCTUnwrap(ProvenanceWriter.bundleOutputSidecarURL(
+                for: copiedChunkURL,
+                inBundle: bundleURL
+            ))
+            let parentSidecarURL = outputURL
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(bundleURL.lastPathComponent, isDirectory: true)
+                .appendingPathComponent("chunks", isDirectory: true)
+                .appendingPathComponent("chunk_0.fastq.lungfish-provenance.json")
+
+            XCTAssertTrue(
+                FileManager.default.fileExists(atPath: childSidecarURL.path),
+                "Expected child bundle sidecar at \(childSidecarURL.path)"
+            )
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: parentSidecarURL.path),
+                "Parent provenance should not duplicate child bundle output sidecars at \(parentSidecarURL.path)"
+            )
+        }
+    }
+
+    func testBundleProvenanceContainsOnlyThatBarcodeInputsAndOutputs() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: [
+            "barcode01": ["chunk_0.fastq", "chunk_1.fastq"],
+            "barcode02": ["chunk_0.fastq"],
+        ])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow()
+
+        let result = try await workflow.importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: sourceURL,
+                outputDirectory: outputURL,
+                maxConcurrentBarcodes: 1
+            ),
+            context: makeContext(sourceURL: sourceURL, outputURL: outputURL)
+        ) { _, _ in }
+
+        for bundleURL in result.importResult.bundleURLs {
+            let barcodeName = bundleURL.deletingPathExtension().lastPathComponent
+            let envelope = try readEnvelope(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+            let allInputs = envelope.files.filter { $0.role == .input }.map(\.path)
+                + envelope.steps.flatMap(\.inputs).map(\.path)
+            let allOutputs = envelope.outputs.map(\.path)
+                + envelope.steps.flatMap(\.outputs).map(\.path)
+
+            XCTAssertFalse(allInputs.isEmpty)
+            XCTAssertTrue(
+                allInputs.allSatisfy { $0.contains("/\(barcodeName)/") },
+                "Bundle \(bundleURL.lastPathComponent) contains unrelated inputs:\n\(allInputs.sorted().joined(separator: "\n"))"
+            )
+            XCTAssertTrue(
+                allOutputs.allSatisfy { $0.hasPrefix(canonicalPath(bundleURL) + "/") },
+                "Bundle \(bundleURL.lastPathComponent) contains unrelated outputs:\n\(allOutputs.sorted().joined(separator: "\n"))"
+            )
         }
     }
 

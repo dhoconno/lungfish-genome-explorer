@@ -109,13 +109,18 @@ final class FASTQOperationDialogState {
     var selectReadsBySequenceKeepMatched: Bool
     var selectReadsBySequenceSearchReverseComplement: Bool
 
-    var demultiplexBarcodeSource: FASTQDemultiplexBarcodeSource
+    var demultiplexBarcodeSource: FASTQDemultiplexBarcodeSource {
+        didSet { normalizeDemultiplexSelectionForCurrentEngine() }
+    }
     var demultiplexKitID: String
     var demultiplexCustomCSVPath: String
     var demultiplexLocation: String
     var demultiplexMaxDistanceFrom5Prime: Int
     var demultiplexMaxDistanceFrom3Prime: Int
     var demultiplexErrorRate: Double
+    var demultiplexEngine: DemultiplexEngine {
+        didSet { normalizeDemultiplexSelectionForCurrentEngine() }
+    }
     var demultiplexTrimBarcodes: Bool
 
     var mafftAdvancedOptionsExpanded: Bool
@@ -214,6 +219,7 @@ final class FASTQOperationDialogState {
         self.demultiplexMaxDistanceFrom5Prime = 0
         self.demultiplexMaxDistanceFrom3Prime = 0
         self.demultiplexErrorRate = 0.15
+        self.demultiplexEngine = .cutadapt
         self.demultiplexTrimBarcodes = true
         self.mafftAdvancedOptionsExpanded = false
         self.mafftStrategy = .auto
@@ -321,7 +327,8 @@ final class FASTQOperationDialogState {
                     maxDistanceFrom5Prime: demultiplexMaxDistanceFrom5Prime,
                     maxDistanceFrom3Prime: demultiplexMaxDistanceFrom3Prime,
                     errorRate: demultiplexErrorRate,
-                    trimBarcodes: demultiplexTrimBarcodes,
+                    engine: demultiplexEngine,
+                    trimBarcodes: demultiplexEngine == .exactBareBarcode ? false : demultiplexTrimBarcodes,
                     sampleAssignments: nil,
                     kitOverride: nil
                 ),
@@ -809,6 +816,16 @@ final class FASTQOperationDialogState {
         }
     }
 
+    var demultiplexBuiltInKitOptions: [BarcodeKitDefinition] {
+        let kits = BarcodeKitRegistry.builtinKits()
+        guard demultiplexEngine == .exactBareBarcode else { return kits }
+        return kits.filter(Self.isExactBareBarcodeCompatible(_:))
+    }
+
+    var projectBarcodeDefinitionCandidates: [URL] {
+        Self.projectBarcodeDefinitionCandidates(in: projectURL)
+    }
+
     var detectedAssemblyReadType: AssemblyReadType? {
         assemblyCompatibilityEvaluation.resolvedReadType
     }
@@ -1102,6 +1119,11 @@ final class FASTQOperationDialogState {
             if demultiplexBarcodeSource == .builtinKit, trimmedNonEmpty(demultiplexKitID) == nil {
                 return "Select a built-in barcode kit or switch to a custom definition."
             }
+            if demultiplexEngine == .exactBareBarcode,
+               demultiplexBarcodeSource == .builtinKit,
+               !demultiplexBuiltInKitOptions.contains(where: { $0.id == demultiplexKitID }) {
+                return "Select a bare barcode kit, such as Fluidigm Access Array, or switch to a custom definition."
+            }
             return nil
 
         case .spades, .megahit, .skesa, .flye, .hifiasm:
@@ -1154,6 +1176,16 @@ final class FASTQOperationDialogState {
         pendingTaxTriageConfig = nil
         pendingViralReconRequest = nil
         normalizeOutputMode()
+        normalizeDemultiplexSelectionForCurrentEngine()
+    }
+
+    private func normalizeDemultiplexSelectionForCurrentEngine() {
+        guard demultiplexBarcodeSource == .builtinKit else { return }
+        let options = demultiplexBuiltInKitOptions
+        guard !options.isEmpty else { return }
+        if !options.contains(where: { $0.id == demultiplexKitID }) {
+            demultiplexKitID = options[0].id
+        }
     }
 
     private func normalizeOutputMode() {
@@ -1173,6 +1205,68 @@ final class FASTQOperationDialogState {
         }
 
         return selectedInputURLs.first?.deletingLastPathComponent()
+    }
+
+    private static func isExactBareBarcodeCompatible(_ kit: BarcodeKitDefinition) -> Bool {
+        guard !kit.isDualIndexed,
+              kit.pairingMode == .singleEnd || kit.pairingMode == .symmetric,
+              kit.adapterContext is BareAdapterContext else {
+            return false
+        }
+        return kit.barcodes.allSatisfy { barcode in
+            barcode.i5Sequence == nil && isBareDNABarcode(barcode.i7Sequence)
+        }
+    }
+
+    private static func isBareDNABarcode(_ sequence: String) -> Bool {
+        let bytes = sequence.utf8
+        guard !bytes.isEmpty, bytes.count <= 31 else { return false }
+        return bytes.allSatisfy { byte in
+            switch byte {
+            case UInt8(ascii: "A"), UInt8(ascii: "C"), UInt8(ascii: "G"), UInt8(ascii: "T"),
+                 UInt8(ascii: "a"), UInt8(ascii: "c"), UInt8(ascii: "g"), UInt8(ascii: "t"):
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    private static func projectBarcodeDefinitionCandidates(in projectURL: URL?) -> [URL] {
+        guard let projectURL else { return [] }
+        let fm = FileManager.default
+        let allowedExtensions = Set(["csv", "tsv", "txt"])
+        guard let enumerator = fm.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var candidates: [URL] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name.hasPrefix(".") {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if FASTQBundle.isBundleURL(url) || url.pathExtension.lowercased() == "lungfishref" {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard allowedExtensions.contains(url.pathExtension.lowercased()),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            candidates.append(url.standardizedFileURL)
+        }
+        return candidates.sorted {
+            displayPath(for: $0, relativeTo: projectURL)
+                .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
+        }
     }
 
     private func trimmedNonEmpty(_ value: String) -> String? {

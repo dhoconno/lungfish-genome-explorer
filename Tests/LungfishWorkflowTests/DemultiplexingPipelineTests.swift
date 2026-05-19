@@ -98,6 +98,7 @@ final class DemultiplexingPipelineTests: XCTestCase {
             .outputParsingFailed("bad json"),
             .bundleCreationFailed(barcode: "D701", underlying: "test error"),
             .noOutputResults,
+            .exactBareBarcodeUnsupported,
         ]
 
         for error in errors {
@@ -193,6 +194,19 @@ final class DemultiplexingPipelineTests: XCTestCase {
             outputDirectory: URL(fileURLWithPath: "/tmp/output")
         )
         XCTAssertEqual(rapidConfig.symmetryMode, .singleEnd)
+    }
+
+    func testFluidigmDefaultsToSymmetricBareLongReadDemux() {
+        let config = DemultiplexConfig(
+            inputURL: URL(fileURLWithPath: "/tmp/test.fastq.gz"),
+            barcodeKit: BarcodeKitRegistry.fluidigmAccessArray,
+            outputDirectory: URL(fileURLWithPath: "/tmp/output")
+        )
+
+        XCTAssertEqual(config.symmetryMode, .symmetric)
+        XCTAssertTrue(config.searchReverseComplement)
+        XCTAssertTrue(config.resolvedAdapterContext is BareAdapterContext)
+        XCTAssertEqual(config.effectiveMinimumOverlap, 6)
     }
 
     func testSymmetryModeCanBeOverridden() {
@@ -407,6 +421,178 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertFalse(result.manifest.parameters.requireBothEnds)
         XCTAssertEqual(result.manifest.barcodeKit.barcodeType, BarcodeType.singleEnd)
         XCTAssertFalse(result.manifest.barcodeKit.isDualIndexed)
+    }
+
+    func testCustomBareBarcodeWindowDemuxFindsReverseComplementInOrientedReads() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let fld0001 = "GTATCGTCGT"
+        let fld0001RC = PlatformAdapters.reverseComplement(fld0001)
+        let fld0002 = "GTGTATGCGT"
+        let fld0002RC = PlatformAdapters.reverseComplement(fld0002)
+        let outerONTContext = "AAGGTTACACAAACCCTGGACAAGCAGCACCT"
+
+        let inputFASTQ = tempDir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                outerONTContext + String(repeating: "A", count: 24) + fld0001RC + "GATTACA",
+                outerONTContext + String(repeating: "C", count: 38) + fld0002RC + "GATTACA",
+                outerONTContext + String(repeating: "T", count: 90),
+            ],
+            to: inputFASTQ
+        )
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "FLD0001", i7Sequence: fld0001),
+                BarcodeEntry(id: "FLD0002", i7Sequence: fld0002),
+            ]
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .fivePrime,
+                errorRate: 0.15,
+                minimumOverlap: 3,
+                maxDistanceFrom5Prime: 100,
+                trimBarcodes: true,
+                searchReverseComplement: true,
+                threads: 1,
+                engine: .exactBareBarcode
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertNil(result.nativeCommand, "Exact bare-barcode demux should not invoke cutadapt")
+        XCTAssertEqual(result.manifest.parameters.tool, "exact-bare-barcode-demux")
+        XCTAssertEqual(result.manifest.inputReadCount, 3)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 1)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0002" })?.readCount, 1)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
+
+        let fld0001Bundle = outputDir.appendingPathComponent("FLD0001.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        let readIDs = try String(
+            contentsOf: fld0001Bundle.appendingPathComponent("read-ids.txt"),
+            encoding: .utf8
+        )
+        XCTAssertEqual(readIDs.trimmingCharacters(in: .whitespacesAndNewlines), "read_0")
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: fld0001Bundle.appendingPathComponent("trim-positions.tsv").path),
+            "Exact bare-barcode demux scans whole reads and preserves sequences instead of recording terminal trim offsets."
+        )
+    }
+
+    func testExactBareBarcodeDemuxScansWholeReadAndPreservesSequence() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let fld0001 = "GTATCGTCGT"
+        let fld0001RC = PlatformAdapters.reverseComplement(fld0001)
+        let inputFASTQ = tempDir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                "AAAAA" + fld0001 + "CCCCCGGGGG",
+                "TTTTT" + fld0001RC + "GGGGGCCCCC",
+                "AAAAAAAAAACCCCCCCCCC",
+            ],
+            to: inputFASTQ
+        )
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "FLD0001", i7Sequence: fld0001),
+            ]
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .bothEnds,
+                maxDistanceFrom5Prime: 0,
+                maxDistanceFrom3Prime: 0,
+                trimBarcodes: true,
+                threads: 1,
+                engine: .exactBareBarcode
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.parameters.tool, "exact-bare-barcode-demux")
+        XCTAssertFalse(result.manifest.parameters.trimBarcodes)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 2)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
+
+        let fld0001FASTQ = outputDir
+            .appendingPathComponent("FLD0001.\(FASTQBundle.directoryExtension)", isDirectory: true)
+            .appendingPathComponent("FLD0001.fastq")
+        let output = try String(contentsOf: fld0001FASTQ, encoding: .utf8)
+        XCTAssertTrue(output.contains("AAAAA\(fld0001)CCCCCGGGGG"))
+        XCTAssertTrue(output.contains("TTTTT\(fld0001RC)GGGGGCCCCC"))
+    }
+
+    func testCustomBareBarcodeDefaultEngineUsesCutadapt() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let inputFASTQ = tempDir.appendingPathComponent("input.fastq")
+        try writeFASTQ(
+            sequences: [
+                "GTATCGTCGTGATTACA",
+                "AAAAAAAAAAGATTACA",
+            ],
+            to: inputFASTQ
+        )
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "FLD0001", i7Sequence: "GTATCGTCGT"),
+            ]
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                barcodeLocation: .fivePrime,
+                errorRate: 0.0,
+                minimumOverlap: 10,
+                trimBarcodes: true,
+                threads: 1
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.parameters.tool, "cutadapt")
+        XCTAssertNotNil(result.nativeCommand)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 1)
     }
 
     // MARK: - Poly-G Trim Config

@@ -2630,6 +2630,7 @@ public final class FASTQDatasetViewController: NSViewController {
                 maxDistanceFrom5Prime: step.maxSearchDistance5Prime,
                 maxDistanceFrom3Prime: step.maxSearchDistance3Prime,
                 errorRate: step.errorRate,
+                engine: .cutadapt,
                 trimBarcodes: step.trimBarcodes,
                 sampleAssignments: step.sampleAssignments,
                 kitOverride: nil
@@ -2689,13 +2690,14 @@ public final class FASTQDatasetViewController: NSViewController {
             let maxDistanceFrom5Prime,
             let maxDistanceFrom3Prime,
             let errorRate,
+            let engine,
             _,
             let sampleAssignments,
             _
         ):
             let sampleCount = sampleAssignments?.count ?? 0
             let source = sampleCount > 0 ? ", \(sampleCount) sample-pairs" : ""
-            return "Demultiplex (\(kitID), \(location), w5=\(maxDistanceFrom5Prime), w3=\(maxDistanceFrom3Prime), e=\(String(format: "%.2f", errorRate))\(source))"
+            return "Demultiplex (\(kitID), \(location), \(engine.rawValue), w5=\(maxDistanceFrom5Prime), w3=\(maxDistanceFrom3Prime), e=\(String(format: "%.2f", errorRate))\(source))"
         case .sequencePresenceFilter(let sequence, _, let searchEnd, let minOverlap, let errorRate, let keepMatched, let searchRC):
             let endLabel = searchEnd == .fivePrime ? "5'" : "3'"
             let action = keepMatched ? "keep" : "discard"

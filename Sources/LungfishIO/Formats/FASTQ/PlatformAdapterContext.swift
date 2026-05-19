@@ -59,6 +59,7 @@ public enum BarcodeKitType: String, Codable, Sendable, CaseIterable {
     case sixteenS           // ONT 16S barcoding kits
     case truseq             // Illumina TruSeq
     case nextera            // Illumina Nextera / DNA Prep
+    case fluidigmAccessArray // Fluidigm Access Array bare 10 bp indexes
     case pacbioStandard     // PacBio barcoded adapters (CCS/HiFi, bare barcodes)
     case pacbioM13Amplicon  // PacBio barcoded amplicon with M13 universal primers
     case custom             // User-defined
@@ -313,6 +314,8 @@ extension SequencingPlatform {
         switch self {
         case .oxfordNanopore:
             switch kitType {
+            case .fluidigmAccessArray:
+                return BareAdapterContext()
             case .nativeBarcoding, .pcrBarcoding, .sixteenS:
                 return ONTNativeAdapterContext()
             case .rapidBarcoding:

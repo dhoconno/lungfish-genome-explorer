@@ -243,8 +243,16 @@ func validateInput(_ path: String) throws -> URL {
     return URL(fileURLWithPath: path)
 }
 
+private let barcodeKitIDsHelpText = BarcodeKitRegistry.builtinKits()
+    .map(\.id)
+    .joined(separator: ", ")
+
+private let barcodeDefinitionFormatHelpText = """
+Custom definitions can be CSV, TSV, or whitespace text with columns id,sequence[,secondary_sequence][,sample_name]; header optional. Example: FLD0001<TAB>GTATCGTCGT.
+"""
+
 private let barcodeKitHelpText = """
-Barcode kit: truseq-single-a, truseq-single-b, truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or path to custom CSV
+Barcode kit: \(barcodeKitIDsHelpText), or path to custom CSV/TSV/text barcode definition. \(barcodeDefinitionFormatHelpText)
 """
 
 func resolveBarcodeKitArgument(_ kit: String) throws -> (definition: BarcodeKitDefinition, customURL: URL?) {
@@ -257,8 +265,9 @@ func resolveBarcodeKitArgument(_ kit: String) throws -> (definition: BarcodeKitD
         return (try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: name), csvURL)
     }
     throw ValidationError(
-        "Unknown barcode kit '\(kit)'. Use one of: truseq-single-a, truseq-single-b, "
-        + "truseq-ht-dual, nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3, pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104, ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096, ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24, ont-rab204-214, or a path to a custom CSV."
+        "Unknown barcode kit '\(kit)'. Use one of: \(barcodeKitIDsHelpText), "
+        + "or a path to a custom CSV/TSV/text barcode definition. "
+        + "Expected columns: id,sequence[,secondary_sequence][,sample_name]."
     )
 }
 
@@ -1901,24 +1910,31 @@ struct FastqDeduplicateSubcommand: AsyncParsableCommand {
 struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "demultiplex",
-        abstract: "Demultiplex reads by internal barcodes using cutadapt",
+        abstract: "Demultiplex reads by internal barcodes",
         discussion: """
             Splits multiplexed FASTQ reads into per-barcode output files using
             embedded cutadapt. Supports single- and dual-indexed Illumina kits,
-            custom barcode CSVs, and terminally anchored barcode location (5', 3', or both ends).
+            Fluidigm Access Array indexes, custom barcode definition files, and
+            terminally anchored barcode location (5', 3', or both ends) for
+            cutadapt demultiplexing.
 
             Useful for internal Illumina barcodes within ONT reads, re-demultiplexing,
             or demultiplexing with custom barcode sets.
 
-            Built-in kits: truseq-single-a, truseq-single-b, truseq-ht-dual,
-            nextera-xt-v2, idt-ud-indexes, pacbio-sequel-16-v3,
-            pacbio-sequel-96-v2, pacbio-sequel-384-v1, ont-nbd104,
-            ont-nbd114, ont-nbd104-114, ont-nbd114-96, ont-pbc096,
-            ont-rbk004, ont-rbk114-24, ont-rbk114-96, ont-16s114-24,
-            ont-rab204-214.
+            Built-in kits: \(barcodeKitIDsHelpText).
+
+            Custom definitions can be CSV, TSV, or whitespace-delimited text:
+              id,sequence[,secondary_sequence][,sample_name]
+              FLD0001<TAB>GTATCGTCGT
+
+            Engines:
+              cutadapt    Established fuzzy adapter matcher; supports error rate and indels.
+              exact-bare  Swift-native exact matching for bare A/C/G/T barcodes; scans whole reads,
+                          searches reverse complements, and preserves reads.
 
             Examples:
               lungfish fastq demultiplex reads.fastq.gz --kit truseq-single-a -o demux-out/
+              lungfish fastq demultiplex reads.fastq.gz --kit fluidigm-access-array -o demux-out/ --engine exact-bare
               lungfish fastq demultiplex reads.fastq.gz --kit custom.csv -o demux-out/ --location bothends
             """
     )
@@ -1935,27 +1951,31 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var output: String
 
     @Option(name: .customLong("location"),
-            help: "Barcode location: 5prime, 3prime, bothends (default: bothends)")
+            help: "Cutadapt barcode location: 5prime, 3prime, bothends (default: bothends)")
     var location: String = "bothends"
 
     @Option(name: .customLong("max-distance-5prime"),
-            help: "Max bases from 5' terminus where barcodes may start (default: 0)")
+            help: "Cutadapt max bases from 5' terminus where barcodes may start (default: 0)")
     var maxDistanceFrom5Prime: Int = 0
 
     @Option(name: .customLong("max-distance-3prime"),
-            help: "Max bases from 3' terminus where barcodes may end (default: 0)")
+            help: "Cutadapt max bases from 3' terminus where barcodes may end (default: 0)")
     var maxDistanceFrom3Prime: Int = 0
 
     @Option(name: .customLong("error-rate"),
-            help: "Maximum error rate for barcode matching (default: 0.15)")
+            help: "Cutadapt maximum error rate for barcode matching (default: 0.15)")
     var errorRate: Double = 0.15
 
     @Option(name: .customLong("overlap"),
-            help: "Minimum overlap length (default: 3)")
+            help: "Cutadapt minimum overlap length (default: 3)")
     var overlap: Int = 3
 
+    @Option(name: .customLong("engine"),
+            help: "Demultiplexing engine: cutadapt or exact-bare (default: cutadapt)")
+    var engine: String = DemultiplexEngine.cutadapt.rawValue
+
     @Flag(name: .customLong("no-trim"),
-          help: "Keep barcode sequences in output reads (do not trim)")
+          help: "Cutadapt only: keep barcode sequences in output reads (exact-bare always preserves reads)")
     var noTrim: Bool = false
 
     @Flag(name: .customLong("discard-unassigned"),
@@ -1963,7 +1983,7 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
     var discardUnassigned: Bool = false
 
     @Option(name: .customLong("threads"),
-            help: "Number of threads for cutadapt (default: 4)")
+            help: "Cutadapt thread count (default: 4)")
     var threads: Int = 4
 
     func run() async throws {
@@ -1982,6 +2002,25 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let barcodeKit = resolvedKit.definition
         let customKitURL = resolvedKit.customURL
 
+        let sourceBundleURL = FASTQBundle.isBundleURL(inputURL) ? inputURL : nil
+        let sourceManifest = sourceBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
+        let rootBundleURL = sourceBundleURL.flatMap { bundleURL -> URL? in
+            if let sourceManifest {
+                return FASTQBundle.resolveBundle(
+                    relativePath: sourceManifest.rootBundleRelativePath,
+                    from: bundleURL
+                )
+            }
+            return bundleURL
+        }
+        let rootFASTQFilename = sourceManifest?.rootFASTQFilename
+            ?? sourceBundleURL.flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0)?.lastPathComponent }
+        let inputPairingMode = sourceManifest?.pairingMode
+            ?? sourceBundleURL
+                .flatMap { FASTQBundle.resolvePrimaryFASTQURL(for: $0) }
+                .flatMap { FASTQMetadataStore.load(for: $0)?.ingestion?.pairingMode }
+        let inputSequenceFormat = sourceManifest?.sequenceFormat
+
         // Parse barcode location
         let barcodeLocation: BarcodeLocation
         switch location.lowercased() {
@@ -1992,8 +2031,20 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             throw ValidationError("Invalid barcode location '\(location)'. Use: 5prime, 3prime, bothends")
         }
 
+        let demultiplexEngine: DemultiplexEngine
+        switch engine.lowercased() {
+        case "cutadapt":
+            demultiplexEngine = .cutadapt
+        case "exact-bare", "exact-bare-barcode", "exactbare", "bare":
+            demultiplexEngine = .exactBareBarcode
+        default:
+            throw ValidationError("Invalid demultiplexing engine '\(engine)'. Use: cutadapt or exact-bare")
+        }
+        let effectiveTrimBarcodes = demultiplexEngine == .exactBareBarcode ? false : !noTrim
+
         let config = DemultiplexConfig(
             inputURL: inputURL,
+            sourceBundleURL: sourceBundleURL,
             barcodeKit: barcodeKit,
             outputDirectory: outputURL,
             barcodeLocation: barcodeLocation,
@@ -2001,9 +2052,14 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             minimumOverlap: overlap,
             maxDistanceFrom5Prime: maxDistanceFrom5Prime,
             maxDistanceFrom3Prime: maxDistanceFrom3Prime,
-            trimBarcodes: !noTrim,
+            trimBarcodes: effectiveTrimBarcodes,
             unassignedDisposition: discardUnassigned ? .discard : .keep,
-            threads: threads
+            threads: threads,
+            engine: demultiplexEngine,
+            rootBundleURL: rootBundleURL,
+            rootFASTQFilename: rootFASTQFilename,
+            inputPairingMode: inputPairingMode,
+            inputSequenceFormat: inputSequenceFormat
         )
 
         let pipeline = DemultiplexingPipeline()
@@ -2012,29 +2068,33 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
         }
         var cliArguments = ["demultiplex", inputURL.path, "--kit", kit, "--output", output]
-        if location != "bothends" {
-            cliArguments += ["--location", location]
-        }
-        if maxDistanceFrom5Prime != 0 {
-            cliArguments += ["--max-distance-5prime", String(maxDistanceFrom5Prime)]
-        }
-        if maxDistanceFrom3Prime != 0 {
-            cliArguments += ["--max-distance-3prime", String(maxDistanceFrom3Prime)]
-        }
-        if errorRate != 0.15 {
-            cliArguments += ["--error-rate", String(errorRate)]
-        }
-        if overlap != 3 {
-            cliArguments += ["--overlap", String(overlap)]
-        }
-        if noTrim {
-            cliArguments.append("--no-trim")
+        if demultiplexEngine == .exactBareBarcode {
+            cliArguments += ["--engine", demultiplexEngine.rawValue]
+        } else {
+            if location != "bothends" {
+                cliArguments += ["--location", location]
+            }
+            if maxDistanceFrom5Prime != 0 {
+                cliArguments += ["--max-distance-5prime", String(maxDistanceFrom5Prime)]
+            }
+            if maxDistanceFrom3Prime != 0 {
+                cliArguments += ["--max-distance-3prime", String(maxDistanceFrom3Prime)]
+            }
+            if errorRate != 0.15 {
+                cliArguments += ["--error-rate", String(errorRate)]
+            }
+            if overlap != 3 {
+                cliArguments += ["--overlap", String(overlap)]
+            }
+            if noTrim {
+                cliArguments.append("--no-trim")
+            }
+            if threads != 4 {
+                cliArguments += ["--threads", String(threads)]
+            }
         }
         if discardUnassigned {
             cliArguments.append("--discard-unassigned")
-        }
-        if threads != 4 {
-            cliArguments += ["--threads", String(threads)]
         }
         let outputBundleURLs = result.outputBundleURLs
             + (result.unassignedBundleURL.map { [$0] } ?? [])
@@ -2043,42 +2103,64 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
         let outputRecords = [ProvenanceRecorder.fileRecord(url: manifestURL, format: .json, role: .output)]
             + outputPayloads.map { ProvenanceRecorder.fileRecord(url: $0, format: .fastq, role: .output) }
-        let cutadaptVersion = await NativeToolRunner.shared.getToolVersion(.cutadapt) ?? "unknown"
+        let demultiplexToolName = result.manifest.parameters.tool
+        let demultiplexToolVersion: String
+        if demultiplexToolName == NativeTool.cutadapt.rawValue {
+            demultiplexToolVersion = await NativeToolRunner.shared.getToolVersion(.cutadapt) ?? "unknown"
+        } else {
+            demultiplexToolVersion = LungfishCLI.configuration.version
+        }
+        let stepCommand = result.nativeCommand
+            ?? result.manifest.parameters.commandLine?.split(separator: " ").map(String.init)
         let inputRecords = [ProvenanceRecorder.fileRecord(url: inputURL, format: .fastq, role: .input)]
             + (customKitURL.map { provenanceRecords(for: $0, format: .text, role: .reference) } ?? [])
+        var provenanceParameters: [String: ParameterValue] = [
+            "input": .file(inputURL),
+            "kit": .string(kit),
+            "resolvedKit": .string(barcodeKit.id),
+            "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
+            "output": .file(outputURL),
+            "engine": .string(demultiplexEngine.rawValue),
+            "discardUnassigned": .boolean(discardUnassigned),
+        ]
+        var provenanceDefaults: [String: ParameterValue] = [
+            "engine": .string(DemultiplexEngine.cutadapt.rawValue),
+            "discardUnassigned": .boolean(false),
+            "customBarcodeKit": .null,
+        ]
+        if demultiplexEngine == .exactBareBarcode {
+            provenanceParameters["searchMode"] = .string("whole-read")
+            provenanceParameters["searchReverseComplement"] = .boolean(true)
+            provenanceParameters["trimBarcodes"] = .boolean(false)
+            provenanceDefaults["searchMode"] = .string("whole-read")
+            provenanceDefaults["searchReverseComplement"] = .boolean(true)
+            provenanceDefaults["trimBarcodes"] = .boolean(false)
+        } else {
+            provenanceParameters["location"] = .string(location)
+            provenanceParameters["resolvedLocation"] = .string(barcodeLocation.rawValue)
+            provenanceParameters["maxDistanceFrom5Prime"] = .integer(maxDistanceFrom5Prime)
+            provenanceParameters["maxDistanceFrom3Prime"] = .integer(maxDistanceFrom3Prime)
+            provenanceParameters["errorRate"] = .number(errorRate)
+            provenanceParameters["overlap"] = .integer(overlap)
+            provenanceParameters["trimBarcodes"] = .boolean(effectiveTrimBarcodes)
+            provenanceParameters["threads"] = .integer(threads)
+            provenanceDefaults["location"] = .string("bothends")
+            provenanceDefaults["maxDistanceFrom5Prime"] = .integer(0)
+            provenanceDefaults["maxDistanceFrom3Prime"] = .integer(0)
+            provenanceDefaults["errorRate"] = .number(0.15)
+            provenanceDefaults["overlap"] = .integer(3)
+            provenanceDefaults["trimBarcodes"] = .boolean(true)
+            provenanceDefaults["threads"] = .integer(4)
+        }
+
         try await CLIProvenanceSupport.recordSingleStepRun(
             name: "lungfish fastq demultiplex",
-            parameters: [
-                "input": .file(inputURL),
-                "kit": .string(kit),
-                "resolvedKit": .string(barcodeKit.id),
-                "customBarcodeKit": customKitURL.map(ParameterValue.file) ?? .null,
-                "output": .file(outputURL),
-                "location": .string(location),
-                "resolvedLocation": .string(barcodeLocation.rawValue),
-                "maxDistanceFrom5Prime": .integer(maxDistanceFrom5Prime),
-                "maxDistanceFrom3Prime": .integer(maxDistanceFrom3Prime),
-                "errorRate": .number(errorRate),
-                "overlap": .integer(overlap),
-                "trimBarcodes": .boolean(!noTrim),
-                "discardUnassigned": .boolean(discardUnassigned),
-                "threads": .integer(threads)
-            ],
-            defaults: [
-                "location": .string("bothends"),
-                "maxDistanceFrom5Prime": .integer(0),
-                "maxDistanceFrom3Prime": .integer(0),
-                "errorRate": .number(0.15),
-                "overlap": .integer(3),
-                "trimBarcodes": .boolean(true),
-                "discardUnassigned": .boolean(false),
-                "customBarcodeKit": .null,
-                "threads": .integer(4)
-            ],
-            toolName: NativeTool.cutadapt.rawValue,
-            toolVersion: cutadaptVersion,
+            parameters: provenanceParameters,
+            defaults: provenanceDefaults,
+            toolName: demultiplexToolName,
+            toolVersion: demultiplexToolVersion,
             command: ["lungfish", "fastq"] + cliArguments,
-            stepCommand: result.nativeCommand,
+            stepCommand: stepCommand,
             inputs: inputRecords,
             outputs: outputRecords,
             exitCode: 0,

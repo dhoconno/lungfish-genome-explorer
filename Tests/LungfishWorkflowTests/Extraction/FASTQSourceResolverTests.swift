@@ -5,6 +5,7 @@
 import Testing
 import Foundation
 import os
+import LungfishIO
 @testable import LungfishWorkflow
 
 @Suite("FASTQSourceResolver")
@@ -117,6 +118,42 @@ struct FASTQSourceResolverTests {
         try FileManager.default.removeItem(at: tmp)
     }
 
+    @Test("Uses replacement chunks when source-files manifest is stale")
+    func staleManifestReplacementChunks() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID().uuidString)")
+        let bundleURL = tmp.appendingPathComponent("multi.lungfishfastq")
+        let chunksDir = bundleURL.appendingPathComponent("chunks")
+        try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+        let replacementChunk = chunksDir.appendingPathComponent("chunk_0.clumped.fastq.gz")
+        let intactChunk = chunksDir.appendingPathComponent("chunk_1.fastq.gz")
+        try Data([0x1f, 0x8b]).write(to: replacementChunk)
+        try Data([0x1f, 0x8b]).write(to: intactChunk)
+
+        let appleDouble = chunksDir.appendingPathComponent("._chunk_1.fastq.gz")
+        try Data([0x00]).write(to: appleDouble)
+
+        let manifest = """
+        {
+            "version": 1,
+            "files": [
+                {"filename": "chunks/chunk_0.fastq.gz", "originalPath": "/orig/chunk_0.fastq.gz", "sizeBytes": 100, "isSymlink": false},
+                {"filename": "chunks/chunk_1.fastq.gz", "originalPath": "/orig/chunk_1.fastq.gz", "sizeBytes": 200, "isSymlink": false}
+            ]
+        }
+        """
+        try manifest.write(to: bundleURL.appendingPathComponent("source-files.json"), atomically: true, encoding: .utf8)
+
+        let resolver = FASTQSourceResolver()
+        let resolved = try await resolver.resolve(bundleURL: bundleURL, tempDirectory: tmp, progress: { _, _ in })
+        #expect(resolved.map(\.lastPathComponent) == [
+            "chunk_0.clumped.fastq.gz",
+            "chunk_1.fastq.gz",
+        ])
+
+        try FileManager.default.removeItem(at: tmp)
+    }
+
     @Test("Resolves paired-end FASTQ files")
     func pairedEndFASTQ() async throws {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID().uuidString)")
@@ -163,7 +200,7 @@ struct FASTQSourceResolverTests {
         do {
             _ = try await resolver.resolve(bundleURL: bundleURL, tempDirectory: tmp, progress: { _, _ in })
             Issue.record("Should have thrown for derived bundle without materializer")
-        } catch is ExtractionError {
+        } catch is LungfishWorkflow.ExtractionError {
             // Expected — noSourceFASTQ
         }
 
@@ -215,5 +252,47 @@ struct FASTQSourceResolverTests {
         #expect(resolved[0] == materializedURL)
 
         try FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("CLI materializer copies full payload even when legacy root is missing")
+    func materializerCopiesFullPayloadWithMissingLegacyRoot() async throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let bundleURL = tmp.appendingPathComponent("oriented.lungfishfastq")
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let localFASTQ = bundleURL.appendingPathComponent("orient.fastq")
+        let fastq = "@read1\nACGT\n+\nIIII\n"
+        try fastq.write(to: localFASTQ, atomically: true, encoding: .utf8)
+
+        let operation = FASTQDerivativeOperation(kind: .orient)
+        let manifest = FASTQDerivedBundleManifest(
+            name: "oriented",
+            parentBundleRelativePath: "@/source.lungfishfastq",
+            rootBundleRelativePath: "@/source.lungfishfastq",
+            rootFASTQFilename: "missing-root.fastq",
+            payload: .full(fastqFilename: localFASTQ.lastPathComponent),
+            lineage: [operation],
+            operation: operation,
+            cachedStatistics: .placeholder(readCount: 1, baseCount: 4),
+            pairingMode: .singleEnd,
+            sequenceFormat: .fastq
+        )
+        try FASTQBundle.saveDerivedManifest(manifest, in: bundleURL)
+
+        let materializer = FASTQCLIMaterializer(runner: NativeToolRunner.shared)
+        let outDir = tmp.appendingPathComponent("out", isDirectory: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+
+        let materializedURL = try await materializer.materialize(
+            bundleURL: bundleURL,
+            tempDirectory: outDir,
+            progress: nil
+        )
+
+        #expect(try String(contentsOf: materializedURL, encoding: .utf8) == fastq)
+        let repairedManifest = try #require(FASTQBundle.loadDerivedManifest(in: bundleURL))
+        #expect(repairedManifest.rootBundleRelativePath == ".")
+        #expect(repairedManifest.rootFASTQFilename == localFASTQ.lastPathComponent)
     }
 }

@@ -59,6 +59,62 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.derivedManifestMissing
         }
 
+        let outputExtension = Self.materializedOutputExtension(for: manifest)
+        let outputURL = tempDirectory.appendingPathComponent(
+            "materialized-\(UUID().uuidString).\(outputExtension)"
+        )
+        progress?("Materializing pointer dataset...")
+
+        switch manifest.payload {
+        case .full(let fastqFilename):
+            let fullFASTQURL = bundleURL.appendingPathComponent(fastqFilename)
+            guard FileManager.default.fileExists(atPath: fullFASTQURL.path) else {
+                throw FASTQCLIMaterializerError.sourceFASTQMissing
+            }
+            try FileManager.default.copyItem(at: fullFASTQURL, to: outputURL)
+            try? repairSelfRootedMaterializedManifestIfNeeded(
+                manifest,
+                in: bundleURL,
+                payloadFilename: fastqFilename
+            )
+            return outputURL
+
+        case .fullFASTA(let fastaFilename):
+            let fullFASTAURL = bundleURL.appendingPathComponent(fastaFilename)
+            guard FileManager.default.fileExists(atPath: fullFASTAURL.path) else {
+                throw FASTQCLIMaterializerError.sourceFASTQMissing
+            }
+            try FileManager.default.copyItem(at: fullFASTAURL, to: outputURL)
+            try? repairSelfRootedMaterializedManifestIfNeeded(
+                manifest,
+                in: bundleURL,
+                payloadFilename: fastaFilename
+            )
+            return outputURL
+
+        case .fullPaired(let r1Filename, let r2Filename):
+            let r1URL = bundleURL.appendingPathComponent(r1Filename)
+            let r2URL = bundleURL.appendingPathComponent(r2Filename)
+            guard FileManager.default.fileExists(atPath: r1URL.path),
+                  FileManager.default.fileExists(atPath: r2URL.path) else {
+                throw FASTQCLIMaterializerError.sourceFASTQMissing
+            }
+            try await interleaveWithReformat(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL)
+            return outputURL
+
+        case .fullMixed(let classification):
+            try await materializeFullMixed(
+                classification: classification,
+                bundleURL: bundleURL,
+                tempDirectory: tempDirectory,
+                outputURL: outputURL
+            )
+            return outputURL
+
+        case .subset, .trim, .demuxedVirtual, .orientMap, .demuxGroup:
+            break
+        }
+
         var rootBundleURL = FASTQBundle.resolveBundle(
             relativePath: manifest.rootBundleRelativePath,
             from: bundleURL
@@ -105,13 +161,10 @@ public final class FASTQCLIMaterializer: Sendable {
             throw FASTQCLIMaterializerError.rootFASTQMissing
         }
 
-        let outputExtension = Self.materializedOutputExtension(for: manifest)
-        let outputURL = tempDirectory.appendingPathComponent(
-            "materialized-\(UUID().uuidString).\(outputExtension)"
-        )
-        progress?("Materializing pointer dataset...")
-
         switch manifest.payload {
+        case .full, .fullFASTA, .fullPaired, .fullMixed:
+            throw FASTQCLIMaterializerError.sourceFASTQMissing
+
         case .subset(let readIDFilename):
             let readIDListURL = bundleURL.appendingPathComponent(readIDFilename)
             let trimURL = bundleTrimPositionsURL(bundleURL)
@@ -155,37 +208,6 @@ public final class FASTQCLIMaterializer: Sendable {
                     outputFASTQ: outputURL
                 )
             }
-
-        case .full(let fastqFilename):
-            let fullFASTQURL = bundleURL.appendingPathComponent(fastqFilename)
-            guard FileManager.default.fileExists(atPath: fullFASTQURL.path) else {
-                throw FASTQCLIMaterializerError.sourceFASTQMissing
-            }
-            try FileManager.default.copyItem(at: fullFASTQURL, to: outputURL)
-
-        case .fullFASTA(let fastaFilename):
-            let fullFASTAURL = bundleURL.appendingPathComponent(fastaFilename)
-            guard FileManager.default.fileExists(atPath: fullFASTAURL.path) else {
-                throw FASTQCLIMaterializerError.sourceFASTQMissing
-            }
-            try FileManager.default.copyItem(at: fullFASTAURL, to: outputURL)
-
-        case .fullPaired(let r1Filename, let r2Filename):
-            let r1URL = bundleURL.appendingPathComponent(r1Filename)
-            let r2URL = bundleURL.appendingPathComponent(r2Filename)
-            guard FileManager.default.fileExists(atPath: r1URL.path),
-                  FileManager.default.fileExists(atPath: r2URL.path) else {
-                throw FASTQCLIMaterializerError.sourceFASTQMissing
-            }
-            try await interleaveWithReformat(r1URL: r1URL, r2URL: r2URL, outputURL: outputURL)
-
-        case .fullMixed(let classification):
-            try await materializeFullMixed(
-                classification: classification,
-                bundleURL: bundleURL,
-                tempDirectory: tempDirectory,
-                outputURL: outputURL
-            )
 
         case .demuxedVirtual(_, let readIDFilename, _, let trimPositionsFilename, let orientMapFilename):
             let readIDListURL = bundleURL.appendingPathComponent(readIDFilename)
@@ -237,6 +259,37 @@ public final class FASTQCLIMaterializer: Sendable {
         }
 
         return outputURL
+    }
+
+    private func repairSelfRootedMaterializedManifestIfNeeded(
+        _ manifest: FASTQDerivedBundleManifest,
+        in bundleURL: URL,
+        payloadFilename: String
+    ) throws {
+        guard manifest.rootBundleRelativePath != "." || manifest.rootFASTQFilename != payloadFilename else {
+            return
+        }
+
+        let repairedManifest = FASTQDerivedBundleManifest(
+            id: manifest.id,
+            name: manifest.name,
+            createdAt: manifest.createdAt,
+            parentBundleRelativePath: manifest.parentBundleRelativePath,
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: payloadFilename,
+            payload: manifest.payload,
+            lineage: manifest.lineage,
+            operation: manifest.operation,
+            cachedStatistics: manifest.cachedStatistics,
+            pairingMode: manifest.pairingMode,
+            readClassification: manifest.readClassification,
+            batchOperationID: manifest.batchOperationID,
+            sequenceFormat: manifest.sequenceFormat,
+            provenance: manifest.provenance,
+            payloadChecksums: manifest.payloadChecksums,
+            materializationState: manifest.materializationState
+        )
+        try FASTQBundle.saveDerivedManifest(repairedManifest, in: bundleURL)
     }
 
     private static func materializedOutputExtension(for manifest: FASTQDerivedBundleManifest) -> String {

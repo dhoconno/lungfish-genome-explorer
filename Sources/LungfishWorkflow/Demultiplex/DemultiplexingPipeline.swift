@@ -10,6 +10,11 @@ private let logger = Logger(subsystem: LogSubsystem.workflow, category: "Demulti
 
 // MARK: - Demultiplex Configuration
 
+public enum DemultiplexEngine: String, Codable, Sendable, CaseIterable {
+    case cutadapt
+    case exactBareBarcode = "exact-bare"
+}
+
 /// Configuration for a cutadapt-based demultiplexing run.
 public struct DemultiplexConfig: Sendable {
     /// Input FASTQ file URL (may be inside a .lungfishfastq bundle or standalone).
@@ -73,6 +78,9 @@ public struct DemultiplexConfig: Sendable {
     /// platform and kit type. Set this to override the default context for
     /// custom adapter constructs.
     public let adapterContext: (any PlatformAdapterContext)?
+
+    /// Backend engine used for demultiplexing.
+    public let engine: DemultiplexEngine
 
     /// Optional explicit asymmetric sample assignments.
     ///
@@ -168,6 +176,7 @@ public struct DemultiplexConfig: Sendable {
         polyGTrimQuality: Int? = nil,
         threads: Int = 4,
         adapterContext: (any PlatformAdapterContext)? = nil,
+        engine: DemultiplexEngine = .cutadapt,
         sampleAssignments: [FASTQSampleBarcodeAssignment] = [],
         sourcePlatform: LungfishIO.SequencingPlatform? = nil,
         rootBundleURL: URL? = nil,
@@ -215,6 +224,7 @@ public struct DemultiplexConfig: Sendable {
         self.polyGTrimQuality = polyGTrimQuality ?? barcodeKit.platform.defaultPolyGTrimQuality
         self.threads = threads
         self.sampleAssignments = sampleAssignments
+        self.engine = engine
         self.sourcePlatform = sourcePlatform
         self.rootBundleURL = rootBundleURL
         self.rootFASTQFilename = rootFASTQFilename
@@ -259,6 +269,7 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
     case noOutputResults
     case emptyAdapterSequences(kitName: String)
     case binCountExceeded(count: Int, limit: Int)
+    case exactBareBarcodeUnsupported
 
     public var errorDescription: String? {
         switch self {
@@ -280,6 +291,8 @@ public enum DemultiplexError: Error, LocalizedError, Sendable {
             return "Adapter FASTA for kit '\(kitName)' contains no valid sequences. Check barcode definitions."
         case .binCountExceeded(let count, let limit):
             return "Bin count (\(count)) exceeds maximum (\(limit)). Reduce the number of barcode combinations or use fewer demux steps."
+        case .exactBareBarcodeUnsupported:
+            return "Exact bare-barcode demultiplexing requires a single-index bare barcode kit with A/C/G/T sequences. Use cutadapt for adapter-context, dual-index, or fuzzy barcode matching."
         }
     }
 }
@@ -349,6 +362,18 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
         // minimum insert distance, and exact matching required for PacBio barcodes on ONT.
         if config.symmetryMode == .asymmetric && !config.sampleAssignments.isEmpty {
             return try await runExactBarcodeDemux(
+                config: config,
+                inputFASTQ: inputFASTQ,
+                startTime: startTime,
+                progress: progress
+            )
+        }
+
+        if config.engine == .exactBareBarcode {
+            guard supportsExactBareBarcodeDemux(config) else {
+                throw DemultiplexError.exactBareBarcodeUnsupported
+            }
+            return try await runExactBareBarcodeDemux(
                 config: config,
                 inputFASTQ: inputFASTQ,
                 startTime: startTime,
@@ -1339,6 +1364,643 @@ public final class DemultiplexingPipeline: @unchecked Sendable {
     private struct AdapterConfiguration {
         let adapterFASTA: URL
         let adapterFlag: String
+    }
+
+    private struct ExactBareBarcodeMatch {
+        let barcodeIndex: Int
+        let start: Int
+        let length: Int
+    }
+
+    private struct ExactBareBarcodeAssignment {
+        let barcodeIndex: Int
+        let trim5p: Int
+        let trim3p: Int
+    }
+
+    private struct ExactBareBarcodeAccumulator {
+        let barcodeID: String
+        var readIDs: [String] = []
+        var previewRecords: [FASTQRawRecord] = []
+        var trimEntries: [DemuxTrimEntry] = []
+        var readCount: Int = 0
+        var baseCount: Int64 = 0
+        var minReadLength: Int = Int.max
+        var maxReadLength: Int = 0
+        var readLengthHistogram: [Int: Int] = [:]
+
+        mutating func add(
+            readID: String,
+            previewRecord: FASTQRawRecord,
+            outputLength: Int,
+            trimEntry: DemuxTrimEntry?,
+            previewLimit: Int = 1000
+        ) {
+            readIDs.append(readID)
+            if previewRecords.count < previewLimit {
+                previewRecords.append(previewRecord)
+            }
+            if let trimEntry {
+                trimEntries.append(trimEntry)
+            }
+            readCount += 1
+            baseCount += Int64(outputLength)
+            minReadLength = min(minReadLength, outputLength)
+            maxReadLength = max(maxReadLength, outputLength)
+            readLengthHistogram[outputLength, default: 0] += 1
+        }
+
+        var finalizedMinReadLength: Int {
+            readCount > 0 ? minReadLength : 0
+        }
+    }
+
+    private struct ExactBareBarcodeMatcher {
+        struct Candidate {
+            let barcodeIndex: Int
+        }
+
+        let barcodeCount: Int
+        let barcodeLocation: BarcodeLocation
+        let maxDistanceFrom5Prime: Int
+        let maxDistanceFrom3Prime: Int
+        let mapsByLength: [Int: [UInt64: [Candidate]]]
+        let lengths: [Int]
+
+        init?(
+            barcodes: [BarcodeEntry],
+            barcodeLocation: BarcodeLocation,
+            maxDistanceFrom5Prime: Int,
+            maxDistanceFrom3Prime: Int,
+            includeReverseComplements: Bool
+        ) {
+            var mapsByLength: [Int: [UInt64: [Candidate]]] = [:]
+            for (index, barcode) in barcodes.enumerated() {
+                let primary = barcode.i7Sequence.uppercased()
+                guard let primaryCode = Self.twoBitCode(primary) else {
+                    return nil
+                }
+                mapsByLength[primary.count, default: [:]][primaryCode, default: []]
+                    .append(Candidate(barcodeIndex: index))
+
+                if includeReverseComplements {
+                    let rc = PlatformAdapters.reverseComplement(primary)
+                    if rc != primary {
+                        guard let rcCode = Self.twoBitCode(rc) else {
+                            return nil
+                        }
+                        mapsByLength[rc.count, default: [:]][rcCode, default: []]
+                            .append(Candidate(barcodeIndex: index))
+                    }
+                }
+            }
+            self.barcodeCount = barcodes.count
+            self.barcodeLocation = barcodeLocation
+            self.maxDistanceFrom5Prime = max(0, maxDistanceFrom5Prime)
+            self.maxDistanceFrom3Prime = max(0, maxDistanceFrom3Prime)
+            self.mapsByLength = mapsByLength
+            self.lengths = mapsByLength.keys.sorted()
+        }
+
+        func assignment(for sequence: String) -> ExactBareBarcodeAssignment? {
+            let bytes = Array(sequence.utf8)
+            guard let match = findAny(in: bytes) else { return nil }
+            return ExactBareBarcodeAssignment(
+                barcodeIndex: match.barcodeIndex,
+                trim5p: 0,
+                trim3p: 0
+            )
+        }
+
+        private func findAny(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
+            var best: ExactBareBarcodeMatch?
+            for length in lengths {
+                guard length <= bytes.count,
+                      let map = mapsByLength[length] else { continue }
+                if let match = findMatch(
+                    in: bytes,
+                    length: length,
+                    startRange: 0...(bytes.count - length),
+                    map: map,
+                    preferLast: false
+                ) {
+                    if best == nil || match.start < best!.start {
+                        best = match
+                    }
+                }
+            }
+            return best
+        }
+
+        private func findFivePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
+            var best: ExactBareBarcodeMatch?
+            for length in lengths {
+                guard length <= bytes.count,
+                      let map = mapsByLength[length] else { continue }
+                let maxStart = min(maxDistanceFrom5Prime, bytes.count - length)
+                guard maxStart >= 0 else { continue }
+                if let match = findMatch(
+                    in: bytes,
+                    length: length,
+                    startRange: 0...maxStart,
+                    map: map,
+                    preferLast: false
+                ) {
+                    if best == nil || match.start < best!.start {
+                        best = match
+                    }
+                }
+            }
+            return best
+        }
+
+        private func findThreePrime(in bytes: [UInt8]) -> ExactBareBarcodeMatch? {
+            var best: ExactBareBarcodeMatch?
+            for length in lengths {
+                guard length <= bytes.count,
+                      let map = mapsByLength[length] else { continue }
+                let minStart = max(0, bytes.count - maxDistanceFrom3Prime - length)
+                let maxStart = bytes.count - length
+                guard minStart <= maxStart else { continue }
+                if let match = findMatch(
+                    in: bytes,
+                    length: length,
+                    startRange: minStart...maxStart,
+                    map: map,
+                    preferLast: true
+                ) {
+                    if best == nil || match.start > best!.start {
+                        best = match
+                    }
+                }
+            }
+            return best
+        }
+
+        private func findMatch(
+            in bytes: [UInt8],
+            length: Int,
+            startRange: ClosedRange<Int>,
+            map: [UInt64: [Candidate]],
+            preferLast: Bool
+        ) -> ExactBareBarcodeMatch? {
+            guard length > 0, length <= 31 else { return nil }
+            var code: UInt64 = 0
+            var validBases = 0
+            let mask = length == 31 ? UInt64.max >> 2 : (UInt64(1) << UInt64(length * 2)) - 1
+            var best: ExactBareBarcodeMatch?
+
+            for (index, byte) in bytes.enumerated() {
+                guard let bits = Self.baseBits(byte) else {
+                    code = 0
+                    validBases = 0
+                    continue
+                }
+                code = ((code << 2) | UInt64(bits)) & mask
+                validBases += 1
+                guard validBases >= length else { continue }
+
+                let start = index - length + 1
+                guard startRange.contains(start),
+                      let candidates = map[code],
+                      let candidate = candidates.first else {
+                    continue
+                }
+                let match = ExactBareBarcodeMatch(
+                    barcodeIndex: candidate.barcodeIndex,
+                    start: start,
+                    length: length
+                )
+                if best == nil
+                    || (!preferLast && match.start < best!.start)
+                    || (preferLast && match.start > best!.start) {
+                    best = match
+                }
+            }
+            return best
+        }
+
+        static func twoBitCode(_ sequence: String) -> UInt64? {
+            guard !sequence.isEmpty, sequence.utf8.count <= 31 else { return nil }
+            var code: UInt64 = 0
+            for byte in sequence.utf8 {
+                guard let bits = baseBits(byte) else { return nil }
+                code = (code << 2) | UInt64(bits)
+            }
+            return code
+        }
+
+        private static func baseBits(_ byte: UInt8) -> UInt8? {
+            switch byte {
+            case UInt8(ascii: "A"), UInt8(ascii: "a"): return 0
+            case UInt8(ascii: "C"), UInt8(ascii: "c"): return 1
+            case UInt8(ascii: "G"), UInt8(ascii: "g"): return 2
+            case UInt8(ascii: "T"), UInt8(ascii: "t"): return 3
+            default: return nil
+            }
+        }
+    }
+
+    private func supportsExactBareBarcodeDemux(_ config: DemultiplexConfig) -> Bool {
+        guard config.sampleAssignments.isEmpty,
+              !config.barcodeKit.isDualIndexed,
+              config.barcodeKit.pairingMode == .singleEnd || config.barcodeKit.pairingMode == .symmetric,
+              config.resolvedAdapterContext is BareAdapterContext else {
+            return false
+        }
+        guard config.barcodeKit.barcodes.allSatisfy({
+            $0.i5Sequence == nil && ExactBareBarcodeMatcher.twoBitCode($0.i7Sequence.uppercased()) != nil
+        }) else {
+            return false
+        }
+        return true
+    }
+
+    private func shouldSearchBareBarcodeReverseComplements(_ config: DemultiplexConfig) -> Bool {
+        config.searchReverseComplement
+            || config.symmetryMode == .symmetric
+            || config.barcodeKit.kitType == .fluidigmAccessArray
+            || config.barcodeKit.vendor == "custom"
+    }
+
+    private final class ExactBareFASTQOutputCache {
+        private let limit: Int
+        private var handles: [String: FileHandle] = [:]
+        private var usageOrder: [String] = []
+
+        init(limit: Int = 64) {
+            self.limit = max(1, limit)
+        }
+
+        func write(_ record: FASTQRawRecord, to url: URL) throws {
+            let key = url.path
+            let handle = try handle(for: key, url: url)
+            try handle.write(contentsOf: Data(record.fastqString.utf8))
+        }
+
+        func closeAll() throws {
+            var firstError: Error?
+            for (_, handle) in handles {
+                do {
+                    try handle.close()
+                } catch {
+                    if firstError == nil { firstError = error }
+                }
+            }
+            handles.removeAll()
+            usageOrder.removeAll()
+            if let firstError { throw firstError }
+        }
+
+        private func handle(for key: String, url: URL) throws -> FileHandle {
+            if let existing = handles[key] {
+                markUsed(key)
+                return existing
+            }
+
+            if handles.count >= limit, let evictKey = usageOrder.first {
+                usageOrder.removeFirst()
+                if let evicted = handles.removeValue(forKey: evictKey) {
+                    try evicted.close()
+                }
+            }
+
+            let directory = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            handles[key] = handle
+            usageOrder.append(key)
+            return handle
+        }
+
+        private func markUsed(_ key: String) {
+            usageOrder.removeAll { $0 == key }
+            usageOrder.append(key)
+        }
+    }
+
+    private func runExactBareBarcodeDemux(
+        config: DemultiplexConfig,
+        inputFASTQ: URL,
+        startTime: Date,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> DemultiplexResult {
+        let fm = FileManager.default
+        try fm.createDirectory(at: config.outputDirectory, withIntermediateDirectories: true)
+
+        guard let matcher = ExactBareBarcodeMatcher(
+            barcodes: config.barcodeKit.barcodes,
+            barcodeLocation: config.barcodeLocation,
+            maxDistanceFrom5Prime: config.maxDistanceFrom5Prime,
+            maxDistanceFrom3Prime: config.maxDistanceFrom3Prime,
+            includeReverseComplements: shouldSearchBareBarcodeReverseComplements(config)
+        ) else {
+            throw DemultiplexError.noBarcodes
+        }
+
+        let inputURLs: [URL]
+        if let bundleURL = config.sourceBundleURL ?? (FASTQBundle.isBundleURL(config.inputURL) ? config.inputURL : nil),
+           let allURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL), !allURLs.isEmpty {
+            inputURLs = allURLs
+        } else {
+            inputURLs = [inputFASTQ]
+        }
+
+        let isVirtualMode = config.rootBundleURL != nil && !config.captureTrimsForChaining
+        let outputCache = ExactBareFASTQOutputCache()
+        defer { try? outputCache.closeAll() }
+
+        var bundleURLsByName: [String: URL] = [:]
+        var fastqURLsByName: [String: URL] = [:]
+        func bundleURL(for name: String) throws -> URL {
+            if let existing = bundleURLsByName[name] { return existing }
+            let bundleURL = config.outputDirectory
+                .appendingPathComponent("\(name).\(FASTQBundle.directoryExtension)", isDirectory: true)
+            try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+            bundleURLsByName[name] = bundleURL
+            return bundleURL
+        }
+        func fastqURL(for name: String) throws -> URL {
+            if let existing = fastqURLsByName[name] { return existing }
+            let url = try bundleURL(for: name).appendingPathComponent("\(name).fastq")
+            fastqURLsByName[name] = url
+            return url
+        }
+
+        func trimmedRecord(
+            _ record: FASTQRawRecord,
+            trim5p: Int,
+            trim3p: Int
+        ) -> FASTQRawRecord {
+            let sequenceLength = record.sequence.count
+            let start = max(0, min(trim5p, sequenceLength))
+            let end = max(start, min(sequenceLength - max(0, trim3p), sequenceLength))
+            guard start > 0 || end < sequenceLength else { return record }
+            let sequenceStart = record.sequence.index(record.sequence.startIndex, offsetBy: start)
+            let sequenceEnd = record.sequence.index(record.sequence.startIndex, offsetBy: end)
+            let qualityStart = record.quality.index(record.quality.startIndex, offsetBy: start)
+            let qualityEnd = record.quality.index(record.quality.startIndex, offsetBy: end)
+            return FASTQRawRecord(
+                header: record.header,
+                sequence: String(record.sequence[sequenceStart..<sequenceEnd]),
+                separator: record.separator,
+                quality: String(record.quality[qualityStart..<qualityEnd])
+            )
+        }
+
+        func stats(
+            for accumulator: ExactBareBarcodeAccumulator
+        ) -> FASTQDatasetStatistics {
+            ExactBarcodeDemux.computeStatistics(
+                readCount: accumulator.readCount,
+                baseCount: accumulator.baseCount,
+                minReadLength: accumulator.finalizedMinReadLength,
+                maxReadLength: accumulator.maxReadLength,
+                readLengthHistogram: accumulator.readLengthHistogram
+            )
+        }
+
+        progress(0.0, "Starting exact bare-barcode demultiplexing...")
+
+        var barcodeAccumulators = config.barcodeKit.barcodes.map {
+            ExactBareBarcodeAccumulator(barcodeID: $0.id)
+        }
+        var unassigned = ExactBareBarcodeAccumulator(barcodeID: "unassigned")
+        var totalReads = 0
+        var assignedReads = 0
+        let totalInputBytes = inputURLs.reduce(Int64(0)) { $0 + $1.fileSizeBytes }
+
+        let lines = URL.multiFileLinesAutoDecompressing(inputURLs)
+        var lineBuffer: [String] = []
+        lineBuffer.reserveCapacity(4)
+
+        for try await line in lines {
+            if line.isEmpty && lineBuffer.isEmpty { continue }
+            lineBuffer.append(line)
+            guard lineBuffer.count == 4 else { continue }
+
+            let record = FASTQRawRecord(
+                header: lineBuffer[0],
+                sequence: lineBuffer[1],
+                separator: lineBuffer[2],
+                quality: lineBuffer[3]
+            )
+            lineBuffer.removeAll(keepingCapacity: true)
+            totalReads += 1
+
+            if totalReads % 100_000 == 0 {
+                let estimatedFraction: Double
+                if totalInputBytes > 0 {
+                    let avgBytesPerRead = Double(record.baseCount + 50) * 1.1
+                    estimatedFraction = min(0.75, (avgBytesPerRead * Double(totalReads)) / Double(totalInputBytes))
+                } else {
+                    estimatedFraction = 0.0
+                }
+                progress(estimatedFraction, "Processed \(totalReads) reads, \(assignedReads) assigned...")
+            }
+
+            if let assignment = matcher.assignment(for: record.sequence) {
+                var accumulator = barcodeAccumulators[assignment.barcodeIndex]
+                accumulator.add(
+                    readID: record.readID,
+                    previewRecord: record,
+                    outputLength: record.sequence.count,
+                    trimEntry: nil
+                )
+                barcodeAccumulators[assignment.barcodeIndex] = accumulator
+                assignedReads += 1
+
+                if !isVirtualMode {
+                    let barcodeID = config.barcodeKit.barcodes[assignment.barcodeIndex].id
+                    try outputCache.write(record, to: fastqURL(for: barcodeID))
+                }
+            } else {
+                unassigned.add(
+                    readID: record.readID,
+                    previewRecord: record,
+                    outputLength: record.sequence.count,
+                    trimEntry: nil
+                )
+                if !isVirtualMode, config.unassignedDisposition == .keep {
+                    try outputCache.write(record, to: fastqURL(for: "unassigned"))
+                }
+            }
+        }
+
+        if !lineBuffer.isEmpty {
+            logger.warning("Input FASTQ had \(lineBuffer.count) trailing lines (incomplete record)")
+        }
+
+        try outputCache.closeAll()
+        progress(0.80, "Creating exact demultiplex bundles...")
+
+        var barcodeResults: [BarcodeResult] = []
+        var outputBundleURLs: [URL] = []
+        var unassignedBundleURL: URL?
+        let nonEmptyBarcodes = barcodeAccumulators.filter { $0.readCount > 0 }
+        let bundleCount = nonEmptyBarcodes.count + (config.unassignedDisposition == .keep && unassigned.readCount > 0 ? 1 : 0)
+        let progressPerBundle = 0.15 / max(1.0, Double(bundleCount))
+        var completedBundles = 0
+
+        func writeBundleFiles(
+            accumulator: ExactBareBarcodeAccumulator,
+            bundleURL: URL,
+            cachedStatistics: FASTQDatasetStatistics
+        ) throws {
+            let readIDsURL = bundleURL.appendingPathComponent("read-ids.txt")
+            try (accumulator.readIDs.joined(separator: "\n") + "\n")
+                .write(to: readIDsURL, atomically: true, encoding: .utf8)
+
+            let previewURL = bundleURL.appendingPathComponent("preview.fastq")
+            try accumulator.previewRecords.map(\.fastqString).joined()
+                .write(to: previewURL, atomically: true, encoding: .utf8)
+
+            try writeTrimPositions(accumulator.trimEntries, to: bundleURL)
+
+            if let rootBundleURL = config.rootBundleURL,
+               let rootFASTQFilename = config.rootFASTQFilename {
+                let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
+                    ?? relativePath(from: bundleURL, to: rootBundleURL)
+                let parentBundleURL = config.sourceBundleURL
+                let parentRelativePath = parentBundleURL.flatMap {
+                    FASTQBundle.projectRelativePath(for: $0, from: bundleURL)
+                        ?? relativePath(from: bundleURL, to: $0)
+                } ?? rootRelativePath
+                let demuxOp = FASTQDerivativeOperation(
+                    kind: .demultiplex,
+                    toolUsed: "exact-bare-barcode-demux",
+                    toolVersion: nil
+                )
+                let derivedManifest = FASTQDerivedBundleManifest(
+                    name: accumulator.barcodeID,
+                    parentBundleRelativePath: parentRelativePath,
+                    rootBundleRelativePath: rootRelativePath,
+                    rootFASTQFilename: rootFASTQFilename,
+                    payload: .demuxedVirtual(
+                        barcodeID: accumulator.barcodeID,
+                        readIDListFilename: "read-ids.txt",
+                        previewFilename: "preview.fastq",
+                        trimPositionsFilename: hasTrimPositionsFile(in: bundleURL) ? "trim-positions.tsv" : nil,
+                        orientMapFilename: nil
+                    ),
+                    lineage: [demuxOp],
+                    operation: demuxOp,
+                    cachedStatistics: cachedStatistics,
+                    pairingMode: config.inputPairingMode ?? inferredPairingMode(from: parentBundleURL ?? config.inputURL),
+                    sequenceFormat: config.inputSequenceFormat
+                )
+                try FASTQBundle.saveDerivedManifest(derivedManifest, in: bundleURL)
+            }
+        }
+
+        for accumulator in nonEmptyBarcodes {
+            let bundleURL = try bundleURL(for: accumulator.barcodeID)
+            let cachedStatistics = stats(for: accumulator)
+            try writeBundleFiles(
+                accumulator: accumulator,
+                bundleURL: bundleURL,
+                cachedStatistics: cachedStatistics
+            )
+
+            let sequenceInfo = barcodeSequenceInfo(
+                for: accumulator.barcodeID,
+                kit: config.barcodeKit,
+                sampleAssignments: config.sampleAssignments
+            )
+            barcodeResults.append(BarcodeResult(
+                barcodeID: accumulator.barcodeID,
+                sampleName: sequenceInfo.sampleName,
+                forwardSequence: sequenceInfo.forward,
+                reverseSequence: sequenceInfo.reverse,
+                readCount: accumulator.readCount,
+                baseCount: accumulator.baseCount,
+                meanReadLength: accumulator.readCount > 0
+                    ? Double(accumulator.baseCount) / Double(accumulator.readCount)
+                    : nil,
+                bundleRelativePath: bundleURL.lastPathComponent
+            ))
+            outputBundleURLs.append(bundleURL)
+            completedBundles += 1
+            progress(0.80 + Double(completedBundles) * progressPerBundle, "Created bundle for \(accumulator.barcodeID)")
+        }
+
+        if config.unassignedDisposition == .keep && unassigned.readCount > 0 {
+            let bundleURL = try bundleURL(for: "unassigned")
+            let cachedStatistics = stats(for: unassigned)
+            try writeBundleFiles(
+                accumulator: unassigned,
+                bundleURL: bundleURL,
+                cachedStatistics: cachedStatistics
+            )
+            unassignedBundleURL = bundleURL
+            completedBundles += 1
+            progress(0.80 + Double(completedBundles) * progressPerBundle, "Created bundle for unassigned")
+        }
+
+        barcodeResults.sort { $0.barcodeID.localizedStandardCompare($1.barcodeID) == .orderedAscending }
+
+        let elapsed = Date().timeIntervalSince(startTime)
+        let barcodeType: BarcodeType = {
+            switch config.symmetryMode {
+            case .symmetric: return .symmetric
+            case .asymmetric: return .asymmetric
+            case .singleEnd: return .singleEnd
+            }
+        }()
+        let kitForManifest = BarcodeKit(
+            name: config.barcodeKit.displayName,
+            vendor: config.barcodeKit.vendor,
+            barcodeCount: config.barcodeKit.barcodes.count,
+            isDualIndexed: false,
+            barcodeType: barcodeType
+        )
+        let commandLine = [
+            "exact-bare-barcode-demux",
+            "--search", "whole-read",
+            shouldSearchBareBarcodeReverseComplements(config) ? "--search-rc" : nil
+        ].compactMap { $0 }.joined(separator: " ")
+        let manifest = DemultiplexManifest(
+            barcodeKit: kitForManifest,
+            parameters: DemultiplexParameters(
+                tool: "exact-bare-barcode-demux",
+                toolVersion: nil,
+                maxMismatches: 0,
+                requireBothEnds: false,
+                trimBarcodes: false,
+                commandLine: commandLine,
+                wallClockSeconds: elapsed
+            ),
+            barcodes: barcodeResults,
+            unassigned: UnassignedReadsSummary(
+                readCount: unassigned.readCount,
+                baseCount: unassigned.baseCount,
+                disposition: config.unassignedDisposition,
+                bundleRelativePath: unassignedBundleURL?.lastPathComponent
+            ),
+            outputDirectoryRelativePath: ".",
+            inputReadCount: totalReads
+        )
+
+        try manifest.save(to: config.outputDirectory)
+        if FASTQBundle.isBundleURL(config.inputURL) {
+            try? manifest.save(to: config.inputURL)
+        }
+
+        progress(1.0, "Demultiplexing complete: \(barcodeResults.count) samples, \(String(format: "%.0f%%", manifest.assignmentRate * 100)) assigned")
+
+        logger.info("Exact bare-barcode demux complete: \(barcodeResults.count) samples, \(manifest.assignmentRate * 100)% assigned, \(String(format: "%.1f", elapsed))s")
+
+        return DemultiplexResult(
+            manifest: manifest,
+            outputBundleURLs: outputBundleURLs,
+            unassignedBundleURL: unassignedBundleURL,
+            wallClockSeconds: elapsed,
+            nativeCommand: nil
+        )
     }
 
     private func createAdapterConfiguration(

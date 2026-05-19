@@ -518,6 +518,75 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         }, "\(viewModel.warnings)")
     }
 
+    func testLargeEnvelopePresentationIsBounded() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let inputDescriptors = (0..<650).map { index in
+            ProvenanceFileDescriptor(
+                path: dir.appendingPathComponent("input-\(index).fastq").path,
+                checksumSHA256: String(repeating: "a", count: 64),
+                fileSize: UInt64(index + 1),
+                format: .fastq,
+                role: .input
+            )
+        }
+        let outputDescriptors = (0..<650).map { index in
+            ProvenanceFileDescriptor(
+                path: dir.appendingPathComponent("output-\(index).fastq").path,
+                checksumSHA256: String(repeating: "b", count: 64),
+                fileSize: UInt64(index + 1),
+                format: .fastq,
+                role: .output
+            )
+        }
+        let step = ProvenanceStep(
+            toolName: "bulk-import",
+            toolVersion: "1.0",
+            argv: ["bulk-import", dir.path],
+            inputs: inputDescriptors,
+            outputs: outputDescriptors,
+            exitStatus: 0,
+            wallTimeSeconds: 2
+        )
+        let envelope = ProvenanceEnvelope(
+            workflowName: "Large FASTQ Import",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "0.5.0",
+            argv: ["lungfish-cli", "fastq", "import-ont", dir.path],
+            runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
+            files: inputDescriptors + outputDescriptors,
+            output: outputDescriptors.first,
+            outputs: outputDescriptors,
+            steps: [step],
+            wallTimeSeconds: 2,
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: dir)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: dir,
+                sidebarType: .fastqBundle,
+                contentMode: .fastq,
+                displayName: "Large Import"
+            )
+        )
+
+        XCTAssertEqual(viewModel.audit.status, .present)
+        XCTAssertEqual(viewModel.summary.inputCount, 650)
+        XCTAssertEqual(viewModel.summary.outputCount, 650)
+        XCTAssertLessThanOrEqual(viewModel.fileRows.count, 500)
+        XCTAssertLessThanOrEqual(viewModel.lineageRuns.first?.steps.first?.inputPaths.count ?? 0, 201)
+        XCTAssertLessThanOrEqual(viewModel.lineageRuns.first?.steps.first?.outputPaths.count ?? 0, 201)
+        XCTAssertEqual(viewModel.rawJSON, "")
+        XCTAssertNotNil(viewModel.resolvedEnvelope)
+        XCTAssertTrue(viewModel.warnings.contains { $0.title == "Large provenance record" })
+        XCTAssertLessThan(viewModel.copyableText.count, 200_000)
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("provenance-inspector-\(UUID().uuidString)", isDirectory: true)

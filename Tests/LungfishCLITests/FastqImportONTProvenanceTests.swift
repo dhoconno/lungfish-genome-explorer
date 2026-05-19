@@ -47,21 +47,23 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         XCTAssertFalse(envelope.runtimeIdentity.executablePath.isEmpty)
 
         let manifestURL = outputURL.appendingPathComponent(DemultiplexManifest.filename)
+        let bundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
         let copiedChunkURL = outputURL
             .appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
             .appendingPathComponent("chunks")
             .appendingPathComponent("chunk_0.fastq")
         let outputPaths = Set(envelope.outputs.map(\.path))
         XCTAssertTrue(outputPaths.contains(canonicalPath(manifestURL)))
+        XCTAssertTrue(outputPaths.contains(canonicalPath(bundleURL)))
+        XCTAssertFalse(outputPaths.contains(canonicalPath(copiedChunkURL)))
+
+        let bundleEnvelope = try readEnvelope(bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
         XCTAssertTrue(
-            outputPaths.contains(canonicalPath(copiedChunkURL)),
-            "Missing output \(canonicalPath(copiedChunkURL)); outputs:\n\(outputPaths.sorted().joined(separator: "\n"))"
+            bundleEnvelope.outputs.contains { $0.path == canonicalPath(copiedChunkURL) },
+            "Missing child bundle output \(canonicalPath(copiedChunkURL)); outputs:\n\(bundleEnvelope.outputs.map(\.path).sorted().joined(separator: "\n"))"
         )
         XCTAssertTrue(FileManager.default.fileExists(
-            atPath: outputURL
-                .appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
-                .appendingPathComponent(ProvenanceWriter.provenanceFilename)
-                .path
+            atPath: bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
         ))
     }
 

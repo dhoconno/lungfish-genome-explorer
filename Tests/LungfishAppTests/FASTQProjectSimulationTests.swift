@@ -299,6 +299,7 @@ final class FASTQProjectSimulationTests: XCTestCase {
                 maxDistanceFrom5Prime: 0,
                 maxDistanceFrom3Prime: 0,
                 errorRate: 0.0,
+                engine: .cutadapt,
                 trimBarcodes: true,
                 sampleAssignments: nil,
                 kitOverride: kit

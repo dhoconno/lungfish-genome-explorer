@@ -29,6 +29,10 @@ public enum FASTQBundle {
     /// Returns `true` when the URL points to a FASTQ/FQ file
     /// (including gzip-compressed `.fastq.gz` / `.fq.gz`).
     public static func isFASTQFileURL(_ url: URL) -> Bool {
+        if url.lastPathComponent.hasPrefix("._") {
+            return false
+        }
+
         var isDirectory: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
             return false
@@ -53,27 +57,14 @@ public enum FASTQBundle {
         guard isBundleURL(candidateURL) else { return nil }
 
         // Multi-file bundles: return first chunk from source-files.json
-        if FASTQSourceFileManifest.exists(in: candidateURL),
-           let manifest = try? FASTQSourceFileManifest.load(from: candidateURL) {
-            let urls = manifest.resolveFileURLs(relativeTo: candidateURL)
-            if let first = urls.first, FileManager.default.fileExists(atPath: first.path) {
+        if FASTQSourceFileManifest.exists(in: candidateURL) {
+            if let first = resolveSourceManifestFASTQURLs(for: candidateURL)?.first,
+               FileManager.default.fileExists(atPath: first.path) {
                 return first
             }
         }
 
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: candidateURL,
-                includingPropertiesForKeys: [.isRegularFileKey],
-                options: [.skipsHiddenFiles]
-            )
-            let fastqFiles = contents
-                .filter { isFASTQFileURL($0) }
-                .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
-            return fastqFiles.first
-        } catch {
-            return nil
-        }
+        return findPhysicalFASTQFiles(in: candidateURL, recursive: false).first
     }
 
     /// Resolves the primary sequence file (FASTQ or FASTA) for a candidate URL.
@@ -127,8 +118,8 @@ public enum FASTQBundle {
     /// For single-file bundles (no manifest), returns the primary FASTQ URL in an array.
     /// Returns `nil` if neither source manifest nor primary FASTQ can be resolved.
     public static func resolveAllFASTQURLs(for bundleURL: URL) -> [URL]? {
-        if let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) {
-            return manifest.resolveFileURLs(relativeTo: bundleURL)
+        if let manifestURLs = resolveSourceManifestFASTQURLs(for: bundleURL) {
+            return manifestURLs
         }
         if let primary = resolvePrimaryFASTQURL(for: bundleURL) {
             return [primary]
@@ -230,6 +221,75 @@ public enum FASTQBundle {
             }
         }
         return result
+    }
+
+    private static func resolveSourceManifestFASTQURLs(for bundleURL: URL) -> [URL]? {
+        guard let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) else {
+            return nil
+        }
+
+        let manifestURLs = manifest.resolveFileURLs(relativeTo: bundleURL)
+        let fm = FileManager.default
+        if manifestURLs.allSatisfy({ fm.fileExists(atPath: $0.path) }) {
+            return manifestURLs
+        }
+
+        let physicalURLs = findPhysicalFASTQFiles(in: bundleURL, recursive: true)
+        if physicalURLs.count == manifestURLs.count {
+            return physicalURLs
+        }
+
+        return manifestURLs
+    }
+
+    private static func findPhysicalFASTQFiles(in bundleURL: URL, recursive: Bool) -> [URL] {
+        let fm = FileManager.default
+        let urls: [URL]
+
+        if recursive {
+            guard let enumerator = fm.enumerator(
+                at: bundleURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return []
+            }
+
+            var discovered: [URL] = []
+            for case let url as URL in enumerator {
+                if url.lastPathComponent.hasPrefix("._") {
+                    continue
+                }
+
+                var isDirectory: ObjCBool = false
+                if fm.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue {
+                    if url.pathExtension.lowercased() == directoryExtension {
+                        enumerator.skipDescendants()
+                    }
+                    continue
+                }
+
+                if isFASTQFileURL(url) {
+                    discovered.append(url)
+                }
+            }
+            urls = discovered
+        } else {
+            guard let contents = try? fm.contentsOfDirectory(
+                at: bundleURL,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return []
+            }
+            urls = contents.filter { isFASTQFileURL($0) }
+        }
+
+        let nonPreview = urls.filter { $0.lastPathComponent != "preview.fastq" }
+        let preferred = nonPreview.isEmpty ? urls : nonPreview
+        return preferred.sorted {
+            $0.path.localizedStandardCompare($1.path) == .orderedAscending
+        }
     }
 
     /// Finds the `.lungfish` project root directory by walking up from a bundle URL.
