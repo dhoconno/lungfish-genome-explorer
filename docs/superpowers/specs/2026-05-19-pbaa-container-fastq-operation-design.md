@@ -27,6 +27,19 @@ The user opens FASTQ Operations, chooses the `CLUSTERING` subgroup, selects `pbA
 
 The operation runs in the Operations Panel. When complete, the primary result is a new `.lungfishref` bundle built from `<prefix>_passed_cluster_sequences.fasta`. The user can inspect the raw pbAA output directory, logs, Nextflow work information, and provenance from the Operations Panel.
 
+## GUI Options
+
+The default GUI stays intentionally small. The primary pbAA panel exposes only the controls needed for a normal run:
+
+- guide sequence source,
+- output name or prefix,
+- thread count,
+- optional random seed.
+
+All other pbAA command-line options live under the existing Advanced Options pattern used by other Lungfish tools. Advanced Options accepts parsed extra arguments through `AdvancedCommandLineOptions`, validates quoting before enabling Run, and records the parsed arguments in provenance as both `extraArgs` and `extraArguments`.
+
+The first implementation does not need bespoke controls for every pbAA flag. If specific pbAA parameters become common in real usage, they can be promoted from Advanced Options into typed GUI controls in a later versioned workflow schema.
+
 ## External Tooling
 
 The workflow uses public pinned BioContainers:
@@ -105,6 +118,7 @@ The final `.lungfishref` bundle must include provenance that records:
 - Lungfish app/CLI version.
 - Exact CLI argv or reproducible command.
 - User-visible options and resolved defaults.
+- Advanced Options text and parsed extra arguments, when provided.
 - Input FASTQ paths, guide source paths, staged paths, file sizes, and checksums.
 - Output `.lungfishref` path and final bundle payload checksums.
 - pbAA version and command line.
