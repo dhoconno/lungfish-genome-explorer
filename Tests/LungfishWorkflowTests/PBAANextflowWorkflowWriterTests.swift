@@ -36,4 +36,16 @@ final class PBAANextflowWorkflowWriterTests: XCTestCase {
         XCTAssertEqual(params.seed, 7)
         XCTAssertEqual(params.extraArguments, ["--min-cluster-read-count", "2"])
     }
+
+    func testNextflowArgumentsUseAbsoluteWorkflowFilesForLocalLaunchDirectory() {
+        let workflowDirectory = URL(fileURLWithPath: "/Volumes/project/Analyses/pbaa-run/nextflow", isDirectory: true)
+
+        let arguments = ProcessPBAANextflowRunner.nextflowArguments(workflowDirectory: workflowDirectory)
+
+        XCTAssertEqual(arguments.prefix(3), ["nextflow", "run", "/Volumes/project/Analyses/pbaa-run/nextflow/main.nf"])
+        let configIndex = try? XCTUnwrap(arguments.firstIndex(of: "-c"))
+        let paramsIndex = try? XCTUnwrap(arguments.firstIndex(of: "-params-file"))
+        XCTAssertEqual(configIndex.map { arguments[$0 + 1] }, "/Volumes/project/Analyses/pbaa-run/nextflow/nextflow.config")
+        XCTAssertEqual(paramsIndex.map { arguments[$0 + 1] }, "/Volumes/project/Analyses/pbaa-run/nextflow/params.json")
+    }
 }

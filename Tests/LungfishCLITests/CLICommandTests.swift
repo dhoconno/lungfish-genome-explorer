@@ -1588,6 +1588,22 @@ final class FastqCommandTests: XCTestCase {
         XCTAssertEqual(cmd.reference, "/data/primers.fa")
     }
 
+    func testPrimerRemovalParsesCutadaptLinkedReferenceEngine() throws {
+        let cmd = try FastqPrimerRemovalSubcommand.parse([
+            "input.fq",
+            "--ref", "/data/primers.fa",
+            "--engine", "cutadapt-linked",
+            "--minimum-overlap", "12",
+            "--error-rate", "0.12",
+            "-o", "/tmp/out.fq",
+        ])
+
+        XCTAssertEqual(cmd.reference, "/data/primers.fa")
+        XCTAssertEqual(cmd.engine, .cutadaptLinked)
+        XCTAssertEqual(cmd.minimumOverlap, 12)
+        XCTAssertEqual(cmd.errorRate, 0.12)
+    }
+
     /// Verifies that primer-remove uses correct defaults.
     func testPrimerRemovalDefaults() throws {
         let cmd = try FastqPrimerRemovalSubcommand.parse([

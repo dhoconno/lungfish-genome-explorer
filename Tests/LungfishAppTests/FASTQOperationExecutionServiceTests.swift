@@ -142,6 +142,34 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(invocation.arguments[outputDirIndex + 1], "/tmp/run-scoped")
     }
 
+    func testReferencePrimerRemovalInvocationUsesCutadaptLinkedPairs() throws {
+        let request = FASTQOperationLaunchRequest.derivative(
+            request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
+                source: .reference,
+                mode: .linked,
+                referenceFasta: "/tmp/fluidigm_primers.fa",
+                tool: .cutadapt
+            )),
+            inputURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
+            outputMode: .perInput
+        )
+
+        let invocation = try FASTQOperationCLIInvocationBuilder().buildInvocation(
+            for: request,
+            outputTargetPath: "/tmp/trimmed.fastq"
+        )
+
+        XCTAssertEqual(invocation.subcommand, "fastq")
+        XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["primer-remove", "/tmp/reads.fastq"])
+        XCTAssertTrue(invocation.arguments.contains("--ref"))
+        XCTAssertTrue(invocation.arguments.contains("/tmp/fluidigm_primers.fa"))
+        XCTAssertTrue(invocation.arguments.contains("--engine"))
+        let engineIndex = try XCTUnwrap(invocation.arguments.firstIndex(of: "--engine"))
+        XCTAssertEqual(invocation.arguments[engineIndex + 1], "cutadapt-linked")
+        XCTAssertFalse(invocation.arguments.contains("--kmer"))
+        XCTAssertFalse(invocation.arguments.contains("--literal"))
+    }
+
     func testPlannerDiscoversPBAAReferenceBundles() throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecPBAARefs")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -2552,7 +2580,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         }
     }
 
-    func testDerivativeLaunchRejectsPrimerRequestsOutsideTheCliSubset() {
+    func testDerivativeLaunchRejectsCutadaptPrimerRequestsOutsideTheLinkedReferenceSubset() {
         let request = FASTQOperationLaunchRequest.derivative(
             request: .primerRemoval(
                 configuration: FASTQPrimerTrimConfiguration(
@@ -2572,7 +2600,7 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
             guard let execError = error as? FASTQOperationExecutionError else {
                 return XCTFail("Expected FASTQOperationExecutionError")
             }
-            XCTAssertTrue(execError.errorDescription?.contains("bbduk") == true)
+            XCTAssertTrue(execError.errorDescription?.contains("cutadapt linked") == true)
         }
     }
 

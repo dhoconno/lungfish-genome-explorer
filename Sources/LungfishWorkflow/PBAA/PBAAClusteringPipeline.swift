@@ -386,29 +386,76 @@ public struct ProcessPBAANextflowRunner: PBAANextflowRunning {
             throw PBAAClusteringError.nextflowUnavailable
         }
 
-        let arguments = Self.nextflowArguments(workflowDirectory: workflowDirectory)
+        let launchDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lungfish-pbaa-nextflow-\(UUID().uuidString)", isDirectory: true)
+        let workDirectory = launchDirectory.appendingPathComponent("work", isDirectory: true)
+        try FileManager.default.createDirectory(at: launchDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: launchDirectory) }
+
+        let arguments = Self.nextflowArguments(
+            workflowDirectory: workflowDirectory,
+            workDirectory: workDirectory
+        )
         let result = try await runProcess(
             executableURL: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: arguments,
-            workingDirectory: workflowDirectory
+            workingDirectory: launchDirectory
+        )
+        let copiedLogURL = try? copyNextflowLog(from: launchDirectory, to: workflowDirectory)
+        let stderr = Self.stderrWithLogDiagnostics(
+            stderr: result.stderr,
+            copiedLogURL: copiedLogURL,
+            exitCode: result.exitCode
         )
         return PBAANextflowRunResult(
             exitCode: result.exitCode,
             stdout: result.stdout,
-            stderr: result.stderr,
+            stderr: stderr,
             rawOutputDirectory: request.rawPBAAOutputDirectory,
             argv: ["/usr/bin/env"] + arguments
         )
     }
 
     static func nextflowArguments(workflowDirectory: URL) -> [String] {
+        nextflowArguments(
+            workflowDirectory: workflowDirectory,
+            workDirectory: workflowDirectory.appendingPathComponent("work", isDirectory: true)
+        )
+    }
+
+    static func nextflowArguments(workflowDirectory: URL, workDirectory: URL) -> [String] {
         [
-            "nextflow", "run", "main.nf",
-            "-c", "nextflow.config",
-            "-params-file", "params.json",
-            "-work-dir", workflowDirectory.appendingPathComponent("work", isDirectory: true).path,
+            "nextflow", "run", workflowDirectory.appendingPathComponent("main.nf").path,
+            "-c", workflowDirectory.appendingPathComponent("nextflow.config").path,
+            "-params-file", workflowDirectory.appendingPathComponent("params.json").path,
+            "-work-dir", workDirectory.path,
             "-with-trace", workflowDirectory.appendingPathComponent("trace.txt").path,
         ]
+    }
+
+    private func copyNextflowLog(from launchDirectory: URL, to workflowDirectory: URL) throws -> URL? {
+        let source = launchDirectory.appendingPathComponent(".nextflow.log")
+        guard FileManager.default.fileExists(atPath: source.path) else { return nil }
+        let destination = workflowDirectory.appendingPathComponent(".nextflow.log")
+        try? FileManager.default.removeItem(at: destination)
+        try FileManager.default.copyItem(at: source, to: destination)
+        return destination
+    }
+
+    private static func stderrWithLogDiagnostics(stderr: String, copiedLogURL: URL?, exitCode: Int32) -> String {
+        guard exitCode != 0 else { return stderr }
+        guard let copiedLogURL else { return stderr }
+        let logTail = nextflowLogTail(at: copiedLogURL)
+        guard !logTail.isEmpty else { return stderr }
+        if stderr.contains(logTail) { return stderr }
+        let separator = stderr.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : "\n\n"
+        return "\(stderr)\(separator)Nextflow log tail (\(copiedLogURL.path)):\n\(logTail)"
+    }
+
+    private static func nextflowLogTail(at url: URL, maxLines: Int = 80) -> String {
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return "" }
+        let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
+        return lines.suffix(maxLines).joined(separator: "\n")
     }
 
     private func nextflowIsAvailable() async throws -> Bool {

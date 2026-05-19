@@ -405,16 +405,27 @@ final class FASTQOperationDialogState {
             default:
                 break
             }
-            return .derivative(
-                request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
-                    source: primerTrimmingSource,
-                    forwardSequence: primerTrimmingSource == .literal ? literalSequence : nil,
-                    referenceFasta: primerTrimmingSource == .reference ? referencePath : nil,
+            let configuration: FASTQPrimerTrimConfiguration
+            switch primerTrimmingSource {
+            case .literal:
+                configuration = FASTQPrimerTrimConfiguration(
+                    source: .literal,
+                    forwardSequence: literalSequence,
                     tool: .bbduk,
                     kmerSize: primerTrimmingKmerSize,
                     minKmer: primerTrimmingMinKmer,
                     hammingDistance: primerTrimmingHammingDistance
-                )),
+                )
+            case .reference:
+                configuration = FASTQPrimerTrimConfiguration(
+                    source: .reference,
+                    mode: .linked,
+                    referenceFasta: referencePath,
+                    tool: .cutadapt
+                )
+            }
+            return .derivative(
+                request: .primerRemoval(configuration: configuration),
                 inputURLs: selectedInputURLs,
                 outputMode: outputMode
             )

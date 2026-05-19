@@ -312,15 +312,15 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 .pickerStyle(.segmented)
                 if state.primerTrimmingSource == .literal {
                     labeledTextField("Primer Sequence", text: $state.primerTrimmingLiteralSequence)
+                    HStack(spacing: 12) {
+                        labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize))
+                        labeledCompactTextField("mink", text: Self.intBinding(state, \.primerTrimmingMinKmer))
+                        labeledCompactTextField("hdist", text: Self.intBinding(state, \.primerTrimmingHammingDistance))
+                    }
                 } else {
                     Text("Select the primer reference FASTA in the Inputs section.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 12) {
-                    labeledCompactTextField("k", text: Self.intBinding(state, \.primerTrimmingKmerSize))
-                    labeledCompactTextField("mink", text: Self.intBinding(state, \.primerTrimmingMinKmer))
-                    labeledCompactTextField("hdist", text: Self.intBinding(state, \.primerTrimmingHammingDistance))
                 }
 
             case .trimFixedBases:

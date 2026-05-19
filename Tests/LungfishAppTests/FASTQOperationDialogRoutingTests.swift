@@ -177,11 +177,9 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             .derivative(
                 request: .primerRemoval(configuration: FASTQPrimerTrimConfiguration(
                     source: .reference,
+                    mode: .linked,
                     referenceFasta: "/tmp/primers.fasta",
-                    tool: .bbduk,
-                    kmerSize: 15,
-                    minKmer: 11,
-                    hammingDistance: 1
+                    tool: .cutadapt
                 )),
                 inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
                 outputMode: .perInput

@@ -250,8 +250,25 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
         case .translate(let frameOffset):
             return ["translate", inputURL.path, "--frame", "\(frameOffset + 1)", "-o", outputTarget]
         case .primerRemoval(let configuration):
-            guard configuration.tool == .bbduk else {
-                throw FASTQOperationExecutionError.unsupportedPrimerRemoval("only the bbduk subset is encodable")
+            if configuration.tool == .cutadapt {
+                guard configuration.source == .reference,
+                      configuration.readMode == .single,
+                      configuration.mode == .linked,
+                      let referenceFasta = configuration.referenceFasta
+                else {
+                    throw FASTQOperationExecutionError.unsupportedPrimerRemoval(
+                        "only reference cutadapt linked primer trimming is encodable"
+                    )
+                }
+                return [
+                    "primer-remove",
+                    inputURL.path,
+                    "--ref", referenceFasta,
+                    "--engine", "cutadapt-linked",
+                    "--minimum-overlap", "\(configuration.minimumOverlap)",
+                    "--error-rate", String(format: "%.2f", configuration.errorRate),
+                    "-o", outputTarget,
+                ]
             }
             guard configuration.readMode == .single,
                   configuration.mode == .fivePrime,
