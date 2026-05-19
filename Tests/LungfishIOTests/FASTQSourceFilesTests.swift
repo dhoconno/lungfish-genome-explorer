@@ -165,6 +165,32 @@ final class FASTQSourceFilesTests: XCTestCase {
         XCTAssertEqual(urls?.count, 2)
     }
 
+    func testResolveAllFASTQURLsFallsBackToExistingChunksWhenManifestIsStale() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let bundle = dir.appendingPathComponent("test.lungfishfastq")
+        let chunksDir = bundle.appendingPathComponent("chunks")
+        try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+        let replacementChunk = chunksDir.appendingPathComponent("sample_0.clumped.fastq.gz")
+        let intactChunk = chunksDir.appendingPathComponent("sample_1.fastq.gz")
+        try "".write(to: replacementChunk, atomically: true, encoding: .utf8)
+        try "".write(to: intactChunk, atomically: true, encoding: .utf8)
+
+        let manifest = FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/sample_0.fastq.gz", originalPath: "/orig/sample_0.fastq.gz", sizeBytes: 100, isSymlink: false),
+            .init(filename: "chunks/sample_1.fastq.gz", originalPath: "/orig/sample_1.fastq.gz", sizeBytes: 200, isSymlink: false),
+        ])
+        try manifest.save(to: bundle)
+
+        let urls = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: bundle))
+        XCTAssertEqual(urls.map(\.lastPathComponent), [
+            "sample_0.clumped.fastq.gz",
+            "sample_1.fastq.gz",
+        ])
+    }
+
     func testResolveAllFASTQURLsSingleFile() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

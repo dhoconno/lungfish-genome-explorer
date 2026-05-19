@@ -268,7 +268,7 @@ final class PlatformAdapterContextTests: XCTestCase {
     // MARK: - BarcodeKitType
 
     func testBarcodeKitTypeCaseCount() {
-        XCTAssertEqual(BarcodeKitType.allCases.count, 9)
+        XCTAssertEqual(BarcodeKitType.allCases.count, 10)
     }
 
     func testBarcodeKitTypeCodableRoundTrip() throws {

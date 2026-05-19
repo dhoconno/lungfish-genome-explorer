@@ -33,6 +33,7 @@ public struct ProvenanceWriter: Sendable {
     public static let provenanceFilename = ProvenanceRecorder.provenanceFilename
     public static let bundleProvenanceDirectoryName = "provenance"
     public static let bundleRollupFilename = "bundle.lungfish-provenance.json"
+    public static let maximumBundleOutputSidecars = 100
 
     private let signingProvider: (any ProvenanceSigningProvider)?
 
@@ -122,15 +123,17 @@ public struct ProvenanceWriter: Sendable {
         let rollupURL = provenanceDirectory.appendingPathComponent(Self.bundleRollupFilename)
         var writtenURLs = [try write(rollupEnvelope, toSidecar: rollupURL)]
 
-        for entry in outputEntries {
-            let sidecarURL = Self.bundleOutputSidecarURL(
-                forRelativeOutputPath: entry.relativePath,
-                inProvenanceDirectory: provenanceDirectory
-            )
-            let focusedEnvelope = envelope
-                .focusedOnOutput(entry.descriptor)
-                .replacingSignatures([])
-            writtenURLs.append(try write(focusedEnvelope, toSidecar: sidecarURL))
+        if outputEntries.count <= Self.maximumBundleOutputSidecars {
+            for entry in outputEntries {
+                let sidecarURL = Self.bundleOutputSidecarURL(
+                    forRelativeOutputPath: entry.relativePath,
+                    inProvenanceDirectory: provenanceDirectory
+                )
+                let focusedEnvelope = envelope
+                    .focusedOnOutput(entry.descriptor)
+                    .replacingSignatures([])
+                writtenURLs.append(try write(focusedEnvelope, toSidecar: sidecarURL))
+            }
         }
 
         return writtenURLs
@@ -296,7 +299,15 @@ public struct ProvenanceWriter: Sendable {
 
 extension ProvenanceEnvelope {
     public func focusedOnOutput(_ output: ProvenanceFileDescriptor) -> ProvenanceEnvelope {
-        let outputByPath = [output.path: output]
+        let retainedOutputByPath = [output.path: output]
+        let focusedSteps = steps.compactMap { step -> ProvenanceStep? in
+            let focusedOutputs = step.outputs.compactMap { retainedOutputByPath[$0.path] }
+            guard !focusedOutputs.isEmpty || step.outputs.isEmpty else {
+                return nil
+            }
+            return step.replacingOutputs(focusedOutputs)
+        }
+        let retainedInputPaths = Set(focusedSteps.flatMap { $0.inputs.map(\.path) })
         return ProvenanceEnvelope(
             schemaVersion: schemaVersion,
             id: id,
@@ -310,14 +321,18 @@ extension ProvenanceEnvelope {
             reproducibleCommand: reproducibleCommand,
             options: options,
             runtimeIdentity: runtimeIdentity,
-            files: files.map { descriptor in
-                descriptor.role == .output ? outputByPath[descriptor.path] ?? descriptor : descriptor
+            files: files.compactMap { descriptor in
+                if descriptor.role == .output {
+                    return retainedOutputByPath[descriptor.path]
+                }
+                guard !focusedSteps.isEmpty else {
+                    return descriptor
+                }
+                return retainedInputPaths.contains(descriptor.path) ? descriptor : nil
             },
             output: output,
             outputs: [output],
-            steps: steps.map { step in
-                step.replacingOutputDescriptors(outputByPath)
-            },
+            steps: focusedSteps,
             wallTimeSeconds: wallTimeSeconds,
             exitStatus: exitStatus,
             stderr: stderr,
@@ -414,6 +429,24 @@ extension ProvenanceEnvelope {
 }
 
 private extension ProvenanceStep {
+    func replacingOutputs(_ outputs: [ProvenanceFileDescriptor]) -> ProvenanceStep {
+        ProvenanceStep(
+            id: id,
+            toolName: toolName,
+            toolVersion: toolVersion,
+            argv: argv,
+            reproducibleCommand: reproducibleCommand,
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: exitStatus,
+            wallTimeSeconds: wallTimeSeconds,
+            stderr: stderr,
+            dependsOn: dependsOn,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+    }
+
     func replacingOutputDescriptors(_ replacementsByPath: [String: ProvenanceFileDescriptor]) -> ProvenanceStep {
         ProvenanceStep(
             id: id,

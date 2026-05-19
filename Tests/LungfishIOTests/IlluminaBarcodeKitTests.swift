@@ -14,7 +14,7 @@ final class IlluminaBarcodeKitTests: XCTestCase {
 
     func testBuiltinKitCount() {
         let kits = BarcodeKitRegistry.builtinKits()
-        XCTAssertEqual(kits.count, 19)
+        XCTAssertEqual(kits.count, 20)
     }
 
     func testTruSeqSingleA() {
@@ -62,6 +62,24 @@ final class IlluminaBarcodeKitTests: XCTestCase {
         XCTAssertEqual(kit.barcodes.count, 24)
         XCTAssertTrue(kit.isDualIndexed)
         XCTAssertEqual(kit.pairingMode, .fixedDual)
+    }
+
+    func testFluidigmAccessArray() {
+        let kit = BarcodeKitRegistry.fluidigmAccessArray
+        XCTAssertEqual(kit.id, "fluidigm-access-array")
+        XCTAssertEqual(kit.displayName, "Fluidigm Access Array (864)")
+        XCTAssertEqual(kit.vendor, "fluidigm")
+        XCTAssertTrue(kit.platform.readsCanBeReverseComplemented)
+        XCTAssertTrue(kit.adapterContext is BareAdapterContext)
+        XCTAssertFalse(kit.isDualIndexed)
+        XCTAssertEqual(kit.pairingMode, .symmetric)
+        XCTAssertEqual(kit.barcodes.count, 864)
+        XCTAssertEqual(kit.barcodes.first?.id, "FLD0001")
+        XCTAssertEqual(kit.barcodes.first?.i7Sequence, "GTATCGTCGT")
+        XCTAssertEqual(kit.barcodes[8].id, "FLD0009")
+        XCTAssertEqual(kit.barcodes[8].i7Sequence, "GAGTGATCGT")
+        XCTAssertEqual(kit.barcodes.last?.id, "FLD1080")
+        XCTAssertEqual(kit.barcodes.last?.i7Sequence, "GACGTATGTA")
     }
 
     func testPacBioSequel384V1() {
@@ -274,6 +292,60 @@ final class IlluminaBarcodeKitTests: XCTestCase {
 
         let kit = try BarcodeKitRegistry.loadCustomKit(from: csvURL, name: "Test")
         XCTAssertEqual(kit.barcodes.count, 2)
+    }
+
+    func testLoadCustomTSV() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let tsv = """
+        FLD0001\tGTATCGTCGT
+        FLD0002\tGTGTATGCGT
+        FLD0003\tTGCTCGTAGT
+        """
+
+        let tsvURL = dir.appendingPathComponent("fluidigm.tsv")
+        try tsv.write(to: tsvURL, atomically: true, encoding: .utf8)
+
+        let kit = try BarcodeKitRegistry.loadCustomKit(from: tsvURL, name: "Fluidigm")
+        XCTAssertEqual(kit.barcodes.count, 3)
+        XCTAssertEqual(kit.barcodes[0].id, "FLD0001")
+        XCTAssertEqual(kit.barcodes[0].i7Sequence, "GTATCGTCGT")
+        XCTAssertEqual(kit.barcodes[2].id, "FLD0003")
+        XCTAssertEqual(kit.barcodes[2].i7Sequence, "TGCTCGTAGT")
+    }
+
+    func testLoadCustomWhitespaceDelimitedDefinition() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let text = """
+        barcode_id sequence
+        FLD0001 GTATCGTCGT
+        FLD0002 GTGTATGCGT
+        """
+
+        let url = dir.appendingPathComponent("fluidigm.txt")
+        try text.write(to: url, atomically: true, encoding: .utf8)
+
+        let kit = try BarcodeKitRegistry.loadCustomKit(from: url, name: "Fluidigm")
+        XCTAssertEqual(kit.barcodes.map(\.id), ["FLD0001", "FLD0002"])
+        XCTAssertEqual(kit.barcodes.map(\.i7Sequence), ["GTATCGTCGT", "GTGTATGCGT"])
+    }
+
+    func testLoadCustomEmptyDefinitionThrowsHelpfulError() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let url = dir.appendingPathComponent("empty.tsv")
+        try "barcode_id\tsequence\n".write(to: url, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try BarcodeKitRegistry.loadCustomKit(from: url, name: "Empty")) { error in
+            let message = error.localizedDescription
+            XCTAssertTrue(message.contains("no barcode rows"), message)
+            XCTAssertTrue(message.contains("CSV or TSV"), message)
+            XCTAssertTrue(message.contains("id,sequence"), message)
+        }
     }
 
     // MARK: - FASTA Generation

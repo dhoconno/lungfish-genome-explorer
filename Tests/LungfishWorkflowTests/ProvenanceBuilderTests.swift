@@ -570,8 +570,116 @@ struct ProvenanceBuilderTests {
         #expect(!rollup.outputs.contains { $0.path == externalURL.path })
         #expect(readsSidecar.output?.path == readsURL.path)
         #expect(readsSidecar.outputs.map(\.path) == [readsURL.path])
+        #expect(readsSidecar.files.filter { $0.role == .output }.map(\.path) == [readsURL.path])
         #expect(reportSidecar.output?.path == reportURL.path)
         #expect(reportSidecar.outputs.map(\.path) == [reportURL.path])
+        #expect(reportSidecar.files.filter { $0.role == .output }.map(\.path) == [reportURL.path])
+    }
+
+    @Test("Writer focused bundle sidecars prune unrelated step outputs")
+    func writerFocusedBundleSidecarsPruneUnrelatedStepOutputs() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let bundleURL = workingDirectory.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let firstURL = bundleURL.appendingPathComponent("chunks/first.fastq")
+        let secondURL = bundleURL.appendingPathComponent("chunks/second.fastq")
+        try FileManager.default.createDirectory(
+            at: firstURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data("@first\nACGT\n+\n!!!!\n".utf8).write(to: firstURL, options: .atomic)
+        try Data("@second\nTGCA\n+\n!!!!\n".utf8).write(to: secondURL, options: .atomic)
+
+        let first = try ProvenanceFileDescriptor.file(url: firstURL, format: .fastq, role: .output)
+        let second = try ProvenanceFileDescriptor.file(url: secondURL, format: .fastq, role: .output)
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "fastq.import.bundle",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish", "fastq", "import-ont", "--output", bundleURL.path])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish", "fastq", "import-ont"],
+                outputs: [first, second],
+                exitStatus: 0
+            )
+        )
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 22)
+        )
+
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+
+        let firstSidecarURL = bundleURL
+            .appendingPathComponent("provenance/chunks", isDirectory: true)
+            .appendingPathComponent("first.fastq.lungfish-provenance.json")
+        let firstSidecar = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: firstSidecarURL))
+
+        #expect(firstSidecar.output?.path == firstURL.path)
+        #expect(firstSidecar.outputs.map(\.path) == [firstURL.path])
+        #expect(firstSidecar.files.filter { $0.role == .output }.map(\.path) == [firstURL.path])
+        #expect(firstSidecar.steps.flatMap(\.outputs).map(\.path) == [firstURL.path])
+    }
+
+    @Test("Writer skips per-output sidecars for large bundle output sets")
+    func writerSkipsPerOutputSidecarsForLargeBundleOutputSets() throws {
+        let workingDirectory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: workingDirectory) }
+
+        let bundleURL = workingDirectory.appendingPathComponent("sample.lungfishfastq", isDirectory: true)
+        let chunksURL = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
+
+        var outputs: [ProvenanceFileDescriptor] = []
+        for index in 0...ProvenanceWriter.maximumBundleOutputSidecars {
+            let outputURL = chunksURL.appendingPathComponent("chunk-\(index).fastq")
+            try Data("@read\(index)\nACGT\n+\n!!!!\n".utf8).write(to: outputURL, options: .atomic)
+            outputs.append(try ProvenanceFileDescriptor.file(url: outputURL, format: .fastq, role: .output))
+        }
+
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "fastq.import.bundle",
+            workflowVersion: "2026.05",
+            toolName: "lungfish-cli",
+            toolVersion: "2026.05"
+        )
+        .argv(["lungfish", "fastq", "import-ont", "--output", bundleURL.path])
+        .runtime(ProvenanceRuntimeIdentity.fixture())
+        .step(
+            ProvenanceStep(
+                toolName: "lungfish-cli",
+                toolVersion: "2026.05",
+                argv: ["lungfish", "fastq", "import-ont"],
+                outputs: outputs,
+                exitStatus: 0
+            )
+        )
+        .complete(
+            exitStatus: 0,
+            startedAt: Date(timeIntervalSince1970: 20),
+            endedAt: Date(timeIntervalSince1970: 22)
+        )
+
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+
+        let rollupURL = bundleURL
+            .appendingPathComponent("provenance", isDirectory: true)
+            .appendingPathComponent("bundle.lungfish-provenance.json")
+        let firstSidecarURL = bundleURL
+            .appendingPathComponent("provenance/chunks", isDirectory: true)
+            .appendingPathComponent("chunk-0.fastq.lungfish-provenance.json")
+        let rollup = try ProvenanceEnvelopeReader.decode(try Data(contentsOf: rollupURL))
+
+        #expect(rollup.outputs.count == ProvenanceWriter.maximumBundleOutputSidecars + 1)
+        #expect(!FileManager.default.fileExists(atPath: firstSidecarURL.path))
     }
 
     @Test("Writer bundle sidecars keep final metadata for repeated output paths")

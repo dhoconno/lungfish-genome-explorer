@@ -313,6 +313,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let maxDistanceFrom5Prime,
             let maxDistanceFrom3Prime,
             let errorRate,
+            let engine,
             let trimBarcodes,
             let sampleAssignments,
             let kitOverride
@@ -326,6 +327,14 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             guard kitOverride == nil else {
                 throw FASTQOperationExecutionError.unsupportedDemultiplex("kitOverride is not encodable")
             }
+            if engine == .exactBareBarcode {
+                return [
+                    "demultiplex", inputURL.path,
+                    "--kit", customCSVPath ?? kitID,
+                    "-o", outputTarget,
+                    "--engine", engine.rawValue,
+                ]
+            }
             var arguments = [
                 "demultiplex", inputURL.path,
                 "--kit", customCSVPath ?? kitID,
@@ -334,6 +343,7 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--max-distance-5prime", "\(maxDistanceFrom5Prime)",
                 "--max-distance-3prime", "\(maxDistanceFrom3Prime)",
                 "--error-rate", String(format: "%.2f", errorRate),
+                "--engine", engine.rawValue,
             ]
             if !trimBarcodes { arguments.append("--no-trim") }
             return arguments

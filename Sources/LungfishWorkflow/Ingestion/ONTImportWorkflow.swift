@@ -142,40 +142,62 @@ public struct ONTImportWorkflow: Sendable {
         let completedAt = Date()
 
         do {
-            let outputURLs = try concreteOutputURLs(
-                outputDirectory: config.outputDirectory,
-                bundleURLs: importResult.bundleURLs
-            )
             let inputDescriptors = try inputChunkURLs.map {
                 try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
             }
-            let outputDescriptors = try outputURLs.map {
-                try ProvenanceFileDescriptor.file(
-                    url: $0,
-                    format: provenanceFormat(for: $0),
-                    role: .output
-                )
-            }
-            let envelope = try provenanceEnvelope(
+            let parentOutputDescriptors = try parentOutputDescriptors(
+                outputDirectory: config.outputDirectory,
+                bundleURLs: importResult.bundleURLs
+            )
+            let parentEnvelope = try provenanceEnvelope(
                 context: context,
                 config: config,
                 layout: layout,
                 importedBarcodeCount: importedBarcodeDirectories.count,
                 inputDescriptors: inputDescriptors,
-                outputDescriptors: outputDescriptors,
+                outputDescriptors: parentOutputDescriptors,
                 startedAt: startedAt,
                 completedAt: completedAt
             )
 
             var provenanceURLs: [URL] = []
-            provenanceURLs.append(try provenanceWriter(envelope, canonicalURL(config.outputDirectory)))
             for bundleURL in importResult.bundleURLs {
-                provenanceURLs.append(try provenanceWriter(envelope, canonicalURL(bundleURL)))
+                let barcodeDirectory = try barcodeDirectory(
+                    forBundleURL: bundleURL,
+                    in: importedBarcodeDirectories
+                )
+                let childInputDescriptors = try barcodeDirectory.chunkFiles
+                    .map(canonicalURL)
+                    .sorted { $0.path < $1.path }
+                    .map {
+                        try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
+                    }
+                let childOutputDescriptors = try concreteFiles(in: bundleURL).map {
+                    try ProvenanceFileDescriptor.file(
+                        url: $0,
+                        format: provenanceFormat(for: $0),
+                        role: .output
+                    )
+                }
+                let childEnvelope = try provenanceEnvelope(
+                    context: context,
+                    config: config,
+                    layout: layout,
+                    importedBarcodeCount: 1,
+                    inputDescriptors: childInputDescriptors,
+                    outputDescriptors: childOutputDescriptors,
+                    startedAt: startedAt,
+                    completedAt: completedAt,
+                    barcodeName: barcodeDirectory.barcodeName,
+                    bundleURL: bundleURL
+                )
+                provenanceURLs.append(try provenanceWriter(childEnvelope, canonicalURL(bundleURL)))
             }
+            provenanceURLs.append(try provenanceWriter(parentEnvelope, canonicalURL(config.outputDirectory)))
 
             return Result(
                 importResult: importResult,
-                provenanceEnvelope: envelope,
+                provenanceEnvelope: parentEnvelope,
                 provenanceURLs: provenanceURLs
             )
         } catch {
@@ -192,7 +214,9 @@ public struct ONTImportWorkflow: Sendable {
         inputDescriptors: [ProvenanceFileDescriptor],
         outputDescriptors: [ProvenanceFileDescriptor],
         startedAt: Date,
-        completedAt: Date
+        completedAt: Date,
+        barcodeName: String? = nil,
+        bundleURL: URL? = nil
     ) throws -> ProvenanceEnvelope {
         var defaults: [String: ParameterValue] = [
             "includeUnclassified": .boolean(false),
@@ -211,6 +235,12 @@ public struct ONTImportWorkflow: Sendable {
         resolved["barcodeDirectoryCount"] = .integer(layout.barcodeDirectories.count)
         resolved["importedBarcodeDirectoryCount"] = .integer(importedBarcodeCount)
         resolved["chunkCount"] = .integer(inputDescriptors.count)
+        if let barcodeName {
+            resolved["barcode"] = .string(barcodeName)
+        }
+        if let bundleURL {
+            resolved["bundle"] = .file(bundleURL)
+        }
 
         let step = ProvenanceStep(
             toolName: context.toolName,
@@ -251,14 +281,36 @@ public struct ONTImportWorkflow: Sendable {
         )
     }
 
-    private func concreteOutputURLs(outputDirectory: URL, bundleURLs: [URL]) throws -> [URL] {
-        var urls = [
-            canonicalURL(outputDirectory.appendingPathComponent(DemultiplexManifest.filename)),
+    private func parentOutputDescriptors(outputDirectory: URL, bundleURLs: [URL]) throws -> [ProvenanceFileDescriptor] {
+        var descriptors = [
+            try ProvenanceFileDescriptor.file(
+                url: canonicalURL(outputDirectory.appendingPathComponent(DemultiplexManifest.filename)),
+                format: .json,
+                role: .output
+            ),
         ]
-        for bundleURL in bundleURLs {
-            urls.append(contentsOf: try concreteFiles(in: bundleURL))
+        descriptors.append(contentsOf: bundleURLs.map { bundleURL in
+            let canonicalBundleURL = canonicalURL(bundleURL)
+            let childProvenanceURL = canonicalBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+            return ProvenanceFileDescriptor(
+                path: canonicalBundleURL.path,
+                format: .unknown,
+                role: .output,
+                sourceProvenancePath: childProvenanceURL.path
+            )
+        })
+        return descriptors.sorted { $0.path < $1.path }
+    }
+
+    private func barcodeDirectory(
+        forBundleURL bundleURL: URL,
+        in barcodeDirectories: [ONTBarcodeDirectory]
+    ) throws -> ONTBarcodeDirectory {
+        let barcodeName = bundleURL.deletingPathExtension().lastPathComponent
+        if let barcodeDirectory = barcodeDirectories.first(where: { $0.barcodeName == barcodeName }) {
+            return barcodeDirectory
         }
-        return urls.sorted { $0.path < $1.path }
+        throw ONTImportError.notONTDirectory(bundleURL)
     }
 
     private func expectedBundleURLs(

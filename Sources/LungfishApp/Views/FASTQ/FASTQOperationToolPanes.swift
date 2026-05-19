@@ -210,7 +210,30 @@ private struct FASTQOperationInputsSection: View {
                     }
                 }
             }
+
+            if kind == .barcodeDefinition, !state.projectBarcodeDefinitionCandidates.isEmpty {
+                Picker("Project File", selection: barcodeDefinitionProjectFileBinding) {
+                    Text("Choose project file").tag(URL?.none)
+                    ForEach(state.projectBarcodeDefinitionCandidates, id: \.self) { url in
+                        Text(FASTQOperationDialogState.displayPath(for: url, relativeTo: state.projectURL))
+                            .tag(URL?.some(url))
+                    }
+                }
+            }
         }
+    }
+
+    private var barcodeDefinitionProjectFileBinding: Binding<URL?> {
+        Binding(
+            get: { state.auxiliaryInputURL(for: .barcodeDefinition) },
+            set: { url in
+                if let url {
+                    state.setAuxiliaryInput(url, for: .barcodeDefinition)
+                } else {
+                    state.removeAuxiliaryInput(for: .barcodeDefinition)
+                }
+            }
+        )
     }
 
     private func inputSummary(for kind: FASTQOperationInputKind) -> String {
@@ -451,28 +474,39 @@ private struct FASTQOperationPrimarySettingsSection: View {
                 .pickerStyle(.segmented)
                 if state.demultiplexBarcodeSource == .builtinKit {
                     Picker("Built-In Kit", selection: $state.demultiplexKitID) {
-                        ForEach(BarcodeKitRegistry.builtinKits()) { kit in
+                        ForEach(state.demultiplexBuiltInKitOptions) { kit in
                             Text(kit.displayName).tag(kit.id)
                         }
                     }
                 } else {
-                    Text("Select the barcode definition CSV in the Inputs section.")
+                    Text("Select a barcode definition CSV, TSV, or whitespace-delimited text file in the Inputs section. Columns: id,sequence[,secondary_sequence][,sample_name].")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Picker("Location", selection: $state.demultiplexLocation) {
-                    Text("Both Ends").tag("bothends")
-                    Text("5' End").tag("fiveprime")
-                    Text("3' End").tag("threeprime")
+                Picker("Engine", selection: $state.demultiplexEngine) {
+                    ForEach(DemultiplexEngine.allCases, id: \.self) { engine in
+                        Text(engine.displayName).tag(engine)
+                    }
                 }
                 .pickerStyle(.segmented)
-                HStack(spacing: 12) {
-                    labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime))
-                    labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime))
-                }
-                HStack(spacing: 12) {
-                    labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate))
-                    Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
+                Text(state.demultiplexEngine.explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if state.demultiplexEngine == .cutadapt {
+                    Picker("Location", selection: $state.demultiplexLocation) {
+                        Text("Both Ends").tag("bothends")
+                        Text("5' End").tag("fiveprime")
+                        Text("3' End").tag("threeprime")
+                    }
+                    .pickerStyle(.segmented)
+                    HStack(spacing: 12) {
+                        labeledCompactTextField("5' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom5Prime))
+                        labeledCompactTextField("3' Distance", text: Self.intBinding(state, \.demultiplexMaxDistanceFrom3Prime))
+                    }
+                    HStack(spacing: 12) {
+                        labeledCompactTextField("Error Rate", text: Self.doubleBinding(state, \.demultiplexErrorRate))
+                        Toggle("Trim Barcodes", isOn: $state.demultiplexTrimBarcodes)
+                    }
                 }
 
             case .removeHumanReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
@@ -717,6 +751,24 @@ private extension MSASequenceType {
         case .auto: return "Auto"
         case .nucleotide: return "Nucleotide"
         case .protein: return "Protein"
+        }
+    }
+}
+
+private extension DemultiplexEngine {
+    var displayName: String {
+        switch self {
+        case .cutadapt: return "Cutadapt"
+        case .exactBareBarcode: return "Exact Bare Barcode"
+        }
+    }
+
+    var explanation: String {
+        switch self {
+        case .cutadapt:
+            return "Cutadapt is the default fuzzy adapter matcher; it uses the error rate and can allow indels."
+        case .exactBareBarcode:
+            return "Exact bare barcode scans whole reads for exact A/C/G/T barcode and reverse-complement matches, then preserves reads."
         }
     }
 }

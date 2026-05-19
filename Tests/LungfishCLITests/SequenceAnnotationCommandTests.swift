@@ -73,11 +73,13 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(attributes["range_end"], "12")
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent(".lungfish-provenance.json").path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("provenance/bundle.lungfish-provenance.json").path))
+        let bundleRollupURL = bundleURL.appendingPathComponent("provenance/bundle.lungfish-provenance.json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bundleRollupURL.path))
 
         let dbSidecarURL = bundleURL.appendingPathComponent("provenance/annotations/orfs_chr1.db.lungfish-provenance.json")
         XCTAssertTrue(FileManager.default.fileExists(atPath: dbSidecarURL.path))
         let dbEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: dbSidecarURL))
+        let rollupEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: bundleRollupURL))
         XCTAssertEqual(dbEnvelope.output?.path, dbURL.path)
         XCTAssertEqual(dbEnvelope.argv.first, "lungfish-cli")
         XCTAssertEqual(dbEnvelope.steps.first?.argv.first, "lungfish-cli")
@@ -92,8 +94,9 @@ final class SequenceAnnotationCommandTests: XCTestCase {
         XCTAssertEqual(provenanceInputs.first { $0.path == manifestURL.path }?.format, .json)
         XCTAssertEqual(provenanceInputs.first { $0.path == manifestURL.path }?.role, .input)
         XCTAssertEqual(provenanceInputs.first { $0.path == manifestURL.path }?.checksumSHA256, preRunManifestSHA)
+        XCTAssertNil(dbEnvelope.steps.first?.outputs.first { $0.path == manifestURL.path })
         XCTAssertEqual(
-            dbEnvelope.steps.first?.outputs.first { $0.path == manifestURL.path }?.checksumSHA256,
+            rollupEnvelope.steps.first?.outputs.first { $0.path == manifestURL.path }?.checksumSHA256,
             try ProvenanceFileHasher.sha256(of: manifestURL)
         )
         XCTAssertEqual(provenanceInputs.first { $0.path == faiURL.path }?.format, .text)

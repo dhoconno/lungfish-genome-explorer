@@ -362,6 +362,9 @@ struct ProvenanceRuntimeRow: Identifiable, Equatable {
 @Observable
 @MainActor
 final class ProvenanceInspectorViewModel {
+    private static let maximumDisplayedFileRows = 500
+    private static let maximumDisplayedStepPaths = 200
+
     var currentItem: ProvenanceInspectableItem?
     var audit: ProvenanceAuditResult = .notRequired
     var summary = ProvenanceRunSummary()
@@ -456,6 +459,11 @@ final class ProvenanceInspectorViewModel {
     }
 
     private func buildPresentState(envelope: ProvenanceEnvelope, sidecarURL: URL) {
+        let completeFileRows = buildFileRows(envelope)
+        let presentationWarnings = largeRecordWarningRows(
+            fileRowCount: completeFileRows.count,
+            envelope: envelope
+        )
         summary = ProvenanceRunSummary(
             workflowName: envelope.workflowName,
             workflowVersion: envelope.workflowVersion,
@@ -473,7 +481,7 @@ final class ProvenanceInspectorViewModel {
             outputCount: outputDescriptors(in: envelope).count,
             signatureCount: envelope.signatures.count
         )
-        warnings = warningRows(for: audit) + stepWarningRows(for: envelope)
+        warnings = warningRows(for: audit) + stepWarningRows(for: envelope) + presentationWarnings
         lineageRuns = [
             ProvenanceLineageRun(
                 id: envelope.id,
@@ -486,8 +494,8 @@ final class ProvenanceInspectorViewModel {
                         toolName: step.toolName,
                         toolVersion: step.toolVersion,
                         command: step.reproducibleCommand,
-                        inputPaths: step.inputs.map(\.path),
-                        outputPaths: step.outputs.map(\.path),
+                        inputPaths: cappedPathList(step.inputs.map(\.path)),
+                        outputPaths: cappedPathList(step.outputs.map(\.path)),
                         exitStatus: step.exitStatus,
                         wallTimeSeconds: step.wallTimeSeconds,
                         stderr: step.stderr?.strippingANSIEscapeSequences(),
@@ -496,10 +504,12 @@ final class ProvenanceInspectorViewModel {
                 }
             )
         ]
-        fileRows = buildFileRows(envelope)
+        fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
-        rawJSON = encodedJSON(envelope)
+        rawJSON = shouldInlineRawJSON(fileRowCount: completeFileRows.count, envelope: envelope)
+            ? encodedJSON(envelope)
+            : ""
         copyableText = buildCopyableText()
     }
 
@@ -541,11 +551,19 @@ final class ProvenanceInspectorViewModel {
     }
 
     private func inputDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        allFileDescriptors(in: envelope).filter { $0.role == .input || $0.role == .reference || $0.role == .index }
+        deduplicatedFileDescriptors(
+            allFileDescriptors(in: envelope).filter {
+                $0.role == .input || $0.role == .reference || $0.role == .index
+            }
+        )
     }
 
     private func outputDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
-        allFileDescriptors(in: envelope).filter { $0.role == .output || $0.role == .report || $0.role == .log }
+        deduplicatedFileDescriptors(
+            allFileDescriptors(in: envelope).filter {
+                $0.role == .output || $0.role == .report || $0.role == .log
+            }
+        )
     }
 
     private func allFileDescriptors(in envelope: ProvenanceEnvelope) -> [ProvenanceFileDescriptor] {
@@ -553,6 +571,14 @@ final class ProvenanceInspectorViewModel {
             + (envelope.output.map { [$0] } ?? [])
             + envelope.outputs
             + envelope.steps.flatMap { $0.inputs + $0.outputs }
+    }
+
+    private func deduplicatedFileDescriptors(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        return descriptors.filter { descriptor in
+            let key = "\(descriptor.role.rawValue)|\(descriptor.path)"
+            return seen.insert(key).inserted
+        }
     }
 
     private func buildFileRows(_ envelope: ProvenanceEnvelope) -> [ProvenanceFileRow] {
@@ -578,6 +604,45 @@ final class ProvenanceInspectorViewModel {
                 return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
             }
             return lhs.role < rhs.role
+        }
+    }
+
+    private func cappedPathList(_ paths: [String]) -> [String] {
+        guard paths.count > Self.maximumDisplayedStepPaths else {
+            return paths
+        }
+        let remaining = paths.count - Self.maximumDisplayedStepPaths
+        return Array(paths.prefix(Self.maximumDisplayedStepPaths)) + [
+            "... \(remaining) more paths omitted from Inspector display; use Export for the complete provenance JSON.",
+        ]
+    }
+
+    private func largeRecordWarningRows(
+        fileRowCount: Int,
+        envelope: ProvenanceEnvelope
+    ) -> [ProvenanceWarningRow] {
+        let hasLargePathList = envelope.steps.contains {
+            $0.inputs.count > Self.maximumDisplayedStepPaths
+                || $0.outputs.count > Self.maximumDisplayedStepPaths
+        }
+        guard fileRowCount > Self.maximumDisplayedFileRows || hasLargePathList else {
+            return []
+        }
+        return [
+            ProvenanceWarningRow(
+                title: "Large provenance record",
+                message: "Inspector display is capped at \(Self.maximumDisplayedFileRows) file rows and \(Self.maximumDisplayedStepPaths) paths per step; use Export for the complete provenance JSON."
+            ),
+        ]
+    }
+
+    private func shouldInlineRawJSON(fileRowCount: Int, envelope: ProvenanceEnvelope) -> Bool {
+        guard fileRowCount <= Self.maximumDisplayedFileRows else {
+            return false
+        }
+        return !envelope.steps.contains {
+            $0.inputs.count > Self.maximumDisplayedStepPaths
+                || $0.outputs.count > Self.maximumDisplayedStepPaths
         }
     }
 

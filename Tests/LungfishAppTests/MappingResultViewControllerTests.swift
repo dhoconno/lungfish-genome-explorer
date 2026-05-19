@@ -257,6 +257,67 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
     }
 
+    func testVisibleAlignmentTrackSelectionRefreshesContigRowsFromThatTrack() async throws {
+        let vc = MappingResultViewController()
+        _ = vc.view
+
+        let resultDirectory = tempDir.appendingPathComponent("mapping-run", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultDirectory, withIntermediateDirectories: true)
+        let bundleURL = try makeReferenceBundleWithAlignmentTracks()
+        let result = makeMappingResult(viewerBundleURL: bundleURL, resultDirectoryURL: resultDirectory)
+        let builderCalled = expectation(description: "filtered alignment summary builder called")
+
+        vc.setAlignmentTrackSummaryBuilderForTesting { bamURL, totalReads in
+            XCTAssertEqual(bamURL.lastPathComponent, "filtered.bam")
+            XCTAssertEqual(totalReads, 4)
+            builderCalled.fulfill()
+            return [
+                MappingContigSummary(
+                    contigName: "alpha",
+                    contigLength: 100,
+                    mappedReads: 0,
+                    mappedReadPercent: 0,
+                    meanDepth: 0,
+                    coverageBreadth: 0,
+                    medianMAPQ: 0,
+                    meanIdentity: 0
+                ),
+                MappingContigSummary(
+                    contigName: "gamma",
+                    contigLength: 100,
+                    mappedReads: 4,
+                    mappedReadPercent: 100,
+                    meanDepth: 7.5,
+                    coverageBreadth: 0.42,
+                    medianMAPQ: 60,
+                    meanIdentity: 1.0
+                ),
+            ]
+        }
+
+        vc.configureForTesting(result: result, resultDirectoryURL: resultDirectory)
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.contigName), ["beta", "alpha"])
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: "filtered-track"
+        ])
+
+        await fulfillment(of: [builderCalled], timeout: 2.0)
+        try await waitUntil {
+            vc.testContigTableView.displayedRows.map(\.contigName) == ["gamma"]
+        }
+        XCTAssertEqual(vc.testContigTableView.record(at: 0)?.mappedReads, 4)
+        XCTAssertEqual(vc.testContigTableView.record(at: 0)?.meanDepth, 7.5)
+        XCTAssertEqual(vc.testSummaryText, "Exact matches — 4 / 4 reads mapped (100.0%)")
+
+        vc.applyEmbeddedReadDisplaySettings([
+            NotificationUserInfoKey.visibleAlignmentTrackID: ""
+        ])
+
+        XCTAssertEqual(vc.testContigTableView.displayedRows.map(\.contigName), ["beta", "alpha"])
+        XCTAssertEqual(vc.testSummaryText, "minimap2 Mapping — 198 / 200 reads mapped (99.0%)")
+    }
+
     func testConsensusExportUsesSelectedContigNameInSuggestedStem() throws {
         let vc = MappingResultViewController()
         _ = vc.view
@@ -535,6 +596,74 @@ final class MappingResultViewControllerTests: XCTestCase {
         )
         try manifest.save(to: bundleURL)
         return bundleURL
+    }
+
+    private func makeReferenceBundleWithAlignmentTracks() throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("alignment-tracks.lungfishref", isDirectory: true)
+        let genomeURL = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        let alignmentsURL = bundleURL.appendingPathComponent("alignments", isDirectory: true)
+        let filteredURL = alignmentsURL.appendingPathComponent("filtered", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: filteredURL, withIntermediateDirectories: true)
+
+        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz"))
+        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz.fai"))
+        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz.gzi"))
+        try Data().write(to: alignmentsURL.appendingPathComponent("original.bam"))
+        try Data().write(to: alignmentsURL.appendingPathComponent("original.bam.bai"))
+        try Data().write(to: filteredURL.appendingPathComponent("filtered.bam"))
+        try Data().write(to: filteredURL.appendingPathComponent("filtered.bam.bai"))
+
+        let manifest = BundleManifest(
+            formatVersion: "1.0",
+            name: "Alignment Tracks",
+            identifier: "org.test.alignment-tracks",
+            source: SourceInfo(organism: "Test organism", assembly: "fixture"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                gzipIndexPath: "genome/sequence.fa.gz.gzi",
+                totalLength: 200,
+                chromosomes: [
+                    ChromosomeInfo(name: "alpha", length: 100, offset: 0, lineBases: 80, lineWidth: 81),
+                    ChromosomeInfo(name: "gamma", length: 100, offset: 100, lineBases: 80, lineWidth: 81),
+                ]
+            ),
+            alignments: [
+                AlignmentTrackInfo(
+                    id: "original-track",
+                    name: "Original",
+                    sourcePath: "alignments/original.bam",
+                    indexPath: "alignments/original.bam.bai",
+                    mappedReadCount: 10,
+                    unmappedReadCount: 0
+                ),
+                AlignmentTrackInfo(
+                    id: "filtered-track",
+                    name: "Exact matches",
+                    sourcePath: "alignments/filtered/filtered.bam",
+                    indexPath: "alignments/filtered/filtered.bam.bai",
+                    mappedReadCount: 4,
+                    unmappedReadCount: 0
+                ),
+            ]
+        )
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
+    private func waitUntil(
+        timeout: TimeInterval = 2.0,
+        predicate: @MainActor @escaping () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !predicate() {
+            if Date() >= deadline {
+                XCTFail("Timed out waiting for condition")
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
     }
 
     private func invokeInspectorReload(on controller: MappingResultViewController) throws {

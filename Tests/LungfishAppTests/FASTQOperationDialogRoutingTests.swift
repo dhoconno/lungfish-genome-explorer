@@ -570,6 +570,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                     maxDistanceFrom5Prime: 0,
                     maxDistanceFrom3Prime: 0,
                     errorRate: 0.15,
+                    engine: .cutadapt,
                     trimBarcodes: true,
                     sampleAssignments: nil,
                     kitOverride: nil
@@ -607,6 +608,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                     maxDistanceFrom5Prime: 0,
                     maxDistanceFrom3Prime: 0,
                     errorRate: 0.15,
+                    engine: .cutadapt,
                     trimBarcodes: true,
                     sampleAssignments: nil,
                     kitOverride: nil
@@ -614,6 +616,111 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                 inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
                 outputMode: .perInput
             )
+        )
+    }
+
+    func testDemultiplexSelectedEngineRoutesIntoLaunchRequest() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.demultiplexBarcodes)
+        state.demultiplexKitID = "fluidigm-access-array"
+        state.demultiplexEngine = .exactBareBarcode
+        state.prepareForRun()
+
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .demultiplex(
+                    kitID: "fluidigm-access-array",
+                    customCSVPath: nil,
+                    location: "bothends",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 0,
+                    maxDistanceFrom3Prime: 0,
+                    errorRate: 0.15,
+                    engine: .exactBareBarcode,
+                    trimBarcodes: false,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testExactBareBarcodeEngineUsesCompatibleBuiltInKitAndPreservesReads() {
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")]
+        )
+
+        state.selectTool(.demultiplexBarcodes)
+        state.demultiplexKitID = "truseq-single-a"
+        state.demultiplexEngine = .exactBareBarcode
+        state.prepareForRun()
+
+        XCTAssertEqual(state.demultiplexBuiltInKitOptions.map(\.id), ["fluidigm-access-array"])
+        XCTAssertEqual(state.demultiplexKitID, "fluidigm-access-array")
+        XCTAssertEqual(
+            state.pendingLaunchRequest,
+            .derivative(
+                request: .demultiplex(
+                    kitID: "fluidigm-access-array",
+                    customCSVPath: nil,
+                    location: "bothends",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 0,
+                    maxDistanceFrom3Prime: 0,
+                    errorRate: 0.15,
+                    engine: .exactBareBarcode,
+                    trimBarcodes: false,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+                outputMode: .perInput
+            )
+        )
+    }
+
+    func testProjectBarcodeDefinitionCandidatesIncludeTextBarcodeFiles() throws {
+        let projectURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQOperationDialogRouting-\(UUID().uuidString).lungfish", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectURL) }
+        let downloadsURL = projectURL.appendingPathComponent("Downloads", isDirectory: true)
+        let hiddenURL = projectURL.appendingPathComponent(".lungfish-cache", isDirectory: true)
+        let bundleURL = projectURL.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: downloadsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: hiddenURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let rootBarcodeURL = projectURL.appendingPathComponent("fluidigm.tsv")
+        let nestedBarcodeURL = downloadsURL.appendingPathComponent("fluidigm-subset.csv")
+        try "FLD0001\tGTATCGTCGT\n".write(to: rootBarcodeURL, atomically: true, encoding: .utf8)
+        try "FLD0002,GTGTATGCGT\n".write(to: nestedBarcodeURL, atomically: true, encoding: .utf8)
+        try "hidden\tGTATCGTCGT\n".write(
+            to: hiddenURL.appendingPathComponent("hidden.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "inside\tGTATCGTCGT\n".write(
+            to: bundleURL.appendingPathComponent("inside.tsv"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let state = FASTQOperationDialogState(
+            initialCategory: .demultiplexing,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            projectURL: projectURL
+        )
+
+        XCTAssertEqual(
+            state.projectBarcodeDefinitionCandidates.map { FASTQOperationDialogState.displayPath(for: $0, relativeTo: projectURL) },
+            ["Downloads/fluidigm-subset.csv", "fluidigm.tsv"]
         )
     }
 
@@ -1575,6 +1682,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
                     maxDistanceFrom5Prime: 3,
                     maxDistanceFrom3Prime: 5,
                     errorRate: 0.05,
+                    engine: .cutadapt,
                     trimBarcodes: false,
                     sampleAssignments: nil,
                     kitOverride: nil

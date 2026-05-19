@@ -73,21 +73,21 @@ public final class FASTQSourceResolver: Sendable {
             throw ExtractionError.noSourceFASTQ
         }
 
+        let hasSourceManifest = FASTQSourceFileManifest.exists(in: bundleURL)
+
         // Strategy 1: Multi-file manifest (source-files.json)
-        if FASTQSourceFileManifest.exists(in: bundleURL) {
-            if let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) {
-                let urls = manifest.resolveFileURLs(relativeTo: bundleURL)
-                let existing = urls.filter { FileManager.default.fileExists(atPath: $0.path) }
-                if !existing.isEmpty {
-                    return existing
-                }
+        if hasSourceManifest {
+            if let urls = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
+               !urls.isEmpty,
+               urls.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }) {
+                return urls
             }
         }
 
         // Strategy 2: Physical FASTQ files (not preview.fastq if others exist)
         let physicalFiles = findPhysicalFASTQFiles(in: bundleURL)
         let nonPreview = physicalFiles.filter { $0.lastPathComponent != "preview.fastq" }
-        if !nonPreview.isEmpty {
+        if !hasSourceManifest && !nonPreview.isEmpty {
             return nonPreview
         }
 
@@ -106,7 +106,7 @@ public final class FASTQSourceResolver: Sendable {
         }
 
         // Strategy 4: Fallback -- include preview.fastq if it's all we have
-        if !physicalFiles.isEmpty {
+        if !hasSourceManifest && !physicalFiles.isEmpty {
             return physicalFiles
         }
 

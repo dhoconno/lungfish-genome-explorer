@@ -177,13 +177,6 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
         )
         let parentBundleURL = sourceInputURL.flatMap(enclosingFASTQBundleURL(for:))
         let sourceManifest = parentBundleURL.flatMap { FASTQBundle.loadDerivedManifest(in: $0) }
-        let rootBundleURL = sourceManifest
-            .map { FASTQBundle.resolveBundle(relativePath: $0.rootBundleRelativePath, from: parentBundleURL ?? bundleURL) }
-            ?? parentBundleURL
-            ?? bundleURL
-        let rootFASTQFilename = sourceManifest?.rootFASTQFilename
-            ?? parentBundleURL.flatMap { FASTQBundle.resolvePrimarySequenceURL(for: $0)?.lastPathComponent }
-            ?? outputFASTQ.lastPathComponent
         let baseLineage = sourceManifest?.lineage ?? []
         let checksum = try PayloadChecksum.sha256Hex(fileAt: outputFASTQ)
 
@@ -192,15 +185,12 @@ struct AppFASTQOutputBundleWriter: FASTQOutputBundleWriting {
                 ?? FASTQOperationPlanner.relativePath(from: bundleURL, to: $0)
                 ?? "."
         } ?? "."
-        let rootRelativePath = FASTQBundle.projectRelativePath(for: rootBundleURL, from: bundleURL)
-            ?? FASTQOperationPlanner.relativePath(from: bundleURL, to: rootBundleURL)
-            ?? "."
 
         let manifest = FASTQDerivedBundleManifest(
             name: bundleURL.deletingPathExtension().lastPathComponent,
             parentBundleRelativePath: parentRelativePath,
-            rootBundleRelativePath: rootRelativePath,
-            rootFASTQFilename: rootFASTQFilename,
+            rootBundleRelativePath: ".",
+            rootFASTQFilename: outputFASTQ.lastPathComponent,
             payload: .full(fastqFilename: outputFASTQ.lastPathComponent),
             lineage: baseLineage + [operation],
             operation: operation,

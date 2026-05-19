@@ -154,6 +154,12 @@ public class ReferenceBundleViewportController: NSViewController {
     private var currentResultDirectoryURL: URL?
     private var loadedViewerBundleURL: URL?
     private var sequenceRows: [BundleBrowserSequenceSummary] = []
+    private typealias AlignmentTrackSummaryBuilder = (URL, Int) async throws -> [MappingContigSummary]
+    private var alignmentTrackSummaryBuilder: AlignmentTrackSummaryBuilder = { bamURL, totalReads in
+        try await MappingSummaryBuilder.build(sortedBAMURL: bamURL, totalReads: totalReads)
+    }
+    private var alignmentTrackSummaryRefreshID = UUID()
+    private var visibleAlignmentSummaryOverride: VisibleAlignmentSummary?
 
     var onEmbeddedReferenceBundleLoaded: ((ReferenceBundle) -> Void)?
     var onSequenceSelectionStateChanged: ((SequenceRegionSelectionState?) -> Void)?
@@ -505,6 +511,18 @@ public class ReferenceBundleViewportController: NSViewController {
     }
 
     private func updateSummaryBar() {
+        if let visibleAlignmentSummaryOverride {
+            let pct = visibleAlignmentSummaryOverride.totalReads > 0
+                ? String(
+                    format: "%.1f%%",
+                    Double(visibleAlignmentSummaryOverride.mappedReads)
+                        / Double(visibleAlignmentSummaryOverride.totalReads) * 100
+                )
+                : "—"
+            summaryLabel.stringValue = "\(visibleAlignmentSummaryOverride.trackName) — \(visibleAlignmentSummaryOverride.mappedReads.formatted()) / \(visibleAlignmentSummaryOverride.totalReads.formatted()) reads mapped (\(pct))"
+            return
+        }
+
         guard let result = currentResult else {
             summaryLabel.stringValue = currentInput?.documentTitle ?? "Reference Bundle"
             return
@@ -524,6 +542,8 @@ public class ReferenceBundleViewportController: NSViewController {
         currentResult = input.mappingResult
         currentResultDirectoryURL = input.mappingResultDirectoryURL
         loadedViewerBundleURL = nil
+        visibleAlignmentSummaryOverride = nil
+        alignmentTrackSummaryRefreshID = UUID()
         presentationMode = .listDetail
         applyPresentationMode()
         updateSummaryBar()
@@ -543,8 +563,15 @@ public class ReferenceBundleViewportController: NSViewController {
         sequenceTableView.configure(rows: [])
         sequenceTableView.isHidden = true
         contigTableView.isHidden = false
-        contigTableView.configure(rows: result?.contigs ?? [])
-        refreshSelection(preferredSelectionName: preferredSelectionName)
+
+        applyOriginalMappingRows(preferredSelectionName: preferredSelectionName)
+        if let visibleTrackID = embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting,
+           !visibleTrackID.isEmpty {
+            refreshMappingRowsForVisibleAlignmentTrack(
+                visibleTrackID,
+                preferredSelectionName: preferredSelectionName
+            )
+        }
     }
 
     private func configureDirectBundleRows(input: ReferenceBundleViewportInput, preferredSelectionName: String?) throws {
@@ -668,6 +695,13 @@ public class ReferenceBundleViewportController: NSViewController {
 
     func applyEmbeddedReadDisplaySettings(_ userInfo: [AnyHashable: Any]) {
         embeddedViewerController.applyReadDisplaySettings(userInfo)
+
+        if userInfo.keys.contains(NotificationUserInfoKey.visibleAlignmentTrackID as AnyHashable) {
+            refreshMappingRowsForVisibleAlignmentTrack(
+                embeddedViewerController.viewerView.visibleAlignmentTrackIDSetting,
+                preferredSelectionName: currentSelectedContig()?.contigName
+            )
+        }
     }
 
     func notifyEmbeddedReferenceBundleLoadedIfAvailable() {
@@ -916,6 +950,148 @@ public class ReferenceBundleViewportController: NSViewController {
         sequenceTableView.tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
         displaySelectedSequence(sequenceTableView.displayedRows[row])
     }
+
+    private func applyOriginalMappingRows(preferredSelectionName: String?) {
+        visibleAlignmentSummaryOverride = nil
+        updateSummaryBar()
+        contigTableView.configure(rows: currentResult?.contigs ?? [])
+        refreshSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    private func refreshMappingRowsForVisibleAlignmentTrack(
+        _ trackID: String?,
+        preferredSelectionName: String?
+    ) {
+        guard currentInput?.kind == .mappingResult else { return }
+
+        alignmentTrackSummaryRefreshID = UUID()
+        let refreshID = alignmentTrackSummaryRefreshID
+
+        guard let trackID,
+              !trackID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            applyOriginalMappingRows(preferredSelectionName: preferredSelectionName)
+            return
+        }
+
+        guard let bundleURL = currentInput?.renderedBundleURL,
+              let manifest = try? BundleManifest.load(from: bundleURL),
+              let track = manifest.alignments.first(where: { $0.id == trackID })
+        else {
+            return
+        }
+
+        let bamURL = resolvedTrackURL(track.sourcePath, bundleURL: bundleURL)
+        let mappedReads = Int(clamping: track.mappedReadCount ?? 0)
+        let totalReads = mappedReads + Int(clamping: track.unmappedReadCount ?? 0)
+        let summaryBuilder = alignmentTrackSummaryBuilder
+
+        Task { @MainActor [weak self] in
+            do {
+                let summaries = try await summaryBuilder(bamURL, totalReads)
+                guard let self,
+                      self.alignmentTrackSummaryRefreshID == refreshID
+                else {
+                    return
+                }
+                self.applyVisibleAlignmentRows(
+                    summaries,
+                    track: track,
+                    mappedReads: mappedReads,
+                    totalReads: totalReads,
+                    preferredSelectionName: preferredSelectionName
+                )
+            } catch {
+                guard let self,
+                      self.alignmentTrackSummaryRefreshID == refreshID
+                else {
+                    return
+                }
+
+                if let fallbackRows = self.metadataFallbackRows(
+                    for: track,
+                    bundleURL: bundleURL,
+                    totalReads: totalReads
+                ) {
+                    self.applyVisibleAlignmentRows(
+                        fallbackRows,
+                        track: track,
+                        mappedReads: mappedReads,
+                        totalReads: totalReads,
+                        preferredSelectionName: preferredSelectionName
+                    )
+                } else {
+                    self.showDetailPlaceholder("Unable to compute alignment statistics for \(track.name).")
+                }
+            }
+        }
+    }
+
+    private func applyVisibleAlignmentRows(
+        _ summaries: [MappingContigSummary],
+        track: AlignmentTrackInfo,
+        mappedReads: Int,
+        totalReads: Int,
+        preferredSelectionName: String?
+    ) {
+        let filteredSummaries = summaries.filter { $0.mappedReads > 0 }
+        let computedMappedReads = filteredSummaries.reduce(0) { $0 + $1.mappedReads }
+        let displayMappedReads = mappedReads > 0 ? mappedReads : computedMappedReads
+        let displayTotalReads = totalReads > 0 ? totalReads : displayMappedReads
+        visibleAlignmentSummaryOverride = VisibleAlignmentSummary(
+            trackName: track.name,
+            mappedReads: displayMappedReads,
+            totalReads: displayTotalReads
+        )
+        updateSummaryBar()
+        contigTableView.configure(rows: filteredSummaries)
+        refreshSelection(preferredSelectionName: preferredSelectionName)
+    }
+
+    private func metadataFallbackRows(
+        for track: AlignmentTrackInfo,
+        bundleURL: URL,
+        totalReads: Int
+    ) -> [MappingContigSummary]? {
+        guard let metadataDBPath = track.metadataDBPath else { return nil }
+        let metadataDBURL = resolvedTrackURL(metadataDBPath, bundleURL: bundleURL)
+        guard let database = try? AlignmentMetadataDatabase(url: metadataDBURL) else { return nil }
+
+        let rows = database.chromosomeStats()
+            .filter { $0.mappedReads > 0 }
+            .map { stat in
+                MappingContigSummary(
+                    contigName: stat.chromosome,
+                    contigLength: Int(clamping: stat.length),
+                    mappedReads: Int(clamping: stat.mappedReads),
+                    mappedReadPercent: totalReads > 0
+                        ? Double(stat.mappedReads) / Double(totalReads) * 100
+                        : 0,
+                    meanDepth: 0,
+                    coverageBreadth: 0,
+                    medianMAPQ: 0,
+                    meanIdentity: 0
+                )
+            }
+
+        return rows.isEmpty ? nil : rows
+    }
+
+    private func resolvedTrackURL(_ path: String, bundleURL: URL) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        if path.hasPrefix("@/") {
+            return bundleURL.appendingPathComponent(String(path.dropFirst(2)))
+        }
+        return bundleURL.appendingPathComponent(path)
+    }
+}
+
+private struct VisibleAlignmentSummary: Equatable {
+    let trackName: String
+    let mappedReads: Int
+    let totalReads: Int
 }
 
 extension ReferenceBundleViewportController: ResultViewportController {
@@ -1074,6 +1250,12 @@ extension ReferenceBundleViewportController {
     func testSetEmbeddedReadDisplaySettings(minMapQ: Int, consensusMinMapQ: Int) {
         embeddedViewerController.viewerView.minMapQSetting = minMapQ
         embeddedViewerController.viewerView.consensusMinMapQSetting = consensusMinMapQ
+    }
+
+    func setAlignmentTrackSummaryBuilderForTesting(
+        _ builder: @escaping (URL, Int) async throws -> [MappingContigSummary]
+    ) {
+        alignmentTrackSummaryBuilder = builder
     }
 }
 #endif

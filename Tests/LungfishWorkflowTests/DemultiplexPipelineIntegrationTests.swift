@@ -61,6 +61,15 @@ final class DemultiplexPipelineIntegrationTests: XCTestCase {
         return (bundleURL, fastqFilename, tempDir)
     }
 
+    private func writeFASTQ(records: [(id: String, seq: String)], to url: URL) throws {
+        var content = ""
+        for record in records {
+            let qual = String(repeating: "I", count: record.seq.count)
+            content += "@\(record.id)\n\(record.seq)\n+\n\(qual)\n"
+        }
+        try content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     /// Makes a read sequence with barcode pattern 1: fwd + insert + rc(rev)
     private func makePattern1(fwd: String, rev: String, insertLength: Int) -> String {
         fwd + randomInsert(length: insertLength) + rc(rev)
@@ -307,6 +316,58 @@ final class DemultiplexPipelineIntegrationTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testAsymmetricDemuxUsesExistingChunksWhenSourceManifestIsStale() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("demux-pipeline-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("root.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        let chunksDir = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+        let replacementChunk = chunksDir.appendingPathComponent("chunk_0.clumped.fastq")
+        let intactChunk = chunksDir.appendingPathComponent("chunk_1.fastq")
+        try writeFASTQ(
+            records: [(id: "replacement_read", seq: makePattern1(fwd: barcodeA_fwd, rev: barcodeA_rev, insertLength: 3000))],
+            to: replacementChunk
+        )
+        try writeFASTQ(
+            records: [(id: "intact_read", seq: makePattern1(fwd: barcodeB_fwd, rev: barcodeB_rev, insertLength: 3000))],
+            to: intactChunk
+        )
+
+        let manifest = FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/chunk_0.fastq", originalPath: "/orig/chunk_0.fastq", sizeBytes: 100, isSymlink: false),
+            .init(filename: "chunks/chunk_1.fastq", originalPath: "/orig/chunk_1.fastq", sizeBytes: 200, isSymlink: false),
+        ])
+        try manifest.save(to: bundleURL)
+
+        let outputDir = tempDir.appendingPathComponent("demux-output", isDirectory: true)
+        let config = DemultiplexConfig(
+            inputURL: bundleURL,
+            sourceBundleURL: bundleURL,
+            barcodeKit: makeTestKit(),
+            outputDirectory: outputDir,
+            symmetryMode: .asymmetric,
+            sampleAssignments: makeSampleAssignments(),
+            rootBundleURL: bundleURL,
+            rootFASTQFilename: replacementChunk.lastPathComponent,
+            minimumInsert: 2000
+        )
+
+        let pipeline = DemultiplexingPipeline()
+        let result = try await pipeline.run(config: config, progress: { _, _ in })
+
+        let sampleABundle = try XCTUnwrap(
+            result.outputBundleURLs.first { $0.lastPathComponent == "SampleA.\(FASTQBundle.directoryExtension)" }
+        )
+        let readIDs = try String(
+            contentsOf: sampleABundle.appendingPathComponent("read-ids.txt"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(readIDs.contains("replacement_read"))
     }
 
     // MARK: - Test 5: Materialization round-trip

@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishIO
+@testable import LungfishCore
 
 final class ReferenceCandidateTests: XCTestCase {
 
@@ -202,6 +203,54 @@ final class ReferenceCandidateTests: XCTestCase {
         XCTAssertEqual(refs[0].manifest.name, "Alpha")
         XCTAssertEqual(refs[1].manifest.name, "Mu")
         XCTAssertEqual(refs[2].manifest.name, "Zeta")
+    }
+
+    func testScannerDiscoversFullReferenceBundlesInsideReferenceSequencesFolder() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RefTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let projectDir = tempDir.appendingPathComponent("project.lungfish", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        let referenceFolder = try ReferenceSequenceFolder.ensureFolder(in: projectDir)
+        let bundleURL = referenceFolder.appendingPathComponent("FullGenome.lungfishref", isDirectory: true)
+        let genomeDir = bundleURL.appendingPathComponent("genome", isDirectory: true)
+        try FileManager.default.createDirectory(at: genomeDir, withIntermediateDirectories: true)
+
+        let fastaURL = genomeDir.appendingPathComponent("sequence.fa.gz")
+        try ">chr1\nACGTACGT\n".write(to: fastaURL, atomically: true, encoding: .utf8)
+        try "chr1\t8\t6\t8\t9\n".write(
+            to: genomeDir.appendingPathComponent("sequence.fa.gz.fai"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let manifest = BundleManifest(
+            name: "Full Genome Reference",
+            identifier: "test.full-genome-reference",
+            source: SourceInfo(organism: "Test organism", assembly: "TestAssembly"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                totalLength: 8,
+                chromosomes: [
+                    ChromosomeInfo(name: "chr1", length: 8, offset: 6, lineBases: 8, lineWidth: 9)
+                ]
+            )
+        )
+        try manifest.save(to: bundleURL)
+
+        let candidates = ReferenceSequenceScanner.scanAll(in: projectDir)
+
+        XCTAssertTrue(
+            candidates.contains { candidate in
+                candidate.sourceBundleURL?.standardizedFileURL == bundleURL.standardizedFileURL
+                    && candidate.fastaURL.standardizedFileURL == fastaURL.standardizedFileURL
+            },
+            "Expected scanner to discover full .lungfishref bundles in Reference Sequences"
+        )
     }
 
     func testEnsureFolderCreatesDirectory() throws {
