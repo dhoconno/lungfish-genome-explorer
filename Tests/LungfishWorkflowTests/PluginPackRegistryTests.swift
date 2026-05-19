@@ -253,9 +253,9 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(medaka.sourceURL, "https://github.com/nanoporetech/medaka")
 
         let clair3 = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "clair3" }))
-        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=2.0.1"])
+        XCTAssertEqual(clair3.installPackages, ["bioconda::clair3=2.0.0=py311h9aa1f4a_2"])
         XCTAssertEqual(clair3.executables, ["run_clair3.sh"])
-        XCTAssertEqual(clair3.version, "2.0.1")
+        XCTAssertEqual(clair3.version, "2.0.0")
         XCTAssertEqual(clair3.license, "BSD-3-Clause")
         XCTAssertEqual(clair3.sourceURL, "https://github.com/HKU-BAL/Clair3")
     }
@@ -316,10 +316,47 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(pack.name, "Wastewater Surveillance")
         XCTAssertTrue(pack.packages.contains("freyja"))
         XCTAssertEqual(pack.toolRequirements.map(\.environment), ["freyja", "ivar", "pangolin", "nextclade", "minimap2"])
+        XCTAssertFalse(pack.packages.contains("nextflow"))
+        XCTAssertFalse(pack.toolRequirements.contains(where: { $0.id == "nextflow" || $0.environment == "nextflow" }))
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.environment, "freyja")
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.installPackages, ["bioconda::freyja=2.0.0"])
         XCTAssertEqual(pack.toolRequirements.first(where: { $0.id == "freyja" })?.executables, ["freyja"])
         XCTAssertNotNil(pack.toolRequirements.first(where: { $0.id == "pangolin" }))
+    }
+
+    func testOptionalPacksDoNotDuplicateRequiredSetupTools() {
+        let requiredToolIDs = Set(PluginPack.requiredSetupPack.toolRequirements.map(\.id))
+        let requiredEnvironments = Set(PluginPack.requiredSetupPack.toolRequirements.map(\.environment))
+        let optionalPacks = PluginPack.builtIn.filter { $0.kind == .optionalTools }
+
+        for pack in optionalPacks {
+            XCTAssertTrue(
+                pack.toolRequirements.allSatisfy {
+                    !requiredToolIDs.contains($0.id) && !requiredEnvironments.contains($0.environment)
+                },
+                "\(pack.id) should not include tools from the required setup pack"
+            )
+        }
+    }
+
+    func testAmpliconGenotypingPackDefinesNoarchPBAA() throws {
+        let pack = try XCTUnwrap(PluginPack.activeOptionalPacks.first(where: { $0.id == "amplicon-genotyping" }))
+
+        XCTAssertEqual(pack.name, "Amplicon Genotyping")
+        XCTAssertEqual(pack.description, "PacBio amplicon clustering and consensus genotyping from HiFi reads")
+        XCTAssertEqual(pack.category, "Amplicon")
+        XCTAssertEqual(pack.packages, ["pbaa"])
+        XCTAssertEqual(pack.toolRequirements.map(\.environment), ["pbaa"])
+
+        let pbaa = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "pbaa" }))
+        XCTAssertEqual(pbaa.displayName, "pbAA")
+        XCTAssertEqual(pbaa.installPackages, ["bioconda::pbaa=1.0.3=hdfd78af_0"])
+        XCTAssertEqual(pbaa.executables, ["pbaa"])
+        XCTAssertEqual(pbaa.smokeTest?.executable, "pbaa")
+        XCTAssertEqual(pbaa.smokeTest?.arguments, ["--help"])
+        XCTAssertEqual(pbaa.version, "1.0.3")
+        XCTAssertEqual(pbaa.license, "BSD-3-Clause-Clear")
+        XCTAssertEqual(pbaa.sourceURL, "https://github.com/PacificBiosciences/pbAA")
     }
 
     func testActiveOptionalPacksExposeReadMappingVariantCallingAssemblyAndMetagenomics() {
@@ -328,6 +365,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "variant-calling",
             "gatk-core",
             "phasing",
+            "amplicon-genotyping",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
@@ -352,6 +390,7 @@ final class PluginPackRegistryTests: XCTestCase {
             "variant-calling",
             "gatk-core",
             "phasing",
+            "amplicon-genotyping",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",

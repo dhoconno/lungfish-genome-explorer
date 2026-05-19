@@ -111,12 +111,13 @@ final class CondaManagerTests: XCTestCase {
 
     func testBuiltInPacksExist() {
         XCTAssertFalse(PluginPack.builtIn.isEmpty)
-        XCTAssertEqual(PluginPack.builtIn.count, 17, "Should include the required setup pack plus 16 optional packs")
+        XCTAssertEqual(PluginPack.builtIn.count, 18, "Should include the required setup pack plus 17 optional packs")
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
             "gatk-core",
             "phasing",
+            "amplicon-genotyping",
             "assembly",
             "multiple-sequence-alignment",
             "phylogenetics",
@@ -370,10 +371,19 @@ final class CondaManagerTests: XCTestCase {
         XCTAssertTrue(pack!.packages.contains("pangolin"))
         XCTAssertTrue(pack!.packages.contains("nextclade"))
         XCTAssertTrue(pack!.packages.contains("minimap2"))
+        XCTAssertFalse(pack!.packages.contains("nextflow"))
         // Should have post-install hooks for freyja update and pangolin update
         XCTAssertEqual(pack!.postInstallHooks.count, 2)
         XCTAssertTrue(pack!.postInstallHooks.contains { $0.environment == "freyja" })
         XCTAssertTrue(pack!.postInstallHooks.contains { $0.environment == "pangolin" })
+    }
+
+    func testAmpliconGenotypingPack() {
+        let pack = PluginPack.builtIn.first { $0.id == "amplicon-genotyping" }
+        XCTAssertNotNil(pack)
+        XCTAssertEqual(pack!.name, "Amplicon Genotyping")
+        XCTAssertEqual(pack!.packages, ["pbaa"])
+        XCTAssertEqual(pack!.toolRequirements.map(\.installPackages), [["bioconda::pbaa=1.0.3=hdfd78af_0"]])
     }
 
     func testRNASeqPack() {
