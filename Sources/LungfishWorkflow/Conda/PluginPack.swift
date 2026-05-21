@@ -301,7 +301,7 @@ public extension PluginPack {
             kind: .requiredSetup,
             isActive: true,
             requirements: PackToolRequirement.from(lock: lock),
-            estimatedSizeMB: 2600
+            estimatedSizeMB: 2700
         )
     }()
 

@@ -57,4 +57,42 @@ final class MappingSummaryBuilderTests: XCTestCase {
         XCTAssertEqual(summary.coverageBreadth, 0.5, accuracy: 0.0001)
         XCTAssertEqual(summary.mappedReadPercent, 50.0, accuracy: 0.0001)
     }
+
+    func testBuildSummariesDropsReferenceRowsWithNoMappedReads() throws {
+        let coverageOutput = """
+        #rname\tstartpos\tendpos\tnumreads\tcovbases\tcoverage\tmeandepth\tmeanbaseq\tmeanmapq
+        allele-with-support\t1\t156\t4\t156\t100.0\t4.0\t30.0\t40.0
+        allele-without-support\t1\t156\t0\t0\t0.0\t0.0\t0.0\t0.0
+        """
+
+        let viewOutput = """
+        read1\t0\tallele-with-support\t1\t40\t156M\t*\t0\t0\tACGT\t*\tNM:i:0
+        """
+
+        let summaries = try MappingSummaryBuilder.buildSummaries(
+            coverageOutput: coverageOutput,
+            viewOutput: viewOutput,
+            totalReads: 10,
+            includeUnmappedReferenceRows: false
+        )
+
+        XCTAssertEqual(summaries.map(\.contigName), ["allele-with-support"])
+    }
+
+    func testBuildSummariesKeepsReferenceRowsWithNoMappedReadsByDefault() throws {
+        let coverageOutput = """
+        #rname\tstartpos\tendpos\tnumreads\tcovbases\tcoverage\tmeandepth\tmeanbaseq\tmeanmapq
+        allele-with-support\t1\t156\t4\t156\t100.0\t4.0\t30.0\t40.0
+        allele-without-support\t1\t156\t0\t0\t0.0\t0.0\t0.0\t0.0
+        """
+
+        let summaries = try MappingSummaryBuilder.buildSummaries(
+            coverageOutput: coverageOutput,
+            viewOutput: "",
+            totalReads: 10
+        )
+
+        XCTAssertEqual(summaries.map(\.contigName), ["allele-with-support", "allele-without-support"])
+        XCTAssertEqual(summaries[1].mappedReads, 0)
+    }
 }

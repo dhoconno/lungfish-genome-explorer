@@ -2468,7 +2468,9 @@ public class SequenceViewerView: NSView {
                         let packEnd = visibleRegion.end + packPadding
 
                         let readsForPacking = cachedAlignedReads.filter { read in
-                            read.alignmentEnd > packStart && read.position < packEnd
+                            read.chromosome == visibleRegion.chromosome
+                                && read.alignmentEnd > packStart
+                                && read.position < packEnd
                         }
 
                         let (packed, packOverflow) = ReadTrackRenderer.packReads(

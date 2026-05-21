@@ -553,6 +553,7 @@ extension ViewerViewController: ChromosomeNavigatorDelegate {
         // Within same chromosome, CDS and frame translations persist at their genomic coordinates.
         if let currentChrom = referenceFrame?.chromosome, currentChrom != chromosome {
             viewerView.hideTranslation()
+            viewerView.invalidateAlignmentFetchState()
         }
 
         let effectiveWidth = max(800, Int(viewerView.bounds.width))

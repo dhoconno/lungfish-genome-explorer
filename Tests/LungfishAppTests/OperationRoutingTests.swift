@@ -238,6 +238,24 @@ final class OperationRoutingTests: XCTestCase {
         )
     }
 
+    func testWorkflowOperationsLaunchCarriesSelectedSidebarReads() throws {
+        let appDelegateURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift")
+        let source = try String(contentsOf: appDelegateURL, encoding: .utf8)
+        let body = try sourceFunctionBody(
+            named: "@objc func showWorkflowOperations",
+            endingBefore: "@objc func showImportCenter",
+            in: source
+        )
+
+        XCTAssertTrue(body.contains("activeMainWindowController(sender: sender)"))
+        XCTAssertTrue(body.contains("gatherWorkflowOperationReadInputURLs(controller: $0)"))
+        XCTAssertTrue(body.contains("selectedReadURLs: selectedReadURLs"))
+    }
+
     func testAlignmentAnnotationActionUsesOriginWindow() throws {
         let appDelegateURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

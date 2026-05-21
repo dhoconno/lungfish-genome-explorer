@@ -27,7 +27,7 @@ final class CLITopLevelRegressionTests: XCTestCase {
     }
 
     func testLungfishCLIVersion() {
-        XCTAssertEqual(LungfishCLI.configuration.version, "0.5-alpha1")
+        XCTAssertEqual(LungfishCLI.configuration.version, "0.5.0-alpha2")
     }
 
     func testLungfishCLIAbstractIsNonEmpty() {
@@ -1121,11 +1121,19 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         let readsURL = tempDirectory.appendingPathComponent("reads.fastq")
         try "@r1\nACGT\n+\n!!!!\n".write(to: readsURL, atomically: true, encoding: .utf8)
         let resultsURL = tempDirectory.appendingPathComponent("results", isDirectory: true)
+        let expectedOutputURL = resultsURL.appendingPathComponent("result.lungfishref", isDirectory: true)
+        try FileManager.default.createDirectory(at: expectedOutputURL, withIntermediateDirectories: true)
+        try ">result\nACGT\n".write(
+            to: expectedOutputURL.appendingPathComponent("sequence.fasta"),
+            atomically: true,
+            encoding: .utf8
+        )
         let bundleURL = tempDirectory.appendingPathComponent("snake.lungfishrun", isDirectory: true)
 
         let command = try RunSubcommand.parse([
             snakefileURL.path,
             "--input", readsURL.path,
+            "--expected-output", expectedOutputURL.path,
             "--results-dir", resultsURL.path,
             "--bundle-path", bundleURL.path,
             "--param", "sample=S1",
@@ -1176,6 +1184,13 @@ final class WorkflowCommandRegressionTests: XCTestCase {
         XCTAssertEqual(provenance.steps.first?.exitCode, 0)
         XCTAssertEqual(provenance.steps.first?.stderr, "snakemake warning\n")
         XCTAssertEqual(provenance.parameters["cores"], .string("all"))
+        XCTAssertTrue(provenance.steps.first?.command.contains("--expected-output") == true)
+        XCTAssertTrue(provenance.steps.first?.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path } == true)
+
+        let outputEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: expectedOutputURL))
+        XCTAssertEqual(outputEnvelope.workflowName, "Run Local Snakemake workflow")
+        XCTAssertTrue(outputEnvelope.outputs.contains { $0.path == expectedOutputURL.standardizedFileURL.path })
+        XCTAssertTrue(outputEnvelope.argv.contains("--expected-output"))
     }
 
     func testRunHelpAdvertisesOnlyViralReconNFCoreWorkflow() {

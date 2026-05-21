@@ -149,6 +149,43 @@ final class SequenceViewerFetchInvalidationTests: XCTestCase {
         )
     }
 
+    func testCrossChromosomeNavigationClearsReadCachesImmediately() {
+        let viewer = ViewerViewController()
+        _ = viewer.view
+        viewer.referenceFrame = ReferenceFrame(
+            chromosome: "alpha",
+            start: 0,
+            end: 100,
+            pixelWidth: 800,
+            sequenceLength: 100
+        )
+
+        let staleRead = AlignedRead(
+            name: "alpha-read",
+            flag: 0,
+            chromosome: "alpha",
+            position: 10,
+            mapq: 60,
+            cigar: CIGAROperation.parse("10M") ?? [],
+            sequence: "ACTGACTGAA",
+            qualities: Array(repeating: 37, count: 10)
+        )
+        viewer.viewerView.testSetCachedAlignedReads([staleRead])
+        viewer.viewerView.testSetCachedPackedReads([(0, staleRead)])
+
+        viewer.navigateToChromosomeAndPosition(
+            chromosome: "beta",
+            chromosomeLength: 120,
+            start: 0,
+            end: 100
+        )
+
+        XCTAssertEqual(viewer.referenceFrame?.chromosome, "beta")
+        XCTAssertTrue(viewer.viewerView.testCachedAlignedReads.isEmpty)
+        XCTAssertTrue(viewer.viewerView.testCachedPackedReads.isEmpty)
+        XCTAssertNil(viewer.viewerView.cachedReadRegion)
+    }
+
     private func bundleURL(_ suffix: String) -> URL {
         URL(fileURLWithPath: "/tmp/viewer-fetch-\(suffix).lungfishref", isDirectory: true)
     }

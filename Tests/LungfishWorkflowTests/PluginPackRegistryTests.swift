@@ -15,7 +15,7 @@ final class PluginPackRegistryTests: XCTestCase {
             [
                 "nextflow", "snakemake", "bbtools", "fastp", "deacon",
                 "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig",
+                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam",
             ]
         )
     }
@@ -27,10 +27,10 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(environments, [
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig",
+            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam",
             "deacon-panhuman", "deacon-ribokmers",
         ])
-        XCTAssertEqual(pack.estimatedSizeMB, 2600)
+        XCTAssertEqual(pack.estimatedSizeMB, 2700)
         XCTAssertEqual(
             pack.toolRequirements.first(where: { $0.environment == "bbtools" })?.installPackages,
             ["bioconda::bbmap=39.80=h2e3bd82_0"]
@@ -61,7 +61,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
-        XCTAssertEqual(lock.tools.count, 14)
+        XCTAssertEqual(lock.tools.count, 15)
         XCTAssertEqual(lock.managedData.count, 2)
     }
 
@@ -84,6 +84,18 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(ucscBedGraphToBigWig.version, "482")
         XCTAssertEqual(ucscBedGraphToBigWig.license, "Varies; see https://genome.ucsc.edu/license")
         XCTAssertEqual(ucscBedGraphToBigWig.sourceURL, "https://genome.ucsc.edu/goldenPath/help/bigWig.html")
+
+        let pysam = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "pysam" }))
+        XCTAssertEqual(pysam.displayName, "pysam")
+        XCTAssertEqual(pysam.environment, "pysam")
+        XCTAssertEqual(pysam.installPackages, ["bioconda::pysam=0.24.0=py310hf7cbfa5_0"])
+        XCTAssertEqual(pysam.executables, ["python"])
+        XCTAssertEqual(pysam.smokeTest?.executable, "python")
+        XCTAssertEqual(pysam.smokeTest?.arguments, ["-c", "import pysam; print(pysam.__version__)"])
+        XCTAssertEqual(pysam.smokeTest?.requiredOutputSubstring, "0.24.0")
+        XCTAssertEqual(pysam.version, "0.24.0")
+        XCTAssertEqual(pysam.license, "MIT")
+        XCTAssertEqual(pysam.sourceURL, "https://github.com/pysam-developers/pysam")
     }
 
     func testMetagenomicsPackDefinesSmokeChecksForVisibleTools() {

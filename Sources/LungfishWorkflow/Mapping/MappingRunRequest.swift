@@ -86,6 +86,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
     public let includeSupplementary: Bool
     public let minimumMappingQuality: Int
     public let advancedArguments: [String]
+    public let compatibilityReadClassOverride: MappingReadClass?
 
     public init(
         tool: MappingTool,
@@ -105,7 +106,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         includeSecondary: Bool = false,
         includeSupplementary: Bool = true,
         minimumMappingQuality: Int = 0,
-        advancedArguments: [String] = []
+        advancedArguments: [String] = [],
+        compatibilityReadClassOverride: MappingReadClass? = nil
     ) {
         self.tool = tool
         self.modeID = modeID
@@ -125,6 +127,7 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
         self.includeSupplementary = includeSupplementary
         self.minimumMappingQuality = minimumMappingQuality
         self.advancedArguments = advancedArguments
+        self.compatibilityReadClassOverride = compatibilityReadClassOverride
     }
 
     public func withInputFASTQURLs(_ inputFASTQURLs: [URL]) -> MappingRunRequest {
@@ -146,7 +149,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
-            advancedArguments: advancedArguments
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride
         )
     }
 
@@ -169,7 +173,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
-            advancedArguments: advancedArguments
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride
         )
     }
 
@@ -192,7 +197,8 @@ public struct MappingRunRequest: Sendable, Codable, Equatable {
             includeSecondary: includeSecondary,
             includeSupplementary: includeSupplementary,
             minimumMappingQuality: minimumMappingQuality,
-            advancedArguments: advancedArguments
+            advancedArguments: advancedArguments,
+            compatibilityReadClassOverride: compatibilityReadClassOverride
         )
     }
 

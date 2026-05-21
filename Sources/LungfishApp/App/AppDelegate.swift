@@ -5948,6 +5948,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         )
     }
 
+    private func gatherWorkflowOperationReadInputURLs(
+        controller: MainWindowController? = nil
+    ) -> [URL] {
+        let controller = controller ?? activeMainWindowController()
+        let selectedURLs = controller?.mainSplitViewController?.sidebarController.selectedFileURLs() ?? []
+        return Self.resolveWorkflowOperationReadInputURLs(
+            selectedURLs: selectedURLs,
+            currentFASTQURL: nil
+        )
+    }
+
+    static func resolveWorkflowOperationReadInputURLs(
+        selectedURLs: [URL],
+        currentFASTQURL _: URL?
+    ) -> [URL] {
+        let selected = selectedURLs.compactMap(resolveWorkflowOperationReadInputURL(from:))
+        if !selected.isEmpty {
+            return deduplicatedFASTQOperationInputURLs(selected)
+        }
+
+        return []
+    }
+
+    static func resolveWorkflowOperationReadInputURL(from url: URL) -> URL? {
+        let standardizedURL = url.standardizedFileURL
+        if FASTQBundle.isBundleURL(standardizedURL) {
+            return standardizedURL
+        }
+        if let bundleURL = SequenceInputResolver.enclosingFASTQBundleURL(for: standardizedURL) {
+            return bundleURL
+        }
+        return nil
+    }
+
     static func resolveFASTQOperationInputURLs(
         preferredInputURLs: [URL] = [],
         selectedURLs: [URL],
@@ -7244,6 +7278,23 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
     @objc func showPluginManager(_ sender: Any?) {
         PluginManagerWindowController.show()
+    }
+
+    @objc func showWorkflowLibrary(_ sender: Any?) {
+        WorkflowLibraryWindowController.show()
+    }
+
+    @objc func showWorkflowOperations(_ sender: Any?) {
+        let sourceController = activeMainWindowController(sender: sender)
+        let routeContext = sourceController.map { currentOperationRouteContext(for: $0) } ?? nil
+        let projectURL = routeContext?.projectURL
+            ?? sourceController?.mainSplitViewController?.sidebarController?.currentProjectURL
+        let selectedReadURLs = sourceController.map { gatherWorkflowOperationReadInputURLs(controller: $0) } ?? []
+        WorkflowOperationsWindowController.show(
+            projectURL: projectURL,
+            routeContext: routeContext,
+            selectedReadURLs: selectedReadURLs
+        )
     }
 
     @objc func showImportCenter(_ sender: Any?) {

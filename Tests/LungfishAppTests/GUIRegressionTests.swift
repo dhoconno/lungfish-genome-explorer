@@ -59,9 +59,11 @@ final class GUIRegressionTests: XCTestCase {
 
         XCTAssertEqual(visibleTitles, [
             "FASTQ/FASTA Operations",
+            "Workflow Operations…",
             "Call Variants…",
             "Workflow Builder (Experimental)…",
             "Search Online Databases",
+            "Workflow Library…",
             "Plugin Manager…",
         ])
     }

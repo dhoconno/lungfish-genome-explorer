@@ -256,6 +256,13 @@ struct RunSubcommand: AsyncParsableCommand {
     var input: [String] = []
 
     @Option(
+        name: .customLong("expected-output"),
+        parsing: .singleValue,
+        help: "Expected output bundle or file path; repeat for every scientific output that should receive provenance"
+    )
+    var expectedOutput: [String] = []
+
+    @Option(
         name: .customLong("bundle-root"),
         help: "Directory where the .lungfishrun bundle should be created"
     )
@@ -435,12 +442,14 @@ struct RunSubcommand: AsyncParsableCommand {
         for inputURL in inputURLs where !FileManager.default.fileExists(atPath: inputURL.path) {
             throw CLIError.inputFileNotFound(path: inputURL.path)
         }
+        let expectedOutputURLs = expectedOutput.map { URL(fileURLWithPath: $0).standardizedFileURL }
 
         let request = LocalWorkflowRunRequest(
             workflowURL: workflowURL,
             engine: isNextflow ? .nextflow : .snakemake,
             inputURLs: inputURLs,
             outputDirectory: URL(fileURLWithPath: resultsDir),
+            expectedOutputURLs: expectedOutputURLs,
             params: workflowParams,
             resume: resume,
             workDirectory: workDir.map { URL(fileURLWithPath: $0) },
@@ -790,7 +799,7 @@ struct RunSubcommand: AsyncParsableCommand {
                 format: .json,
                 role: .output
             ),
-        ]
+        ] + expectedOutputRecords(for: request.expectedOutputURLs)
         var parameters = request.effectiveParams.mapValues { ParameterValue.string($0) }
         parameters["engine"] = .string(request.engine.rawValue)
         parameters["workflowPath"] = .file(request.workflowURL)
@@ -831,6 +840,43 @@ struct RunSubcommand: AsyncParsableCommand {
         let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
         try data.write(to: provenanceURL, options: .atomic)
         try signProvenanceIfConfigured(at: provenanceURL)
+        if !prepareOnly, status == .completed {
+            try writeExpectedOutputProvenance(run, to: request.expectedOutputURLs)
+        }
+    }
+
+    private func expectedOutputRecords(for outputURLs: [URL]) -> [FileRecord] {
+        outputURLs.map { outputURL in
+            ProvenanceRecorder.fileRecord(url: outputURL, role: .output)
+        }
+    }
+
+    private func writeExpectedOutputProvenance(
+        _ run: WorkflowRun,
+        to outputURLs: [URL]
+    ) throws {
+        guard !outputURLs.isEmpty else { return }
+        let writer = ProvenanceWriter(signingProvider: nil)
+        let envelope = run.canonicalEnvelope()
+        for outputURL in outputURLs {
+            guard FileManager.default.fileExists(atPath: outputURL.path) else {
+                throw CLIError.outputWriteFailed(
+                    path: outputURL.path,
+                    reason: "Expected workflow output was not created"
+                )
+            }
+
+            var isDirectory: ObjCBool = false
+            FileManager.default.fileExists(atPath: outputURL.path, isDirectory: &isDirectory)
+            if isDirectory.boolValue {
+                try writer.write(envelope, to: outputURL)
+            } else {
+                try writer.write(
+                    envelope,
+                    toSidecar: ProvenanceRecorder.fileSidecarURL(for: outputURL)
+                )
+            }
+        }
     }
 
     private func signProvenanceIfConfigured(at provenanceURL: URL) throws {

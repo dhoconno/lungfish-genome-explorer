@@ -138,15 +138,21 @@ final class FASTQOperationDialogState {
     var pbaaThreads: Int
     var pbaaSeed: Int
     var pbaaExtraArguments: String
+    var ontGenotypingOutputName: String
+    var ontGenotypingThreads: Int
+    var ontGenotypingMinSupport: Int
+    var ontGenotypingExtraArguments: String
 
     private let availableToolIDsOverride: [FASTQOperationToolID]?
+    private let workflowLibrary: any WorkflowLibraryEnabling
     private var embeddedToolReady: Bool
 
     init(
         initialCategory: FASTQOperationCategoryID,
         selectedInputURLs: [URL],
         projectURL: URL? = nil,
-        availableToolIDs: [FASTQOperationToolID]? = nil
+        availableToolIDs: [FASTQOperationToolID]? = nil,
+        workflowLibrary: any WorkflowLibraryEnabling = WorkflowLibraryEnablementStore.shared
     ) {
         let availableToolIDsOverride = availableToolIDs.map(Self.uniquedToolIDs(_:))
         let defaultToolID =
@@ -154,6 +160,7 @@ final class FASTQOperationDialogState {
             ?? availableToolIDsOverride?.first
             ?? initialCategory.defaultToolID
         self.availableToolIDsOverride = availableToolIDsOverride
+        self.workflowLibrary = workflowLibrary
         self.selectedCategory = defaultToolID.categoryID
         self.selectedToolID = defaultToolID
         self.selectedInputURLs = selectedInputURLs
@@ -241,6 +248,10 @@ final class FASTQOperationDialogState {
         self.pbaaThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.pbaaSeed = 1984
         self.pbaaExtraArguments = ""
+        self.ontGenotypingOutputName = "ont-genotyping-report"
+        self.ontGenotypingThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
+        self.ontGenotypingMinSupport = 1
+        self.ontGenotypingExtraArguments = ""
         self.embeddedToolReady = defaultToolID.defaultEmbeddedReadiness
 
         if self.selectedCategory == .assembly {
@@ -620,6 +631,23 @@ final class FASTQOperationDialogState {
                 outputMode: outputMode
             )
 
+        case .ontGenotyping:
+            guard let referenceURL = auxiliaryInputURL(for: .referenceSequence),
+                  let outputDirectoryURL,
+                  let request = try? ONTGenotypingRunRequest(
+                    inputFASTQURLs: selectedInputURLs,
+                    referenceSourceURL: referenceURL,
+                    outputDirectory: outputDirectoryURL,
+                    outputName: ontGenotypingOutputName,
+                    projectURL: projectURL,
+                    threads: ontGenotypingThreads,
+                    minSupport: ontGenotypingMinSupport,
+                    extraArguments: AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)
+                  ) else {
+                return nil
+            }
+            return .ontGenotyping(request: request)
+
         case .mafft, .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .spades, .megahit, .skesa, .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return nil
         }
@@ -909,6 +937,10 @@ final class FASTQOperationDialogState {
         }
     }
 
+    var visibleToolIDs: [FASTQOperationToolID] {
+        visibleToolIDs(for: selectedCategory)
+    }
+
     var selectedToolSummary: String {
         switch selectedToolID {
         case .refreshQCSummary:
@@ -959,6 +991,8 @@ final class FASTQOperationDialogState {
             return "Keep reads matching a target sequence."
         case .pbaa:
             return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
+        case .ontGenotyping:
+            return "Genotype ONT amplicon reads by short-read mapping, strict full-amplicon filtering, and per-sample reporting."
         case .mafft:
             return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:
@@ -1026,7 +1060,7 @@ final class FASTQOperationDialogState {
         case .alignment:
             return [.mafft]
         case .mapping:
-            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
+            return [.minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping, .viralRecon]
         case .assembly:
             return [.spades, .megahit, .skesa, .flye, .hifiasm]
         case .clustering:
@@ -1136,6 +1170,26 @@ final class FASTQOperationDialogState {
             }
             do {
                 _ = try AdvancedCommandLineOptions.parse(pbaaExtraArguments)
+                return nil
+            } catch {
+                return "Advanced options are not valid: \(error.localizedDescription)"
+            }
+
+        case .ontGenotyping:
+            if selectedInputURLs.isEmpty {
+                return "Select at least one FASTQ dataset."
+            }
+            if auxiliaryInputURL(for: .referenceSequence) == nil {
+                return "Select a reference sequence to continue."
+            }
+            if ontGenotypingThreads <= 0 {
+                return "Enter a positive thread count."
+            }
+            if ontGenotypingMinSupport <= 0 {
+                return "Enter a positive minimum support."
+            }
+            do {
+                _ = try AdvancedCommandLineOptions.parse(ontGenotypingExtraArguments)
                 return nil
             } catch {
                 return "Advanced options are not valid: \(error.localizedDescription)"
@@ -1376,14 +1430,17 @@ final class FASTQOperationDialogState {
             let toolIDs = isFASTAInputMode
                 ? availableToolIDsOverride.filter(\.supportsFASTA)
                 : availableToolIDsOverride
-            return toolIDs
+            return toolIDs.filter { workflowLibrary.isWorkflowEnabled($0) }
         }
 
         if isFASTAInputMode {
-            return Self.toolIDs(for: category).filter(\.supportsFASTA)
+            return Self.toolIDs(for: category)
+                .filter(\.supportsFASTA)
+                .filter { workflowLibrary.isWorkflowEnabled($0) }
         }
 
         let allToolIDs = Self.toolIDs(for: category)
+            .filter { workflowLibrary.isWorkflowEnabled($0) }
         guard category == .assembly,
               assemblyReadClassMismatchMessage == nil,
               let readType = detectedAssemblyReadType else {
@@ -1531,6 +1588,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     case extractReadsByMotif
     case selectReadsBySequence
     case pbaa
+    case ontGenotyping
     case mafft
     case minimap2
     case bwaMem2 = "bwa-mem2"
@@ -1572,6 +1630,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Extract Reads by Motif"
         case .selectReadsBySequence: return "Select Reads by Sequence"
         case .pbaa: return "pbAA Amplicon Clustering"
+        case .ontGenotyping: return "ONT Genotyping"
         case .mafft: return "MAFFT"
         case .minimap2: return "minimap2"
         case .bwaMem2: return "BWA-MEM2"
@@ -1615,6 +1674,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
         case .pbaa: return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
+        case .ontGenotyping: return "Map ONT amplicon reads with the short-read preset, filter indel-only full-amplicon reads, and report genotypes."
         case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
         case .minimap2: return "Map reads to a reference sequence with minimap2."
         case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
@@ -1650,7 +1710,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return .alignment
         case .pbaa:
             return .clustering
-        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon:
+        case .minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon, .ontGenotyping:
             return .mapping
         case .spades, .megahit, .skesa, .flye, .hifiasm:
             return .assembly
@@ -1677,7 +1737,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .database]
         case .removeContaminants:
             return [.fastqDataset, .contaminantReference]
-        case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap:
+        case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping:
             return [.fastqDataset, .referenceSequence]
         case .pbaa:
             return [.fastqDataset, .referenceSequence]
@@ -1687,6 +1747,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     var defaultOutputMode: FASTQOperationOutputMode {
         if self == .mafft { return .fixedBatch }
         if self == .pbaa { return .perInput }
+        if self == .ontGenotyping { return .fixedBatch }
         return categoryID == .classification ? .fixedBatch : .perInput
     }
 
@@ -1713,6 +1774,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
     var supportsConfigurableOutput: Bool {
         if self == .mafft { return false }
         if self == .pbaa { return false }
+        if self == .ontGenotyping { return false }
         return categoryID != .classification && self != .removeRibosomalRNA
     }
 
@@ -1784,7 +1846,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
              .bwaMem2, .bowtie2, .bbmap, .spades, .megahit, .skesa,
              .flye, .hifiasm, .kraken2, .esViritu, .taxTriage:
             return true
-        case .refreshQCSummary, .fastpTrim, .qualityTrim, .pbaa, .mergeOverlappingPairs,
+        case .refreshQCSummary, .fastpTrim, .qualityTrim, .pbaa, .ontGenotyping, .mergeOverlappingPairs,
              .repairPairedEndFiles, .correctSequencingErrors, .viralRecon:
             return false
         }
@@ -1871,6 +1933,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
     case pbaa(request: PBAAClusteringRunRequest)
+    case ontGenotyping(request: ONTGenotypingRunRequest)
 }
 
 private extension AssemblyTool {

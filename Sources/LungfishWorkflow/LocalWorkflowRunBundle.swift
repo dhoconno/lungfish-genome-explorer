@@ -142,6 +142,7 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
     public let engine: WorkflowEngineType
     public let inputURLs: [URL]
     public let outputDirectory: URL
+    public let expectedOutputURLs: [URL]
     public let params: [String: String]
     public let resume: Bool
     public let workDirectory: URL?
@@ -239,6 +240,7 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         engine: WorkflowEngineType? = nil,
         inputURLs: [URL] = [],
         outputDirectory: URL,
+        expectedOutputURLs: [URL] = [],
         params: [String: String] = [:],
         resume: Bool = false,
         workDirectory: URL? = nil,
@@ -250,6 +252,7 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         self.engine = engine ?? WorkflowDefinition.detectEngineType(from: standardizedWorkflow)
         self.inputURLs = inputURLs.map(\.standardizedFileURL)
         self.outputDirectory = outputDirectory.standardizedFileURL
+        self.expectedOutputURLs = expectedOutputURLs.map(\.standardizedFileURL)
         self.params = params
         self.resume = resume
         self.workDirectory = workDirectory?.standardizedFileURL
@@ -292,6 +295,9 @@ public struct LocalWorkflowRunRequest: Sendable, Codable, Equatable {
         ]
         for inputURL in inputURLs {
             args += ["--input", inputURL.path]
+        }
+        for outputURL in expectedOutputURLs {
+            args += ["--expected-output", outputURL.path]
         }
         for key in params.keys.sorted() {
             guard let value = params[key], !value.isEmpty else { continue }

@@ -694,6 +694,13 @@ public final class MainMenu {
         fastqOperationsItem.submenu = fastqOperationsMenu
         toolsMenu.addItem(fastqOperationsItem)
 
+        let workflowOperationsItem = toolsMenu.addItem(
+            withTitle: "Workflow Operations\u{2026}",
+            action: #selector(ToolsMenuActions.showWorkflowOperations(_:)),
+            keyEquivalent: ""
+        )
+        workflowOperationsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowOperations)
+
         toolsMenu.addItem(.separator())
 
         let callVariantsItem = toolsMenu.addItem(
@@ -742,6 +749,13 @@ public final class MainMenu {
         toolsMenu.addItem(searchDatabasesItem)
 
         toolsMenu.addItem(.separator())
+
+        let workflowLibraryItem = toolsMenu.addItem(
+            withTitle: "Workflow Library\u{2026}",
+            action: #selector(ToolsMenuActions.showWorkflowLibrary(_:)),
+            keyEquivalent: ""
+        )
+        workflowLibraryItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowLibrary)
 
         // Plugin Manager (Cmd-Shift-B for "Bioconda")
         let pluginItem = toolsMenu.addItem(
@@ -1079,6 +1093,10 @@ enum ProvenanceExportMenuModel {
     func searchPathoplexus(_ sender: Any?)
     /// Opens the Workflow Builder window for constructing and running local workflows.
     func showWorkflowBuilder(_ sender: Any?)
+    /// Opens the enabled workflow operations runner.
+    func showWorkflowOperations(_ sender: Any?)
+    /// Opens the Workflow Library window for enabling specialized workflow surfaces.
+    func showWorkflowLibrary(_ sender: Any?)
     /// Opens the Plugin Manager window for browsing and installing bioconda tools.
     func showPluginManager(_ sender: Any?)
 }

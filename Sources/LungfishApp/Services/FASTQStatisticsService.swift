@@ -15,6 +15,7 @@ public struct FASTQStatisticsComputationResult: Sendable {
 public enum FASTQStatisticsServiceError: Error, LocalizedError {
     case seqkitFailed(String)
     case invalidSeqkitOutput
+    case noFASTQInputs
 
     public var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ public enum FASTQStatisticsServiceError: Error, LocalizedError {
             return "seqkit stats failed: \(stderr)"
         case .invalidSeqkitOutput:
             return "seqkit stats returned invalid or incomplete output"
+        case .noFASTQInputs:
+            return "No FASTQ inputs were provided for statistics computation"
         }
     }
 }
@@ -61,11 +64,12 @@ public enum FASTQStatisticsService {
     public static func computeAndCache(
         for fastqURL: URL,
         existingMetadata: PersistedFASTQMetadata? = nil,
+        runner: NativeToolRunner = .shared,
         progress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> FASTQStatisticsComputationResult {
-        let summary = try await fetchSeqkitSummary(for: fastqURL)
+        let summary = try await fetchSeqkitSummary(for: [fastqURL], runner: runner)
         let (histogram, processedReads) = try await collectFASTQHistogram(
-            from: fastqURL,
+            from: [fastqURL],
             progress: progress
         )
         let statistics = buildFASTQStatistics(
@@ -88,11 +92,20 @@ public enum FASTQStatisticsService {
 
     public static func compute(
         for fastqURL: URL,
+        runner: NativeToolRunner = .shared,
         progress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> FASTQStatisticsComputationResult {
-        let summary = try await fetchSeqkitSummary(for: fastqURL)
+        try await compute(for: [fastqURL], runner: runner, progress: progress)
+    }
+
+    public static func compute(
+        for fastqURLs: [URL],
+        runner: NativeToolRunner = .shared,
+        progress: (@Sendable (Int) -> Void)? = nil
+    ) async throws -> FASTQStatisticsComputationResult {
+        let summary = try await fetchSeqkitSummary(for: fastqURLs, runner: runner)
         let (histogram, processedReads) = try await collectFASTQHistogram(
-            from: fastqURL,
+            from: fastqURLs,
             progress: progress
         )
         let statistics = buildFASTQStatistics(
@@ -108,18 +121,34 @@ public enum FASTQStatisticsService {
         )
     }
 
-    private static func fetchSeqkitSummary(for fastqURL: URL) async throws -> SeqkitSummary {
-        let runner = NativeToolRunner.shared
+    private static func fetchSeqkitSummary(
+        for fastqURLs: [URL],
+        runner: NativeToolRunner
+    ) async throws -> SeqkitSummary {
+        guard !fastqURLs.isEmpty else {
+            throw FASTQStatisticsServiceError.noFASTQInputs
+        }
         let result = try await runner.run(
             .seqkit,
-            arguments: ["stats", "-a", "-T", fastqURL.path],
+            arguments: ["stats", "-a", "-T"] + fastqURLs.map(\.path),
             timeout: 900
         )
         guard result.isSuccess else {
             throw FASTQStatisticsServiceError.seqkitFailed(result.stderr)
         }
 
-        let lines = result.stdout
+        let summaries = try parseSeqkitSummaries(from: result.stdout)
+        guard !summaries.isEmpty else {
+            throw FASTQStatisticsServiceError.invalidSeqkitOutput
+        }
+        guard summaries.count > 1 else {
+            return summaries[0]
+        }
+        return aggregateSeqkitSummaries(summaries)
+    }
+
+    private static func parseSeqkitSummaries(from stdout: String) throws -> [SeqkitSummary] {
+        let lines = stdout
             .split(whereSeparator: \.isNewline)
             .map(String.init)
             .filter { !$0.isEmpty }
@@ -130,52 +159,92 @@ public enum FASTQStatisticsService {
         let headers = lines[0]
             .split(separator: "\t", omittingEmptySubsequences: false)
             .map(String.init)
-        let values = lines[1]
-            .split(separator: "\t", omittingEmptySubsequences: false)
-            .map(String.init)
-        guard headers.count == values.count else {
-            throw FASTQStatisticsServiceError.invalidSeqkitOutput
-        }
 
-        var map: [String: String] = [:]
-        for (header, value) in zip(headers, values) {
-            map[header] = value
-        }
+        return try lines.dropFirst().map { line in
+            let values = line
+                .split(separator: "\t", omittingEmptySubsequences: false)
+                .map(String.init)
+            guard headers.count == values.count else {
+                throw FASTQStatisticsServiceError.invalidSeqkitOutput
+            }
 
-        func int(_ key: String) -> Int { Int(map[key] ?? "") ?? 0 }
-        func int64(_ key: String) -> Int64 { Int64(map[key] ?? "") ?? 0 }
-        func dbl(_ key: String) -> Double { Double(map[key] ?? "") ?? 0 }
+            var map: [String: String] = [:]
+            for (header, value) in zip(headers, values) {
+                map[header] = value
+            }
+
+            func int(_ key: String) -> Int { Int(map[key] ?? "") ?? 0 }
+            func int64(_ key: String) -> Int64 { Int64(map[key] ?? "") ?? 0 }
+            func dbl(_ key: String) -> Double { Double(map[key] ?? "") ?? 0 }
+
+            return SeqkitSummary(
+                numSeqs: int("num_seqs"),
+                sumLen: int64("sum_len"),
+                minLen: int("min_len"),
+                avgLen: dbl("avg_len"),
+                maxLen: int("max_len"),
+                q20Percentage: dbl("Q20(%)"),
+                q30Percentage: dbl("Q30(%)"),
+                averageQuality: dbl("AvgQual"),
+                gcPercentage: dbl("GC(%)")
+            )
+        }
+    }
+
+    private static func aggregateSeqkitSummaries(_ summaries: [SeqkitSummary]) -> SeqkitSummary {
+        let numSeqs = summaries.reduce(0) { $0 + $1.numSeqs }
+        let sumLen = summaries.reduce(Int64(0)) { $0 + $1.sumLen }
+        let minLen = summaries
+            .filter { $0.numSeqs > 0 || $0.minLen > 0 }
+            .map(\.minLen)
+            .min() ?? 0
+        let maxLen = summaries.map(\.maxLen).max() ?? 0
+        let avgLen = numSeqs > 0 ? Double(sumLen) / Double(numSeqs) : 0
+
+        func weightedByBases(_ value: (SeqkitSummary) -> Double) -> Double {
+            guard sumLen > 0 else { return 0 }
+            let weightedTotal = summaries.reduce(0.0) { partial, summary in
+                partial + value(summary) * Double(summary.sumLen)
+            }
+            return weightedTotal / Double(sumLen)
+        }
 
         return SeqkitSummary(
-            numSeqs: int("num_seqs"),
-            sumLen: int64("sum_len"),
-            minLen: int("min_len"),
-            avgLen: dbl("avg_len"),
-            maxLen: int("max_len"),
-            q20Percentage: dbl("Q20(%)"),
-            q30Percentage: dbl("Q30(%)"),
-            averageQuality: dbl("AvgQual"),
-            gcPercentage: dbl("GC(%)")
+            numSeqs: numSeqs,
+            sumLen: sumLen,
+            minLen: minLen,
+            avgLen: avgLen,
+            maxLen: maxLen,
+            q20Percentage: weightedByBases(\.q20Percentage),
+            q30Percentage: weightedByBases(\.q30Percentage),
+            averageQuality: weightedByBases(\.averageQuality),
+            gcPercentage: weightedByBases(\.gcPercentage)
         )
     }
 
     private static func collectFASTQHistogram(
-        from fastqURL: URL,
+        from fastqURLs: [URL],
         progress: (@Sendable (Int) -> Void)? = nil
     ) async throws -> (histogram: [Int: Int], readCount: Int) {
+        guard !fastqURLs.isEmpty else {
+            throw FASTQStatisticsServiceError.noFASTQInputs
+        }
         let reader = FASTQReader(validateSequence: false)
         var histogram: [Int: Int] = [:]
         var readCount = 0
 
-        for try await record in reader.records(from: fastqURL) {
-            histogram[record.length, default: 0] += 1
-            readCount += 1
-            if readCount % 10_000 == 0 {
-                progress?(readCount)
-                try Task.checkCancellation()
+        for fastqURL in fastqURLs {
+            for try await record in reader.records(from: fastqURL) {
+                histogram[record.length, default: 0] += 1
+                readCount += 1
+                if readCount % 10_000 == 0 {
+                    progress?(readCount)
+                    try Task.checkCancellation()
+                }
             }
+            progress?(readCount)
+            try Task.checkCancellation()
         }
-        progress?(readCount)
         return (histogram, readCount)
     }
 

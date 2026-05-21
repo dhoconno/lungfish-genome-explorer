@@ -25,7 +25,8 @@ public enum MappingSummaryBuilder {
         sortedBAMURL: URL,
         totalReads: Int,
         runner: NativeToolRunner = .shared,
-        timeout: TimeInterval = 3_600
+        timeout: TimeInterval = 3_600,
+        includeUnmappedReferenceRows: Bool = true
     ) async throws -> [MappingContigSummary] {
         let coverageResult = try await runner.run(
             .samtools,
@@ -46,19 +47,22 @@ public enum MappingSummaryBuilder {
         return try buildSummaries(
             coverageOutput: coverageResult.stdout,
             viewOutput: viewOutput,
-            totalReads: totalReads
+            totalReads: totalReads,
+            includeUnmappedReferenceRows: includeUnmappedReferenceRows
         )
     }
 
     public static func buildSummaries(
         coverageOutput: String,
         viewOutput: String,
-        totalReads: Int
+        totalReads: Int,
+        includeUnmappedReferenceRows: Bool = true
     ) throws -> [MappingContigSummary] {
         let rows = parseCoverageRows(coverageOutput)
         let identities = accumulateViewMetrics(viewOutput)
+        let displayedRows = includeUnmappedReferenceRows ? rows : rows.filter { $0.mappedReads > 0 }
 
-        return rows.map { row in
+        return displayedRows.map { row in
             let metrics = identities[row.name] ?? ViewMetrics()
             return MappingContigSummary(
                 contigName: row.name,

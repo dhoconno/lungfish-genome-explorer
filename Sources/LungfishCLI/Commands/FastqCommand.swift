@@ -47,6 +47,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqMaterializeSubcommand.self,
             FastqQCSummarySubcommand.self,
             FastqPBAAClusterSubcommand.self,
+            FastqONTGenotypingSubcommand.self,
             FastqSearchTextSubcommand.self,
             FastqSearchMotifSubcommand.self,
             FastqOrientSubcommand.self,
@@ -2213,6 +2214,9 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
         var cliArguments = ["demultiplex", inputURL.path, "--kit", kit, "--output", output]
         if demultiplexEngine == .exactBareBarcode {
             cliArguments += ["--engine", demultiplexEngine.rawValue]
+            if threads != 4 {
+                cliArguments += ["--threads", String(threads)]
+            }
         } else {
             if location != "bothends" {
                 cliArguments += ["--location", location]
@@ -2275,9 +2279,11 @@ struct FastqDemultiplexSubcommand: AsyncParsableCommand {
             provenanceParameters["searchMode"] = .string("whole-read")
             provenanceParameters["searchReverseComplement"] = .boolean(true)
             provenanceParameters["trimBarcodes"] = .boolean(false)
+            provenanceParameters["threads"] = .integer(threads)
             provenanceDefaults["searchMode"] = .string("whole-read")
             provenanceDefaults["searchReverseComplement"] = .boolean(true)
             provenanceDefaults["trimBarcodes"] = .boolean(false)
+            provenanceDefaults["threads"] = .integer(4)
         } else {
             provenanceParameters["location"] = .string(location)
             provenanceParameters["resolvedLocation"] = .string(barcodeLocation.rawValue)

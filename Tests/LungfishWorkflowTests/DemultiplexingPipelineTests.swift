@@ -550,6 +550,144 @@ final class DemultiplexingPipelineTests: XCTestCase {
         XCTAssertTrue(output.contains("TTTTT\(fld0001RC)GGGGGCCCCC"))
     }
 
+    func testExactBareBarcodeDemuxRecordsThreadCountInCommandLine() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let barcode = "GTATCGTCGT"
+        let inputFASTQ = tempDir.appendingPathComponent("input.fastq")
+        try writeFASTQ(sequences: ["AAAAA" + barcode + "CCCCCGGGGG"], to: inputFASTQ)
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [BarcodeEntry(id: "FLD0001", i7Sequence: barcode)]
+        )
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: inputFASTQ,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                trimBarcodes: true,
+                threads: 3,
+                engine: .exactBareBarcode
+            ),
+            progress: { _, _ in }
+        )
+
+        let commandLine = try XCTUnwrap(result.manifest.parameters.commandLine)
+        XCTAssertTrue(commandLine.contains("--threads 3"), commandLine)
+    }
+
+    func testExactBareBarcodeDemuxProcessesMultiFileBundleWithMultipleThreads() async throws {
+        let tempDir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }
+
+        let bundleURL = tempDir.appendingPathComponent("input.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        let chunksDir = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+        let fld0001 = "GTATCGTCGT"
+        let fld0002 = "CATACCTGAT"
+        let chunkA = chunksDir.appendingPathComponent("a.fastq")
+        let chunkB = chunksDir.appendingPathComponent("b.fastq")
+        try """
+        @a1
+        AAAAA\(fld0001)CCCCC
+        +
+        IIIIIIIIIIIIIIIIIII
+        @a2
+        TTTTT\(fld0002)GGGGG
+        +
+        IIIIIIIIIIIIIIIIIII
+        """.appending("\n").write(to: chunkA, atomically: true, encoding: .utf8)
+        try """
+        @b1
+        CCCCC\(fld0001)AAAAA
+        +
+        IIIIIIIIIIIIIIIIIII
+        @b2
+        AAAAAAAAAACCCCCCCCCC
+        +
+        IIIIIIIIIIIIIIIIIIII
+        """.appending("\n").write(to: chunkB, atomically: true, encoding: .utf8)
+        try """
+        {
+          "version": 1,
+          "files": [
+            {
+              "filename": "chunks/a.fastq",
+              "originalPath": "/tmp/a.fastq",
+              "sizeBytes": 1,
+              "isSymlink": false
+            },
+            {
+              "filename": "chunks/b.fastq",
+              "originalPath": "/tmp/b.fastq",
+              "sizeBytes": 1,
+              "isSymlink": false
+            }
+          ]
+        }
+        """.write(
+            to: bundleURL.appendingPathComponent("source-files.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let outputDir = tempDir.appendingPathComponent("demux-out", isDirectory: true)
+        let customKit = BarcodeKitDefinition(
+            id: "custom-fluidigm-subset",
+            displayName: "Custom Fluidigm Subset",
+            vendor: "custom",
+            isDualIndexed: false,
+            pairingMode: .singleEnd,
+            barcodes: [
+                BarcodeEntry(id: "FLD0001", i7Sequence: fld0001),
+                BarcodeEntry(id: "FLD0002", i7Sequence: fld0002),
+            ]
+        )
+
+        let result = try await DemultiplexingPipeline().run(
+            config: DemultiplexConfig(
+                inputURL: bundleURL,
+                barcodeKit: customKit,
+                outputDirectory: outputDir,
+                trimBarcodes: true,
+                unassignedDisposition: .keep,
+                threads: 2,
+                engine: .exactBareBarcode
+            ),
+            progress: { _, _ in }
+        )
+
+        XCTAssertEqual(result.manifest.inputReadCount, 4)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0001" })?.readCount, 2)
+        XCTAssertEqual(result.manifest.barcodes.first(where: { $0.barcodeID == "FLD0002" })?.readCount, 1)
+        XCTAssertEqual(result.manifest.unassigned.readCount, 1)
+
+        let fld0001ReadIDs = try String(
+            contentsOf: outputDir
+                .appendingPathComponent("FLD0001.\(FASTQBundle.directoryExtension)", isDirectory: true)
+                .appendingPathComponent("read-ids.txt"),
+            encoding: .utf8
+        )
+        XCTAssertEqual(fld0001ReadIDs.trimmingCharacters(in: .whitespacesAndNewlines), "a1\nb1")
+
+        let fld0001FASTQ = try String(
+            contentsOf: outputDir
+                .appendingPathComponent("FLD0001.\(FASTQBundle.directoryExtension)", isDirectory: true)
+                .appendingPathComponent("FLD0001.fastq"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(fld0001FASTQ.range(of: "@a1")!.lowerBound < fld0001FASTQ.range(of: "@b1")!.lowerBound)
+    }
+
     func testCustomBareBarcodeDefaultEngineUsesCutadapt() async throws {
         let tempDir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: tempDir.deletingLastPathComponent()) }

@@ -103,6 +103,26 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments += ["--extra-args", request.extraArgumentsText]
             }
             return CLIInvocation(subcommand: "fastq", arguments: arguments)
+
+        case .ontGenotyping(let request):
+            let outputDirectoryPath = outputTargetPath == "<derived>"
+                ? request.outputDirectory.path
+                : outputTargetPath
+            var arguments = ["ont-genotype"] + request.inputFASTQURLs.map(\.path)
+            arguments += [
+                "--reference", request.referenceSourceURL.path,
+                "--output-dir", outputDirectoryPath,
+                "--output-name", request.outputName,
+                "--threads", String(request.threads),
+                "--min-support", String(request.minSupport),
+            ]
+            if let projectURL = request.projectURL {
+                arguments += ["--project", projectURL.path]
+            }
+            if !request.extraArguments.isEmpty {
+                arguments += ["--extra-args", AdvancedCommandLineOptions.join(request.extraArguments)]
+            }
+            return CLIInvocation(subcommand: "fastq", arguments: arguments)
         }
     }
 

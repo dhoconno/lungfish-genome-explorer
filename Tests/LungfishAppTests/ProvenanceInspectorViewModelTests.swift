@@ -263,7 +263,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         let envelope = ProvenanceEnvelope(
             workflowName: "lungfish.assemble",
-            workflowVersion: "0.5-alpha1",
+            workflowVersion: "0.5.0-alpha2",
             toolName: "megahit",
             toolVersion: "1.2.9",
             argv: ["lungfish-cli", "assemble", input.path, "--assembler", "megahit"],
@@ -319,9 +319,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         let envelope = ProvenanceEnvelope(
             workflowName: "EsViritu Batch",
-            workflowVersion: "0.5-alpha1",
+            workflowVersion: "0.5.0-alpha2",
             toolName: "Lungfish EsViritu Batch",
-            toolVersion: "0.5-alpha1",
+            toolVersion: "0.5.0-alpha2",
             argv: step.argv,
             runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
             files: [inputDescriptor, outputDescriptor],

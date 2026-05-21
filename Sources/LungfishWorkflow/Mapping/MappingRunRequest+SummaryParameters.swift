@@ -22,6 +22,7 @@ public extension MappingRunRequest {
             "includeSupplementary": .bool(includeSupplementary),
             "minimumMappingQuality": .int(minimumMappingQuality),
             "extraArgs": .string(AdvancedCommandLineOptions.join(advancedArguments)),
+            "compatibilityReadClassOverride": compatibilityReadClassOverride.map { .string($0.rawValue) } ?? .string(""),
         ]
         return parameters
     }

@@ -61,7 +61,7 @@ struct PrimerCommand: ParsableCommand {
                     equivalentAccessions: equivalentAccessions,
                     argv: argv,
                     workflowName: "lungfish primers import",
-                    toolVersion: "lungfish-cli 0.5-alpha1"
+                    toolVersion: "lungfish-cli 0.5.0-alpha2"
                 )
             )
         }

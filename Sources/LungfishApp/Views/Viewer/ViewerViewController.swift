@@ -1171,6 +1171,9 @@ public class ViewerViewController: NSViewController {
             if let ingestion = ingestionMetadata { updatedUserInfo["ingestionMetadata"] = ingestion }
             if let source = fastqSourceURL { updatedUserInfo["fastqSourceURL"] = source }
             if let derivative = fastqDerivativeManifest { updatedUserInfo["fastqDerivativeManifest"] = derivative }
+            if let source = fastqSourceURL, FASTQBundle.isBundleURL(source) {
+                updatedUserInfo["bundleURL"] = source
+            }
             NotificationCenter.default.post(
                 name: .fastqDatasetLoaded,
                 object: self,
@@ -1199,7 +1202,9 @@ public class ViewerViewController: NSViewController {
         if let source = fastqSourceURL { userInfo["fastqSourceURL"] = source }
         if let derivative = fastqDerivativeManifest { userInfo["fastqDerivativeManifest"] = derivative }
         // Include the bundle URL so the inspector can load sample metadata
-        if let fastqURL {
+        if let source = fastqSourceURL, FASTQBundle.isBundleURL(source) {
+            userInfo["bundleURL"] = source
+        } else if let fastqURL {
             let parentDir = fastqURL.deletingLastPathComponent()
             if parentDir.pathExtension == "lungfishfastq" {
                 userInfo["bundleURL"] = parentDir
@@ -2669,6 +2674,15 @@ public class ViewerViewController: NSViewController {
         // Store the URL
         quickLookURL = fileURL
 
+#if DEBUG
+        if Self.isRunningUnderXCTest {
+            logger.debug("displayQuickLookPreview: Skipping embedded preview rendering under XCTest")
+            statusBar.positionLabel.stringValue = "Previewing: \(fileURL.lastPathComponent)"
+            statusBar.selectionLabel.stringValue = ""
+            return
+        }
+#endif
+
         // For PDFs, use PDFKit (more reliable than QLPreviewView for embedded use)
         let ext = fileURL.pathExtension.lowercased()
 
@@ -2879,8 +2893,17 @@ public class ViewerViewController: NSViewController {
 
         if let ql = quickLookView {
             logger.debug("removePreviewViews: Removing QuickLook view from hierarchy")
+#if DEBUG
+            if Self.isRunningUnderXCTest {
+                ql.removeFromSuperview()
+            } else {
+                ql.close()
+                ql.removeFromSuperview()
+            }
+#else
             ql.close()
             ql.removeFromSuperview()
+#endif
         }
         quickLookView = nil
 
@@ -3542,6 +3565,19 @@ public class ReferenceFrame {
 extension ViewerViewController {
     var testBundleBackNavigationAccessibilityIdentifier: String? {
         bundleBackNavigationButton?.accessibilityIdentifier()
+    }
+
+    var testQuickLookURL: URL? {
+        quickLookURL
+    }
+
+    var testHasQuickLookView: Bool {
+        quickLookView != nil
+    }
+
+    private static var isRunningUnderXCTest: Bool {
+        ProcessInfo.processInfo.processName == "xctest"
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     func testTapBundleBackNavigation() {

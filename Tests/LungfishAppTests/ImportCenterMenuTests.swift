@@ -77,6 +77,8 @@ final class ImportCenterMenuTests: XCTestCase {
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "New Project" })?.identifier?.rawValue, MainMenuAccessibilityID.newProject)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Open Project Folder..." })?.identifier?.rawValue, MainMenuAccessibilityID.openProjectFolder)
         XCTAssertEqual(fileMenu.items.first(where: { $0.title == "Import Center…" })?.identifier?.rawValue, MainMenuAccessibilityID.importCenter)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowOperations)
+        XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Library…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowLibrary)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Workflow Builder (Experimental)…" })?.identifier?.rawValue, MainMenuAccessibilityID.workflowBuilder)
         XCTAssertEqual(toolsMenu.items.first(where: { $0.title == "Plugin Manager…" })?.identifier?.rawValue, MainMenuAccessibilityID.pluginManager)
         XCTAssertEqual(operationsMenu.items.first(where: { $0.title == "Show Operations Panel" })?.identifier?.rawValue, MainMenuAccessibilityID.showOperationsPanel)
@@ -143,6 +145,43 @@ final class ImportCenterMenuTests: XCTestCase {
         recorder.perform(workflowBuilderItem.action, with: workflowBuilderItem)
 
         XCTAssertEqual(recorder.workflowBuilderInvocationCount, 1)
+    }
+
+    func testWorkflowLibraryMenuItemRoutesThroughToolsMenuActionProtocol() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let workflowLibraryItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Library…" }))
+        let selector = NSSelectorFromString("showWorkflowLibrary:")
+        let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
+        let recorder = WorkflowBuilderMenuActionRecorder()
+
+        XCTAssertNotNil(protocolMethod.name)
+        XCTAssertEqual(workflowLibraryItem.action, selector)
+        XCTAssertTrue(recorder.responds(to: selector))
+
+        recorder.perform(workflowLibraryItem.action, with: workflowLibraryItem)
+
+        XCTAssertEqual(recorder.workflowLibraryInvocationCount, 1)
+    }
+
+    func testWorkflowOperationsMenuItemRoutesThroughToolsMenuActionProtocol() throws {
+        let _ = NSApplication.shared
+        let mainMenu = MainMenu.createMainMenu(experimentalFeaturesEnabled: false)
+        let toolsMenu = try XCTUnwrap(mainMenu.items.first(where: { $0.title == "Tools" })?.submenu)
+        let workflowOperationsItem = try XCTUnwrap(toolsMenu.items.first(where: { $0.title == "Workflow Operations…" }))
+        let selector = NSSelectorFromString("showWorkflowOperations:")
+        let protocolMethod = protocol_getMethodDescription(ToolsMenuActions.self, selector, true, true)
+        let recorder = WorkflowBuilderMenuActionRecorder()
+
+        XCTAssertNotNil(protocolMethod.name)
+        XCTAssertEqual(workflowOperationsItem.action, selector)
+        XCTAssertEqual(workflowOperationsItem.identifier?.rawValue, MainMenuAccessibilityID.workflowOperations)
+        XCTAssertTrue(recorder.responds(to: selector))
+
+        recorder.perform(workflowOperationsItem.action, with: workflowOperationsItem)
+
+        XCTAssertEqual(recorder.workflowOperationsInvocationCount, 1)
     }
 
     func testToolsMenuOmitsGenericNFCoreWorkflowSurface() throws {
@@ -332,9 +371,19 @@ final class ImportCenterMenuTests: XCTestCase {
 @MainActor
 private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuActions {
     private(set) var workflowBuilderInvocationCount = 0
+    private(set) var workflowLibraryInvocationCount = 0
+    private(set) var workflowOperationsInvocationCount = 0
 
     @objc func showWorkflowBuilder(_ sender: Any?) {
         workflowBuilderInvocationCount += 1
+    }
+
+    @objc func showWorkflowLibrary(_ sender: Any?) {
+        workflowLibraryInvocationCount += 1
+    }
+
+    @objc func showWorkflowOperations(_ sender: Any?) {
+        workflowOperationsInvocationCount += 1
     }
 
     @objc func showFASTQQCReportingOperations(_ sender: Any?) {}

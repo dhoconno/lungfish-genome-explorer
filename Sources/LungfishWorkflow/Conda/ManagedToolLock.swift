@@ -44,6 +44,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
             case "pigz": return "pigz"
             case "sra-tools": return "SRA Tools"
             case "ucsc-bedgraphtobigwig": return "UCSC bedGraphToBigWig"
+            case "pysam": return "pysam"
             default:
                 return id.replacingOccurrences(of: "-", with: " ").capitalized
             }
@@ -93,6 +94,13 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                 return .command(arguments: ["--help"], timeoutSeconds: 10)
             case "ucsc-bedgraphtobigwig":
                 return .usage(executable: executables.first, timeoutSeconds: 10)
+            case "pysam":
+                return .command(
+                    executable: "python",
+                    arguments: ["-c", "import pysam; print(pysam.__version__)"],
+                    timeoutSeconds: 10,
+                    requiredOutputSubstring: "0.24.0"
+                )
             default:
                 return executables.first.map { executable in
                     .command(executable: executable, arguments: ["--help"], timeoutSeconds: 10)

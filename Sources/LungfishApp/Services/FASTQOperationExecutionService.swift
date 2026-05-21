@@ -260,6 +260,7 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
                 resolvedURLs.append(
                     try await resolveSingleExecutionInput(
                         from: inputURL,
+                        request: request,
                         tempDirectory: tempDirectory,
                         bridgeFASTAToFASTQ: request.requiresSyntheticFASTQBridge
                     )
@@ -317,6 +318,7 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
 
     private func resolveSingleExecutionInput(
         from inputURL: URL,
+        request: FASTQOperationLaunchRequest,
         tempDirectory: URL,
         bridgeFASTAToFASTQ: Bool
     ) async throws -> URL {
@@ -337,6 +339,9 @@ private struct FASTQSourceResolverAdapter: FASTQOperationInputResolving {
 
             if let allFASTQURLs = FASTQBundle.resolveAllFASTQURLs(for: bundleURL),
                allFASTQURLs.count > 1 {
+                if request.allowsDirectMultiFileFASTQBundleInput {
+                    return bundleURL
+                }
                 return try materializeConcatenatedFASTQ(
                     from: allFASTQURLs,
                     tempDirectory: tempDirectory

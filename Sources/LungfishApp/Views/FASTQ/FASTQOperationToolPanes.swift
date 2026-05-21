@@ -170,7 +170,7 @@ private struct FASTQOperationInputsSection: View {
     }
 
     private func usesProjectReferencePicker(for kind: FASTQOperationInputKind) -> Bool {
-        kind == .referenceSequence && (state.selectedToolID == .orientReads || state.selectedToolID == .pbaa)
+        kind == .referenceSequence && (state.selectedToolID == .orientReads || state.selectedToolID == .pbaa || state.selectedToolID == .ontGenotyping)
     }
 
     private func referenceSelectionBinding(for kind: FASTQOperationInputKind) -> Binding<URL?> {
@@ -415,6 +415,16 @@ private struct FASTQOperationPrimarySettingsSection: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+            case .ontGenotyping:
+                labeledTextField("Report Name", text: $state.ontGenotypingOutputName)
+                HStack(spacing: 12) {
+                    labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
+                    labeledCompactTextField("Min Support", text: Self.intBinding(state, \.ontGenotypingMinSupport))
+                }
+                Text("Select a reference sequence in the Inputs section. The workflow maps with minimap2 sr and filters full-amplicon, both-end soft-clipped alignments with pysam.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
             case .correctSequencingErrors:
                 labeledCompactTextField("K-mer Size", text: Self.intBinding(state, \.correctSequencingErrorsKmerSize))
 
@@ -647,6 +657,16 @@ private struct FASTQOperationAdvancedSettingsSection: View {
                     VStack(alignment: .leading, spacing: 8) {
                         labeledTextField("pbAA arguments", text: $state.pbaaExtraArguments)
                         Text("Arguments are passed to `pbaa cluster` after the simple settings.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                }
+            case .ontGenotyping:
+                DisclosureGroup("Advanced Options") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        labeledTextField("minimap2 arguments", text: $state.ontGenotypingExtraArguments)
+                        Text("Arguments are passed to minimap2 after the fixed short-read preset.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

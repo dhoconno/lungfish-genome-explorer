@@ -558,6 +558,61 @@ final class FASTQDashboardTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkflowOperationReadInputResolutionUsesSelectedFASTQBundles() throws {
+        let firstBundleURL = try makeFASTQBundle(named: "selected-a")
+        let secondBundleURL = try makeFASTQBundle(named: "selected-b")
+        let referenceBundleURL = try makeReferenceBundle(
+            named: "selection-reference",
+            fastaFilename: "genome/sequence.fa.gz"
+        )
+
+        let resolved = AppDelegate.resolveWorkflowOperationReadInputURLs(
+            selectedURLs: [firstBundleURL, referenceBundleURL, secondBundleURL, firstBundleURL],
+            currentFASTQURL: nil
+        )
+
+        XCTAssertEqual(resolved, [
+            firstBundleURL.standardizedFileURL,
+            secondBundleURL.standardizedFileURL,
+        ])
+    }
+
+    @MainActor
+    func testWorkflowOperationReadInputResolutionIgnoresDisplayedFASTQWhenSidebarHasNoSelection() throws {
+        let displayedBundleURL = try makeFASTQBundle(named: "displayed-only")
+
+        let resolved = AppDelegate.resolveWorkflowOperationReadInputURLs(
+            selectedURLs: [],
+            currentFASTQURL: displayedBundleURL
+        )
+
+        XCTAssertTrue(
+            resolved.isEmpty,
+            "Workflow Operations must use explicit project sidebar selections, not the currently displayed FASTQ bundle."
+        )
+    }
+
+    @MainActor
+    func testWorkflowOperationReadInputResolutionIgnoresRawFASTQFiles() throws {
+        let rawFASTQURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workflow-operation-raw-\(UUID().uuidString).fastq")
+        try "@r1\nACGT\n+\n!!!!\n".write(to: rawFASTQURL, atomically: true, encoding: .utf8)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rawFASTQURL)
+        }
+
+        let resolved = AppDelegate.resolveWorkflowOperationReadInputURLs(
+            selectedURLs: [rawFASTQURL],
+            currentFASTQURL: nil
+        )
+
+        XCTAssertTrue(
+            resolved.isEmpty,
+            "Workflow Operations must accept .lungfishfastq bundles from the sidebar, not arbitrary FASTQ files."
+        )
+    }
+
+    @MainActor
     func testHumanScrubberInstallPromptRetriesOperationAfterInstall() async throws {
         let controller = FASTQDatasetViewController()
         _ = controller.view
@@ -970,6 +1025,24 @@ final class FASTQDashboardTests: XCTestCase {
             )
         )
         try manifest.save(to: bundleURL)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return bundleURL
+    }
+
+    private func makeFASTQBundle(named bundleName: String) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "fastq-dashboard-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let bundleURL = root.appendingPathComponent("\(bundleName).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\n!!!!\n".write(
+            to: bundleURL.appendingPathComponent("reads.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
         addTeardownBlock {
             try? FileManager.default.removeItem(at: root)
         }

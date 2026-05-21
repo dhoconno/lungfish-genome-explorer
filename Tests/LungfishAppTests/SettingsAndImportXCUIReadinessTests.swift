@@ -34,6 +34,7 @@ final class SettingsAndImportXCUIReadinessTests: XCTestCase {
         XCTAssertEqual(MainMenuAccessibilityID.importCenter, "file-menu-import-center")
         XCTAssertEqual(MainMenuAccessibilityID.callVariants, "tools-menu-call-variants")
         XCTAssertEqual(MainMenuAccessibilityID.freyjaDemix, "tools-menu-freyja-demix")
+        XCTAssertEqual(MainMenuAccessibilityID.workflowLibrary, "tools-menu-workflow-library")
         XCTAssertEqual(MainMenuAccessibilityID.workflowBuilder, "tools-menu-workflow-builder")
         XCTAssertEqual(MainMenuAccessibilityID.pluginManager, "tools-menu-plugin-manager")
         XCTAssertEqual(MainMenuAccessibilityID.showOperationsPanel, "operations-menu-show-panel")

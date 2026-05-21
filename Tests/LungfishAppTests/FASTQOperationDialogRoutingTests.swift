@@ -813,8 +813,29 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
     func testMappingCategoryExposesAllV1Mappers() {
         XCTAssertEqual(
             FASTQOperationDialogState.toolIDs(for: .mapping),
-            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .viralRecon]
+            [.minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping, .viralRecon]
         )
+    }
+
+    func testMappingDialogHidesSpecializedWorkflowsUntilEnabledInWorkflowLibrary() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FASTQOperationDialogRoutingTests-\(UUID().uuidString)"))
+        let workflowLibrary = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let defaultState = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            workflowLibrary: workflowLibrary
+        )
+
+        XCTAssertFalse(defaultState.visibleToolIDs.contains(.ontGenotyping))
+
+        workflowLibrary.setWorkflow(.ontGenotyping, enabled: true)
+        let enabledState = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            workflowLibrary: workflowLibrary
+        )
+
+        XCTAssertTrue(enabledState.visibleToolIDs.contains(.ontGenotyping))
     }
 
     func testViralReconAppearsInMappingTools() {

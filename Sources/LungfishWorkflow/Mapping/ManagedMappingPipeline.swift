@@ -350,12 +350,12 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
                 "Selected sequence inputs mix FASTA and FASTQ formats. Select one format per mapping run."
             )
         }
-        if inspection.mixedReadClasses {
+        if request.compatibilityReadClassOverride == nil, inspection.mixedReadClasses {
             throw ManagedMappingPipelineError.incompatibleSelection(
                 "Selected FASTQ inputs mix incompatible read classes. Select one read class per mapping run."
             )
         }
-        if inspection.mixesDetectedAndUnclassifiedReadClasses {
+        if request.compatibilityReadClassOverride == nil, inspection.mixesDetectedAndUnclassifiedReadClasses {
             throw ManagedMappingPipelineError.incompatibleSelection(
                 "Selected FASTQ inputs mix classified and unclassified read types. Re-import or edit the read type metadata so every selected FASTQ has the same read type."
             )
@@ -383,7 +383,8 @@ public final class ManagedMappingPipeline: @unchecked Sendable {
             return
         }
 
-        guard let readClass = inspection.readClass else {
+        let resolvedReadClass = request.compatibilityReadClassOverride ?? inspection.readClass
+        guard let readClass = resolvedReadClass else {
             throw ManagedMappingPipelineError.incompatibleSelection(
                 "Unable to detect a supported read class from the selected FASTQ inputs."
             )

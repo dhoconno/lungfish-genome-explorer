@@ -111,7 +111,7 @@ final class CondaManagerTests: XCTestCase {
 
     func testBuiltInPacksExist() {
         XCTAssertFalse(PluginPack.builtIn.isEmpty)
-        XCTAssertEqual(PluginPack.builtIn.count, 18, "Should include the required setup pack plus 17 optional packs")
+        XCTAssertEqual(PluginPack.builtIn.count, 17, "Should include the required setup pack plus 16 optional packs")
         XCTAssertEqual(PluginPack.activeOptionalPacks.map(\.id), [
             "read-mapping",
             "variant-calling",
@@ -199,8 +199,8 @@ final class CondaManagerTests: XCTestCase {
 
         XCTAssertEqual(lock.packID, "lungfish-tools")
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
-        XCTAssertEqual(lock.version, "0.5-alpha1")
-        XCTAssertEqual(lock.tools.count, 14)
+        XCTAssertEqual(lock.version, "0.5.0-alpha2")
+        XCTAssertEqual(lock.tools.count, 15)
         XCTAssertEqual(lock.managedData.count, 2)
 
         let expectedSpecs: [String: String] = [
@@ -218,6 +218,7 @@ final class CondaManagerTests: XCTestCase {
             "pigz": "conda-forge::pigz=2.8=hfab5511_2",
             "sra-tools": "bioconda::sra-tools=3.4.1=h4675bf2_1",
             "ucsc-bedgraphtobigwig": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0",
+            "pysam": "bioconda::pysam=0.24.0=py310hf7cbfa5_0",
         ]
 
         let actualSpecs: [String: String] = Dictionary(uniqueKeysWithValues: lock.tools.map { ($0.id, $0.packageSpec) })

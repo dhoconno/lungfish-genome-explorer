@@ -72,6 +72,10 @@ enum WorkflowBuilderAccessibilityID {
     static let experimentalBanner = "workflow-builder-experimental-banner"
 }
 
+enum WorkflowOperationsAccessibilityID {
+    static let window = "workflow-operations-window"
+}
+
 enum ImportCenterAccessibilityID {
     static let window = "import-center-window"
     static let root = "import-center-root"
@@ -139,6 +143,8 @@ enum MainMenuAccessibilityID {
 
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"
+    static let workflowOperations = "tools-menu-workflow-operations"
+    static let workflowLibrary = "tools-menu-workflow-library"
     static let workflowBuilder = "tools-menu-workflow-builder"
     static let pluginManager = "tools-menu-plugin-manager"
     static let showOperationsPanel = "operations-menu-show-panel"

@@ -36,6 +36,8 @@ private extension FASTQOperationLaunchRequest {
             return inputURLs.first
         case .pbaa(let request):
             return request.inputFASTQURL
+        case .ontGenotyping(let request):
+            return request.inputFASTQURLs.first
         }
     }
 
@@ -53,6 +55,8 @@ private extension FASTQOperationLaunchRequest {
             return .fixedBatch
         case .pbaa:
             return .perInput
+        case .ontGenotyping:
+            return .fixedBatch
         }
     }
 
@@ -77,6 +81,8 @@ private extension FASTQOperationLaunchRequest {
             return tool.title
         case .pbaa:
             return "pbAA Amplicon Clustering"
+        case .ontGenotyping:
+            return "ONT Genotyping"
         }
     }
 }
@@ -1197,9 +1203,11 @@ public class MainSplitViewController: NSSplitViewController {
             }
         }
 
-        // Standalone VCF files use the auto-ingestion pipeline (handled by displayGenomicsFile)
+        // Imported project files should route through the same sidebar display path
+        // as manual selection so generic files use QuickLook and genomics files use
+        // the appropriate native handler.
         if displayAfterImport {
-            loadGenomicsFileInBackground(url: urlToLoad)
+            displayImportedProjectFile(at: urlToLoad)
         }
         postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
     }
@@ -2540,6 +2548,10 @@ public class MainSplitViewController: NSSplitViewController {
 
     func testingRequestInspectorDocumentModeAfterDownload() {
         requestInspectorDocumentModeAfterDownload()
+    }
+
+    func testingDisplayImportedProjectFile(_ url: URL) {
+        displayImportedProjectFile(at: url)
     }
 }
 
@@ -4725,6 +4737,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     private func loadFASTQDatasetInBackground(sourceURL: URL) {
         let standardizedSourceURL = sourceURL.standardizedFileURL
         let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: standardizedSourceURL)?.standardizedFileURL
+        let resolvedFASTQURLs: [URL]? = FASTQBundle.isBundleURL(standardizedSourceURL)
+            ? FASTQBundle.resolveAllFASTQURLs(for: standardizedSourceURL)?.map(\.standardizedFileURL)
+            : fastqURL.map { [$0] }
+        let statisticsCacheURL: URL? = FASTQBundle.isBundleURL(standardizedSourceURL)
+            && FASTQBundle.isMultiFileBundle(standardizedSourceURL)
+            ? standardizedSourceURL
+            : fastqURL
         let derivedManifest = FASTQBundle.isBundleURL(standardizedSourceURL)
             ? FASTQBundle.loadDerivedManifest(in: standardizedSourceURL)
             : nil
@@ -4740,7 +4759,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         fastqLoadTask = nil
         fastqLoadGeneration &+= 1
         let generation = fastqLoadGeneration
-        activeFASTQLoadURL = fastqURL
+        activeFASTQLoadURL = statisticsCacheURL ?? fastqURL
         activeFASTQSourceURL = standardizedSourceURL
 
         let isCurrentRequest: @MainActor () -> Bool = { [weak self] in
@@ -4778,22 +4797,23 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
-        guard let fastqURL else {
+        guard let fastqURL, let resolvedFASTQURLs, !resolvedFASTQURLs.isEmpty else {
             logger.error("loadFASTQDatasetInBackground: No FASTQ payload or derivative manifest for '\(standardizedSourceURL.path, privacy: .public)'")
             return
         }
 
         // Check for cached metadata
-        let cachedMeta = FASTQMetadataStore.load(for: fastqURL)
-        if let cachedStats = cachedMeta?.computedStatistics {
+        let cachedStatisticsMeta = statisticsCacheURL.flatMap { FASTQMetadataStore.load(for: $0) }
+        let displayMeta = cachedStatisticsMeta ?? FASTQMetadataStore.load(for: fastqURL)
+        if let cachedStats = cachedStatisticsMeta?.computedStatistics {
             logger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             viewerController.displayFASTQDataset(
                 statistics: cachedStats,
                 records: [],
                 fastqURL: fastqURL,
-                sraRunInfo: cachedMeta?.sraRunInfo,
-                enaReadRecord: cachedMeta?.enaReadRecord,
-                ingestionMetadata: cachedMeta?.ingestion,
+                sraRunInfo: displayMeta?.sraRunInfo,
+                enaReadRecord: displayMeta?.enaReadRecord,
+                ingestionMetadata: displayMeta?.ingestion,
                 fastqSourceURL: standardizedSourceURL,
                 fastqDerivativeManifest: derivedManifest,
                 onRunOperation: { [weak self] request in
@@ -4810,7 +4830,7 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         fastqLoadTask = Task.detached(priority: .userInitiated) { [weak self] in
             do {
                 let statsResult = try await FASTQStatisticsService.compute(
-                    for: fastqURL,
+                    for: resolvedFASTQURLs,
                     progress: { count in
                         guard !Task.isCancelled else { return }
                         DispatchQueue.main.async {
@@ -4828,21 +4848,22 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
                 // Cache the computed statistics for next time.
                 // Skip stale/deleted targets so we don't write sidecars into removed paths.
-                if FileManager.default.fileExists(atPath: fastqURL.path),
+                if let statisticsCacheURL,
+                   FileManager.default.fileExists(atPath: statisticsCacheURL.path),
                    shouldWriteFASTQStatisticsCache {
-                    var metadata = cachedMeta ?? PersistedFASTQMetadata()
+                    var metadata = cachedStatisticsMeta ?? displayMeta ?? PersistedFASTQMetadata()
                     metadata.computedStatistics = statistics
                     metadata.seqkitStats = statsResult.seqkitMetadata
-                    FASTQMetadataStore.save(metadata, for: fastqURL)
+                    FASTQMetadataStore.save(metadata, for: statisticsCacheURL)
                 } else if !shouldWriteFASTQStatisticsCache {
                     logger.debug("loadFASTQDatasetInBackground: Project is read-only, skipping FASTQ statistics sidecar save")
                 } else {
                     logger.debug("loadFASTQDatasetInBackground: FASTQ deleted before cache write, skipping sidecar save")
                 }
 
-                let sraRunInfo = cachedMeta?.sraRunInfo
-                let enaReadRecord = cachedMeta?.enaReadRecord
-                let ingestionMeta = cachedMeta?.ingestion
+                let sraRunInfo = displayMeta?.sraRunInfo
+                let enaReadRecord = displayMeta?.enaReadRecord
+                let ingestionMeta = displayMeta?.ingestion
                 DispatchQueue.main.async { [weak self] in
                     MainActor.assumeIsolated {
                         guard let self = self, isCurrentRequest() else { return }
@@ -5353,6 +5374,15 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 NotificationUserInfoKey.windowStateScope: windowStateScope
             ]
         )
+    }
+
+    private func displayImportedProjectFile(at url: URL) {
+        refreshSidebarAndSelectDerivedURL(url)
+        guard let selectedItem = sidebarController.selectedItems().first,
+              selectedItem.url?.standardizedFileURL == url.standardizedFileURL else {
+            return
+        }
+        displayContent(for: selectedItem)
     }
 
     /// Loads a genomics file in the background using structured concurrency.

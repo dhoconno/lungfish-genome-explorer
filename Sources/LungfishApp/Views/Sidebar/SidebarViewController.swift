@@ -1188,30 +1188,14 @@ public class SidebarViewController: NSViewController {
             for childURL in sorted {
                 var childIsDir: ObjCBool = false
                 fileManager.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+                guard shouldIncludeSidebarEntry(
+                    childURL,
+                    isDirectory: childIsDir.boolValue,
+                    context: .projectRoot
+                ) else { continue }
 
-                if childIsDir.boolValue {
-                    if FASTQBundle.isBundleURL(childURL), FASTQBundle.isProcessing(childURL) {
-                        // Hide in-flight imports until ingestion + stats finalize.
-                        continue
-                    }
-                    if isFASTQOperationStagingDirectory(childURL) {
-                        continue
-                    }
-                    // Skip the Analyses/ directory — it gets its own top-level group.
-                    if childURL.lastPathComponent == AnalysesFolder.directoryName {
-                        continue
-                    }
-                    // Include directories
-                    let childItem = buildSidebarTree(from: childURL, isRoot: false)
-                    items.append(childItem)
-                } else if !isInternalSidecarFile(childURL) {
-                    // Only include supported, non-sidecar file types
-                    let ext = childURL.pathExtension.lowercased()
-                    if isSupportedFileExtension(ext) {
-                        let childItem = buildSidebarTree(from: childURL, isRoot: false)
-                        items.append(childItem)
-                    }
-                }
+                let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                items.append(childItem)
             }
 
             // Insert a top-level "Analyses" group if the project has any results.
@@ -1253,26 +1237,9 @@ public class SidebarViewController: NSViewController {
             fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
 
             if isDirectory.boolValue {
-                // Check if it's a reference bundle (.lungfishref)
-                if url.pathExtension.lowercased() == "lungfishref" {
-                    itemType = .referenceBundle
-                    icon = "cylinder.split.1x2"  // Database-like icon for genome bundles
-                } else if url.pathExtension.lowercased() == MultipleSequenceAlignmentBundle.directoryExtension {
-                    itemType = .multipleSequenceAlignmentBundle
-                    icon = "rectangle.grid.1x2"
-                } else if url.pathExtension.lowercased() == "lungfishtree" {
-                    itemType = .phylogeneticTreeBundle
-                    icon = "point.3.connected.trianglepath.dotted"
-                } else if url.pathExtension.lowercased() == "lungfishprimers" {
-                    itemType = .primerSchemeBundle
-                    icon = "line.horizontal.3.decrease.circle"
-                } else if url.pathExtension.lowercased() == "lungfishtax",
-                          fileManager.fileExists(atPath: url.appendingPathComponent("cz-id-manifest.json").path) {
-                    itemType = .czIdResult
-                    icon = "c.circle"
-                } else if FASTQBundle.isBundleURL(url) {
-                    itemType = .fastqBundle
-                    icon = "doc.text"
+                if let bundleClassification = sidebarBundleClassification(for: url, fileManager: fileManager) {
+                    itemType = bundleClassification.type
+                    icon = bundleClassification.icon
                 } else {
                     itemType = .folder
                     icon = "folder"
@@ -1414,34 +1381,16 @@ public class SidebarViewController: NSViewController {
 
                 // Build children recursively
                 for childURL in sorted {
-                    // Skip unsupported file types (only show bioinformatics files and folders)
                     var childIsDir: ObjCBool = false
                     fileManager.fileExists(atPath: childURL.path, isDirectory: &childIsDir)
+                    guard shouldIncludeSidebarEntry(
+                        childURL,
+                        isDirectory: childIsDir.boolValue,
+                        context: .regularDirectory
+                    ) else { continue }
 
-                    if childIsDir.boolValue {
-                        if FASTQBundle.isBundleURL(childURL), FASTQBundle.isProcessing(childURL) {
-                            continue
-                        }
-                        if isFASTQOperationStagingDirectory(childURL) {
-                            continue
-                        }
-                        // Skip metagenomics result directories that are already
-                        // represented by batch group nodes (via collectTaxTriageResults,
-                        // cross-reference sidecars, or similar collectors).
-                        if isMetagenomicsResultDirectory(childURL) {
-                            continue
-                        }
-                        // Always include other directories
-                        let childItem = buildSidebarTree(from: childURL, isRoot: false)
-                        item.children.append(childItem)
-                    } else if !isInternalSidecarFile(childURL) {
-                        // Only include supported, non-sidecar file types
-                        let ext = childURL.pathExtension.lowercased()
-                        if isSupportedFileExtension(ext) {
-                            let childItem = buildSidebarTree(from: childURL, isRoot: false)
-                            item.children.append(childItem)
-                        }
-                    }
+                    let childItem = buildSidebarTree(from: childURL, isRoot: false)
+                    item.children.append(childItem)
                 }
             } catch {
                 logger.error("buildSidebarTree: Failed to scan directory: \(error.localizedDescription, privacy: .public)")
@@ -1462,6 +1411,71 @@ public class SidebarViewController: NSViewController {
         return item
     }
 
+    private enum SidebarScanContext {
+        case projectRoot
+        case regularDirectory
+        case analysesDirectory
+    }
+
+    private func sidebarBundleClassification(
+        for url: URL,
+        fileManager: FileManager = .default
+    ) -> (type: SidebarItemType, icon: String)? {
+        switch url.pathExtension.lowercased() {
+        case "lungfishref":
+            return (.referenceBundle, "cylinder.split.1x2")
+        case MultipleSequenceAlignmentBundle.directoryExtension:
+            return (.multipleSequenceAlignmentBundle, "rectangle.grid.1x2")
+        case "lungfishtree":
+            return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
+        case "lungfishprimers":
+            return (.primerSchemeBundle, "line.horizontal.3.decrease.circle")
+        case "lungfishtax":
+            let manifestURL = url.appendingPathComponent("cz-id-manifest.json")
+            if fileManager.fileExists(atPath: manifestURL.path) {
+                return (.czIdResult, "c.circle")
+            }
+            return nil
+        default:
+            if FASTQBundle.isBundleURL(url) {
+                return (.fastqBundle, "doc.text")
+            }
+            return nil
+        }
+    }
+
+    private func shouldIncludeSidebarEntry(
+        _ url: URL,
+        isDirectory: Bool,
+        context: SidebarScanContext
+    ) -> Bool {
+        if isInternalSidecarFile(url) {
+            return false
+        }
+
+        guard isDirectory else {
+            return true
+        }
+
+        if context == .projectRoot, url.lastPathComponent == AnalysesFolder.directoryName {
+            return false
+        }
+        if OperationMarker.isInProgress(url) {
+            return false
+        }
+        if FASTQBundle.isBundleURL(url), FASTQBundle.isProcessing(url) {
+            return false
+        }
+        if isFASTQOperationStagingDirectory(url) {
+            return false
+        }
+        if context == .regularDirectory, isMetagenomicsResultDirectory(url) {
+            return false
+        }
+
+        return true
+    }
+
     /// Detects the file type and appropriate icon for a URL.
     ///
     /// Uses the unified FileTypeUtility from LungfishIO for consistent
@@ -1472,26 +1486,52 @@ public class SidebarViewController: NSViewController {
         return (sidebarType, fileInfo.iconName)
     }
 
-    /// Checks if a file extension is supported.
-    ///
-    /// All file types are now supported - genomics files get native viewer,
-    /// other files get QuickLook preview.
-    private func isSupportedFileExtension(_ ext: String) -> Bool {
-        // Hidden files (empty extension) are not supported
-        !ext.isEmpty
-    }
-
     /// Returns true for internal sidecar/metadata files that should be hidden from the sidebar.
     ///
-    /// Hides all JSON files (internal metadata), Lungfish sidecar files, and
-    /// CSV metadata used for sample tracking. Users interact with these via
-    /// the Inspector and Operations Panel, not the file browser.
+    /// Hides known app sidecars and indexes. Unknown user files, including
+    /// unknown extensions and ordinary JSON/CSV/TSV files, remain visible.
     private func isInternalSidecarFile(_ url: URL) -> Bool {
         let name = url.lastPathComponent
         let ext = url.pathExtension.lowercased()
-        return ext == "json"
-            || name.hasSuffix(".lungfish-meta.json")
-            || name == FASTQBundleCSVMetadata.filename
+        if name.hasPrefix("._") || name == ".DS_Store" {
+            return true
+        }
+        if ["bai", "csi", "fai", "gzi", "tbi"].contains(ext) {
+            return true
+        }
+        if name.hasSuffix(".lungfish-meta.json")
+            || name.hasSuffix(".lungfish-provenance.json")
+            || name.hasSuffix("-provenance.json") {
+            return true
+        }
+        if name == FASTQBundleCSVMetadata.filename {
+            return true
+        }
+
+        let internalJSONFilenames: Set<String> = [
+            ".lungfish-provenance.json",
+            "analysis-metadata.json",
+            "analyses-manifest.json",
+            "alignment-result.json",
+            "assembly-result.json",
+            "batch.manifest.json",
+            "classification-batch-result.json",
+            "classification-result.json",
+            "cz-id-manifest.json",
+            "demux-manifest.json",
+            "derived.manifest.json",
+            "esviritu-batch-result.json",
+            "esviritu-result.json",
+            "extraction-metadata.json",
+            "mapping-result.json",
+            "manifest.json",
+            "read-manifest.json",
+            "scout-result.json",
+            "source-files.json",
+            "taxtriage-batch-manifest.json",
+            "taxtriage-result.json",
+        ]
+        return internalJSONFilenames.contains(name)
     }
 
     /// Returns true for metagenomics result directories that should be hidden
@@ -1661,9 +1701,21 @@ public class SidebarViewController: NSViewController {
         for url in contents.sorted(by: {
             $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending
         }) {
-            guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
-            guard !OperationMarker.isInProgress(url) else { continue }
-            guard !isFASTQOperationStagingDirectory(url) else { continue }
+            let isDirectory = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            guard shouldIncludeSidebarEntry(
+                url,
+                isDirectory: isDirectory,
+                context: .analysesDirectory
+            ) else { continue }
+
+            if !isDirectory {
+                items.append(buildSidebarTree(from: url, isRoot: false))
+                continue
+            }
+            if sidebarBundleClassification(for: url) != nil {
+                items.append(buildSidebarTree(from: url, isRoot: false))
+                continue
+            }
 
             if let info = AnalysesFolder.analysisInfo(for: url) {
                 if let item = buildAnalysisItem(info: info) {

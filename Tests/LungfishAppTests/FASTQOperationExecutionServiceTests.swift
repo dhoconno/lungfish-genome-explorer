@@ -598,6 +598,99 @@ final class FASTQOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(importer.calls.count, 1)
     }
 
+    func testExecuteExactBareDemultiplexPreservesMultiFileBundleInput() async throws {
+        let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecExactBareMulti")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent(
+            "multi.\(FASTQBundle.directoryExtension)",
+            isDirectory: true
+        )
+        let chunksDir = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksDir, withIntermediateDirectories: true)
+
+        let chunkA = chunksDir.appendingPathComponent("chunk-a.fastq")
+        let chunkB = chunksDir.appendingPathComponent("chunk-b.fastq")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: chunkA, readCount: 2, readLength: 12, idPrefix: "chunkA")
+        try FASTQOperationTestHelper.writeSyntheticFASTQ(to: chunkB, readCount: 1, readLength: 12, idPrefix: "chunkB")
+
+        try """
+        {
+          "version": 1,
+          "files": [
+            {
+              "filename": "chunks/chunk-a.fastq",
+              "originalPath": "/tmp/chunk-a.fastq",
+              "sizeBytes": 1,
+              "isSymlink": false
+            },
+            {
+              "filename": "chunks/chunk-b.fastq",
+              "originalPath": "/tmp/chunk-b.fastq",
+              "sizeBytes": 1,
+              "isSymlink": false
+            }
+          ]
+        }
+        """.write(
+            to: bundleURL.appendingPathComponent("source-files.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let runner = SpyCommandRunner { invocation, outputDirectory in
+            XCTAssertEqual(Array(invocation.arguments.prefix(2)), ["demultiplex", bundleURL.path])
+            XCTAssertTrue(invocation.arguments.contains("--engine"))
+            XCTAssertTrue(invocation.arguments.contains(DemultiplexEngine.exactBareBarcode.rawValue))
+            let outputBundle = outputDirectory.appendingPathComponent(
+                "DW472.\(FASTQBundle.directoryExtension)",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(at: outputBundle, withIntermediateDirectories: true)
+            try FASTQOperationTestHelper.writeSyntheticFASTQ(
+                to: outputBundle.appendingPathComponent("DW472.fastq"),
+                readCount: 1,
+                readLength: 12,
+                idPrefix: "DW472"
+            )
+            try writeSyntheticProvenance(
+                to: outputBundle,
+                name: "Exact bare demux",
+                toolName: "exact-bare-barcode-demux",
+                toolVersion: "test",
+                command: invocation.arguments,
+                inputURL: chunkA,
+                outputURL: outputBundle.appendingPathComponent("DW472.fastq")
+            )
+            return FASTQCLIExecutionResult(outputURLs: [outputBundle])
+        }
+        let service = FASTQOperationExecutionService(commandRunner: runner)
+
+        let result = try await service.execute(
+            request: .derivative(
+                request: .demultiplex(
+                    kitID: "custom",
+                    customCSVPath: "/tmp/barcodes.csv",
+                    location: "bothends",
+                    symmetryMode: nil,
+                    maxDistanceFrom5Prime: 0,
+                    maxDistanceFrom3Prime: 0,
+                    errorRate: 0.15,
+                    engine: .exactBareBarcode,
+                    trimBarcodes: false,
+                    sampleAssignments: nil,
+                    kitOverride: nil
+                ),
+                inputURLs: [bundleURL],
+                outputMode: .groupedResult
+            ),
+            workingDirectory: tempDir.appendingPathComponent("demux", isDirectory: true)
+        )
+
+        XCTAssertEqual(runner.invocations.count, 1)
+        XCTAssertEqual(result.resolvedRequest.inputURLs, [bundleURL])
+    }
+
     func testExecuteMaterializesVirtualBundleInputBeforeInvocation() async throws {
         let tempDir = try FASTQOperationTestHelper.makeTempDir(prefix: "FASTQExecService")
         defer { try? FileManager.default.removeItem(at: tempDir) }

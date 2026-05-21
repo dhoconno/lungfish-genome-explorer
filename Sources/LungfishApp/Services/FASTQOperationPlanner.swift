@@ -55,6 +55,8 @@ func outputMode(for request: FASTQOperationLaunchRequest) -> FASTQOperationOutpu
         return .fixedBatch
     case .pbaa:
         return .perInput
+    case .ontGenotyping:
+        return .fixedBatch
     }
 }
 
@@ -114,6 +116,10 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             }
             if case .pbaa = plan.originalRequest {
                 return Self.discoverReferenceBundles(in: directory)
+            }
+            if case .ontGenotyping = plan.originalRequest,
+               FileManager.default.fileExists(atPath: directory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path) {
+                return [directory]
             }
             if plan.originalRequest.isRibosomalRNAFilterRequest {
                 return Self.discoverSequenceFiles(in: directory)
@@ -300,7 +306,7 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             return .jsonReport
         case .derivative(let derivativeRequest, _, _):
             return derivativeRequest.usesDirectoryOutput ? .directory : .fastqFile
-        case .map, .assemble, .classify, .pbaa:
+        case .map, .assemble, .classify, .pbaa, .ontGenotyping:
             return .directory
         }
     }
@@ -490,6 +496,8 @@ extension FASTQOperationLaunchRequest {
             return inputURLs
         case .pbaa(let request):
             return [request.inputFASTQURL]
+        case .ontGenotyping(let request):
+            return request.inputFASTQURLs
         }
     }
 
@@ -507,6 +515,8 @@ extension FASTQOperationLaunchRequest {
             }
         case .pbaa(let request):
             urls.append(request.guideSourceURL)
+        case .ontGenotyping(let request):
+            urls.append(request.referenceSourceURL)
         default:
             break
         }
@@ -539,6 +549,17 @@ extension FASTQOperationLaunchRequest {
                     containerPins: request.containerPins
                   ) else { return self }
             return .pbaa(request: updatedRequest)
+        case .ontGenotyping(let request):
+            return .ontGenotyping(request: ONTGenotypingRunRequest(
+                inputFASTQURLs: inputURLs,
+                referenceSourceURL: request.referenceSourceURL,
+                outputDirectory: request.outputDirectory,
+                outputName: request.outputName,
+                projectURL: request.projectURL,
+                threads: request.threads,
+                minSupport: request.minSupport,
+                extraArguments: request.extraArguments
+            ))
         }
     }
 
@@ -556,6 +577,8 @@ extension FASTQOperationLaunchRequest {
             return tool.title
         case .pbaa:
             return "pbAA Amplicon Clustering"
+        case .ontGenotyping:
+            return "ONT Genotyping"
         }
     }
 
@@ -573,6 +596,8 @@ extension FASTQOperationLaunchRequest {
             return "classification"
         case .pbaa:
             return "pbaaClustering"
+        case .ontGenotyping:
+            return "ontGenotyping"
         }
     }
 
@@ -606,6 +631,18 @@ extension FASTQOperationLaunchRequest {
                 params["extraArgs"] = AdvancedCommandLineOptions.join(request.extraArguments)
             }
             return params
+        case .ontGenotyping(let request):
+            var params = [
+                "reference": request.referenceSourceURL.lastPathComponent,
+                "outputName": request.outputName,
+                "threads": String(request.threads),
+                "minSupport": String(request.minSupport),
+                "mappingPreset": "sr",
+            ]
+            if !request.extraArguments.isEmpty {
+                params["extraArgs"] = AdvancedCommandLineOptions.join(request.extraArguments)
+            }
+            return params
         }
     }
 
@@ -631,6 +668,8 @@ extension FASTQOperationLaunchRequest {
             return tool.title.lowercased()
         case .pbaa:
             return "pbaa"
+        case .ontGenotyping:
+            return "ont-genotyping"
         }
     }
 
@@ -638,9 +677,29 @@ extension FASTQOperationLaunchRequest {
         switch self {
         case .refreshQCSummary, .derivative, .pbaa:
             return true
-        case .map, .assemble, .classify:
+        case .map, .assemble, .classify, .ontGenotyping:
             return false
         }
+    }
+
+    var allowsDirectMultiFileFASTQBundleInput: Bool {
+        guard case .derivative(let request, _, _) = self,
+              case .demultiplex(
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  _,
+                  let engine,
+                  _,
+                  _,
+                  _
+              ) = request else {
+            return false
+        }
+        return engine == .exactBareBarcode
     }
 
     var resolvesInputsBeforeCLI: Bool {
@@ -663,7 +722,7 @@ extension FASTQOperationLaunchRequest {
             default:
                 return false
             }
-        case .map, .assemble, .pbaa:
+        case .map, .assemble, .pbaa, .ontGenotyping:
             return false
         }
     }
