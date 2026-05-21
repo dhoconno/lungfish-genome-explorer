@@ -325,7 +325,7 @@ public final class WorkflowNodeInspectorView: NSView {
 
         let label = NSTextField(labelWithString: issues.map { $0.localizedDescription }.joined(separator: "\n"))
         label.font = .preferredFont(forTextStyle: .caption1)
-        label.textColor = .systemRed
+        label.textColor = .lungfishDanger
         label.maximumNumberOfLines = 0
         stackView.addArrangedSubview(label)
         label.widthAnchor.constraint(equalTo: stackView.widthAnchor, constant: -28).isActive = true

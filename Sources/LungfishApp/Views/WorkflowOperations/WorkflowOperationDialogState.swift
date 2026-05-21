@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 import Observation
 
@@ -16,7 +17,7 @@ struct WorkflowOperationTool: Identifiable, Equatable, Sendable {
 }
 
 enum WorkflowOperationLaunchRequest: Equatable {
-    case ontGenotyping(ONTGenotypingRunRequest)
+    case ontGenotyping(ONTBarcodeDemuxGenotypingRunRequest)
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
 }
 
@@ -29,6 +30,7 @@ final class WorkflowOperationDialogState {
     var projectURL: URL?
     var selectedToolID: String
     var selectedReferenceURL: URL?
+    var selectedBarcodeDefinitionURL: URL?
     var selectedReadURLs: [URL]
     var outputDirectoryURL: URL?
     var outputName: String
@@ -37,6 +39,7 @@ final class WorkflowOperationDialogState {
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
     var projectReferenceCandidates: [URL]
+    var projectBarcodeDefinitionCandidates: [URL]
     var errorMessage: String?
     var showingError: Bool
 
@@ -46,18 +49,23 @@ final class WorkflowOperationDialogState {
         enablementStore: WorkflowLibraryEnablementStore = .shared,
         packageStore: WorkflowLibraryImportedPackageStore = .shared
     ) {
-        self.projectURL = projectURL?.standardizedFileURL
+        let standardizedReadURLs = Self.deduplicated(selectedReadURLs.map(\.standardizedFileURL))
+        let standardizedProjectURL = projectURL?.standardizedFileURL
+        self.projectURL = standardizedProjectURL
         self.enablementStore = enablementStore
         self.packageStore = packageStore
-        self.selectedReadURLs = Self.deduplicated(selectedReadURLs.map(\.standardizedFileURL))
-        self.outputName = "ont-genotyping-report"
+        self.selectedReadURLs = standardizedReadURLs
+        self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
-        let referenceCandidates = Self.discoverReferenceBundles(in: projectURL)
+        let referenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
+        let barcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
         self.projectReferenceCandidates = referenceCandidates
+        self.projectBarcodeDefinitionCandidates = barcodeDefinitionCandidates
         self.selectedReferenceURL = referenceCandidates.first
+        self.selectedBarcodeDefinitionURL = barcodeDefinitionCandidates.first
         self.errorMessage = nil
         self.showingError = false
 
@@ -133,8 +141,14 @@ final class WorkflowOperationDialogState {
         guard selectedReferenceURL != nil else {
             return "Select a reference bundle or FASTA file."
         }
+        if selectedTool?.kind == .ontGenotyping, selectedBarcodeDefinitionURL == nil {
+            return "Select a project barcode definition or choose a CSV/TSV file."
+        }
         guard !selectedReadURLs.isEmpty else {
             return "Select one or more FASTQ bundles."
+        }
+        if selectedTool?.kind == .ontGenotyping, selectedReadURLs.count != 1 {
+            return "Select one ONT barcode FASTQ bundle."
         }
         guard outputDirectoryURL != nil else {
             return "Select an output directory."
@@ -186,12 +200,16 @@ final class WorkflowOperationDialogState {
                 .filter { !$0.isEmpty }
                 .joined(separator: "-") ?? "workflow-output"
         } else {
-            outputName = "ont-genotyping-report"
+            outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
         }
     }
 
     func setReference(_ url: URL?) {
         selectedReferenceURL = url?.standardizedFileURL
+    }
+
+    func setBarcodeDefinition(_ url: URL?) {
+        selectedBarcodeDefinitionURL = url?.standardizedFileURL
     }
 
     func setReads(_ urls: [URL]) {
@@ -209,9 +227,13 @@ final class WorkflowOperationDialogState {
         self.projectURL = standardizedProjectURL
         setReads(selectedReadURLs)
         projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
+        projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
 
         if projectChanged || selectedReferenceURL == nil {
             selectedReferenceURL = projectReferenceCandidates.first
+        }
+        if projectChanged || selectedBarcodeDefinitionURL == nil {
+            selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
         }
         if projectChanged || outputDirectoryURL == nil {
             outputDirectoryURL = Self.defaultOutputDirectory(
@@ -229,15 +251,31 @@ final class WorkflowOperationDialogState {
         }
         switch selectedTool.kind {
         case .ontGenotyping:
-            let request = try ONTGenotypingRunRequest(
-                inputFASTQURLs: selectedReadURLs,
+            guard selectedReadURLs.count == 1,
+                  let readURL = selectedReadURLs.first,
+                  let barcodeDefinitionURL = selectedBarcodeDefinitionURL else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
+            let resolvedBarcodeDefinitionURL: URL
+            do {
+                resolvedBarcodeDefinitionURL = try projectOwnedBarcodeDefinitionURL(for: barcodeDefinitionURL)
+            } catch {
+                throw WorkflowOperationError.barcodeDefinitionImportFailed(error.localizedDescription)
+            }
+            let request = ONTBarcodeDemuxGenotypingRunRequest(
+                inputFASTQURL: readURL,
                 referenceSourceURL: selectedReferenceURL,
-                outputDirectory: outputDirectoryURL,
+                barcodeDefinitionsURL: resolvedBarcodeDefinitionURL,
+                outputDirectory: Self.ontGenotypingBundleURL(
+                    outputLocationURL: outputDirectoryURL,
+                    outputName: outputName
+                ),
                 outputName: outputName,
+                analysisName: outputName,
                 projectURL: projectURL,
                 threads: threads,
                 minSupport: minSupport,
-                extraArguments: AdvancedCommandLineOptions.parse(extraArgumentsText)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText)
             )
             return .ontGenotyping(request)
 
@@ -295,6 +333,75 @@ final class WorkflowOperationDialogState {
         )
     }
 
+    private func projectOwnedBarcodeDefinitionURL(for selectedURL: URL) throws -> URL {
+        let sourceURL = selectedURL.standardizedFileURL
+        guard let projectURL = projectURL?.standardizedFileURL,
+              !Self.isURL(sourceURL, inside: projectURL) else {
+            return sourceURL
+        }
+
+        let importDirectory = projectURL.appendingPathComponent("Barcode Definitions", isDirectory: true)
+        let startedAt = Date()
+        try FileManager.default.createDirectory(at: importDirectory, withIntermediateDirectories: true)
+        let destinationURL = try Self.uniqueBarcodeDefinitionImportURL(
+            for: sourceURL,
+            in: importDirectory
+        )
+
+        if !FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        }
+        try writeBarcodeDefinitionImportProvenance(
+            sourceURL: sourceURL,
+            destinationURL: destinationURL,
+            startedAt: startedAt,
+            completedAt: Date()
+        )
+
+        projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: projectURL)
+        selectedBarcodeDefinitionURL = destinationURL
+        return destinationURL
+    }
+
+    private func writeBarcodeDefinitionImportProvenance(
+        sourceURL: URL,
+        destinationURL: URL,
+        startedAt: Date,
+        completedAt: Date
+    ) throws {
+        let argv = [
+            "Lungfish.app",
+            "workflow-operations",
+            "import-barcode-definition",
+            "--input",
+            sourceURL.path,
+            "--output",
+            destinationURL.path,
+        ]
+        let options: [String: ParameterValue] = [
+            "source": .file(sourceURL),
+            "destination": .file(destinationURL),
+            "importDirectory": .file(destinationURL.deletingLastPathComponent()),
+        ]
+        let envelope = try ProvenanceRunBuilder(
+            workflowName: "Workflow Operations Barcode Definition Import",
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish.app",
+            toolVersion: WorkflowRun.currentAppVersion
+        )
+        .argv(argv)
+        .durableReplayArgv(argv)
+        .options(explicit: options, defaults: [:], resolved: options)
+        .input(sourceURL, format: Self.barcodeDefinitionFileFormat(for: sourceURL), role: .input)
+        .output(destinationURL, format: Self.barcodeDefinitionFileFormat(for: destinationURL), role: .output)
+        .runtime(ProvenanceRuntimeIdentity())
+        .complete(exitStatus: 0, startedAt: startedAt, endedAt: completedAt)
+        try ProvenanceWriter(signingProvider: nil).write(
+            envelope,
+            toSidecar: ProvenanceRecorder.fileSidecarURL(for: destinationURL)
+        )
+    }
+
     private func expectedOutputURLs(
         for package: WorkflowPackageValidationResult,
         outputDirectoryURL: URL
@@ -315,6 +422,21 @@ final class WorkflowOperationDialogState {
 
     private static let ontGenotypingID = "builtin.ont-genotyping"
     private static let ontGenotypingResultsDirectoryName = "ONT genotyping results"
+
+    private static func ontGenotypingBundleURL(
+        outputLocationURL: URL,
+        outputName: String
+    ) -> URL {
+        let standardized = outputLocationURL.standardizedFileURL
+        if ONTGenotypeResultBundle.isBundleURL(standardized) {
+            return standardized
+        }
+        let stem = sanitizeFilenameStem(outputName)
+        return standardized.appendingPathComponent(
+            "\(stem).\(ONTGenotypeResultBundle.directoryExtension)",
+            isDirectory: true
+        )
+    }
 
     private static func defaultOutputDirectory(
         projectURL: URL?,
@@ -406,6 +528,92 @@ final class WorkflowOperationDialogState {
         }
     }
 
+    private static func discoverBarcodeDefinitionFiles(in projectURL: URL?) -> [URL] {
+        guard let projectURL else { return [] }
+        let allowedExtensions = Set(["csv", "tsv", "txt"])
+        guard let enumerator = FileManager.default.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+
+        var candidates: [URL] = []
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name.hasPrefix(".") {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            if url.pathExtension.lowercased().hasPrefix("lungfish") {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard allowedExtensions.contains(url.pathExtension.lowercased()),
+                  (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                continue
+            }
+            candidates.append(url.standardizedFileURL)
+        }
+        return candidates.sorted {
+            displayPath(for: $0, relativeTo: projectURL)
+                .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
+        }
+    }
+
+    private static func uniqueBarcodeDefinitionImportURL(
+        for sourceURL: URL,
+        in directoryURL: URL
+    ) throws -> URL {
+        let sourceExtension = sourceURL.pathExtension.lowercased()
+        let sourceStem = sourceURL.deletingPathExtension().lastPathComponent
+        let sanitizedStem = sanitizeFilenameStem(sourceStem)
+        let baseName = sourceExtension.isEmpty ? sanitizedStem : "\(sanitizedStem).\(sourceExtension)"
+        let firstCandidate = directoryURL.appendingPathComponent(baseName)
+        if try candidate(firstCandidate, matchesSource: sourceURL) {
+            return firstCandidate.standardizedFileURL
+        }
+
+        var suffix = 2
+        while true {
+            let candidateName = sourceExtension.isEmpty
+                ? "\(sanitizedStem)-\(suffix)"
+                : "\(sanitizedStem)-\(suffix).\(sourceExtension)"
+            let candidateURL = directoryURL.appendingPathComponent(candidateName)
+            if try candidate(candidateURL, matchesSource: sourceURL) {
+                return candidateURL.standardizedFileURL
+            }
+            suffix += 1
+        }
+    }
+
+    private static func candidate(_ candidateURL: URL, matchesSource sourceURL: URL) throws -> Bool {
+        guard FileManager.default.fileExists(atPath: candidateURL.path) else {
+            return true
+        }
+        return try ProvenanceFileHasher.sha256(of: candidateURL) == ProvenanceFileHasher.sha256(of: sourceURL)
+    }
+
+    private static func barcodeDefinitionFileFormat(for url: URL) -> FileFormat {
+        switch url.pathExtension.lowercased() {
+        case "csv", "tsv", "txt":
+            return .text
+        default:
+            return .unknown
+        }
+    }
+
+    private static func isURL(_ url: URL, inside projectURL: URL) -> Bool {
+        let targetPath = url.standardizedFileURL.path
+        let projectPath = projectURL.standardizedFileURL.path
+        if targetPath == projectPath { return true }
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        return targetPath.hasPrefix(normalizedProjectPath)
+    }
+
     static func displayPath(for url: URL, relativeTo projectURL: URL?) -> String {
         let targetPath = url.standardizedFileURL.path
         guard let projectURL else { return targetPath }
@@ -421,11 +629,44 @@ final class WorkflowOperationDialogState {
             seen.insert(url.standardizedFileURL.path).inserted
         }
     }
+
+    private static func defaultONTGenotypingAnalysisName(for selectedReadURLs: [URL]) -> String {
+        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent.lowercased() else {
+            return "ONT"
+        }
+        if let range = stem.range(of: #"barcode[-_ ]?([0-9]+)"#, options: .regularExpression) {
+            let match = String(stem[range])
+            let digits = match.filter(\.isNumber)
+            if !digits.isEmpty {
+                return "ONT\(digits)"
+            }
+        }
+        return "ONT"
+    }
+
+    private static func defaultONTGenotypingOutputName(for selectedReadURLs: [URL]) -> String {
+        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent,
+              !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "ont-mhc"
+        }
+        return "\(sanitizeFilenameStem(stem))-mhc"
+    }
+
+    private static func sanitizeFilenameStem(_ value: String) -> String {
+        let replaced = value.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        let collapsed = String(replaced)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "ont" : collapsed
+    }
 }
 
 enum WorkflowOperationError: Error, LocalizedError, Equatable {
     case incompleteConfiguration(String)
     case unsupportedPackage(String)
+    case barcodeDefinitionImportFailed(String)
 
     var errorDescription: String? {
         switch self {
@@ -433,6 +674,8 @@ enum WorkflowOperationError: Error, LocalizedError, Equatable {
             return reason
         case .unsupportedPackage(let name):
             return "\(name) is not a runnable Nextflow or Snakemake lungfishref/lungfishfastq workflow."
+        case .barcodeDefinitionImportFailed(let reason):
+            return "Could not import the barcode definition into the project: \(reason)"
         }
     }
 }

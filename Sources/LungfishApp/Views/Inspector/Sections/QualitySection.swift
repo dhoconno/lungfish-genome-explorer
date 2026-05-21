@@ -295,7 +295,7 @@ struct QualityBar: View {
         } else if normalized >= 0.25 {
             return .orange
         } else {
-            return .red
+            return .lungfishDangerFallback
         }
     }
 }

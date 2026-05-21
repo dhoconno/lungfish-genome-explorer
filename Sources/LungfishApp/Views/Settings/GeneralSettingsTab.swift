@@ -89,7 +89,7 @@ struct GeneralSettingsTab: View {
                 if let ncbiKeyError {
                     Text(ncbiKeyError)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.lungfishDangerFallback)
                 }
             }
 
@@ -126,7 +126,7 @@ struct GeneralSettingsTab: View {
                 if let provenanceSigningError {
                     Text(provenanceSigningError)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.lungfishDangerFallback)
                 }
             }
 

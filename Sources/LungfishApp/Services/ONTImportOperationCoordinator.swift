@@ -27,9 +27,14 @@ public final class ONTImportOperationCoordinator {
         concurrency: Int = 4,
         routeContext: OperationRouteContext?
     ) async throws -> ONTImportWorkflow.Result {
+        let outputURL = try Self.resolvedOutputDirectory(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            includeUnclassified: includeUnclassified
+        )
         let cliArgs = Self.cliArgs(
             sourceURL: sourceURL,
-            outputURL: projectURL,
+            outputURL: outputURL,
             includeUnclassified: includeUnclassified,
             concurrency: concurrency
         )
@@ -48,7 +53,7 @@ public final class ONTImportOperationCoordinator {
         do {
             let config = ONTImportConfig(
                 sourceDirectory: sourceURL,
-                outputDirectory: projectURL,
+                outputDirectory: outputURL,
                 maxConcurrentBarcodes: concurrency,
                 includeUnclassified: includeUnclassified
             )
@@ -56,7 +61,7 @@ public final class ONTImportOperationCoordinator {
                 config: config,
                 context: Self.commandContext(
                     sourceURL: sourceURL,
-                    outputURL: projectURL,
+                    outputURL: outputURL,
                     includeUnclassified: includeUnclassified,
                     concurrency: concurrency,
                     cliArgs: cliArgs,
@@ -79,6 +84,88 @@ public final class ONTImportOperationCoordinator {
             operationCenter.fail(id: opID, detail: "\(error)")
             throw error
         }
+    }
+
+    nonisolated static func resolvedOutputDirectory(
+        sourceURL: URL,
+        projectURL: URL,
+        includeUnclassified: Bool,
+        fileManager: FileManager = .default,
+        importer: ONTDirectoryImporter = ONTDirectoryImporter()
+    ) throws -> URL {
+        let layout = try importer.detectLayout(at: sourceURL)
+        let barcodeDirectories = layout.barcodeDirectories.filter {
+            includeUnclassified || !$0.isUnclassified
+        }
+
+        guard hasONTOutputConflict(
+            in: projectURL,
+            barcodeDirectories: barcodeDirectories,
+            fileManager: fileManager
+        ) else {
+            return projectURL
+        }
+
+        let baseName = sanitizedOutputFolderName(
+            suggestedOutputFolderName(sourceURL: sourceURL)
+        )
+        var counter = 1
+        var candidate = projectURL.appendingPathComponent(baseName, isDirectory: true)
+        while fileManager.fileExists(atPath: candidate.path) {
+            counter += 1
+            candidate = projectURL.appendingPathComponent("\(baseName) \(counter)", isDirectory: true)
+        }
+        return candidate
+    }
+
+    nonisolated private static func hasONTOutputConflict(
+        in outputURL: URL,
+        barcodeDirectories: [ONTBarcodeDirectory],
+        fileManager: FileManager
+    ) -> Bool {
+        let rootOutputURLs = [
+            outputURL.appendingPathComponent(DemultiplexManifest.filename),
+            outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename),
+        ]
+        if rootOutputURLs.contains(where: { fileManager.fileExists(atPath: $0.path) }) {
+            return true
+        }
+
+        for barcodeDirectory in barcodeDirectories {
+            let bundleURL = outputURL.appendingPathComponent(
+                "\(barcodeDirectory.barcodeName).\(FASTQBundle.directoryExtension)",
+                isDirectory: true
+            )
+            if fileManager.fileExists(atPath: bundleURL.path) {
+                return true
+            }
+            if ProjectDeletionPlanner.companionSidecarCandidates(for: bundleURL)
+                .contains(where: { fileManager.fileExists(atPath: $0.path) }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    nonisolated private static func suggestedOutputFolderName(sourceURL: URL) -> String {
+        let name = sourceURL.lastPathComponent
+        let lowercased = name.lowercased()
+        if lowercased == "fastq_pass"
+            || lowercased.hasPrefix("barcode")
+            || lowercased == "unclassified" {
+            return sourceURL.deletingLastPathComponent().lastPathComponent
+        }
+        return sourceURL.deletingPathExtension().lastPathComponent
+    }
+
+    nonisolated private static func sanitizedOutputFolderName(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = trimmed.isEmpty ? "ONT Import" : trimmed
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " ._-"))
+        let sanitized = String(fallback.unicodeScalars.map { allowed.contains($0) ? Character($0) : "-" })
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return sanitized.isEmpty ? "ONT Import" : sanitized
     }
 
     nonisolated static func cliArgs(

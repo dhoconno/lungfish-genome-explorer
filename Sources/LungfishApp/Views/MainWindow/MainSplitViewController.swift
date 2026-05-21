@@ -37,7 +37,7 @@ private extension FASTQOperationLaunchRequest {
         case .pbaa(let request):
             return request.inputFASTQURL
         case .ontGenotyping(let request):
-            return request.inputFASTQURLs.first
+            return request.inputFASTQURL
         }
     }
 
@@ -2830,6 +2830,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        if item.type == .genotypeResultBundle, let url = item.url {
+            displayGenotypeResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         if item.type == .multipleSequenceAlignmentBundle, let url = item.url {
             displayMultipleSequenceAlignmentBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
@@ -2957,6 +2962,25 @@ extension MainSplitViewController: SidebarSelectionDelegate {
                 }
             }
         }
+    }
+
+    private func displayGenotypeResultBundleFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "genotypeResultBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
+        guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
+            logger.warning("displayGenotypeResultBundle: Missing primary workbook for '\(url.lastPathComponent, privacy: .public)'")
+            viewerController.showNoSequenceSelected()
+            return
+        }
+
+        inspectorController.clearSelection()
+        viewerController.displayQuickLookPreview(url: workbookURL)
     }
 
     private func displayPhylogeneticTreeBundleFromSidebar(
@@ -4258,6 +4282,13 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         cancelFASTQLoadIfNeeded(hideProgress: true, reason: "displaying non-FASTQ file \(url.lastPathComponent)")
 
+        if url.pathExtension.lowercased() == "bam",
+           let viewerBundleURL = Self.ontGenotypingViewerBundleURL(forRawBAM: url),
+           FileManager.default.fileExists(atPath: viewerBundleURL.path) {
+            displayReferenceBundleViewportFromSidebar(at: viewerBundleURL)
+            return
+        }
+
         // Standalone VCF files use the auto-ingestion pipeline
         if Self.isVCFFile(url) {
             loadVCFFilesInBackground(urls: [url])
@@ -4279,6 +4310,32 @@ extension MainSplitViewController: SidebarSelectionDelegate {
 
         // Not cached - load via DocumentManager using GCD wrapper
         loadGenomicsFileInBackground(url: url)
+    }
+
+    static func ontGenotypingViewerBundleURL(forRawBAM url: URL) -> URL? {
+        let filename = url.lastPathComponent
+        let directory = url.deletingLastPathComponent()
+
+        if filename.hasSuffix(".md.sorted.bam") {
+            let stem = String(filename.dropLast(".md.sorted.bam".count))
+            return directory.appendingPathComponent("\(stem).mapped.lungfishref", isDirectory: true)
+        }
+
+        if filename.hasSuffix(".retained.demuxed.bam") {
+            let stem = String(filename.dropLast(".retained.demuxed.bam".count))
+            return directory.appendingPathComponent("\(stem).retained-demux.lungfishref", isDirectory: true)
+        }
+
+        return nil
+    }
+
+    static func genotypeResultWorkbookURL(forBundle url: URL) -> URL? {
+        guard ONTGenotypeResultBundle.isBundleURL(url),
+              let workbookURL = try? ONTGenotypeResultBundle.primaryWorkbookURL(for: url),
+              FileManager.default.fileExists(atPath: workbookURL.path) else {
+            return nil
+        }
+        return workbookURL
     }
 
     /// Returns true if the URL points to a FASTQ file (by extension).
@@ -4802,9 +4859,16 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
-        // Check for cached metadata
-        let cachedStatisticsMeta = statisticsCacheURL.flatMap { FASTQMetadataStore.load(for: $0) }
-        let displayMeta = cachedStatisticsMeta ?? FASTQMetadataStore.load(for: fastqURL)
+        // Check for cached metadata. ONT imports also have a demux manifest
+        // beside their barcode bundles, so use it as an immediate display
+        // fallback when the dedicated metadata sidecar is absent.
+        let demuxSummaryMeta = FASTQBundle.isBundleURL(standardizedSourceURL)
+            ? DemultiplexManifest.cachedFASTQMetadata(forBundle: standardizedSourceURL)
+            : nil
+        let cachedStatisticsMeta = statisticsCacheURL.flatMap {
+            FASTQMetadataStore.load(for: $0)
+        } ?? demuxSummaryMeta
+        let displayMeta = cachedStatisticsMeta ?? FASTQMetadataStore.load(for: fastqURL) ?? demuxSummaryMeta
         if let cachedStats = cachedStatisticsMeta?.computedStatistics {
             logger.info("loadFASTQDatasetInBackground: Using cached statistics (\(cachedStats.readCount) reads)")
             viewerController.displayFASTQDataset(

@@ -75,10 +75,12 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let temp = try temporaryDirectory()
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
         let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
         try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
@@ -86,6 +88,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
         state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
         state.setReads([readsURL])
         state.setOutputDirectory(outputURL)
         state.outputName = "sample-ont"
@@ -97,21 +100,131 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             return XCTFail("Expected ONT genotyping request")
         }
 
-        XCTAssertEqual(request.inputFASTQURLs, [readsURL.standardizedFileURL])
+        XCTAssertEqual(request.inputFASTQURL, readsURL.standardizedFileURL)
         XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
-        XCTAssertEqual(request.outputDirectory, outputURL.standardizedFileURL)
+        XCTAssertEqual(request.barcodeDefinitionsURL, barcodesURL.standardizedFileURL)
+        XCTAssertEqual(
+            request.outputDirectory,
+            outputURL.appendingPathComponent("sample-ont.lungfishgenotype", isDirectory: true).standardizedFileURL
+        )
         XCTAssertEqual(request.outputName, "sample-ont")
+        XCTAssertEqual(request.analysisName, "sample-ont")
         XCTAssertEqual(request.threads, 6)
         XCTAssertEqual(request.minSupport, 3)
     }
 
-    func testInitialSelectedReadBundlesAreUsedForONTGenotyping() throws {
+    func testONTGenotypingKeepsExplicitGenotypeBundleOutputDirectory() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
         let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
         let temp = try temporaryDirectory()
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let bundleURL = temp.appendingPathComponent("custom.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
+        state.setReads([readsURL])
+        state.setOutputDirectory(bundleURL)
+        state.outputName = "sample-ont"
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+
+        XCTAssertEqual(request.outputDirectory, bundleURL.standardizedFileURL)
+    }
+
+    func testONTGenotypingPrefersProjectBarcodeDefinitionCandidates() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let projectURL = try temporaryDirectory()
+        let barcodesURL = projectURL.appendingPathComponent("Barcode Definitions/fluidigm.tsv")
+        let hiddenBarcodeURL = projectURL.appendingPathComponent(".hidden/ignored.tsv")
+        let bundledBarcodeURL = projectURL.appendingPathComponent("Reads/sample.lungfishfastq/ignored.csv")
+        let referenceBundleBarcodeURL = projectURL.appendingPathComponent("Reference Sequences/ref.lungfishref/ignored.tsv")
+        for url in [barcodesURL, hiddenBarcodeURL, bundledBarcodeURL, referenceBundleBarcodeURL] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("sample\tbarcode\nDW472\tACGT\n".utf8).write(to: url)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [barcodesURL.standardizedFileURL])
+        XCTAssertEqual(state.selectedBarcodeDefinitionURL, barcodesURL.standardizedFileURL)
+    }
+
+    func testExternalBarcodeDefinitionIsImportedIntoProjectBeforeONTLaunch() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let projectURL = temp.appendingPathComponent("project.lungfish", isDirectory: true)
+        let externalURL = temp.appendingPathComponent("external/barcodes.csv")
+        let referenceURL = projectURL.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = projectURL.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let outputURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: externalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: externalURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(externalURL)
+        state.setReads([readsURL])
+        state.setOutputDirectory(outputURL)
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+
+        let importedURL = projectURL.appendingPathComponent("Barcode Definitions/barcodes.csv").standardizedFileURL
+        XCTAssertEqual(request.barcodeDefinitionsURL, importedURL)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: importedURL.path))
+        XCTAssertEqual(try String(contentsOf: importedURL, encoding: .utf8), "sample,barcode\nDW472,ACGT\n")
+
+        let provenanceURL = importedURL.appendingPathExtension("lungfish-provenance.json")
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(envelope.workflowName, "Workflow Operations Barcode Definition Import")
+        XCTAssertEqual(envelope.outputs.map(\.path), [importedURL.path])
+        XCTAssertTrue(envelope.files.contains {
+            $0.path == externalURL.standardizedFileURL.path && $0.role == .input
+        })
+    }
+
+    func testONTGenotypingRequiresExactlyOneSelectedReadBundle() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
         let firstReadsURL = temp.appendingPathComponent("reads-a.lungfishfastq", isDirectory: true)
         let secondReadsURL = temp.appendingPathComponent("reads-b.lungfishfastq", isDirectory: true)
         let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
@@ -119,6 +232,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         try FileManager.default.createDirectory(at: firstReadsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: secondReadsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
 
         let state = WorkflowOperationDialogState(
             projectURL: temp,
@@ -127,6 +241,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
         state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
         state.setOutputDirectory(outputURL)
 
         XCTAssertEqual(state.selectedReadURLs, [
@@ -134,15 +249,40 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             secondReadsURL.standardizedFileURL,
         ])
         XCTAssertEqual(state.datasetLabel, "2 read bundles selected")
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Select one ONT barcode FASTQ bundle.")
 
-        let launchRequest = try state.makeLaunchRequest()
-        guard case .ontGenotyping(let request) = launchRequest else {
-            return XCTFail("Expected ONT genotyping request")
+        XCTAssertThrowsError(try state.makeLaunchRequest())
+    }
+
+    func testReconfiguringForNewProjectResetsBarcodeDefinitionToProjectCandidate() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let firstProjectURL = temp.appendingPathComponent("first.lungfish", isDirectory: true)
+        let secondProjectURL = temp.appendingPathComponent("second.lungfish", isDirectory: true)
+        let firstBarcodesURL = firstProjectURL.appendingPathComponent("Barcode Definitions/first.tsv")
+        let secondBarcodesURL = secondProjectURL.appendingPathComponent("Barcode Definitions/second.tsv")
+        let secondReadsURL = secondProjectURL.appendingPathComponent("Reads/sample.lungfishfastq", isDirectory: true)
+        for url in [firstBarcodesURL, secondBarcodesURL] {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data("sample\tbarcode\nDW472\tACGT\n".utf8).write(to: url)
         }
-        XCTAssertEqual(request.inputFASTQURLs, [
-            firstReadsURL.standardizedFileURL,
-            secondReadsURL.standardizedFileURL,
-        ])
+        try FileManager.default.createDirectory(at: secondReadsURL, withIntermediateDirectories: true)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: firstProjectURL,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        XCTAssertEqual(state.selectedBarcodeDefinitionURL, firstBarcodesURL.standardizedFileURL)
+
+        state.configureProject(projectURL: secondProjectURL, selectedReadURLs: [secondReadsURL])
+
+        XCTAssertEqual(state.projectBarcodeDefinitionCandidates, [secondBarcodesURL.standardizedFileURL])
+        XCTAssertEqual(state.selectedBarcodeDefinitionURL, secondBarcodesURL.standardizedFileURL)
     }
 
     func testReconfiguringForNewProjectResetsReferenceAndOutputDirectory() throws {
@@ -213,7 +353,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
         let readPicker = try sourceBlock(
             startingAt: "    private var readPicker: some View",
-            endingBefore: "    @ViewBuilder\n    private var primarySettings",
+            endingBefore: "    private var barcodePicker: some View",
             in: source
         )
         let referencePicker = try sourceBlock(
@@ -230,6 +370,22 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         XCTAssertTrue(referencePicker.contains("browseForReference()"))
         XCTAssertTrue(referencePicker.contains("Button("), "Reference selection should remain editable.")
+    }
+
+    func testWorkflowOperationsDialogShowsProjectBarcodeDefinitionPicker() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/WorkflowOperations/WorkflowOperationsDialog.swift"),
+            encoding: .utf8
+        )
+        let barcodePicker = try sourceBlock(
+            startingAt: "    private var barcodePicker: some View",
+            endingBefore: "    @ViewBuilder\n    private var primarySettings",
+            in: source
+        )
+
+        XCTAssertTrue(barcodePicker.contains("Picker(\"Project File\""))
+        XCTAssertTrue(barcodePicker.contains("barcodeDefinitionProjectFileBinding"))
     }
 
     func testWorkflowOperationsRunClosesWindowAsSoonAsLaunchIsAccepted() throws {

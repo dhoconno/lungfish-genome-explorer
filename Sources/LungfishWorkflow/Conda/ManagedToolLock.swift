@@ -45,6 +45,7 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
             case "sra-tools": return "SRA Tools"
             case "ucsc-bedgraphtobigwig": return "UCSC bedGraphToBigWig"
             case "pysam": return "pysam"
+            case "openpyxl": return "openpyxl"
             default:
                 return id.replacingOccurrences(of: "-", with: " ").capitalized
             }
@@ -100,6 +101,13 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
                     arguments: ["-c", "import pysam; print(pysam.__version__)"],
                     timeoutSeconds: 10,
                     requiredOutputSubstring: "0.24.0"
+                )
+            case "openpyxl":
+                return .command(
+                    executable: "python",
+                    arguments: ["-c", "import openpyxl; print(openpyxl.__version__)"],
+                    timeoutSeconds: 10,
+                    requiredOutputSubstring: "3.1.5"
                 )
             default:
                 return executables.first.map { executable in

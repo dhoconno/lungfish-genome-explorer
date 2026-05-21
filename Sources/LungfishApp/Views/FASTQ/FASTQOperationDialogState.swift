@@ -139,6 +139,7 @@ final class FASTQOperationDialogState {
     var pbaaSeed: Int
     var pbaaExtraArguments: String
     var ontGenotypingOutputName: String
+    var ontGenotypingAnalysisName: String
     var ontGenotypingThreads: Int
     var ontGenotypingMinSupport: Int
     var ontGenotypingExtraArguments: String
@@ -248,7 +249,8 @@ final class FASTQOperationDialogState {
         self.pbaaThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.pbaaSeed = 1984
         self.pbaaExtraArguments = ""
-        self.ontGenotypingOutputName = "ont-genotyping-report"
+        self.ontGenotypingOutputName = Self.defaultONTGenotypingOutputName(for: selectedInputURLs)
+        self.ontGenotypingAnalysisName = Self.defaultONTGenotypingAnalysisName(for: selectedInputURLs)
         self.ontGenotypingThreads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.ontGenotypingMinSupport = 1
         self.ontGenotypingExtraArguments = ""
@@ -633,12 +635,17 @@ final class FASTQOperationDialogState {
 
         case .ontGenotyping:
             guard let referenceURL = auxiliaryInputURL(for: .referenceSequence),
+                  let barcodeDefinitionsURL = auxiliaryInputURL(for: .barcodeDefinition),
+                  selectedInputURLs.count == 1,
+                  let inputFASTQURL = selectedInputURLs.first,
                   let outputDirectoryURL,
-                  let request = try? ONTGenotypingRunRequest(
-                    inputFASTQURLs: selectedInputURLs,
+                  let request = try? ONTBarcodeDemuxGenotypingRunRequest(
+                    inputFASTQURL: inputFASTQURL,
                     referenceSourceURL: referenceURL,
+                    barcodeDefinitionsURL: barcodeDefinitionsURL,
                     outputDirectory: outputDirectoryURL,
                     outputName: ontGenotypingOutputName,
+                    analysisName: ontGenotypingAnalysisName,
                     projectURL: projectURL,
                     threads: ontGenotypingThreads,
                     minSupport: ontGenotypingMinSupport,
@@ -992,7 +999,7 @@ final class FASTQOperationDialogState {
         case .pbaa:
             return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
         case .ontGenotyping:
-            return "Genotype ONT amplicon reads by short-read mapping, strict full-amplicon filtering, and per-sample reporting."
+            return "Genotype one ONT barcode FASTQ by exact full-amplicon mapping, retained-read barcode demultiplexing, and Excel reporting."
         case .mafft:
             return "Align selected FASTA records with MAFFT into a native MSA bundle."
         case .minimap2:
@@ -1179,8 +1186,14 @@ final class FASTQOperationDialogState {
             if selectedInputURLs.isEmpty {
                 return "Select at least one FASTQ dataset."
             }
+            if selectedInputURLs.count != 1 {
+                return "Select one ONT barcode FASTQ dataset."
+            }
             if auxiliaryInputURL(for: .referenceSequence) == nil {
                 return "Select a reference sequence to continue."
+            }
+            if auxiliaryInputURL(for: .barcodeDefinition) == nil {
+                return "Select a barcode definition to continue."
             }
             if ontGenotypingThreads <= 0 {
                 return "Enter a positive thread count."
@@ -1317,6 +1330,35 @@ final class FASTQOperationDialogState {
         }
 
         return selectedInputURLs.first?.deletingLastPathComponent()
+    }
+
+    private static func defaultONTGenotypingOutputName(for selectedInputURLs: [URL]) -> String {
+        let stem = selectedInputURLs.first?.deletingPathExtension().lastPathComponent ?? "ont-genotyping"
+        return "\(sanitizeFilenameStem(stem))-mhc"
+    }
+
+    private static func defaultONTGenotypingAnalysisName(for selectedInputURLs: [URL]) -> String {
+        guard let stem = selectedInputURLs.first?.deletingPathExtension().lastPathComponent.lowercased() else {
+            return "ONT"
+        }
+        if let range = stem.range(of: #"barcode[-_ ]?([0-9]+)"#, options: .regularExpression) {
+            let match = String(stem[range])
+            let digits = match.filter(\.isNumber)
+            if !digits.isEmpty {
+                return "ONT\(digits)"
+            }
+        }
+        return "ONT"
+    }
+
+    private static func sanitizeFilenameStem(_ value: String) -> String {
+        let mapped = value.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        let collapsed = String(mapped)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "ont-genotyping" : collapsed
     }
 
     private static func isExactBareBarcodeCompatible(_ kit: BarcodeKitDefinition) -> Bool {
@@ -1674,7 +1716,7 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
         case .extractReadsByMotif: return "Select reads containing a motif."
         case .selectReadsBySequence: return "Select reads matching a sequence."
         case .pbaa: return "Cluster PacBio HiFi amplicon reads and emit passed consensus sequences as a reference bundle."
-        case .ontGenotyping: return "Map ONT amplicon reads with the short-read preset, filter indel-only full-amplicon reads, and report genotypes."
+        case .ontGenotyping: return "Map one ONT barcode FASTQ, retain exact+indel full-amplicon reads, demultiplex retained reads, and write an Excel genotype report."
         case .mafft: return "Align nucleotide or protein FASTA records into a native MSA bundle."
         case .minimap2: return "Map reads to a reference sequence with minimap2."
         case .bwaMem2: return "Map Illumina short reads with BWA-MEM2."
@@ -1737,8 +1779,10 @@ enum FASTQOperationToolID: String, CaseIterable, Sendable {
             return [.fastqDataset, .database]
         case .removeContaminants:
             return [.fastqDataset, .contaminantReference]
-        case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap, .ontGenotyping:
+        case .orientReads, .minimap2, .bwaMem2, .bowtie2, .bbmap:
             return [.fastqDataset, .referenceSequence]
+        case .ontGenotyping:
+            return [.fastqDataset, .referenceSequence, .barcodeDefinition]
         case .pbaa:
             return [.fastqDataset, .referenceSequence]
         }
@@ -1933,7 +1977,7 @@ enum FASTQOperationLaunchRequest: Sendable, Equatable {
     case assemble(request: AssemblyRunRequest, outputMode: FASTQOperationOutputMode)
     case classify(tool: FASTQOperationToolID, inputURLs: [URL], databaseName: String, extraArguments: [String] = [])
     case pbaa(request: PBAAClusteringRunRequest)
-    case ontGenotyping(request: ONTGenotypingRunRequest)
+    case ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest)
 }
 
 private extension AssemblyTool {

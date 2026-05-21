@@ -190,7 +190,7 @@ extension StrainComparisonView: NSTableViewDelegate {
                     field.stringValue = String(base)
                     // Highlight if different from reference
                     if let refBase = entry.referenceBase, base != refBase {
-                        field.textColor = .systemRed
+                        field.textColor = .lungfishDanger
                         field.font = .monospacedSystemFont(ofSize: 11, weight: .bold)
                     }
                 } else {

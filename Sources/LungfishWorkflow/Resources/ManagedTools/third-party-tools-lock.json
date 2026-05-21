@@ -1,7 +1,7 @@
 {
   "packID": "lungfish-tools",
   "displayName": "Third-Party Tools",
-  "version": "0.5.0-alpha2",
+  "version": "0.5.0-alpha3",
   "tools": [
     { "id": "nextflow", "environment": "nextflow", "packageSpec": "bioconda::nextflow=25.10.4=h2a3209d_0", "executables": ["nextflow"], "version": "25.10.4", "license": "Apache-2.0", "sourceUrl": "https://github.com/nextflow-io/nextflow" },
     { "id": "snakemake", "environment": "snakemake", "packageSpec": "bioconda::snakemake=9.19.0=hdfd78af_1", "executables": ["snakemake"], "version": "9.19.0", "license": "MIT", "sourceUrl": "https://github.com/snakemake/snakemake" },
@@ -17,7 +17,8 @@
     { "id": "pigz", "environment": "pigz", "packageSpec": "conda-forge::pigz=2.8=hfab5511_2", "executables": ["pigz"], "version": "2.8", "license": "Zlib", "sourceUrl": "https://github.com/madler/pigz" },
     { "id": "sra-tools", "environment": "sra-tools", "packageSpec": "bioconda::sra-tools=3.4.1=h4675bf2_1", "executables": ["prefetch", "fasterq-dump"], "version": "3.4.1", "license": "Public Domain", "sourceUrl": "https://github.com/ncbi/sra-tools" },
     { "id": "ucsc-bedgraphtobigwig", "environment": "ucsc-bedgraphtobigwig", "packageSpec": "bioconda::ucsc-bedgraphtobigwig=482=h1643cc5_0", "executables": ["bedGraphToBigWig"], "version": "482", "license": "Varies; see https://genome.ucsc.edu/license", "sourceUrl": "https://genome.ucsc.edu/goldenPath/help/bigWig.html" },
-    { "id": "pysam", "environment": "pysam", "packageSpec": "bioconda::pysam=0.24.0=py310hf7cbfa5_0", "executables": ["python"], "version": "0.24.0", "license": "MIT", "sourceUrl": "https://github.com/pysam-developers/pysam" }
+    { "id": "pysam", "environment": "pysam", "packageSpec": "bioconda::pysam=0.24.0=py310hf7cbfa5_0", "executables": ["python"], "version": "0.24.0", "license": "MIT", "sourceUrl": "https://github.com/pysam-developers/pysam" },
+    { "id": "openpyxl", "environment": "openpyxl", "packageSpec": "conda-forge::openpyxl=3.1.5=py312h2a925e6_3", "executables": ["python"], "version": "3.1.5", "license": "MIT", "sourceUrl": "https://openpyxl.readthedocs.io/" }
   ],
   "managedData": [
     { "id": "deacon-panhuman", "displayName": "Human Read Removal Data" },

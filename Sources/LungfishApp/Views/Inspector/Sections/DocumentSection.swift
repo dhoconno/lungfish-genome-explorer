@@ -1429,16 +1429,17 @@ struct AlignmentTrackInventorySection: View {
             .buttonStyle(.plain)
 
             if let removeAction {
-                Button("Remove Derived Alignment...", role: .destructive) {
+                Button("Remove Derived Alignment...") {
                     removeAction()
                 }
                 .font(.caption)
+                .foregroundStyle(Color.lungfishDangerFallback)
                 .buttonStyle(.borderless)
             }
         }
         .contextMenu {
             if let removeAction {
-                Button("Remove Derived Alignment...", role: .destructive) {
+                Button("Remove Derived Alignment...") {
                     removeAction()
                 }
             }

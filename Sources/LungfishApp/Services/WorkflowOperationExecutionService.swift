@@ -118,7 +118,7 @@ final class WorkflowOperationExecutionService {
     }
 
     private func runONTGenotyping(
-        _ request: ONTGenotypingRunRequest,
+        _ request: ONTBarcodeDemuxGenotypingRunRequest,
         routeContext: OperationRouteContext?
     ) async throws -> [URL] {
         try fileManager.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
@@ -147,11 +147,6 @@ final class WorkflowOperationExecutionService {
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
             let cliPayload = decodeONTGenotypingPayload(from: result.standardOutput)
-            try await prepareONTGenotypingViewerBundles(
-                for: request,
-                cliPayload: cliPayload,
-                operationID: operationID
-            )
             let outputURLs = ontGenotypingOutputURLs(
                 for: request,
                 cliPayload: cliPayload
@@ -181,15 +176,27 @@ final class WorkflowOperationExecutionService {
         }
     }
 
-    func ontGenotypingArguments(for request: ONTGenotypingRunRequest) -> [String] {
-        var arguments = ["fastq", "ont-genotype"] + request.inputFASTQURLs.map(\.path)
+    func ontGenotypingArguments(for request: ONTBarcodeDemuxGenotypingRunRequest) -> [String] {
+        var arguments = ["fastq", "ont-barcode-genotype", request.inputFASTQURL.path]
         arguments += [
             "--reference", request.referenceSourceURL.path,
+            "--barcodes", request.barcodeDefinitionsURL.path,
             "--output-dir", request.outputDirectory.path,
             "--output-name", request.outputName,
+            "--analysis-name", request.analysisName,
             "--threads", String(request.threads),
+            "--sort-threads", String(request.sortThreads),
             "--min-support", String(request.minSupport),
         ]
+        if let demuxManifestURL = request.demuxManifestURL {
+            arguments += ["--demux-manifest", demuxManifestURL.path]
+        }
+        if let comparisonWorkbookURL = request.comparisonWorkbookURL {
+            arguments += ["--comparison-workbook", comparisonWorkbookURL.path]
+        }
+        if let comparisonName = request.comparisonName {
+            arguments += ["--comparison-name", comparisonName]
+        }
         if let projectURL = request.projectURL {
             arguments += ["--project", projectURL.path]
         }
@@ -200,149 +207,174 @@ final class WorkflowOperationExecutionService {
     }
 
     private func ontGenotypingOutputURLs(
-        for request: ONTGenotypingRunRequest,
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
         cliPayload: ONTGenotypingCLIPayload?
     ) -> [URL] {
         var urls: [URL] = []
         if let cliPayload {
+            urls.append(cliPayload.workbookURL)
             urls.append(cliPayload.reportCSVURL)
-            for sample in cliPayload.sampleResults {
-                urls.append(sample.mappingBAMURL)
-                urls.append(sample.mappingBAIURL)
-                urls.append(sample.filteredBAMURL)
-                urls.append(sample.filteredBAIURL)
-                let sampleDirectory = sample.filteredBAMURL.deletingLastPathComponent().standardizedFileURL
-                urls.append(sampleDirectory)
-                if let mappingResult = try? MappingResult.load(from: sampleDirectory),
-                   let viewerBundleURL = mappingResult.viewerBundleURL {
-                    urls.append(viewerBundleURL)
-                }
-            }
+            urls.append(cliPayload.sampleSummaryCSVURL)
+            urls.append(cliPayload.statsJSONURL)
+            urls.append(cliPayload.provenanceURL)
         }
-        let reportURL = request.outputDirectory.appendingPathComponent("\(request.outputName).csv")
-        if fileManager.fileExists(atPath: reportURL.path) {
-            urls.append(reportURL)
-        }
-        for inputURL in request.inputFASTQURLs {
-            let sampleDirectory = request.outputDirectory
-                .appendingPathComponent(inputURL.deletingPathExtension().lastPathComponent, isDirectory: true)
-            let sampleName = inputURL.deletingPathExtension().lastPathComponent
-            let mappingBAM = sampleDirectory.appendingPathComponent("\(sampleName).sorted.bam")
-            let mappingBAI = sampleDirectory.appendingPathComponent("\(sampleName).sorted.bam.bai")
-            let filteredBAM = sampleDirectory.appendingPathComponent("\(sampleName).ont-genotyping.filtered.bam")
-            let filteredBAI = sampleDirectory.appendingPathComponent("\(sampleName).ont-genotyping.filtered.bam.bai")
-            urls.append(contentsOf: [mappingBAM, mappingBAI, filteredBAM, filteredBAI])
-            if fileManager.fileExists(atPath: sampleDirectory.path) {
-                urls.append(sampleDirectory)
-                if let mappingResult = try? MappingResult.load(from: sampleDirectory),
-                   let viewerBundleURL = mappingResult.viewerBundleURL {
-                    urls.append(viewerBundleURL)
-                }
-            }
-        }
+        urls.append(request.workbookURL)
+        urls.append(request.reportCSVURL)
+        urls.append(request.sampleSummaryCSVURL)
+        urls.append(request.statsJSONURL)
+        urls.append(request.provenanceURL)
         urls.append(request.outputDirectory)
         return deduplicatedExistingURLs(urls)
     }
 
-    private func prepareONTGenotypingViewerBundles(
-        for request: ONTGenotypingRunRequest,
+    private func prepareONTGenotypingViewerBundlesIfPossible(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
         cliPayload: ONTGenotypingCLIPayload?,
         operationID: UUID
-    ) async throws {
-        guard let cliPayload, !cliPayload.sampleResults.isEmpty else { return }
+    ) async throws -> [URL] {
+        guard let sourceBundleURL = sourceReferenceBundleURL(for: request, cliPayload: cliPayload) else {
+            return []
+        }
 
-        let fallbackSourceBundleURL = resolvedSourceReferenceBundleURL(
-            for: request,
-            cliPayload: cliPayload
+        let mappingBAMURL = cliPayload?.mappingBAMURL ?? request.mappingBAMURL
+        let retainedBAMURL = cliPayload?.retainedBAMURL ?? request.retainedBAMURL
+        let mappingViewerBundleURL = request.outputDirectory.appendingPathComponent(
+            "\(request.outputName).mapped.lungfishref",
+            isDirectory: true
         )
-        let totalSamples = max(1, cliPayload.sampleResults.count)
+        let retainedViewerBundleURL = request.outputDirectory.appendingPathComponent(
+            "\(request.outputName).retained-demux.lungfishref",
+            isDirectory: true
+        )
 
-        for (index, sample) in cliPayload.sampleResults.enumerated() {
-            let sampleDirectory = sample.filteredBAMURL.deletingLastPathComponent().standardizedFileURL
-            guard fileManager.fileExists(atPath: sampleDirectory.path) else { continue }
-
-            let filteredMappingResult = try MappingResult.load(from: sampleDirectory)
-            guard let sourceBundleURL = filteredMappingResult.sourceReferenceBundleURL ?? fallbackSourceBundleURL,
-                  fileManager.fileExists(atPath: sourceBundleURL.path) else {
-                operationCenter.log(
-                    id: operationID,
-                    level: .warning,
-                    message: "Skipping integrated BAM viewer for \(sample.sampleName): source reference bundle unavailable."
-                )
-                continue
-            }
-
-            let viewerBundleURL = sampleDirectory.appendingPathComponent(
-                sourceBundleURL.lastPathComponent,
-                isDirectory: true
-            )
-            let sampleBaseProgress = 0.82 + (Double(index) / Double(totalSamples)) * 0.15
+        var preparedURLs: [URL] = []
+        for item in [
+            (
+                bamURL: mappingBAMURL,
+                viewerBundleURL: mappingViewerBundleURL,
+                trackName: "Pre-filter ONT mapping",
+                workflowName: "ONT Genotyping Mapping BAM Viewer Bundle"
+            ),
+            (
+                bamURL: retainedBAMURL,
+                viewerBundleURL: retainedViewerBundleURL,
+                trackName: "Filtered exact-match demuxed reads",
+                workflowName: "ONT Genotyping Retained BAM Viewer Bundle"
+            ),
+        ] {
+            guard fileManager.fileExists(atPath: item.bamURL.path) else { continue }
             operationCenter.update(
                 id: operationID,
-                progress: sampleBaseProgress,
-                detail: "Preparing integrated BAM viewer for \(sample.sampleName)..."
+                progress: 0.96,
+                detail: "Preparing \(item.trackName) viewer..."
             )
             operationCenter.log(
                 id: operationID,
                 level: .info,
-                message: "Preparing integrated BAM viewer for \(sample.sampleName)."
+                message: "Preparing lightweight reference bundle for \(item.bamURL.lastPathComponent)."
             )
-
             try viewerBundlePreparer.prepareBaseBundle(
                 sourceBundleURL: sourceBundleURL,
-                viewerBundleURL: viewerBundleURL,
+                viewerBundleURL: item.viewerBundleURL,
                 fileManager: fileManager
             )
             try await bamImporter.importBAM(
-                bamURL: filteredMappingResult.bamURL,
-                bundleURL: viewerBundleURL,
-                name: "ONT Genotyping",
-                progressHandler: { [operationCenter] fraction, message in
-                    Task { @MainActor in
-                        let progress = sampleBaseProgress + (fraction * 0.15 / Double(totalSamples))
-                        operationCenter.update(id: operationID, progress: progress, detail: message)
-                        operationCenter.log(id: operationID, level: .info, message: message)
-                    }
-                }
+                bamURL: item.bamURL,
+                bundleURL: item.viewerBundleURL,
+                name: item.trackName,
+                progressHandler: nil
             )
-
-            let preparedResult = filteredMappingResult.withViewerBundle(
-                viewerBundleURL: viewerBundleURL,
-                sourceReferenceBundleURL: sourceBundleURL
+            try writeONTViewerBundleProvenance(
+                workflowName: item.workflowName,
+                sourceBundleURL: sourceBundleURL,
+                bamURL: item.bamURL,
+                viewerBundleURL: item.viewerBundleURL,
+                request: request
             )
-            try preparedResult.save(to: sampleDirectory)
-            if let provenance = MappingProvenance.load(from: sampleDirectory) {
-                let updatedProvenance = provenance
-                    .withViewerBundleURL(viewerBundleURL)
-                    .withSourceReferenceBundleURL(sourceBundleURL)
-                try updatedProvenance.save(to: sampleDirectory)
-                try updatedProvenance.saveCanonicalEnvelope(to: sampleDirectory)
-            }
+            preparedURLs.append(item.viewerBundleURL)
         }
+        return preparedURLs
     }
 
-    private func resolvedSourceReferenceBundleURL(
-        for request: ONTGenotypingRunRequest,
-        cliPayload: ONTGenotypingCLIPayload
+    private func sourceReferenceBundleURL(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        cliPayload: ONTGenotypingCLIPayload?
     ) -> URL? {
-        if let sourceReferenceBundlePath = cliPayload.sourceReferenceBundlePath {
-            return URL(fileURLWithPath: sourceReferenceBundlePath).standardizedFileURL
+        if let sourceReferenceBundlePath = cliPayload?.sourceReferenceBundlePath,
+           !sourceReferenceBundlePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let url = URL(fileURLWithPath: sourceReferenceBundlePath).standardizedFileURL
+            if fileManager.fileExists(atPath: url.path) {
+                return url
+            }
         }
-        if request.referenceSourceURL.pathExtension.lowercased() == "lungfishref" {
-            return request.referenceSourceURL.standardizedFileURL
+        let requestedReferenceURL = request.referenceSourceURL.standardizedFileURL
+        guard requestedReferenceURL.pathExtension.lowercased() == "lungfishref",
+              fileManager.fileExists(atPath: requestedReferenceURL.path) else {
+            return nil
         }
-        return nil
+        return requestedReferenceURL
+    }
+
+    private func writeONTViewerBundleProvenance(
+        workflowName: String,
+        sourceBundleURL: URL,
+        bamURL: URL,
+        viewerBundleURL: URL,
+        request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws {
+        let startedAt = Date()
+        let outputDescriptor = ProvenanceFileDescriptor(
+            path: viewerBundleURL.path,
+            role: .output
+        )
+        let referenceDescriptor = ProvenanceFileDescriptor(
+            path: sourceBundleURL.path,
+            role: .reference
+        )
+        let bamDescriptor = try ProvenanceFileDescriptor.file(
+            url: bamURL,
+            format: .bam,
+            role: .input
+        )
+        let argv = [
+            "Lungfish.app",
+            "workflow-operations",
+            "prepare-ont-bam-viewer",
+            "--source-reference", sourceBundleURL.path,
+            "--bam", bamURL.path,
+            "--viewer-bundle", viewerBundleURL.path,
+        ]
+        let options: [String: ParameterValue] = [
+            "outputName": .string(request.outputName),
+            "analysisName": .string(request.analysisName),
+            "sourceReferenceBundle": .file(sourceBundleURL),
+            "bam": .file(bamURL),
+            "viewerBundle": .file(viewerBundleURL),
+        ]
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: workflowName,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish.app",
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: argv,
+            durableReplayArgv: argv,
+            options: ProvenanceOptions(explicit: options, resolvedDefaults: options),
+            runtimeIdentity: ProvenanceRuntimeIdentity(),
+            files: [referenceDescriptor, bamDescriptor, outputDescriptor],
+            output: outputDescriptor,
+            outputs: [outputDescriptor],
+            wallTimeSeconds: Date().timeIntervalSince(startedAt),
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: viewerBundleURL)
     }
 
     private func preferredSelectionURL(
-        for request: ONTGenotypingRunRequest,
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
         cliPayload: ONTGenotypingCLIPayload?
     ) -> URL {
-        guard let cliPayload, cliPayload.sampleResults.count == 1,
-              let sample = cliPayload.sampleResults.first else {
-            return request.outputDirectory.standardizedFileURL
-        }
-        return sample.filteredBAMURL.deletingLastPathComponent().standardizedFileURL
+        request.outputDirectory
     }
 
     private func decodeONTGenotypingPayload(from stdout: String) -> ONTGenotypingCLIPayload? {
@@ -382,29 +414,26 @@ final class WorkflowOperationExecutionService {
 }
 
 private struct ONTGenotypingCLIPayload: Decodable {
+    let mappingBAMPath: String
+    let mappingBAIPath: String
+    let retainedBAMPath: String
+    let retainedBAIPath: String
     let reportCSVPath: String
+    let sampleSummaryCSVPath: String
+    let statsJSONPath: String
+    let workbookPath: String
+    let provenancePath: String
     let outputDirectory: String
     let referenceFASTAPath: String
     let sourceReferenceBundlePath: String?
-    let sampleResults: [ONTGenotypingCLISamplePayload]
-
-    var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
-}
-
-private struct ONTGenotypingCLISamplePayload: Decodable {
-    let inputFASTQPath: String
-    let sampleName: String
-    let mappingBAMPath: String
-    let mappingBAIPath: String?
-    let filteredBAMPath: String
-    let filteredBAIPath: String
-    let totalReads: Int
-    let filteredAlignments: Int
 
     var mappingBAMURL: URL { URL(fileURLWithPath: mappingBAMPath).standardizedFileURL }
-    var mappingBAIURL: URL {
-        URL(fileURLWithPath: mappingBAIPath ?? "\(mappingBAMPath).bai").standardizedFileURL
-    }
-    var filteredBAMURL: URL { URL(fileURLWithPath: filteredBAMPath).standardizedFileURL }
-    var filteredBAIURL: URL { URL(fileURLWithPath: filteredBAIPath).standardizedFileURL }
+    var mappingBAIURL: URL { URL(fileURLWithPath: mappingBAIPath).standardizedFileURL }
+    var retainedBAMURL: URL { URL(fileURLWithPath: retainedBAMPath).standardizedFileURL }
+    var retainedBAIURL: URL { URL(fileURLWithPath: retainedBAIPath).standardizedFileURL }
+    var reportCSVURL: URL { URL(fileURLWithPath: reportCSVPath).standardizedFileURL }
+    var sampleSummaryCSVURL: URL { URL(fileURLWithPath: sampleSummaryCSVPath).standardizedFileURL }
+    var statsJSONURL: URL { URL(fileURLWithPath: statsJSONPath).standardizedFileURL }
+    var workbookURL: URL { URL(fileURLWithPath: workbookPath).standardizedFileURL }
+    var provenanceURL: URL { URL(fileURLWithPath: provenancePath).standardizedFileURL }
 }

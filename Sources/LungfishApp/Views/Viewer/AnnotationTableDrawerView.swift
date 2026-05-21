@@ -6714,7 +6714,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove the selected variant\(count == 1 ? "" : "s") from the database."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
         alert.alertStyle = .warning
 
         guard let window = window else { return }
@@ -6732,7 +6732,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "This will permanently remove all variants from the database. This cannot be undone."
         alert.addButton(withTitle: "Delete All")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
         alert.alertStyle = .critical
 
         guard let window = window else { return }
@@ -7954,7 +7954,7 @@ extension AnnotationTableDrawerView: NSMenuDelegate {
         alert.informativeText = "Delete '\(fieldName)' from all samples and variant databases? This cannot be undone."
         alert.addButton(withTitle: "Delete Column")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
 
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self, response == .alertFirstButtonReturn else { return }

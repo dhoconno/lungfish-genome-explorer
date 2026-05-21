@@ -527,6 +527,32 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
         }
     }
 
+    func testProjectRootProvenanceFolderIsHiddenFromSidebar() throws {
+        let tempRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarRootProvenance-\(UUID().uuidString)", isDirectory: true)
+        let projectURL = tempRoot.appendingPathComponent("Fixture.lungfish", isDirectory: true)
+        let provenanceURL = projectURL.appendingPathComponent("provenance", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: provenanceURL, withIntermediateDirectories: true)
+        try "{\"workflow\":\"fixture\"}\n".write(
+            to: provenanceURL.appendingPathComponent("run.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let sidebar = SidebarViewController()
+        sidebar.loadViewIfNeeded()
+
+        defer {
+            sidebar.closeProject()
+            try? FileManager.default.removeItem(at: tempRoot)
+        }
+
+        sidebar.openProject(at: projectURL)
+
+        XCTAssertFalse(sidebar.selectItem(forURL: provenanceURL))
+    }
+
     func testPackageBundlesUnderAnalysesAreRecognizedBeforeFolderRecursion() throws {
         let tempRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("SidebarAnalysisBundles-\(UUID().uuidString)", isDirectory: true)

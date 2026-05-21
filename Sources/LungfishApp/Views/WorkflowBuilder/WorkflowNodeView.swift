@@ -489,7 +489,7 @@ public class WorkflowNodeView: NSView {
         case .trimmingFiltering:
             return NSColor.systemOrange
         case .decontamination:
-            return NSColor.systemRed
+            return NSColor.lungfishDanger
         case .readProcessing:
             return NSColor.systemIndigo
         case .analysis:

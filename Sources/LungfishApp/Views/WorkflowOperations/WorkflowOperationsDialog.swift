@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorkflowOperationsDialog: View {
     @Bindable var state: WorkflowOperationDialogState
@@ -45,6 +46,7 @@ struct WorkflowOperationsDialog: View {
 private struct WorkflowOperationsDetailPane: View {
     @Bindable var state: WorkflowOperationDialogState
     @State private var showingReferencePanel = false
+    @State private var showingBarcodePanel = false
     @State private var showingOutputPanel = false
 
     var body: some View {
@@ -57,6 +59,9 @@ private struct WorkflowOperationsDetailPane: View {
 
                 section(DatasetOperationSection.inputs.title) {
                     referencePicker
+                    if case .ontGenotyping = state.selectedTool?.kind {
+                        barcodePicker
+                    }
                     readPicker
                 }
 
@@ -125,6 +130,40 @@ private struct WorkflowOperationsDetailPane: View {
                     .foregroundStyle(state.selectedReadURLs.isEmpty ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
                     .lineLimit(3)
                 Spacer()
+            }
+        }
+    }
+
+    private var barcodePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Barcode Definition")
+                .font(.subheadline.weight(.medium))
+            if !state.projectBarcodeDefinitionCandidates.isEmpty {
+                Picker("Project File", selection: barcodeDefinitionProjectFileBinding) {
+                    Text("Choose project file").tag(URL?.none)
+                    ForEach(state.projectBarcodeDefinitionCandidates, id: \.self) { url in
+                        Text(WorkflowOperationDialogState.displayPath(for: url, relativeTo: state.projectURL))
+                            .tag(URL?.some(url))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            HStack(spacing: 10) {
+                Text(state.selectedBarcodeDefinitionURL.map {
+                    WorkflowOperationDialogState.displayPath(for: $0, relativeTo: state.projectURL)
+                } ?? "No barcode definition selected")
+                .font(.caption)
+                .foregroundStyle(state.selectedBarcodeDefinitionURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
+                .lineLimit(2)
+                Spacer()
+                Button(state.selectedBarcodeDefinitionURL == nil ? "Choose…" : "Replace…") {
+                    browseForBarcodeDefinition()
+                }
+                if state.selectedBarcodeDefinitionURL != nil {
+                    Button("Clear") {
+                        state.setBarcodeDefinition(nil)
+                    }
+                }
             }
         }
     }
@@ -208,6 +247,19 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
+    private var barcodeDefinitionProjectFileBinding: Binding<URL?> {
+        Binding(
+            get: {
+                guard let selected = state.selectedBarcodeDefinitionURL,
+                      state.projectBarcodeDefinitionCandidates.contains(selected) else {
+                    return nil
+                }
+                return selected
+            },
+            set: { state.setBarcodeDefinition($0) }
+        )
+    }
+
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
@@ -250,6 +302,32 @@ private struct WorkflowOperationsDetailPane: View {
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK else { return }
             state.setReference(panel.url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func browseForBarcodeDefinition() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Barcode Definition"
+        panel.message = "Select a CSV, TSV, or text file containing sample names and barcodes."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.plainText]
+        if let csv = UTType(filenameExtension: "csv") {
+            contentTypes.append(csv)
+        }
+        if let tsv = UTType(filenameExtension: "tsv") {
+            contentTypes.append(tsv)
+        }
+        panel.allowedContentTypes = contentTypes
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            state.setBarcodeDefinition(panel.url)
         }
         if let window = NSApp.keyWindow ?? NSApp.mainWindow {
             panel.beginSheetModal(for: window, completionHandler: completion)

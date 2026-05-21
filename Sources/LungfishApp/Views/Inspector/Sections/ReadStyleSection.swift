@@ -2129,7 +2129,7 @@ public struct AnalysisSection: View {
             if let alignmentFilterValidationMessage, !alignmentFilterValidationMessage.isEmpty {
                 Text(alignmentFilterValidationMessage)
                     .font(.caption2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -2269,7 +2269,7 @@ public struct AnalysisSection: View {
             if let mappedReadsAnnotationValidationMessage, !mappedReadsAnnotationValidationMessage.isEmpty {
                 Text(mappedReadsAnnotationValidationMessage)
                     .font(.caption2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

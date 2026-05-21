@@ -123,7 +123,7 @@ struct AIServicesSettingsTab: View {
             if let keychainErrorMessage {
                 Text(keychainErrorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
                     .accessibilityIdentifier(SettingsAccessibilityID.aiErrorMessage)
             }
         }
@@ -147,7 +147,7 @@ struct AIServicesSettingsTab: View {
             cancelPendingSaves()
         }
         .alert("Clear All API Keys?", isPresented: $showClearConfirmation) {
-            Button("Clear", role: .destructive) { clearAllKeys() }
+            Button("Clear") { clearAllKeys() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This will remove all stored API keys from the Keychain. You will need to re-enter them to use AI features.")
@@ -171,7 +171,7 @@ struct AIServicesSettingsTab: View {
             color = .green
         case .invalid:
             symbol = "xmark.circle.fill"
-            color = .red
+            color = Color.lungfishDangerFallback
         }
         return Image(systemName: symbol)
             .foregroundStyle(color)
@@ -198,7 +198,7 @@ struct AIServicesSettingsTab: View {
         case .invalid(let message):
             Text("Validation failed: \(message)")
                 .font(.caption)
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.lungfishDangerFallback)
         }
     }
 

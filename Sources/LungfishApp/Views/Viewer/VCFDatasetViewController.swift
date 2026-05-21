@@ -490,7 +490,7 @@ public final class VCFDatasetViewController: NSViewController,
         switch type {
         case "SNP": return .systemBlue
         case "INS": return .systemGreen
-        case "DEL": return .systemRed
+        case "DEL": return .lungfishDanger
         case "MNP": return .systemPurple
         default: return .secondaryLabelColor
         }

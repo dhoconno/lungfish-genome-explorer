@@ -1258,6 +1258,7 @@ public class SidebarViewController: NSViewController {
             || itemType == .phylogeneticTreeBundle
             || itemType == .fastqBundle
             || itemType == .primerSchemeBundle
+            || itemType == .genotypeResultBundle
             || itemType == .czIdResult)
             ? url.deletingPathExtension().lastPathComponent
             : filename
@@ -1430,6 +1431,8 @@ public class SidebarViewController: NSViewController {
             return (.phylogeneticTreeBundle, "point.3.connected.trianglepath.dotted")
         case "lungfishprimers":
             return (.primerSchemeBundle, "line.horizontal.3.decrease.circle")
+        case ONTGenotypeResultBundle.directoryExtension:
+            return (.genotypeResultBundle, "tablecells.badge.ellipsis")
         case "lungfishtax":
             let manifestURL = url.appendingPathComponent("cz-id-manifest.json")
             if fileManager.fileExists(atPath: manifestURL.path) {
@@ -1458,6 +1461,9 @@ public class SidebarViewController: NSViewController {
         }
 
         if context == .projectRoot, url.lastPathComponent == AnalysesFolder.directoryName {
+            return false
+        }
+        if context == .projectRoot, url.lastPathComponent == "provenance" {
             return false
         }
         if OperationMarker.isInProgress(url) {
@@ -1523,6 +1529,7 @@ public class SidebarViewController: NSViewController {
             "esviritu-batch-result.json",
             "esviritu-result.json",
             "extraction-metadata.json",
+            ONTGenotypeResultBundleManifest.filename,
             "mapping-result.json",
             "manifest.json",
             "read-manifest.json",
@@ -1976,6 +1983,7 @@ public class SidebarViewController: NSViewController {
         case "minimap2", "bwa-mem2", "bowtie2", "bbmap": return "m.circle"
         case "naomgs": return "n.circle"
         case "cz-id": return "c.circle"
+        case "ont-genotyping": return "tablecells.badge.ellipsis"
         default: return "circle"
         }
     }
@@ -1999,6 +2007,7 @@ public class SidebarViewController: NSViewController {
         case "naomgs": return .naoMgsResult
         case "nvd": return .nvdResult
         case "cz-id": return .czIdResult
+        case "ont-genotyping": return .genotypeResultBundle
         default: return .analysisResult
         }
     }
@@ -3011,31 +3020,140 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return
         }
 
-        // Show confirmation dialog
-        let itemCount = deletableItems.count
-        let message = itemCount == 1
-            ? "Are you sure you want to move \"\(deletableItems[0].title)\" to the Trash?"
-            : "Are you sure you want to move \(itemCount) items to the Trash?"
-
-        let alert = NSAlert()
-        alert.messageText = "Move to Trash"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Move to Trash")
-        alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        let planner = ProjectDeletionPlanner()
+        let impact = projectURL.map {
+            planner.impact(
+                ofDeleting: deletableItems.compactMap(\.url),
+                in: $0
+            )
+        }
 
         guard let window = view.window else { return }
+        presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
+    }
+
+    private func presentDeleteConfirmation(
+        items deletableItems: [SidebarItem],
+        impact: ProjectDeletionImpact?,
+        in window: NSWindow
+    ) {
+        let itemCount = deletableItems.count
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+
+        if let impact, impact.hasDependents {
+            let presentation = ProjectDeletionDependencyListPresentation(
+                dependentURLs: impact.dependentURLs,
+                projectURL: projectURL
+            )
+            let dependentCount = presentation.count
+            let selectedText = itemCount == 1
+                ? "\"\(deletableItems[0].title)\""
+                : "\(itemCount) selected items"
+            let preview = presentation.previewLines.joined(separator: "\n")
+            let overflow = presentation.overflowLine.map { "\n\($0)" } ?? ""
+
+            alert.messageText = "Move Items With Dependencies to Trash?"
+            alert.informativeText = """
+            Moving \(selectedText) to the Trash will break provenance for \(dependentCount) dependent project item\(dependentCount == 1 ? "" : "s").
+
+            Dependent items:
+            \(preview)\(overflow)
+            """
+            alert.addButton(withTitle: "Move All to Trash")
+            alert.addButton(withTitle: "Move Selected Only")
+            if presentation.isTruncated {
+                alert.addButton(withTitle: "Show Full List")
+            }
+            alert.addButton(withTitle: "Cancel")
+            alert.buttons.first?.applyLungfishDestructiveStyle()
+            if alert.buttons.count > 1 {
+                alert.buttons[1].applyLungfishDestructiveStyle()
+            }
+        } else {
+            let message = itemCount == 1
+                ? "Are you sure you want to move \"\(deletableItems[0].title)\" to the Trash?"
+                : "Are you sure you want to move \(itemCount) items to the Trash?"
+
+            alert.messageText = "Move to Trash"
+            alert.informativeText = message
+            alert.addButton(withTitle: "Move to Trash")
+            alert.addButton(withTitle: "Cancel")
+            alert.buttons.first?.applyLungfishDestructiveStyle()
+        }
 
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard response == .alertFirstButtonReturn else { return }
-            self?.performDelete(items: deletableItems)
+            guard let self else { return }
+            if let impact, impact.hasDependents {
+                let presentation = ProjectDeletionDependencyListPresentation(
+                    dependentURLs: impact.dependentURLs,
+                    projectURL: self.projectURL
+                )
+                switch response {
+                case .alertFirstButtonReturn:
+                    self.performDelete(items: deletableItems, includingDependentURLs: impact.dependentURLs)
+                case .alertSecondButtonReturn:
+                    self.performDelete(items: deletableItems)
+                case .alertThirdButtonReturn where presentation.isTruncated:
+                    self.showFullDeletionDependencyList(presentation, in: window) {
+                        self.presentDeleteConfirmation(items: deletableItems, impact: impact, in: window)
+                    }
+                default:
+                    return
+                }
+            } else {
+                guard response == .alertFirstButtonReturn else { return }
+                self.performDelete(items: deletableItems)
+            }
+        }
+    }
+
+    private func showFullDeletionDependencyList(
+        _ presentation: ProjectDeletionDependencyListPresentation,
+        in window: NSWindow,
+        completion: @escaping () -> Void
+    ) {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Affected Project Items"
+        alert.informativeText = """
+        These \(presentation.count) dependent project item\(presentation.count == 1 ? "" : "s") would have broken provenance if the selected item or items are moved to the Trash by themselves.
+        """
+        alert.addButton(withTitle: "Back")
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: 260))
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = true
+
+        let textView = NSTextView(frame: scrollView.contentView.bounds)
+        textView.string = presentation.fullListText
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(
+            width: CGFloat.greatestFiniteMagnitude,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        textView.textContainer?.widthTracksTextView = false
+        scrollView.documentView = textView
+
+        alert.accessoryView = scrollView
+        alert.beginSheetModal(for: window) { _ in
+            completion()
         }
     }
 
     /// Performs the actual deletion of items
-    private func performDelete(items: [SidebarItem]) {
-        logger.info("performDelete: Deleting \(items.count) items")
+    private func performDelete(items: [SidebarItem], includingDependentURLs dependentURLs: [URL] = []) {
+        logger.info("performDelete: Deleting \(items.count) selected item(s) and \(dependentURLs.count) dependent URL(s)")
         guard canWriteSidebarProjectOutputs(
             workflowName: "Sidebar delete",
             targetURL: items.first?.url
@@ -3043,22 +3161,51 @@ extension SidebarViewController: NSOutlineViewDataSource {
             return
         }
 
-        var failedItems: [(SidebarItem, Error)] = []
+        let planner = ProjectDeletionPlanner()
+        let selectedItemsByPath = Dictionary(
+            uniqueKeysWithValues: items.compactMap { item -> (String, SidebarItem)? in
+                guard let url = item.url else { return nil }
+                return (url.standardizedFileURL.path, item)
+            }
+        )
+        let deletionURLs = ProjectDeletionPlanner.topLevelURLsForDeletion(
+            items.compactMap(\.url) + dependentURLs
+        )
+        let deletedItems = deletionURLs.compactMap { url in
+            selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
+        }
+        var failedItems: [(String, Error)] = []
 
-        for item in items {
-            // Move file to Trash if URL exists
-            if let url = item.url {
+        for url in deletionURLs {
+            let item = selectedItemsByPath[url.standardizedFileURL.path] ?? findItem(byPath: url.standardizedFileURL.path)
+            let label = item?.title ?? url.lastPathComponent
+            let sidecars = planner.existingCompanionSidecarURLs(for: url)
+
+            do {
+                try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                logger.info("performDelete: Trashed file \(url.path, privacy: .public)")
+            } catch {
+                logger.error("performDelete: Failed to trash \(url.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                failedItems.append((label, error))
+                continue  // Don't remove from sidebar if file deletion failed
+            }
+
+            for sidecarURL in sidecars {
                 do {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                    logger.info("performDelete: Trashed file \(url.path, privacy: .public)")
+                    try FileManager.default.trashItem(at: sidecarURL, resultingItemURL: nil)
+                    logger.info("performDelete: Trashed companion sidecar \(sidecarURL.path, privacy: .public)")
                 } catch {
-                    logger.error("performDelete: Failed to trash \(url.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
-                    failedItems.append((item, error))
-                    continue  // Don't remove from sidebar if file deletion failed
+                    logger.error("performDelete: Failed to trash sidecar \(sidecarURL.path, privacy: .public) - \(error.localizedDescription, privacy: .public)")
+                    failedItems.append((sidecarURL.lastPathComponent, error))
                 }
             }
 
-            // Remove from sidebar hierarchy
+            if let item {
+                removeItemFromSidebar(item)
+            }
+        }
+
+        for item in items where item.url == nil {
             removeItemFromSidebar(item)
         }
 
@@ -3068,7 +3215,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         if !failedItems.isEmpty {
             let alert = NSAlert()
             alert.messageText = "Some items could not be deleted"
-            alert.informativeText = failedItems.map { "\($0.0.title): \($0.1.localizedDescription)" }.joined(separator: "\n")
+            alert.informativeText = failedItems.map { "\($0.0): \($0.1.localizedDescription)" }.joined(separator: "\n")
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             if let window = view.window {
@@ -3080,7 +3227,7 @@ extension SidebarViewController: NSOutlineViewDataSource {
         NotificationCenter.default.post(
             name: .sidebarItemsDeleted,
             object: self,
-            userInfo: windowScopedUserInfo(["items": items])
+            userInfo: windowScopedUserInfo(["items": deletedItems.isEmpty ? items : deletedItems])
         )
     }
 
@@ -3542,6 +3689,7 @@ public enum SidebarItemType {
     case phylogeneticTreeBundle  // .lungfishtree tree bundle
     case fastqBundle  // .lungfishfastq FASTQ package bundle
     case primerSchemeBundle  // .lungfishprimers primer-scheme bundle
+    case genotypeResultBundle // .lungfishgenotype ONT genotyping result bundle
     case batchGroup   // Virtual node representing a batch operation across multiple bundles
     case classificationResult  // Kraken2 classification result folder
     case esvirituResult        // EsViritu viral detection result folder
@@ -3568,6 +3716,7 @@ public enum SidebarItemType {
         case .phylogeneticTreeBundle: return .systemMint
         case .fastqBundle: return .systemGreen
         case .primerSchemeBundle: return .systemYellow
+        case .genotypeResultBundle: return .lungfishOrange
         case .batchGroup: return .systemCyan
         case .classificationResult: return .lungfishOrange
         case .esvirituResult: return .lungfishOrange
@@ -3593,7 +3742,7 @@ public enum SidebarItemType {
     var isBundle: Bool {
         switch self {
         case .referenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerSchemeBundle, .czIdResult:
+             .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .czIdResult:
             return true
         default:
             return false
@@ -4167,7 +4316,7 @@ extension SidebarViewController: NSMenuDelegate {
         alert.informativeText = "This will permanently delete \(tracks.count) variant track\(tracks.count == 1 ? "" : "s") (\(trackNames)) and their database files from the bundle. This cannot be undone."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
         alert.alertStyle = .critical
 
         guard let window = self.view.window else { return }

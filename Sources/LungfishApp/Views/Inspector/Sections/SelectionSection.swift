@@ -873,18 +873,19 @@ public struct SelectionSection: View {
                 .padding(.vertical, 4)
 
             // Delete button
-            Button(role: .destructive) {
+            Button {
                 showDeleteConfirmation = true
             } label: {
                 Label("Delete Annotation", systemImage: "trash")
             }
+            .foregroundStyle(Color.lungfishDangerFallback)
             .buttonStyle(.borderless)
             .confirmationDialog(
                 "Delete Annotation",
                 isPresented: $showDeleteConfirmation,
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) {
+                Button("Delete") {
                     viewModel.deleteAnnotation()
                 }
                 Button("Cancel", role: .cancel) {}

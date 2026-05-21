@@ -13,7 +13,7 @@ final class ProjectLockWarningPresentationTests: XCTestCase {
         let record = ProjectLockRecord(
             schemaVersion: 1,
             toolName: "lungfish project lock",
-            appVersion: "lungfish-cli 0.5.0-alpha2",
+            appVersion: "lungfish-cli 0.5.0-alpha3",
             projectPath: "/tmp/Locked.lungfish",
             mode: "exclusive",
             user: "dho",

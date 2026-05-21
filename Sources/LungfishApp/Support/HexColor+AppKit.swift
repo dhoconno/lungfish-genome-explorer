@@ -62,7 +62,7 @@ extension SequenceAppearance {
 
 extension SemanticColors.Status {
     static var successNSColor: NSColor { .systemGreen }
-    static var failureNSColor: NSColor { .systemRed }
+    static var failureNSColor: NSColor { .lungfishDanger }
     static var warningNSColor: NSColor { .systemOrange }
     static var infoNSColor: NSColor { .systemBlue }
 }
@@ -71,7 +71,7 @@ extension SemanticColors.Quality {
     static var highNSColor: NSColor { .systemGreen }
     static var mediumNSColor: NSColor { .systemYellow }
     static var lowNSColor: NSColor { .systemOrange }
-    static var veryLowNSColor: NSColor { .systemRed }
+    static var veryLowNSColor: NSColor { .lungfishDanger }
 
     static func nsColor(for score: Int) -> NSColor {
         if score >= 30 { return highNSColor }

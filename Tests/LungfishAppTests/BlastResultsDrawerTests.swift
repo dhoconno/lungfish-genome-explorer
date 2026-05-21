@@ -542,7 +542,7 @@ final class BlastResultsDrawerTests: XCTestCase {
 
         // Unverified
         XCTAssertEqual(BlastVerdict.unverified.sfSymbolName, "xmark.circle.fill")
-        XCTAssertEqual(BlastVerdict.unverified.displayColor, .systemRed)
+        XCTAssertEqual(BlastVerdict.unverified.displayColor, .lungfishDanger)
         XCTAssertEqual(BlastVerdict.unverified.accessibilityDescription, "Unverified")
 
         // Error

@@ -201,9 +201,10 @@ struct StorageSettingsTab: View {
                         Spacer()
 
                         if previousRootPath != nil {
-                            Button("Remove old local copies...", role: .destructive) {
+                            Button("Remove old local copies...") {
                                 showingCleanupConfirmation = true
                             }
+                            .tint(.lungfishDangerFallback)
                             .disabled(isWorking)
                             .accessibilityIdentifier(SettingsAccessibilityID.storageCleanupButton)
                         }
@@ -234,7 +235,7 @@ struct StorageSettingsTab: View {
             "Remove old local copies?",
             isPresented: $showingCleanupConfirmation
         ) {
-            Button("Remove old local copies", role: .destructive) {
+            Button("Remove old local copies") {
                 removeOldLocalCopies()
             }
             Button("Cancel", role: .cancel) {}

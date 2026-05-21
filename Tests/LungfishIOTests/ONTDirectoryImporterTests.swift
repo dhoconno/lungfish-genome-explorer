@@ -195,6 +195,38 @@ final class ONTDirectoryImporterTests: XCTestCase {
         XCTAssertNotNil(loadedManifest)
         XCTAssertEqual(loadedManifest?.barcodes.count, 1)
         XCTAssertEqual(loadedManifest?.parameters.tool, "ont-directory-import")
+
+        let cachedMetadata = FASTQMetadataStore.load(for: result.bundleURLs[0])
+        XCTAssertEqual(cachedMetadata?.computedStatistics?.readCount, 8)
+        XCTAssertEqual(cachedMetadata?.computedStatistics?.baseCount, loadedManifest?.barcodes.first?.baseCount)
+        XCTAssertEqual(cachedMetadata?.sequencingPlatform, .oxfordNanopore)
+        XCTAssertEqual(cachedMetadata?.assemblyReadType, .ontReads)
+    }
+
+    func testDemultiplexManifestProvidesDisplayMetadataForExistingONTBundleWithoutSidecar() async throws {
+        let sourceDir = try makeTempDir()
+        let outputDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: sourceDir)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+
+        let barcodeDir = sourceDir.appendingPathComponent("barcode05", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcodeDir, withIntermediateDirectories: true)
+        try writeGzippedFASTQ(to: barcodeDir.appendingPathComponent("chunk_0.fastq"), readCount: 4, barcode: "barcode05")
+
+        let importer = ONTDirectoryImporter()
+        let result = try await importer.importDirectory(
+            config: ONTImportConfig(sourceDirectory: barcodeDir, outputDirectory: outputDir)
+        ) { _, _ in }
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
+        FASTQMetadataStore.delete(for: bundleURL)
+
+        let fallbackMetadata = DemultiplexManifest.cachedFASTQMetadata(forBundle: bundleURL)
+        XCTAssertEqual(fallbackMetadata?.computedStatistics?.readCount, 4)
+        XCTAssertEqual(fallbackMetadata?.computedStatistics?.baseCount, result.manifest.barcodes.first?.baseCount)
+        XCTAssertEqual(fallbackMetadata?.sequencingPlatform, .oxfordNanopore)
+        XCTAssertEqual(fallbackMetadata?.assemblyReadType, .ontReads)
     }
 
     func testImportExcludesUnclassifiedByDefault() async throws {

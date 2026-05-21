@@ -310,7 +310,7 @@ public final class BarcodeScoutSheet: NSViewController, NSTableViewDataSource, N
             button.toolTip = "Accepted \u{2014} click to reject"
         case .rejected:
             button.image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Rejected")
-            button.contentTintColor = .systemRed
+            button.contentTintColor = .lungfishDanger
             button.toolTip = "Rejected \u{2014} click to clear"
         case .undecided:
             button.image = NSImage(systemSymbolName: "questionmark.circle", accessibilityDescription: "Undecided")

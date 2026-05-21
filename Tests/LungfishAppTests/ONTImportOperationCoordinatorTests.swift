@@ -58,8 +58,43 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         XCTAssertTrue(envelope.reproducibleCommand.contains("fastq import-ont"))
     }
 
+    func testCoordinatorUsesUniqueOutputDirectoryWhenProjectRootHasPreviousONTOutputs() async throws {
+        let runURL = tempDir.appendingPathComponent("Run42", isDirectory: true)
+        let sourceURL = try makeONTSource(in: runURL)
+        let projectURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        try FileManager.default.createDirectory(at: projectURL, withIntermediateDirectories: true)
+        try "{}".write(
+            to: projectURL.appendingPathComponent(DemultiplexManifest.filename),
+            atomically: true,
+            encoding: .utf8
+        )
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
+        let center = OperationCenter()
+        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+
+        let result = try await coordinator.importDirectory(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            includeUnclassified: false,
+            concurrency: 1,
+            routeContext: routeContext
+        )
+
+        let expectedOutputURL = projectURL.appendingPathComponent("Run42", isDirectory: true)
+        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        XCTAssertEqual(bundleURL.deletingLastPathComponent().standardizedFileURL, expectedOutputURL.standardizedFileURL)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: expectedOutputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true).path
+        ))
+        XCTAssertTrue(center.items.first?.cliCommand?.contains("--output \(expectedOutputURL.path)") == true)
+    }
+
     private func makeONTSource() throws -> URL {
-        let sourceURL = tempDir.appendingPathComponent("fastq_pass", isDirectory: true)
+        try makeONTSource(in: tempDir)
+    }
+
+    private func makeONTSource(in parentURL: URL) throws -> URL {
+        let sourceURL = parentURL.appendingPathComponent("fastq_pass", isDirectory: true)
         let barcodeURL = sourceURL.appendingPathComponent("barcode01", isDirectory: true)
         let unclassifiedURL = sourceURL.appendingPathComponent("unclassified", isDirectory: true)
         try FileManager.default.createDirectory(at: barcodeURL, withIntermediateDirectories: true)

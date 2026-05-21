@@ -410,8 +410,8 @@ final class FASTQQualityBoxplotView: NSView {
             ctx.setLineWidth(1)
             ctx.stroke(boxRect)
 
-            // Median line (red)
-            ctx.setStrokeColor(NSColor.systemRed.cgColor)
+            // Median line
+            ctx.setStrokeColor(NSColor.lungfishDanger.cgColor)
             ctx.setLineWidth(1.5)
             ctx.move(to: CGPoint(x: x, y: yMedian))
             ctx.addLine(to: CGPoint(x: x + boxWidth, y: yMedian))
@@ -487,9 +487,9 @@ final class FASTQQualityBoxplotView: NSView {
         ctx.setFillColor(NSColor.systemYellow.withAlphaComponent(0.08).cgColor)
         ctx.fill(yellowRect)
 
-        // Red zone: Q < 20
+        // Danger zone: Q < 20
         let redRect = CGRect(x: chartRect.minX, y: yellowTop, width: chartRect.width, height: chartRect.maxY - yellowTop)
-        ctx.setFillColor(NSColor.systemRed.withAlphaComponent(0.08).cgColor)
+        ctx.setFillColor(NSColor.lungfishDanger.withAlphaComponent(0.08).cgColor)
         ctx.fill(redRect)
     }
 

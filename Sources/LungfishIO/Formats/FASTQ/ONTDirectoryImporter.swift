@@ -455,6 +455,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         )
 
         try manifest.save(to: config.outputDirectory)
+        persistDisplayMetadata(
+            manifest: manifest,
+            outputDirectory: config.outputDirectory,
+            bundleURLs: bundleURLs
+        )
 
         let elapsed = Date().timeIntervalSince(startTime)
         progress(1.0, "Import complete (\(totalReadCount) reads, \(String(format: "%.1f", elapsed))s)")
@@ -470,6 +475,22 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
             totalReadCount: totalReadCount,
             wallClockSeconds: elapsed
         )
+    }
+
+    private func persistDisplayMetadata(
+        manifest: DemultiplexManifest,
+        outputDirectory: URL,
+        bundleURLs: [URL]
+    ) {
+        for bundleURL in bundleURLs {
+            guard let metadata = manifest.cachedFASTQMetadata(
+                forBundle: bundleURL,
+                manifestDirectory: outputDirectory
+            ) else {
+                continue
+            }
+            FASTQMetadataStore.save(metadata, for: bundleURL)
+        }
     }
 
     // MARK: - Per-Barcode Import

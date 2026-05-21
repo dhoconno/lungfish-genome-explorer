@@ -349,7 +349,7 @@ extension WorkflowNodePalette: NSOutlineViewDelegate {
         case .trimmingFiltering:
             return .systemOrange
         case .decontamination:
-            return .systemRed
+            return .lungfishDanger
         case .readProcessing:
             return .systemIndigo
         case .analysis:

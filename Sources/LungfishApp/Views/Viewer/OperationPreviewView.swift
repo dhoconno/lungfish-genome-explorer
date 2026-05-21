@@ -13,9 +13,9 @@ import LungfishIO
 //   Primary   — LungfishTeal (brand color, reads, highlights)
 //   Paired    — Indigo       (R2 reads in PE visualizations)
 //   Kept      — Green        (pass badges, kept brackets)
-//   Trimmed   — Red          (removed regions, fail badges)
+//   Trimmed   — Danger       (removed regions, fail badges)
 //   Adapter   — Orange       (adapter, primer, contaminant, warnings)
-//   Quality   — Green/Yellow/Orange/Red (Q-score thresholds)
+//   Quality   — Green/Yellow/Orange/Danger (Q-score thresholds)
 //   Corrected — Purple       (error correction markers)
 
 /// Brand teal from the asset catalog (dark mode aware).
@@ -31,7 +31,7 @@ enum FASTQPalette {
 
     // -- Semantic action colors --
     static let kept          = NSColor.systemGreen                 // pass / kept
-    static let trimmed       = NSColor.systemRed                   // removed / fail
+    static let trimmed       = NSColor.lungfishDanger              // removed / fail
     static let adapter       = NSColor.systemOrange                // adapter, primer, warn
     static let corrected     = NSColor.systemPurple                // error correction
 
@@ -39,7 +39,7 @@ enum FASTQPalette {
     static let qualityHigh   = NSColor.systemGreen                 // Q >= 30
     static let qualityMedium = NSColor.systemYellow                // Q 20-29
     static let qualityLow    = NSColor.systemOrange                // Q 10-19
-    static let qualityVeryLow = NSColor.systemRed                  // Q < 10
+    static let qualityVeryLow = NSColor.lungfishDanger             // Q < 10
 
     // -- Text / labels --
     static let summaryText   = NSColor.labelColor

@@ -265,11 +265,11 @@ private struct OrphanedEnvironmentRecoveryRow: View {
                 ProgressView()
                     .controlSize(.small)
             } else {
-                Button(role: .destructive) {
+                Button {
                     onRemove()
                 } label: { Text("Remove") }
                 .controlSize(.small)
-                .tint(.red)
+                .tint(.lungfishDangerFallback)
                 .help("Remove orphaned hash-named environments")
                 .accessibilityIdentifier(PluginManagerAccessibilityID.orphanedEnvironmentsRemoveButton)
             }
@@ -318,12 +318,12 @@ private struct EnvironmentRow: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Button(role: .destructive) {
+                    Button {
                         onRemove()
                     }
                     label: { Text("Remove") }
                     .controlSize(.small)
-                    .tint(.red)
+                    .tint(.lungfishDangerFallback)
                     .help("Remove this environment and all its packages")
                     .accessibilityIdentifier(PluginManagerAccessibilityID.environmentRemoveButton(environment.name))
                 }
@@ -620,11 +620,11 @@ private struct PackCard: View {
                         .accessibilityIdentifier(PluginManagerAccessibilityID.packInstallButton(pack.id))
                     case .removeAll:
                         if let onRemoveAll {
-                            Button(role: .destructive) {
+                            Button {
                                 onRemoveAll()
                             } label: { Text("Remove All") }
                             .controlSize(.small)
-                            .tint(.red)
+                            .tint(.lungfishDangerFallback)
                             .accessibilityIdentifier(PluginManagerAccessibilityID.packRemoveButton(pack.id))
                         }
                     }
@@ -771,7 +771,7 @@ struct DatabasesTabView: View {
                 set: { if !$0 { viewModel.databasePendingRemoval = nil } }
             )
         ) {
-            Button("Remove", role: .destructive) {
+            Button("Remove") {
                 viewModel.confirmRemoveDatabase()
             }
             Button("Cancel", role: .cancel) {
@@ -1130,11 +1130,11 @@ private struct DatabaseRow: View {
                     .foregroundStyle(Color.lungfishSageFallback)
                     .fontWeight(.medium)
 
-                Button(role: .destructive) {
+                Button {
                     onRemove()
                 } label: { Text("Remove") }
                 .controlSize(.small)
-                .tint(.red)
+                .tint(.lungfishDangerFallback)
                 .help("Remove this database and free disk space")
                 .accessibilityIdentifier(PluginManagerAccessibilityID.databaseRemoveButton(database.name))
             }

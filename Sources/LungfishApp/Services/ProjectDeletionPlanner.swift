@@ -1,0 +1,566 @@
+// ProjectDeletionPlanner.swift - Dependency-aware project deletion planning
+// Copyright (c) 2026 Lungfish Contributors
+// SPDX-License-Identifier: MIT
+
+import Foundation
+import LungfishIO
+
+struct ProjectDeletionImpact: Equatable {
+    let selectedURLs: [URL]
+    let dependentURLs: [URL]
+
+    var hasDependents: Bool {
+        !dependentURLs.isEmpty
+    }
+
+    var urlsForCascadingDeletion: [URL] {
+        ProjectDeletionPlanner.topLevelURLsForDeletion(selectedURLs + dependentURLs)
+    }
+}
+
+struct ProjectDeletionDependencyListPresentation: Equatable {
+    let dependentURLs: [URL]
+    let projectURL: URL?
+    let previewLimit: Int
+
+    init(dependentURLs: [URL], projectURL: URL?, previewLimit: Int = 8) {
+        self.dependentURLs = dependentURLs.map(\.standardizedFileURL)
+        self.projectURL = projectURL?.standardizedFileURL
+        self.previewLimit = max(0, previewLimit)
+    }
+
+    var count: Int {
+        dependentURLs.count
+    }
+
+    var isTruncated: Bool {
+        dependentURLs.count > previewLimit
+    }
+
+    var previewLines: [String] {
+        dependentURLs.prefix(previewLimit).map(\.lastPathComponent)
+    }
+
+    var overflowLine: String? {
+        guard isTruncated else { return nil }
+        return "... and \(dependentURLs.count - previewLimit) more"
+    }
+
+    var fullListLines: [String] {
+        dependentURLs.map { Self.displayPath(for: $0, projectURL: projectURL) }
+    }
+
+    var fullListText: String {
+        fullListLines.joined(separator: "\n")
+    }
+
+    private static func displayPath(for url: URL, projectURL: URL?) -> String {
+        let path = url.standardizedFileURL.path
+        guard let projectURL else { return path }
+
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        guard path.hasPrefix(normalizedProjectPath) else {
+            return path
+        }
+        return String(path.dropFirst(normalizedProjectPath.count))
+    }
+}
+
+final class ProjectDeletionPlanner {
+    private let fileManager: FileManager
+    private let maxMetadataFileBytes: UInt64 = 5 * 1024 * 1024
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
+
+    func impact(ofDeleting selectedURLs: [URL], in projectURL: URL) -> ProjectDeletionImpact {
+        let normalizedSelected = uniqueURLs(selectedURLs)
+        guard !normalizedSelected.isEmpty else {
+            return ProjectDeletionImpact(selectedURLs: [], dependentURLs: [])
+        }
+
+        let objects = collectProjectObjects(in: projectURL)
+            .filter { objectURL in
+                !normalizedSelected.contains { sameURL($0, objectURL) }
+            }
+
+        var allTargets = normalizedSelected
+        var frontier = normalizedSelected
+        var dependentURLs: [URL] = []
+        var dependentSet = Set<String>()
+
+        while !frontier.isEmpty {
+            let newDependents = objects.filter { objectURL in
+                let key = urlKey(objectURL)
+                guard !dependentSet.contains(key),
+                      !normalizedSelected.contains(where: { sameURL($0, objectURL) }) else {
+                    return false
+                }
+                return object(objectURL, isAffectedByDeletingAnyOf: frontier, projectURL: projectURL)
+                    || object(objectURL, isAffectedByDeletingAnyOf: allTargets, projectURL: projectURL)
+            }
+
+            if newDependents.isEmpty { break }
+            for url in newDependents.sorted(by: stableURLSort) {
+                dependentSet.insert(urlKey(url))
+                dependentURLs.append(url)
+            }
+            frontier = newDependents
+            allTargets.append(contentsOf: newDependents)
+        }
+
+        return ProjectDeletionImpact(
+            selectedURLs: normalizedSelected,
+            dependentURLs: dependentURLs
+        )
+    }
+
+    func existingCompanionSidecarURLs(for url: URL) -> [URL] {
+        Self.companionSidecarCandidates(for: url)
+            .filter { fileManager.fileExists(atPath: $0.path) }
+            .sorted(by: stableURLSort)
+    }
+
+    static func topLevelURLsForDeletion(_ urls: [URL]) -> [URL] {
+        let normalized = uniqueURLs(urls)
+        return normalized
+            .filter { candidate in
+                !normalized.contains { other in
+                    !sameURL(candidate, other) && isAncestor(other, of: candidate)
+                }
+            }
+            .sorted(by: stableURLSort)
+    }
+
+    static func companionSidecarCandidates(for url: URL) -> [URL] {
+        let standardized = url.standardizedFileURL
+        let adjacentSidecars = [
+            standardized.appendingPathExtension("lungfish-meta.json"),
+            standardized.appendingPathExtension("lungfish-provenance.json"),
+        ]
+        let appleDoubleSidecars = adjacentSidecars.map { sidecar in
+            sidecar.deletingLastPathComponent()
+                .appendingPathComponent("._\(sidecar.lastPathComponent)")
+        }
+        let appleDoubleObject = standardized.deletingLastPathComponent()
+            .appendingPathComponent("._\(standardized.lastPathComponent)")
+        return uniqueURLs(adjacentSidecars + appleDoubleSidecars + [appleDoubleObject])
+    }
+
+    private func collectProjectObjects(in projectURL: URL) -> [URL] {
+        guard let enumerator = fileManager.enumerator(
+            at: projectURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey, .isHiddenKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var objects: [URL] = []
+        for case let url as URL in enumerator {
+            let standardized = url.standardizedFileURL
+            let values = try? standardized.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            let isDirectory = values?.isDirectory == true
+
+            if isDirectory {
+                if shouldSkipDirectoryDescendants(standardized) {
+                    enumerator.skipDescendants()
+                    continue
+                }
+                if isProjectObjectDirectory(standardized) {
+                    objects.append(standardized)
+                }
+                continue
+            }
+
+            guard values?.isRegularFile == true,
+                  isProjectObjectFile(standardized),
+                  !isInsideProjectObjectContainer(standardized, projectURL: projectURL) else {
+                continue
+            }
+            objects.append(standardized)
+        }
+
+        return uniqueURLs(objects).sorted(by: stableURLSort)
+    }
+
+    private func object(
+        _ objectURL: URL,
+        isAffectedByDeletingAnyOf targetURLs: [URL],
+        projectURL: URL
+    ) -> Bool {
+        for targetURL in targetURLs {
+            if Self.isAncestor(targetURL, of: objectURL) {
+                return true
+            }
+        }
+
+        let dependencyURLs = structuredDependencyURLs(for: objectURL, projectURL: projectURL)
+        for dependencyURL in dependencyURLs {
+            if targetURLs.contains(where: { Self.isAncestor($0, of: dependencyURL) || sameURL($0, dependencyURL) }) {
+                return true
+            }
+        }
+
+        let searchTokens = targetURLs.flatMap { textualReferenceTokens(for: $0, projectURL: projectURL) }
+        guard !searchTokens.isEmpty else { return false }
+
+        for metadataURL in metadataFiles(in: objectURL) {
+            guard let data = try? Data(contentsOf: metadataURL),
+                  UInt64(data.count) <= maxMetadataFileBytes,
+                  let text = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            if searchTokens.contains(where: { !$0.isEmpty && text.contains($0) }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func structuredDependencyURLs(for objectURL: URL, projectURL: URL) -> [URL] {
+        var dependencies: [URL] = []
+
+        for metadataURL in metadataFiles(in: objectURL) where metadataURL.pathExtension.lowercased() == "json" {
+            guard let data = try? Data(contentsOf: metadataURL),
+                  UInt64(data.count) <= maxMetadataFileBytes,
+                  let json = try? JSONSerialization.jsonObject(with: data) else {
+                continue
+            }
+            let strings = dependencyStrings(in: json)
+            dependencies.append(contentsOf: strings.compactMap {
+                resolveDependencyString($0, objectURL: objectURL, metadataURL: metadataURL, projectURL: projectURL)
+            })
+        }
+
+        return uniqueURLs(dependencies)
+    }
+
+    private func metadataFiles(in objectURL: URL) -> [URL] {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: objectURL.path, isDirectory: &isDirectory) else {
+            return []
+        }
+
+        if !isDirectory.boolValue {
+            return shouldScanMetadataFile(objectURL) ? [objectURL] : []
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: objectURL,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var urls: [URL] = []
+        for case let url as URL in enumerator {
+            let standardized = url.standardizedFileURL
+            let values = try? standardized.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey, .fileSizeKey])
+            if values?.isDirectory == true {
+                if shouldSkipDirectoryDescendants(standardized) {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            guard values?.isRegularFile == true,
+                  shouldScanMetadataFile(standardized),
+                  UInt64(values?.fileSize ?? 0) <= maxMetadataFileBytes else {
+                continue
+            }
+            urls.append(standardized)
+        }
+        return urls.sorted(by: stableURLSort)
+    }
+
+    private func dependencyStrings(in value: Any) -> [String] {
+        if let string = value as? String {
+            guard looksLikeDependencyString(string) else { return [] }
+            return [string]
+        }
+        if let array = value as? [Any] {
+            return array.flatMap(dependencyStrings(in:))
+        }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.flatMap { key, nestedValue -> [String] in
+                if key.lowercased().contains("path")
+                    || key.lowercased().contains("url")
+                    || key.lowercased().contains("file")
+                    || key.lowercased().contains("bundle")
+                    || key.lowercased().contains("input")
+                    || key.lowercased().contains("source") {
+                    return dependencyStrings(in: nestedValue)
+                }
+                return dependencyStrings(in: nestedValue).filter(looksLikeDependencyString)
+            }
+        }
+        return []
+    }
+
+    private func resolveDependencyString(
+        _ value: String,
+        objectURL: URL,
+        metadataURL: URL,
+        projectURL: URL
+    ) -> URL? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix("@/") {
+            return projectURL
+                .appendingPathComponent(String(trimmed.dropFirst(2)))
+                .standardizedFileURL
+        }
+
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed).standardizedFileURL
+        }
+
+        guard looksLikeDependencyString(trimmed) else { return nil }
+
+        if FASTQBundle.isBundleURL(objectURL), trimmed.contains(".lungfish") || trimmed.contains("/") {
+            return URL(fileURLWithPath: trimmed, relativeTo: objectURL)
+                .standardizedFileURL
+                .absoluteURL
+        }
+
+        return URL(fileURLWithPath: trimmed, relativeTo: metadataURL.deletingLastPathComponent())
+            .standardizedFileURL
+            .absoluteURL
+    }
+
+    private func textualReferenceTokens(for targetURL: URL, projectURL: URL) -> [String] {
+        var tokens = [
+            targetURL.standardizedFileURL.path,
+            targetURL.standardizedFileURL.resolvingSymlinksInPath().path,
+        ]
+
+        let projectPath = projectURL.standardizedFileURL.path
+        let normalizedProjectPath = projectPath.hasSuffix("/") ? projectPath : projectPath + "/"
+        let targetPath = targetURL.standardizedFileURL.path
+        if targetPath.hasPrefix(normalizedProjectPath) {
+            let relative = String(targetPath.dropFirst(normalizedProjectPath.count))
+            tokens.append("@/\(relative)")
+            tokens.append(relative)
+        }
+
+        if targetURL.pathExtension.lowercased().hasPrefix("lungfish") {
+            tokens.append(targetURL.lastPathComponent)
+        }
+
+        return Array(Set(tokens)).filter { !$0.isEmpty }
+    }
+
+    private func isProjectObjectDirectory(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if [
+            FASTQBundle.directoryExtension,
+            "lungfishref",
+            "lungfishmsa",
+            "lungfishtree",
+            "lungfishprimers",
+            ONTGenotypeResultBundle.directoryExtension,
+            "lungfishtax",
+        ].contains(ext) {
+            return true
+        }
+
+        let markerNames = [
+            "analysis-metadata.json",
+            "alignment-result.json",
+            "assembly-result.json",
+            "classification-batch-result.json",
+            "classification-result.json",
+            "cz-id-manifest.json",
+            "esviritu-batch-result.json",
+            "esviritu-result.json",
+            "mapping-result.json",
+            "scout-result.json",
+            "taxtriage-batch-manifest.json",
+            "taxtriage-result.json",
+        ]
+        if markerNames.contains(where: { fileManager.fileExists(atPath: url.appendingPathComponent($0).path) }) {
+            return true
+        }
+
+        let isAnalysisLikeManifestDirectory = url.pathComponents.contains("Analyses")
+            || url.lastPathComponent.hasPrefix("naomgs-")
+            || url.lastPathComponent.hasPrefix("nvd-")
+        if fileManager.fileExists(atPath: url.appendingPathComponent("manifest.json").path),
+           isAnalysisLikeManifestDirectory {
+            return true
+        }
+
+        return false
+    }
+
+    private func isProjectObjectFile(_ url: URL) -> Bool {
+        guard !isInternalSidecarFile(url) else { return false }
+        return !url.pathExtension.isEmpty
+    }
+
+    private func shouldScanMetadataFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        if name.hasPrefix("._") || name == ".ds_store" { return false }
+        if name == "source-files.json"
+            || name == "derived.manifest.json"
+            || name == "read-manifest.json"
+            || name == "mapping-result.json"
+            || name == "analysis-metadata.json"
+            || name == "classification-result.json"
+            || name == "classification-batch-result.json"
+            || name == "assembly-result.json"
+            || name == "alignment-result.json"
+            || name == "taxtriage-result.json"
+            || name == "taxtriage-batch-manifest.json"
+            || name == "esviritu-result.json"
+            || name == "esviritu-batch-result.json"
+            || name == "cz-id-manifest.json"
+            || name == "manifest.json"
+            || name == ".lungfish-provenance.json"
+            || name.hasSuffix(".lungfish-provenance.json")
+            || name.hasSuffix("-provenance.json") {
+            return true
+        }
+        return ["json", "yaml", "yml", "toml", "csv", "tsv"].contains(ext)
+    }
+
+    private func isInternalSidecarFile(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        let ext = url.pathExtension.lowercased()
+        if name.hasPrefix("._") || name == ".ds_store" { return true }
+        if ["bai", "csi", "fai", "gzi", "tbi"].contains(ext) { return true }
+        if name.hasSuffix(".lungfish-meta.json")
+            || name.hasSuffix(".lungfish-provenance.json")
+            || name.hasSuffix("-provenance.json") {
+            return true
+        }
+        return [
+            "analysis-metadata.json",
+            "alignment-result.json",
+            "assembly-result.json",
+            "batch.manifest.json",
+            "classification-batch-result.json",
+            "classification-result.json",
+            "cz-id-manifest.json",
+            "demux-manifest.json",
+            "derived.manifest.json",
+            "esviritu-batch-result.json",
+            "esviritu-result.json",
+            "extraction-metadata.json",
+            ONTGenotypeResultBundleManifest.filename,
+            "mapping-result.json",
+            "manifest.json",
+            "read-manifest.json",
+            "scout-result.json",
+            "source-files.json",
+            "taxtriage-batch-manifest.json",
+            "taxtriage-result.json",
+        ].contains(name)
+    }
+
+    private func shouldSkipDirectoryDescendants(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        if name == ".tmp"
+            || name == "chunks"
+            || name == "materialized"
+            || name == "provenance"
+            || name == "genome"
+            || name == "annotations"
+            || name == "indices"
+            || name == "__macosx" {
+            return true
+        }
+        if name.hasPrefix("cli-output-") || name.hasPrefix("materialized-inputs-") {
+            return true
+        }
+        return false
+    }
+
+    private func isInsideProjectObjectContainer(_ url: URL, projectURL: URL) -> Bool {
+        let projectPath = projectURL.standardizedFileURL.path
+        let components = url.standardizedFileURL.pathComponents
+        let projectComponents = projectURL.standardizedFileURL.pathComponents
+        guard components.count > projectComponents.count else { return false }
+        guard url.standardizedFileURL.path.hasPrefix(projectPath) else { return false }
+
+        let relativeComponents = components.dropFirst(projectComponents.count).dropLast()
+        return relativeComponents.contains { component in
+            let ext = (component as NSString).pathExtension.lowercased()
+            return [
+                FASTQBundle.directoryExtension,
+                "lungfishref",
+                "lungfishmsa",
+                "lungfishtree",
+                "lungfishprimers",
+                ONTGenotypeResultBundle.directoryExtension,
+                "lungfishtax",
+            ].contains(ext)
+        }
+    }
+
+    private func looksLikeDependencyString(_ value: String) -> Bool {
+        value.hasPrefix("/")
+            || value.hasPrefix("@/")
+            || value.contains(".lungfish")
+            || value.contains(".fastq")
+            || value.contains(".fq")
+            || value.contains(".fasta")
+            || value.contains(".fa")
+            || value.contains(".bam")
+            || value.contains(".sam")
+            || value.contains("/")
+    }
+
+    private func uniqueURLs(_ urls: [URL]) -> [URL] {
+        Self.uniqueURLs(urls)
+    }
+
+    private func stableURLSort(_ lhs: URL, _ rhs: URL) -> Bool {
+        Self.stableURLSort(lhs, rhs)
+    }
+
+    private func sameURL(_ lhs: URL, _ rhs: URL) -> Bool {
+        Self.sameURL(lhs, rhs)
+    }
+
+    private func urlKey(_ url: URL) -> String {
+        Self.urlKey(url)
+    }
+
+    private static func uniqueURLs(_ urls: [URL]) -> [URL] {
+        var seen = Set<String>()
+        var result: [URL] = []
+        for url in urls {
+            let normalized = url.standardizedFileURL
+            guard seen.insert(urlKey(normalized)).inserted else { continue }
+            result.append(normalized)
+        }
+        return result
+    }
+
+    private static func sameURL(_ lhs: URL, _ rhs: URL) -> Bool {
+        urlKey(lhs) == urlKey(rhs)
+    }
+
+    private static func isAncestor(_ ancestor: URL, of descendant: URL) -> Bool {
+        let ancestorPath = ancestor.standardizedFileURL.path
+        let descendantPath = descendant.standardizedFileURL.path
+        if ancestorPath == descendantPath { return true }
+        let normalizedAncestor = ancestorPath.hasSuffix("/") ? ancestorPath : ancestorPath + "/"
+        return descendantPath.hasPrefix(normalizedAncestor)
+    }
+
+    private static func stableURLSort(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.standardizedFileURL.path.localizedStandardCompare(rhs.standardizedFileURL.path) == .orderedAscending
+    }
+
+    private static func urlKey(_ url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+}

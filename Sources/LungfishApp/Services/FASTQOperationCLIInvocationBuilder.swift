@@ -108,14 +108,26 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let outputDirectoryPath = outputTargetPath == "<derived>"
                 ? request.outputDirectory.path
                 : outputTargetPath
-            var arguments = ["ont-genotype"] + request.inputFASTQURLs.map(\.path)
+            var arguments = ["ont-barcode-genotype", request.inputFASTQURL.path]
             arguments += [
                 "--reference", request.referenceSourceURL.path,
+                "--barcodes", request.barcodeDefinitionsURL.path,
                 "--output-dir", outputDirectoryPath,
                 "--output-name", request.outputName,
+                "--analysis-name", request.analysisName,
                 "--threads", String(request.threads),
+                "--sort-threads", String(request.sortThreads),
                 "--min-support", String(request.minSupport),
             ]
+            if let demuxManifestURL = request.demuxManifestURL {
+                arguments += ["--demux-manifest", demuxManifestURL.path]
+            }
+            if let comparisonWorkbookURL = request.comparisonWorkbookURL {
+                arguments += ["--comparison-workbook", comparisonWorkbookURL.path]
+            }
+            if let comparisonName = request.comparisonName {
+                arguments += ["--comparison-name", comparisonName]
+            }
             if let projectURL = request.projectURL {
                 arguments += ["--project", projectURL.path]
             }

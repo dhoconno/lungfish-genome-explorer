@@ -42,6 +42,8 @@ extension Color {
     static let lungfishMutedFill = Color(nsColor: .lungfishMutedFill)
     static let lungfishAttentionFill = Color(nsColor: .lungfishAttentionFill)
     static let lungfishSuccessFill = Color(nsColor: .lungfishSuccessFill)
+    static let lungfishDangerFallback = Color(nsColor: .lungfishDanger)
+    static let lungfishDangerFill = Color(nsColor: .lungfishDangerFill)
 
     static let lungfishWelcomeBackground = Color(nsColor: .lungfishWelcomeBackground)
     static let lungfishWelcomeCardBackground = Color(nsColor: .lungfishWelcomeCardBackground)
@@ -160,6 +162,26 @@ extension NSColor {
         }
     }
 
+    /// Palette-aligned danger color for destructive actions and error states.
+    ///
+    /// This is deliberately a muted clay/copper tone instead of system red so
+    /// warnings remain legible without clashing with the Lungfish warm palette.
+    static let lungfishDanger: NSColor = NSColor(name: "LungfishDanger") { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor(red: 0.816, green: 0.541, blue: 0.392, alpha: 1.0) // #D08A64
+        } else {
+            return NSColor(red: 0.651, green: 0.373, blue: 0.227, alpha: 1.0) // #A65F3A
+        }
+    }
+
+    static let lungfishDangerFill: NSColor = NSColor(name: "LungfishDangerFill") { appearance in
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor.lungfishDanger.withAlphaComponent(0.24)
+        } else {
+            return NSColor.lungfishDanger.withAlphaComponent(0.16)
+        }
+    }
+
     static let lungfishWelcomeBackground: NSColor = NSColor(name: "LungfishWelcomeBackground") { appearance in
         .lungfishCanvasBackground
     }
@@ -198,5 +220,13 @@ extension NSColor {
 
     private static func blend(_ base: NSColor, with overlay: NSColor, fraction: CGFloat) -> NSColor {
         base.blended(withFraction: fraction, of: overlay) ?? base
+    }
+}
+
+extension NSButton {
+    func applyLungfishDestructiveStyle() {
+        hasDestructiveAction = true
+        contentTintColor = .lungfishDanger
+        bezelColor = .lungfishDangerFill
     }
 }

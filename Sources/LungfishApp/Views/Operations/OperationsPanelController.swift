@@ -559,7 +559,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 statusLabel.isHidden = false
                 statusLabel.stringValue = item.displayStateLabel
                 if item.state == .failed {
-                    statusLabel.textColor = .systemRed
+                    statusLabel.textColor = .lungfishDanger
                 } else if item.state == .cancelled {
                     statusLabel.textColor = .secondaryLabelColor
                 } else if item.hasWarnings {
@@ -1052,13 +1052,13 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
                 levelColor = .systemOrange
             case .error:
                 levelIndicator = "ERR"
-                levelColor = .systemRed
+                levelColor = .lungfishDanger
             }
 
             let line = "\(ts) [\(levelIndicator)] \(entry.message)"
             let attrs: [NSAttributedString.Key: Any] = [
                 .font: monoFont,
-                .foregroundColor: entry.level == .error ? NSColor.systemRed : levelColor,
+                .foregroundColor: entry.level == .error ? NSColor.lungfishDanger : levelColor,
             ]
             if index > 0 {
                 logText.append(NSAttributedString(string: "\n"))
@@ -1104,15 +1104,15 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
 
         let box = NSView()
         box.translatesAutoresizingMaskIntoConstraints = false
-        box.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.1).cgColor
+        box.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.1).cgColor
         box.layer?.cornerRadius = 4
         box.layer?.borderWidth = 1
-        box.layer?.borderColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
+        box.layer?.borderColor = NSColor.lungfishDanger.withAlphaComponent(0.3).cgColor
         container.addSubview(box)
 
         let errorLabel = NSTextField(labelWithString: message)
         errorLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        errorLabel.textColor = .systemRed
+        errorLabel.textColor = .lungfishDanger
         errorLabel.lineBreakMode = .byWordWrapping
         errorLabel.maximumNumberOfLines = 3
         errorLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1132,7 +1132,7 @@ private final class OperationsPanelViewController: NSViewController, NSTableView
         if let detail {
             let detailLabel = NSTextField(labelWithString: detail)
             detailLabel.font = NSFont(name: "Menlo", size: 9) ?? .monospacedSystemFont(ofSize: 9, weight: .regular)
-            detailLabel.textColor = .systemRed.withAlphaComponent(0.8)
+            detailLabel.textColor = .lungfishDanger.withAlphaComponent(0.8)
             detailLabel.lineBreakMode = .byWordWrapping
             detailLabel.maximumNumberOfLines = 4
             detailLabel.isSelectable = true

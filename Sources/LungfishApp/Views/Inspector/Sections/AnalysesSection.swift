@@ -127,7 +127,7 @@ private struct AnalysisRow: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1)
-                        .background(Color.red, in: Capsule())
+                        .background(Color.lungfishDangerFallback, in: Capsule())
                 }
             }
         }

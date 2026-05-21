@@ -65,7 +65,7 @@ struct PrimerSchemeImportView: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Color.lungfishDangerFallback)
                     .fixedSize(horizontal: false, vertical: true)
             }
 

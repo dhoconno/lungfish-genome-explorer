@@ -579,7 +579,7 @@ public class WorkflowBuilderViewController: NSSplitViewController, NSMenuItemVal
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
 
         let performDelete: () -> Void = { [weak self] in
             guard let self else { return }

@@ -377,7 +377,7 @@ public struct VariantSection: View {
         switch type {
         case "SNP": return .green
         case "INS": return .purple
-        case "DEL": return .red
+        case "DEL": return .lungfishDangerFallback
         case "MNP": return .orange
         default: return .gray
         }

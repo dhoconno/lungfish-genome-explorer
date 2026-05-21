@@ -182,7 +182,7 @@ final class TaxTriageConfidenceView: NSView {
         } else if score >= 0.4 {
             return .systemYellow
         } else {
-            return .systemRed
+            return .lungfishDanger
         }
     }
 

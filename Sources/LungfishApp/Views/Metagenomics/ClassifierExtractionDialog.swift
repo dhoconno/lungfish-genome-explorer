@@ -255,7 +255,7 @@ struct ClassifierExtractionDialog: View {
                         .padding(.vertical, 2)
                     Text(err)
                         .font(.caption)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.lungfishDangerFallback)
                         .lineLimit(3)
                 }
             }

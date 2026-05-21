@@ -21,7 +21,7 @@ final class WindowSizeDialogController: NSObject {
         widthField = Self.makeNumberField(value: currentSize.width, identifier: "window-size-width-field")
         heightField = Self.makeNumberField(value: currentSize.height, identifier: "window-size-height-field")
         validationLabel = NSTextField(labelWithString: "")
-        validationLabel.textColor = .systemRed
+        validationLabel.textColor = .lungfishDanger
         validationLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         validationLabel.setAccessibilityIdentifier("window-size-validation-label")
 

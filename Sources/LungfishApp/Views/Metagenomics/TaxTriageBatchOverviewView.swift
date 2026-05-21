@@ -471,7 +471,7 @@ extension TaxTriageBatchOverviewView: NSTableViewDelegate {
                 cellView.textField?.stringValue = "\u{26A0}"  // warning sign
                 cellView.textField?.alignment = .center
                 cellView.textField?.toolTip = "Detected in negative control sample"
-                cellView.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.15).cgColor
+                cellView.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.15).cgColor
             } else {
                 cellView.textField?.stringValue = ""
                 cellView.layer?.backgroundColor = nil

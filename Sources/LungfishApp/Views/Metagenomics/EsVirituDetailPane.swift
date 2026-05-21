@@ -443,7 +443,7 @@ public final class EsVirituDetailPane: NSView {
         } else {
             // Low confidence — likely noise, crosstalk, or very weak signal
             imageView.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: "Low confidence")
-            imageView.contentTintColor = .systemRed
+            imageView.contentTintColor = .lungfishDanger
         }
 
         return imageView

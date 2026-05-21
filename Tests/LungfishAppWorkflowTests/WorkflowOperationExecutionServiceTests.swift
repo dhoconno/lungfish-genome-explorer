@@ -4,19 +4,23 @@ import LungfishWorkflow
 
 @MainActor
 final class WorkflowOperationExecutionServiceTests: XCTestCase {
-    func testONTGenotypingRunsThroughLungfishCLIAndPreparesViewerBundleOutputs() async throws {
+    func testONTGenotypingRunsThroughRetainedDemuxCLIAndReportsWorkbookOutput() async throws {
         let temp = try temporaryDirectory()
         let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
         let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
-        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses/reads-ont.lungfishgenotype", isDirectory: true)
         try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        let request = ONTGenotypingRunRequest(
-            inputFASTQURLs: [readsURL],
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: readsURL,
             referenceSourceURL: referenceURL,
+            barcodeDefinitionsURL: barcodesURL,
             outputDirectory: outputURL,
             outputName: "reads-ont",
+            analysisName: "ONT08",
             projectURL: temp,
             threads: 4,
             minSupport: 2
@@ -37,58 +41,34 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let outputs = try await service.run(.ontGenotyping(request))
 
         let invocation = try XCTUnwrap(runner.invocations.first)
-        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "ont-genotype"])
+        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "ont-barcode-genotype"])
         XCTAssertTrue(invocation.arguments.contains(readsURL.standardizedFileURL.path))
         XCTAssertTrue(invocation.arguments.contains("--reference"))
         XCTAssertTrue(invocation.arguments.contains(referenceURL.standardizedFileURL.path))
+        XCTAssertTrue(invocation.arguments.contains("--barcodes"))
+        XCTAssertTrue(invocation.arguments.contains(barcodesURL.standardizedFileURL.path))
         XCTAssertTrue(invocation.arguments.contains("--min-support"))
         XCTAssertTrue(invocation.arguments.contains("2"))
         XCTAssertEqual(invocation.workingDirectory, outputURL.standardizedFileURL)
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads-ont.csv").standardizedFileURL))
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads/reads.sorted.bam").standardizedFileURL))
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads/reads.sorted.bam.bai").standardizedFileURL))
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads/reads.ont-genotyping.filtered.bam").standardizedFileURL))
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads/reads.ont-genotyping.filtered.bam.bai").standardizedFileURL))
-        XCTAssertTrue(outputs.contains(outputURL.appendingPathComponent("reads/ref.lungfishref").standardizedFileURL))
-        XCTAssertEqual(
-            viewerBundlePreparer.invocations,
-            [ViewerBundleInvocation(
-                sourceBundleURL: referenceURL.standardizedFileURL,
-                viewerBundleURL: outputURL.appendingPathComponent("reads/ref.lungfishref", isDirectory: true).standardizedFileURL
-            )]
-        )
-        XCTAssertEqual(
-            bamImporter.invocations,
-            [BAMImportInvocation(
-                bamURL: outputURL.appendingPathComponent("reads/reads.ont-genotyping.filtered.bam").standardizedFileURL,
-                bundleURL: outputURL.appendingPathComponent("reads/ref.lungfishref", isDirectory: true).standardizedFileURL,
-                name: "ONT Genotyping"
-            )]
-        )
-
-        let preparedResult = try MappingResult.load(from: outputURL.appendingPathComponent("reads", isDirectory: true))
-        XCTAssertEqual(
-            preparedResult.viewerBundleURL,
-            outputURL.appendingPathComponent("reads/ref.lungfishref", isDirectory: true).standardizedFileURL
-        )
-        let preparedProvenance = try XCTUnwrap(
-            MappingProvenance.load(from: outputURL.appendingPathComponent("reads", isDirectory: true))
-        )
-        XCTAssertEqual(
-            preparedProvenance.viewerBundlePath,
-            outputURL.appendingPathComponent("reads/ref.lungfishref", isDirectory: true).standardizedFileURL.path
-        )
+        XCTAssertTrue(outputs.contains(request.workbookURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.reportCSVURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.sampleSummaryCSVURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.statsJSONURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.provenanceURL.standardizedFileURL))
+        XCTAssertTrue(outputs.contains(request.outputDirectory.standardizedFileURL))
+        XCTAssertFalse(outputs.contains(request.mappingBAMURL.standardizedFileURL))
+        XCTAssertFalse(outputs.contains(request.retainedBAMURL.standardizedFileURL))
+        XCTAssertTrue(viewerBundlePreparer.invocations.isEmpty)
+        XCTAssertTrue(bamImporter.invocations.isEmpty)
 
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.title, "ONT Genotyping")
         XCTAssertEqual(item.state, .completed)
-        XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq ont-genotype") == true)
-        XCTAssertTrue(item.outputURLs.contains(outputURL.appendingPathComponent("reads-ont.csv").standardizedFileURL))
-        XCTAssertTrue(item.outputURLs.contains(outputURL.appendingPathComponent("reads/reads.ont-genotyping.filtered.bam").standardizedFileURL))
-        XCTAssertTrue(item.outputURLs.contains(outputURL.appendingPathComponent("reads/ref.lungfishref").standardizedFileURL))
+        XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq ont-barcode-genotype") == true)
+        XCTAssertTrue(item.outputURLs.contains(request.workbookURL.standardizedFileURL))
         XCTAssertEqual(
             resultRefresher.invocations,
-            [outputURL.appendingPathComponent("reads", isDirectory: true).standardizedFileURL]
+            [request.outputDirectory.standardizedFileURL]
         )
     }
 
@@ -119,84 +99,42 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
         let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))
             .standardizedFileURL
         let outputName = try value(after: "--output-name", in: arguments)
-        let sampleDirectory = outputDirectory.appendingPathComponent("reads", isDirectory: true)
-        let mappingBAM = sampleDirectory.appendingPathComponent("reads.sorted.bam")
-        let mappingBAI = sampleDirectory.appendingPathComponent("reads.sorted.bam.bai")
-        let filteredBAM = sampleDirectory.appendingPathComponent("reads.ont-genotyping.filtered.bam")
-        let filteredBAI = sampleDirectory.appendingPathComponent("reads.ont-genotyping.filtered.bam.bai")
+        let analysisName = try value(after: "--analysis-name", in: arguments)
+        let workbookURL = outputDirectory.appendingPathComponent("\(outputName)_\(analysisName).xlsx")
+        let reportCSVURL = outputDirectory.appendingPathComponent("\(outputName).retained-demux-genotypes.csv")
+        let sampleSummaryCSVURL = outputDirectory.appendingPathComponent("\(outputName).retained-demux-samples.csv")
+        let statsJSONURL = outputDirectory.appendingPathComponent("\(outputName).retained-demux-stats.json")
+        let provenanceURL = outputDirectory.appendingPathComponent("retained-demux-genotyping-provenance.json")
+        let mappingBAM = outputDirectory.appendingPathComponent("\(outputName).md.sorted.bam")
+        let mappingBAI = mappingBAM.appendingPathExtension("bai")
+        let retainedBAM = outputDirectory.appendingPathComponent("\(outputName).retained.demuxed.bam")
+        let retainedBAI = retainedBAM.appendingPathExtension("bai")
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: sampleDirectory, withIntermediateDirectories: true)
         try "input_bundle_name,genotype,filtered_indel_only_mapped_reads,total_reads\n".write(
-            to: outputDirectory.appendingPathComponent("\(outputName).csv"),
+            to: reportCSVURL,
             atomically: true,
             encoding: .utf8
         )
-        for url in [mappingBAM, mappingBAI, filteredBAM, filteredBAI] {
+        try "sample,total_input_reads,retained_unique_reads\n".write(to: sampleSummaryCSVURL, atomically: true, encoding: .utf8)
+        try #"{"totalInputReads":100,"retainedUniqueReads":42}"#.write(to: statsJSONURL, atomically: true, encoding: .utf8)
+        try #"{"toolName":"lungfish fastq ont-barcode-genotype","workflowVersion":"1"}"#.write(to: provenanceURL, atomically: true, encoding: .utf8)
+        try Data("workbook".utf8).write(to: workbookURL)
+        for url in [mappingBAM, mappingBAI, retainedBAM, retainedBAI] {
             try Data(url.lastPathComponent.utf8).write(to: url)
         }
-        let mappingResult = MappingResult(
-            mapper: .minimap2,
-            modeID: MappingMode.defaultShortRead.id,
-            sourceReferenceBundleURL: URL(fileURLWithPath: try value(after: "--reference", in: arguments)).standardizedFileURL,
-            viewerBundleURL: nil,
-            bamURL: filteredBAM,
-            baiURL: filteredBAI,
-            totalReads: 100,
-            mappedReads: 42,
-            unmappedReads: 58,
-            wallClockSeconds: 1.5,
-            contigs: []
-        )
-        try mappingResult.save(to: sampleDirectory)
-        let provenance = MappingProvenance(
-            schemaVersion: 4,
-            workflowName: "ONT Genotyping",
-            mapper: .minimap2,
-            modeID: MappingMode.defaultShortRead.id,
-            sampleName: "reads",
-            pairedEnd: false,
-            threads: 4,
-            minimumMappingQuality: 0,
-            includeSecondary: true,
-            includeSupplementary: true,
-            advancedArguments: [],
-            inputFASTQURLs: [URL(fileURLWithPath: "/tmp/reads.fastq")],
-            referenceFASTAURL: URL(fileURLWithPath: "/tmp/ref.fa"),
-            sourceReferenceBundleURL: URL(fileURLWithPath: try value(after: "--reference", in: arguments)).standardizedFileURL,
-            viewerBundleURL: nil,
-            mapperInvocation: MappingCommandInvocation(
-                label: "lungfish fastq ont-genotype",
-                argv: ["lungfish", "fastq", "ont-genotype"],
-                durableReplayArgv: ["lungfish", "fastq", "ont-genotype"]
-            ),
-            normalizationInvocations: [],
-            mapperVersion: "stub",
-            samtoolsVersion: "stub",
-            wallClockSeconds: 1.5,
-            outputFiles: [
-                FileRecord(path: filteredBAM.path, format: .bam, role: .output),
-                FileRecord(path: filteredBAI.path, format: .unknown, role: .index),
-            ]
-        )
-        try provenance.save(to: sampleDirectory)
-        try provenance.saveCanonicalEnvelope(to: sampleDirectory)
         let payload = """
         {
           "outputDirectory": "\(outputDirectory.path)",
+          "mappingBAMPath": "\(mappingBAM.path)",
+          "mappingBAIPath": "\(mappingBAI.path)",
+          "retainedBAMPath": "\(retainedBAM.path)",
+          "retainedBAIPath": "\(retainedBAI.path)",
           "referenceFASTAPath": "/tmp/ref.fa",
-          "reportCSVPath": "\(outputDirectory.appendingPathComponent("\(outputName).csv").path)",
-          "sampleResults": [
-            {
-              "filteredAlignments": 42,
-              "filteredBAIPath": "\(filteredBAI.path)",
-              "filteredBAMPath": "\(filteredBAM.path)",
-              "inputFASTQPath": "/tmp/reads.fastq",
-              "mappingBAIPath": "\(mappingBAI.path)",
-              "mappingBAMPath": "\(mappingBAM.path)",
-              "sampleName": "reads",
-              "totalReads": 100
-            }
-          ],
+          "reportCSVPath": "\(reportCSVURL.path)",
+          "sampleSummaryCSVPath": "\(sampleSummaryCSVURL.path)",
+          "statsJSONPath": "\(statsJSONURL.path)",
+          "workbookPath": "\(workbookURL.path)",
+          "provenancePath": "\(provenanceURL.path)",
           "sourceReferenceBundlePath": null
         }
         """

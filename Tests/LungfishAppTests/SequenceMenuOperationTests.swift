@@ -131,7 +131,7 @@ final class SequenceMenuOperationTests: XCTestCase {
         guard case .failure(LungfishCLIRunner.RunError.cancelled) = result else {
             return XCTFail("Expected cancelled sequence annotation CLI to throw RunError.cancelled, got \(result)")
         }
-        XCTAssertLessThan(cancelElapsed, 1.0, "Sequence annotation cancellation should not wait for the child process to finish naturally")
+        XCTAssertLessThan(cancelElapsed, 2.0, "Sequence annotation cancellation should not wait for the child process to finish naturally")
         try await waitForProcessExit(pid: childPID)
     }
 

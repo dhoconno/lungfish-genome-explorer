@@ -492,8 +492,9 @@ public struct FASTQMetadataSection: View {
                                 Image(systemName: "arrow.up.right.square")
                             }
                             .buttonStyle(.plain).controlSize(.small)
-                            Button(role: .destructive) { viewModel.removeAttachment(filename) } label: {
+                            Button { viewModel.removeAttachment(filename) } label: {
                                 Image(systemName: "minus.circle")
+                                    .foregroundStyle(Color.lungfishDangerFallback)
                             }
                             .buttonStyle(.plain).controlSize(.small)
                         }
@@ -540,8 +541,9 @@ public struct FASTQMetadataSection: View {
                                 set: { viewModel.metadata?.customFields[key] = $0; viewModel.scheduleAutosave() }
                             ))
                             .textFieldStyle(.roundedBorder).controlSize(.small)
-                            Button(role: .destructive) { viewModel.removeCustomField(key) } label: {
+                            Button { viewModel.removeCustomField(key) } label: {
                                 Image(systemName: "minus.circle")
+                                    .foregroundStyle(Color.lungfishDangerFallback)
                             }
                             .buttonStyle(.plain).controlSize(.small)
                         }

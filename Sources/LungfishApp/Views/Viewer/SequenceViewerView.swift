@@ -4097,8 +4097,8 @@ public class SequenceViewerView: NSView {
         let endX = frame.screenPosition(for: frame.end)
         let centerY = trackY + trackHeight / 2
 
-        // Draw a red-tinted line
-        context.setStrokeColor(NSColor.systemRed.withAlphaComponent(0.3).cgColor)
+        // Draw a danger-tinted line
+        context.setStrokeColor(NSColor.lungfishDanger.withAlphaComponent(0.3).cgColor)
         context.setLineWidth(2)
         context.move(to: CGPoint(x: startX, y: centerY))
         context.addLine(to: CGPoint(x: endX, y: centerY))
@@ -4107,7 +4107,7 @@ public class SequenceViewerView: NSView {
         let label = "Sequence error: \(error)" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.systemRed
+            .foregroundColor: NSColor.lungfishDanger
         ]
         let size = label.size(withAttributes: attributes)
         let labelRect = CGRect(

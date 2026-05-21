@@ -117,9 +117,14 @@ func isDemultiplexRequest(_ request: FASTQOperationLaunchRequest) -> Bool {
             if case .pbaa = plan.originalRequest {
                 return Self.discoverReferenceBundles(in: directory)
             }
-            if case .ontGenotyping = plan.originalRequest,
-               FileManager.default.fileExists(atPath: directory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path) {
-                return [directory]
+            if case .ontGenotyping(let request) = plan.originalRequest {
+                let workbookURL = directory.appendingPathComponent(request.workbookURL.lastPathComponent)
+                if FileManager.default.fileExists(atPath: workbookURL.path) {
+                    return [workbookURL]
+                }
+                if FileManager.default.fileExists(atPath: directory.appendingPathComponent(ProvenanceWriter.provenanceFilename).path) {
+                    return [directory]
+                }
             }
             if plan.originalRequest.isRibosomalRNAFilterRequest {
                 return Self.discoverSequenceFiles(in: directory)
@@ -497,7 +502,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa(let request):
             return [request.inputFASTQURL]
         case .ontGenotyping(let request):
-            return request.inputFASTQURLs
+            return [request.inputFASTQURL]
         }
     }
 
@@ -517,6 +522,10 @@ extension FASTQOperationLaunchRequest {
             urls.append(request.guideSourceURL)
         case .ontGenotyping(let request):
             urls.append(request.referenceSourceURL)
+            urls.append(request.barcodeDefinitionsURL)
+            if let comparisonWorkbookURL = request.comparisonWorkbookURL {
+                urls.append(comparisonWorkbookURL)
+            }
         default:
             break
         }
@@ -550,13 +559,20 @@ extension FASTQOperationLaunchRequest {
                   ) else { return self }
             return .pbaa(request: updatedRequest)
         case .ontGenotyping(let request):
-            return .ontGenotyping(request: ONTGenotypingRunRequest(
-                inputFASTQURLs: inputURLs,
+            guard let inputURL = inputURLs.first else { return self }
+            return .ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest(
+                inputFASTQURL: inputURL,
                 referenceSourceURL: request.referenceSourceURL,
+                barcodeDefinitionsURL: request.barcodeDefinitionsURL,
                 outputDirectory: request.outputDirectory,
                 outputName: request.outputName,
+                demuxManifestURL: request.demuxManifestURL,
+                analysisName: request.analysisName,
+                comparisonWorkbookURL: request.comparisonWorkbookURL,
+                comparisonName: request.comparisonName,
                 projectURL: request.projectURL,
                 threads: request.threads,
+                sortThreads: request.sortThreads,
                 minSupport: request.minSupport,
                 extraArguments: request.extraArguments
             ))
@@ -634,10 +650,15 @@ extension FASTQOperationLaunchRequest {
         case .ontGenotyping(let request):
             var params = [
                 "reference": request.referenceSourceURL.lastPathComponent,
+                "barcodes": request.barcodeDefinitionsURL.lastPathComponent,
                 "outputName": request.outputName,
+                "analysisName": request.analysisName,
                 "threads": String(request.threads),
+                "sortThreads": String(request.sortThreads),
                 "minSupport": String(request.minSupport),
-                "mappingPreset": "sr",
+                "mappingPreset": "map-ont",
+                "maxMismatches": "0",
+                "allowIndels": "true",
             ]
             if !request.extraArguments.isEmpty {
                 params["extraArgs"] = AdvancedCommandLineOptions.join(request.extraArguments)
@@ -668,8 +689,8 @@ extension FASTQOperationLaunchRequest {
             return tool.title.lowercased()
         case .pbaa:
             return "pbaa"
-        case .ontGenotyping:
-            return "ont-genotyping"
+        case .ontGenotyping(let request):
+            return request.outputName
         }
     }
 

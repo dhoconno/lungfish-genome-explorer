@@ -28,7 +28,7 @@ extension BlastVerdict {
         switch self {
         case .verified:   return .systemGreen
         case .ambiguous:  return .systemYellow
-        case .unverified: return .systemRed
+        case .unverified: return .lungfishDanger
         case .error:      return .systemGray
         }
     }
@@ -53,7 +53,7 @@ extension BlastVerificationResult.Confidence {
         switch self {
         case .supported:    return NSColor.systemGreen.withAlphaComponent(0.15)
         case .mixed:        return NSColor.systemYellow.withAlphaComponent(0.15)
-        case .unsupported:  return NSColor.systemRed.withAlphaComponent(0.15)
+        case .unsupported:  return NSColor.lungfishDanger.withAlphaComponent(0.15)
         case .inconclusive: return NSColor.systemGray.withAlphaComponent(0.15)
         }
     }
@@ -63,7 +63,7 @@ extension BlastVerificationResult.Confidence {
         switch self {
         case .supported:    return .systemGreen
         case .mixed:        return .systemYellow
-        case .unsupported:  return .systemRed
+        case .unsupported:  return .lungfishDanger
         case .inconclusive: return .systemGray
         }
     }

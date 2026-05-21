@@ -1831,7 +1831,7 @@ public class InspectorViewController: NSViewController {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Remove")
         alert.addButton(withTitle: "Cancel")
-        alert.buttons.first?.hasDestructiveAction = true
+        alert.buttons.first?.applyLungfishDestructiveStyle()
 
         if let window = view.window ?? NSApp.keyWindow {
             alert.beginSheetModal(for: window) { response in
@@ -3977,7 +3977,7 @@ private struct InspectorFilteringWorkflowSection: View {
                 if let alignmentFilterValidationMessage, !alignmentFilterValidationMessage.isEmpty {
                     Text(alignmentFilterValidationMessage)
                         .font(.caption2)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Color.lungfishDangerFallback)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             } else {
@@ -4501,6 +4501,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .phylogeneticTreeBundle: return "Phylogenetic Tree"
         case .fastqBundle: return "FASTQ Bundle"
         case .primerSchemeBundle: return "Primer Scheme"
+        case .genotypeResultBundle: return "ONT Genotyping Result"
         case .batchGroup: return "Batch Operation"
         case .classificationResult: return "Classification Result"
         case .esvirituResult: return "Viral Detection Result"

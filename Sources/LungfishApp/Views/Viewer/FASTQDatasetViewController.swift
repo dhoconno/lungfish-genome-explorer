@@ -471,7 +471,7 @@ public final class FASTQDatasetViewController: NSViewController {
     // Error banner (replaces modal NSAlert for operation failures)
     private lazy var errorBannerView: NSView = {
         let banner = NSView()
-        banner.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.1).cgColor
+        banner.layer?.backgroundColor = NSColor.lungfishDanger.withAlphaComponent(0.1).cgColor
         banner.layer?.cornerRadius = 6
         banner.isHidden = true
         return banner
@@ -479,7 +479,7 @@ public final class FASTQDatasetViewController: NSViewController {
     private lazy var errorBannerLabel: NSTextField = {
         let label = NSTextField(wrappingLabelWithString: "")
         label.font = .systemFont(ofSize: 11)
-        label.textColor = .systemRed
+        label.textColor = .lungfishDanger
         label.maximumNumberOfLines = 3
         return label
     }()
@@ -2775,7 +2775,7 @@ public final class FASTQDatasetViewController: NSViewController {
 
     private func setStatus(_ line: String, isError: Bool = false) {
         statusLabel.stringValue = line
-        statusLabel.textColor = isError ? .systemRed : .tertiaryLabelColor
+        statusLabel.textColor = isError ? .lungfishDanger : .tertiaryLabelColor
         if isError {
             // Brief font size emphasis for errors
             statusLabel.font = .systemFont(ofSize: 11, weight: .medium)
@@ -2962,7 +2962,7 @@ extension FASTQDatasetViewController: NSTableViewDataSource, NSTableViewDelegate
             } else if record.meanQuality >= 20 {
                 cell.textColor = .systemYellow
             } else {
-                cell.textColor = .systemRed
+                cell.textColor = .lungfishDanger
             }
             return cell
 

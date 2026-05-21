@@ -135,6 +135,67 @@ public struct DemultiplexManifest: Codable, Sendable, Equatable {
         let url = bundleURL.appendingPathComponent(filename)
         return FileManager.default.fileExists(atPath: url.path)
     }
+
+    /// Loads display metadata for a demultiplexed FASTQ bundle from the nearest
+    /// demultiplex manifest when a dedicated FASTQ metadata sidecar is absent.
+    public static func cachedFASTQMetadata(forBundle bundleURL: URL) -> PersistedFASTQMetadata? {
+        let bundleURL = bundleURL.standardizedFileURL
+        var manifestDirectory = bundleURL.deletingLastPathComponent().standardizedFileURL
+
+        // ONT imports store demux-manifest.json beside barcode bundles. Classic
+        // demux stores it in the parent bundle while barcode bundles live under demux/.
+        for _ in 0..<4 {
+            guard manifestDirectory.pathComponents.count > 1 else { break }
+            if let manifest = load(from: manifestDirectory),
+               let metadata = manifest.cachedFASTQMetadata(
+                forBundle: bundleURL,
+                manifestDirectory: manifestDirectory
+               ) {
+                return metadata
+            }
+            manifestDirectory = manifestDirectory.deletingLastPathComponent().standardizedFileURL
+        }
+
+        return nil
+    }
+
+    /// Builds display metadata for a bundle represented by this manifest.
+    public func cachedFASTQMetadata(
+        forBundle bundleURL: URL,
+        manifestDirectory: URL
+    ) -> PersistedFASTQMetadata? {
+        guard let result = barcodeResult(forBundle: bundleURL, manifestDirectory: manifestDirectory) else {
+            return nil
+        }
+
+        let platform: SequencingPlatform? = barcodeKit.vendor == "oxford_nanopore"
+            ? .oxfordNanopore
+            : nil
+        let assemblyReadType: FASTQAssemblyReadType? = platform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:))
+
+        return PersistedFASTQMetadata(
+            computedStatistics: .placeholder(readCount: result.readCount, baseCount: result.baseCount),
+            downloadSource: parameters.tool,
+            sequencingPlatform: platform,
+            assemblyReadType: assemblyReadType
+        )
+    }
+
+    /// Resolves the manifest row that owns the given output bundle URL.
+    public func barcodeResult(forBundle bundleURL: URL, manifestDirectory: URL) -> BarcodeResult? {
+        let standardizedBundleURL = bundleURL.standardizedFileURL
+        let outputBaseURL = manifestDirectory
+            .appendingPathComponent(outputDirectoryRelativePath, isDirectory: true)
+            .standardizedFileURL
+
+        return barcodes.first { result in
+            let expectedURL = outputBaseURL
+                .appendingPathComponent(result.bundleRelativePath, isDirectory: true)
+                .standardizedFileURL
+            return expectedURL == standardizedBundleURL
+                || result.bundleRelativePath == standardizedBundleURL.lastPathComponent
+        }
+    }
 }
 
 // MARK: - Barcode Kit

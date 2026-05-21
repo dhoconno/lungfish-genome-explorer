@@ -417,11 +417,12 @@ private struct FASTQOperationPrimarySettingsSection: View {
 
             case .ontGenotyping:
                 labeledTextField("Report Name", text: $state.ontGenotypingOutputName)
+                labeledTextField("Analysis Name", text: $state.ontGenotypingAnalysisName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", text: Self.intBinding(state, \.ontGenotypingThreads))
                     labeledCompactTextField("Min Support", text: Self.intBinding(state, \.ontGenotypingMinSupport))
                 }
-                Text("Select a reference sequence in the Inputs section. The workflow maps with minimap2 sr and filters full-amplicon, both-end soft-clipped alignments with pysam.")
+                Text("Select a MiSeq allele reference and barcode definition in the Inputs section. The workflow retains exact+indel full-amplicon mappings, then demultiplexes retained reads.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

@@ -15,7 +15,7 @@ final class PluginPackRegistryTests: XCTestCase {
             [
                 "nextflow", "snakemake", "bbtools", "fastp", "deacon",
                 "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam",
+                "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             ]
         )
     }
@@ -27,7 +27,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(environments, [
             "nextflow", "snakemake", "bbtools", "fastp", "deacon",
             "samtools", "bcftools", "htslib", "seqkit", "cutadapt",
-            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam",
+            "vsearch", "pigz", "sra-tools", "ucsc-bedgraphtobigwig", "pysam", "openpyxl",
             "deacon-panhuman", "deacon-ribokmers",
         ])
         XCTAssertEqual(pack.estimatedSizeMB, 2700)
@@ -61,7 +61,7 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(lock.displayName, "Third-Party Tools")
         XCTAssertEqual(pack.name, lock.displayName)
         XCTAssertEqual(pack.packages, lock.tools.map(\.environment))
-        XCTAssertEqual(lock.tools.count, 15)
+        XCTAssertEqual(lock.tools.count, 16)
         XCTAssertEqual(lock.managedData.count, 2)
     }
 
@@ -96,6 +96,18 @@ final class PluginPackRegistryTests: XCTestCase {
         XCTAssertEqual(pysam.version, "0.24.0")
         XCTAssertEqual(pysam.license, "MIT")
         XCTAssertEqual(pysam.sourceURL, "https://github.com/pysam-developers/pysam")
+
+        let openpyxl = try XCTUnwrap(pack.toolRequirements.first(where: { $0.id == "openpyxl" }))
+        XCTAssertEqual(openpyxl.displayName, "openpyxl")
+        XCTAssertEqual(openpyxl.environment, "openpyxl")
+        XCTAssertEqual(openpyxl.installPackages, ["conda-forge::openpyxl=3.1.5=py312h2a925e6_3"])
+        XCTAssertEqual(openpyxl.executables, ["python"])
+        XCTAssertEqual(openpyxl.smokeTest?.executable, "python")
+        XCTAssertEqual(openpyxl.smokeTest?.arguments, ["-c", "import openpyxl; print(openpyxl.__version__)"])
+        XCTAssertEqual(openpyxl.smokeTest?.requiredOutputSubstring, "3.1.5")
+        XCTAssertEqual(openpyxl.version, "3.1.5")
+        XCTAssertEqual(openpyxl.license, "MIT")
+        XCTAssertEqual(openpyxl.sourceURL, "https://openpyxl.readthedocs.io/")
     }
 
     func testMetagenomicsPackDefinesSmokeChecksForVisibleTools() {

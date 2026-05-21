@@ -48,6 +48,7 @@ struct FastqCommand: AsyncParsableCommand {
             FastqQCSummarySubcommand.self,
             FastqPBAAClusterSubcommand.self,
             FastqONTGenotypingSubcommand.self,
+            FastqONTBarcodeGenotypingSubcommand.self,
             FastqSearchTextSubcommand.self,
             FastqSearchMotifSubcommand.self,
             FastqOrientSubcommand.self,

@@ -24,6 +24,69 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(source.contains(".foregroundStyle(.blue)"))
     }
 
+    func testSemanticDangerUIUsesLungfishPaletteInsteadOfSystemRed() throws {
+        let root = repositoryRoot()
+        let colorsSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Shared/LungfishColors.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(colorsSource.contains("static let lungfishDanger"))
+        XCTAssertTrue(colorsSource.contains("static let lungfishDangerFill"))
+        XCTAssertTrue(colorsSource.contains("applyLungfishDestructiveStyle"))
+
+        let sourceRoot = root.appendingPathComponent("Sources/LungfishApp")
+        let allowedDataColorFiles: Set<String> = [
+            "Sources/LungfishApp/Views/Settings/AppearanceSettingsTab.swift",
+            "Sources/LungfishApp/Views/Viewer/AnnotationPopoverView.swift",
+            "Sources/LungfishApp/Views/Viewer/FASTAAnnotationMapCell.swift",
+            "Sources/LungfishApp/Views/Viewer/FASTQChartViews.swift",
+            "Sources/LungfishApp/Views/Viewer/MultipleSequenceAlignmentViewController.swift",
+            "Sources/LungfishApp/Views/Viewer/OperationPreviewView.swift",
+            "Sources/LungfishApp/Views/Viewer/ReadTrackRenderer.swift",
+            "Sources/LungfishApp/Views/Viewer/SequenceViewerView.swift",
+            "Sources/LungfishApp/Views/Viewer/TranslationTrackRenderer.swift",
+            "Sources/LungfishApp/Views/Viewer/VCFDatasetViewController.swift",
+            "Sources/LungfishApp/Views/Inspector/Sections/VariantSection.swift",
+            "Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift",
+        ]
+        let forbiddenPatterns = [
+            ".tint(.red)",
+            ".foregroundStyle(.red)",
+            ".foregroundColor(.red)",
+            ".background(Color.red",
+            "textColor = .systemRed",
+            "contentTintColor = .systemRed",
+            "NSColor.systemRed",
+            "return .systemRed",
+            "return .red",
+            "role: .destructive",
+        ]
+
+        let enumerator = try XCTUnwrap(
+            FileManager.default.enumerator(
+                at: sourceRoot,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        )
+        var violations: [String] = []
+        for case let url as URL in enumerator where url.pathExtension == "swift" {
+            let relativePath = url.path.replacingOccurrences(of: root.path + "/", with: "")
+            if allowedDataColorFiles.contains(relativePath) {
+                continue
+            }
+            let source = try String(contentsOf: url, encoding: .utf8)
+            for pattern in forbiddenPatterns where source.contains(pattern) {
+                violations.append("\(relativePath): \(pattern)")
+            }
+        }
+
+        XCTAssertTrue(
+            violations.isEmpty,
+            "Semantic UI danger styling should use Lungfish palette colors:\n\(violations.joined(separator: "\n"))"
+        )
+    }
+
     func testInspectorUsesTextTabsInsteadOfIconOnlySegmentLabels() throws {
         let source = try String(
             contentsOf: repositoryRoot()
@@ -340,7 +403,7 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertEqual(offenders, [])
     }
 
-    func testDestructiveAlertFirstButtonsUseDestructiveAction() throws {
+    func testDestructiveAlertFirstButtonsUseLungfishDestructiveStyle() throws {
         struct AlertCase {
             let path: String
             let startToken: String
@@ -412,8 +475,8 @@ final class WindowAppearanceTests: XCTestCase {
             )
             let slice = try sourceSlice(source, from: alertCase.startToken, to: alertCase.endToken)
             XCTAssertTrue(
-                slice.contains("hasDestructiveAction = true"),
-                "Missing destructive action marker for \(alertCase.label)"
+                slice.contains("applyLungfishDestructiveStyle()"),
+                "Missing Lungfish destructive styling for \(alertCase.label)"
             )
         }
     }
