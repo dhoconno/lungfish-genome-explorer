@@ -589,6 +589,15 @@ final class GenotypeResultViewController: NSViewController {
             currentSelectedSample = first
         }
         updateCallEvidence()
+        // Force the divider closer to 50/50 so the evidence panel has
+        // room — Summary leaves the bottom narrow because the cohort
+        // summary contents are small, but Review's evidence has more
+        // content (diagnostic alleles, candidate haplotypes, neighbors)
+        // and needs more vertical space.
+        if displayState.layout == .listTop {
+            splitCoordinator.invalidateInitialSplitPosition()
+            scheduleInitialSplitValidationIfNeeded()
+        }
     }
 
     private func installCallEvidenceHost() {
@@ -773,21 +782,25 @@ final class GenotypeResultViewController: NSViewController {
     /// diagnostic alleles are observed in the sample vs missing. Empty
     /// list for healthy calls and TMH (where the matched-haplotype list
     /// already conveys the relevant info).
+    /// Surface ALL candidate haplotypes for the locus with their
+    /// per-allele observed/missing breakdown — even when the locus call
+    /// is healthy. The analyst can then see at a glance "why M3B was
+    /// called and not M2B" by comparing observed-allele counts. Sorted
+    /// by observed-count descending so the strongest candidates appear
+    /// first; haplotypes with no overlap are dropped.
     private func candidateHaplotypes(
         for locusCall: GenotypeHaplotypeLocusCall,
         observed: Set<String>
     ) -> [GenotypeCallEvidenceView.CandidateHaplotype] {
-        guard locusCall.status == .noHaplotype || locusCall.status == .tooManyGenotypes else {
-            return []
-        }
         guard let result, let definitionSet = definitionSetForResult(result) else { return [] }
         guard let locusDef = definitionSet.locusDefinitions.first(where: { $0.locus == locusCall.locus }) else {
             return []
         }
-        // Build the observed-allele lookup once from the bundle's
-        // raw call text — the same matching the analyzer uses.
+        // Use the bundle's full per-sample allele list (not just the
+        // analyzer's observedGenotypes filter) so candidate evaluation
+        // sees the same text the analyzer sees.
         let observedText = locusCall.observedGenotypes.joined(separator: "\n")
-        return locusDef.haplotypes.compactMap { haplotype -> GenotypeCallEvidenceView.CandidateHaplotype? in
+        let candidates = locusDef.haplotypes.compactMap { haplotype -> GenotypeCallEvidenceView.CandidateHaplotype? in
             var present: [String] = []
             var missing: [String] = []
             for allele in haplotype.diagnosticAlleles {
@@ -797,8 +810,6 @@ final class GenotypeResultViewController: NSViewController {
                     missing.append(allele)
                 }
             }
-            // Skip haplotypes with no overlap — surfacing 30+ unrelated
-            // candidates would drown the signal. We only want partials.
             guard !present.isEmpty else { return nil }
             return GenotypeCallEvidenceView.CandidateHaplotype(
                 name: haplotype.name,
@@ -806,6 +817,7 @@ final class GenotypeResultViewController: NSViewController {
                 missing: missing
             )
         }
+        return candidates.sorted { $0.observed.count > $1.observed.count }
     }
 
     private func displayedCallName(sample: String, locus: String, slot: HaplotypeSlot, fallback: String) -> String {
@@ -987,9 +999,11 @@ final class GenotypeResultViewController: NSViewController {
         case .listTrailing:
             return 0.32
         case .listTop:
-            // Bias toward the list so the cohort summary doesn't crowd the
-            // tape rows. The user can still drag the divider freely.
-            return 0.72
+            // Review lens shows per-call evidence in Panel B which needs
+            // more vertical room than Summary's thin cohort summary;
+            // bias the divider 60/40 in Review and 75/25 in Summary so
+            // the two lenses are visually distinct.
+            return selectedLens == .review ? 0.55 : 0.75
         }
     }
 
@@ -1307,43 +1321,155 @@ final class GenotypeResultViewController: NSViewController {
         group.trailingAnchor.constraint(equalTo: artifactStack.trailingAnchor, constant: 0).isActive = true
     }
 
-    /// Compact button row for opening the haplotype-definition editor.
-    /// One button per existing user-defined set, plus "New definition".
+    /// List of all available haplotype definition sets — built-in
+    /// (read-only) plus user-defined (editable, deletable). Each row
+    /// surfaces the set's name + locus count + an action.
     private func makeHaplotypeDefinitionsRow() -> NSView {
         let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .vertical
         container.alignment = .leading
-        container.spacing = 4
+        container.spacing = 6
         container.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
 
         let description = NSTextField(wrappingLabelWithString:
-            "Add or edit per-project haplotype definition sets. Saved as JSON under \"Haplotype Definitions/\" in the project root so multiple sets can coexist and be shared."
+            "Built-in sets ship with Lungfish and are read-only — choose Clone to make an editable copy. User sets live as JSON under \"Haplotype Definitions/\" in the project root, can be edited or deleted, and are versioned alongside the bundle's provenance."
         )
         description.font = NSFont.systemFont(ofSize: 10)
         description.textColor = .secondaryLabelColor
+        description.maximumNumberOfLines = 4
         container.addArrangedSubview(description)
 
-        let userSets = haplotypeDefinitionStore.loadAllUserSets()
-        for userSet in userSets {
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.spacing = 6
-            let label = NSTextField(labelWithString: userSet.displayName)
-            label.font = NSFont.systemFont(ofSize: 11)
-            let editButton = NSButton(title: "Edit", target: self, action: #selector(handleEditHaplotypeDefinition(_:)))
-            editButton.identifier = NSUserInterfaceItemIdentifier(userSet.id)
-            editButton.controlSize = .small
-            row.addArrangedSubview(label)
-            row.addArrangedSubview(editButton)
-            container.addArrangedSubview(row)
+        // Built-in sets (read-only).
+        let builtInSets = GenotypeHaplotypeDefinitionRegistry.builtIn
+            .assays.flatMap(\.definitionSets)
+        for set in builtInSets {
+            container.addArrangedSubview(makeHaplotypeDefinitionRow(
+                set: set,
+                isUserDefined: false
+            ))
         }
 
-        let newButton = NSButton(title: "New definition…", target: self, action: #selector(handleNewHaplotypeDefinition(_:)))
+        // User sets (editable + deletable).
+        let userSets = haplotypeDefinitionStore.loadAllUserSets()
+        if !userSets.isEmpty {
+            let sep = NSBox()
+            sep.boxType = .separator
+            container.addArrangedSubview(sep)
+            for set in userSets {
+                container.addArrangedSubview(makeHaplotypeDefinitionRow(
+                    set: set,
+                    isUserDefined: true
+                ))
+            }
+        }
+
+        let newButton = NSButton(title: "New empty definition…", target: self, action: #selector(handleNewHaplotypeDefinition(_:)))
         newButton.controlSize = .small
         container.addArrangedSubview(newButton)
 
         return container
+    }
+
+    private func makeHaplotypeDefinitionRow(
+        set: GenotypeHaplotypeDefinitionSet,
+        isUserDefined: Bool
+    ) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.alignment = .centerY
+        let icon = NSImageView()
+        icon.image = NSImage(systemSymbolName: isUserDefined ? "person.crop.circle" : "lock.shield",
+                             accessibilityDescription: isUserDefined ? "User-defined" : "Built-in")
+        icon.contentTintColor = isUserDefined ? .lungfishOrange : .secondaryLabelColor
+        icon.widthAnchor.constraint(equalToConstant: 16).isActive = true
+        let name = NSTextField(labelWithString: set.displayName)
+        name.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        let locusCount = set.locusDefinitions.count
+        let haplotypeCount = set.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count }
+        let counts = NSTextField(labelWithString: "\(locusCount) loci · \(haplotypeCount) haplotypes")
+        counts.font = NSFont.systemFont(ofSize: 10)
+        counts.textColor = .secondaryLabelColor
+        row.addArrangedSubview(icon)
+        row.addArrangedSubview(name)
+        row.addArrangedSubview(counts)
+        row.addArrangedSubview(NSView())  // flexible spacer
+
+        if isUserDefined {
+            let editButton = NSButton(title: "Edit…", target: self, action: #selector(handleEditHaplotypeDefinition(_:)))
+            editButton.identifier = NSUserInterfaceItemIdentifier("edit:\(set.id)")
+            editButton.controlSize = .small
+            row.addArrangedSubview(editButton)
+            let deleteButton = NSButton(title: "Delete", target: self, action: #selector(handleDeleteHaplotypeDefinition(_:)))
+            deleteButton.identifier = NSUserInterfaceItemIdentifier("delete:\(set.id)")
+            deleteButton.controlSize = .small
+            row.addArrangedSubview(deleteButton)
+        } else {
+            let cloneButton = NSButton(title: "Clone…", target: self, action: #selector(handleCloneHaplotypeDefinition(_:)))
+            cloneButton.identifier = NSUserInterfaceItemIdentifier("clone:\(set.id)")
+            cloneButton.controlSize = .small
+            row.addArrangedSubview(cloneButton)
+            let viewButton = NSButton(title: "View…", target: self, action: #selector(handleViewHaplotypeDefinition(_:)))
+            viewButton.identifier = NSUserInterfaceItemIdentifier("view:\(set.id)")
+            viewButton.controlSize = .small
+            row.addArrangedSubview(viewButton)
+        }
+        return row
+    }
+
+    @objc private func handleCloneHaplotypeDefinition(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue,
+              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
+              let source = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id) else {
+            return
+        }
+        // Build a new user-defined copy with a fresh ID + bumped name
+        // so editing doesn't collide with the source built-in.
+        let clone = GenotypeHaplotypeDefinitionSet(
+            id: "custom.\(id).\(Int(Date().timeIntervalSince1970))",
+            assayID: source.assayID,
+            displayName: "\(source.displayName) (Copy)",
+            speciesName: source.speciesName,
+            speciesCode: source.speciesCode,
+            prefix: source.prefix,
+            locusDefinitions: source.locusDefinitions
+        )
+        presentHaplotypeDefinitionEditor(draft: clone)
+    }
+
+    @objc private func handleViewHaplotypeDefinition(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue,
+              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
+              let set = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id) else {
+            return
+        }
+        // Built-in sets are read-only; open the editor for inspection
+        // but Save is disabled (the editor's save callback also no-ops
+        // when the id matches a built-in).
+        presentHaplotypeDefinitionEditor(draft: set)
+    }
+
+    @objc private func handleDeleteHaplotypeDefinition(_ sender: NSButton) {
+        guard let raw = sender.identifier?.rawValue,
+              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init) else {
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = "Delete this haplotype definition?"
+        alert.informativeText = "Removes the JSON file under \"Haplotype Definitions/\". This cannot be undone."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self else { return }
+            do {
+                try self.haplotypeDefinitionStore.delete(id: id)
+                self.rebuildArtifactLens()
+            } catch {
+                self.presentSheetAlert(error: error)
+            }
+        }
     }
 
     @objc private func handleNewHaplotypeDefinition(_ sender: NSButton) {
@@ -1360,7 +1486,8 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     @objc private func handleEditHaplotypeDefinition(_ sender: NSButton) {
-        guard let id = sender.identifier?.rawValue,
+        guard let raw = sender.identifier?.rawValue,
+              let id = raw.split(separator: ":", maxSplits: 1).last.map(String.init),
               let existing = haplotypeDefinitionStore.loadAllUserSets().first(where: { $0.id == id }) else {
             return
         }
@@ -1906,11 +2033,64 @@ final class GenotypeResultViewController: NSViewController {
         if cellEvidencePopover.isShown {
             cellEvidencePopover.close()
         }
-        let host = NSHostingController(rootView: GenotypeCallEvidenceView(evidence: evidence))
-        host.view.frame = NSRect(x: 0, y: 0, width: 380, height: 420)
+        // Wire the popover's per-candidate Override action so clicking
+        // "Set H2 to M2B" applies the override immediately and refreshes
+        // the analysis. Lets analysts make decisions from the popover
+        // without clicking through to the Sample Detail sheet.
+        var view = GenotypeCallEvidenceView(evidence: evidence)
+        view.onOverrideRequested = { [weak self] slot, haplotypeName in
+            self?.applyOverrideFromPopover(
+                animalId: animalId,
+                locus: locus,
+                slot: slot,
+                haplotype: haplotypeName
+            )
+        }
+        let host = NSHostingController(rootView: view)
+        host.view.frame = NSRect(x: 0, y: 0, width: 440, height: 520)
         cellEvidencePopover.contentViewController = host
-        cellEvidencePopover.contentSize = NSSize(width: 380, height: 420)
+        cellEvidencePopover.contentSize = NSSize(width: 440, height: 520)
         cellEvidencePopover.show(relativeTo: rect, of: anchor, preferredEdge: .maxY)
+    }
+
+    /// Apply a haplotype override triggered from the cell-evidence
+    /// popover's candidate list. Records the change in the sidecar and
+    /// refreshes the live analysis so the new call propagates to the
+    /// Outline, Cards, Matrix, and Cohort Summary immediately.
+    private func applyOverrideFromPopover(
+        animalId: String,
+        locus: String,
+        slot: HaplotypeSlot,
+        haplotype: String
+    ) {
+        guard let store = annotationStore else { return }
+        // Look up the original call so we can record the before/after
+        // pair in the audit log; defaults to empty string when the slot
+        // didn't have a pipeline call.
+        let originalCall: String = {
+            guard let analysis = activeHaplotypeAnalysis(),
+                  let sample = analysis.samples.first(where: { $0.sample == animalId }),
+                  let locusCall = sample.calls.first(where: { $0.locus == locus }) else {
+                return ""
+            }
+            return slot == .h1 ? locusCall.haplotype1 : locusCall.haplotype2
+        }()
+        do {
+            try store.applyOverride(
+                sample: animalId,
+                locus: locus,
+                slot: slot,
+                originalCall: originalCall,
+                overrideCall: haplotype,
+                reasonTag: .confirmed,
+                rationale: "Promoted from candidate list in cell-evidence popover."
+            )
+            rebuildOutline()
+            rebuildCardsRows()
+            rebuildCohortSummary()
+        } catch {
+            presentSheetAlert(error: error)
+        }
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {

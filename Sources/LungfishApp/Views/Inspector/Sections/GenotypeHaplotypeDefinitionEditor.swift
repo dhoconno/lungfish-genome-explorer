@@ -51,9 +51,26 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     // MARK: - Header
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Haplotype Definition")
-                .font(.title3.weight(.semibold))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "rectangle.stack.badge.person.crop")
+                    .foregroundStyle(Color(nsColor: .lungfishOrange))
+                    .font(.title3)
+                Text("Haplotype Definition")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                if let version = draft.schemaVersion {
+                    Text("v\(version)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(nsColor: .lungfishOrange).opacity(0.12))
+                        )
+                }
+            }
             HStack(spacing: 8) {
                 TextField("Display name", text: Binding(
                     get: { draft.displayName },
@@ -71,12 +88,22 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
                 Spacer()
-                Text("\(draft.locusDefinitions.count) loci")
-                    .font(.caption)
+                let locusCount = draft.locusDefinitions.count
+                let haplotypeCount = draft.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count }
+                Text("\(locusCount) loci · \(haplotypeCount) haplotypes")
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
+            if let modified = draft.lastModified, !modified.isEmpty {
+                Text("Last modified: \(modified)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
             }
         }
         .padding(16)
+        .background(
+            Color(nsColor: .lungfishOrange).opacity(0.05)
+        )
     }
 
     // MARK: - Locus sidebar

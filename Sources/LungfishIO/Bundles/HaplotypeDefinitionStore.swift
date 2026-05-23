@@ -57,14 +57,31 @@ public struct HaplotypeDefinitionStore: Sendable {
 
     /// Save a definition set to disk. The file name is derived from the
     /// set ID (path-safe). Overwrites if a file with the same id exists.
-    public func save(_ set: GenotypeHaplotypeDefinitionSet) throws {
+    /// Bumps the set's `schemaVersion` and stamps `lastModified` so the
+    /// provenance trail can identify which version produced a call.
+    public func save(
+        _ set: GenotypeHaplotypeDefinitionSet,
+        changeNote: String? = nil
+    ) throws {
         try ensureFolderExists()
         guard let url = fileURL(for: set.id) else {
             throw HaplotypeDefinitionStoreError.noProjectRoot
         }
+        let versioned = GenotypeHaplotypeDefinitionSet(
+            id: set.id,
+            assayID: set.assayID,
+            displayName: set.displayName,
+            speciesName: set.speciesName,
+            speciesCode: set.speciesCode,
+            prefix: set.prefix,
+            locusDefinitions: set.locusDefinitions,
+            schemaVersion: (set.schemaVersion ?? 0) + 1,
+            lastModified: ISO8601DateFormatter().string(from: Date()),
+            changeNote: changeNote ?? set.changeNote
+        )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(set)
+        let data = try encoder.encode(versioned)
         try data.write(to: url, options: .atomic)
     }
 

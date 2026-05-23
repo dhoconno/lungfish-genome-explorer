@@ -62,20 +62,23 @@ public enum GenotypeCohortSubjectBuilder {
             let hasErrorAtAnyLocus = (analysis?.calls ?? []).contains { call in
                 call.status != .called && call.status != .specialCase
             }
-            // "Homozygous across all" means every CALLED locus has
-            // haplotype1 == haplotype2. Error rows trivially compare equal
-            // ("ERR: NO HAP" == "ERR: NO HAP") so we must exclude them
-            // from the check, otherwise samples with errors at every locus
-            // falsely match. A sample with all-error calls is not
-            // homozygous; it's unresolved.
+            // "Homozygous across all" means every CALLED locus is either
+            // explicitly homozygous (haplotype1 == haplotype2) OR shows
+            // a single matched haplotype (h2 == "-", which the analyzer
+            // emits when only one haplotype's diagnostic set was
+            // observed). Error rows are excluded so samples with all-
+            // error calls don't falsely match.
             let calledLocusCalls = (analysis?.calls ?? []).filter {
                 $0.status == .called || $0.status == .specialCase
             }
             let isHomozygousAcrossAll = !calledLocusCalls.isEmpty &&
                 calledLocusCalls.allSatisfy { call in
-                    !call.haplotype1.hasPrefix("ERR")
-                        && call.haplotype1 == call.haplotype2
-                        && call.haplotype2 != "-"
+                    guard !call.haplotype1.hasPrefix("ERR") else { return false }
+                    // Single-match (h2 = "-") counts as homozygous since
+                    // the analyzer found only one haplotype's diagnostic
+                    // alleles in the sample.
+                    if call.haplotype2 == "-" || call.haplotype2.isEmpty { return true }
+                    return call.haplotype1 == call.haplotype2
                 }
             let hasRegionalRecombinant = (analysis?.calls ?? []).contains { call in
                 call.haplotype1.hasPrefix("rec") || call.haplotype2.hasPrefix("rec")

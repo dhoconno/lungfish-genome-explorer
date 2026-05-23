@@ -66,7 +66,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
         translatesAutoresizingMaskIntoConstraints = false
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
-        searchField.placeholderString = "Search animal, GS ID, comment…"
+        searchField.placeholderString = "Search comment, or M2 / M2A / M2@MHC-B for haplotype filters…"
         searchField.delegate = self
         searchField.font = NSFont.systemFont(ofSize: 11)
         searchField.sendsSearchStringImmediately = true
@@ -144,7 +144,7 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
     private func emitChange() {
         var children: [SmartCohortPredicate] = activePills.map(\.predicate)
         if !currentSearchText.isEmpty {
-            children.append(.commentContains(currentSearchText))
+            children.append(Self.parseSearchText(currentSearchText))
         }
         let combined: SmartCohortPredicate?
         if children.isEmpty {
@@ -155,5 +155,40 @@ final class GenotypeQuickFilterBarView: NSView, NSSearchFieldDelegate {
             combined = .all(children)
         }
         onFilterChanged?(combined)
+    }
+
+    /// Parse the search field's input into a `SmartCohortPredicate`.
+    /// Supports three syntaxes beyond plain substring search:
+    ///   - `M2A` (or `M2B`, `M3DR`, etc.) — animal carries that exact
+    ///     haplotype at any locus
+    ///   - `M2@MHC-A` (or `M2:MHC-A`, `M2@A`) — animal carries any
+    ///     haplotype prefixed with M2 (M2A, M2B, M2DR…) at the named
+    ///     locus; the locus name accepts the canonical `MHC-` form or
+    ///     a bare suffix (`A`, `B`, `DRB`, etc.).
+    ///   - Anything else falls through to comment substring search.
+    static func parseSearchText(_ text: String) -> SmartCohortPredicate {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // `M2@A` / `M2:MHC-A` style
+        let separators = CharacterSet(charactersIn: "@:")
+        if let separatorRange = trimmed.rangeOfCharacter(from: separators) {
+            let haplotype = String(trimmed[..<separatorRange.lowerBound])
+                .trimmingCharacters(in: .whitespaces)
+            let locusRaw = String(trimmed[separatorRange.upperBound...])
+                .trimmingCharacters(in: .whitespaces)
+            if !haplotype.isEmpty, !locusRaw.isEmpty {
+                let locus = locusRaw.hasPrefix("MHC-") ? locusRaw : "MHC-\(locusRaw)"
+                return .hasHaplotypePrefixAt(prefix: haplotype, locus: locus)
+            }
+        }
+        // Exact haplotype name (M2A, M3DR, etc.) — single token, alphanum.
+        if trimmed.range(of: "^M[0-9]+[A-Za-z]+$", options: .regularExpression) != nil {
+            return .hasHaplotypeAtAnyLocus(name: trimmed)
+        }
+        // Bare M-prefix (M2, M3) — match any haplotype with that prefix
+        // at any locus.
+        if trimmed.range(of: "^M[0-9]+$", options: .regularExpression) != nil {
+            return .hasHaplotypePrefixAtAnyLocus(prefix: trimmed)
+        }
+        return .commentContains(trimmed)
     }
 }

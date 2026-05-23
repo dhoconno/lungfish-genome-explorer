@@ -96,6 +96,12 @@ struct GenotypeCallEvidenceView: View {
     }
 
     let evidence: Evidence?
+    /// Optional callback that fires when the analyst clicks "Override…"
+    /// on a candidate haplotype. The popover host wires this to the
+    /// override flow so the user can act without leaving the popover.
+    /// Parameters: (slot, haplotypeName) → haplotypeName is "" for the
+    /// header's main Override action (uses current call as starting point).
+    var onOverrideRequested: ((HaplotypeSlot, String) -> Void)?
 
     var body: some View {
         ScrollView {
@@ -195,43 +201,90 @@ struct GenotypeCallEvidenceView: View {
     }
 
     /// Per-candidate-haplotype breakdown of which diagnostic alleles were
-    /// observed and which were missing. Surfaces for NO HAP / TMG cases
-    /// so the reviewer immediately sees what's expected vs present.
+    /// observed and which were missing, with an Override action on each
+    /// row so the analyst can promote a strong-but-not-called candidate
+    /// to the H2 slot directly from the popover.
     private func candidatesBlock(_ evidence: Evidence) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Candidate haplotypes — what's expected vs observed")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("All candidate haplotypes")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("sorted by observed-allele count")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
             ForEach(evidence.candidateHaplotypes) { candidate in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(candidate.name)
-                        .font(.caption.monospaced().weight(.semibold))
-                    if !candidate.observed.isEmpty {
-                        HStack(alignment: .top, spacing: 4) {
-                            Text("✓")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(Color.green)
-                            Text(candidate.observed.joined(separator: ", "))
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    if !candidate.missing.isEmpty {
-                        HStack(alignment: .top, spacing: 4) {
-                            Text("✗")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(Color(nsColor: .lungfishDanger))
-                            Text(candidate.missing.joined(separator: ", "))
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(Color(nsColor: .lungfishDanger))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                .padding(.vertical, 2)
+                candidateRow(candidate, evidence: evidence)
             }
         }
+    }
+
+    private func candidateRow(_ candidate: CandidateHaplotype, evidence: Evidence) -> some View {
+        let isCurrentCall = candidate.name == evidence.h1Name || candidate.name == evidence.h2Name
+        let totalAlleles = candidate.observed.count + candidate.missing.count
+        return VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(candidate.name)
+                    .font(.caption.monospaced().weight(.semibold))
+                if isCurrentCall {
+                    Text("CALLED")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.accentColor)
+                        )
+                }
+                Text("\(candidate.observed.count) / \(totalAlleles) alleles observed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !isCurrentCall {
+                    Menu("Override…") {
+                        Button("Set H1 to \(candidate.name)") {
+                            onOverrideRequested?(.h1, candidate.name)
+                        }
+                        Button("Set H2 to \(candidate.name)") {
+                            onOverrideRequested?(.h2, candidate.name)
+                        }
+                    }
+                    .controlSize(.small)
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 100)
+                }
+            }
+            if !candidate.observed.isEmpty {
+                HStack(alignment: .top, spacing: 4) {
+                    Text("✓")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(Color.green)
+                    Text(candidate.observed.joined(separator: ", "))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if !candidate.missing.isEmpty {
+                HStack(alignment: .top, spacing: 4) {
+                    Text("✗")
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(Color(nsColor: .lungfishDanger))
+                    Text(candidate.missing.joined(separator: ", "))
+                        .font(.caption2.monospaced())
+                        .foregroundStyle(Color(nsColor: .lungfishDanger))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(isCurrentCall ? Color.accentColor.opacity(0.08) : Color.secondary.opacity(0.04))
+        )
     }
 
     private func header(_ evidence: Evidence) -> some View {

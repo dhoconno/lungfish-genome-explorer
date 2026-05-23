@@ -102,6 +102,18 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     case hasRegionalRecombinant
     case hasRegionalRecombinantAt(locus: String)
     case hasAtypicalPattern
+    /// Sample carries the named haplotype (exact match) at any locus.
+    /// Used by the quick-search syntax `M2A` to find every animal with
+    /// the M2A haplotype anywhere across MHC-A/B/DRB/etc.
+    case hasHaplotypeAtAnyLocus(name: String)
+    /// Sample carries any haplotype whose name starts with `prefix` at
+    /// any locus. `M2` matches M2A, M2B, M2DR, M2DQ, M2DP at every
+    /// locus — useful for "show me all M2 animals."
+    case hasHaplotypePrefixAtAnyLocus(prefix: String)
+    /// Sample carries any haplotype whose name starts with `prefix` at
+    /// the named locus. `M2@MHC-B` finds animals with M2B, M2Bnov, …
+    /// at MHC-B specifically.
+    case hasHaplotypePrefixAt(prefix: String, locus: String)
     case hasHighlightFill(String?)
     case hasHighlightBorder(String?)
     case hasAnalystFlag(GenotypeAnnotationSidecar.StatusValue)
@@ -165,11 +177,17 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             return !subject.highlightBorders.isEmpty
         case .hasAnalystFlag(let value):
             return subject.statusValue == value
+        case .hasHaplotypeAtAnyLocus(let name):
+            return subject.calls.contains { $0.name == name }
+        case .hasHaplotypePrefixAtAnyLocus(let prefix):
+            return subject.calls.contains { $0.name.hasPrefix(prefix) }
+        case .hasHaplotypePrefixAt(let prefix, let locus):
+            return subject.calls.contains { $0.locus == locus && $0.name.hasPrefix(prefix) }
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, children, child, value, locus, slot, names, hex, ids, set
+        case kind, children, child, value, locus, slot, names, hex, ids, set, prefix
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -241,6 +259,16 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
         case .hasAnalystFlag(let v):
             try container.encode("hasAnalystFlag", forKey: .kind)
             try container.encode(v.rawValue, forKey: .value)
+        case .hasHaplotypeAtAnyLocus(let name):
+            try container.encode("hasHaplotypeAtAnyLocus", forKey: .kind)
+            try container.encode(name, forKey: .value)
+        case .hasHaplotypePrefixAtAnyLocus(let prefix):
+            try container.encode("hasHaplotypePrefixAtAnyLocus", forKey: .kind)
+            try container.encode(prefix, forKey: .prefix)
+        case .hasHaplotypePrefixAt(let prefix, let locus):
+            try container.encode("hasHaplotypePrefixAt", forKey: .kind)
+            try container.encode(prefix, forKey: .prefix)
+            try container.encode(locus, forKey: .locus)
         }
     }
 
@@ -304,6 +332,15 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
                                                        debugDescription: "Unknown StatusValue: \(raw)")
             }
             self = .hasAnalystFlag(value)
+        case "hasHaplotypeAtAnyLocus":
+            self = .hasHaplotypeAtAnyLocus(name: try container.decode(String.self, forKey: .value))
+        case "hasHaplotypePrefixAtAnyLocus":
+            self = .hasHaplotypePrefixAtAnyLocus(prefix: try container.decode(String.self, forKey: .prefix))
+        case "hasHaplotypePrefixAt":
+            self = .hasHaplotypePrefixAt(
+                prefix: try container.decode(String.self, forKey: .prefix),
+                locus: try container.decode(String.self, forKey: .locus)
+            )
         default:
             throw DecodingError.dataCorruptedError(forKey: .kind, in: container,
                                                    debugDescription: "Unknown predicate kind: \(kind)")

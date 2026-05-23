@@ -46,6 +46,17 @@ public struct GenotypeHaplotypeDefinitionSet: Codable, Equatable, Sendable {
     public let speciesCode: String
     public let prefix: String
     public let locusDefinitions: [GenotypeHaplotypeLocusDefinition]
+    /// Optional schema version for the set itself. Bumped each time the
+    /// editor saves a change so downstream artifacts (LabKey export,
+    /// provenance JSON) can record which version of the definition was
+    /// used to make a call. nil for built-in sets that ship with Lungfish
+    /// at the app's release version.
+    public let schemaVersion: Int?
+    /// ISO-8601 timestamp of the last edit. nil for built-in sets.
+    public let lastModified: String?
+    /// Free-text description of the change. Useful for explaining "added
+    /// MHC-B alleles from pbaa.xlsx row 109" in the provenance trail.
+    public let changeNote: String?
 
     public init(
         id: String,
@@ -54,7 +65,10 @@ public struct GenotypeHaplotypeDefinitionSet: Codable, Equatable, Sendable {
         speciesName: String,
         speciesCode: String,
         prefix: String,
-        locusDefinitions: [GenotypeHaplotypeLocusDefinition]
+        locusDefinitions: [GenotypeHaplotypeLocusDefinition],
+        schemaVersion: Int? = nil,
+        lastModified: String? = nil,
+        changeNote: String? = nil
     ) {
         self.id = id
         self.assayID = assayID
@@ -63,6 +77,9 @@ public struct GenotypeHaplotypeDefinitionSet: Codable, Equatable, Sendable {
         self.speciesCode = speciesCode
         self.prefix = prefix
         self.locusDefinitions = locusDefinitions
+        self.schemaVersion = schemaVersion
+        self.lastModified = lastModified
+        self.changeNote = changeNote
     }
 }
 
