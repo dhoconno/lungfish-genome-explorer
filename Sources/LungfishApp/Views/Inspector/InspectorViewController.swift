@@ -1383,7 +1383,8 @@ public class InspectorViewController: NSViewController {
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
             ],
-            smartCohorts: smartCohorts
+            smartCohorts: smartCohorts,
+            auditEntries: sidecar.auditLog
         )
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
         viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true)

@@ -20,6 +20,7 @@ struct GenotypeResultDocumentState: Equatable {
     let artifactRows: [GenotypeResultArtifactRow]
     var summaryViewMode: GenotypeSummaryViewMode = .outline
     var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
+    var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
 
     func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
         GenotypeResultDocumentState(
@@ -66,7 +67,8 @@ struct GenotypeResultDocumentState: Equatable {
             lhs.qcRows.elementsEqual(rhs.qcRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.artifactRows == rhs.artifactRows &&
             lhs.summaryViewMode == rhs.summaryViewMode &&
-            lhs.smartCohorts == rhs.smartCohorts
+            lhs.smartCohorts == rhs.smartCohorts &&
+            lhs.auditEntries == rhs.auditEntries
     }
 }
 
@@ -83,6 +85,7 @@ struct GenotypeResultDocumentSection: View {
     @State private var isSamplesExpanded = true
     @State private var isViewModeExpanded = true
     @State private var isSmartCohortsExpanded = true
+    @State private var isAuditTimelineExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -99,7 +102,19 @@ struct GenotypeResultDocumentSection: View {
             qcSection
             Divider()
             artifactsSection
+            if !state.auditEntries.isEmpty {
+                Divider()
+                auditTimelineSection
+            }
         }
+    }
+
+    private var auditTimelineSection: some View {
+        DisclosureGroup("Audit Timeline", isExpanded: $isAuditTimelineExpanded) {
+            GenotypeAuditTimelineSection(entries: state.auditEntries)
+                .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
     }
 
     private var smartCohortsSection: some View {
