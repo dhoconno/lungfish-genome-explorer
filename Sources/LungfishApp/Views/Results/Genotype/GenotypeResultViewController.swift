@@ -133,6 +133,55 @@ final class GenotypeResultViewController: NSViewController {
         }
     }
 
+    /// Per-call keyboard shortcuts used by the Review lens:
+    /// - `⌘R`: mark the currently selected sample's status as `reviewed`
+    /// - `⌘K`: mark as `confirmed`
+    /// - `⌘⇧F`: flag as `needsReview`
+    /// - `⌘⇧O`: open the Sample Detail sheet for the override editor
+    /// Returns true if the event was handled, allowing the responder chain
+    /// to continue otherwise.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Only intercept when the Review lens is up and a sample is selected.
+        guard selectedLens == .review, let animalId = currentSelectedSample else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let cmd: NSEvent.ModifierFlags = .command
+        let cmdShift: NSEvent.ModifierFlags = [.command, .shift]
+        switch (event.charactersIgnoringModifiers, modifiers) {
+        case ("r", cmd):
+            transitionSampleStatus(animalId: animalId, to: .reviewed)
+            return true
+        case ("k", cmd):
+            transitionSampleStatus(animalId: animalId, to: .confirmed)
+            return true
+        case ("F", cmdShift):
+            transitionSampleStatus(animalId: animalId, to: .needsReview)
+            return true
+        case ("O", cmdShift):
+            presentSampleDetailSheet(forAnimal: animalId)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    private func transitionSampleStatus(
+        animalId: String, to value: GenotypeAnnotationSidecar.StatusValue
+    ) {
+        guard let store = annotationStore else { return }
+        do {
+            try store.setSampleStatus(value, sample: animalId)
+        } catch {
+            presentSheetAlert(error: error)
+        }
+        // Refresh the Smart Cohort counts and any Needs Review filter so the
+        // user's status change reflects in the cohort list immediately.
+        rebuildOutline()
+        rebuildCardsRows()
+        rebuildCohortSummary()
+    }
+
     override func viewDidLayout() {
         super.viewDidLayout()
         guard selectedLens == .summary, splitView.arrangedSubviews.count == 2 else { return }
