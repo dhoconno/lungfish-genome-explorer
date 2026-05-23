@@ -50,6 +50,7 @@ final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
     private var activeSmartCohort: GenotypeCohortSmartFilter?
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
+    private var callEvidenceHost: NSHostingView<GenotypeCallEvidenceView>?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -367,10 +368,152 @@ final class GenotypeResultViewController: NSViewController {
             scheduleInitialSplitValidationIfNeeded()
             applyLayoutPreference()
         case .review:
-            installContentView(haplotypeScrollView)
+            installContentView(splitView)
+            applyReviewLensVisibility()
+            scheduleInitialSplitValidationIfNeeded()
+            applyLayoutPreference()
         case .audit:
             installContentView(artifactScrollView)
         }
+    }
+
+    private func applyReviewLensVisibility() {
+        outlineView.isHidden = false
+        cardsView.isHidden = true
+        comparisonMatrix.isHidden = true
+        cohortSummaryPanel.isHidden = true
+        detailScrollView.isHidden = true
+        callEvidenceHost?.isHidden = false
+        if callEvidenceHost == nil {
+            installCallEvidenceHost()
+        }
+        updateCallEvidence()
+    }
+
+    private func installCallEvidenceHost() {
+        let host = NSHostingView(rootView: GenotypeCallEvidenceView(evidence: callEvidence))
+        host.translatesAutoresizingMaskIntoConstraints = false
+        detailContainer.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: detailContainer.topAnchor),
+            host.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor),
+        ])
+        callEvidenceHost = host
+    }
+
+    private func updateCallEvidence() {
+        guard let host = callEvidenceHost else { return }
+        host.rootView = GenotypeCallEvidenceView(evidence: callEvidence)
+    }
+
+    /// Computes a `GenotypeCallEvidenceView.Evidence` for the currently
+    /// selected sample's first non-OK call (or first call if none flagged).
+    /// Returns nil when no sample is selected or the bundle has no analysis.
+    private var callEvidence: GenotypeCallEvidenceView.Evidence? {
+        guard let result, let analysis = result.haplotypeAnalysis else { return nil }
+        guard let sampleId = currentSelectedSample,
+              let sampleAnalysis = analysis.samples.first(where: { $0.sample == sampleId }) else {
+            return nil
+        }
+        let suspiciousCall = sampleAnalysis.calls.first { $0.status != .called && $0.status != .specialCase }
+            ?? sampleAnalysis.calls.first
+        guard let locusCall = suspiciousCall else { return nil }
+        // Pull the per-allele read counts from the bundle's flat calls list
+        // filtered to this sample × locus group. Heuristic: match by
+        // call.locusGroup == locusCall.locus or locusCall.sourceLocus.
+        let sampleCalls = result.calls.filter { $0.sample == sampleId }
+        let locusCalls = sampleCalls.filter { call in
+            let group = call.locusGroup
+            return group == locusCall.locus || group == locusCall.sourceLocus
+        }
+        let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        let observedSet = Set(locusCall.observedGenotypes)
+        let evaluator = GenotypeDropoutEvaluator(
+            absolute: annotationStore?.sidecar.settings.dropoutAbsolute,
+            sampleFraction: annotationStore?.sidecar.settings.dropoutSampleFraction,
+            locusFraction: annotationStore?.sidecar.settings.dropoutLocusFraction ?? 0.05
+        )
+        let diagnostic = locusCalls
+            .filter { (call: ONTGenotypeCall) -> Bool in
+                if observedSet.contains(call.genotype) { return true }
+                for matched in locusCall.matchedHaplotypes {
+                    if matched.diagnosticAlleles.contains(call.genotype) { return true }
+                }
+                return false
+            }
+            .sorted { $0.passedUniqueReads > $1.passedUniqueReads }
+            .prefix(8)
+            .map { call -> GenotypeCallEvidenceView.DiagnosticAllele in
+                let pct = locusTotal > 0 ? Double(call.passedUniqueReads) / Double(locusTotal) : 0
+                let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+                let isLow = evaluator.isLowSupport(
+                    reads: call.passedUniqueReads,
+                    sampleTotal: sampleTotal,
+                    locusTotal: locusTotal
+                )
+                return GenotypeCallEvidenceView.DiagnosticAllele(
+                    allele: call.genotype,
+                    reads: call.passedUniqueReads,
+                    percentOfLocus: pct,
+                    isLowSupport: isLow
+                )
+            }
+        let sampleNames = (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
+        let neighbors = neighborSummaries(for: sampleId, in: sampleNames, analysis: analysis)
+        let displayedCall = displayedCallName(
+            sample: sampleId, locus: locusCall.locus, slot: .h1,
+            fallback: locusCall.haplotype1
+        )
+        return GenotypeCallEvidenceView.Evidence(
+            sample: sampleId,
+            locus: locusCall.locus,
+            slot: .h1,
+            callName: displayedCall,
+            status: locusCall.status,
+            observedGenotypeCount: locusCall.observedGenotypeCount,
+            observedGenotypes: locusCall.observedGenotypes,
+            diagnosticAlleles: Array(diagnostic),
+            locusReadTotal: locusTotal,
+            neighborsBefore: neighbors.before,
+            neighborsAfter: neighbors.after
+        )
+    }
+
+    private func displayedCallName(sample: String, locus: String, slot: HaplotypeSlot, fallback: String) -> String {
+        if let override = annotationStore?.sidecar.callOverrides.first(where: {
+            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        }) {
+            return override.overrideCall
+        }
+        return fallback
+    }
+
+    private func neighborSummaries(
+        for sampleId: String,
+        in sampleNames: [String],
+        analysis: GenotypeHaplotypeAnalysis
+    ) -> (before: [GenotypeCallEvidenceView.Neighbor], after: [GenotypeCallEvidenceView.Neighbor]) {
+        guard let index = sampleNames.firstIndex(of: sampleId) else { return ([], []) }
+        let analysesBySample = Dictionary(uniqueKeysWithValues: analysis.samples.map { ($0.sample, $0) })
+        func summary(for name: String) -> String {
+            guard let analysis = analysesBySample[name] else { return "—" }
+            return analysis.calls.map { "\($0.haplotype1)/\($0.haplotype2)" }
+                .prefix(2)
+                .joined(separator: ", ")
+        }
+        var before: [GenotypeCallEvidenceView.Neighbor] = []
+        var after: [GenotypeCallEvidenceView.Neighbor] = []
+        if index > 0 {
+            let name = sampleNames[index - 1]
+            before.append(.init(animalId: name, summary: summary(for: name)))
+        }
+        if index < sampleNames.count - 1 {
+            let name = sampleNames[index + 1]
+            after.append(.init(animalId: name, summary: summary(for: name)))
+        }
+        return (before, after)
     }
 
     private func applySummaryViewModeVisibility() {
@@ -1156,6 +1299,7 @@ final class GenotypeResultViewController: NSViewController {
 
     private func handleOutlineRowSelected(_ animalId: String) {
         guard let row = outlineRowsBySample[animalId] else { return }
+        currentSelectedSample = animalId
         let detailRows: [(String, String)] = [
             ("Animal", animalId),
             ("Loci", row.loci.joined(separator: ", ")),
@@ -1171,7 +1315,11 @@ final class GenotypeResultViewController: NSViewController {
             highlightStyle: .default
         )
         publishSelectionState(state)
-        presentSampleDetailSheet(forAnimal: animalId)
+        if selectedLens == .review {
+            updateCallEvidence()
+        } else {
+            presentSampleDetailSheet(forAnimal: animalId)
+        }
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {
