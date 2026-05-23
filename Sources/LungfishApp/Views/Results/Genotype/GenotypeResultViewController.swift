@@ -1520,6 +1520,49 @@ final class GenotypeResultViewController: NSViewController {
         return GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id)
     }
 
+    /// Attaches a sidecar snapshot to a base export snapshot when the
+    /// annotation store has overrides or audit entries to surface in the
+    /// resulting workbook. Pure transformation; no I/O.
+    private func attachSidecarSnapshot(
+        to base: GenotypeViewportExportSnapshot
+    ) -> GenotypeViewportExportSnapshot {
+        guard let store = annotationStore else { return base }
+        let sidecar = store.sidecar
+        guard !sidecar.callOverrides.isEmpty || !sidecar.auditLog.isEmpty else { return base }
+        let overrides = sidecar.callOverrides.map { o in
+            GenotypeAnnotationOverrideEntry(
+                sample: o.sample, locus: o.locus, slot: o.slot.rawValue,
+                originalCall: o.originalCall, overrideCall: o.overrideCall,
+                reasonTag: o.reasonTag.rawValue, rationale: o.rationale,
+                author: o.author, timestamp: o.timestamp
+            )
+        }
+        let auditEntries = sidecar.auditLog.map { e in
+            GenotypeAnnotationAuditEntry(
+                action: e.action,
+                sample: e.sample,
+                locus: e.locus ?? "",
+                slot: e.slot?.rawValue ?? "",
+                before: e.before ?? "",
+                after: e.after ?? "",
+                author: e.author,
+                timestamp: e.timestamp
+            )
+        }
+        return GenotypeViewportExportSnapshot(
+            bundleURL: base.bundleURL,
+            analysisName: base.analysisName,
+            lens: base.lens,
+            filters: base.filters,
+            sampleNames: base.sampleNames,
+            rows: base.rows,
+            sidecar: GenotypeAnnotationSidecarSnapshot(
+                overrides: overrides,
+                auditEntries: auditEntries
+            )
+        )
+    }
+
     private func outlineBlockLabel(_ kind: GenotypeBlockKind) -> String {
         switch kind {
         case .blockCoherent: return "Block coherent"
@@ -1555,11 +1598,12 @@ final class GenotypeResultViewController: NSViewController {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
-                    let snapshot = self.comparisonMatrix.exportSnapshot(
+                    let baseSnapshot = self.comparisonMatrix.exportSnapshot(
                         bundleURL: result.bundleURL,
                         analysisName: result.manifest.analysisName,
                         lens: self.selectedLens.identifier
                     )
+                    let snapshot = self.attachSidecarSnapshot(to: baseSnapshot)
                     let export = try GenotypeViewportExcelExportService().export(snapshot: snapshot, to: url)
                     NSWorkspace.shared.activateFileViewerSelecting([export.workbookURL])
                 } catch {
