@@ -26,7 +26,7 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
     func run() async throws {
         let bundleURL = URL(fileURLWithPath: bundle)
         let sidecar = try ONTGenotypeResultBundleData
-            .loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+            .loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
         let overrides = sidecar.callOverrides.map { o in
             OverrideRow(
                 sample: o.sample, locus: o.locus, slot: o.slot.rawValue,

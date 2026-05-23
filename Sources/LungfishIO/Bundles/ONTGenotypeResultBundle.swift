@@ -1159,6 +1159,19 @@ public extension ONTGenotypeResultBundleData {
         return GenotypeAnnotationSidecar.empty(generatedAt: formatter.string(from: Date()))
     }
 
+    /// Read-only counterpart of `loadOrCreateAnnotationSidecar`. Returns an
+    /// empty in-memory sidecar when the file is missing; never writes. Use
+    /// this for CLI inspection commands that must not touch a possibly
+    /// read-only bundle directory.
+    static func loadAnnotationSidecarIfPresent(forBundleAt bundleURL: URL) throws -> GenotypeAnnotationSidecar {
+        let url = annotationSidecarURL(forBundleAt: bundleURL)
+        if FileManager.default.fileExists(atPath: url.path) {
+            let data = try Data(contentsOf: url)
+            return try GenotypeAnnotationSidecar.decode(data)
+        }
+        return GenotypeAnnotationSidecar.empty(generatedAt: "")
+    }
+
     static func writeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar, forBundleAt bundleURL: URL) throws {
         let url = annotationSidecarURL(forBundleAt: bundleURL)
         let directory = url.deletingLastPathComponent()

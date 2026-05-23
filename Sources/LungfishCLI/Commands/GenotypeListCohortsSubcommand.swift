@@ -29,7 +29,8 @@ struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
 
     func run() async throws {
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
-        let sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(
+        // Read-only inspection — do not create the sidecar file on missing.
+        let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(
             forBundleAt: bundleURL
         )
 
