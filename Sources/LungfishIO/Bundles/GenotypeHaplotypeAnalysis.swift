@@ -274,18 +274,21 @@ public enum GenotypeHaplotypeAnalyzer {
             sampleTotals[call.sample, default: 0] += max(0, call.passedUniqueReads)
             sampleLocusTotals[call.sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
         }
-        // Map locus-group to the canonical inspector locus name so the
-        // per-locus EQ overrides find their target (e.g. "Mafa-A" rows
-        // align with the "MHC-A" override key).
-        let groupToCanonical: [String: String] = Dictionary(
-            uniqueKeysWithValues: definitionSet.locusDefinitions.map {
-                ($0.sourceLocus, $0.locus)
+        // Resolve the canonical inspector locus name (e.g. "MHC-A") for a
+        // raw call's locusGroup so the per-locus EQ overrides find their
+        // target. Build the mapping from both directions so the lookup
+        // works whether the bundle exposes raw "Mafa-A" / "MHC-A" / the
+        // canonical name directly: try locusGroup as-is, then look it up
+        // by sourceLocus, then fall through to locusGroup itself.
+        let canonicalByGroup: [String: String] = Dictionary(
+            uniqueKeysWithValues: definitionSet.locusDefinitions.flatMap {
+                [($0.locus, $0.locus), ($0.sourceLocus, $0.locus)]
             }
         )
         return calls.filter { call in
             let sampleTotal = sampleTotals[call.sample] ?? 0
             let locusTotal = sampleLocusTotals[call.sample]?[call.locusGroup] ?? 0
-            let canonicalLocus = groupToCanonical[call.locusGroup] ?? call.locusGroup
+            let canonicalLocus = canonicalByGroup[call.locusGroup] ?? call.locusGroup
             return !evaluator.isLowSupport(
                 reads: call.passedUniqueReads,
                 sampleTotal: sampleTotal,

@@ -564,7 +564,7 @@ final class GenotypeResultViewController: NSViewController {
     /// selected sample's first non-OK call (or first call if none flagged).
     /// Returns nil when no sample is selected or the bundle has no analysis.
     private var callEvidence: GenotypeCallEvidenceView.Evidence? {
-        guard let result, let analysis = result.haplotypeAnalysis else { return nil }
+        guard let result, let analysis = activeHaplotypeAnalysis() else { return nil }
         guard let sampleId = currentSelectedSample,
               let sampleAnalysis = analysis.samples.first(where: { $0.sample == sampleId }) else {
             return nil
@@ -582,11 +582,10 @@ final class GenotypeResultViewController: NSViewController {
         }
         let locusTotal = locusCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
         let observedSet = Set(locusCall.observedGenotypes)
-        let evaluator = GenotypeDropoutEvaluator(
-            absolute: annotationStore?.sidecar.settings.dropoutAbsolute,
-            sampleFraction: annotationStore?.sidecar.settings.dropoutSampleFraction,
-            locusFraction: annotationStore?.sidecar.settings.dropoutLocusFraction ?? 0.05
-        )
+        // Mirror the global evaluator (with per-locus EQ) so the
+        // low-support badge in the Review lens agrees with the live
+        // analyzer's filtering.
+        let evaluator = currentDropoutEvaluator()
         let diagnostic = locusCalls
             .filter { (call: ONTGenotypeCall) -> Bool in
                 if observedSet.contains(call.genotype) { return true }
@@ -612,7 +611,7 @@ final class GenotypeResultViewController: NSViewController {
                     isLowSupport: isLow
                 )
             }
-        let sampleNames = (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
+        let sampleNames = (activeHaplotypeAnalysis()?.samples ?? []).map(\.sample)
         let neighbors = neighborSummaries(for: sampleId, in: sampleNames, analysis: analysis)
         let displayedCall = displayedCallName(
             sample: sampleId, locus: locusCall.locus, slot: .h1,
@@ -1187,7 +1186,9 @@ final class GenotypeResultViewController: NSViewController {
         // Outline / Cards / Matrix render.
         recomputeLiveHaplotypeAnalysis(evaluator: evaluator)
         rebuildOutline()
+        rebuildCardsRows()
         rebuildCohortSummary()
+        applyComparisonMatrixCohortFilter()
         if selectedLens == .review {
             updateCallEvidence()
         }
@@ -1594,7 +1595,7 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {
-        guard let result, let analysis = result.haplotypeAnalysis else { return }
+        guard let result, let analysis = activeHaplotypeAnalysis() else { return }
         guard let sampleAnalysis = analysis.samples.first(where: { $0.sample == animalId }) else { return }
         let rows: [GenotypeSampleDetailSheet.CallRow] = sampleAnalysis.calls.flatMap { call -> [GenotypeSampleDetailSheet.CallRow] in
             [

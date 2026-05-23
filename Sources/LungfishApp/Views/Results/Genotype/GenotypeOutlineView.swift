@@ -234,7 +234,7 @@ final class GenotypeOutlineView: NSView {
         // count as a tooltip carrying the original commentSummary text.
         let label = NSTextField(labelWithString: row.noteIssueCount > 0 ? "\u{26A0}\u{FE0E}" : "")
         label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
-        label.textColor = row.noteIssueCount > 0 ? NSColor.systemOrange : .clear
+        label.textColor = row.noteIssueCount > 0 ? NSColor.lungfishDanger : .clear
         label.alignment = .center
         label.widthAnchor.constraint(equalToConstant: 18).isActive = true
         if row.noteIssueCount > 0 {
@@ -258,7 +258,7 @@ final class GenotypeOutlineView: NSView {
     private func blockGlyphColor(_ kind: GenotypeBlockKind) -> NSColor {
         switch kind {
         case .blockCoherent:       return NSColor.systemGreen
-        case .regionalRecombinant: return NSColor.systemOrange
+        case .regionalRecombinant: return NSColor.lungfishDanger
         case .atypical:            return NSColor.lungfishDanger
         case .unknown:             return NSColor.secondaryLabelColor
         }

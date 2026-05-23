@@ -128,7 +128,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
         valueRow.spacing = 6
         let countLabel = NSTextField(labelWithString: "\(count) sample\(count == 1 ? "" : "s")")
         countLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: count > 0 ? .semibold : .regular)
-        countLabel.textColor = count > 0 ? NSColor.systemOrange : .labelColor
+        countLabel.textColor = count > 0 ? NSColor.lungfishDanger : .labelColor
         let detail = samples.isEmpty
             ? footnote
             : "\(footnote) Hover to list: \(samples.prefix(8).joined(separator: ", "))" +
@@ -150,8 +150,8 @@ final class GenotypeCohortSummaryPanelView: NSView {
         let container = NSBox()
         container.boxType = .custom
         container.borderWidth = 1
-        container.borderColor = NSColor.systemOrange.withAlphaComponent(0.5)
-        container.fillColor = NSColor.systemOrange.withAlphaComponent(0.1)
+        container.borderColor = NSColor.lungfishDanger.withAlphaComponent(0.5)
+        container.fillColor = NSColor.lungfishDanger.withAlphaComponent(0.1)
         container.cornerRadius = 6
         container.titlePosition = .noTitle
         container.translatesAutoresizingMaskIntoConstraints = false

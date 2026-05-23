@@ -94,7 +94,7 @@ struct GenotypeOverrideSection: View {
                     if isOffWhitelist {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(Color.orange)
+                            .foregroundStyle(Color(nsColor: .lungfishDanger))
                             .help("Off-whitelist value. Reviewers will see this as a custom override.")
                             .accessibilityLabel("Off-whitelist override")
                     }
@@ -110,9 +110,10 @@ struct GenotypeOverrideSection: View {
     /// doesn't match any whitelist entry. Used to surface a small triangle
     /// warning next to the field so analysts see they're going off-piste.
     private var isOffWhitelist: Bool {
-        !draft.target.isEmpty
+        let trimmed = draft.target.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
             && !allowedTargets.isEmpty
-            && !allowedTargets.contains(where: { $0.caseInsensitiveCompare(draft.target) == .orderedSame })
+            && !allowedTargets.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame })
     }
 
     /// Whitelist entries that prefix-match what the user has typed so far.

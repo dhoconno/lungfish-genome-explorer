@@ -106,7 +106,17 @@ struct GenotypeDropoutThresholdSection: View {
                         value: Binding(
                             get: { effective },
                             set: { newValue in
-                                perLocusFractionPercents[locus] = newValue
+                                // Drop the override when the analyst slides
+                                // back onto the global value (within step
+                                // granularity). Otherwise the override
+                                // count would creep upward on every drag
+                                // event and the reset button would stay
+                                // armed on benign motions.
+                                if abs(newValue - locusFractionPercent) < 0.05 {
+                                    perLocusFractionPercents.removeValue(forKey: locus)
+                                } else {
+                                    perLocusFractionPercents[locus] = newValue
+                                }
                             }
                         ),
                         in: 0...10,

@@ -30,4 +30,33 @@ final class GenotypeDropoutEvaluatorTests: XCTestCase {
         let evaluator = GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: nil)
         XCTAssertFalse(evaluator.isLowSupport(reads: 1, sampleTotal: 50000, locusTotal: 770))
     }
+
+    func testPerLocusOverrideTakesPrecedenceOverGlobalLocusFraction() {
+        let evaluator = GenotypeDropoutEvaluator(
+            absolute: nil,
+            sampleFraction: nil,
+            locusFraction: 0.01,
+            locusFractionOverrides: ["MHC-B": 0.05]
+        )
+        // 30 / 770 = 3.9% — passes the global 1% but fails the locus-B 5% override.
+        XCTAssertFalse(evaluator.isLowSupport(reads: 30, sampleTotal: 50000, locusTotal: 770, locus: "MHC-A"))
+        XCTAssertTrue(evaluator.isLowSupport(reads: 30, sampleTotal: 50000, locusTotal: 770, locus: "MHC-B"))
+    }
+
+    func testEffectiveLocusFractionFallsBackToGlobal() {
+        let evaluator = GenotypeDropoutEvaluator(
+            absolute: nil,
+            sampleFraction: nil,
+            locusFraction: 0.02,
+            locusFractionOverrides: ["MHC-B": 0.06]
+        )
+        XCTAssertEqual(evaluator.effectiveLocusFraction(forLocus: "MHC-A"), 0.02)
+        XCTAssertEqual(evaluator.effectiveLocusFraction(forLocus: "MHC-B"), 0.06)
+        XCTAssertEqual(evaluator.effectiveLocusFraction(forLocus: nil), 0.02)
+    }
+
+    func testNilEvaluatorLocusOverloadNeverLowSupport() {
+        let evaluator = GenotypeDropoutEvaluator(absolute: nil, sampleFraction: nil, locusFraction: nil)
+        XCTAssertFalse(evaluator.isLowSupport(reads: 1, sampleTotal: 50000, locusTotal: 770, locus: "MHC-A"))
+    }
 }

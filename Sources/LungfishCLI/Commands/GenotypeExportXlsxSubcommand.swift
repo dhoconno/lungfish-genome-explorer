@@ -396,8 +396,16 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
                 //   0 = body (default), 1 = header,
                 //   2 = error,
                 //   3..9 = M1..M7 fills.
-                let clamped = max(1, min(7, tokenIndex))
-                return Self.haplotypeStyleBase + (clamped - 1)
+                // The canonical Budde 2010 palette (indices 1-7) renders
+                // exactly. Extended palette indices (8..63) — used for
+                // Rhesus haplotypes that hash beyond the canonical seven —
+                // cycle back into M1..M7 in the workbook export. This
+                // matches the inspector's "best-effort" colour preview
+                // for off-canonical names. Long-term, expanding the
+                // stylesXML to all 63 assignable tokens would let Rhesus
+                // workbooks preserve every distinct token.
+                let resolved = tokenIndex <= 7 ? max(1, tokenIndex) : ((tokenIndex - 1) % 7) + 1
+                return Self.haplotypeStyleBase + (resolved - 1)
             }
         }
 
