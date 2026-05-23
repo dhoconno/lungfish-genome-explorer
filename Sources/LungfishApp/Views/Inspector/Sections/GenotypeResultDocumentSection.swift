@@ -17,6 +17,7 @@ struct GenotypeResultDocumentState: Equatable {
     let summaryRows: [(String, String)]
     let qcRows: [(String, String)]
     let artifactRows: [GenotypeResultArtifactRow]
+    var summaryViewMode: GenotypeSummaryViewMode = .outline
 
     func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
         GenotypeResultDocumentState(
@@ -28,7 +29,23 @@ struct GenotypeResultDocumentState: Equatable {
             windowStateScope: windowStateScope,
             summaryRows: summaryRows,
             qcRows: qcRows,
-            artifactRows: artifactRows
+            artifactRows: artifactRows,
+            summaryViewMode: summaryViewMode
+        )
+    }
+
+    func replacing(summaryViewMode: GenotypeSummaryViewMode) -> GenotypeResultDocumentState {
+        GenotypeResultDocumentState(
+            title: title,
+            subtitle: subtitle,
+            bundleURL: bundleURL,
+            sampleIds: sampleIds,
+            sampleMetadataStore: sampleMetadataStore,
+            windowStateScope: windowStateScope,
+            summaryRows: summaryRows,
+            qcRows: qcRows,
+            artifactRows: artifactRows,
+            summaryViewMode: summaryViewMode
         )
     }
 
@@ -45,21 +62,26 @@ struct GenotypeResultDocumentState: Equatable {
             lhs.windowStateScope == rhs.windowStateScope &&
             lhs.summaryRows.elementsEqual(rhs.summaryRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.qcRows.elementsEqual(rhs.qcRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
-            lhs.artifactRows == rhs.artifactRows
+            lhs.artifactRows == rhs.artifactRows &&
+            lhs.summaryViewMode == rhs.summaryViewMode
     }
 }
 
 struct GenotypeResultDocumentSection: View {
     let state: GenotypeResultDocumentState
+    var onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
+    @State private var isViewModeExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            Divider()
+            viewModeSection
             Divider()
             summarySection
             Divider()
@@ -69,6 +91,31 @@ struct GenotypeResultDocumentSection: View {
             Divider()
             artifactsSection
         }
+    }
+
+    private var viewModeSection: some View {
+        DisclosureGroup("View Mode", isExpanded: $isViewModeExpanded) {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(GenotypeSummaryViewMode.allCases, id: \.self) { mode in
+                    Button(action: {
+                        onViewModeChange?(mode)
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: state.summaryViewMode == mode ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(state.summaryViewMode == mode ? Color.accentColor : .secondary)
+                            Text(mode.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
     }
 
     private var header: some View {
