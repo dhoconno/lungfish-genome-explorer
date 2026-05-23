@@ -67,6 +67,11 @@ struct GenotypeResultSelectionState: Equatable {
     let highlightTarget: GenotypeResultHighlightTarget?
     let highlightColor: AnnotationColor?
     let highlightStyle: GenotypeResultHighlightStyle
+    /// Animal/sample id when the selection represents a sample row (vs a
+    /// shared allele label). The "Edit calls…" button dispatches to this
+    /// id so the Sample Detail sheet opens for the right sample. nil
+    /// when the selection is something else (allele, locus, etc.).
+    let animalId: String?
 
     init(
         title: String,
@@ -74,7 +79,8 @@ struct GenotypeResultSelectionState: Equatable {
         detailRows: [(String, String)],
         highlightTarget: GenotypeResultHighlightTarget? = nil,
         highlightColor: AnnotationColor? = nil,
-        highlightStyle: GenotypeResultHighlightStyle = .default
+        highlightStyle: GenotypeResultHighlightStyle = .default,
+        animalId: String? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -85,6 +91,7 @@ struct GenotypeResultSelectionState: Equatable {
             : highlightStyle
         self.highlightColor = resolvedStyle.fillColor
         self.highlightStyle = resolvedStyle
+        self.animalId = animalId
     }
 
     static func == (
@@ -96,7 +103,8 @@ struct GenotypeResultSelectionState: Equatable {
             lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.highlightTarget == rhs.highlightTarget &&
             lhs.highlightColor == rhs.highlightColor &&
-            lhs.highlightStyle == rhs.highlightStyle
+            lhs.highlightStyle == rhs.highlightStyle &&
+            lhs.animalId == rhs.animalId
     }
 }
 
@@ -944,19 +952,24 @@ public struct SelectionSection: View {
                 }
             }
 
-            Divider()
-
-            Button {
-                NotificationCenter.default.post(
-                    name: .genotypeResultRequestSampleDetailSheet,
-                    object: nil,
-                    userInfo: ["sample": selection.title]
-                )
-            } label: {
-                Label("Edit calls…", systemImage: "pencil.and.list.clipboard")
+            // Sample-level actions only when the selection is a sample
+            // row, not a shared allele label. The Sample Detail sheet
+            // needs an animal id to open; without one the button would
+            // open a sheet for a haplotype label, which is nonsensical.
+            if let animalId = selection.animalId, !animalId.isEmpty {
+                Divider()
+                Button {
+                    NotificationCenter.default.post(
+                        name: .genotypeResultRequestSampleDetailSheet,
+                        object: nil,
+                        userInfo: ["sample": animalId]
+                    )
+                } label: {
+                    Label("Edit calls…", systemImage: "pencil.and.list.clipboard")
+                }
+                .controlSize(.small)
+                .help("Open the per-locus call list to override haplotype calls for this sample.")
             }
-            .controlSize(.small)
-            .help("Open the per-locus call list to override haplotype calls for this sample.")
         }
         .padding(.top, 8)
     }

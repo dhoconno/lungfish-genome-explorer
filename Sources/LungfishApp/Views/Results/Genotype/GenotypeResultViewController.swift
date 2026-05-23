@@ -494,9 +494,12 @@ final class GenotypeResultViewController: NSViewController {
 
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
-        stack.alignment = .width
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
+        // .leading keeps section titles at the left margin rather than
+        // stretching across the lens width. Each section uses width
+        // anchors on its own subviews to fill the lens when needed.
+        stack.alignment = .leading
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 16, right: 16)
         stack.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         stack.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor).isActive = true
     }
@@ -571,6 +574,19 @@ final class GenotypeResultViewController: NSViewController {
         callEvidenceHost?.isHidden = false
         if callEvidenceHost == nil {
             installCallEvidenceHost()
+        }
+        // The Review lens is meant to walk the Needs Review queue, not
+        // show every sample. Auto-apply the "has errors" quick-filter
+        // predicate so only flagged samples appear on entry. The user
+        // can still clear the filter or pick a saved cohort.
+        if quickFilterPredicate == nil && activeSmartCohort == nil {
+            applyQuickFilter(.hasErrorAtAnyLocus)
+        }
+        // Auto-select the first review sample so Panel B has evidence
+        // to render immediately rather than the empty placeholder.
+        if currentSelectedSample == nil,
+           let first = outlineRowsBySample.keys.sorted().first {
+            currentSelectedSample = first
         }
         updateCallEvidence()
     }
@@ -1251,30 +1267,44 @@ final class GenotypeResultViewController: NSViewController {
     private func rebuildArtifactLens() {
         removeArrangedSubviews(from: artifactStack)
         guard let result else { return }
-        artifactStack.addArrangedSubview(sectionTitle("Share View"))
-        artifactStack.addArrangedSubview(exportViewButton())
-        artifactStack.addArrangedSubview(sectionTitle("Bundle Artifacts"))
-        [
-            ("Workbook", result.artifacts.workbookURL),
-            ("Long Summary CSV", result.artifacts.longSummaryCSVURL),
-            ("Sample Summary CSV", result.artifacts.sampleSummaryCSVURL),
-            ("Run Stats JSON", result.artifacts.statsJSONURL),
-            ("Provenance", result.artifacts.provenanceURL),
-        ].forEach { artifactStack.addArrangedSubview(artifactRow(label: $0.0, url: $0.1)) }
-        if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
-            artifactStack.addArrangedSubview(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
-        }
+        addAuditSection(title: "Share View", contents: [exportViewButton()])
+        let artifactRows: [NSView] = [
+            artifactRow(label: "Workbook", url: result.artifacts.workbookURL),
+            artifactRow(label: "Long Summary CSV", url: result.artifacts.longSummaryCSVURL),
+            artifactRow(label: "Sample Summary CSV", url: result.artifacts.sampleSummaryCSVURL),
+            artifactRow(label: "Run Stats JSON", url: result.artifacts.statsJSONURL),
+            artifactRow(label: "Provenance", url: result.artifacts.provenanceURL),
+        ] + (result.artifacts.haplotypeAnalysisURL.map { [artifactRow(label: "Haplotype Analysis", url: $0)] } ?? [])
+        addAuditSection(title: "Bundle Artifacts", contents: artifactRows)
 
         if manualHaplotypingIsAvailable(result: result) {
-            artifactStack.addArrangedSubview(sectionTitle("Manual Haplotyping"))
-            artifactStack.addArrangedSubview(makeManualHaplotypingHost())
+            addAuditSection(title: "Manual Haplotyping", contents: [makeManualHaplotypingHost()])
         }
+        addAuditSection(title: "Dropout Thresholds", contents: [makeDropoutThresholdHost()])
+        addAuditSection(title: "Haplotype Definitions", contents: [makeHaplotypeDefinitionsRow()])
+    }
 
-        artifactStack.addArrangedSubview(sectionTitle("Dropout Thresholds"))
-        artifactStack.addArrangedSubview(makeDropoutThresholdHost())
-
-        artifactStack.addArrangedSubview(sectionTitle("Haplotype Definitions"))
-        artifactStack.addArrangedSubview(makeHaplotypeDefinitionsRow())
+    /// Adds an Audit-lens section: a title followed by a content block,
+    /// each constrained to the lens width and visually grouped. Replaces
+    /// the previous free-form sectionTitle + content additions that
+    /// produced inconsistent alignment.
+    private func addAuditSection(title: String, contents: [NSView]) {
+        let group = NSStackView()
+        group.translatesAutoresizingMaskIntoConstraints = false
+        group.orientation = .vertical
+        group.alignment = .leading
+        group.spacing = 6
+        let header = sectionTitle(title)
+        group.addArrangedSubview(header)
+        for view in contents {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            group.addArrangedSubview(view)
+            view.leadingAnchor.constraint(equalTo: group.leadingAnchor).isActive = true
+            view.trailingAnchor.constraint(equalTo: group.trailingAnchor).isActive = true
+        }
+        artifactStack.addArrangedSubview(group)
+        group.leadingAnchor.constraint(equalTo: artifactStack.leadingAnchor, constant: 0).isActive = true
+        group.trailingAnchor.constraint(equalTo: artifactStack.trailingAnchor, constant: 0).isActive = true
     }
 
     /// Compact button row for opening the haplotype-definition editor.
@@ -1848,14 +1878,17 @@ final class GenotypeResultViewController: NSViewController {
             detailRows: detailRows,
             highlightTarget: nil,
             highlightColor: nil,
-            highlightStyle: .default
+            highlightStyle: .default,
+            animalId: animalId
         )
         publishSelectionState(state)
         if selectedLens == .review {
             updateCallEvidence()
-        } else {
-            presentSampleDetailSheet(forAnimal: animalId)
         }
+        // Clicking a row in the Outline lens shouldn't auto-open the
+        // detail sheet — the user expects the cell-click + popover, or
+        // the explicit "Edit calls…" button. Auto-opening a modal sheet
+        // on every row tap is too aggressive.
     }
 
     /// Open a transient popover anchored to a tape cell, showing the
