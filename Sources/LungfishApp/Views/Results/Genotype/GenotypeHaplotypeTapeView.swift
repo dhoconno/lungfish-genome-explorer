@@ -85,7 +85,7 @@ final class GenotypeHaplotypeTapeView: NSView {
         case .error:
             NSColor.controlBackgroundColor.setFill()
             path.fill()
-            NSColor.systemRed.setStroke()
+            NSColor.lungfishDanger.setStroke()
             path.lineWidth = 1.5
             path.stroke()
         }

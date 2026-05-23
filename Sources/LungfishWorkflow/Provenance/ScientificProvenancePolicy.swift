@@ -104,7 +104,8 @@ public enum ScientificProvenancePolicy {
         "metadata",
         "build-db",
         "markdup",
-        "primers"
+        "primers",
+        "genotype"
     ]
 
     public static let cliCommandPolicies: [String: ProvenancePolicyEntry] = [
@@ -146,7 +147,8 @@ public enum ScientificProvenancePolicy {
         "build-db": dataWriting("cli.build-db"),
         "markdup": dataWriting("cli.markdup"),
         "primers": dataWriting("cli.primers"),
-        "primer": dataWriting("cli.primers")
+        "primer": dataWriting("cli.primers"),
+        "genotype": inspectOnly("cli.genotype")
     ]
 
     public static let nativeToolPolicies: [String: ProvenancePolicyEntry] = [

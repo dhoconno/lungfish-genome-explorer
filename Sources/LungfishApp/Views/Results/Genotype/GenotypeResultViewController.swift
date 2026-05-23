@@ -957,7 +957,11 @@ final class GenotypeResultViewController: NSViewController {
                     let export = try GenotypeViewportExcelExportService().export(snapshot: snapshot, to: url)
                     NSWorkspace.shared.activateFileViewerSelecting([export.workbookURL])
                 } catch {
-                    NSAlert(error: error).runModal()
+                    if let window = self.view.window ?? NSApp.keyWindow {
+                        NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+                    } else {
+                        NSApp.presentError(error)
+                    }
                 }
             }
         }

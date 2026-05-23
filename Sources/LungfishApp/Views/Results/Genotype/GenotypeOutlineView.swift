@@ -162,7 +162,7 @@ final class GenotypeOutlineView: NSView {
         switch kind {
         case .blockCoherent:       return NSColor.systemGreen
         case .regionalRecombinant: return NSColor.systemOrange
-        case .atypical:            return NSColor.systemRed
+        case .atypical:            return NSColor.lungfishDanger
         case .unknown:             return NSColor.secondaryLabelColor
         }
     }
