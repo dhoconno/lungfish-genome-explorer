@@ -86,15 +86,31 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     public let name: String
     public let diagnosticAlleles: [String]
     public let colorTokenIndex: Int
+    /// Minimum number of `diagnosticAlleles` that must be observed for
+    /// this haplotype to match. `nil` means "all" (the strict notebook
+    /// rule). Use a smaller integer when supplying multi-family
+    /// supporting alleles so the call still succeeds when one or two
+    /// families dropped out — this lets the inspector use rich
+    /// diagnostic lists from the pbaa.xlsx workbook without requiring
+    /// every single allele to be present.
+    public let minimumMatches: Int?
 
-    public init(name: String, diagnosticAlleles: [String], colorTokenIndex: Int? = nil) {
+    public init(name: String, diagnosticAlleles: [String], colorTokenIndex: Int? = nil, minimumMatches: Int? = nil) {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
         self.colorTokenIndex = colorTokenIndex ?? HaplotypeColorToken.assigned(forName: name).canonicalIndex
+        self.minimumMatches = minimumMatches
+    }
+
+    /// Effective threshold for matching: `minimumMatches` when set,
+    /// otherwise the full diagnostic-allele count (the strict rule).
+    public var effectiveMinimumMatches: Int {
+        if let minimumMatches { return max(1, min(minimumMatches, diagnosticAlleles.count)) }
+        return diagnosticAlleles.count
     }
 
     private enum CodingKeys: String, CodingKey {
-        case name, diagnosticAlleles, colorTokenIndex
+        case name, diagnosticAlleles, colorTokenIndex, minimumMatches
     }
 
     public init(from decoder: Decoder) throws {
@@ -106,6 +122,7 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
         self.name = name
         self.diagnosticAlleles = diagnosticAlleles
         self.colorTokenIndex = colorTokenIndex
+        self.minimumMatches = try container.decodeIfPresent(Int.self, forKey: .minimumMatches)
     }
 }
 
@@ -310,7 +327,12 @@ public enum GenotypeHaplotypeAnalyzer {
 
         let matched = locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
             let observedDiagnostics = haplotype.diagnosticAlleles.filter { alleleText.contains($0) }
-            guard observedDiagnostics.count == haplotype.diagnosticAlleles.count else { return nil }
+            // Haplotypes can opt into a "K of N" rule by setting
+            // `minimumMatches`. The default behaviour (no override)
+            // remains the strict "all alleles must be observed" rule
+            // the notebook uses — preserves backwards compatibility for
+            // any caller that hasn't specified a threshold.
+            guard observedDiagnostics.count >= haplotype.effectiveMinimumMatches else { return nil }
             return GenotypeHaplotypeMatchedDefinition(
                 name: haplotype.name,
                 diagnosticAlleles: haplotype.diagnosticAlleles,

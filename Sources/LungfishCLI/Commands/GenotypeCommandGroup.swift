@@ -23,6 +23,8 @@ struct GenotypeCommandGroup: AsyncParsableCommand {
             GenotypeListCohortsSubcommand.self,
             GenotypeApplyAnnotationsSubcommand.self,
             GenotypeExportXlsxSubcommand.self,
+            GenotypeExportPivotXlsxSubcommand.self,
+            GenotypeExportLabKeySubcommand.self,
         ]
     )
 }

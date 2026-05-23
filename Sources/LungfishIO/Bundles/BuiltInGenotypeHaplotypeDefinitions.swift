@@ -28,26 +28,41 @@ extension GenotypeHaplotypeDefinitionRegistry {
                 locus: "MHC-A",
                 sourceLocus: "Mafa-A",
                 haplotypes: [
-                    GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["05_M1M2M3_A1_063g", "07_M1M2_70_156bp", "11_M1_E_02g3|E_02_nov_09,_E_02_nov_10", "04_M1_AG_05_3mis_156bp"]),
-                    GenotypeHaplotypeDefinition(name: "M2A", diagnosticAlleles: ["05_M1M2M3_A1_063g", "07_M1M2_70_156bp", "02_M2_G_02_06_156bp"]),
-                    GenotypeHaplotypeDefinition(name: "M3A", diagnosticAlleles: ["05_M1M2M3_A1_063g", "07_M3_70_156bp"]),
-                    GenotypeHaplotypeDefinition(name: "M4A", diagnosticAlleles: ["05_M4_A1_031_01"]),
-                    GenotypeHaplotypeDefinition(name: "M5A", diagnosticAlleles: ["05_M5_A1_033_01"]),
-                    GenotypeHaplotypeDefinition(name: "M6A", diagnosticAlleles: ["05_M6_A1_032_01", "05_M6_A1_047_01"]),
-                    GenotypeHaplotypeDefinition(name: "M7A", diagnosticAlleles: ["05_M7_A1_060_05"])
+                    // Multi-family diagnostic allele sets derived from the
+                    // manual MCM haplotyping reference workbook
+                    // (/Users/dho/Downloads/pbaa.xlsx, rows 22-86). Single
+                    // M-tag alleles preferred; multi-M alleles included
+                    // only when no single-M allele exists in the family.
+                    // `minimumMatches: 2` lets a call succeed when ≥2 of
+                    // the N alleles are observed — so dropout in one or
+                    // two families doesn't kill the call.
+                    // Only single-M-tagged alleles — multi-M alleles like
+                    // 07_M1M2_70_156bp cause false TMH because they
+                    // substring-match across haplotypes. Each list is
+                    // pure single-M markers from multiple gene families.
+                    GenotypeHaplotypeDefinition(name: "M1A", diagnosticAlleles: ["01_M1_F_01_w_06", "02_M1_G_02_07_2mis_156bp", "04_M1_AG_05_3mis_156bp", "11_M1_E_02g3"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M2A", diagnosticAlleles: ["02_M2_G_02_06_156bp"], minimumMatches: 1),
+                    GenotypeHaplotypeDefinition(name: "M3A", diagnosticAlleles: ["02_M3_G_02_0508_g48c_156bp", "04_M3_AG_04g1_156bp", "04_M3_AG_d_Ctg27ex", "07_M3_70_156bp"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M4A", diagnosticAlleles: ["04_M4_AG_02_w_01_156bp", "05_M4_A1_031_01", "07_M4_70_156bp"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M5A", diagnosticAlleles: ["02_M5_G_02_03_4mis_156bp", "05_M5_A1_033_01"], minimumMatches: 1),
+                    GenotypeHaplotypeDefinition(name: "M6A", diagnosticAlleles: ["01_M6_F_01_07", "04_M6_AG_w_02_g93a_156bp", "05_M6_A1_032_01", "05_M6_A1_047_01", "07_M6_70a_156bp", "07_M6_70b_156bp", "11_M6_E_02_nov_07", "11_M6_E_02_nov_15"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M7A", diagnosticAlleles: ["02_M7_G_02_03_4mis_156bp", "04_M7_Mafa-AG_05_156bp", "05_M7_A1_060_05", "07_M7_70_156bp", "11_M7_E_02_nov_18"], minimumMatches: 2)
                 ]
             ),
             GenotypeHaplotypeLocusDefinition(
                 locus: "MHC-B",
                 sourceLocus: "Mafa-B",
                 haplotypes: [
-                    GenotypeHaplotypeDefinition(name: "M1B", diagnosticAlleles: ["12_M1_B_134_02", "12_M1_B_152_01N"]),
-                    GenotypeHaplotypeDefinition(name: "M2B", diagnosticAlleles: ["12_M2_B_019_03", "12_M2_B_150_01_01"]),
-                    GenotypeHaplotypeDefinition(name: "M3B", diagnosticAlleles: ["12_M3_B_165_01", "12_M3_B_075_01"]),
-                    GenotypeHaplotypeDefinition(name: "M4B", diagnosticAlleles: ["12_M4_B_088_01", "12_M4_B_127_nov_01"]),
-                    GenotypeHaplotypeDefinition(name: "M5B", diagnosticAlleles: ["12_M5_B_167_01N", "12_M5_B_051_04"]),
-                    GenotypeHaplotypeDefinition(name: "M6B", diagnosticAlleles: ["12_M6_B17_01_g103c", "12_M6_B_095_01"]),
-                    GenotypeHaplotypeDefinition(name: "M7B", diagnosticAlleles: ["12_M7_B_072_02", "12_M7_B_166_01"])
+                    // MCM MHC-B diagnostic alleles from pbaa.xlsx rows
+                    // 88-134 (Mafa-B + Mafa-B11L + Mafa-I families).
+                    // ≥2 of N matches, single-M tags only.
+                    GenotypeHaplotypeDefinition(name: "M1B", diagnosticAlleles: ["12_M1_B_057_02", "12_M1_B_134_02", "12_M1_B_144_02", "12_M1_B_152_01N"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M2B", diagnosticAlleles: ["12_M2_B_019_03", "12_M2_B_109_04", "12_M2_B_150_01_01", "12_M2_B_162"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M3B", diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_098_05", "12_M3_B_165_01"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M4B", diagnosticAlleles: ["12_M4_B_088_01", "12_M4_B_127_nov_01", "12_M4_B_147_01"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M5B", diagnosticAlleles: ["12_M5_B_045_01", "12_M5_B_050_04", "12_M5_B_051_04", "12_M5_B_149_01", "12_M5_B_167_01N"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M6B", diagnosticAlleles: ["12_M6_B_033_01", "12_M6_B_045_03", "12_M6_B_095_01", "12_M6_B_098_06"], minimumMatches: 2),
+                    GenotypeHaplotypeDefinition(name: "M7B", diagnosticAlleles: ["12_M7_B_072_02", "12_M7_B_164_02", "12_M7_B_166_01"], minimumMatches: 2)
                 ]
             ),
             GenotypeHaplotypeLocusDefinition(

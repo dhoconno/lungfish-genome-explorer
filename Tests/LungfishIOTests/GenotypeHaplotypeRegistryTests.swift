@@ -38,7 +38,11 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
         XCTAssertEqual(mhcA.haplotype2, "-")
         XCTAssertEqual(mhcA.status, .called)
         XCTAssertEqual(mhcA.matchedHaplotypes.map(\.name), ["M2A"])
-        XCTAssertEqual(mhcA.matchedHaplotypes.first?.observedDiagnosticAlleles.count, 3)
+        // M2A's diagnostic set is one high-specificity Mafa-G allele
+        // (single-M-tag); the K-of-N rule means observing that one
+        // allele is sufficient. Earlier definitions used 3 multi-M-tag
+        // alleles which caused false TMH on real bundles.
+        XCTAssertGreaterThanOrEqual(mhcA.matchedHaplotypes.first?.observedDiagnosticAlleles.count ?? 0, 1)
     }
 
     func testMCMUndercalledA1063SpecialCaseIsPreserved() throws {
