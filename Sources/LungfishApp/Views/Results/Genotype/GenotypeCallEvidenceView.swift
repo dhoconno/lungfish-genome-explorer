@@ -31,6 +31,17 @@ struct GenotypeCallEvidenceView: View {
         /// diagnostic alleles were observed vs missing. Empty for OK / TMH /
         /// TMG cases.
         var candidateHaplotypes: [CandidateHaplotype] = []
+        /// H1 name and H2 name as the analyzer called them (may be the
+        /// same for homozygous samples, or "ERR: ..." for error calls).
+        /// Both shown in the popover header so the analyst sees the full
+        /// diploid call, not just one allele.
+        var h1Name: String = ""
+        var h2Name: String = ""
+        /// Per-haplotype supporting-allele breakdown. Each entry shows
+        /// which diagnostic alleles were observed for a single matched
+        /// haplotype, with read counts. Surfaces for healthy calls so the
+        /// analyst can see exactly which reads supported H1 vs H2.
+        var perHaplotypeSupport: [PerHaplotypeSupport] = []
 
         static let placeholder = Evidence(
             sample: "",
@@ -45,6 +56,22 @@ struct GenotypeCallEvidenceView: View {
             neighborsBefore: [],
             neighborsAfter: []
         )
+
+        /// True when the sample's call at this locus is homozygous
+        /// (h1 == h2 with both being a real haplotype) OR effectively
+        /// homozygous (h2 is "-", meaning only one haplotype was
+        /// supported). Used to label the popover header.
+        var isHomozygous: Bool {
+            guard status == .called || status == .specialCase else { return false }
+            if h2Name.isEmpty || h2Name == "-" { return true }
+            return h1Name == h2Name
+        }
+    }
+
+    struct PerHaplotypeSupport: Identifiable, Equatable {
+        let haplotypeName: String
+        let supportingAlleles: [DiagnosticAllele]
+        var id: String { haplotypeName }
     }
 
     struct CandidateHaplotype: Identifiable, Equatable {
@@ -79,6 +106,10 @@ struct GenotypeCallEvidenceView: View {
                         Divider()
                         errorExplanationBlock(evidence)
                     }
+                    if !evidence.perHaplotypeSupport.isEmpty {
+                        Divider()
+                        perHaplotypeSupportBlock(evidence)
+                    }
                     if !evidence.candidateHaplotypes.isEmpty {
                         Divider()
                         candidatesBlock(evidence)
@@ -109,6 +140,44 @@ struct GenotypeCallEvidenceView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Per-haplotype supporting-allele table for healthy calls. Lists each
+    /// matched haplotype (H1, H2, or just one for homozygous samples) with
+    /// the diagnostic alleles that supported it and their read counts.
+    private func perHaplotypeSupportBlock(_ evidence: Evidence) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Supporting reads per haplotype")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(evidence.perHaplotypeSupport) { support in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(support.haplotypeName)
+                            .font(.callout.monospaced().weight(.semibold))
+                        Text("\(support.supportingAlleles.count) supporting allele\(support.supportingAlleles.count == 1 ? "" : "s")")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(support.supportingAlleles) { allele in
+                        HStack(spacing: 6) {
+                            Text(allele.allele)
+                                .font(.caption.monospaced())
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("\(allele.reads)")
+                                .font(.caption.monospacedDigit())
+                                .frame(width: 60, alignment: .trailing)
+                            Text(String(format: "%.1f%%", allele.percentOfLocus * 100))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(allele.isLowSupport ? Color(nsColor: .lungfishDanger) : .primary)
+                                .frame(width: 60, alignment: .trailing)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -174,9 +243,6 @@ struct GenotypeCallEvidenceView: View {
                 Text(evidence.locus)
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
-                Text(evidence.slot.displayName)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
                 Spacer()
                 statusChip(evidence.status)
             }
@@ -184,11 +250,33 @@ struct GenotypeCallEvidenceView: View {
                 Text("Call:")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(evidence.callName)
+                Text(diploidCallText(evidence))
                     .font(.callout.monospaced())
                     .textSelection(.enabled)
+                if evidence.isHomozygous {
+                    Text("(homozygous)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.accentColor.opacity(0.15))
+                        )
+                }
             }
         }
+    }
+
+    private func diploidCallText(_ evidence: Evidence) -> String {
+        // For called samples: show "H1 / H2" or "H1 (homozygous)" when
+        // both haplotypes are the same. For errors: show the error label.
+        let h1 = evidence.h1Name.isEmpty ? evidence.callName : evidence.h1Name
+        let h2 = evidence.h2Name
+        if h2.isEmpty || h2 == "-" || h2 == h1 {
+            return h1
+        }
+        return "\(h1) / \(h2)"
     }
 
     private func diagnosticAlleles(_ evidence: Evidence) -> some View {

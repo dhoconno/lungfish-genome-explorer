@@ -80,6 +80,13 @@ final class GenotypeResultViewController: NSViewController {
         popover.animates = true
         return popover
     }()
+    /// Per-project haplotype-definition store. Reads from / writes to
+    /// `<projectRoot>/Haplotype Definitions/`. Populated from the bundle's
+    /// surrounding project root in `configure(result:)`.
+    private var haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: nil)
+    /// SwiftUI hosting controller for the active definition-editor sheet,
+    /// stored so the sheet can be dismissed programmatically on save/cancel.
+    private var haplotypeDefinitionEditorHost: NSHostingController<GenotypeHaplotypeDefinitionEditor>?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -238,6 +245,15 @@ final class GenotypeResultViewController: NSViewController {
         self.result = result
         let knownSampleIDs = Set(result.samples.map(\.sample) + result.calls.map(\.sample))
         sampleMetadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
+        // Wire the haplotype-definition store to the project root.
+        // bundleURL is .../Analyses/<analysis-folder>/<bundle>; climb two
+        // levels to reach the project root (where "Reference Sequences" /
+        // "Haplotype Definitions" / "Primer Schemes" siblings live).
+        let projectRoot = result.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        haplotypeDefinitionStore = HaplotypeDefinitionStore(projectRoot: projectRoot)
         annotationStore = try? GenotypeAnnotationStore(
             bundleURL: result.bundleURL,
             author: NSUserName()
@@ -649,6 +665,12 @@ final class GenotypeResultViewController: NSViewController {
         )
         let explanation = errorExplanation(for: locusCall, observed: observedSet)
         let candidates = candidateHaplotypes(for: locusCall, observed: observedSet)
+        let perHaplotype = perHaplotypeSupport(
+            for: locusCall,
+            sampleCalls: sampleCalls,
+            locusTotal: locusTotal,
+            evaluator: evaluator
+        )
         return GenotypeCallEvidenceView.Evidence(
             sample: sampleId,
             locus: locusCall.locus,
@@ -662,8 +684,52 @@ final class GenotypeResultViewController: NSViewController {
             neighborsBefore: neighbors.before,
             neighborsAfter: neighbors.after,
             errorExplanation: explanation,
-            candidateHaplotypes: candidates
+            candidateHaplotypes: candidates,
+            h1Name: locusCall.haplotype1,
+            h2Name: locusCall.haplotype2,
+            perHaplotypeSupport: perHaplotype
         )
+    }
+
+    /// Build a per-haplotype supporting-allele table for the popover. For
+    /// each matched haplotype, lists every diagnostic allele observed in
+    /// the sample with read count and % of locus reads. Empty for error
+    /// calls because the matched-haplotypes list itself is empty.
+    private func perHaplotypeSupport(
+        for locusCall: GenotypeHaplotypeLocusCall,
+        sampleCalls: [ONTGenotypeCall],
+        locusTotal: Int,
+        evaluator: GenotypeDropoutEvaluator
+    ) -> [GenotypeCallEvidenceView.PerHaplotypeSupport] {
+        guard !locusCall.matchedHaplotypes.isEmpty else { return [] }
+        let sampleTotal = sampleCalls.reduce(0) { $0 + max(0, $1.passedUniqueReads) }
+        // Look up per-allele read counts once so the inner loop is O(1).
+        let readsByAllele: [String: Int] = Dictionary(
+            sampleCalls.map { ($0.genotype, $0.passedUniqueReads) },
+            uniquingKeysWith: { current, _ in current }
+        )
+        return locusCall.matchedHaplotypes.map { matched in
+            let alleles = matched.observedDiagnosticAlleles.map { allele -> GenotypeCallEvidenceView.DiagnosticAllele in
+                let reads = readsByAllele[allele] ?? 0
+                let pct = locusTotal > 0 ? Double(reads) / Double(locusTotal) : 0
+                let isLow = evaluator.isLowSupport(
+                    reads: reads,
+                    sampleTotal: sampleTotal,
+                    locusTotal: locusTotal,
+                    locus: locusCall.locus
+                )
+                return GenotypeCallEvidenceView.DiagnosticAllele(
+                    allele: allele,
+                    reads: reads,
+                    percentOfLocus: pct,
+                    isLowSupport: isLow
+                )
+            }
+            return GenotypeCallEvidenceView.PerHaplotypeSupport(
+                haplotypeName: matched.name,
+                supportingAlleles: alleles
+            )
+        }
     }
 
     /// Plain-English explanation of why a call is in error. Empty string
@@ -1206,6 +1272,102 @@ final class GenotypeResultViewController: NSViewController {
 
         artifactStack.addArrangedSubview(sectionTitle("Dropout Thresholds"))
         artifactStack.addArrangedSubview(makeDropoutThresholdHost())
+
+        artifactStack.addArrangedSubview(sectionTitle("Haplotype Definitions"))
+        artifactStack.addArrangedSubview(makeHaplotypeDefinitionsRow())
+    }
+
+    /// Compact button row for opening the haplotype-definition editor.
+    /// One button per existing user-defined set, plus "New definition".
+    private func makeHaplotypeDefinitionsRow() -> NSView {
+        let container = NSStackView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 4
+        container.edgeInsets = NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+
+        let description = NSTextField(wrappingLabelWithString:
+            "Add or edit per-project haplotype definition sets. Saved as JSON under \"Haplotype Definitions/\" in the project root so multiple sets can coexist and be shared."
+        )
+        description.font = NSFont.systemFont(ofSize: 10)
+        description.textColor = .secondaryLabelColor
+        container.addArrangedSubview(description)
+
+        let userSets = haplotypeDefinitionStore.loadAllUserSets()
+        for userSet in userSets {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.spacing = 6
+            let label = NSTextField(labelWithString: userSet.displayName)
+            label.font = NSFont.systemFont(ofSize: 11)
+            let editButton = NSButton(title: "Edit", target: self, action: #selector(handleEditHaplotypeDefinition(_:)))
+            editButton.identifier = NSUserInterfaceItemIdentifier(userSet.id)
+            editButton.controlSize = .small
+            row.addArrangedSubview(label)
+            row.addArrangedSubview(editButton)
+            container.addArrangedSubview(row)
+        }
+
+        let newButton = NSButton(title: "New definition…", target: self, action: #selector(handleNewHaplotypeDefinition(_:)))
+        newButton.controlSize = .small
+        container.addArrangedSubview(newButton)
+
+        return container
+    }
+
+    @objc private func handleNewHaplotypeDefinition(_ sender: NSButton) {
+        let blank = GenotypeHaplotypeDefinitionSet(
+            id: "custom.\(Int(Date().timeIntervalSince1970))",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "New definition",
+            speciesName: "Custom",
+            speciesCode: "CUS",
+            prefix: "",
+            locusDefinitions: []
+        )
+        presentHaplotypeDefinitionEditor(draft: blank)
+    }
+
+    @objc private func handleEditHaplotypeDefinition(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue,
+              let existing = haplotypeDefinitionStore.loadAllUserSets().first(where: { $0.id == id }) else {
+            return
+        }
+        presentHaplotypeDefinitionEditor(draft: existing)
+    }
+
+    private func presentHaplotypeDefinitionEditor(draft: GenotypeHaplotypeDefinitionSet) {
+        let editor = GenotypeHaplotypeDefinitionEditor(
+            draft: draft,
+            onSave: { [weak self] saved in
+                guard let self else { return }
+                do {
+                    try self.haplotypeDefinitionStore.save(saved)
+                    self.dismissHaplotypeDefinitionEditor()
+                    self.rebuildArtifactLens()
+                } catch {
+                    self.presentSheetAlert(error: error)
+                }
+            },
+            onCancel: { [weak self] in
+                self?.dismissHaplotypeDefinitionEditor()
+            }
+        )
+        let hosting = NSHostingController(rootView: editor)
+        hosting.view.frame = NSRect(x: 0, y: 0, width: 760, height: 520)
+        haplotypeDefinitionEditorHost = hosting
+        guard let window = view.window ?? NSApp.keyWindow else {
+            NSApp.presentError(NSError(domain: "Lungfish", code: 0))
+            return
+        }
+        window.beginSheet(NSWindow(contentViewController: hosting), completionHandler: nil)
+    }
+
+    private func dismissHaplotypeDefinitionEditor() {
+        guard let host = haplotypeDefinitionEditorHost else { return }
+        host.view.window?.sheetParent?.endSheet(host.view.window!)
+        haplotypeDefinitionEditorHost = nil
     }
 
     private func makeDropoutThresholdHost() -> NSView {
@@ -1470,6 +1632,12 @@ final class GenotypeResultViewController: NSViewController {
             )
             let comment = outlineCommentSummary(for: sample)
             let issueCount = outlineNoteIssueCount(for: sample)
+            // Per-locus call text feeds the inline detail block when the
+            // analyst opens the row's disclosure triangle.
+            let perLocusCallText: [(locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)] =
+                sample.calls.map { call in
+                    (locus: call.locus, h1: call.haplotype1, h2: call.haplotype2, status: call.status)
+                }
             let row = GenotypeOutlineView.Row(
                 animalId: sample.sample,
                 gsId: nil,
@@ -1477,7 +1645,8 @@ final class GenotypeResultViewController: NSViewController {
                 tapeSlots: tapeSlots,
                 blockKind: blockKind,
                 commentSummary: comment,
-                noteIssueCount: issueCount
+                noteIssueCount: issueCount,
+                perLocusCallText: perLocusCallText
             )
             rows.append(row)
             outlineRowsBySample[sample.sample] = row
@@ -1813,7 +1982,10 @@ final class GenotypeResultViewController: NSViewController {
 
     private func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? {
         guard let id = result.haplotypeAnalysis?.definitionSetID else { return nil }
-        return GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id)
+        // Prefer the project-level merged registry so a user override of
+        // the same definitionSetID takes precedence over the built-in
+        // copy. Falls through to the built-in registry when no override.
+        return haplotypeDefinitionStore.mergedRegistry().definitionSet(id: id)
     }
 
     /// Attaches a sidecar snapshot to a base export snapshot when the

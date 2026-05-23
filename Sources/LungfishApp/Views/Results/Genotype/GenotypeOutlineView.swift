@@ -16,6 +16,9 @@ final class GenotypeOutlineView: NSView {
         /// Number of distinct review-worthy notes (TMH / NO HAP / TMG /
         /// special-case). Zero means no alert glyph renders.
         let noteIssueCount: Int
+        /// Per-locus haplotype call text (e.g. "M2A / M3A", "ERR: TMH (...)").
+        /// Used when the analyst expands the row's disclosure triangle.
+        let perLocusCallText: [(locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)]
 
         init(
             animalId: String,
@@ -24,7 +27,8 @@ final class GenotypeOutlineView: NSView {
             tapeSlots: [GenotypeHaplotypeTapeView.Slot],
             blockKind: GenotypeBlockKind,
             commentSummary: String,
-            noteIssueCount: Int
+            noteIssueCount: Int,
+            perLocusCallText: [(locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)] = []
         ) {
             self.animalId = animalId
             self.gsId = gsId
@@ -33,6 +37,7 @@ final class GenotypeOutlineView: NSView {
             self.blockKind = blockKind
             self.commentSummary = commentSummary
             self.noteIssueCount = noteIssueCount
+            self.perLocusCallText = perLocusCallText
         }
 
         static func == (lhs: Row, rhs: Row) -> Bool {
@@ -40,7 +45,10 @@ final class GenotypeOutlineView: NSView {
             lhs.loci == rhs.loci && lhs.blockKind == rhs.blockKind &&
             lhs.commentSummary == rhs.commentSummary &&
             lhs.noteIssueCount == rhs.noteIssueCount &&
-            lhs.tapeSlots == rhs.tapeSlots
+            lhs.tapeSlots == rhs.tapeSlots &&
+            lhs.perLocusCallText.elementsEqual(rhs.perLocusCallText, by: { lhs, rhs in
+                lhs.locus == rhs.locus && lhs.h1 == rhs.h1 && lhs.h2 == rhs.h2 && lhs.status == rhs.status
+            })
         }
     }
 
@@ -52,6 +60,10 @@ final class GenotypeOutlineView: NSView {
     var onLocusCellClicked: ((String, String, NSView, NSRect) -> Void)?
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
+    /// Per-sample disclosure state. When `true`, the row renders an
+    /// inline detail block beneath the tape showing each locus's
+    /// haplotype call text. Click the triangle to toggle.
+    private var expandedSamples: Set<String> = []
     private let stack = NSStackView()
     private let scrollView = NSScrollView()
     private let documentView = FlippedDocumentView()
@@ -78,7 +90,10 @@ final class GenotypeOutlineView: NSView {
         // of their fixed widgets, leaving a big empty gutter on the right.
         stack.alignment = .leading
         stack.distribution = .fill
-        stack.spacing = 1
+        // Whitespace between rows so adjacent samples don't blur together
+        // visually — especially important when many samples have similar
+        // tape colours.
+        stack.spacing = 4
 
         scrollView.documentView = documentView
         documentView.addSubview(stack)
@@ -143,20 +158,32 @@ final class GenotypeOutlineView: NSView {
         // Locus header columns — one label per locus, evenly distributed
         // across whatever horizontal space the row gets. The tape view
         // in each row uses the exact same column layout so the swatches
-        // line up under the headers.
+        // line up under the headers. Each label is wrapped in an NSView
+        // so .fillEqually distributes the wrappers (not the intrinsic
+        // text size) and the label centers inside its column.
         let lociHeader = NSStackView()
         lociHeader.translatesAutoresizingMaskIntoConstraints = false
         lociHeader.orientation = .horizontal
         lociHeader.distribution = .fillEqually
         lociHeader.spacing = 0
         for locus in loci {
+            let column = NSView()
+            column.translatesAutoresizingMaskIntoConstraints = false
             let label = NSTextField(labelWithString: shortLocusLabel(locus))
-            label.font = NSFont.systemFont(ofSize: 9, weight: .medium)
+            label.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
             label.textColor = .secondaryLabelColor
             label.alignment = .center
             label.lineBreakMode = .byTruncatingMiddle
             label.toolTip = locus
-            lociHeader.addArrangedSubview(label)
+            label.translatesAutoresizingMaskIntoConstraints = false
+            column.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: column.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: column.centerYAnchor),
+                label.leadingAnchor.constraint(greaterThanOrEqualTo: column.leadingAnchor, constant: 2),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: column.trailingAnchor, constant: -2),
+            ])
+            lociHeader.addArrangedSubview(column)
         }
 
         let noteHeader = NSTextField(labelWithString: "!")
@@ -205,6 +232,16 @@ final class GenotypeOutlineView: NSView {
     }
 
     private func makeRow(_ row: Row) -> NSView {
+        // Outer vertical container so we can put the tape row at the top
+        // and an expandable detail block underneath when the disclosure
+        // triangle is open.
+        let outer = NSStackView()
+        outer.translatesAutoresizingMaskIntoConstraints = false
+        outer.orientation = .vertical
+        outer.alignment = .leading
+        outer.spacing = 2
+        outer.identifier = NSUserInterfaceItemIdentifier(row.animalId)
+
         let container = NSStackView()
         container.translatesAutoresizingMaskIntoConstraints = false
         container.orientation = .horizontal
@@ -219,9 +256,17 @@ final class GenotypeOutlineView: NSView {
         leading.orientation = .horizontal
         leading.spacing = 6
         leading.alignment = .centerY
-        let disclosure = NSTextField(labelWithString: "\u{25B6}")
+        let isExpanded = expandedSamples.contains(row.animalId)
+        let disclosureSymbol = isExpanded ? "\u{25BC}" : "\u{25B6}"
+        let disclosure = NSButton()
+        disclosure.title = disclosureSymbol
+        disclosure.isBordered = false
+        disclosure.bezelStyle = .inline
         disclosure.font = NSFont.systemFont(ofSize: 10)
-        disclosure.textColor = .secondaryLabelColor
+        disclosure.target = self
+        disclosure.action = #selector(handleDisclosureToggle(_:))
+        disclosure.identifier = NSUserInterfaceItemIdentifier(row.animalId)
+        disclosure.contentTintColor = .secondaryLabelColor
         disclosure.widthAnchor.constraint(equalToConstant: 24).isActive = true
         let blockGlyph = NSTextField(labelWithString: blockGlyphSymbol(row.blockKind))
         blockGlyph.font = NSFont.systemFont(ofSize: 11)
@@ -271,7 +316,87 @@ final class GenotypeOutlineView: NSView {
         tapeClick.animalId = row.animalId
         tape.addGestureRecognizer(tapeClick)
         container.identifier = NSUserInterfaceItemIdentifier(row.animalId)
+
+        outer.addArrangedSubview(container)
+        // Pin the container's width to the outer's so the row fills the
+        // table's column width. Without this the inner container shrinks
+        // to its intrinsic content.
+        container.widthAnchor.constraint(equalTo: outer.widthAnchor).isActive = true
+
+        if isExpanded {
+            outer.addArrangedSubview(makeDisclosedDetail(for: row))
+        }
+        return outer
+    }
+
+    /// Inline detail block shown when the disclosure triangle is open.
+    /// Lists each locus's haplotype call text in a compact table so the
+    /// analyst can read the calls without opening the per-cell popover.
+    private func makeDisclosedDetail(for row: Row) -> NSView {
+        let container = NSStackView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 2
+        container.edgeInsets = NSEdgeInsets(top: 4, left: Self.leadingGutter + 14, bottom: 6, right: 8)
+
+        if row.perLocusCallText.isEmpty {
+            let placeholder = NSTextField(labelWithString: "No haplotype calls available for this sample.")
+            placeholder.font = NSFont.systemFont(ofSize: 10)
+            placeholder.textColor = .tertiaryLabelColor
+            container.addArrangedSubview(placeholder)
+        } else {
+            for entry in row.perLocusCallText {
+                container.addArrangedSubview(makeCallRow(entry))
+            }
+        }
         return container
+    }
+
+    private func makeCallRow(
+        _ entry: (locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)
+    ) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .firstBaseline
+        row.spacing = 6
+        let locusLabel = NSTextField(labelWithString: entry.locus)
+        locusLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .semibold)
+        locusLabel.textColor = .secondaryLabelColor
+        locusLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
+        let callLabel = NSTextField(labelWithString: callText(entry))
+        callLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
+        callLabel.textColor = entry.status == .called || entry.status == .specialCase
+            ? .labelColor
+            : NSColor.lungfishDanger
+        callLabel.lineBreakMode = .byTruncatingTail
+        row.addArrangedSubview(locusLabel)
+        row.addArrangedSubview(callLabel)
+        return row
+    }
+
+    private func callText(_ entry: (locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)) -> String {
+        switch entry.status {
+        case .called, .specialCase:
+            if entry.h2 == "-" || entry.h2.isEmpty {
+                return "\(entry.h1) (homozygous)"
+            }
+            return "\(entry.h1) / \(entry.h2)"
+        case .noHaplotype, .tooManyHaplotypes, .tooManyGenotypes:
+            // Error h1 and h2 carry the same text; collapse the redundancy.
+            return entry.h1
+        }
+    }
+
+    @objc private func handleDisclosureToggle(_ sender: NSButton) {
+        guard let id = sender.identifier?.rawValue else { return }
+        if expandedSamples.contains(id) {
+            expandedSamples.remove(id)
+        } else {
+            expandedSamples.insert(id)
+        }
+        onRowDisclosure?(id, expandedSamples.contains(id))
+        rebuild()
     }
 
     @objc private func handleTapeClick(_ recognizer: NSClickGestureRecognizer) {
