@@ -1,5 +1,6 @@
 import AppKit
 import LungfishCore
+import LungfishIO
 import SwiftUI
 
 struct GenotypeResultArtifactRow: Equatable {
@@ -18,6 +19,7 @@ struct GenotypeResultDocumentState: Equatable {
     let qcRows: [(String, String)]
     let artifactRows: [GenotypeResultArtifactRow]
     var summaryViewMode: GenotypeSummaryViewMode = .outline
+    var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
 
     func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
         GenotypeResultDocumentState(
@@ -63,25 +65,32 @@ struct GenotypeResultDocumentState: Equatable {
             lhs.summaryRows.elementsEqual(rhs.summaryRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.qcRows.elementsEqual(rhs.qcRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.artifactRows == rhs.artifactRows &&
-            lhs.summaryViewMode == rhs.summaryViewMode
+            lhs.summaryViewMode == rhs.summaryViewMode &&
+            lhs.smartCohorts == rhs.smartCohorts
     }
 }
 
 struct GenotypeResultDocumentSection: View {
     let state: GenotypeResultDocumentState
     var onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil
+    var onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil
+    var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
+    var onSmartCohortAddRequested: (() -> Void)? = nil
 
     @State private var isSummaryExpanded = true
     @State private var isQCExpanded = true
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
     @State private var isViewModeExpanded = true
+    @State private var isSmartCohortsExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
             Divider()
             viewModeSection
+            Divider()
+            smartCohortsSection
             Divider()
             summarySection
             Divider()
@@ -91,6 +100,19 @@ struct GenotypeResultDocumentSection: View {
             Divider()
             artifactsSection
         }
+    }
+
+    private var smartCohortsSection: some View {
+        DisclosureGroup("Smart Cohorts", isExpanded: $isSmartCohortsExpanded) {
+            GenotypeSmartCohortSection(
+                cohorts: state.smartCohorts,
+                onSelect: { onSmartCohortSelected?($0) },
+                onDelete: { onSmartCohortDeleted?($0) },
+                onAdd: { onSmartCohortAddRequested?() }
+            )
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
     }
 
     private var viewModeSection: some View {
