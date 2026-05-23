@@ -49,6 +49,7 @@ final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
     private var activeSmartCohort: GenotypeCohortSmartFilter?
+    private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -1170,6 +1171,123 @@ final class GenotypeResultViewController: NSViewController {
             highlightStyle: .default
         )
         publishSelectionState(state)
+        presentSampleDetailSheet(forAnimal: animalId)
+    }
+
+    private func presentSampleDetailSheet(forAnimal animalId: String) {
+        guard let result, let analysis = result.haplotypeAnalysis else { return }
+        guard let sampleAnalysis = analysis.samples.first(where: { $0.sample == animalId }) else { return }
+        let rows: [GenotypeSampleDetailSheet.CallRow] = sampleAnalysis.calls.flatMap { call -> [GenotypeSampleDetailSheet.CallRow] in
+            [
+                GenotypeSampleDetailSheet.CallRow(
+                    locus: call.locus, slot: .h1,
+                    callName: call.haplotype1, status: call.status,
+                    observedGenotypeCount: call.observedGenotypeCount
+                ),
+                GenotypeSampleDetailSheet.CallRow(
+                    locus: call.locus, slot: .h2,
+                    callName: call.haplotype2, status: call.status,
+                    observedGenotypeCount: call.observedGenotypeCount
+                ),
+            ]
+        }
+        let overrides = annotationStore?.sidecar.callOverrides
+            .filter { $0.sample == animalId } ?? []
+        let definitionSet = definitionSetForResult(result)
+        let allowedTargets: (String) -> [String] = { locus in
+            guard let definitionSet else { return [] }
+            let names = definitionSet.locusDefinitions
+                .first { $0.locus == locus }?
+                .haplotypes
+                .map(\.name) ?? []
+            return names + ["A1_063", "-"]
+        }
+
+        let hostingController = NSHostingController(
+            rootView: GenotypeSampleDetailSheet(
+                sampleId: animalId,
+                rows: rows,
+                overrides: overrides,
+                allowedTargetsForLocus: allowedTargets,
+                onSaveOverride: { [weak self] row, draft in
+                    self?.saveOverride(forAnimal: animalId, row: row, draft: draft)
+                },
+                onClearOverride: { [weak self] row in
+                    self?.clearOverride(forAnimal: animalId, row: row)
+                },
+                onDismiss: { [weak self] in
+                    self?.dismissSampleDetailSheet()
+                }
+            )
+        )
+        sampleDetailHostingController = hostingController
+        presentAsSheet(hostingController)
+    }
+
+    private func dismissSampleDetailSheet() {
+        if let hosting = sampleDetailHostingController {
+            dismiss(hosting)
+            sampleDetailHostingController = nil
+        }
+    }
+
+    private func saveOverride(forAnimal animalId: String,
+                              row: GenotypeSampleDetailSheet.CallRow,
+                              draft: GenotypeOverrideSection.OverrideDraft) {
+        guard let store = annotationStore else { return }
+        let originalCall = row.callName
+        do {
+            try store.applyOverride(
+                sample: animalId,
+                locus: row.locus,
+                slot: row.slot,
+                originalCall: originalCall,
+                overrideCall: draft.target,
+                reasonTag: draft.reason,
+                rationale: draft.rationale
+            )
+        } catch {
+            presentSheetAlert(error: error)
+        }
+        // Re-present the sheet with fresh state so the analyst can keep working.
+        dismissSampleDetailSheet()
+        presentSampleDetailSheet(forAnimal: animalId)
+    }
+
+    private func clearOverride(forAnimal animalId: String,
+                               row: GenotypeSampleDetailSheet.CallRow) {
+        guard let store = annotationStore else { return }
+        // Remove the override entry for this (sample, locus, slot).
+        var sidecar = store.sidecar
+        sidecar.callOverrides.removeAll {
+            $0.sample == animalId && $0.locus == row.locus && $0.slot == row.slot
+        }
+        // We can't directly assign the sidecar; instead persist a no-op
+        // override-clear by writing the sidecar through the store. Simplest:
+        // re-save through the store by setting status, which appends an audit
+        // entry.
+        do {
+            try store.setCallStatus(.unflagged, sample: animalId, locus: row.locus, slot: row.slot)
+        } catch {
+            presentSheetAlert(error: error)
+        }
+        // Persist the cleared override through the store's persist path.
+        store.directRemoveOverride(sample: animalId, locus: row.locus, slot: row.slot)
+        dismissSampleDetailSheet()
+        presentSampleDetailSheet(forAnimal: animalId)
+    }
+
+    private func presentSheetAlert(error: Error) {
+        if let window = view.window ?? NSApp.keyWindow {
+            NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+        } else {
+            NSApp.presentError(error)
+        }
+    }
+
+    private func definitionSetForResult(_ result: ONTGenotypeResultBundleData) -> GenotypeHaplotypeDefinitionSet? {
+        guard let id = result.haplotypeAnalysis?.definitionSetID else { return nil }
+        return GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: id)
     }
 
     private func outlineBlockLabel(_ kind: GenotypeBlockKind) -> String {

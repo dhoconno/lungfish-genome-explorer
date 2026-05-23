@@ -214,6 +214,17 @@ final class GenotypeAnnotationStore {
         try persist()
     }
 
+    /// Removes the call override for the given (sample, locus, slot) without
+    /// appending a separate undo entry to the audit log. The setCallStatus
+    /// or other higher-level call is expected to have already logged the
+    /// analyst's intent.
+    func directRemoveOverride(sample: String, locus: String, slot: HaplotypeSlot) {
+        sidecar.callOverrides.removeAll {
+            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        }
+        try? persist()
+    }
+
     private func persist() throws {
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
     }
