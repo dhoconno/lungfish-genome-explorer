@@ -124,4 +124,57 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
         let decoded = try JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data)
         XCTAssertEqual(decoded, original)
     }
+
+    func testJSONRoundTripPreservesNewPerLocusPredicates() throws {
+        let original = GenotypeCohortSmartFilter(
+            name: "Per-locus checks",
+            predicate: .all([
+                .hasErrorAt(locus: "MHC-DRB"),
+                .isHomozygousAt(locus: "MHC-A"),
+                .hasRegionalRecombinantAt(locus: "MHC-DRB"),
+                .hasHighlightBorder("#FF0000"),
+                .hasHighlightFill(nil),
+            ])
+        )
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data)
+        XCTAssertEqual(decoded, original)
+    }
+
+    func testHasErrorAtLocusEvaluator() {
+        let predicate = SmartCohortPredicate.hasErrorAt(locus: "MHC-DRB")
+        let withDRBError = subject(
+            animal: "A",
+            calls: [
+                (locus: "MHC-A", h1: "M1A", h2: "M2A"),
+                (locus: "MHC-DRB", h1: "ERR: TMH", h2: "ERR: TMH"),
+            ]
+        )
+        let cleanCalls = subject(
+            animal: "B",
+            calls: [
+                (locus: "MHC-A", h1: "M1A", h2: "M2A"),
+                (locus: "MHC-DRB", h1: "M1DR", h2: "M2DR"),
+            ]
+        )
+        XCTAssertTrue(predicate.evaluate(withDRBError))
+        XCTAssertFalse(predicate.evaluate(cleanCalls))
+    }
+
+    func testIsHomozygousAtLocusEvaluator() {
+        let predicate = SmartCohortPredicate.isHomozygousAt(locus: "MHC-A")
+        let homozygous = subject(
+            animal: "A",
+            calls: [
+                (locus: "MHC-A", h1: "M1A", h2: "M1A"),
+                (locus: "MHC-B", h1: "M1B", h2: "M3B"),
+            ]
+        )
+        let heterozygous = subject(
+            animal: "B",
+            calls: [(locus: "MHC-A", h1: "M1A", h2: "M3A")]
+        )
+        XCTAssertTrue(predicate.evaluate(homozygous))
+        XCTAssertFalse(predicate.evaluate(heterozygous))
+    }
 }
