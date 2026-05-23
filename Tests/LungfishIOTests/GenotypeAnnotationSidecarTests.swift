@@ -55,6 +55,9 @@ final class GenotypeAnnotationSidecarTests: XCTestCase {
         XCTAssertEqual(settings.cardDensityThreshold, 30)
         XCTAssertEqual(settings.dropoutAbsolute, 50)
         XCTAssertNil(settings.dropoutSampleFraction)
-        XCTAssertEqual(settings.dropoutLocusFraction, 0.05)
+        // 1% per-locus default — the 5% default was overcalling
+        // "too many genotypes" on real ONT bundles.
+        XCTAssertEqual(settings.dropoutLocusFraction, 0.01)
+        XCTAssertNil(settings.locusFractionOverrides)
     }
 }
