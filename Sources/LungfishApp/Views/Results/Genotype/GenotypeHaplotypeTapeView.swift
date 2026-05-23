@@ -9,6 +9,10 @@ final class GenotypeHaplotypeTapeView: NSView {
         case recombinant(tokenIndexA: Int, tokenIndexB: Int, label: String)
         case error(label: String)
         case empty
+        /// Locus was observed at the read level but the active definition
+        /// set didn't include it, so the pipeline couldn't produce a
+        /// haplotype call. Renders as a light dashed-border placeholder.
+        case unanalyzed(observedGenotypes: Int)
     }
 
     struct Slot: Equatable {
@@ -89,6 +93,18 @@ final class GenotypeHaplotypeTapeView: NSView {
             path.lineWidth = 1.5
             path.stroke()
             drawErrorGlyph(label: label, in: rect)
+        case .unanalyzed(let count):
+            NSColor.controlBackgroundColor.setFill()
+            path.fill()
+            // Dashed outline distinguishes unanalyzed from absent.
+            let dashed = NSBezierPath(roundedRect: rect, xRadius: 2, yRadius: 2)
+            dashed.lineWidth = 1.0
+            dashed.setLineDash([3.0, 2.0], count: 2, phase: 0)
+            NSColor.secondaryLabelColor.setStroke()
+            dashed.stroke()
+            if count > 0 {
+                drawObservedGlyph(count: count, in: rect)
+            }
         }
         if isOverridden {
             drawHatchOverlay(in: rect)
@@ -122,6 +138,20 @@ final class GenotypeHaplotypeTapeView: NSView {
             .foregroundColor: NSColor.lungfishDanger,
         ]
         let attributed = NSAttributedString(string: symbol, attributes: attrs)
+        let size = attributed.size()
+        let x = rect.midX - size.width / 2
+        let y = rect.midY - size.height / 2
+        attributed.draw(at: NSPoint(x: x, y: y))
+    }
+
+    private func drawObservedGlyph(count: Int, in rect: NSRect) {
+        guard rect.height >= 10 else { return }
+        let fontSize = max(7, min(10, rect.height * 0.55))
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .regular),
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let attributed = NSAttributedString(string: "\(count)", attributes: attrs)
         let size = attributed.size()
         let x = rect.midX - size.width / 2
         let y = rect.midY - size.height / 2
@@ -201,6 +231,8 @@ final class GenotypeHaplotypeTapeView: NSView {
         case .reference(_, let l), .manual(_, let l): return l
         case .recombinant(_, _, let l): return l
         case .error(let l): return l
+        case .unanalyzed(let count):
+            return count > 0 ? "unanalyzed (\(count) genotypes observed)" : "unanalyzed"
         }
     }
 }

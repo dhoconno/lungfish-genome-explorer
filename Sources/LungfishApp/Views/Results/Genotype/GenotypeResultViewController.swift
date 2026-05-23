@@ -1084,11 +1084,16 @@ final class GenotypeResultViewController: NSViewController {
             outlineView.configure(rows: [])
             return
         }
-        let loci = orderedLoci(from: analysis)
+        let observed = GenotypeObservedLociIndex.build(from: result)
+        let loci = observed.loci
         let allowedSamples = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         var rows: [GenotypeOutlineView.Row] = []
         for sample in analysis.samples where allowedSamples.contains(sample.sample) {
-            let tapeSlots = outlineTapeSlots(for: sample, loci: loci)
+            let tapeSlots = outlineTapeSlots(
+                for: sample,
+                loci: loci,
+                observed: observed
+            )
             let blockKind = GenotypeBlockClassifier.classify(
                 calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
             )
@@ -1164,16 +1169,25 @@ final class GenotypeResultViewController: NSViewController {
 
     private func outlineTapeSlots(
         for sample: GenotypeHaplotypeSampleAnalysis,
-        loci: [String]
+        loci: [String],
+        observed: GenotypeObservedLociIndex? = nil
     ) -> [GenotypeHaplotypeTapeView.Slot] {
         let callsByLocus = Dictionary(uniqueKeysWithValues: sample.calls.map { ($0.locus, $0) })
+        let observedForSample = observed?.observedCallsBySampleAndLocus[sample.sample] ?? [:]
         return loci.map { locus -> GenotypeHaplotypeTapeView.Slot in
-            guard let call = callsByLocus[locus] else {
-                return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: .empty, h2: .empty)
+            if let call = callsByLocus[locus] {
+                let h1 = outlineCell(for: call.haplotype1, status: call.status)
+                let h2 = outlineCell(for: call.haplotype2, status: call.status)
+                return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: h1, h2: h2)
             }
-            let h1 = outlineCell(for: call.haplotype1, status: call.status)
-            let h2 = outlineCell(for: call.haplotype2, status: call.status)
-            return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: h1, h2: h2)
+            // Locus wasn't part of the haplotype analysis; show unanalyzed
+            // status when raw reads support it, otherwise truly empty.
+            let observedCount = observedForSample[locus]?.count ?? 0
+            if observedCount > 0 {
+                let cell: GenotypeHaplotypeTapeView.Cell = .unanalyzed(observedGenotypes: observedCount)
+                return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: cell, h2: cell)
+            }
+            return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: .empty, h2: .empty)
         }
     }
 
