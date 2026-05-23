@@ -71,6 +71,15 @@ final class GenotypeResultViewController: NSViewController {
     /// so threshold changes update the display immediately. `nil` falls
     /// back to the bundle's persisted analysis.
     private var liveHaplotypeAnalysis: GenotypeHaplotypeAnalysis?
+    /// Popover for the per-cell evidence view. Lazy-initialized on first
+    /// click and reused thereafter so re-clicking dismisses then reopens
+    /// on the new cell.
+    private lazy var cellEvidencePopover: NSPopover = {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.animates = true
+        return popover
+    }()
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -377,6 +386,14 @@ final class GenotypeResultViewController: NSViewController {
         outlineView.onRowSelected = { [weak self] animalId in
             self?.handleOutlineRowSelected(animalId)
         }
+        outlineView.onLocusCellClicked = { [weak self] animalId, locus, anchor, rect in
+            self?.presentCellEvidencePopover(
+                animalId: animalId,
+                locus: locus,
+                anchor: anchor,
+                rect: rect
+            )
+        }
         cardsView.onCardSelected = { [weak self] animalId in
             self?.handleOutlineRowSelected(animalId)
         }
@@ -564,14 +581,27 @@ final class GenotypeResultViewController: NSViewController {
     /// selected sample's first non-OK call (or first call if none flagged).
     /// Returns nil when no sample is selected or the bundle has no analysis.
     private var callEvidence: GenotypeCallEvidenceView.Evidence? {
+        guard let sampleId = currentSelectedSample else { return nil }
+        return callEvidence(sample: sampleId, locus: nil)
+    }
+
+    /// Build an Evidence struct for an arbitrary (sample, locus). When
+    /// `locus` is nil the first error call (or first call) is chosen;
+    /// otherwise the named locus call is used. Returns nil when the
+    /// bundle has no analysis or the sample is unknown.
+    func callEvidence(sample sampleId: String, locus: String?) -> GenotypeCallEvidenceView.Evidence? {
         guard let result, let analysis = activeHaplotypeAnalysis() else { return nil }
-        guard let sampleId = currentSelectedSample,
-              let sampleAnalysis = analysis.samples.first(where: { $0.sample == sampleId }) else {
+        guard let sampleAnalysis = analysis.samples.first(where: { $0.sample == sampleId }) else {
             return nil
         }
-        let suspiciousCall = sampleAnalysis.calls.first { $0.status != .called && $0.status != .specialCase }
-            ?? sampleAnalysis.calls.first
-        guard let locusCall = suspiciousCall else { return nil }
+        let locusCall: GenotypeHaplotypeLocusCall? = {
+            if let locus, let named = sampleAnalysis.calls.first(where: { $0.locus == locus }) {
+                return named
+            }
+            return sampleAnalysis.calls.first { $0.status != .called && $0.status != .specialCase }
+                ?? sampleAnalysis.calls.first
+        }()
+        guard let locusCall else { return nil }
         // Pull the per-allele read counts from the bundle's flat calls list
         // filtered to this sample × locus group. Heuristic: match by
         // call.locusGroup == locusCall.locus or locusCall.sourceLocus.
@@ -617,6 +647,8 @@ final class GenotypeResultViewController: NSViewController {
             sample: sampleId, locus: locusCall.locus, slot: .h1,
             fallback: locusCall.haplotype1
         )
+        let explanation = errorExplanation(for: locusCall, observed: observedSet)
+        let candidates = candidateHaplotypes(for: locusCall, observed: observedSet)
         return GenotypeCallEvidenceView.Evidence(
             sample: sampleId,
             locus: locusCall.locus,
@@ -628,8 +660,70 @@ final class GenotypeResultViewController: NSViewController {
             diagnosticAlleles: Array(diagnostic),
             locusReadTotal: locusTotal,
             neighborsBefore: neighbors.before,
-            neighborsAfter: neighbors.after
+            neighborsAfter: neighbors.after,
+            errorExplanation: explanation,
+            candidateHaplotypes: candidates
         )
+    }
+
+    /// Plain-English explanation of why a call is in error. Empty string
+    /// when the call is healthy (called or special-case). Reviewers see
+    /// this in both the Review-lens panel and the Outline cell popover.
+    private func errorExplanation(
+        for locusCall: GenotypeHaplotypeLocusCall,
+        observed: Set<String>
+    ) -> String {
+        switch locusCall.status {
+        case .called, .specialCase:
+            return ""
+        case .noHaplotype:
+            return "No defined haplotype matched. The observed alleles at \(locusCall.locus) do not form a complete diagnostic set for any haplotype in the active definition set. Either the sample carries a novel allele combination, or one or more defining alleles dropped below the read threshold."
+        case .tooManyHaplotypes:
+            let names = locusCall.matchedHaplotypes.map(\.name).joined(separator: ", ")
+            return "Too many haplotypes matched (\(locusCall.matchedHaplotypes.count)): \(names). A diploid sample should match at most two. Likely cross-well contamination, an over-permissive threshold, or shared diagnostic alleles between haplotypes."
+        case .tooManyGenotypes:
+            let extras = max(0, locusCall.observedGenotypeCount - 2)
+            return "Too many genotypes observed at \(locusCall.locus) (\(locusCall.observedGenotypeCount)). For diploid Class II loci (DPA, DPB, DQA, DQB) at most two genotypes are expected. The extra \(extras) genotype\(extras == 1 ? "" : "s") suggests cross-well contamination, a barcoding error, or low-support spurious calls — raise the per-locus dropout threshold to filter them out."
+        }
+    }
+
+    /// Per-candidate-haplotype breakdown for NO HAP / TMG situations: which
+    /// diagnostic alleles are observed in the sample vs missing. Empty
+    /// list for healthy calls and TMH (where the matched-haplotype list
+    /// already conveys the relevant info).
+    private func candidateHaplotypes(
+        for locusCall: GenotypeHaplotypeLocusCall,
+        observed: Set<String>
+    ) -> [GenotypeCallEvidenceView.CandidateHaplotype] {
+        guard locusCall.status == .noHaplotype || locusCall.status == .tooManyGenotypes else {
+            return []
+        }
+        guard let result, let definitionSet = definitionSetForResult(result) else { return [] }
+        guard let locusDef = definitionSet.locusDefinitions.first(where: { $0.locus == locusCall.locus }) else {
+            return []
+        }
+        // Build the observed-allele lookup once from the bundle's
+        // raw call text — the same matching the analyzer uses.
+        let observedText = locusCall.observedGenotypes.joined(separator: "\n")
+        return locusDef.haplotypes.compactMap { haplotype -> GenotypeCallEvidenceView.CandidateHaplotype? in
+            var present: [String] = []
+            var missing: [String] = []
+            for allele in haplotype.diagnosticAlleles {
+                if observedText.contains(allele) {
+                    present.append(allele)
+                } else {
+                    missing.append(allele)
+                }
+            }
+            // Skip haplotypes with no overlap — surfacing 30+ unrelated
+            // candidates would drown the signal. We only want partials.
+            guard !present.isEmpty else { return nil }
+            return GenotypeCallEvidenceView.CandidateHaplotype(
+                name: haplotype.name,
+                observed: present,
+                missing: missing
+            )
+        }
     }
 
     private func displayedCallName(sample: String, locus: String, slot: HaplotypeSlot, fallback: String) -> String {
@@ -796,10 +890,11 @@ final class GenotypeResultViewController: NSViewController {
         case .listLeading, .listTrailing:
             return (leading: 520, trailing: 300)
         case .listTop:
-            // Smaller minimums so the user can collapse either pane more
-            // freely. The cohort summary contents are slim — it no longer
-            // needs 180pt to render its contents.
-            return (leading: 180, trailing: 120)
+            // Very small minimums so the analyst can collapse either pane
+            // nearly fully. The list pane needs ~80pt to keep one row of
+            // tape visible; the detail pane only needs ~60pt to show the
+            // top-level low-coverage callout.
+            return (leading: 80, trailing: 60)
         }
     }
 
@@ -1592,6 +1687,28 @@ final class GenotypeResultViewController: NSViewController {
         } else {
             presentSampleDetailSheet(forAnimal: animalId)
         }
+    }
+
+    /// Open a transient popover anchored to a tape cell, showing the
+    /// `GenotypeCallEvidenceView` for that (sample, locus). Re-clicking a
+    /// different cell dismisses the previous popover and opens a new one.
+    /// Used by the Outline's per-locus click handler so analysts can walk
+    /// through samples without leaving the lens.
+    func presentCellEvidencePopover(
+        animalId: String,
+        locus: String,
+        anchor: NSView,
+        rect: NSRect
+    ) {
+        guard let evidence = callEvidence(sample: animalId, locus: locus) else { return }
+        if cellEvidencePopover.isShown {
+            cellEvidencePopover.close()
+        }
+        let host = NSHostingController(rootView: GenotypeCallEvidenceView(evidence: evidence))
+        host.view.frame = NSRect(x: 0, y: 0, width: 380, height: 420)
+        cellEvidencePopover.contentViewController = host
+        cellEvidencePopover.contentSize = NSSize(width: 380, height: 420)
+        cellEvidencePopover.show(relativeTo: rect, of: anchor, preferredEdge: .maxY)
     }
 
     private func presentSampleDetailSheet(forAnimal animalId: String) {

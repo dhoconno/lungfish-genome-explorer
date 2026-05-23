@@ -23,6 +23,14 @@ struct GenotypeCallEvidenceView: View {
         let locusReadTotal: Int
         let neighborsBefore: [Neighbor]
         let neighborsAfter: [Neighbor]
+        /// Plain-English explanation of *why* the call is in error, or
+        /// empty when the call is healthy. The Outline / Sample Detail
+        /// popover reads this; the Review-lens panel shows it directly.
+        var errorExplanation: String = ""
+        /// For NO HAP errors: per-candidate-haplotype breakdown of which
+        /// diagnostic alleles were observed vs missing. Empty for OK / TMH /
+        /// TMG cases.
+        var candidateHaplotypes: [CandidateHaplotype] = []
 
         static let placeholder = Evidence(
             sample: "",
@@ -37,6 +45,13 @@ struct GenotypeCallEvidenceView: View {
             neighborsBefore: [],
             neighborsAfter: []
         )
+    }
+
+    struct CandidateHaplotype: Identifiable, Equatable {
+        let name: String
+        let observed: [String]
+        let missing: [String]
+        var id: String { name }
     }
 
     struct DiagnosticAllele: Identifiable, Equatable {
@@ -60,6 +75,14 @@ struct GenotypeCallEvidenceView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let evidence {
                     header(evidence)
+                    if !evidence.errorExplanation.isEmpty {
+                        Divider()
+                        errorExplanationBlock(evidence)
+                    }
+                    if !evidence.candidateHaplotypes.isEmpty {
+                        Divider()
+                        candidatesBlock(evidence)
+                    }
                     Divider()
                     diagnosticAlleles(evidence)
                     Divider()
@@ -86,6 +109,59 @@ struct GenotypeCallEvidenceView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Plain-English explanation block. Shown only for error calls so
+    /// healthy `.called` rows stay quiet.
+    private func errorExplanationBlock(_ evidence: Evidence) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color(nsColor: .lungfishDanger))
+            Text(evidence.errorExplanation)
+                .font(.caption)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Per-candidate-haplotype breakdown of which diagnostic alleles were
+    /// observed and which were missing. Surfaces for NO HAP / TMG cases
+    /// so the reviewer immediately sees what's expected vs present.
+    private func candidatesBlock(_ evidence: Evidence) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Candidate haplotypes — what's expected vs observed")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(evidence.candidateHaplotypes) { candidate in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(candidate.name)
+                        .font(.caption.monospaced().weight(.semibold))
+                    if !candidate.observed.isEmpty {
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("✓")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(Color.green)
+                            Text(candidate.observed.joined(separator: ", "))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if !candidate.missing.isEmpty {
+                        HStack(alignment: .top, spacing: 4) {
+                            Text("✗")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(Color(nsColor: .lungfishDanger))
+                            Text(candidate.missing.joined(separator: ", "))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(Color(nsColor: .lungfishDanger))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
         }
     }
 

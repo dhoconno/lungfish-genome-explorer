@@ -109,16 +109,16 @@ struct GenotypeResultDocumentSection: View {
     }
 
     private var smartCohortsSection: some View {
-        DisclosureGroup("Smart Cohorts", isExpanded: $isSmartCohortsExpanded) {
-            GenotypeSmartCohortSection(
-                cohorts: state.smartCohorts,
-                onSelect: { onSmartCohortSelected?($0) },
-                onDelete: { onSmartCohortDeleted?($0) },
-                onAdd: { onSmartCohortAddRequested?() }
-            )
-            .padding(.top, 4)
-        }
-        .font(.caption.weight(.semibold))
+        // GenotypeSmartCohortSection already wraps itself in a
+        // DisclosureGroup("Smart Cohorts"); wrapping it in another one
+        // duplicates the header and the disclosure caret. Render the
+        // section directly.
+        GenotypeSmartCohortSection(
+            cohorts: state.smartCohorts,
+            onSelect: { onSmartCohortSelected?($0) },
+            onDelete: { onSmartCohortDeleted?($0) },
+            onAdd: { onSmartCohortAddRequested?() }
+        )
     }
 
     private var viewModeSection: some View {
