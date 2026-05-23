@@ -62,58 +62,12 @@ struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
         FileHandle.standardOutput.write(Data(output.utf8))
     }
 
-    /// Build minimal cohort subjects from bundle samples + sidecar status flags.
+    /// Build cohort subjects via the shared `GenotypeCohortSubjectBuilder` so
+    /// CLI counts match the Inspector's counts exactly.
     private func makeSubjects(
         from result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar
     ) -> [GenotypeCohortSubject] {
-        let statusBySample = Dictionary(
-            uniqueKeysWithValues: sidecar.sampleStatusFlags.map { ($0.sample, $0.value) }
-        )
-        let commentsBySample = Dictionary(grouping: sidecar.sampleNotes, by: \.sample)
-        let cellCommentsBySample = Dictionary(grouping: sidecar.cellComments, by: \.sample)
-        let highlightFillsBySample = Dictionary(grouping: sidecar.cellHighlights, by: \.sample)
-            .mapValues { hits in hits.compactMap(\.fillColor) }
-        let highlightBordersBySample = Dictionary(grouping: sidecar.cellHighlights, by: \.sample)
-            .mapValues { hits in hits.compactMap(\.borderColor) }
-
-        return result.samples.map { sample in
-            let sampleCommentBodies = (commentsBySample[sample.sample] ?? []).map(\.body)
-            let cellCommentBodies = (cellCommentsBySample[sample.sample] ?? []).map(\.body)
-            let commentsJoined = (sampleCommentBodies + cellCommentBodies).joined(separator: "\n")
-
-            let calls = sample.calls.flatMap { call -> [GenotypeCohortSubject.Call] in
-                let locus = call.locusGroup
-                return [HaplotypeSlot.h1, HaplotypeSlot.h2].map { slot in
-                    GenotypeCohortSubject.Call(
-                        locus: locus,
-                        slot: slot,
-                        name: call.genotype,
-                        isHomozygous: false,
-                        isError: false,
-                        isRecombinant: false,
-                        readCount: call.passedUniqueReads
-                    )
-                }
-            }
-
-            return GenotypeCohortSubject(
-                animalId: sample.sample,
-                gsId: sample.sample,
-                qcStatus: sample.qcStatus,
-                totalReads: sample.passedAlignments,
-                unmappedPercent: 0,
-                comments: commentsJoined,
-                calls: calls,
-                hasAnyComment: !commentsJoined.isEmpty,
-                hasErrorAtAnyLocus: false,
-                isHomozygousAcrossAll: false,
-                hasRegionalRecombinant: false,
-                hasAtypicalPattern: false,
-                statusValue: statusBySample[sample.sample] ?? .unflagged,
-                highlightFills: highlightFillsBySample[sample.sample] ?? [],
-                highlightBorders: highlightBordersBySample[sample.sample] ?? []
-            )
-        }
+        GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
     }
 }
