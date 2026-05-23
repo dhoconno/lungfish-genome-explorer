@@ -58,7 +58,19 @@ final class GenotypeResultViewController: NSViewController {
     private var dropoutSampleFractionEnabled: Bool = false
     private var dropoutSampleFractionPercent: Double = 0.1
     private var dropoutLocusFractionEnabled: Bool = true
-    private var dropoutLocusFractionPercent: Double = 5.0
+    // Default to the 1% threshold the user requested — at 5% the bundle's
+    // observed-but-not-diagnostic alleles get flagged "too many genotypes" too
+    // often. Per-locus EQ entries override this on a per-locus basis.
+    private var dropoutLocusFractionPercent: Double = 1.0
+    /// Music-EQ per-locus overrides for the locus-fraction threshold.
+    /// Keys are locus names (e.g. "MHC-B"). Percent values (0..100) replace
+    /// the global slider for that locus when the analyst wants finer control.
+    private var dropoutPerLocusFractionPercents: [String: Double] = [:]
+    /// Live re-analyzed haplotype calls — derived from raw calls + current
+    /// dropout configuration. Used by the Outline / Cards / Cohort Summary
+    /// so threshold changes update the display immediately. `nil` falls
+    /// back to the bundle's persisted analysis.
+    private var liveHaplotypeAnalysis: GenotypeHaplotypeAnalysis?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -231,6 +243,9 @@ final class GenotypeResultViewController: NSViewController {
             if let f = settings.dropoutSampleFraction { dropoutSampleFractionPercent = f * 100 }
             dropoutLocusFractionEnabled = settings.dropoutLocusFraction != nil
             if let f = settings.dropoutLocusFraction { dropoutLocusFractionPercent = f * 100 }
+            if let overrides = settings.locusFractionOverrides {
+                dropoutPerLocusFractionPercents = overrides.mapValues { $0 * 100 }
+            }
         }
         comparisonMatrix.configure(result: result, metadataStore: sampleMetadataStore)
         rebuildSummary()
@@ -238,11 +253,29 @@ final class GenotypeResultViewController: NSViewController {
         rebuildAnchorLens()
         rebuildConsumerLens()
         rebuildArtifactLens()
+        // Compute the live analysis up-front so the Outline / Cards / cohort
+        // summary reflect the current dropout config the first time the
+        // bundle opens — not on the next threshold change.
+        recomputeLiveHaplotypeAnalysis(evaluator: currentDropoutEvaluator())
         rebuildOutline()
         rebuildCohortSummary()
         applyComparisonMatrixCohortFilter()
         showLens(.summary)
         comparisonMatrix.selectFirstSharedCall()
+    }
+
+    /// Build a `GenotypeDropoutEvaluator` matching the current view-model
+    /// state (sliders + per-locus EQ). Used to seed the live analysis on
+    /// bundle open and to recompute after each Apply.
+    private func currentDropoutEvaluator() -> GenotypeDropoutEvaluator {
+        GenotypeDropoutEvaluator(
+            absolute: dropoutAbsoluteEnabled ? dropoutAbsoluteValue : nil,
+            sampleFraction: dropoutSampleFractionEnabled ? dropoutSampleFractionPercent / 100.0 : nil,
+            locusFraction: dropoutLocusFractionEnabled ? dropoutLocusFractionPercent / 100.0 : nil,
+            locusFractionOverrides: dropoutLocusFractionEnabled
+                ? dropoutPerLocusFractionPercents.mapValues { $0 / 100.0 }
+                : [:]
+        )
     }
 
     func applySampleMetadataStore(_ store: SampleMetadataStore?) {
@@ -656,7 +689,7 @@ final class GenotypeResultViewController: NSViewController {
 
     private func rebuildCardsRows() {
         guard let result else { return }
-        let analyses = result.haplotypeAnalysis?.samples ?? []
+        let analyses = activeHaplotypeAnalysis()?.samples ?? []
         let analysesBySample: [String: GenotypeHaplotypeSampleAnalysis] = Dictionary(
             uniqueKeysWithValues: analyses.map { ($0.sample, $0) }
         )
@@ -1092,6 +1125,10 @@ final class GenotypeResultViewController: NSViewController {
 
     private func dropoutThresholdBody() -> some View {
         let settings = annotationStore?.sidecar.settings ?? .default
+        let loci: [String] = {
+            guard let analysis = result?.haplotypeAnalysis else { return [] }
+            return orderedLoci(from: analysis)
+        }()
         return GenotypeDropoutThresholdSection(
             absoluteEnabled: Binding(
                 get: { [weak self] in self?.dropoutAbsoluteEnabled ?? (settings.dropoutAbsolute != nil) },
@@ -1114,9 +1151,14 @@ final class GenotypeResultViewController: NSViewController {
                 set: { [weak self] newValue in self?.dropoutLocusFractionEnabled = newValue }
             ),
             locusFractionPercent: Binding(
-                get: { [weak self] in self?.dropoutLocusFractionPercent ?? ((settings.dropoutLocusFraction ?? 0.05) * 100) },
+                get: { [weak self] in self?.dropoutLocusFractionPercent ?? ((settings.dropoutLocusFraction ?? 0.01) * 100) },
                 set: { [weak self] newValue in self?.dropoutLocusFractionPercent = newValue }
             ),
+            perLocusFractionPercents: Binding(
+                get: { [weak self] in self?.dropoutPerLocusFractionPercents ?? [:] },
+                set: { [weak self] newValue in self?.dropoutPerLocusFractionPercents = newValue }
+            ),
+            availableLoci: loci,
             onApply: { [weak self] evaluator in
                 self?.applyDropoutThresholds(evaluator)
             }
@@ -1130,14 +1172,49 @@ final class GenotypeResultViewController: NSViewController {
                 settings.dropoutAbsolute = evaluator.absolute
                 settings.dropoutSampleFraction = evaluator.sampleFraction
                 settings.dropoutLocusFraction = evaluator.locusFraction
+                settings.locusFractionOverrides = evaluator.locusFractionOverrides.isEmpty
+                    ? nil
+                    : evaluator.locusFractionOverrides
             }
         } catch {
             presentSheetAlert(error: error)
         }
-        // Refresh call evidence so the new threshold is reflected.
+        // Re-run the haplotype analyzer against the raw calls with the new
+        // dropout config. Calls dropped below threshold disappear from the
+        // observed-allele set so the subset-match rule re-evaluates the
+        // matched haplotypes. The persisted pipeline output stays
+        // authoritative on disk; this in-memory recomputation is what the
+        // Outline / Cards / Matrix render.
+        recomputeLiveHaplotypeAnalysis(evaluator: evaluator)
+        rebuildOutline()
+        rebuildCohortSummary()
         if selectedLens == .review {
             updateCallEvidence()
         }
+    }
+
+    /// Recompute the live (in-memory) haplotype analysis using the current
+    /// dropout configuration. Falls back to the pipeline-persisted analysis
+    /// when no definition set is available.
+    private func recomputeLiveHaplotypeAnalysis(evaluator: GenotypeDropoutEvaluator?) {
+        guard let result, let definitionSet = definitionSetForResult(result) else {
+            liveHaplotypeAnalysis = nil
+            return
+        }
+        liveHaplotypeAnalysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: result.calls,
+            definitionSet: definitionSet,
+            generatedAt: nil,
+            dropoutFilter: evaluator
+        )
+    }
+
+    /// Returns the haplotype analysis the UI should consult: the
+    /// dropout-aware recomputation when present, otherwise the
+    /// pipeline-persisted version embedded in the bundle.
+    private func activeHaplotypeAnalysis() -> GenotypeHaplotypeAnalysis? {
+        if let liveHaplotypeAnalysis { return liveHaplotypeAnalysis }
+        return result?.haplotypeAnalysis
     }
 
     private func manualHaplotypingIsAvailable(result: ONTGenotypeResultBundleData) -> Bool {
@@ -1274,7 +1351,7 @@ final class GenotypeResultViewController: NSViewController {
 
     private func rebuildOutline() {
         outlineRowsBySample.removeAll()
-        guard let result, let analysis = result.haplotypeAnalysis, !analysis.samples.isEmpty else {
+        guard let result, let analysis = activeHaplotypeAnalysis(), !analysis.samples.isEmpty else {
             outlineView.configure(rows: [])
             return
         }
@@ -1457,7 +1534,7 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     private func cohortErrorTypeCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
-        guard let analysis = result.haplotypeAnalysis else { return [] }
+        guard let analysis = activeHaplotypeAnalysis() else { return [] }
         var tmh = 0
         var noHap = 0
         var tmg = 0

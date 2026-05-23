@@ -233,6 +233,11 @@ public extension GenotypeAnnotationSidecar {
         public var dropoutAbsolute: Int?
         public var dropoutSampleFraction: Double?
         public var dropoutLocusFraction: Double?
+        /// Per-locus overrides for `dropoutLocusFraction`. When a locus name
+        /// (e.g. "MHC-B") has a value here, that fraction replaces the global
+        /// `dropoutLocusFraction` for diagnostic alleles in that locus. The
+        /// "EQ slider grid": each locus gets its own knob.
+        public var locusFractionOverrides: [String: Double]?
 
         public static let `default` = Settings(
             viewMode: "outline",
@@ -241,12 +246,14 @@ public extension GenotypeAnnotationSidecar {
             cardDensityThreshold: 30,
             dropoutAbsolute: 50,
             dropoutSampleFraction: nil,
-            dropoutLocusFraction: 0.05
+            dropoutLocusFraction: 0.01,
+            locusFractionOverrides: nil
         )
 
         public init(viewMode: String, panelLayout: String, cardDensity: String,
                     cardDensityThreshold: Int, dropoutAbsolute: Int?,
-                    dropoutSampleFraction: Double?, dropoutLocusFraction: Double?) {
+                    dropoutSampleFraction: Double?, dropoutLocusFraction: Double?,
+                    locusFractionOverrides: [String: Double]? = nil) {
             self.viewMode = viewMode
             self.panelLayout = panelLayout
             self.cardDensity = cardDensity
@@ -254,6 +261,7 @@ public extension GenotypeAnnotationSidecar {
             self.dropoutAbsolute = dropoutAbsolute
             self.dropoutSampleFraction = dropoutSampleFraction
             self.dropoutLocusFraction = dropoutLocusFraction
+            self.locusFractionOverrides = locusFractionOverrides
         }
     }
 

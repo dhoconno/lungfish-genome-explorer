@@ -15,7 +15,9 @@ final class GenotypeDropoutThresholdSectionTests: XCTestCase {
             sampleFractionEnabled: bindings.sampleFractionEnabledBinding,
             sampleFractionPercent: bindings.sampleFractionPercentBinding,
             locusFractionEnabled: bindings.locusFractionEnabledBinding,
-            locusFractionPercent: bindings.locusFractionPercentBinding
+            locusFractionPercent: bindings.locusFractionPercentBinding,
+            perLocusFractionPercents: bindings.perLocusFractionPercentsBinding,
+            availableLoci: ["MHC-A", "MHC-B"]
         )
         let host = NSHostingView(rootView: view)
         host.frame = NSRect(x: 0, y: 0, width: 280, height: 600)
@@ -38,6 +40,8 @@ final class GenotypeDropoutThresholdSectionTests: XCTestCase {
             sampleFractionPercent: bindings.sampleFractionPercentBinding,
             locusFractionEnabled: bindings.locusFractionEnabledBinding,
             locusFractionPercent: bindings.locusFractionPercentBinding,
+            perLocusFractionPercents: bindings.perLocusFractionPercentsBinding,
+            availableLoci: ["MHC-A", "MHC-B"],
             onApply: { received = $0 }
         )
         // We can't trigger the Apply button programmatically without a UI test;
@@ -54,7 +58,8 @@ final class GenotypeDropoutThresholdSectionTests: XCTestCase {
         var sampleFractionEnabled = false
         var sampleFractionPercent = 0.1
         var locusFractionEnabled = true
-        var locusFractionPercent = 5.0
+        var locusFractionPercent = 1.0
+        var perLocusFractionPercents: [String: Double] = [:]
 
         var absoluteEnabledBinding: Binding<Bool> {
             .init(get: { self.absoluteEnabled }, set: { self.absoluteEnabled = $0 })
@@ -73,6 +78,9 @@ final class GenotypeDropoutThresholdSectionTests: XCTestCase {
         }
         var locusFractionPercentBinding: Binding<Double> {
             .init(get: { self.locusFractionPercent }, set: { self.locusFractionPercent = $0 })
+        }
+        var perLocusFractionPercentsBinding: Binding<[String: Double]> {
+            .init(get: { self.perLocusFractionPercents }, set: { self.perLocusFractionPercents = $0 })
         }
     }
 }

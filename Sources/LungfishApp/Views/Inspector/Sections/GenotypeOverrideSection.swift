@@ -72,33 +72,88 @@ struct GenotypeOverrideSection: View {
         }
     }
 
+    /// Free-text editor with suggestion chips. The user can type any value
+    /// (manual mode, novel allele names) while still getting one-tap access
+    /// to the definition set's whitelist. An off-whitelist indicator surfaces
+    /// when a typed value isn't in the suggestion list so reviewers see it.
     @ViewBuilder
     private var targetRow: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .top) {
             Text("Override To")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 118, alignment: .trailing)
-            if allowedTargets.isEmpty {
-                TextField("Haplotype name", text: $draft.target)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.caption)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("genotypeOverrideTargetField")
-            } else {
-                Picker(selection: $draft.target) {
-                    Text("(none)").tag("")
-                    ForEach(allowedTargets, id: \.self) { name in
-                        Text(name).tag(name)
+                .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    TextField("Haplotype name", text: $draft.target)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("genotypeOverrideTargetField")
+                    if isOffWhitelist {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(Color.orange)
+                            .help("Off-whitelist value. Reviewers will see this as a custom override.")
+                            .accessibilityLabel("Off-whitelist override")
                     }
-                } label: {
-                    EmptyView()
                 }
-                .pickerStyle(.menu)
-                .font(.caption)
-                .controlSize(.small)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("genotypeOverrideTargetPicker")
+                if !filteredSuggestions.isEmpty {
+                    suggestionChips
+                }
+            }
+        }
+    }
+
+    /// True when there's a typed value AND a whitelist AND the typed value
+    /// doesn't match any whitelist entry. Used to surface a small triangle
+    /// warning next to the field so analysts see they're going off-piste.
+    private var isOffWhitelist: Bool {
+        !draft.target.isEmpty
+            && !allowedTargets.isEmpty
+            && !allowedTargets.contains(where: { $0.caseInsensitiveCompare(draft.target) == .orderedSame })
+    }
+
+    /// Whitelist entries that prefix-match what the user has typed so far.
+    /// When the field is empty, the full whitelist is offered. Capped at 8
+    /// chips so a Rhesus definition set with hundreds of names doesn't blow
+    /// out the inspector vertically — the analyst can keep typing to narrow.
+    private var filteredSuggestions: [String] {
+        let query = draft.target.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates: [String]
+        if query.isEmpty {
+            candidates = allowedTargets
+        } else {
+            candidates = allowedTargets.filter {
+                $0.localizedCaseInsensitiveContains(query)
+            }
+        }
+        return Array(candidates.prefix(8))
+    }
+
+    private var suggestionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(filteredSuggestions, id: \.self) { name in
+                    Button(action: { draft.target = name }) {
+                        Text(name)
+                            .font(.caption2.monospaced())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(draft.target == name ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(draft.target == name ? Color.accentColor : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                            )
+                            .foregroundStyle(draft.target == name ? Color.accentColor : Color.primary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("genotypeOverrideSuggestion.\(name)")
+                }
             }
         }
     }

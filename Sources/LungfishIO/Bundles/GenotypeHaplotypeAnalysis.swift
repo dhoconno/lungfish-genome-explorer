@@ -211,7 +211,29 @@ public enum GenotypeHaplotypeAnalyzer {
         definitionSet: GenotypeHaplotypeDefinitionSet,
         generatedAt: String? = nil
     ) -> GenotypeHaplotypeAnalysis {
-        let callsBySample = Dictionary(grouping: calls, by: \.sample)
+        analyze(
+            calls: calls,
+            definitionSet: definitionSet,
+            generatedAt: generatedAt,
+            dropoutFilter: nil
+        )
+    }
+
+    /// Re-analyze with an optional dropout filter applied to the raw calls
+    /// before matching. Genotypes that fall below the per-locus threshold
+    /// are dropped from each sample's observed set, then the standard
+    /// subset-match algorithm runs. Use this from the inspector to support
+    /// "live" threshold changes without touching the persisted pipeline
+    /// output: the bundle's `haplotypeAnalysis` stays authoritative, while
+    /// this re-analysis drives what the viewport renders.
+    public static func analyze(
+        calls: [ONTGenotypeCall],
+        definitionSet: GenotypeHaplotypeDefinitionSet,
+        generatedAt: String? = nil,
+        dropoutFilter: GenotypeDropoutEvaluator?
+    ) -> GenotypeHaplotypeAnalysis {
+        let filteredCalls = applyDropout(calls, evaluator: dropoutFilter, definitionSet: definitionSet)
+        let callsBySample = Dictionary(grouping: filteredCalls, by: \.sample)
         let samples = callsBySample.keys.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }.map { sample in
@@ -231,6 +253,46 @@ public enum GenotypeHaplotypeAnalyzer {
             generatedAt: generatedAt,
             samples: samples
         )
+    }
+
+    /// Apply the dropout evaluator: for each (sample, locus group), drop
+    /// calls whose per-allele read count is below the effective threshold
+    /// (global + per-locus override). Calls are kept by default when the
+    /// evaluator is nil. This is the recalculation hook the per-locus EQ
+    /// section needs to make haplotype calls "live."
+    private static func applyDropout(
+        _ calls: [ONTGenotypeCall],
+        evaluator: GenotypeDropoutEvaluator?,
+        definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [ONTGenotypeCall] {
+        guard let evaluator else { return calls }
+        // Build sample × locus-group totals once so the evaluator gets the
+        // correct denominator for the ratio tests.
+        var sampleTotals: [String: Int] = [:]
+        var sampleLocusTotals: [String: [String: Int]] = [:]
+        for call in calls {
+            sampleTotals[call.sample, default: 0] += max(0, call.passedUniqueReads)
+            sampleLocusTotals[call.sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
+        }
+        // Map locus-group to the canonical inspector locus name so the
+        // per-locus EQ overrides find their target (e.g. "Mafa-A" rows
+        // align with the "MHC-A" override key).
+        let groupToCanonical: [String: String] = Dictionary(
+            uniqueKeysWithValues: definitionSet.locusDefinitions.map {
+                ($0.sourceLocus, $0.locus)
+            }
+        )
+        return calls.filter { call in
+            let sampleTotal = sampleTotals[call.sample] ?? 0
+            let locusTotal = sampleLocusTotals[call.sample]?[call.locusGroup] ?? 0
+            let canonicalLocus = groupToCanonical[call.locusGroup] ?? call.locusGroup
+            return !evaluator.isLowSupport(
+                reads: call.passedUniqueReads,
+                sampleTotal: sampleTotal,
+                locusTotal: locusTotal,
+                locus: canonicalLocus
+            )
+        }
     }
 
     private static func callHaplotype(

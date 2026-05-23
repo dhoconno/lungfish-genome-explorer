@@ -53,8 +53,11 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         let source = try? String(contentsOf: sourceURL, encoding: .utf8)
         XCTAssertNotNil(source)
         if let src = source {
-            XCTAssertTrue(src.contains("ForEach(allowedTargets, id: \\.self)"))
-            XCTAssertTrue(src.contains(".tag(name)"))
+            // Whitelist values are surfaced as suggestion chips (free-text
+            // combobox pattern) rather than a closed Picker so the analyst
+            // can also type unknown values.
+            XCTAssertTrue(src.contains("ForEach(filteredSuggestions, id: \\.self)"))
+            XCTAssertTrue(src.contains("draft.target = name"))
         }
 
         XCTAssertGreaterThan(hosting.fittingSize.height, 0)
@@ -77,8 +80,8 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         hosting.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
         hosting.layoutSubtreeIfNeeded()
 
-        // Source-level contract: the free-text branch reaches for `TextField` keyed to
-        // the draft target binding.
+        // Source-level contract: the override field is always a free-text
+        // input now. Whitelist mode adds suggestion chips alongside.
         let sourceURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()

@@ -9,14 +9,23 @@ struct GenotypeDropoutThresholdSection: View {
     @Binding var sampleFractionPercent: Double  // 0..100 for slider
     @Binding var locusFractionEnabled: Bool
     @Binding var locusFractionPercent: Double   // 0..100 for slider
+    /// Per-locus EQ overrides keyed by locus name, percent (0..100).
+    /// An entry overrides the global locus fraction; absent keys use the
+    /// global slider. The "music EQ" model: an analyst can crank MHC-B up
+    /// because it has many genes, while leaving MHC-DPB at the default.
+    @Binding var perLocusFractionPercents: [String: Double]
+    /// Loci to surface in the per-locus EQ grid. Order is preserved.
+    var availableLoci: [String]
     var onApply: (GenotypeDropoutEvaluator) -> Void = { _ in }
+
+    @State private var isPerLocusExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Dropout thresholds")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text("A diagnostic allele is marked low support if any active threshold is breached.")
+            Text("A diagnostic allele is marked low support if any active threshold is breached. Changes re-derive haplotype calls live.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -54,11 +63,21 @@ struct GenotypeDropoutThresholdSection: View {
                     .font(.caption)
                 if locusFractionEnabled {
                     HStack {
-                        Slider(value: $locusFractionPercent, in: 0...50, step: 0.5)
+                        Slider(value: $locusFractionPercent, in: 0...10, step: 0.1)
                         Text(String(format: "%.1f%%", locusFractionPercent))
                             .monospacedDigit()
                             .font(.caption)
                             .frame(width: 56, alignment: .trailing)
+                    }
+                    if !availableLoci.isEmpty {
+                        DisclosureGroup(
+                            "Per-locus EQ (\(perLocusFractionPercents.count) override\(perLocusFractionPercents.count == 1 ? "" : "s"))",
+                            isExpanded: $isPerLocusExpanded
+                        ) {
+                            perLocusGrid
+                                .padding(.top, 4)
+                        }
+                        .font(.caption2)
                     }
                 }
             }
@@ -70,11 +89,54 @@ struct GenotypeDropoutThresholdSection: View {
         }
     }
 
+    /// Music-EQ-style grid: one row per locus, with a slider showing the
+    /// locus-specific fraction. A small reset button removes the override
+    /// so the locus falls back to the global setting. Disabled when the
+    /// global locus-fraction toggle is off (then no thresholds apply at all).
+    private var perLocusGrid: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(availableLoci, id: \.self) { locus in
+                HStack(spacing: 8) {
+                    Text(locus)
+                        .font(.caption2.monospaced())
+                        .frame(width: 70, alignment: .leading)
+                    let override = perLocusFractionPercents[locus]
+                    let effective = override ?? locusFractionPercent
+                    Slider(
+                        value: Binding(
+                            get: { effective },
+                            set: { newValue in
+                                perLocusFractionPercents[locus] = newValue
+                            }
+                        ),
+                        in: 0...10,
+                        step: 0.1
+                    )
+                    Text(String(format: "%.1f%%", effective))
+                        .monospacedDigit()
+                        .font(.caption2)
+                        .frame(width: 48, alignment: .trailing)
+                        .foregroundStyle(override != nil ? Color.accentColor : Color.secondary)
+                    Button(action: { perLocusFractionPercents.removeValue(forKey: locus) }) {
+                        Image(systemName: "arrow.uturn.backward.circle")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(override != nil ? 1.0 : 0.25)
+                    .help(override != nil ? "Reset this locus to the global threshold." : "No override active.")
+                }
+            }
+        }
+    }
+
     private func currentEvaluator() -> GenotypeDropoutEvaluator {
         GenotypeDropoutEvaluator(
             absolute: absoluteEnabled ? absoluteValue : nil,
             sampleFraction: sampleFractionEnabled ? sampleFractionPercent / 100.0 : nil,
-            locusFraction: locusFractionEnabled ? locusFractionPercent / 100.0 : nil
+            locusFraction: locusFractionEnabled ? locusFractionPercent / 100.0 : nil,
+            locusFractionOverrides: locusFractionEnabled
+                ? perLocusFractionPercents.mapValues { $0 / 100.0 }
+                : [:]
         )
     }
 }
