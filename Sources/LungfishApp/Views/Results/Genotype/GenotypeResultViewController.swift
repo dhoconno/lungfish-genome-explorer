@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import LungfishCore
 import LungfishIO
 
@@ -43,6 +44,10 @@ final class GenotypeResultViewController: NSViewController {
 
     private var result: ONTGenotypeResultBundleData?
     private var sampleMetadataStore: SampleMetadataStore?
+    private var annotationStore: GenotypeAnnotationStore?
+    private var manualHaplotypingSelection: Set<String> = []
+    private var manualHaplotypingDraftLabel: String = ""
+    private var manualHaplotypingDraftColorTokenIndex: Int = 1
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -90,6 +95,10 @@ final class GenotypeResultViewController: NSViewController {
         self.result = result
         let knownSampleIDs = Set(result.samples.map(\.sample) + result.calls.map(\.sample))
         sampleMetadataStore = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: knownSampleIDs)
+        annotationStore = try? GenotypeAnnotationStore(
+            bundleURL: result.bundleURL,
+            author: NSUserName()
+        )
         comparisonMatrix.configure(result: result, metadataStore: sampleMetadataStore)
         rebuildSummary()
         rebuildHaplotypeLens()
@@ -765,6 +774,140 @@ final class GenotypeResultViewController: NSViewController {
         ].forEach { artifactStack.addArrangedSubview(artifactRow(label: $0.0, url: $0.1)) }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactStack.addArrangedSubview(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
+        }
+
+        if manualHaplotypingIsAvailable(result: result) {
+            artifactStack.addArrangedSubview(sectionTitle("Manual Haplotyping"))
+            artifactStack.addArrangedSubview(makeManualHaplotypingHost())
+        }
+    }
+
+    private func manualHaplotypingIsAvailable(result: ONTGenotypeResultBundleData) -> Bool {
+        // Surface the manual-haplotyping section when there is no built-in
+        // analysis or when the bundle already carries manual assignments.
+        if result.haplotypeAnalysis == nil { return true }
+        return !(annotationStore?.sidecar.manualHaplotypeAssignments.isEmpty ?? true)
+    }
+
+    private func makeManualHaplotypingHost() -> NSView {
+        let container = NSHostingView(rootView: manualHaplotypingSectionBody())
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.frame.size.height = 240
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
+        ])
+        return container
+    }
+
+    private func manualHaplotypingSectionBody() -> some View {
+        let rows = manualHaplotypingRows()
+        let assignments = annotationStore?.sidecar.manualHaplotypeAssignments ?? []
+        return GenotypeManualHaplotypingSection(
+            rows: rows,
+            manualAssignments: assignments,
+            selectedGenotypeIds: Binding(
+                get: { [weak self] in self?.manualHaplotypingSelection ?? [] },
+                set: { [weak self] newValue in self?.manualHaplotypingSelection = newValue }
+            ),
+            draftLabel: Binding(
+                get: { [weak self] in self?.manualHaplotypingDraftLabel ?? "" },
+                set: { [weak self] newValue in self?.manualHaplotypingDraftLabel = newValue }
+            ),
+            draftColorTokenIndex: Binding(
+                get: { [weak self] in self?.manualHaplotypingDraftColorTokenIndex ?? 1 },
+                set: { [weak self] newValue in self?.manualHaplotypingDraftColorTokenIndex = newValue }
+            ),
+            onCreateHaplotype: { [weak self] in self?.commitManualHaplotype() },
+            onDeleteAssignment: { [weak self] assignment in
+                self?.deleteManualHaplotype(matching: assignment)
+            },
+            onExportDefinitions: { [weak self] in self?.exportManualDefinitions() }
+        )
+    }
+
+    private func manualHaplotypingRows() -> [GenotypeManualHaplotypingSection.GenotypeRow] {
+        guard let result else { return [] }
+        let digest = GenotypeManualHaplotypingDigest.build(from: result.calls)
+        return digest.observations.map { observation in
+            GenotypeManualHaplotypingSection.GenotypeRow(
+                locus: observation.locus,
+                genotype: observation.genotype,
+                sampleCount: observation.sampleCount,
+                totalReads: observation.totalReads
+            )
+        }
+    }
+
+    private func commitManualHaplotype() {
+        guard let result, let store = annotationStore else { return }
+        let label = manualHaplotypingDraftLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty, !manualHaplotypingSelection.isEmpty else { return }
+        let selectedIds = manualHaplotypingSelection
+        let observations = GenotypeManualHaplotypingDigest.build(from: result.calls).observations
+        let matching = observations.filter { selectedIds.contains("\($0.locus)::\($0.genotype)") }
+        guard !matching.isEmpty else { return }
+        let tokenIndex = manualHaplotypingDraftColorTokenIndex
+        do {
+            for observation in matching {
+                for sampleId in observation.sampleIds {
+                    try store.addManualHaplotypeAssignment(.init(
+                        sample: sampleId,
+                        locus: observation.locus,
+                        slot: .h1,
+                        label: label,
+                        colorTokenIndex: tokenIndex,
+                        diagnosticAlleles: [observation.genotype],
+                        notes: ""
+                    ))
+                }
+            }
+        } catch {
+            if let window = view.window ?? NSApp.keyWindow {
+                NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+            } else {
+                NSApp.presentError(error)
+            }
+        }
+        manualHaplotypingSelection.removeAll()
+        manualHaplotypingDraftLabel = ""
+        rebuildArtifactLens()
+    }
+
+    private func deleteManualHaplotype(matching assignment: ManualHaplotypeAssignment) {
+        guard let store = annotationStore else { return }
+        do {
+            try store.removeManualHaplotypeAssignments { other in
+                other.label == assignment.label
+            }
+        } catch {
+            if let window = view.window ?? NSApp.keyWindow {
+                NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+            } else {
+                NSApp.presentError(error)
+            }
+        }
+        rebuildArtifactLens()
+    }
+
+    private func exportManualDefinitions() {
+        guard let store = annotationStore else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "manual-haplotype-definitions.json"
+        panel.beginSheetModal(for: view.window ?? NSApp.keyWindow ?? NSWindow()) { response in
+            guard response == .OK, let url = panel.url else { return }
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(store.sidecar.manualHaplotypeAssignments)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                if let window = self.view.window ?? NSApp.keyWindow {
+                    NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
+                } else {
+                    NSApp.presentError(error)
+                }
+            }
         }
     }
 
