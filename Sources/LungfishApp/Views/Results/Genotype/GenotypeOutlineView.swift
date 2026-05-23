@@ -87,10 +87,73 @@ final class GenotypeOutlineView: NSView {
         rebuild()
     }
 
+    private func makeHeaderRow(loci: [String]) -> NSView {
+        let perLocus: CGFloat = loci.count > 12 ? 22 : (loci.count > 8 ? 28 : 36)
+        let tapeWidth = max(140, CGFloat(loci.count) * perLocus)
+        let container = NSStackView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.orientation = .horizontal
+        container.alignment = .centerY
+        container.spacing = 6
+        container.edgeInsets = NSEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+
+        let spacer = NSTextField(labelWithString: " ")
+        spacer.font = NSFont.systemFont(ofSize: 9)
+        spacer.widthAnchor.constraint(equalToConstant: 24).isActive = true
+
+        let blockSpacer = NSTextField(labelWithString: " ")
+        blockSpacer.font = NSFont.systemFont(ofSize: 9)
+        blockSpacer.widthAnchor.constraint(equalToConstant: 16).isActive = true
+
+        let animalHeader = NSTextField(labelWithString: "Animal")
+        animalHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        animalHeader.textColor = .secondaryLabelColor
+
+        // Locus header strip — one short label per column, sized to match the
+        // tape's per-locus width so labels line up over their swatches.
+        let lociHeader = NSStackView()
+        lociHeader.translatesAutoresizingMaskIntoConstraints = false
+        lociHeader.orientation = .horizontal
+        lociHeader.distribution = .fillEqually
+        lociHeader.spacing = 0
+        for locus in loci {
+            let label = NSTextField(labelWithString: shortLocusLabel(locus))
+            label.font = NSFont.systemFont(ofSize: 9, weight: .medium)
+            label.textColor = .secondaryLabelColor
+            label.alignment = .center
+            label.lineBreakMode = .byTruncatingMiddle
+            label.toolTip = locus
+            lociHeader.addArrangedSubview(label)
+        }
+        lociHeader.widthAnchor.constraint(equalToConstant: tapeWidth).isActive = true
+
+        let commentHeader = NSTextField(labelWithString: "Notes")
+        commentHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        commentHeader.textColor = .secondaryLabelColor
+
+        container.addArrangedSubview(spacer)
+        container.addArrangedSubview(blockSpacer)
+        container.addArrangedSubview(animalHeader)
+        container.addArrangedSubview(lociHeader)
+        container.addArrangedSubview(commentHeader)
+        return container
+    }
+
+    private func shortLocusLabel(_ locus: String) -> String {
+        // Strip the leading "MHC-" prefix; otherwise return the locus name.
+        if locus.hasPrefix("MHC-") {
+            return String(locus.dropFirst("MHC-".count))
+        }
+        return locus
+    }
+
     private func rebuild() {
         stack.arrangedSubviews.forEach { view in
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
+        }
+        if let first = rows.first, !first.loci.isEmpty {
+            stack.addArrangedSubview(makeHeaderRow(loci: first.loci))
         }
         for row in rows {
             stack.addArrangedSubview(makeRow(row))
@@ -122,7 +185,12 @@ final class GenotypeOutlineView: NSView {
         tape.translatesAutoresizingMaskIntoConstraints = false
         tape.configure(loci: row.loci, slots: row.tapeSlots)
         tape.sampleAccessibilityLabel = row.animalId
-        let tapeWidth = max(140, CGFloat(row.loci.count) * 36)
+        // Adaptive per-locus width: keep cells readable at 7 loci (36pt each)
+        // but scale down to 22pt minimum once the bundle has many observed
+        // loci so a 17-locus run fits without horizontally crowding the
+        // comment column.
+        let perLocus: CGFloat = row.loci.count > 12 ? 22 : (row.loci.count > 8 ? 28 : 36)
+        let tapeWidth = max(140, CGFloat(row.loci.count) * perLocus)
         NSLayoutConstraint.activate([
             tape.widthAnchor.constraint(equalToConstant: tapeWidth),
             tape.heightAnchor.constraint(equalToConstant: 22),
