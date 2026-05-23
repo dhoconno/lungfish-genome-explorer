@@ -66,9 +66,70 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertEqual(item.state, .completed)
         XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq ont-barcode-genotype") == true)
         XCTAssertTrue(item.outputURLs.contains(request.workbookURL.standardizedFileURL))
+        XCTAssertTrue(runner.didReceiveOutputHandler)
         XCTAssertEqual(
             resultRefresher.invocations,
             [request.outputDirectory.standardizedFileURL]
+        )
+    }
+
+    func testONTGenotypingFailureReportsCLIExitStatusAndStderr() async throws {
+        let temp = try temporaryDirectory()
+        let request = try makeONTGenotypingRequest(temp: temp)
+        let operationCenter = OperationCenter()
+        let runner = StubWorkflowOperationCLIProcessRunner(
+            exitCode: 5,
+            stderr: """
+            [ 45%] Mapping ONT reads with minimap2.
+            LungfishWorkflow/resource_bundle_accessor.swift:12: Fatal error: could not load resource bundle
+            """
+        )
+        let service = WorkflowOperationExecutionService(
+            operationCenter: operationCenter,
+            processRunner: runner,
+            viewerBundlePreparer: StubWorkflowOperationViewerBundlePreparer(),
+            bamImporter: StubWorkflowOperationBAMImporter(),
+            resultRefresher: StubWorkflowOperationResultRefresher()
+        )
+
+        do {
+            _ = try await service.run(.ontGenotyping(request))
+            XCTFail("Expected ONT genotyping failure")
+        } catch LocalWorkflowExecutionError.nonZeroExit(let status) {
+            XCTAssertEqual(status, 5)
+        }
+
+        let item = try XCTUnwrap(operationCenter.items.first)
+        XCTAssertEqual(item.state, .failed)
+        XCTAssertEqual(item.progress, 0.45, accuracy: 0.001)
+        XCTAssertEqual(item.detail, "ONT genotyping failed with exit code 5")
+        XCTAssertEqual(item.errorMessage, "ONT genotyping failed")
+        XCTAssertTrue(item.errorDetail?.contains("exit code 5") == true)
+        XCTAssertTrue(item.errorDetail?.contains("could not load resource bundle") == true)
+        XCTAssertTrue(item.logEntries.contains { $0.message == "Mapping ONT reads with minimap2." })
+        XCTAssertTrue(item.logEntries.contains { $0.message.contains("could not load resource bundle") })
+    }
+
+    func testONTGenotypingArgumentsIncludeExplicitHaplotypeDefinitionWhenSelected() throws {
+        let temp = try temporaryDirectory()
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true),
+            referenceSourceURL: temp.appendingPathComponent("ref.lungfishref", isDirectory: true),
+            barcodeDefinitionsURL: temp.appendingPathComponent("barcodes.csv"),
+            outputDirectory: temp.appendingPathComponent("out.lungfishgenotype", isDirectory: true),
+            outputName: "reads-ont",
+            analysisName: "ONT08",
+            threads: 4,
+            minSupport: 2,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        )
+
+        let service = WorkflowOperationExecutionService()
+        let arguments = service.ontGenotypingArguments(for: request)
+
+        XCTAssertEqual(
+            try testValue(after: "--haplotype-definition", in: arguments),
+            "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         )
     }
 
@@ -77,6 +138,40 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             .appendingPathComponent("WorkflowOperationExecutionServiceTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    private func makeONTGenotypingRequest(temp: URL) throws -> ONTBarcodeDemuxGenotypingRunRequest {
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses/reads-ont.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+        return ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: readsURL,
+            referenceSourceURL: referenceURL,
+            barcodeDefinitionsURL: barcodesURL,
+            outputDirectory: outputURL,
+            outputName: "reads-ont",
+            analysisName: "ONT08",
+            projectURL: temp,
+            threads: 4,
+            minSupport: 2
+        )
+    }
+
+    private func testValue(after flag: String, in arguments: [String]) throws -> String {
+        guard let index = arguments.firstIndex(of: flag),
+              arguments.indices.contains(arguments.index(after: index)) else {
+            throw NSError(
+                domain: "WorkflowOperationExecutionServiceTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing \(flag)"]
+            )
+        }
+        return arguments[arguments.index(after: index)]
     }
 }
 
@@ -87,15 +182,41 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
     }
 
     private(set) var invocations: [Invocation] = []
+    private(set) var didReceiveOutputHandler = false
+    private let exitCode: Int32
+    private let stdout: String?
+    private let stderr: String
+
+    init(exitCode: Int32 = 0, stdout: String? = nil, stderr: String = "") {
+        self.exitCode = exitCode
+        self.stdout = stdout
+        self.stderr = stderr
+    }
 
     func runLungfishCLI(
         arguments: [String],
-        workingDirectory: URL
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
     ) async throws -> LocalWorkflowCLIProcessResult {
+        didReceiveOutputHandler = outputHandler != nil
         invocations.append(Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL
         ))
+        for line in stderr.split(whereSeparator: \.isNewline).map(String.init) {
+            outputHandler?(.standardError(line))
+        }
+        if let stdout {
+            for line in stdout.split(whereSeparator: \.isNewline).map(String.init) {
+                outputHandler?(.standardOutput(line))
+            }
+            return LocalWorkflowCLIProcessResult(
+                exitCode: exitCode,
+                standardOutput: stdout,
+                standardError: stderr,
+                didStreamOutput: outputHandler != nil
+            )
+        }
         let outputDirectory = URL(fileURLWithPath: try value(after: "--output-dir", in: arguments))
             .standardizedFileURL
         let outputName = try value(after: "--output-name", in: arguments)
@@ -138,10 +259,14 @@ private final class StubWorkflowOperationCLIProcessRunner: LocalWorkflowCLIProce
           "sourceReferenceBundlePath": null
         }
         """
+        for line in payload.split(whereSeparator: \.isNewline).map(String.init) {
+            outputHandler?(.standardOutput(line))
+        }
         return LocalWorkflowCLIProcessResult(
-            exitCode: 0,
+            exitCode: exitCode,
             standardOutput: payload,
-            standardError: ""
+            standardError: stderr,
+            didStreamOutput: outputHandler != nil
         )
     }
 

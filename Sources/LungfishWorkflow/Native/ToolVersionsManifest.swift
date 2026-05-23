@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: MIT
 
 import Foundation
+import LungfishCore
 
 /// Decoded representation of `tool-versions.json`, the single source of truth
 /// for all embedded bioinformatics tool versions, licenses, and source URLs.
@@ -34,21 +35,27 @@ public struct ToolVersionsManifest: Codable, Sendable {
     }
 
     public static func loadFromBundle() -> ToolVersionsManifest? {
-        let directURL = Bundle.module.url(
-            forResource: "tool-versions",
-            withExtension: "json",
-            subdirectory: "Tools"
-        )
-
-        let fallbackURL = Bundle.module.resourceURL?
-            .appendingPathComponent("Tools")
-            .appendingPathComponent("tool-versions.json")
-
-        guard let url = directURL ?? fallbackURL,
+        guard let url = RuntimeResourceLocator.path("Tools/tool-versions.json", in: .workflow)
+            ?? debugSourceManifestURL(),
               let data = try? Data(contentsOf: url) else {
             return nil
         }
 
         return try? JSONDecoder().decode(ToolVersionsManifest.self, from: data)
+    }
+
+    private static func debugSourceManifestURL() -> URL? {
+        #if DEBUG
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/Tools/tool-versions.json")
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+        return sourceURL
+        #else
+        return nil
+        #endif
     }
 }

@@ -119,7 +119,11 @@ private final class StubLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRu
         self.result = result
     }
 
-    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
         invocations.append(Invocation(
             arguments: arguments,
             workingDirectory: workingDirectory.standardizedFileURL

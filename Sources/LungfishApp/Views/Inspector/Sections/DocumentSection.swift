@@ -45,6 +45,9 @@ public final class DocumentSectionViewModel {
     /// Tree bundle document state shown when a phylogenetic tree viewport is active.
     var phylogeneticTreeDocument: PhylogeneticTreeDocumentState?
 
+    /// Genotype result document state shown when a lungfishgenotype viewport is active.
+    var genotypeResultDocument: GenotypeResultDocumentState?
+
     /// Callback for project-backed source data rows to navigate in the sidebar.
     var navigateToSourceData: ((URL) -> Void)?
 
@@ -67,6 +70,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         navigateToSourceData = nil
         self.manifest = manifest
         self.bundleURL = bundleURL
@@ -105,6 +109,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         navigateToSourceData = nil
         self.fastqStatistics = stats
         // Clear bundle-related data since this is a standalone FASTQ
@@ -142,6 +147,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         self.naoMgsManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -158,6 +164,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         self.nvdManifest = manifest
         referenceTrackCapabilities = nil
         clearAlignmentTrackInventory()
@@ -171,6 +178,7 @@ public final class DocumentSectionViewModel {
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -193,6 +201,7 @@ public final class DocumentSectionViewModel {
         mappingDocument = nil
         multipleSequenceAlignmentDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -215,6 +224,7 @@ public final class DocumentSectionViewModel {
         mappingDocument = nil
         assemblyDocument = nil
         phylogeneticTreeDocument = nil
+        genotypeResultDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -238,6 +248,31 @@ public final class DocumentSectionViewModel {
         mappingDocument = nil
         assemblyDocument = nil
         multipleSequenceAlignmentDocument = nil
+        genotypeResultDocument = nil
+        manifest = nil
+        bundleURL = nil
+        selectedChromosome = nil
+        referenceTrackCapabilities = nil
+        fastqStatistics = nil
+        sraRunInfo = nil
+        enaReadRecord = nil
+        ingestionMetadata = nil
+        fastqDerivativeManifest = nil
+        naoMgsManifest = nil
+        nvdManifest = nil
+        analysisManifestEntries = []
+        clearAlignmentTrackInventory()
+    }
+
+    /// Updates the view model with genotype-result data and clears other document modes.
+    func updateGenotypeResultDocument(_ state: GenotypeResultDocumentState?) {
+        genotypeResultDocument = state
+        guard state != nil else { return }
+
+        mappingDocument = nil
+        assemblyDocument = nil
+        multipleSequenceAlignmentDocument = nil
+        phylogeneticTreeDocument = nil
         manifest = nil
         bundleURL = nil
         selectedChromosome = nil
@@ -353,6 +388,7 @@ public final class DocumentSectionViewModel {
             assemblyDocument != nil ||
             multipleSequenceAlignmentDocument != nil ||
             phylogeneticTreeDocument != nil ||
+            genotypeResultDocument != nil ||
             manifest != nil ||
             fastqStatistics != nil ||
             sraRunInfo != nil ||
@@ -451,6 +487,8 @@ public struct DocumentSection: View {
             MappingDocumentSection(viewModel: viewModel)
         } else if viewModel.assemblyDocument != nil {
             AssemblyDocumentSection(viewModel: viewModel)
+        } else if let genotypeResultDocument = viewModel.genotypeResultDocument {
+            GenotypeResultDocumentSection(state: genotypeResultDocument)
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {
             PhylogeneticTreeDocumentSection(state: phylogeneticTreeDocument)
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {

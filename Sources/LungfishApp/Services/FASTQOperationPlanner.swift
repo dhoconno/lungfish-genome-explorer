@@ -574,6 +574,7 @@ extension FASTQOperationLaunchRequest {
                 threads: request.threads,
                 sortThreads: request.sortThreads,
                 minSupport: request.minSupport,
+                haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
                 extraArguments: request.extraArguments
             ))
         }
@@ -660,6 +661,9 @@ extension FASTQOperationLaunchRequest {
                 "maxMismatches": "0",
                 "allowIndels": "true",
             ]
+            if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
+                params["haplotypeDefinition"] = haplotypeDefinitionSetID
+            }
             if !request.extraArguments.isEmpty {
                 params["extraArgs"] = AdvancedCommandLineOptions.join(request.extraArguments)
             }

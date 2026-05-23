@@ -5,6 +5,31 @@ import LungfishWorkflow
 
 @MainActor
 final class SidebarViewControllerSelectionTests: XCTestCase {
+    private func makeTempDir() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SidebarSelectionTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private func makeONTChunkedFASTQBundle(in directory: URL) throws -> URL {
+        let bundleURL = directory.appendingPathComponent("barcode05.\(FASTQBundle.directoryExtension)", isDirectory: true)
+        let chunksURL = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
+
+        let firstChunk = chunksURL.appendingPathComponent("barcode05_0.fastq")
+        let secondChunk = chunksURL.appendingPathComponent("barcode05_1.fastq")
+        try "@read-1\nACGT\n+\nIIII\n".write(to: firstChunk, atomically: true, encoding: .utf8)
+        try "@read-2\nTGCA\n+\nJJJJ\n".write(to: secondChunk, atomically: true, encoding: .utf8)
+
+        try FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/barcode05_0.fastq", originalPath: "/run/barcode05_0.fastq", sizeBytes: 18, isSymlink: false),
+            .init(filename: "chunks/barcode05_1.fastq", originalPath: "/run/barcode05_1.fastq", sizeBytes: 18, isSymlink: false),
+        ]).save(to: bundleURL)
+
+        return bundleURL
+    }
+
     func testDraggedItemIdentifiersReadsEveryPasteboardItem() {
         let pasteboard = NSPasteboard.withUniqueName()
         pasteboard.clearContents()
@@ -83,6 +108,46 @@ final class SidebarViewControllerSelectionTests: XCTestCase {
             "--force",
             "--quiet",
         ])
+    }
+
+    func testFASTQExportSuggestedFilenameUsesBundleNameForONTChunkedBundles() throws {
+        let temp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let bundleURL = try makeONTChunkedFASTQBundle(in: temp)
+
+        XCTAssertEqual(
+            AppDelegate.fastqExportSuggestedFilename(bundleURL: bundleURL, isDerived: false),
+            "barcode05.fastq"
+        )
+    }
+
+    func testFASTQExportMaterializesAllONTSourceManifestChunks() async throws {
+        let temp = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let bundleURL = try makeONTChunkedFASTQBundle(in: temp)
+        let outputURL = temp.appendingPathComponent("barcode05-export.fastq")
+
+        try await AppDelegate.exportFASTQBundleForSidebar(
+            bundleURL: bundleURL,
+            outputURL: outputURL,
+            isDerived: false
+        )
+
+        var identifiers: [String] = []
+        for try await record in FASTQReader().records(from: outputURL) {
+            identifiers.append(record.identifier)
+        }
+
+        XCTAssertEqual(identifiers, ["read-1", "read-2"])
+
+        let sidecarURL = ProvenanceRecorder.fileSidecarURL(for: outputURL)
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: sidecarURL))
+        XCTAssertEqual(envelope.workflowName, "FASTQ Export")
+        XCTAssertEqual(envelope.outputs.map(\.path), [outputURL.path])
+        XCTAssertTrue(envelope.files.contains { $0.path.hasSuffix("chunks/barcode05_0.fastq") })
+        XCTAssertTrue(envelope.files.contains { $0.path.hasSuffix("chunks/barcode05_1.fastq") })
     }
 
     func testBatchSequenceExportCLICommandsOmitUnsupportedCompressionWrapper() {

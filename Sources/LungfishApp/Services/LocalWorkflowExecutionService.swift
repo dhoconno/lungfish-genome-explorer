@@ -262,11 +262,38 @@ struct LocalWorkflowCLIProcessResult: Sendable, Equatable {
     let exitCode: Int32
     let standardOutput: String
     let standardError: String
+    let didStreamOutput: Bool
+
+    init(
+        exitCode: Int32,
+        standardOutput: String,
+        standardError: String,
+        didStreamOutput: Bool = false
+    ) {
+        self.exitCode = exitCode
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+        self.didStreamOutput = didStreamOutput
+    }
 }
 
 @MainActor
 protocol LocalWorkflowCLIProcessRunning {
-    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult
+}
+
+extension LocalWorkflowCLIProcessRunning {
+    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+        try await runLungfishCLI(
+            arguments: arguments,
+            workingDirectory: workingDirectory,
+            outputHandler: nil
+        )
+    }
 }
 
 enum LocalWorkflowExecutionError: Error, Equatable {
@@ -283,16 +310,21 @@ struct ProcessLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {
         self.runner = ProcessViralReconWorkflowProcessRunner(executableURL: executableURL)
     }
 
-    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
         let result = try await runner.runLungfishCLI(
             arguments: arguments,
             workingDirectory: workingDirectory,
-            outputHandler: nil
+            outputHandler: outputHandler
         )
         return LocalWorkflowCLIProcessResult(
             exitCode: result.exitCode,
             standardOutput: result.standardOutput,
-            standardError: result.standardError
+            standardError: result.standardError,
+            didStreamOutput: result.didStreamOutput
         )
     }
 }

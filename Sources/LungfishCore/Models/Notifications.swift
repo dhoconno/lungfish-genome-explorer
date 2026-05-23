@@ -147,6 +147,8 @@ public enum ViewportContentMode: String, Sendable {
     case fastq
     /// Metagenomics results (TaxTriage, EsViritu, Kraken2 taxonomy).
     case metagenomics
+    /// ONT/pbAA-style genotype result bundle.
+    case genotype
     /// Nothing displayed.
     case empty
 }

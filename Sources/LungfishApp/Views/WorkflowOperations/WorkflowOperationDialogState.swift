@@ -36,6 +36,7 @@ final class WorkflowOperationDialogState {
     var outputName: String
     var threads: Int
     var minSupport: Int
+    var selectedHaplotypeDefinitionSetID: String?
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
     var projectReferenceCandidates: [URL]
@@ -58,6 +59,7 @@ final class WorkflowOperationDialogState {
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
+        self.selectedHaplotypeDefinitionSetID = nil
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
         let referenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
@@ -275,6 +277,7 @@ final class WorkflowOperationDialogState {
                 projectURL: projectURL,
                 threads: threads,
                 minSupport: minSupport,
+                haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText)
             )
             return .ontGenotyping(request)

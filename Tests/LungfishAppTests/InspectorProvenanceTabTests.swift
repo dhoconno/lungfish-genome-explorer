@@ -5,7 +5,7 @@ import LungfishCore
 @MainActor
 final class InspectorProvenanceTabTests: XCTestCase {
     func testEveryScientificContentModeIncludesProvenanceTab() {
-        let modes: [ViewportContentMode] = [.genomics, .mapping, .assembly, .fastq, .metagenomics]
+        let modes: [ViewportContentMode] = [.genomics, .mapping, .assembly, .fastq, .metagenomics, .genotype]
 
         for mode in modes {
             let viewModel = InspectorViewModel()

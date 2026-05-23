@@ -1,0 +1,198 @@
+import AppKit
+import LungfishCore
+import SwiftUI
+
+struct GenotypeResultArtifactRow: Equatable {
+    let label: String
+    let fileURL: URL?
+}
+
+struct GenotypeResultDocumentState: Equatable {
+    let title: String
+    let subtitle: String?
+    let bundleURL: URL?
+    let sampleIds: [String]
+    let sampleMetadataStore: SampleMetadataStore?
+    let windowStateScope: WindowStateScope?
+    let summaryRows: [(String, String)]
+    let qcRows: [(String, String)]
+    let artifactRows: [GenotypeResultArtifactRow]
+
+    func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
+        GenotypeResultDocumentState(
+            title: title,
+            subtitle: subtitle,
+            bundleURL: bundleURL,
+            sampleIds: sampleIds,
+            sampleMetadataStore: sampleMetadataStore,
+            windowStateScope: windowStateScope,
+            summaryRows: summaryRows,
+            qcRows: qcRows,
+            artifactRows: artifactRows
+        )
+    }
+
+    static func == (
+        lhs: GenotypeResultDocumentState,
+        rhs: GenotypeResultDocumentState
+    ) -> Bool {
+        lhs.title == rhs.title &&
+            lhs.subtitle == rhs.subtitle &&
+            lhs.bundleURL == rhs.bundleURL &&
+            lhs.sampleIds == rhs.sampleIds &&
+            lhs.sampleMetadataStore?.matchedSampleIds == rhs.sampleMetadataStore?.matchedSampleIds &&
+            lhs.sampleMetadataStore?.columnNames == rhs.sampleMetadataStore?.columnNames &&
+            lhs.windowStateScope == rhs.windowStateScope &&
+            lhs.summaryRows.elementsEqual(rhs.summaryRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.qcRows.elementsEqual(rhs.qcRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.artifactRows == rhs.artifactRows
+    }
+}
+
+struct GenotypeResultDocumentSection: View {
+    let state: GenotypeResultDocumentState
+
+    @State private var isSummaryExpanded = true
+    @State private var isQCExpanded = true
+    @State private var isArtifactsExpanded = true
+    @State private var isSamplesExpanded = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header
+            Divider()
+            summarySection
+            Divider()
+            samplesSection
+            Divider()
+            qcSection
+            Divider()
+            artifactsSection
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(state.title)
+                .font(.headline)
+                .lineLimit(2)
+            if let subtitle = state.subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var summarySection: some View {
+        DisclosureGroup("Run Summary", isExpanded: $isSummaryExpanded) {
+            rowStack(state.summaryRows)
+                .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var qcSection: some View {
+        DisclosureGroup("QC Status", isExpanded: $isQCExpanded) {
+            rowStack(state.qcRows)
+                .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var samplesSection: some View {
+        DisclosureGroup("Samples & Metadata", isExpanded: $isSamplesExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .top) {
+                    Text("Samples")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 118, alignment: .trailing)
+                    Text("\(state.sampleIds.count)")
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(state.sampleMetadataStore == nil ? "Import Metadata\u{2026}" : "Replace Metadata\u{2026}") {
+                    NotificationCenter.default.post(
+                        name: .metagenomicsMetadataImportRequested,
+                        object: nil,
+                        userInfo: windowScopedUserInfo()
+                    )
+                }
+                .controlSize(.small)
+                .disabled(state.sampleIds.isEmpty)
+
+                if let store = state.sampleMetadataStore {
+                    SampleMetadataSection(store: store)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var artifactsSection: some View {
+        DisclosureGroup("Artifacts", isExpanded: $isArtifactsExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(state.artifactRows.enumerated()), id: \.offset) { _, row in
+                    artifactRow(row)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private func rowStack(_ rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .top) {
+                    Text(row.0)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 118, alignment: .trailing)
+                    Text(row.1)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func artifactRow(_ row: GenotypeResultArtifactRow) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let fileURL = row.fileURL, FileManager.default.fileExists(atPath: fileURL.path) {
+                Button(row.label) {
+                    NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help("Reveal in Finder")
+                pathCaption(fileURL.path)
+            } else {
+                Text(row.label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                pathCaption(row.fileURL?.path ?? "Missing")
+            }
+        }
+    }
+
+    private func pathCaption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func windowScopedUserInfo() -> [AnyHashable: Any]? {
+        guard let scope = state.windowStateScope else { return nil }
+        return [NotificationUserInfoKey.windowStateScope: scope]
+    }
+}

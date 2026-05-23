@@ -767,11 +767,14 @@ struct ReleaseBuildConfigurationTests {
         let repositoryRoot = Self.repositoryRoot()
         let runtimeSources = [
             "Sources/LungfishWorkflow/Native/NativeToolRunner.swift",
+            "Sources/LungfishWorkflow/Native/ToolVersionsManifest.swift",
             "Sources/LungfishWorkflow/Databases/DatabaseRegistry.swift",
             "Sources/LungfishWorkflow/Conda/CondaManager.swift",
+            "Sources/LungfishWorkflow/Conda/ManagedToolLock.swift",
             "Sources/LungfishWorkflow/Engines/AppleContainerRuntime.swift",
             "Sources/LungfishWorkflow/Metagenomics/NaoMgsSamplePartitioner.swift",
             "Sources/LungfishWorkflow/Recipes/RecipeRegistry.swift",
+            "Sources/LungfishWorkflow/Recipes/Recipe.swift",
             "Sources/LungfishApp/Views/Help/HelpWindowController.swift",
             "Sources/LungfishApp/Views/Welcome/WelcomeWindowController.swift",
             "Sources/LungfishApp/App/AppIcon.swift",

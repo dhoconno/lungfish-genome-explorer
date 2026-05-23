@@ -158,7 +158,7 @@ struct ProvenanceSection: View {
     }
 
     private var lineageContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LazyVStack(alignment: .leading, spacing: 8) {
             if viewModel.lineageRuns.isEmpty {
                 emptyMessage("No workflow steps are available.")
             } else {
@@ -190,7 +190,7 @@ struct ProvenanceSection: View {
     }
 
     private var filesContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        LazyVStack(alignment: .leading, spacing: 8) {
             if filteredFiles.isEmpty {
                 emptyMessage("No file descriptors are available.")
             } else {
@@ -403,6 +403,7 @@ struct ProvenanceSection: View {
                 || matchesSearch($0.path)
                 || matchesSearch($0.format ?? "")
                 || matchesSearch($0.checksumSHA256 ?? "")
+                || matchesSearch($0.searchText)
         }
     }
 

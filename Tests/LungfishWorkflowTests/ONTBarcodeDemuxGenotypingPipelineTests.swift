@@ -199,6 +199,83 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(inspection["containsUnassignedInWorkbook"] as? Bool, false)
     }
 
+    func testReportWorkbookPopulatesExplicitHaplotypeAnalysis() throws {
+        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("write-report.py")
+        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
+        let samplesCSV = root.appendingPathComponent("samples.csv")
+        let statsJSON = root.appendingPathComponent("stats.json")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let haplotypesJSON = root.appendingPathComponent("haplotypes.json")
+        let outputXLSX = root.appendingPathComponent("barcode08-mhc.xlsx")
+        let provenanceJSON = root.appendingPathComponent("report-provenance.json")
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        DW472,01_Mafa_A1_063g|A1_063_01,42,42,100,42,42.0,100,42,42.0
+        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
+        DW472,42,42,100,42.0,100,42.0
+        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+        try #"{"passedAlignments":42}"#.write(to: statsJSON, atomically: true, encoding: .utf8)
+        try ">01_Mafa_A1_063g|A1_063_01\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try """
+        {
+          "schemaVersion": 1,
+          "assayID": "MHC-exon2-miSeq",
+          "definitionSetID": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+          "definitionSetName": "Mauritian cynomolgus macaques",
+          "speciesName": "Mauritian cynomolgus macaques",
+          "samples": [
+            {
+              "sample": "DW472",
+              "calls": [
+                {
+                  "locus": "MHC-A",
+                  "sourceLocus": "Mafa-A",
+                  "haplotype1": "M1A",
+                  "haplotype2": "-",
+                  "status": "called",
+                  "matchedHaplotypes": [{"name": "M1A", "diagnosticAlleles": ["A1_063"], "observedDiagnosticAlleles": ["A1_063"]}],
+                  "observedGenotypeCount": 1,
+                  "observedGenotypes": ["01_Mafa_A1_063g|A1_063_01"],
+                  "notes": ""
+                }
+              ]
+            }
+          ]
+        }
+        """.write(to: haplotypesJSON, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--genotypes-csv", genotypesCSV.path,
+            "--samples-csv", samplesCSV.path,
+            "--stats-json", statsJSON.path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcode-definitions", barcodesCSV.path,
+            "--output-xlsx", outputXLSX.path,
+            "--provenance-json", provenanceJSON.path,
+            "--analysis-name", "barcode08-mhc",
+            "--run-name", "barcode08-mhc",
+            "--haplotype-analysis-json", haplotypesJSON.path,
+        ])
+
+        let inspection = try inspectHaplotypeWorkbook(outputXLSX)
+        XCTAssertTrue((inspection["sheetnames"] as? [String])?.contains("Haplotype Calls") ?? false)
+        XCTAssertEqual(inspection["mhcAHaplotype1"] as? String, "M1A")
+        XCTAssertEqual(inspection["mhcAHaplotype2"] as? String, "-")
+        XCTAssertEqual(inspection["haplotypeSheetRows"] as? Int, 2)
+        XCTAssertEqual(inspection["provenanceIncludesHaplotypes"] as? Bool, true)
+    }
+
     private func pythonCanImportOpenpyxl() -> Bool {
         (try? runPython(["-c", "import openpyxl"])) != nil
     }
@@ -294,6 +371,44 @@ payload = {
         for cell in row
         if cell.value is not None
     ),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let data = Data(output.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func inspectHaplotypeWorkbook(_ url: URL) throws -> [String: Any] {
+        let code = #"""
+import json
+import os
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+provenance = os.path.join(os.path.dirname(path), "report-provenance.json")
+wb = load_workbook(path, data_only=False)
+ws = wb[wb.sheetnames[0]]
+
+def row_for(label):
+    for row in range(1, ws.max_row + 1):
+        if ws.cell(row, 1).value == label:
+            return row
+    return None
+
+with open(provenance) as handle:
+    provenance_payload = json.load(handle)
+
+hap1 = row_for("MHC-A Haplotype 1")
+hap2 = row_for("MHC-A Haplotype 2")
+payload = {
+    "sheetnames": wb.sheetnames,
+    "mhcAHaplotype1": ws.cell(hap1, 4).value if hap1 else None,
+    "mhcAHaplotype2": ws.cell(hap2, 4).value if hap2 else None,
+    "haplotypeSheetRows": wb["Haplotype Calls"].max_row if "Haplotype Calls" in wb.sheetnames else 0,
+    "provenanceIncludesHaplotypes": any(item.get("role") == "analysis" for item in provenance_payload.get("inputs", [])),
 }
 print(json.dumps(payload))
 """#

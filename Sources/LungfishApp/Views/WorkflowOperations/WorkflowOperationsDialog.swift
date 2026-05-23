@@ -1,4 +1,5 @@
 import AppKit
+import LungfishIO
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -178,6 +179,7 @@ private struct WorkflowOperationsDetailPane: View {
                     labeledCompactTextField("Threads", value: $state.threads)
                     labeledCompactTextField("Min Support", value: $state.minSupport)
                 }
+                haplotypeDefinitionPicker
             }
         case .workflowPackage(let package):
             VStack(alignment: .leading, spacing: 8) {
@@ -189,6 +191,23 @@ private struct WorkflowOperationsDetailPane: View {
             }
         case .none:
             Text("No runnable workflow selected.")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var haplotypeDefinitionPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Haplotype Definition")
+                .font(.subheadline.weight(.medium))
+            Picker("Definition", selection: haplotypeDefinitionBinding) {
+                Text("No haplotyping").tag("")
+                ForEach(haplotypeDefinitionOptions, id: \.id) { option in
+                    Text(option.label).tag(option.id)
+                }
+            }
+            .pickerStyle(.menu)
+            Text("Deterministic haplotyping runs only when a definition is selected.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -258,6 +277,24 @@ private struct WorkflowOperationsDetailPane: View {
             },
             set: { state.setBarcodeDefinition($0) }
         )
+    }
+
+    private var haplotypeDefinitionBinding: Binding<String> {
+        Binding(
+            get: { state.selectedHaplotypeDefinitionSetID ?? "" },
+            set: { state.selectedHaplotypeDefinitionSetID = $0.isEmpty ? nil : $0 }
+        )
+    }
+
+    private var haplotypeDefinitionOptions: [(id: String, label: String)] {
+        GenotypeHaplotypeDefinitionRegistry.builtIn.assays.flatMap { assay in
+            assay.definitionSets.map { definitionSet in
+                (
+                    id: definitionSet.id,
+                    label: "\(assay.displayName) - \(definitionSet.displayName)"
+                )
+            }
+        }
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

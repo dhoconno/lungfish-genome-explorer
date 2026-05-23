@@ -191,7 +191,13 @@ public enum RuntimeResourceLocator {
         mainResourceURL: URL?,
         executableURL: URL?
     ) -> Bool {
-        !isInsideAppBundle(mainResourceURL) && !isInsideAppBundle(executableURL)
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
+            return true
+        }
+        if isInsideXCTestBundle(mainResourceURL) || isInsideXCTestBundle(executableURL) {
+            return true
+        }
+        return !isInsideAppBundle(mainResourceURL) && !isInsideAppBundle(executableURL)
     }
 
     private static func isInsideAppBundle(_ url: URL?) -> Bool {
@@ -201,6 +207,26 @@ public enum RuntimeResourceLocator {
 
         for _ in 0..<12 {
             if current.pathExtension == "app" {
+                return true
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == current.path {
+                return false
+            }
+            current = parent
+        }
+
+        return false
+    }
+
+    private static func isInsideXCTestBundle(_ url: URL?) -> Bool {
+        guard var current = url?.resolvingSymlinksInPath().standardizedFileURL else {
+            return false
+        }
+
+        for _ in 0..<12 {
+            if current.pathExtension == "xctest" {
                 return true
             }
 

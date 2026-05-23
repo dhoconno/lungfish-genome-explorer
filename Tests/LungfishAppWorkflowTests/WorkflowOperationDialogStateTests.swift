@@ -20,6 +20,26 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(ont.availability, .available)
     }
 
+    func testOperationsDialogReflectsWorkflowEnabledByLibraryStoreAfterDialogStoreWasCreated() throws {
+        let defaults = try makeDefaults()
+        let operationsStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: operationsStore,
+            packageStore: packageStore
+        )
+
+        var ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
+
+        let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        libraryStore.setWorkflow(.ontGenotyping, enabled: true)
+
+        ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        XCTAssertEqual(ont.availability, .available)
+    }
+
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -111,6 +131,43 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.analysisName, "sample-ont")
         XCTAssertEqual(request.threads, 6)
         XCTAssertEqual(request.minSupport, 3)
+        XCTAssertNil(request.haplotypeDefinitionSetID)
+    }
+
+    func testONTGenotypingLaunchRequestUsesExplicitHaplotypeDefinitionOnly() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: referenceURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
+        state.setReads([readsURL])
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertNil(state.selectedHaplotypeDefinitionSetID)
+        state.selectedHaplotypeDefinitionSetID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+
+        XCTAssertEqual(request.haplotypeDefinitionSetID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
     }
 
     func testONTGenotypingKeepsExplicitGenotypeBundleOutputDirectory() throws {

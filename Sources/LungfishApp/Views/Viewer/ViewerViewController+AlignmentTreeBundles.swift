@@ -101,6 +101,7 @@ extension ViewerViewController {
             controller.removeFromParent()
             phylogeneticTreeViewController = nil
         }
+        hideGenotypeResultView()
         showGenomicsStackAfterNativeBundle()
     }
 
