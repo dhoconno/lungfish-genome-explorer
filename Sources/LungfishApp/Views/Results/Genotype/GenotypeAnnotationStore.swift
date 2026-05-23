@@ -223,18 +223,6 @@ final class GenotypeAnnotationStore {
         try persist()
     }
 
-    /// Removes the call override for the given (sample, locus, slot) without
-    /// appending a separate undo entry to the audit log. Prefer `clearOverride`
-    /// which appends a proper audit entry; this lower-level method is for
-    /// migrations or programmatic patching where the audit log is already
-    /// being written elsewhere.
-    func directRemoveOverride(sample: String, locus: String, slot: HaplotypeSlot) {
-        sidecar.callOverrides.removeAll {
-            $0.sample == sample && $0.locus == locus && $0.slot == slot
-        }
-        try? persist()
-    }
-
     /// Removes the call override for the given (sample, locus, slot) and
     /// appends a "clearOverride" audit entry that records the previous
     /// override and the call it reverts to. A no-op if no override exists.

@@ -676,6 +676,12 @@ public extension Notification.Name {
     /// cohort list. Posting with `userInfo[:]` clears the filter.
     static let genotypeResultSmartCohortApplied = Notification.Name("com.lungfish.genotypeResultSmartCohortApplied")
 
+    /// Posted when the analyst clicks "Edit calls…" in the Selected Item
+    /// Inspector tab for a `.lungfishgenotype` bundle. The viewport reopens
+    /// the Sample Detail sheet for the named sample. `userInfo["sample"]` is
+    /// the animal ID.
+    static let genotypeResultRequestSampleDetailSheet = Notification.Name("com.lungfish.genotypeResultRequestSampleDetailSheet")
+
     /// Posted on the main thread when a batch aggregated manifest file has just been saved to disk.
     /// The Inspector observes this to transition the manifest status indicator from `.building` to `.cached`.
     static let batchManifestCached = Notification.Name("com.lungfish.batchManifestCached")

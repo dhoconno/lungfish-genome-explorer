@@ -9,6 +9,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
         let blockCounts: [(String, Int)]
         let readBudget: (median: String, belowThreshold: String)
         let annotationCounts: [(String, Int)]
+        let isReadOnlyBundle: Bool
 
         init(
             sampleCount: Int,
@@ -16,7 +17,8 @@ final class GenotypeCohortSummaryPanelView: NSView {
             errorTypeCounts: [(String, Int)],
             blockCounts: [(String, Int)],
             readBudget: (median: String, belowThreshold: String),
-            annotationCounts: [(String, Int)]
+            annotationCounts: [(String, Int)],
+            isReadOnlyBundle: Bool = false
         ) {
             self.sampleCount = sampleCount
             self.qcCounts = qcCounts
@@ -24,6 +26,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
             self.blockCounts = blockCounts
             self.readBudget = readBudget
             self.annotationCounts = annotationCounts
+            self.isReadOnlyBundle = isReadOnlyBundle
         }
     }
 
@@ -75,6 +78,9 @@ final class GenotypeCohortSummaryPanelView: NSView {
             stack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        if summary.isReadOnlyBundle {
+            stack.addArrangedSubview(makeReadOnlyBanner())
+        }
         stack.addArrangedSubview(makeSection(title: "Cohort summary",
                                              content: [("Samples", "\(summary.sampleCount)")]))
         stack.addArrangedSubview(makeSection(title: "QC distribution",
@@ -88,6 +94,33 @@ final class GenotypeCohortSummaryPanelView: NSView {
                                                        ("Below threshold", summary.readBudget.belowThreshold)]))
         stack.addArrangedSubview(makeSection(title: "Annotations",
                                              content: summary.annotationCounts.map { ($0.0, "\($0.1)") }))
+    }
+
+    private func makeReadOnlyBanner() -> NSView {
+        let container = NSBox()
+        container.boxType = .custom
+        container.borderWidth = 1
+        container.borderColor = NSColor.systemOrange.withAlphaComponent(0.5)
+        container.fillColor = NSColor.systemOrange.withAlphaComponent(0.1)
+        container.cornerRadius = 6
+        container.titlePosition = .noTitle
+        container.translatesAutoresizingMaskIntoConstraints = false
+
+        let label = NSTextField(wrappingLabelWithString:
+            "Read-only bundle. Edits and annotations are kept in memory only — they will not persist."
+        )
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .labelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 10),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -8),
+        ])
+        return container
     }
 
     private func makeSection(title: String, content: [(String, String)]) -> NSView {

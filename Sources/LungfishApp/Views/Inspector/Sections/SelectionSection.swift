@@ -944,6 +944,19 @@ public struct SelectionSection: View {
                 }
             }
 
+            Divider()
+
+            Button {
+                NotificationCenter.default.post(
+                    name: .genotypeResultRequestSampleDetailSheet,
+                    object: nil,
+                    userInfo: ["sample": selection.title]
+                )
+            } label: {
+                Label("Edit calls…", systemImage: "pencil.and.list.clipboard")
+            }
+            .controlSize(.small)
+            .help("Open the per-locus call list to override haplotype calls for this sample.")
         }
         .padding(.top, 8)
     }

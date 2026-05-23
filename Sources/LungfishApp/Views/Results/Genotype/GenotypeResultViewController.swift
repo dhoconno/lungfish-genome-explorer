@@ -94,6 +94,17 @@ final class GenotypeResultViewController: NSViewController {
             name: .genotypeResultSmartCohortApplied,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSampleDetailSheetRequest(_:)),
+            name: .genotypeResultRequestSampleDetailSheet,
+            object: nil
+        )
+    }
+
+    @objc private func handleSampleDetailSheetRequest(_ notification: Notification) {
+        guard let sample = notification.userInfo?["sample"] as? String else { return }
+        presentSampleDetailSheet(forAnimal: sample)
     }
 
     @objc private func handleSmartCohortApplied(_ notification: Notification) {
@@ -1108,6 +1119,7 @@ final class GenotypeResultViewController: NSViewController {
                     ))
                 }
             }
+            guard !bulk.isEmpty else { return }
             try store.addManualHaplotypeAssignments(bulk)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
@@ -1239,7 +1251,8 @@ final class GenotypeResultViewController: NSViewController {
             errorTypeCounts: errorTypeCounts,
             blockCounts: blockCounts,
             readBudget: readBudget,
-            annotationCounts: annotationCounts
+            annotationCounts: annotationCounts,
+            isReadOnlyBundle: annotationStore?.isReadOnly ?? false
         ))
     }
 

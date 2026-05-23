@@ -58,8 +58,16 @@ final class GenotypeCardsView: NSView {
     /// Threshold above which automatic-density mode collapses to `.compact`.
     var autoDensityThreshold: Int = 30
     /// User-pinned density. When `nil`, density is chosen automatically based
-    /// on `cards.count` vs `autoDensityThreshold`.
-    var pinnedDensity: Density?
+    /// on `cards.count` vs `autoDensityThreshold`. Setting this invalidates
+    /// the layout cache so the next `layout()` rebuilds.
+    var pinnedDensity: Density? {
+        didSet {
+            effectiveDensity = resolveDensity()
+            lastLayoutBoundsSize = .zero
+            lastLayoutDensity = nil
+            needsLayout = true
+        }
+    }
 
     private(set) var numberOfCards: Int = 0
     private(set) var effectiveDensity: Density = .comfortable
@@ -169,12 +177,17 @@ final class GenotypeCardsView: NSView {
     }
 
     private func makeCard(_ card: Card) -> NSView {
-        let container = NSView()
+        // NSBox draws the background/border via its native rendering, which
+        // remains supported on macOS 26 without requiring the deprecated
+        // wantsLayer toggle. Backing layer (if any) is irrelevant.
+        let container = NSBox()
+        container.boxType = .custom
+        container.borderWidth = 1
+        container.borderColor = NSColor.separatorColor
+        container.fillColor = NSColor.controlBackgroundColor
+        container.cornerRadius = 6
+        container.titlePosition = .noTitle
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
-        container.layer?.borderColor = NSColor.separatorColor.cgColor
-        container.layer?.borderWidth = 1
-        container.layer?.cornerRadius = 6
 
         let header = NSStackView()
         header.translatesAutoresizingMaskIntoConstraints = false
