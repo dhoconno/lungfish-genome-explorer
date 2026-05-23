@@ -488,13 +488,31 @@ public struct DocumentSection: View {
         } else if viewModel.assemblyDocument != nil {
             AssemblyDocumentSection(viewModel: viewModel)
         } else if let genotypeResultDocument = viewModel.genotypeResultDocument {
-            GenotypeResultDocumentSection(state: genotypeResultDocument) { newMode in
-                NotificationCenter.default.post(
-                    name: .genotypeResultViewModeChanged,
-                    object: nil,
-                    userInfo: ["mode": newMode.rawValue]
-                )
-            }
+            GenotypeResultDocumentSection(
+                state: genotypeResultDocument,
+                onViewModeChange: { newMode in
+                    NotificationCenter.default.post(
+                        name: .genotypeResultViewModeChanged,
+                        object: nil,
+                        userInfo: ["mode": newMode.rawValue]
+                    )
+                },
+                onSmartCohortSelected: { cohort in
+                    guard let data = try? JSONEncoder().encode(cohort) else { return }
+                    NotificationCenter.default.post(
+                        name: .genotypeResultSmartCohortApplied,
+                        object: nil,
+                        userInfo: ["cohort": data]
+                    )
+                },
+                onSmartCohortDeleted: { _ in
+                    // Deletion happens on the inspector side via the annotation store;
+                    // the Document section's host wires this end-to-end in a follow-up.
+                },
+                onSmartCohortAddRequested: {
+                    // The "Save current filter" picker UI ships in a follow-up.
+                }
+            )
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {
             PhylogeneticTreeDocumentSection(state: phylogeneticTreeDocument)
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {

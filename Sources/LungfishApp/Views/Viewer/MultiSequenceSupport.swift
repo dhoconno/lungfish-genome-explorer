@@ -670,6 +670,12 @@ public extension Notification.Name {
     /// `GenotypeSummaryViewMode` (outline / cards / matrix).
     static let genotypeResultViewModeChanged = Notification.Name("com.lungfish.genotypeResultViewModeChanged")
 
+    /// Posted when the user selects a Smart Cohort in the Inspector Document section
+    /// for a `.lungfishgenotype` bundle. `userInfo["cohort"]` is the
+    /// `GenotypeCohortSmartFilter` JSON. The viewport applies the predicate to its
+    /// cohort list. Posting with `userInfo[:]` clears the filter.
+    static let genotypeResultSmartCohortApplied = Notification.Name("com.lungfish.genotypeResultSmartCohortApplied")
+
     /// Posted on the main thread when a batch aggregated manifest file has just been saved to disk.
     /// The Inspector observes this to transition the manifest status indicator from `.building` to `.cached`.
     static let batchManifestCached = Notification.Name("com.lungfish.batchManifestCached")

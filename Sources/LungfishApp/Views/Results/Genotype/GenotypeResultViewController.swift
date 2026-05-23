@@ -48,6 +48,7 @@ final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypingSelection: Set<String> = []
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
+    private var activeSmartCohort: GenotypeCohortSmartFilter?
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -79,6 +80,26 @@ final class GenotypeResultViewController: NSViewController {
         configureScrollLens(artifactScrollView, stack: artifactStack, identifier: "genotype-artifacts-lens")
         layout()
         wireCallbacks()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSmartCohortApplied(_:)),
+            name: .genotypeResultSmartCohortApplied,
+            object: nil
+        )
+    }
+
+    @objc private func handleSmartCohortApplied(_ notification: Notification) {
+        guard let data = notification.userInfo?["cohort"] as? Data else {
+            activeSmartCohort = nil
+            rebuildOutline()
+            rebuildCardsRows()
+            return
+        }
+        if let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data) {
+            activeSmartCohort = cohort
+            rebuildOutline()
+            rebuildCardsRows()
+        }
     }
 
     override func viewDidLayout() {
@@ -374,7 +395,9 @@ final class GenotypeResultViewController: NSViewController {
         let sampleOrder = result.sampleNames.isEmpty
             ? result.samples.map(\.sample)
             : result.sampleNames
+        let allowed = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         let cards: [GenotypeCardsView.Card] = sampleOrder.compactMap { sampleId -> GenotypeCardsView.Card? in
+            guard allowed.contains(sampleId) else { return nil }
             guard let analysis = analysesBySample[sampleId] else { return nil }
             let loci = analysis.calls.map(\.locus)
             let slots: [GenotypeHaplotypeTapeView.Slot] = analysis.calls.map { call in
@@ -918,8 +941,9 @@ final class GenotypeResultViewController: NSViewController {
             return
         }
         let loci = orderedLoci(from: analysis)
+        let allowedSamples = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         var rows: [GenotypeOutlineView.Row] = []
-        for sample in analysis.samples {
+        for sample in analysis.samples where allowedSamples.contains(sample.sample) {
             let tapeSlots = outlineTapeSlots(for: sample, loci: loci)
             let blockKind = GenotypeBlockClassifier.classify(
                 calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
@@ -937,6 +961,24 @@ final class GenotypeResultViewController: NSViewController {
             outlineRowsBySample[sample.sample] = row
         }
         outlineView.configure(rows: rows)
+    }
+
+    /// Returns the set of sample names that should appear in Outline/Cards,
+    /// after applying the active smart cohort predicate (if any). When no
+    /// cohort is active, returns all known samples.
+    private func filteredSampleNames(
+        result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?
+    ) -> Set<String> {
+        guard let cohort = activeSmartCohort else {
+            let names = (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
+                + result.samples.map(\.sample)
+            return Set(names)
+        }
+        let liveSidecar = sidecar ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: liveSidecar)
+        let matched = subjects.filter { cohort.predicate.evaluate($0) }.map(\.animalId)
+        return Set(matched)
     }
 
     private func rebuildCohortSummary() {
