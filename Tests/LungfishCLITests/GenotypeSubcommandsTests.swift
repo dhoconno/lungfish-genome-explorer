@@ -9,11 +9,11 @@ final class GenotypeSubcommandsTests: XCTestCase {
         XCTAssertTrue(names.contains("genotype"))
     }
 
-    func testGenotypeGroupRegistersAllThreeSubcommands() {
+    func testGenotypeGroupRegistersAllSubcommands() {
         let names = GenotypeCommandGroup.configuration.subcommands.map {
             $0.configuration.commandName
         }
-        XCTAssertEqual(Set(names), ["list-samples", "list-cohorts", "apply-annotations"])
+        XCTAssertEqual(Set(names), ["list-samples", "list-cohorts", "apply-annotations", "export-xlsx"])
     }
 
     func testListSamplesParsesBundleOption() throws {

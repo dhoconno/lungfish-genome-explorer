@@ -9,47 +9,29 @@ struct GenotypeResultArtifactRow: Equatable {
 }
 
 struct GenotypeResultDocumentState: Equatable {
-    let title: String
-    let subtitle: String?
-    let bundleURL: URL?
-    let sampleIds: [String]
-    let sampleMetadataStore: SampleMetadataStore?
-    let windowStateScope: WindowStateScope?
-    let summaryRows: [(String, String)]
-    let qcRows: [(String, String)]
-    let artifactRows: [GenotypeResultArtifactRow]
+    var title: String
+    var subtitle: String?
+    var bundleURL: URL?
+    var sampleIds: [String]
+    var sampleMetadataStore: SampleMetadataStore?
+    var windowStateScope: WindowStateScope?
+    var summaryRows: [(String, String)]
+    var qcRows: [(String, String)]
+    var artifactRows: [GenotypeResultArtifactRow]
     var summaryViewMode: GenotypeSummaryViewMode = .outline
     var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
     var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
 
     func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
-        GenotypeResultDocumentState(
-            title: title,
-            subtitle: subtitle,
-            bundleURL: bundleURL,
-            sampleIds: sampleIds,
-            sampleMetadataStore: sampleMetadataStore,
-            windowStateScope: windowStateScope,
-            summaryRows: summaryRows,
-            qcRows: qcRows,
-            artifactRows: artifactRows,
-            summaryViewMode: summaryViewMode
-        )
+        var copy = self
+        copy.sampleMetadataStore = sampleMetadataStore
+        return copy
     }
 
     func replacing(summaryViewMode: GenotypeSummaryViewMode) -> GenotypeResultDocumentState {
-        GenotypeResultDocumentState(
-            title: title,
-            subtitle: subtitle,
-            bundleURL: bundleURL,
-            sampleIds: sampleIds,
-            sampleMetadataStore: sampleMetadataStore,
-            windowStateScope: windowStateScope,
-            summaryRows: summaryRows,
-            qcRows: qcRows,
-            artifactRows: artifactRows,
-            summaryViewMode: summaryViewMode
-        )
+        var copy = self
+        copy.summaryViewMode = summaryViewMode
+        return copy
     }
 
     static func == (

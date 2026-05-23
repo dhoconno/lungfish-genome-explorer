@@ -128,6 +128,17 @@ final class GenotypeResultViewController: NSViewController {
             bundleURL: result.bundleURL,
             author: NSUserName()
         )
+        // Hydrate the dropout threshold sliders/steppers from saved sidecar
+        // settings so the analyst sees their last-saved values when the
+        // bundle reopens, not stale defaults.
+        if let settings = annotationStore?.sidecar.settings {
+            dropoutAbsoluteEnabled = settings.dropoutAbsolute != nil
+            dropoutAbsoluteValue = settings.dropoutAbsolute ?? dropoutAbsoluteValue
+            dropoutSampleFractionEnabled = settings.dropoutSampleFraction != nil
+            if let f = settings.dropoutSampleFraction { dropoutSampleFractionPercent = f * 100 }
+            dropoutLocusFractionEnabled = settings.dropoutLocusFraction != nil
+            if let f = settings.dropoutLocusFraction { dropoutLocusFractionPercent = f * 100 }
+        }
         comparisonMatrix.configure(result: result, metadataStore: sampleMetadataStore)
         rebuildSummary()
         rebuildHaplotypeLens()
@@ -1083,9 +1094,10 @@ final class GenotypeResultViewController: NSViewController {
         guard !matching.isEmpty else { return }
         let tokenIndex = manualHaplotypingDraftColorTokenIndex
         do {
+            var bulk: [ManualHaplotypeAssignment] = []
             for observation in matching {
                 for sampleId in observation.sampleIds {
-                    try store.addManualHaplotypeAssignment(.init(
+                    bulk.append(.init(
                         sample: sampleId,
                         locus: observation.locus,
                         slot: .h1,
@@ -1096,6 +1108,7 @@ final class GenotypeResultViewController: NSViewController {
                     ))
                 }
             }
+            try store.addManualHaplotypeAssignments(bulk)
         } catch {
             if let window = view.window ?? NSApp.keyWindow {
                 NSAlert(error: error).beginSheetModal(for: window, completionHandler: { _ in })
@@ -1370,8 +1383,11 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     private func cohortAnnotationCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
-        let sidecar = (try? ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: result.bundleURL))
-            ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+        // Read from the live in-memory annotation store rather than re-loading
+        // from disk. Un-persisted writes happening on this turn show up
+        // immediately, and we honor the "inspector is the sidecar's sole
+        // author" invariant.
+        let sidecar = annotationStore?.sidecar ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
         return [
             ("Overrides", sidecar.callOverrides.count),
             ("Comments", sidecar.cellComments.count + sidecar.sampleNotes.count),
@@ -1487,22 +1503,11 @@ final class GenotypeResultViewController: NSViewController {
     private func clearOverride(forAnimal animalId: String,
                                row: GenotypeSampleDetailSheet.CallRow) {
         guard let store = annotationStore else { return }
-        // Remove the override entry for this (sample, locus, slot).
-        var sidecar = store.sidecar
-        sidecar.callOverrides.removeAll {
-            $0.sample == animalId && $0.locus == row.locus && $0.slot == row.slot
-        }
-        // We can't directly assign the sidecar; instead persist a no-op
-        // override-clear by writing the sidecar through the store. Simplest:
-        // re-save through the store by setting status, which appends an audit
-        // entry.
         do {
-            try store.setCallStatus(.unflagged, sample: animalId, locus: row.locus, slot: row.slot)
+            try store.clearOverride(sample: animalId, locus: row.locus, slot: row.slot)
         } catch {
             presentSheetAlert(error: error)
         }
-        // Persist the cleared override through the store's persist path.
-        store.directRemoveOverride(sample: animalId, locus: row.locus, slot: row.slot)
         dismissSampleDetailSheet()
         presentSampleDetailSheet(forAnimal: animalId)
     }

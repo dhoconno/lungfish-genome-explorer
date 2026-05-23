@@ -17,11 +17,20 @@ final class GenotypeAnnotationStore {
         return f
     }()
 
+    private(set) var isReadOnly: Bool
+
     init(bundleURL: URL, author: String) throws {
         self.bundleURL = bundleURL
         self.author = author
         self.sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
-        try seedBuiltInSmartCohortsIfNeeded()
+        // Detect read-only volumes (e.g. a mounted share) by probing the
+        // bundle directory. We don't refuse to load; we just suppress
+        // attempts to persist so the analyst can still browse the bundle
+        // without a stream of NSAlert sheets.
+        self.isReadOnly = !FileManager.default.isWritableFile(atPath: bundleURL.path)
+        if !isReadOnly {
+            try seedBuiltInSmartCohortsIfNeeded()
+        }
     }
 
     /// Adds the small set of default smart cohorts the spec calls out (Needs
@@ -215,9 +224,10 @@ final class GenotypeAnnotationStore {
     }
 
     /// Removes the call override for the given (sample, locus, slot) without
-    /// appending a separate undo entry to the audit log. The setCallStatus
-    /// or other higher-level call is expected to have already logged the
-    /// analyst's intent.
+    /// appending a separate undo entry to the audit log. Prefer `clearOverride`
+    /// which appends a proper audit entry; this lower-level method is for
+    /// migrations or programmatic patching where the audit log is already
+    /// being written elsewhere.
     func directRemoveOverride(sample: String, locus: String, slot: HaplotypeSlot) {
         sidecar.callOverrides.removeAll {
             $0.sample == sample && $0.locus == locus && $0.slot == slot
@@ -225,7 +235,35 @@ final class GenotypeAnnotationStore {
         try? persist()
     }
 
+    /// Removes the call override for the given (sample, locus, slot) and
+    /// appends a "clearOverride" audit entry that records the previous
+    /// override and the call it reverts to. A no-op if no override exists.
+    func clearOverride(sample: String, locus: String, slot: HaplotypeSlot) throws {
+        guard let existing = sidecar.callOverrides.first(where: {
+            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        }) else { return }
+        sidecar.callOverrides.removeAll {
+            $0.sample == sample && $0.locus == locus && $0.slot == slot
+        }
+        sidecar.append(audit: .init(
+            action: "clearOverride", sample: sample, locus: locus, slot: slot,
+            before: existing.overrideCall, after: existing.originalCall,
+            color: nil, reason: existing.reasonTag.rawValue, rationale: nil,
+            author: author, timestamp: now()
+        ))
+        try persist()
+    }
+
+    /// Bulk-add manual haplotype assignments in a single persist call.
+    /// Use this instead of looping `addManualHaplotypeAssignment` when adding
+    /// many at once (e.g. one assignment per sample sharing a manual haplotype).
+    func addManualHaplotypeAssignments(_ assignments: [ManualHaplotypeAssignment]) throws {
+        sidecar.manualHaplotypeAssignments.append(contentsOf: assignments)
+        try persist()
+    }
+
     private func persist() throws {
+        guard !isReadOnly else { return }
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
     }
 }

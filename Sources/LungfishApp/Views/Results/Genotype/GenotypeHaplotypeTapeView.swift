@@ -200,23 +200,46 @@ final class GenotypeHaplotypeTapeView: NSView {
     // MARK: Accessibility
 
     private var accessibilityElementsCache: [NSAccessibilityElement]?
+    private var lastAccessibilityBounds: NSRect = .zero
 
     override func accessibilityChildren() -> [Any]? {
-        if let cache = accessibilityElementsCache { return cache }
+        if let cache = accessibilityElementsCache, lastAccessibilityBounds == bounds {
+            return cache
+        }
+        guard !slots.isEmpty, bounds.width > 0, bounds.height > 0 else {
+            accessibilityElementsCache = []
+            lastAccessibilityBounds = bounds
+            return []
+        }
+        let columnWidth = bounds.width / CGFloat(slots.count)
+        let halfHeight = bounds.height / 2.0
         var children: [NSAccessibilityElement] = []
-        for slot in slots {
-            children.append(makeAccessibilityElement(for: slot, slot: .h1))
-            children.append(makeAccessibilityElement(for: slot, slot: .h2))
+        for (index, slot) in slots.enumerated() {
+            let x = CGFloat(index) * columnWidth
+            let topRect = NSRect(x: x, y: 0, width: columnWidth, height: halfHeight)
+            let botRect = NSRect(x: x, y: halfHeight, width: columnWidth, height: halfHeight)
+            children.append(makeAccessibilityElement(for: slot, slot: .h1, frame: topRect))
+            children.append(makeAccessibilityElement(for: slot, slot: .h2, frame: botRect))
         }
         accessibilityElementsCache = children
+        lastAccessibilityBounds = bounds
         return children
     }
 
-    private func makeAccessibilityElement(for slot: Slot, slot tapeSlot: HaplotypeSlot) -> NSAccessibilityElement {
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        if oldSize != bounds.size {
+            accessibilityElementsCache = nil
+        }
+    }
+
+    private func makeAccessibilityElement(
+        for slot: Slot, slot tapeSlot: HaplotypeSlot, frame: NSRect
+    ) -> NSAccessibilityElement {
         let value = cellLabel(tapeSlot == .h1 ? slot.h1 : slot.h2)
         let element = NSAccessibilityElement()
         element.setAccessibilityRole(.button)
-        element.setAccessibilityFrameInParentSpace(bounds)
+        element.setAccessibilityFrameInParentSpace(frame)
         let label = [sampleAccessibilityLabel, slot.locus, tapeSlot.displayName, value]
             .filter { !$0.isEmpty }
             .joined(separator: " ")

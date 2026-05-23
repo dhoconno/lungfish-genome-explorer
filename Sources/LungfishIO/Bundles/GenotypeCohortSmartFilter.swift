@@ -96,10 +96,14 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     case totalReadsAtMost(Int)
     case unmappedPercentAtMost(Double)
     case hasHaplotypeAt(locus: String, slot: HaplotypeSlot?, names: Set<String>)
+    case hasErrorAt(locus: String)
+    case isHomozygousAt(locus: String)
     case isHomozygousAcrossAll
     case hasRegionalRecombinant
+    case hasRegionalRecombinantAt(locus: String)
     case hasAtypicalPattern
     case hasHighlightFill(String?)
+    case hasHighlightBorder(String?)
     case hasAnalystFlag(GenotypeAnnotationSidecar.StatusValue)
 
     public func evaluate(_ subject: GenotypeCohortSubject) -> Bool {
@@ -136,15 +140,29 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
                 (slot == nil || $0.slot == slot) &&
                 names.contains($0.name)
             }
+        case .hasErrorAt(let locus):
+            return subject.calls.contains { $0.locus == locus && $0.isError }
+        case .isHomozygousAt(let locus):
+            // The subject carries per-slot calls; the locus is homozygous
+            // when both slots are present and share the same call name.
+            let locusCalls = subject.calls.filter { $0.locus == locus }
+            guard locusCalls.count >= 2 else { return false }
+            let names = Set(locusCalls.map(\.name))
+            return names.count == 1
         case .isHomozygousAcrossAll:
             return subject.isHomozygousAcrossAll
         case .hasRegionalRecombinant:
             return subject.hasRegionalRecombinant
+        case .hasRegionalRecombinantAt(let locus):
+            return subject.calls.contains { $0.locus == locus && $0.isRecombinant }
         case .hasAtypicalPattern:
             return subject.hasAtypicalPattern
         case .hasHighlightFill(let hex):
             if let hex = hex { return subject.highlightFills.contains(hex) }
             return !subject.highlightFills.isEmpty
+        case .hasHighlightBorder(let hex):
+            if let hex = hex { return subject.highlightBorders.contains(hex) }
+            return !subject.highlightBorders.isEmpty
         case .hasAnalystFlag(let value):
             return subject.statusValue == value
         }
@@ -199,14 +217,26 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             try container.encode(locus, forKey: .locus)
             try container.encodeIfPresent(slot, forKey: .slot)
             try container.encode(Array(names).sorted(), forKey: .names)
+        case .hasErrorAt(let locus):
+            try container.encode("hasErrorAt", forKey: .kind)
+            try container.encode(locus, forKey: .locus)
+        case .isHomozygousAt(let locus):
+            try container.encode("isHomozygousAt", forKey: .kind)
+            try container.encode(locus, forKey: .locus)
         case .isHomozygousAcrossAll:
             try container.encode("isHomozygousAcrossAll", forKey: .kind)
         case .hasRegionalRecombinant:
             try container.encode("hasRegionalRecombinant", forKey: .kind)
+        case .hasRegionalRecombinantAt(let locus):
+            try container.encode("hasRegionalRecombinantAt", forKey: .kind)
+            try container.encode(locus, forKey: .locus)
         case .hasAtypicalPattern:
             try container.encode("hasAtypicalPattern", forKey: .kind)
         case .hasHighlightFill(let hex):
             try container.encode("hasHighlightFill", forKey: .kind)
+            try container.encodeIfPresent(hex, forKey: .hex)
+        case .hasHighlightBorder(let hex):
+            try container.encode("hasHighlightBorder", forKey: .kind)
             try container.encodeIfPresent(hex, forKey: .hex)
         case .hasAnalystFlag(let v):
             try container.encode("hasAnalystFlag", forKey: .kind)
@@ -251,14 +281,22 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             let slot = try container.decodeIfPresent(HaplotypeSlot.self, forKey: .slot)
             let names = try container.decode([String].self, forKey: .names)
             self = .hasHaplotypeAt(locus: locus, slot: slot, names: Set(names))
+        case "hasErrorAt":
+            self = .hasErrorAt(locus: try container.decode(String.self, forKey: .locus))
+        case "isHomozygousAt":
+            self = .isHomozygousAt(locus: try container.decode(String.self, forKey: .locus))
         case "isHomozygousAcrossAll":
             self = .isHomozygousAcrossAll
         case "hasRegionalRecombinant":
             self = .hasRegionalRecombinant
+        case "hasRegionalRecombinantAt":
+            self = .hasRegionalRecombinantAt(locus: try container.decode(String.self, forKey: .locus))
         case "hasAtypicalPattern":
             self = .hasAtypicalPattern
         case "hasHighlightFill":
             self = .hasHighlightFill(try container.decodeIfPresent(String.self, forKey: .hex))
+        case "hasHighlightBorder":
+            self = .hasHighlightBorder(try container.decodeIfPresent(String.self, forKey: .hex))
         case "hasAnalystFlag":
             let raw = try container.decode(String.self, forKey: .value)
             guard let value = GenotypeAnnotationSidecar.StatusValue(rawValue: raw) else {

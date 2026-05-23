@@ -113,10 +113,15 @@ final class GenotypeCardsView: NSView {
         ])
     }
 
+    private var lastLayoutBoundsSize: NSSize = .zero
+    private var lastLayoutDensity: Density?
+
     func configure(cards: [Card]) {
         self.cards = cards
         self.numberOfCards = cards.count
         self.effectiveDensity = resolveDensity()
+        lastLayoutBoundsSize = .zero
+        lastLayoutDensity = nil
         rebuild()
     }
 
@@ -127,6 +132,15 @@ final class GenotypeCardsView: NSView {
 
     override func layout() {
         super.layout()
+        // AppKit invokes `layout()` continuously during window resize and
+        // split-divider drag. Rebuilding the entire NSView hierarchy from
+        // scratch on each tick is O(N) NSView allocation. Skip the rebuild
+        // when neither the bounds nor the effective density changed.
+        if bounds.size == lastLayoutBoundsSize && lastLayoutDensity == effectiveDensity {
+            return
+        }
+        lastLayoutBoundsSize = bounds.size
+        lastLayoutDensity = effectiveDensity
         rebuild()
     }
 
