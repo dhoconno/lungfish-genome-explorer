@@ -27,6 +27,7 @@ final class GenotypeResultViewController: NSViewController {
     private let outlineView = GenotypeOutlineView()
     private let cardsView = GenotypeCardsView()
     private let cohortSummaryPanel = GenotypeCohortSummaryPanelView()
+    private let quickFilterBar = GenotypeQuickFilterBarView()
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
@@ -49,6 +50,7 @@ final class GenotypeResultViewController: NSViewController {
     private var manualHaplotypingDraftLabel: String = ""
     private var manualHaplotypingDraftColorTokenIndex: Int = 1
     private var activeSmartCohort: GenotypeCohortSmartFilter?
+    private var quickFilterPredicate: SmartCohortPredicate?
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
     private var callEvidenceHost: NSHostingView<GenotypeCallEvidenceView>?
     private var dropoutAbsoluteEnabled: Bool = true
@@ -105,6 +107,16 @@ final class GenotypeResultViewController: NSViewController {
     @objc private func handleSampleDetailSheetRequest(_ notification: Notification) {
         guard let sample = notification.userInfo?["sample"] as? String else { return }
         presentSampleDetailSheet(forAnimal: sample)
+    }
+
+    /// Apply (or clear) a predicate driven by the quick-filter bar. Distinct
+    /// from the Smart Cohorts notification path so the analyst can have both
+    /// a saved cohort *and* an ad-hoc quick filter active; the viewport
+    /// combines them with `.all([...])`.
+    private func applyQuickFilter(_ predicate: SmartCohortPredicate?) {
+        quickFilterPredicate = predicate
+        rebuildOutline()
+        rebuildCardsRows()
     }
 
     @objc private func handleSmartCohortApplied(_ notification: Notification) {
@@ -251,6 +263,7 @@ final class GenotypeResultViewController: NSViewController {
         detailContainer.translatesAutoresizingMaskIntoConstraints = false
         sampleContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        sampleContainer.addSubview(quickFilterBar)
         sampleContainer.addSubview(comparisonMatrix)
         sampleContainer.addSubview(outlineView)
         sampleContainer.addSubview(cardsView)
@@ -262,6 +275,9 @@ final class GenotypeResultViewController: NSViewController {
         cardsView.onCardSelected = { [weak self] animalId in
             self?.handleOutlineRowSelected(animalId)
         }
+        quickFilterBar.onFilterChanged = { [weak self] predicate in
+            self?.applyQuickFilter(predicate)
+        }
 
         splitView.addArrangedSubview(sampleContainer)
         splitView.addArrangedSubview(detailContainer)
@@ -269,15 +285,18 @@ final class GenotypeResultViewController: NSViewController {
         splitView.setHoldingPriority(.defaultLow, forSubviewAt: 1)
 
         NSLayoutConstraint.activate([
-            comparisonMatrix.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            quickFilterBar.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            quickFilterBar.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
+            quickFilterBar.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
+            comparisonMatrix.topAnchor.constraint(equalTo: quickFilterBar.bottomAnchor),
             comparisonMatrix.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
             comparisonMatrix.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
             comparisonMatrix.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
-            outlineView.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            outlineView.topAnchor.constraint(equalTo: quickFilterBar.bottomAnchor),
             outlineView.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
             outlineView.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
             outlineView.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
-            cardsView.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            cardsView.topAnchor.constraint(equalTo: quickFilterBar.bottomAnchor),
             cardsView.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
             cardsView.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
             cardsView.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
@@ -1206,20 +1225,27 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     /// Returns the set of sample names that should appear in Outline/Cards,
-    /// after applying the active smart cohort predicate (if any). When no
-    /// cohort is active, returns all known samples.
+    /// after applying both the active smart cohort predicate and the
+    /// ad-hoc quick filter (if either is active). The two predicates
+    /// combine with `.all` — the cohort list contains samples that match
+    /// *both* the saved cohort and any quick filter currently pinned.
     private func filteredSampleNames(
         result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar?
     ) -> Set<String> {
-        guard let cohort = activeSmartCohort else {
+        let predicates: [SmartCohortPredicate] = [
+            activeSmartCohort?.predicate,
+            quickFilterPredicate,
+        ].compactMap { $0 }
+        guard !predicates.isEmpty else {
             let names = (result.haplotypeAnalysis?.samples ?? []).map(\.sample)
                 + result.samples.map(\.sample)
             return Set(names)
         }
         let liveSidecar = sidecar ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
         let subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: liveSidecar)
-        let matched = subjects.filter { cohort.predicate.evaluate($0) }.map(\.animalId)
+        let combined: SmartCohortPredicate = predicates.count == 1 ? predicates[0] : .all(predicates)
+        let matched = subjects.filter { combined.evaluate($0) }.map(\.animalId)
         return Set(matched)
     }
 
