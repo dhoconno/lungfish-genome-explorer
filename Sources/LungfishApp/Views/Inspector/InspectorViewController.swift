@@ -1458,13 +1458,18 @@ public class InspectorViewController: NSViewController {
     }
 
     /// Updates the Selected Item inspector with genotype result sample/call metadata.
+    ///
+    /// Auto-switches to the `.selectedItem` tab only when the analyst has
+    /// already focused on per-call metadata (current tab `.selectedItem`).
+    /// Switching away from the user's current `.bundle` or `.view` tab in
+    /// response to incidental selection events (auto-select-first-row when
+    /// the view mode changes, etc.) is treated as a regression.
     func updateGenotypeResultSelection(_ state: GenotypeResultSelectionState?) {
         viewModel.selectedAnnotation = nil
         viewModel.selectionSectionViewModel.select(genotypeResultSelection: state)
         viewModel.genotypeResultDisplaySectionViewModel.updateSelection(state)
-        if state != nil && viewModel.selectedTab != .view {
-            viewModel.selectedTab = .selectedItem
-        }
+        // Do not flip the user's tab choice automatically; the analyst opens
+        // the Selected Item tab explicitly when they want to inspect a call.
     }
 
     private func formatInteger(_ value: Int?) -> String {

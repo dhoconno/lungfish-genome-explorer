@@ -82,12 +82,13 @@ final class GenotypeHaplotypeTapeView: NSView {
             path.fill()
         case .recombinant(let a, let b, _):
             drawStripedFill(a: a, b: b, in: rect, path: path)
-        case .error:
+        case .error(let label):
             NSColor.controlBackgroundColor.setFill()
             path.fill()
             NSColor.lungfishDanger.setStroke()
             path.lineWidth = 1.5
             path.stroke()
+            drawErrorGlyph(label: label, in: rect)
         }
         if isOverridden {
             drawHatchOverlay(in: rect)
@@ -110,6 +111,28 @@ final class GenotypeHaplotypeTapeView: NSView {
             toggle.toggle()
         }
         NSGraphicsContext.restoreGraphicsState()
+    }
+
+    private func drawErrorGlyph(label: String, in rect: NSRect) {
+        let symbol = errorSymbol(forLabel: label)
+        guard rect.height >= 8 else { return }
+        let fontSize = max(7, min(11, rect.height * 0.65))
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .foregroundColor: NSColor.lungfishDanger,
+        ]
+        let attributed = NSAttributedString(string: symbol, attributes: attrs)
+        let size = attributed.size()
+        let x = rect.midX - size.width / 2
+        let y = rect.midY - size.height / 2
+        attributed.draw(at: NSPoint(x: x, y: y))
+    }
+
+    private func errorSymbol(forLabel label: String) -> String {
+        if label.contains("TMH") { return "T" }
+        if label.contains("TMG") { return "G" }
+        if label.contains("NO HAP") { return "?" }
+        return "!"
     }
 
     private func drawHatchOverlay(in rect: NSRect) {
