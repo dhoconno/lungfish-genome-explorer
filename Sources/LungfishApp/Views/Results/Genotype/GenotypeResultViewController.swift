@@ -24,6 +24,7 @@ final class GenotypeResultViewController: NSViewController {
     private let detailContainer = NSView()
     private let comparisonMatrix = GenotypeComparisonMatrixView()
     private let outlineView = GenotypeOutlineView()
+    private let cardsView = GenotypeCardsView()
     private let cohortSummaryPanel = GenotypeCohortSummaryPanelView()
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
@@ -192,8 +193,13 @@ final class GenotypeResultViewController: NSViewController {
         detailContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         sampleContainer.addSubview(comparisonMatrix)
         sampleContainer.addSubview(outlineView)
+        sampleContainer.addSubview(cardsView)
         outlineView.isHidden = true
+        cardsView.isHidden = true
         outlineView.onRowSelected = { [weak self] animalId in
+            self?.handleOutlineRowSelected(animalId)
+        }
+        cardsView.onCardSelected = { [weak self] animalId in
             self?.handleOutlineRowSelected(animalId)
         }
 
@@ -211,6 +217,10 @@ final class GenotypeResultViewController: NSViewController {
             outlineView.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
             outlineView.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
             outlineView.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
+            cardsView.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            cardsView.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
+            cardsView.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
+            cardsView.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
         ])
     }
 
@@ -333,11 +343,74 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     private func applySummaryViewModeVisibility() {
-        let showOutline = displayState.summaryViewMode == .outline
-        outlineView.isHidden = !showOutline
-        comparisonMatrix.isHidden = showOutline
-        cohortSummaryPanel.isHidden = !showOutline
-        detailScrollView.isHidden = showOutline
+        let mode = displayState.summaryViewMode
+        outlineView.isHidden = mode != .outline
+        cardsView.isHidden = mode != .cards
+        comparisonMatrix.isHidden = mode == .outline || mode == .cards
+        // Panel B: cohort summary visible for Outline & Cards; matrix detail visible for Matrix.
+        let summaryActive = (mode == .outline || mode == .cards)
+        cohortSummaryPanel.isHidden = !summaryActive
+        detailScrollView.isHidden = summaryActive
+        if mode == .cards {
+            rebuildCardsRows()
+        }
+    }
+
+    private func rebuildCardsRows() {
+        guard let result else { return }
+        let analyses = result.haplotypeAnalysis?.samples ?? []
+        let analysesBySample: [String: GenotypeHaplotypeSampleAnalysis] = Dictionary(
+            uniqueKeysWithValues: analyses.map { ($0.sample, $0) }
+        )
+        let sampleOrder = result.sampleNames.isEmpty
+            ? result.samples.map(\.sample)
+            : result.sampleNames
+        let cards: [GenotypeCardsView.Card] = sampleOrder.compactMap { sampleId -> GenotypeCardsView.Card? in
+            guard let analysis = analysesBySample[sampleId] else { return nil }
+            let loci = analysis.calls.map(\.locus)
+            let slots: [GenotypeHaplotypeTapeView.Slot] = analysis.calls.map { call in
+                GenotypeHaplotypeTapeView.Slot(
+                    locus: call.locus,
+                    h1: tapeCell(for: call.haplotype1, status: call.status),
+                    h2: tapeCell(for: call.haplotype2, status: call.status)
+                )
+            }
+            let blockTriples: [(locus: String, h1: String, h2: String)] = analysis.calls.map {
+                (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2)
+            }
+            let blockKind = GenotypeBlockClassifier.classify(calls: blockTriples)
+            let metadataRow = sampleMetadataStore?.records[sampleId]
+            let gsId = metadataRow?["GS ID"]
+                ?? metadataRow?["gs_id"]
+                ?? metadataRow?["gsId"]
+            let comments = metadataRow?["Comments"]
+                ?? metadataRow?["comments"]
+                ?? metadataRow?["comment"]
+                ?? ""
+            return GenotypeCardsView.Card(
+                animalId: sampleId,
+                gsId: gsId,
+                loci: loci,
+                tapeSlots: slots,
+                blockKind: blockKind,
+                commentSummary: comments
+            )
+        }
+        cardsView.configure(cards: cards)
+    }
+
+    private func tapeCell(for haplotypeName: String, status: GenotypeHaplotypeCallStatus) -> GenotypeHaplotypeTapeView.Cell {
+        if haplotypeName.isEmpty || haplotypeName == "-" {
+            return .empty
+        }
+        if haplotypeName.hasPrefix("ERR:") {
+            return .error(label: haplotypeName)
+        }
+        if status != .called && status != .specialCase {
+            return .error(label: haplotypeName)
+        }
+        let token = HaplotypeColorToken.assigned(forName: haplotypeName)
+        return .reference(tokenIndex: token.canonicalIndex, label: haplotypeName)
     }
 
     private func segmentIndex(for lens: Lens) -> Int {
