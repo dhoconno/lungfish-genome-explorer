@@ -187,12 +187,31 @@ public class InspectorViewController: NSViewController {
             name: .genotypeResultViewModeChanged,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGenotypeShowsAncillaryLociChanged(_:)),
+            name: .genotypeResultShowsAncillaryLociChanged,
+            object: nil
+        )
     }
 
     @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
         guard let raw = notification.userInfo?["mode"] as? String,
               let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
+    }
+
+    @objc private func handleGenotypeShowsAncillaryLociChanged(_ notification: Notification) {
+        guard let value = notification.userInfo?["showsAncillaryLoci"] as? Bool else { return }
+        viewModel.genotypeResultDisplaySectionViewModel.setShowsAncillaryLoci(value)
+        // Mirror into the Document section's state so the toggle in SwiftUI
+        // reflects the new value on the next render pass.
+        if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                state.replacing(showsAncillaryLoci: value)
+            )
+        }
     }
 
     public override func viewWillAppear() {
@@ -1363,7 +1382,7 @@ public class InspectorViewController: NSViewController {
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
             return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
         }
-        let state = GenotypeResultDocumentState(
+        var state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
             bundleURL: result.bundleURL,
@@ -1386,6 +1405,12 @@ public class InspectorViewController: NSViewController {
             smartCohorts: smartCohorts,
             auditEntries: sidecar.auditLog
         )
+        // Mirror the current display-state knobs into the document state so
+        // the Inspector toggles (View Mode radio, "Show observed-only loci"
+        // checkbox) render with the right values when the section appears.
+        let currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        state.summaryViewMode = currentDisplay.summaryViewMode
+        state.showsAncillaryLoci = currentDisplay.showsAncillaryLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
         viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true)
         updateProvenanceTarget(

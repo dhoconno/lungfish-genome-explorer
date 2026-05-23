@@ -3,29 +3,33 @@ import AppKit
 @MainActor
 final class GenotypeCohortSummaryPanelView: NSView {
     struct Summary {
-        let sampleCount: Int
         let qcCounts: [(String, Int)]
         let errorTypeCounts: [(String, Int)]
-        let blockCounts: [(String, Int)]
-        let readBudget: (median: String, belowThreshold: String)
         let annotationCounts: [(String, Int)]
+        /// Sample IDs with read totals more than one standard deviation below
+        /// the cohort mean. Hovering the count reveals the list.
+        let outlierSamples: [String]
+        /// Sample IDs with total reads below the absolute threshold (5K by
+        /// default). These are the samples we cannot reliably haplotype.
+        let belowThresholdSamples: [String]
+        let belowThresholdValue: Int
         let isReadOnlyBundle: Bool
 
         init(
-            sampleCount: Int,
             qcCounts: [(String, Int)],
             errorTypeCounts: [(String, Int)],
-            blockCounts: [(String, Int)],
-            readBudget: (median: String, belowThreshold: String),
             annotationCounts: [(String, Int)],
+            outlierSamples: [String],
+            belowThresholdSamples: [String],
+            belowThresholdValue: Int,
             isReadOnlyBundle: Bool = false
         ) {
-            self.sampleCount = sampleCount
             self.qcCounts = qcCounts
             self.errorTypeCounts = errorTypeCounts
-            self.blockCounts = blockCounts
-            self.readBudget = readBudget
             self.annotationCounts = annotationCounts
+            self.outlierSamples = outlierSamples
+            self.belowThresholdSamples = belowThresholdSamples
+            self.belowThresholdValue = belowThresholdValue
             self.isReadOnlyBundle = isReadOnlyBundle
         }
     }
@@ -53,8 +57,8 @@ final class GenotypeCohortSummaryPanelView: NSView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
 
         scrollView.documentView = documentView
         documentView.addSubview(stack)
@@ -81,19 +85,65 @@ final class GenotypeCohortSummaryPanelView: NSView {
         if summary.isReadOnlyBundle {
             stack.addArrangedSubview(makeReadOnlyBanner())
         }
-        stack.addArrangedSubview(makeSection(title: "Cohort summary",
-                                             content: [("Samples", "\(summary.sampleCount)")]))
+        // Flag the samples most likely to need re-runs: cohort outliers
+        // (more than 1 SD below the mean) and absolute low-read samples
+        // (below the configurable threshold). Both are folded together at
+        // the top of the panel since this is what an analyst sees first.
+        stack.addArrangedSubview(makeFlagSection(
+            title: "Low-coverage samples",
+            count: summary.outlierSamples.count,
+            samples: summary.outlierSamples,
+            footnote: "Samples > 1 SD below the cohort mean reads."
+        ))
+        stack.addArrangedSubview(makeFlagSection(
+            title: "Below \(formatThreshold(summary.belowThresholdValue)) reads",
+            count: summary.belowThresholdSamples.count,
+            samples: summary.belowThresholdSamples,
+            footnote: "Samples below the absolute read threshold — calls here may be unreliable."
+        ))
         stack.addArrangedSubview(makeSection(title: "QC distribution",
                                              content: summary.qcCounts.map { ($0.0, "\($0.1)") }))
         stack.addArrangedSubview(makeSection(title: "Errors",
                                              content: summary.errorTypeCounts.map { ($0.0, "\($0.1)") }))
-        stack.addArrangedSubview(makeSection(title: "Block coherence",
-                                             content: summary.blockCounts.map { ($0.0, "\($0.1)") }))
-        stack.addArrangedSubview(makeSection(title: "Read budget",
-                                             content: [("Median", summary.readBudget.median),
-                                                       ("Below threshold", summary.readBudget.belowThreshold)]))
         stack.addArrangedSubview(makeSection(title: "Annotations",
                                              content: summary.annotationCounts.map { ($0.0, "\($0.1)") }))
+    }
+
+    private func formatThreshold(_ value: Int) -> String {
+        if value >= 1_000_000 { return String(format: "%.1fM", Double(value) / 1_000_000) }
+        if value >= 1_000 { return String(format: "%.1fK", Double(value) / 1_000) }
+        return "\(value)"
+    }
+
+    private func makeFlagSection(title: String, count: Int, samples: [String], footnote: String) -> NSView {
+        let container = NSStackView()
+        container.orientation = .vertical
+        container.alignment = .leading
+        container.spacing = 4
+        let titleLabel = NSTextField(labelWithString: title.uppercased())
+        titleLabel.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        titleLabel.textColor = .secondaryLabelColor
+        let valueRow = NSStackView()
+        valueRow.orientation = .horizontal
+        valueRow.spacing = 6
+        let countLabel = NSTextField(labelWithString: "\(count) sample\(count == 1 ? "" : "s")")
+        countLabel.font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: count > 0 ? .semibold : .regular)
+        countLabel.textColor = count > 0 ? NSColor.systemOrange : .labelColor
+        let detail = samples.isEmpty
+            ? footnote
+            : "\(footnote) Hover to list: \(samples.prefix(8).joined(separator: ", "))" +
+              (samples.count > 8 ? " (+\(samples.count - 8) more)" : "")
+        countLabel.toolTip = detail
+        valueRow.addArrangedSubview(countLabel)
+        let footnoteLabel = NSTextField(labelWithString: footnote)
+        footnoteLabel.font = NSFont.systemFont(ofSize: 10)
+        footnoteLabel.textColor = .tertiaryLabelColor
+        footnoteLabel.lineBreakMode = .byWordWrapping
+        footnoteLabel.maximumNumberOfLines = 2
+        container.addArrangedSubview(titleLabel)
+        container.addArrangedSubview(valueRow)
+        container.addArrangedSubview(footnoteLabel)
+        return container
     }
 
     private func makeReadOnlyBanner() -> NSView {

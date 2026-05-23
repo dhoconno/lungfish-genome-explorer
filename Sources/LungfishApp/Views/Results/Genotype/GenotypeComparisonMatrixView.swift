@@ -50,6 +50,13 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     private var selectedFilterLocus: String?
     private var pendingClickedSampleName: String?
     private var filterText = ""
+    /// Set of sample IDs allowed by the active Smart Cohort + Quick Filter.
+    /// `nil` means no cohort restriction is active and every sample is allowed.
+    /// When non-`nil`, rows are kept only if at least one supporting sample is
+    /// in the set, and per-sample columns matching outside the set are also
+    /// filtered out of the text-search match path so the matrix view stays
+    /// consistent with Outline/Cards.
+    private var allowedSampleIDs: Set<String>?
     private var totalRowCount = 0
     private var hiddenCellCount = 0
     private var supportFractionByCell: [CellKey: Double] = [:]
@@ -97,6 +104,16 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
     func setFilterText(_ text: String) {
         filterField.stringValue = text
         filterText = text
+        applyFilterAndSort()
+    }
+
+    /// Apply (or clear) the Smart Cohort + Quick Filter sample allow-list.
+    /// Pass `nil` to remove cohort filtering and show every row; pass an empty
+    /// set to hide every row. The cohort predicate is composed with the
+    /// matrix's own search field via `AND` — a row is shown only if it passes
+    /// the cohort filter, the locus popup, *and* the search text.
+    func applyCohortFilter(_ allowedSampleIDs: Set<String>?) {
+        self.allowedSampleIDs = allowedSampleIDs
         applyFilterAndSort()
     }
 
@@ -333,17 +350,33 @@ final class GenotypeComparisonMatrixView: NSView, NSTableViewDataSource, NSTable
 
     private func applyFilterAndSort() {
         let normalizedFilter = filterText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowedSampleIDs = self.allowedSampleIDs
         visibleRows = allRows.filter { row in
             if let selectedFilterLocus, row.locus != selectedFilterLocus {
                 return false
             }
+            if let allowedSampleIDs {
+                // A row stays if any of its supporting samples are in the
+                // active cohort + quick-filter intersection. Rows whose
+                // supporters all fall outside the allow-list are hidden so the
+                // matrix mirrors what Outline/Cards render.
+                guard row.sampleSupport.contains(where: { allowedSampleIDs.contains($0.sample) }) else {
+                    return false
+                }
+            }
             guard !normalizedFilter.isEmpty else { return true }
             if row.locus.localizedCaseInsensitiveContains(normalizedFilter) { return true }
             if row.genotype.localizedCaseInsensitiveContains(normalizedFilter) { return true }
-            if row.sampleSupport.contains(where: { $0.sample.localizedCaseInsensitiveContains(normalizedFilter) }) {
+            if row.sampleSupport.contains(where: { support in
+                guard allowedSampleIDs?.contains(support.sample) ?? true else { return false }
+                return support.sample.localizedCaseInsensitiveContains(normalizedFilter)
+            }) {
                 return true
             }
-            if row.sampleSupport.contains(where: { metadataMatches(sample: $0.sample, filter: normalizedFilter) }) {
+            if row.sampleSupport.contains(where: { support in
+                guard allowedSampleIDs?.contains(support.sample) ?? true else { return false }
+                return metadataMatches(sample: support.sample, filter: normalizedFilter)
+            }) {
                 return true
             }
             return false

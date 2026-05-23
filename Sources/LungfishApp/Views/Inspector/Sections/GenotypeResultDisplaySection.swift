@@ -89,6 +89,11 @@ final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    func setShowsAncillaryLoci(_ enabled: Bool) {
+        displayState.showsAncillaryLoci = enabled
+        notifyStateChanged()
+    }
+
     func updateSelection(_ selection: GenotypeResultSelectionState?) {
         isUpdatingFromSelection = true
         defer { isUpdatingFromSelection = false }

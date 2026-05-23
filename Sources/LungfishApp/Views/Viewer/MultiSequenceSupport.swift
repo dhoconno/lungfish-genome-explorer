@@ -682,6 +682,13 @@ public extension Notification.Name {
     /// the animal ID.
     static let genotypeResultRequestSampleDetailSheet = Notification.Name("com.lungfish.genotypeResultRequestSampleDetailSheet")
 
+    /// Posted when the analyst toggles "Show observed-only loci" in the
+    /// Inspector Document section for a `.lungfishgenotype` bundle. The
+    /// viewport reconfigures the Outline / Matrix to include or exclude loci
+    /// not covered by the active haplotype definition set.
+    /// `userInfo["showsAncillaryLoci"]` is a Bool.
+    static let genotypeResultShowsAncillaryLociChanged = Notification.Name("com.lungfish.genotypeResultShowsAncillaryLociChanged")
+
     /// Posted on the main thread when a batch aggregated manifest file has just been saved to disk.
     /// The Inspector observes this to transition the manifest status indicator from `.building` to `.cached`.
     static let batchManifestCached = Notification.Name("com.lungfish.batchManifestCached")

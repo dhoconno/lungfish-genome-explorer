@@ -107,6 +107,12 @@ struct GenotypeResultDisplayState: Equatable {
     var supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     var cellColorMode: GenotypeResultCellColorMode = .support
     var hideFilteredHighlights: Bool = true
+    /// When true, the Outline / Cards / Matrix views include observed loci
+    /// that the active haplotype definition set does NOT cover. When false
+    /// (the default), only the definition-set loci appear so the tape stays
+    /// focused on the calls actually being haplotyped. For MCM that means
+    /// the canonical 7 loci instead of every locus the demux observed.
+    var showsAncillaryLoci: Bool = false
 
     init(
         viewportLens: GenotypeResultViewportLens = .summary,
@@ -116,7 +122,8 @@ struct GenotypeResultDisplayState: Equatable {
         minimumSupportPercent: Double = 1.0,
         supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus,
         cellColorMode: GenotypeResultCellColorMode = .support,
-        hideFilteredHighlights: Bool = true
+        hideFilteredHighlights: Bool = true,
+        showsAncillaryLoci: Bool = false
     ) {
         self.viewportLens = viewportLens
         self.summaryViewMode = summaryViewMode
@@ -126,6 +133,7 @@ struct GenotypeResultDisplayState: Equatable {
         self.supportDenominator = supportDenominator
         self.cellColorMode = cellColorMode
         self.hideFilteredHighlights = hideFilteredHighlights
+        self.showsAncillaryLoci = showsAncillaryLoci
     }
 
     var activeMinimumSupportPercent: Double {

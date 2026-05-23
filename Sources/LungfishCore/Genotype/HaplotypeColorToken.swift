@@ -24,7 +24,12 @@ public struct HaplotypeColorToken: Equatable, Hashable, Codable, Sendable {
 }
 
 public extension HaplotypeColorToken {
-    static let canonicalPalette: [HaplotypeColorToken] = [
+    /// The canonical Budde 2010 M0-M7 tokens. These indices have semantic
+    /// meaning to scientists working with MCM (Mauritian Cynomolgus Macaque)
+    /// MHC and must never be reordered or recolored.
+    ///
+    /// Index 0 is reserved for "Absent" (gap / missing call).
+    static let canonicalBudde2010Tokens: [HaplotypeColorToken] = [
         HaplotypeColorToken(
             canonicalIndex: 0,
             displayName: "Absent",
@@ -91,7 +96,21 @@ public extension HaplotypeColorToken {
         ),
     ]
 
+    /// The full canonical palette: Budde 2010 M0-M7 plus 56 perceptually-spaced
+    /// extended tokens (X1-X56) generated systematically in HSB space.
+    ///
+    /// Indices 0-7 are immutable canonical Budde 2010 colors with semantic
+    /// meaning. Indices 8-63 are derived by sweeping 8 hue stops (45 degrees
+    /// apart, offset to avoid landing on pure primaries that collide with
+    /// M2/M3/M4/M5/M7) across 7 lightness/saturation tints.
+    ///
+    /// Total: 64 tokens.
+    static let canonicalPalette: [HaplotypeColorToken] = canonicalBudde2010Tokens
+        + extendedTokens(startingAtIndex: canonicalBudde2010Tokens.count,
+                         count: 64 - canonicalBudde2010Tokens.count)
+
     static let canonicalByName: [String: Int] = [
+        "M0": 0, "M1": 1, "M2": 2, "M3": 3, "M4": 4, "M5": 5, "M6": 6, "M7": 7,
         "M1A": 1, "M2A": 2, "M3A": 3, "M4A": 4, "M5A": 5, "M6A": 6, "M7A": 7,
         "M1B": 1, "M2B": 2, "M3B": 3, "M4B": 4, "M5B": 5, "M6B": 6, "M7B": 7,
         "M1DR": 1, "M2DR": 2, "M3DR": 3, "M4DR": 4, "M5DR": 5, "M6DR": 6, "M7DR": 7,
@@ -113,74 +132,135 @@ public extension HaplotypeColorToken {
             hash ^= UInt32(byte)
             hash &*= 16777619
         }
-        // Hash across the canonical palette plus the extended Rhesus palette
-        // (skipping index 0 which is reserved for absent).
-        let extendedPalette = extendedRhesusPalette
-        let index = Int(hash % UInt32(extendedPalette.count))
-        return extendedPalette[index]
+        // Hash across the entire palette except index 0 (reserved for absent).
+        // This spreads unknown haplotype names across all 63 non-empty slots
+        // instead of clustering them onto the 7 canonical M-tokens.
+        let assignableCount = canonicalPalette.count - 1
+        let offset = Int(hash % UInt32(assignableCount))
+        return canonicalPalette[1 + offset]
     }
 
-    /// Extended palette used when an unknown haplotype name maps via the
-    /// FNV-1a hash. Combines canonical M1-M7 (so a Rhesus haplotype hashing
-    /// to the same color as an MCM M1 keeps the M1 convention) with eight
-    /// additional perceptually-distinct slots for Rhesus / Pig-tailed
-    /// populations that carry many more haplotypes per locus.
-    public static let extendedRhesusPalette: [HaplotypeColorToken] = canonicalPalette[1...].map { $0 } + [
-        HaplotypeColorToken(
-            canonicalIndex: 8, displayName: "X1",
-            fillColor: AnnotationColor(hex: "#1976D2") ?? AnnotationColor(red: 0.1, green: 0.46, blue: 0.82),
-            darkFillColor: AnnotationColor(hex: "#5390D9") ?? AnnotationColor(red: 0.33, green: 0.56, blue: 0.85),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .filledCircle
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 9, displayName: "X2",
-            fillColor: AnnotationColor(hex: "#E64A19") ?? AnnotationColor(red: 0.9, green: 0.29, blue: 0.1),
-            darkFillColor: AnnotationColor(hex: "#FF7043") ?? AnnotationColor(red: 1, green: 0.44, blue: 0.26),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .filledSquare
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 10, displayName: "X3",
-            fillColor: AnnotationColor(hex: "#00838F") ?? AnnotationColor(red: 0, green: 0.51, blue: 0.56),
-            darkFillColor: AnnotationColor(hex: "#26C6DA") ?? AnnotationColor(red: 0.15, green: 0.78, blue: 0.85),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .filledTriangle
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 11, displayName: "X4",
-            fillColor: AnnotationColor(hex: "#7B1FA2") ?? AnnotationColor(red: 0.48, green: 0.12, blue: 0.64),
-            darkFillColor: AnnotationColor(hex: "#BA68C8") ?? AnnotationColor(red: 0.73, green: 0.41, blue: 0.78),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .filledDiamond
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 12, displayName: "X5",
-            fillColor: AnnotationColor(hex: "#FF8F00") ?? AnnotationColor(red: 1, green: 0.56, blue: 0),
-            darkFillColor: AnnotationColor(hex: "#FFB300") ?? AnnotationColor(red: 1, green: 0.7, blue: 0),
-            fontColor: AnnotationColor(hex: "#1A1A1A") ?? AnnotationColor(red: 0.1, green: 0.1, blue: 0.1),
-            glyph: .hollowCircle
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 13, displayName: "X6",
-            fillColor: AnnotationColor(hex: "#5D4037") ?? AnnotationColor(red: 0.36, green: 0.25, blue: 0.22),
-            darkFillColor: AnnotationColor(hex: "#8D6E63") ?? AnnotationColor(red: 0.55, green: 0.43, blue: 0.39),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .hollowSquare
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 14, displayName: "X7",
-            fillColor: AnnotationColor(hex: "#388E3C") ?? AnnotationColor(red: 0.22, green: 0.56, blue: 0.24),
-            darkFillColor: AnnotationColor(hex: "#66BB6A") ?? AnnotationColor(red: 0.4, green: 0.73, blue: 0.42),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .asterisk
-        ),
-        HaplotypeColorToken(
-            canonicalIndex: 15, displayName: "X8",
-            fillColor: AnnotationColor(hex: "#C2185B") ?? AnnotationColor(red: 0.76, green: 0.09, blue: 0.36),
-            darkFillColor: AnnotationColor(hex: "#EC407A") ?? AnnotationColor(red: 0.93, green: 0.25, blue: 0.48),
-            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
-            glyph: .filledCircle
-        ),
-    ]
+    /// Backward-compatible alias: the full assignable palette (M1-M7 plus
+    /// extended tokens), excluding the reserved "Absent" index 0.
+    ///
+    /// Kept for callers that historically referenced `extendedRhesusPalette`.
+    /// New callers should prefer `canonicalPalette`.
+    static let extendedRhesusPalette: [HaplotypeColorToken] =
+        Array(canonicalPalette.dropFirst())
+}
+
+// MARK: - Extended palette generation
+
+private extension HaplotypeColorToken {
+    /// Generates `count` perceptually-spaced tokens starting at the given
+    /// canonical index. Uses an 8-hue x 7-tint sweep (56 cells) in HSB space.
+    ///
+    /// - The hue base is offset by 18 degrees so the first generated stop
+    ///   sits between magenta and orange, avoiding visual collision with
+    ///   pure-primary M2 (red), M3 (blue), M4 (green), M5 (yellow), M7
+    ///   (purple).
+    /// - Each row uses a different saturation/brightness pair so adjacent
+    ///   tokens in the linear index order remain easy to tell apart even
+    ///   without consulting the hue ring.
+    /// - Glyphs cycle through `HaplotypeBlockGlyph.allCases` excluding
+    ///   `.empty` so that on monochrome printouts adjacent tokens are still
+    ///   distinguishable.
+    static func extendedTokens(startingAtIndex startIndex: Int,
+                               count: Int) -> [HaplotypeColorToken] {
+        let hueStops = 8
+        let huesPerCycle = hueStops
+        let hueBase: Double = 18.0 / 360.0
+        // Tint rows: (saturation, brightness, darkBrightness). Light fills
+        // are tuned to stay legible against the cream/peach light palette;
+        // dark variants brighten slightly to stay legible on Deep Ink.
+        let tints: [(saturation: Double, brightness: Double, darkBrightness: Double)] = [
+            (0.78, 0.72, 0.82),   // strong saturated mid
+            (0.55, 0.85, 0.92),   // pastel high
+            (0.92, 0.55, 0.70),   // deep saturated
+            (0.40, 0.92, 0.95),   // very pale
+            (0.85, 0.42, 0.62),   // dark muted
+            (0.70, 0.78, 0.88),   // bright pop
+            (0.60, 0.62, 0.78),   // earthy mid
+        ]
+
+        let nonEmptyGlyphs = HaplotypeBlockGlyph.allCases.filter { $0 != .empty }
+
+        var tokens: [HaplotypeColorToken] = []
+        tokens.reserveCapacity(count)
+        for offset in 0..<count {
+            let canonicalIndex = startIndex + offset
+            // Distribute (hue, tint) so that consecutive tokens jump rows AND
+            // hues to maximise local distinctness. We interleave by stepping
+            // the hue by 3 stops per index (relatively prime to 8) and the
+            // tint by 1 row per cycle of 8.
+            let hueStepIndex = (offset * 3) % huesPerCycle
+            let tintIndex = (offset / huesPerCycle) % tints.count
+            let hue = (hueBase + Double(hueStepIndex) / Double(huesPerCycle))
+                .truncatingRemainder(dividingBy: 1.0)
+            let tint = tints[tintIndex]
+
+            let light = AnnotationColor(
+                hsb: (hue: hue, saturation: tint.saturation, brightness: tint.brightness)
+            )
+            let dark = AnnotationColor(
+                hsb: (hue: hue, saturation: max(0.30, tint.saturation - 0.10),
+                      brightness: tint.darkBrightness)
+            )
+            let font = preferredFontColor(against: light)
+            let glyph = nonEmptyGlyphs[offset % nonEmptyGlyphs.count]
+            let displayName = "X\(offset + 1)"
+            tokens.append(HaplotypeColorToken(
+                canonicalIndex: canonicalIndex,
+                displayName: displayName,
+                fillColor: light,
+                darkFillColor: dark,
+                fontColor: font,
+                glyph: glyph
+            ))
+        }
+        return tokens
+    }
+
+    /// Picks black or white for legible text on a colored chip. Uses
+    /// relative luminance per WCAG 2.x.
+    static func preferredFontColor(against color: AnnotationColor) -> AnnotationColor {
+        func channel(_ c: Double) -> Double {
+            return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+        }
+        let luminance = 0.2126 * channel(color.red)
+            + 0.7152 * channel(color.green)
+            + 0.0722 * channel(color.blue)
+        return luminance > 0.45
+            ? (AnnotationColor(hex: "#0C0000") ?? AnnotationColor(red: 0.05, green: 0, blue: 0))
+            : (AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1))
+    }
+}
+
+private extension AnnotationColor {
+    /// Builds a color from HSB. `hue` in [0, 1), saturation/brightness in
+    /// [0, 1]. Equivalent to `NSColor(hue:saturation:brightness:alpha:)` but
+    /// pure-Foundation so this file remains usable outside AppKit.
+    init(hsb: (hue: Double, saturation: Double, brightness: Double)) {
+        let h = hsb.hue.truncatingRemainder(dividingBy: 1.0)
+        let s = max(0, min(1, hsb.saturation))
+        let v = max(0, min(1, hsb.brightness))
+        let sector = h * 6.0
+        let i = floor(sector)
+        let f = sector - i
+        let p = v * (1 - s)
+        let q = v * (1 - s * f)
+        let t = v * (1 - s * (1 - f))
+        let r: Double
+        let g: Double
+        let b: Double
+        switch Int(i) % 6 {
+        case 0: r = v; g = t; b = p
+        case 1: r = q; g = v; b = p
+        case 2: r = p; g = v; b = t
+        case 3: r = p; g = q; b = v
+        case 4: r = t; g = p; b = v
+        default: r = v; g = p; b = q
+        }
+        self.init(red: r, green: g, blue: b)
+    }
 }

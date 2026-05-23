@@ -10,7 +10,12 @@ final class GenotypeOutlineView: NSView {
         let loci: [String]
         let tapeSlots: [GenotypeHaplotypeTapeView.Slot]
         let blockKind: GenotypeBlockKind
+        /// Full notes text — hidden by default, surfaced as a tooltip on the
+        /// progressive-disclosure alert glyph when non-empty.
         let commentSummary: String
+        /// Number of distinct review-worthy notes (TMH / NO HAP / TMG /
+        /// special-case). Zero means no alert glyph renders.
+        let noteIssueCount: Int
 
         init(
             animalId: String,
@@ -18,7 +23,8 @@ final class GenotypeOutlineView: NSView {
             loci: [String],
             tapeSlots: [GenotypeHaplotypeTapeView.Slot],
             blockKind: GenotypeBlockKind,
-            commentSummary: String
+            commentSummary: String,
+            noteIssueCount: Int
         ) {
             self.animalId = animalId
             self.gsId = gsId
@@ -26,12 +32,14 @@ final class GenotypeOutlineView: NSView {
             self.tapeSlots = tapeSlots
             self.blockKind = blockKind
             self.commentSummary = commentSummary
+            self.noteIssueCount = noteIssueCount
         }
 
         static func == (lhs: Row, rhs: Row) -> Bool {
             lhs.animalId == rhs.animalId && lhs.gsId == rhs.gsId &&
             lhs.loci == rhs.loci && lhs.blockKind == rhs.blockKind &&
             lhs.commentSummary == rhs.commentSummary &&
+            lhs.noteIssueCount == rhs.noteIssueCount &&
             lhs.tapeSlots == rhs.tapeSlots
         }
     }
@@ -127,15 +135,18 @@ final class GenotypeOutlineView: NSView {
         }
         lociHeader.widthAnchor.constraint(equalToConstant: tapeWidth).isActive = true
 
-        let commentHeader = NSTextField(labelWithString: "Notes")
-        commentHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
-        commentHeader.textColor = .secondaryLabelColor
+        let noteHeader = NSTextField(labelWithString: "!")
+        noteHeader.font = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        noteHeader.textColor = .secondaryLabelColor
+        noteHeader.toolTip = "Notes — hover the alert glyph on a row to see review issues."
+        noteHeader.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        noteHeader.alignment = .center
 
         container.addArrangedSubview(spacer)
         container.addArrangedSubview(blockSpacer)
         container.addArrangedSubview(animalHeader)
         container.addArrangedSubview(lociHeader)
-        container.addArrangedSubview(commentHeader)
+        container.addArrangedSubview(noteHeader)
         return container
     }
 
@@ -196,16 +207,13 @@ final class GenotypeOutlineView: NSView {
             tape.heightAnchor.constraint(equalToConstant: 22),
         ])
 
-        let commentLabel = NSTextField(labelWithString: row.commentSummary)
-        commentLabel.font = NSFont.systemFont(ofSize: 10)
-        commentLabel.textColor = .secondaryLabelColor
-        commentLabel.lineBreakMode = .byTruncatingTail
+        let noteGlyph = makeNoteGlyph(for: row)
 
         container.addArrangedSubview(disclosure)
         container.addArrangedSubview(blockGlyph)
         container.addArrangedSubview(animalLabel)
         container.addArrangedSubview(tape)
-        container.addArrangedSubview(commentLabel)
+        container.addArrangedSubview(noteGlyph)
 
         let click = NSClickGestureRecognizer(target: self, action: #selector(handleClick(_:)))
         container.addGestureRecognizer(click)
@@ -217,6 +225,26 @@ final class GenotypeOutlineView: NSView {
         guard let view = recognizer.view,
               let id = view.identifier?.rawValue else { return }
         onRowSelected?(id)
+    }
+
+    private func makeNoteGlyph(for row: Row) -> NSView {
+        // Progressive-disclosure marker for review-worthy notes. Empty rows
+        // render an 18pt placeholder so the column stays aligned with the
+        // header. Non-empty rows show a small filled circle with the issue
+        // count as a tooltip carrying the original commentSummary text.
+        let label = NSTextField(labelWithString: row.noteIssueCount > 0 ? "\u{26A0}\u{FE0E}" : "")
+        label.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        label.textColor = row.noteIssueCount > 0 ? NSColor.systemOrange : .clear
+        label.alignment = .center
+        label.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        if row.noteIssueCount > 0 {
+            let tooltip = row.commentSummary.isEmpty
+                ? "\(row.noteIssueCount) review note\(row.noteIssueCount == 1 ? "" : "s")"
+                : row.commentSummary
+            label.toolTip = tooltip
+            label.setAccessibilityLabel("\(row.noteIssueCount) review notes: \(tooltip)")
+        }
+        return label
     }
 
     private func blockGlyphSymbol(_ kind: GenotypeBlockKind) -> String {

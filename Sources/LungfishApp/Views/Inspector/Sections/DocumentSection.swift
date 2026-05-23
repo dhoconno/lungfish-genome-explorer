@@ -497,6 +497,13 @@ public struct DocumentSection: View {
                         userInfo: ["mode": newMode.rawValue]
                     )
                 },
+                onShowsAncillaryLociChange: { newValue in
+                    NotificationCenter.default.post(
+                        name: .genotypeResultShowsAncillaryLociChanged,
+                        object: nil,
+                        userInfo: ["showsAncillaryLoci": newValue]
+                    )
+                },
                 onSmartCohortSelected: { cohort in
                     guard let data = try? JSONEncoder().encode(cohort) else { return }
                     NotificationCenter.default.post(

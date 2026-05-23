@@ -19,6 +19,7 @@ struct GenotypeResultDocumentState: Equatable {
     var qcRows: [(String, String)]
     var artifactRows: [GenotypeResultArtifactRow]
     var summaryViewMode: GenotypeSummaryViewMode = .outline
+    var showsAncillaryLoci: Bool = false
     var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
     var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
 
@@ -31,6 +32,12 @@ struct GenotypeResultDocumentState: Equatable {
     func replacing(summaryViewMode: GenotypeSummaryViewMode) -> GenotypeResultDocumentState {
         var copy = self
         copy.summaryViewMode = summaryViewMode
+        return copy
+    }
+
+    func replacing(showsAncillaryLoci: Bool) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.showsAncillaryLoci = showsAncillaryLoci
         return copy
     }
 
@@ -49,6 +56,7 @@ struct GenotypeResultDocumentState: Equatable {
             lhs.qcRows.elementsEqual(rhs.qcRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
             lhs.artifactRows == rhs.artifactRows &&
             lhs.summaryViewMode == rhs.summaryViewMode &&
+            lhs.showsAncillaryLoci == rhs.showsAncillaryLoci &&
             lhs.smartCohorts == rhs.smartCohorts &&
             lhs.auditEntries == rhs.auditEntries
     }
@@ -57,6 +65,7 @@ struct GenotypeResultDocumentState: Equatable {
 struct GenotypeResultDocumentSection: View {
     let state: GenotypeResultDocumentState
     var onViewModeChange: ((GenotypeSummaryViewMode) -> Void)? = nil
+    var onShowsAncillaryLociChange: ((Bool) -> Void)? = nil
     var onSmartCohortSelected: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortDeleted: ((GenotypeCohortSmartFilter) -> Void)? = nil
     var onSmartCohortAddRequested: (() -> Void)? = nil
@@ -131,6 +140,15 @@ struct GenotypeResultDocumentSection: View {
                     }
                     .buttonStyle(.plain)
                 }
+                Toggle(isOn: Binding(
+                    get: { state.showsAncillaryLoci },
+                    set: { onShowsAncillaryLociChange?($0) }
+                )) {
+                    Text("Show observed-only loci")
+                        .font(.caption)
+                }
+                .toggleStyle(.checkbox)
+                .help("Include loci the active haplotype definition set does not analyze (e.g. MHC-AG, MHC-70 for MCM).")
             }
             .padding(.top, 4)
         }

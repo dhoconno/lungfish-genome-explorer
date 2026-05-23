@@ -117,6 +117,7 @@ final class GenotypeResultViewController: NSViewController {
         quickFilterPredicate = predicate
         rebuildOutline()
         rebuildCardsRows()
+        applyComparisonMatrixCohortFilter()
     }
 
     @objc private func handleSmartCohortApplied(_ notification: Notification) {
@@ -124,13 +125,32 @@ final class GenotypeResultViewController: NSViewController {
             activeSmartCohort = nil
             rebuildOutline()
             rebuildCardsRows()
+            applyComparisonMatrixCohortFilter()
             return
         }
         if let cohort = try? JSONDecoder().decode(GenotypeCohortSmartFilter.self, from: data) {
             activeSmartCohort = cohort
             rebuildOutline()
             rebuildCardsRows()
+            applyComparisonMatrixCohortFilter()
         }
+    }
+
+    /// Push the current Smart Cohort + Quick Filter intersection into the
+    /// Matrix view as a sample allow-list. Mirrors what Outline & Cards do
+    /// through `filteredSampleNames(...)`. Passes `nil` when no predicate is
+    /// active so the matrix reverts to showing every row.
+    private func applyComparisonMatrixCohortFilter() {
+        guard let result else {
+            comparisonMatrix.applyCohortFilter(nil)
+            return
+        }
+        if activeSmartCohort == nil && quickFilterPredicate == nil {
+            comparisonMatrix.applyCohortFilter(nil)
+            return
+        }
+        let allowed = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
+        comparisonMatrix.applyCohortFilter(allowed)
     }
 
     /// Per-call keyboard shortcuts used by the Review lens:
@@ -180,6 +200,7 @@ final class GenotypeResultViewController: NSViewController {
         rebuildOutline()
         rebuildCardsRows()
         rebuildCohortSummary()
+        applyComparisonMatrixCohortFilter()
     }
 
     override func viewDidLayout() {
@@ -219,6 +240,7 @@ final class GenotypeResultViewController: NSViewController {
         rebuildArtifactLens()
         rebuildOutline()
         rebuildCohortSummary()
+        applyComparisonMatrixCohortFilter()
         showLens(.summary)
         comparisonMatrix.selectFirstSharedCall()
     }
@@ -238,6 +260,7 @@ final class GenotypeResultViewController: NSViewController {
 
     func applyDisplayState(_ state: GenotypeResultDisplayState) {
         let previousViewMode = displayState.summaryViewMode
+        let previousAncillary = displayState.showsAncillaryLoci
         displayState = state
         if selectedLens != state.viewportLens {
             showLens(state.viewportLens)
@@ -250,7 +273,7 @@ final class GenotypeResultViewController: NSViewController {
         comparisonMatrix.applyDisplayState(state)
         rebuildAnchorLens()
         rebuildConsumerLens()
-        if previousViewMode != state.summaryViewMode {
+        if previousViewMode != state.summaryViewMode || previousAncillary != state.showsAncillaryLoci {
             rebuildOutline()
             rebuildCohortSummary()
         }
@@ -624,6 +647,11 @@ final class GenotypeResultViewController: NSViewController {
         if mode == .cards {
             rebuildCardsRows()
         }
+        // Re-push the cohort allow-list whenever the matrix becomes visible
+        // so switching view modes never drops the active cohort/quick filter.
+        if !comparisonMatrix.isHidden {
+            applyComparisonMatrixCohortFilter()
+        }
     }
 
     private func rebuildCardsRows() {
@@ -736,7 +764,10 @@ final class GenotypeResultViewController: NSViewController {
         case .listLeading, .listTrailing:
             return (leading: 520, trailing: 300)
         case .listTop:
-            return (leading: 220, trailing: 180)
+            // Smaller minimums so the user can collapse either pane more
+            // freely. The cohort summary contents are slim — it no longer
+            // needs 180pt to render its contents.
+            return (leading: 180, trailing: 120)
         }
     }
 
@@ -747,7 +778,9 @@ final class GenotypeResultViewController: NSViewController {
         case .listTrailing:
             return 0.32
         case .listTop:
-            return 0.58
+            // Bias toward the list so the cohort summary doesn't crowd the
+            // tape rows. The user can still drag the divider freely.
+            return 0.72
         }
     }
 
@@ -1246,7 +1279,11 @@ final class GenotypeResultViewController: NSViewController {
             return
         }
         let observed = GenotypeObservedLociIndex.build(from: result)
-        let loci = observed.loci
+        // Default: show only the loci the active haplotype definition set
+        // analyzes (e.g. the 7 canonical MCM loci). Toggle in the Inspector
+        // expands the tape to include observed-only loci.
+        let analyzedLoci = orderedLoci(from: analysis)
+        let loci: [String] = displayState.showsAncillaryLoci ? observed.loci : analyzedLoci
         let allowedSamples = filteredSampleNames(result: result, sidecar: annotationStore?.sidecar)
         var rows: [GenotypeOutlineView.Row] = []
         for sample in analysis.samples where allowedSamples.contains(sample.sample) {
@@ -1259,13 +1296,15 @@ final class GenotypeResultViewController: NSViewController {
                 calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
             )
             let comment = outlineCommentSummary(for: sample)
+            let issueCount = outlineNoteIssueCount(for: sample)
             let row = GenotypeOutlineView.Row(
                 animalId: sample.sample,
                 gsId: nil,
                 loci: loci,
                 tapeSlots: tapeSlots,
                 blockKind: blockKind,
-                commentSummary: comment
+                commentSummary: comment,
+                noteIssueCount: issueCount
             )
             rows.append(row)
             outlineRowsBySample[sample.sample] = row
@@ -1301,12 +1340,12 @@ final class GenotypeResultViewController: NSViewController {
     private func rebuildCohortSummary() {
         guard let result else {
             cohortSummaryPanel.configure(summary: .init(
-                sampleCount: 0,
                 qcCounts: [],
                 errorTypeCounts: [],
-                blockCounts: [],
-                readBudget: ("Unavailable", "Unavailable"),
-                annotationCounts: []
+                annotationCounts: [],
+                outlierSamples: [],
+                belowThresholdSamples: [],
+                belowThresholdValue: 5_000
             ))
             return
         }
@@ -1317,18 +1356,40 @@ final class GenotypeResultViewController: NSViewController {
             ("Needs review", qcRaw[.review, default: 0]),
         ]
         let errorTypeCounts = cohortErrorTypeCounts(for: result)
-        let blockCounts = cohortBlockCounts(for: result)
-        let readBudget = cohortReadBudget(for: result)
         let annotationCounts = cohortAnnotationCounts(for: result)
+        let outliers = cohortLowCoverageOutliers(for: result)
+        let belowThresholdValue = 5_000
+        let belowThreshold = result.samples
+            .filter { $0.passedUniqueReads < belowThresholdValue }
+            .map(\.sample)
+            .sorted()
         cohortSummaryPanel.configure(summary: .init(
-            sampleCount: result.sampleCount,
             qcCounts: qcCounts,
             errorTypeCounts: errorTypeCounts,
-            blockCounts: blockCounts,
-            readBudget: readBudget,
             annotationCounts: annotationCounts,
+            outlierSamples: outliers,
+            belowThresholdSamples: belowThreshold,
+            belowThresholdValue: belowThresholdValue,
             isReadOnlyBundle: annotationStore?.isReadOnly ?? false
         ))
+    }
+
+    /// Returns sample IDs whose `passedUniqueReads` are more than one standard
+    /// deviation below the cohort mean. Used by the Cohort Summary panel as a
+    /// quick way to flag re-run candidates without forcing the analyst to
+    /// open a per-sample read-count table.
+    private func cohortLowCoverageOutliers(for result: ONTGenotypeResultBundleData) -> [String] {
+        let pairs = result.samples.map { ($0.sample, Double($0.passedUniqueReads)) }
+        guard pairs.count >= 4 else { return [] }
+        let mean = pairs.reduce(0.0) { $0 + $1.1 } / Double(pairs.count)
+        let variance = pairs.reduce(0.0) { $0 + ($1.1 - mean) * ($1.1 - mean) } / Double(pairs.count)
+        let stddev = variance.squareRoot()
+        guard stddev > 0 else { return [] }
+        let threshold = mean - stddev
+        return pairs
+            .filter { $0.1 < threshold }
+            .sorted { $0.1 < $1.1 }
+            .map(\.0)
     }
 
     private func orderedLoci(from analysis: GenotypeHaplotypeAnalysis) -> [String] {
@@ -1374,6 +1435,15 @@ final class GenotypeResultViewController: NSViewController {
         return .reference(tokenIndex: token.canonicalIndex, label: name)
     }
 
+    /// Count of distinct review-worthy notes on a sample's calls. Used by the
+    /// Outline to render a progressive-disclosure alert glyph instead of the
+    /// full notes text (which dominated the row visually).
+    private func outlineNoteIssueCount(for sample: GenotypeHaplotypeSampleAnalysis) -> Int {
+        let reviewCount = sample.calls.filter { haplotypeCallNeedsReview($0) }.count
+        let specialCount = sample.calls.filter { $0.status == .specialCase }.count
+        return reviewCount + specialCount
+    }
+
     private func outlineCommentSummary(for sample: GenotypeHaplotypeSampleAnalysis) -> String {
         let reviewCalls = sample.calls.filter { haplotypeCallNeedsReview($0) }
         if !reviewCalls.isEmpty {
@@ -1406,73 +1476,6 @@ final class GenotypeResultViewController: NSViewController {
             ("NO HAP", noHap),
             ("TMG", tmg),
         ]
-    }
-
-    private func cohortBlockCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
-        guard let analysis = result.haplotypeAnalysis else {
-            return [
-                ("Block coherent", 0),
-                ("Recombinant", 0),
-                ("Atypical", 0),
-            ]
-        }
-        var coherent = 0
-        var recombinant = 0
-        var atypical = 0
-        for sample in analysis.samples {
-            let kind = GenotypeBlockClassifier.classify(
-                calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
-            )
-            switch kind {
-            case .blockCoherent: coherent += 1
-            case .regionalRecombinant: recombinant += 1
-            case .atypical: atypical += 1
-            case .unknown: break
-            }
-        }
-        return [
-            ("Block coherent", coherent),
-            ("Recombinant", recombinant),
-            ("Atypical", atypical),
-        ]
-    }
-
-    private func cohortReadBudget(
-        for result: ONTGenotypeResultBundleData
-    ) -> (median: String, belowThreshold: String) {
-        let perSampleReads = result.samples.map(\.passedUniqueReads).sorted()
-        let medianText: String
-        if perSampleReads.isEmpty {
-            medianText = "Unavailable"
-        } else {
-            let mid = perSampleReads.count / 2
-            let median: Double
-            if perSampleReads.count.isMultiple(of: 2) {
-                median = (Double(perSampleReads[mid - 1]) + Double(perSampleReads[mid])) / 2.0
-            } else {
-                median = Double(perSampleReads[mid])
-            }
-            medianText = formatReadCount(median) + " median"
-        }
-        // Per-sample low-read display heuristic. Distinct from the per-allele
-        // dropout thresholds in `sidecar.settings`; this one summarizes the
-        // cohort's low-input outliers in the Summary panel. We keep this
-        // separate from `dropoutAbsolute` (which is a per-allele read count,
-        // not a per-sample total).
-        let threshold = 5_000
-        let below = perSampleReads.filter { $0 < threshold }.count
-        let belowText = "Below \(formatReadCount(Double(threshold))): \(below) samples"
-        return (median: medianText, belowThreshold: belowText)
-    }
-
-    private func formatReadCount(_ value: Double) -> String {
-        if value >= 1_000_000 {
-            return String(format: "%.1fM", value / 1_000_000)
-        }
-        if value >= 1_000 {
-            return String(format: "%.1fK", value / 1_000)
-        }
-        return String(format: "%.0f", value)
     }
 
     private func cohortAnnotationCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
