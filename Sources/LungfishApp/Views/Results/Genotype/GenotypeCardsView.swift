@@ -49,7 +49,8 @@ final class GenotypeCardsView: NSView {
         static func == (lhs: Card, rhs: Card) -> Bool {
             lhs.animalId == rhs.animalId && lhs.gsId == rhs.gsId &&
             lhs.loci == rhs.loci && lhs.blockKind == rhs.blockKind &&
-            lhs.commentSummary == rhs.commentSummary
+            lhs.commentSummary == rhs.commentSummary &&
+            lhs.tapeSlots == rhs.tapeSlots
         }
     }
 
@@ -79,7 +80,7 @@ final class GenotypeCardsView: NSView {
     }
 
     private func buildSubviews() {
-        wantsLayer = true
+
         translatesAutoresizingMaskIntoConstraints = false
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -170,7 +171,6 @@ final class GenotypeCardsView: NSView {
     private func makeCard(_ card: Card) -> NSView {
         let container = NSView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
         container.layer?.borderColor = NSColor.separatorColor.cgColor
         container.layer?.borderWidth = 1

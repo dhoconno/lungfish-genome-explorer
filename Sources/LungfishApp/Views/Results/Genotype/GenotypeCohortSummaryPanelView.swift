@@ -37,7 +37,7 @@ final class GenotypeCohortSummaryPanelView: NSView {
     required init?(coder: NSCoder) { super.init(coder: coder); build() }
 
     private func build() {
-        wantsLayer = true
+
         translatesAutoresizingMaskIntoConstraints = false
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false

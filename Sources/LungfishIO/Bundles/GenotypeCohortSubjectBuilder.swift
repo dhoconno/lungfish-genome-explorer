@@ -74,11 +74,19 @@ public enum GenotypeCohortSubjectBuilder {
             )
             let hasAtypicalPattern = blockKind == .atypical
 
+            // The bundle's per-sample identifier is the GS ID (DW472 etc.).
+            // The animal ID is normally surfaced through the imported
+            // metadata store; in absence of that store, animalId == gsId.
             return GenotypeCohortSubject(
                 animalId: sample,
-                gsId: nil,
+                gsId: sample,
                 qcStatus: sampleResult?.qcStatus ?? .review,
                 totalReads: sampleResult?.sampleTotalReads ?? 0,
+                // unmappedPercent is the % of input reads that did not map
+                // to any reference; the bundle's stats JSON exposes it at
+                // the run level only. Predicates that filter on this field
+                // therefore match no subjects today; surface it once the
+                // sample-summary CSV is parsed.
                 unmappedPercent: 0,
                 comments: comments.joined(separator: " · "),
                 calls: calls,

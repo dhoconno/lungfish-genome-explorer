@@ -29,14 +29,14 @@ final class GenotypeHaplotypeTapeView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
+
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        wantsLayer = true
+
     }
 
     func configure(loci: [String], slots: [Slot]) {

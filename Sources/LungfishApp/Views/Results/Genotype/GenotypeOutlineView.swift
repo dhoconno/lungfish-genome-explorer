@@ -31,7 +31,8 @@ final class GenotypeOutlineView: NSView {
         static func == (lhs: Row, rhs: Row) -> Bool {
             lhs.animalId == rhs.animalId && lhs.gsId == rhs.gsId &&
             lhs.loci == rhs.loci && lhs.blockKind == rhs.blockKind &&
-            lhs.commentSummary == rhs.commentSummary
+            lhs.commentSummary == rhs.commentSummary &&
+            lhs.tapeSlots == rhs.tapeSlots
         }
     }
 
@@ -50,7 +51,7 @@ final class GenotypeOutlineView: NSView {
     required init?(coder: NSCoder) { super.init(coder: coder); buildSubviews() }
 
     private func buildSubviews() {
-        wantsLayer = true
+
         translatesAutoresizingMaskIntoConstraints = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.hasVerticalScroller = true
