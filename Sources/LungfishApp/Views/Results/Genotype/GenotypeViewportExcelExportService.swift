@@ -9,6 +9,57 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let filters: [String: String]
     let sampleNames: [String]
     let rows: [GenotypeViewportExportRow]
+    /// Optional annotation sidecar to surface in additional worksheets.
+    /// When non-nil, the export adds an Overrides sheet and an Audit Log
+    /// sheet so consumers reading the workbook see what the analyst has
+    /// changed without needing the bundle's annotations.json.
+    let sidecar: GenotypeAnnotationSidecarSnapshot?
+
+    init(
+        bundleURL: URL,
+        analysisName: String,
+        lens: String,
+        filters: [String: String],
+        sampleNames: [String],
+        rows: [GenotypeViewportExportRow],
+        sidecar: GenotypeAnnotationSidecarSnapshot? = nil
+    ) {
+        self.bundleURL = bundleURL
+        self.analysisName = analysisName
+        self.lens = lens
+        self.filters = filters
+        self.sampleNames = sampleNames
+        self.rows = rows
+        self.sidecar = sidecar
+    }
+}
+
+struct GenotypeAnnotationSidecarSnapshot: Equatable {
+    let overrides: [GenotypeAnnotationOverrideEntry]
+    let auditEntries: [GenotypeAnnotationAuditEntry]
+}
+
+struct GenotypeAnnotationOverrideEntry: Equatable {
+    let sample: String
+    let locus: String
+    let slot: String
+    let originalCall: String
+    let overrideCall: String
+    let reasonTag: String
+    let rationale: String
+    let author: String
+    let timestamp: String
+}
+
+struct GenotypeAnnotationAuditEntry: Equatable {
+    let action: String
+    let sample: String
+    let locus: String
+    let slot: String
+    let before: String
+    let after: String
+    let author: String
+    let timestamp: String
 }
 
 struct GenotypeViewportExportRow: Equatable {
@@ -99,16 +150,92 @@ struct GenotypeViewportExcelExportService {
         try fm.createDirectory(at: buildURL.appendingPathComponent("xl/worksheets", isDirectory: true), withIntermediateDirectories: true)
 
         let styleBook = XLSXStyleBook(rows: snapshot.rows, sampleNames: snapshot.sampleNames)
-        try write(Self.contentTypesXML, to: buildURL.appendingPathComponent("[Content_Types].xml"))
+        let includesSidecarSheets = snapshot.sidecar != nil
+        try write(Self.contentTypesXML(includesSidecarSheets: includesSidecarSheets),
+                  to: buildURL.appendingPathComponent("[Content_Types].xml"))
         try write(Self.relationshipsXML, to: buildURL.appendingPathComponent("_rels/.rels"))
         try write(Self.appXML, to: buildURL.appendingPathComponent("docProps/app.xml"))
         try write(coreXML(title: snapshot.analysisName), to: buildURL.appendingPathComponent("docProps/core.xml"))
-        try write(Self.workbookXML, to: buildURL.appendingPathComponent("xl/workbook.xml"))
-        try write(Self.workbookRelationshipsXML, to: buildURL.appendingPathComponent("xl/_rels/workbook.xml.rels"))
+        try write(Self.workbookXML(includesSidecarSheets: includesSidecarSheets),
+                  to: buildURL.appendingPathComponent("xl/workbook.xml"))
+        try write(Self.workbookRelationshipsXML(includesSidecarSheets: includesSidecarSheets),
+                  to: buildURL.appendingPathComponent("xl/_rels/workbook.xml.rels"))
         try write(styleBook.stylesXML, to: buildURL.appendingPathComponent("xl/styles.xml"))
-        try write(matrixWorksheetXML(snapshot: snapshot, styleBook: styleBook), to: buildURL.appendingPathComponent("xl/worksheets/sheet1.xml"))
-        try write(filtersWorksheetXML(snapshot: snapshot), to: buildURL.appendingPathComponent("xl/worksheets/sheet2.xml"))
+        try write(matrixWorksheetXML(snapshot: snapshot, styleBook: styleBook),
+                  to: buildURL.appendingPathComponent("xl/worksheets/sheet1.xml"))
+        try write(filtersWorksheetXML(snapshot: snapshot),
+                  to: buildURL.appendingPathComponent("xl/worksheets/sheet2.xml"))
+        if let sidecar = snapshot.sidecar {
+            try write(overridesWorksheetXML(snapshot: snapshot, overrides: sidecar.overrides),
+                      to: buildURL.appendingPathComponent("xl/worksheets/sheet3.xml"))
+            try write(auditWorksheetXML(snapshot: snapshot, entries: sidecar.auditEntries),
+                      to: buildURL.appendingPathComponent("xl/worksheets/sheet4.xml"))
+        }
         try zipXLSX(buildURL: buildURL, workbookURL: workbookURL)
+    }
+
+    private func overridesWorksheetXML(
+        snapshot: GenotypeViewportExportSnapshot,
+        overrides: [GenotypeAnnotationOverrideEntry]
+    ) -> String {
+        var rows = [
+            xlsxRow(index: 1, values: [
+                .string("Sample", style: 1),
+                .string("Locus", style: 1),
+                .string("Slot", style: 1),
+                .string("Original Call", style: 1),
+                .string("Override Call", style: 1),
+                .string("Reason", style: 1),
+                .string("Rationale", style: 1),
+                .string("Author", style: 1),
+                .string("Timestamp", style: 1),
+            ])
+        ]
+        for (offset, entry) in overrides.enumerated() {
+            rows.append(xlsxRow(index: offset + 2, values: [
+                .string(entry.sample, style: 0),
+                .string(entry.locus, style: 0),
+                .string(entry.slot, style: 0),
+                .string(entry.originalCall, style: 0),
+                .string(entry.overrideCall, style: 0),
+                .string(entry.reasonTag, style: 0),
+                .string(entry.rationale, style: 0),
+                .string(entry.author, style: 0),
+                .string(entry.timestamp, style: 0),
+            ]))
+        }
+        return worksheetXML(rows: rows)
+    }
+
+    private func auditWorksheetXML(
+        snapshot: GenotypeViewportExportSnapshot,
+        entries: [GenotypeAnnotationAuditEntry]
+    ) -> String {
+        var rows = [
+            xlsxRow(index: 1, values: [
+                .string("Action", style: 1),
+                .string("Sample", style: 1),
+                .string("Locus", style: 1),
+                .string("Slot", style: 1),
+                .string("Before", style: 1),
+                .string("After", style: 1),
+                .string("Author", style: 1),
+                .string("Timestamp", style: 1),
+            ])
+        ]
+        for (offset, entry) in entries.enumerated() {
+            rows.append(xlsxRow(index: offset + 2, values: [
+                .string(entry.action, style: 0),
+                .string(entry.sample, style: 0),
+                .string(entry.locus, style: 0),
+                .string(entry.slot, style: 0),
+                .string(entry.before, style: 0),
+                .string(entry.after, style: 0),
+                .string(entry.author, style: 0),
+                .string(entry.timestamp, style: 0),
+            ]))
+        }
+        return worksheetXML(rows: rows)
     }
 
     private func write(_ text: String, to url: URL) throws {
@@ -210,19 +337,28 @@ struct GenotypeViewportExcelExportService {
         """
     }
 
-    private static let contentTypesXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-      <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-      <Default Extension="xml" ContentType="application/xml"/>
-      <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
-      <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
-      <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-      <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-      <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-      <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-    </Types>
-    """
+    private static func contentTypesXML(includesSidecarSheets: Bool) -> String {
+        var sheets = [
+            #"      <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#,
+            #"      <Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#,
+        ]
+        if includesSidecarSheets {
+            sheets.append(#"      <Override PartName="/xl/worksheets/sheet3.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#)
+            sheets.append(#"      <Override PartName="/xl/worksheets/sheet4.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#)
+        }
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+          <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+          <Default Extension="xml" ContentType="application/xml"/>
+          <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+          <Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>
+          <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+          <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+        \(sheets.joined(separator: "\n"))
+        </Types>
+        """
+    }
 
     private static let relationshipsXML = """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -233,24 +369,42 @@ struct GenotypeViewportExcelExportService {
     </Relationships>
     """
 
-    private static let workbookXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-      <sheets>
-        <sheet name="Visible Matrix" sheetId="1" r:id="rId1"/>
-        <sheet name="Filters" sheetId="2" r:id="rId2"/>
-      </sheets>
-    </workbook>
-    """
+    private static func workbookXML(includesSidecarSheets: Bool) -> String {
+        var sheets = [
+            #"    <sheet name="Visible Matrix" sheetId="1" r:id="rId1"/>"#,
+            #"    <sheet name="Filters" sheetId="2" r:id="rId2"/>"#,
+        ]
+        if includesSidecarSheets {
+            sheets.append(#"    <sheet name="Overrides" sheetId="3" r:id="rId4"/>"#)
+            sheets.append(#"    <sheet name="Audit Log" sheetId="4" r:id="rId5"/>"#)
+        }
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+          <sheets>
+        \(sheets.joined(separator: "\n"))
+          </sheets>
+        </workbook>
+        """
+    }
 
-    private static let workbookRelationshipsXML = """
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-      <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-      <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>
-      <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-    </Relationships>
-    """
+    private static func workbookRelationshipsXML(includesSidecarSheets: Bool) -> String {
+        var rels = [
+            #"  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>"#,
+            #"  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>"#,
+            #"  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>"#,
+        ]
+        if includesSidecarSheets {
+            rels.append(#"  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>"#)
+            rels.append(#"  <Relationship Id="rId5" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet4.xml"/>"#)
+        }
+        return """
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+        \(rels.joined(separator: "\n"))
+        </Relationships>
+        """
+    }
 
     private static let appXML = """
     <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
