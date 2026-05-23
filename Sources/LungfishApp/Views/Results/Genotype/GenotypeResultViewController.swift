@@ -51,6 +51,12 @@ final class GenotypeResultViewController: NSViewController {
     private var activeSmartCohort: GenotypeCohortSmartFilter?
     private var sampleDetailHostingController: NSHostingController<GenotypeSampleDetailSheet>?
     private var callEvidenceHost: NSHostingView<GenotypeCallEvidenceView>?
+    private var dropoutAbsoluteEnabled: Bool = true
+    private var dropoutAbsoluteValue: Int = 50
+    private var dropoutSampleFractionEnabled: Bool = false
+    private var dropoutSampleFractionPercent: Double = 0.1
+    private var dropoutLocusFractionEnabled: Bool = true
+    private var dropoutLocusFractionPercent: Double = 5.0
     private var selectedLens: Lens = .summary
     private var displayState = GenotypeResultDisplayState()
     private var currentSharedCall: ONTGenotypeSharedCall?
@@ -946,6 +952,68 @@ final class GenotypeResultViewController: NSViewController {
         if manualHaplotypingIsAvailable(result: result) {
             artifactStack.addArrangedSubview(sectionTitle("Manual Haplotyping"))
             artifactStack.addArrangedSubview(makeManualHaplotypingHost())
+        }
+
+        artifactStack.addArrangedSubview(sectionTitle("Dropout Thresholds"))
+        artifactStack.addArrangedSubview(makeDropoutThresholdHost())
+    }
+
+    private func makeDropoutThresholdHost() -> NSView {
+        let container = NSHostingView(rootView: dropoutThresholdBody())
+        container.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            container.heightAnchor.constraint(greaterThanOrEqualToConstant: 200),
+        ])
+        return container
+    }
+
+    private func dropoutThresholdBody() -> some View {
+        let settings = annotationStore?.sidecar.settings ?? .default
+        return GenotypeDropoutThresholdSection(
+            absoluteEnabled: Binding(
+                get: { [weak self] in self?.dropoutAbsoluteEnabled ?? (settings.dropoutAbsolute != nil) },
+                set: { [weak self] newValue in self?.dropoutAbsoluteEnabled = newValue }
+            ),
+            absoluteValue: Binding(
+                get: { [weak self] in self?.dropoutAbsoluteValue ?? (settings.dropoutAbsolute ?? 50) },
+                set: { [weak self] newValue in self?.dropoutAbsoluteValue = newValue }
+            ),
+            sampleFractionEnabled: Binding(
+                get: { [weak self] in self?.dropoutSampleFractionEnabled ?? (settings.dropoutSampleFraction != nil) },
+                set: { [weak self] newValue in self?.dropoutSampleFractionEnabled = newValue }
+            ),
+            sampleFractionPercent: Binding(
+                get: { [weak self] in self?.dropoutSampleFractionPercent ?? ((settings.dropoutSampleFraction ?? 0.001) * 100) },
+                set: { [weak self] newValue in self?.dropoutSampleFractionPercent = newValue }
+            ),
+            locusFractionEnabled: Binding(
+                get: { [weak self] in self?.dropoutLocusFractionEnabled ?? (settings.dropoutLocusFraction != nil) },
+                set: { [weak self] newValue in self?.dropoutLocusFractionEnabled = newValue }
+            ),
+            locusFractionPercent: Binding(
+                get: { [weak self] in self?.dropoutLocusFractionPercent ?? ((settings.dropoutLocusFraction ?? 0.05) * 100) },
+                set: { [weak self] newValue in self?.dropoutLocusFractionPercent = newValue }
+            ),
+            onApply: { [weak self] evaluator in
+                self?.applyDropoutThresholds(evaluator)
+            }
+        )
+    }
+
+    private func applyDropoutThresholds(_ evaluator: GenotypeDropoutEvaluator) {
+        guard let store = annotationStore else { return }
+        do {
+            try store.updateSettings { settings in
+                settings.dropoutAbsolute = evaluator.absolute
+                settings.dropoutSampleFraction = evaluator.sampleFraction
+                settings.dropoutLocusFraction = evaluator.locusFraction
+            }
+        } catch {
+            presentSheetAlert(error: error)
+        }
+        // Refresh call evidence so the new threshold is reflected.
+        if selectedLens == .review {
+            updateCallEvidence()
         }
     }
 
