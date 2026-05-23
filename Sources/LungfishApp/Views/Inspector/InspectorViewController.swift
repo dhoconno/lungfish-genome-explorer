@@ -1350,6 +1350,14 @@ public class InspectorViewController: NSViewController {
             knownSampleIds: Set(sampleIds)
         )
         metadataStore?.wireAutosave(bundleURL: result.bundleURL)
+        let sidecar = (try? ONTGenotypeResultBundleData
+            .loadOrCreateAnnotationSidecar(forBundleAt: result.bundleURL))
+            ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
+        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
+            let count = subjects.filter { cohort.predicate.evaluate($0) }.count
+            return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
+        }
         let state = GenotypeResultDocumentState(
             title: result.manifest.analysisName,
             subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
@@ -1369,7 +1377,8 @@ public class InspectorViewController: NSViewController {
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
-            ]
+            ],
+            smartCohorts: smartCohorts
         )
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
         viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true)
