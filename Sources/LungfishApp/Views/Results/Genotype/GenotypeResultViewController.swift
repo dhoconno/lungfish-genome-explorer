@@ -1366,6 +1366,11 @@ final class GenotypeResultViewController: NSViewController {
             }
             medianText = formatReadCount(median) + " median"
         }
+        // Per-sample low-read display heuristic. Distinct from the per-allele
+        // dropout thresholds in `sidecar.settings`; this one summarizes the
+        // cohort's low-input outliers in the Summary panel. We keep this
+        // separate from `dropoutAbsolute` (which is a per-allele read count,
+        // not a per-sample total).
         let threshold = 5_000
         let below = perSampleReads.filter { $0 < threshold }.count
         let belowText = "Below \(formatReadCount(Double(threshold))): \(below) samples"

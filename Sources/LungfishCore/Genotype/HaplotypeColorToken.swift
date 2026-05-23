@@ -113,7 +113,74 @@ public extension HaplotypeColorToken {
             hash ^= UInt32(byte)
             hash &*= 16777619
         }
-        let index = Int(hash % 7) + 1
-        return canonicalPalette[index]
+        // Hash across the canonical palette plus the extended Rhesus palette
+        // (skipping index 0 which is reserved for absent).
+        let extendedPalette = extendedRhesusPalette
+        let index = Int(hash % UInt32(extendedPalette.count))
+        return extendedPalette[index]
     }
+
+    /// Extended palette used when an unknown haplotype name maps via the
+    /// FNV-1a hash. Combines canonical M1-M7 (so a Rhesus haplotype hashing
+    /// to the same color as an MCM M1 keeps the M1 convention) with eight
+    /// additional perceptually-distinct slots for Rhesus / Pig-tailed
+    /// populations that carry many more haplotypes per locus.
+    public static let extendedRhesusPalette: [HaplotypeColorToken] = canonicalPalette[1...].map { $0 } + [
+        HaplotypeColorToken(
+            canonicalIndex: 8, displayName: "X1",
+            fillColor: AnnotationColor(hex: "#1976D2") ?? AnnotationColor(red: 0.1, green: 0.46, blue: 0.82),
+            darkFillColor: AnnotationColor(hex: "#5390D9") ?? AnnotationColor(red: 0.33, green: 0.56, blue: 0.85),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .filledCircle
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 9, displayName: "X2",
+            fillColor: AnnotationColor(hex: "#E64A19") ?? AnnotationColor(red: 0.9, green: 0.29, blue: 0.1),
+            darkFillColor: AnnotationColor(hex: "#FF7043") ?? AnnotationColor(red: 1, green: 0.44, blue: 0.26),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .filledSquare
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 10, displayName: "X3",
+            fillColor: AnnotationColor(hex: "#00838F") ?? AnnotationColor(red: 0, green: 0.51, blue: 0.56),
+            darkFillColor: AnnotationColor(hex: "#26C6DA") ?? AnnotationColor(red: 0.15, green: 0.78, blue: 0.85),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .filledTriangle
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 11, displayName: "X4",
+            fillColor: AnnotationColor(hex: "#7B1FA2") ?? AnnotationColor(red: 0.48, green: 0.12, blue: 0.64),
+            darkFillColor: AnnotationColor(hex: "#BA68C8") ?? AnnotationColor(red: 0.73, green: 0.41, blue: 0.78),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .filledDiamond
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 12, displayName: "X5",
+            fillColor: AnnotationColor(hex: "#FF8F00") ?? AnnotationColor(red: 1, green: 0.56, blue: 0),
+            darkFillColor: AnnotationColor(hex: "#FFB300") ?? AnnotationColor(red: 1, green: 0.7, blue: 0),
+            fontColor: AnnotationColor(hex: "#1A1A1A") ?? AnnotationColor(red: 0.1, green: 0.1, blue: 0.1),
+            glyph: .hollowCircle
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 13, displayName: "X6",
+            fillColor: AnnotationColor(hex: "#5D4037") ?? AnnotationColor(red: 0.36, green: 0.25, blue: 0.22),
+            darkFillColor: AnnotationColor(hex: "#8D6E63") ?? AnnotationColor(red: 0.55, green: 0.43, blue: 0.39),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .hollowSquare
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 14, displayName: "X7",
+            fillColor: AnnotationColor(hex: "#388E3C") ?? AnnotationColor(red: 0.22, green: 0.56, blue: 0.24),
+            darkFillColor: AnnotationColor(hex: "#66BB6A") ?? AnnotationColor(red: 0.4, green: 0.73, blue: 0.42),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .asterisk
+        ),
+        HaplotypeColorToken(
+            canonicalIndex: 15, displayName: "X8",
+            fillColor: AnnotationColor(hex: "#C2185B") ?? AnnotationColor(red: 0.76, green: 0.09, blue: 0.36),
+            darkFillColor: AnnotationColor(hex: "#EC407A") ?? AnnotationColor(red: 0.93, green: 0.25, blue: 0.48),
+            fontColor: AnnotationColor(hex: "#FFFFFF") ?? AnnotationColor(red: 1, green: 1, blue: 1),
+            glyph: .filledCircle
+        ),
+    ]
 }

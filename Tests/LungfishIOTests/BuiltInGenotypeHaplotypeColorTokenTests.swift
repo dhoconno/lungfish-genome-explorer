@@ -14,9 +14,12 @@ final class BuiltInGenotypeHaplotypeColorTokenTests: XCTestCase {
         let mamu = GenotypeHaplotypeDefinitionRegistry.rhesusMacaqueMHCExon2MiSeq
         let mhcA = mamu.locusDefinitions.first { $0.locus == "MHC-A" }!
         XCTAssertFalse(mhcA.haplotypes.isEmpty)
+        // Rhesus tokens fall on the extended palette (0..15) since their
+        // names don't map to canonical M1-M7 by name; verify the assignment
+        // is in valid range.
         for h in mhcA.haplotypes {
             XCTAssertGreaterThanOrEqual(h.colorTokenIndex, 0)
-            XCTAssertLessThanOrEqual(h.colorTokenIndex, 7)
+            XCTAssertLessThanOrEqual(h.colorTokenIndex, 15)
         }
     }
 
