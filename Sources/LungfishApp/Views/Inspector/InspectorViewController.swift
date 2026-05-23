@@ -180,6 +180,19 @@ public class InspectorViewController: NSViewController {
             name: .metagenomicsMetadataImportRequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGenotypeViewModeChanged(_:)),
+            name: .genotypeResultViewModeChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
+        guard let raw = notification.userInfo?["mode"] as? String,
+              let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
+        viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
     }
 
     public override func viewWillAppear() {

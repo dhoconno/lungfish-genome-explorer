@@ -59,6 +59,11 @@ final class GenotypeResultDisplaySectionViewModel {
         notifyStateChanged()
     }
 
+    func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
+        displayState.summaryViewMode = mode
+        notifyStateChanged()
+    }
+
     func setHideLowSupport(_ enabled: Bool) {
         displayState.hideLowSupport = enabled
         notifyStateChanged()

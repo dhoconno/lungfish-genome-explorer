@@ -665,6 +665,11 @@ public extension Notification.Name {
     /// Posted when the user clicks the "Import Metadata..." button in the Inspector.
     static let metagenomicsMetadataImportRequested = Notification.Name("com.lungfish.metagenomicsMetadataImportRequested")
 
+    /// Posted when the user picks a Summary view mode in the Inspector Document section
+    /// for a `.lungfishgenotype` bundle. The `userInfo["mode"]` value is the rawValue of
+    /// `GenotypeSummaryViewMode` (outline / cards / matrix).
+    static let genotypeResultViewModeChanged = Notification.Name("com.lungfish.genotypeResultViewModeChanged")
+
     /// Posted on the main thread when a batch aggregated manifest file has just been saved to disk.
     /// The Inspector observes this to transition the manifest status indicator from `.building` to `.cached`.
     static let batchManifestCached = Notification.Name("com.lungfish.batchManifestCached")

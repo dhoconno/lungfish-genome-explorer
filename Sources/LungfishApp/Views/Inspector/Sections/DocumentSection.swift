@@ -488,7 +488,13 @@ public struct DocumentSection: View {
         } else if viewModel.assemblyDocument != nil {
             AssemblyDocumentSection(viewModel: viewModel)
         } else if let genotypeResultDocument = viewModel.genotypeResultDocument {
-            GenotypeResultDocumentSection(state: genotypeResultDocument)
+            GenotypeResultDocumentSection(state: genotypeResultDocument) { newMode in
+                NotificationCenter.default.post(
+                    name: .genotypeResultViewModeChanged,
+                    object: nil,
+                    userInfo: ["mode": newMode.rawValue]
+                )
+            }
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {
             PhylogeneticTreeDocumentSection(state: phylogeneticTreeDocument)
         } else if let multipleSequenceAlignmentDocument = viewModel.multipleSequenceAlignmentDocument {
