@@ -1350,9 +1350,14 @@ public class InspectorViewController: NSViewController {
             knownSampleIds: Set(sampleIds)
         )
         metadataStore?.wireAutosave(bundleURL: result.bundleURL)
-        let sidecar = (try? ONTGenotypeResultBundleData
-            .loadOrCreateAnnotationSidecar(forBundleAt: result.bundleURL))
-            ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+        // Loading via the store triggers default-cohort seeding the first
+        // time a bundle is opened so the inspector lists Needs review et al.
+        let sidecar: GenotypeAnnotationSidecar = {
+            if let store = try? GenotypeAnnotationStore(bundleURL: result.bundleURL, author: NSUserName()) {
+                return store.sidecar
+            }
+            return GenotypeAnnotationSidecar.empty(generatedAt: "")
+        }()
         let subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
         let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
