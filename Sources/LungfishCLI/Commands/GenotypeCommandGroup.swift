@@ -21,6 +21,7 @@ struct GenotypeCommandGroup: AsyncParsableCommand {
         subcommands: [
             GenotypeListSamplesSubcommand.self,
             GenotypeListCohortsSubcommand.self,
+            GenotypeApplyAnnotationsSubcommand.self,
         ]
     )
 }
