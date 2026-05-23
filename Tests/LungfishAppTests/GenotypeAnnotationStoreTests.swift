@@ -108,20 +108,59 @@ final class GenotypeAnnotationStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
-        let cohort = GenotypeCohortSmartFilter(
-            name: "Needs review",
+        // GenotypeAnnotationStore seeds three default cohorts on first open
+        // (Needs review, Homozygous, Recombinants). Saving an analyst cohort
+        // with a colliding name replaces the seeded one; deleting it does
+        // not remove the others.
+        let initialCount = store.sidecar.smartCohorts.count
+        XCTAssertGreaterThanOrEqual(initialCount, 3)
+
+        let customCohort = GenotypeCohortSmartFilter(
+            name: "Analyst custom",
             scope: "bundle",
             isStarred: true,
             predicate: .hasErrorAtAnyLocus
         )
-        try store.saveSmartCohort(cohort)
-        XCTAssertEqual(store.sidecar.smartCohorts.count, 1)
+        try store.saveSmartCohort(customCohort)
+        XCTAssertEqual(store.sidecar.smartCohorts.count, initialCount + 1)
 
         // saving with same name+scope replaces
-        try store.saveSmartCohort(cohort)
-        XCTAssertEqual(store.sidecar.smartCohorts.count, 1)
+        try store.saveSmartCohort(customCohort)
+        XCTAssertEqual(store.sidecar.smartCohorts.count, initialCount + 1)
 
-        try store.deleteSmartCohort(name: "Needs review", scope: "bundle")
-        XCTAssertEqual(store.sidecar.smartCohorts.count, 0)
+        try store.deleteSmartCohort(name: "Analyst custom", scope: "bundle")
+        XCTAssertEqual(store.sidecar.smartCohorts.count, initialCount)
+    }
+
+    func testDefaultCohortsSeededOnFirstOpen() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let store = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let names = Set(store.sidecar.smartCohorts.map(\.name))
+        XCTAssertTrue(names.contains("Needs review"))
+        XCTAssertTrue(names.contains("Homozygous"))
+        XCTAssertTrue(names.contains("Recombinants"))
+    }
+
+    func testDefaultCohortsDoNotOverwriteAnalystCustomVersion() throws {
+        let dir = try makeBundleURL()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // First open: seed.
+        let initial = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let customNeedsReview = GenotypeCohortSmartFilter(
+            name: "Needs review",
+            description: "Custom analyst predicate.",
+            scope: "bundle",
+            isStarred: true,
+            predicate: .commentContains("escalate")
+        )
+        try initial.saveSmartCohort(customNeedsReview)
+
+        // Reopen: should not re-seed Needs review now that one exists.
+        let reopened = try GenotypeAnnotationStore(bundleURL: dir, author: "test")
+        let needsReview = reopened.sidecar.smartCohorts.first { $0.name == "Needs review" }
+        XCTAssertEqual(needsReview?.description, "Custom analyst predicate.")
     }
 }

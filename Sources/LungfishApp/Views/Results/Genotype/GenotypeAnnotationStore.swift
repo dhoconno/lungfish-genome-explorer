@@ -21,6 +21,50 @@ final class GenotypeAnnotationStore {
         self.bundleURL = bundleURL
         self.author = author
         self.sidecar = try ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: bundleURL)
+        try seedBuiltInSmartCohortsIfNeeded()
+    }
+
+    /// Adds the small set of default smart cohorts the spec calls out (Needs
+    /// review, Homozygous, Recombinants) if the sidecar carries none. New
+    /// cohorts are skipped if a cohort with the same name already exists so
+    /// analysts' custom names are never overwritten.
+    private func seedBuiltInSmartCohortsIfNeeded() throws {
+        let builtIns: [GenotypeCohortSmartFilter] = [
+            GenotypeCohortSmartFilter(
+                name: "Needs review",
+                description: "Errors, low support, or analyst-flagged samples.",
+                scope: "bundle",
+                isStarred: true,
+                predicate: .any([
+                    .hasErrorAtAnyLocus,
+                    .qcStatus([.review, .lowSupport]),
+                    .hasAnalystFlag(.needsReview),
+                ])
+            ),
+            GenotypeCohortSmartFilter(
+                name: "Homozygous",
+                description: "Samples whose H1 equals H2 at every called locus.",
+                scope: "bundle",
+                isStarred: false,
+                predicate: .isHomozygousAcrossAll
+            ),
+            GenotypeCohortSmartFilter(
+                name: "Recombinants",
+                description: "Samples carrying a rec* haplotype at any locus.",
+                scope: "bundle",
+                isStarred: false,
+                predicate: .hasRegionalRecombinant
+            ),
+        ]
+        let existing = Set(sidecar.smartCohorts.map(\.name))
+        var added = false
+        for cohort in builtIns where !existing.contains(cohort.name) {
+            sidecar.smartCohorts.append(cohort)
+            added = true
+        }
+        if added {
+            try persist()
+        }
     }
 
     private func now() -> String { isoFormatter.string(from: Date()) }
