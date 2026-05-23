@@ -23,6 +23,8 @@ final class GenotypeResultViewController: NSViewController {
     private let sampleContainer = NSView()
     private let detailContainer = NSView()
     private let comparisonMatrix = GenotypeComparisonMatrixView()
+    private let outlineView = GenotypeOutlineView()
+    private let cohortSummaryPanel = GenotypeCohortSummaryPanelView()
     private let detailScrollView = NSScrollView()
     private let detailDocumentView = FlippedDocumentView()
     private let detailStack = NSStackView()
@@ -49,6 +51,7 @@ final class GenotypeResultViewController: NSViewController {
     private var activeContentConstraints: [NSLayoutConstraint] = []
     private var haplotypeSampleActionTags: [Int: String] = [:]
     private var nextHaplotypeSampleActionTag = 1
+    private var outlineRowsBySample: [String: GenotypeOutlineView.Row] = [:]
 
     override func loadView() {
         let root = NSView()
@@ -92,6 +95,8 @@ final class GenotypeResultViewController: NSViewController {
         rebuildAnchorLens()
         rebuildConsumerLens()
         rebuildArtifactLens()
+        rebuildOutline()
+        rebuildCohortSummary()
         showLens(.summary)
         comparisonMatrix.selectFirstSharedCall()
     }
@@ -110,15 +115,23 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     func applyDisplayState(_ state: GenotypeResultDisplayState) {
+        let previousViewMode = displayState.summaryViewMode
         displayState = state
         if selectedLens != state.viewportLens {
             showLens(state.viewportLens)
         } else {
             lensControl.selectedSegment = segmentIndex(for: state.viewportLens)
+            if selectedLens == .summary {
+                applySummaryViewModeVisibility()
+            }
         }
         comparisonMatrix.applyDisplayState(state)
         rebuildAnchorLens()
         rebuildConsumerLens()
+        if previousViewMode != state.summaryViewMode {
+            rebuildOutline()
+            rebuildCohortSummary()
+        }
         applyLayoutPreference()
         if let currentSharedCall {
             showSharedCall(currentSharedCall, sample: currentSelectedSample)
@@ -178,6 +191,11 @@ final class GenotypeResultViewController: NSViewController {
         sampleContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailContainer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         sampleContainer.addSubview(comparisonMatrix)
+        sampleContainer.addSubview(outlineView)
+        outlineView.isHidden = true
+        outlineView.onRowSelected = { [weak self] animalId in
+            self?.handleOutlineRowSelected(animalId)
+        }
 
         splitView.addArrangedSubview(sampleContainer)
         splitView.addArrangedSubview(detailContainer)
@@ -189,6 +207,10 @@ final class GenotypeResultViewController: NSViewController {
             comparisonMatrix.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
             comparisonMatrix.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
             comparisonMatrix.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
+            outlineView.topAnchor.constraint(equalTo: sampleContainer.topAnchor),
+            outlineView.leadingAnchor.constraint(equalTo: sampleContainer.leadingAnchor),
+            outlineView.trailingAnchor.constraint(equalTo: sampleContainer.trailingAnchor),
+            outlineView.bottomAnchor.constraint(equalTo: sampleContainer.bottomAnchor),
         ])
     }
 
@@ -203,6 +225,8 @@ final class GenotypeResultViewController: NSViewController {
         detailScrollView.documentView = detailDocumentView
         detailScrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         detailContainer.addSubview(detailScrollView)
+        detailContainer.addSubview(cohortSummaryPanel)
+        cohortSummaryPanel.isHidden = true
 
         detailStack.translatesAutoresizingMaskIntoConstraints = false
         detailStack.orientation = .vertical
@@ -223,6 +247,10 @@ final class GenotypeResultViewController: NSViewController {
             detailStack.leadingAnchor.constraint(equalTo: detailDocumentView.leadingAnchor, constant: 10),
             detailStack.trailingAnchor.constraint(equalTo: detailDocumentView.trailingAnchor, constant: -10),
             detailStack.bottomAnchor.constraint(lessThanOrEqualTo: detailDocumentView.bottomAnchor, constant: -8),
+            cohortSummaryPanel.topAnchor.constraint(equalTo: detailContainer.topAnchor),
+            cohortSummaryPanel.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor),
+            cohortSummaryPanel.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor),
+            cohortSummaryPanel.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor),
         ])
     }
 
@@ -294,6 +322,7 @@ final class GenotypeResultViewController: NSViewController {
         switch lens {
         case .summary:
             installContentView(splitView)
+            applySummaryViewModeVisibility()
             scheduleInitialSplitValidationIfNeeded()
             applyLayoutPreference()
         case .review:
@@ -301,6 +330,14 @@ final class GenotypeResultViewController: NSViewController {
         case .audit:
             installContentView(artifactScrollView)
         }
+    }
+
+    private func applySummaryViewModeVisibility() {
+        let showOutline = displayState.summaryViewMode == .outline
+        outlineView.isHidden = !showOutline
+        comparisonMatrix.isHidden = showOutline
+        cohortSummaryPanel.isHidden = !showOutline
+        detailScrollView.isHidden = showOutline
     }
 
     private func segmentIndex(for lens: Lens) -> Int {
@@ -655,6 +692,234 @@ final class GenotypeResultViewController: NSViewController {
         ].forEach { artifactStack.addArrangedSubview(artifactRow(label: $0.0, url: $0.1)) }
         if let haplotypeAnalysisURL = result.artifacts.haplotypeAnalysisURL {
             artifactStack.addArrangedSubview(artifactRow(label: "Haplotype Analysis", url: haplotypeAnalysisURL))
+        }
+    }
+
+    private func rebuildOutline() {
+        outlineRowsBySample.removeAll()
+        guard let result, let analysis = result.haplotypeAnalysis, !analysis.samples.isEmpty else {
+            outlineView.configure(rows: [])
+            return
+        }
+        let loci = orderedLoci(from: analysis)
+        var rows: [GenotypeOutlineView.Row] = []
+        for sample in analysis.samples {
+            let tapeSlots = outlineTapeSlots(for: sample, loci: loci)
+            let blockKind = GenotypeBlockClassifier.classify(
+                calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
+            )
+            let comment = outlineCommentSummary(for: sample)
+            let row = GenotypeOutlineView.Row(
+                animalId: sample.sample,
+                gsId: nil,
+                loci: loci,
+                tapeSlots: tapeSlots,
+                blockKind: blockKind,
+                commentSummary: comment
+            )
+            rows.append(row)
+            outlineRowsBySample[sample.sample] = row
+        }
+        outlineView.configure(rows: rows)
+    }
+
+    private func rebuildCohortSummary() {
+        guard let result else {
+            cohortSummaryPanel.configure(summary: .init(
+                sampleCount: 0,
+                qcCounts: [],
+                errorTypeCounts: [],
+                blockCounts: [],
+                readBudget: ("Unavailable", "Unavailable"),
+                annotationCounts: []
+            ))
+            return
+        }
+        let qcRaw = result.qcStatusCounts
+        let qcCounts: [(String, Int)] = [
+            ("OK", qcRaw[.ok, default: 0]),
+            ("Low support", qcRaw[.lowSupport, default: 0]),
+            ("Needs review", qcRaw[.review, default: 0]),
+        ]
+        let errorTypeCounts = cohortErrorTypeCounts(for: result)
+        let blockCounts = cohortBlockCounts(for: result)
+        let readBudget = cohortReadBudget(for: result)
+        let annotationCounts = cohortAnnotationCounts(for: result)
+        cohortSummaryPanel.configure(summary: .init(
+            sampleCount: result.sampleCount,
+            qcCounts: qcCounts,
+            errorTypeCounts: errorTypeCounts,
+            blockCounts: blockCounts,
+            readBudget: readBudget,
+            annotationCounts: annotationCounts
+        ))
+    }
+
+    private func orderedLoci(from analysis: GenotypeHaplotypeAnalysis) -> [String] {
+        guard let firstSample = analysis.samples.first else { return [] }
+        return firstSample.calls.map(\.locus)
+    }
+
+    private func outlineTapeSlots(
+        for sample: GenotypeHaplotypeSampleAnalysis,
+        loci: [String]
+    ) -> [GenotypeHaplotypeTapeView.Slot] {
+        let callsByLocus = Dictionary(uniqueKeysWithValues: sample.calls.map { ($0.locus, $0) })
+        return loci.map { locus -> GenotypeHaplotypeTapeView.Slot in
+            guard let call = callsByLocus[locus] else {
+                return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: .empty, h2: .empty)
+            }
+            let h1 = outlineCell(for: call.haplotype1, status: call.status)
+            let h2 = outlineCell(for: call.haplotype2, status: call.status)
+            return GenotypeHaplotypeTapeView.Slot(locus: locus, h1: h1, h2: h2)
+        }
+    }
+
+    private func outlineCell(
+        for name: String,
+        status: GenotypeHaplotypeCallStatus
+    ) -> GenotypeHaplotypeTapeView.Cell {
+        if name == "-" || name.isEmpty {
+            return .empty
+        }
+        if status != .called && status != .specialCase {
+            return .error(label: name)
+        }
+        let token = HaplotypeColorToken.assigned(forName: name)
+        return .reference(tokenIndex: token.canonicalIndex, label: name)
+    }
+
+    private func outlineCommentSummary(for sample: GenotypeHaplotypeSampleAnalysis) -> String {
+        let reviewCalls = sample.calls.filter { haplotypeCallNeedsReview($0) }
+        if !reviewCalls.isEmpty {
+            return reviewCalls.map { "\($0.locus): \(haplotypeStatusLabel($0.status))" }
+                .joined(separator: "; ")
+        }
+        if let firstSpecial = sample.calls.first(where: { $0.status == .specialCase }) {
+            return "\(firstSpecial.locus): special case"
+        }
+        return ""
+    }
+
+    private func cohortErrorTypeCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
+        guard let analysis = result.haplotypeAnalysis else { return [] }
+        var tmh = 0
+        var noHap = 0
+        var tmg = 0
+        for sample in analysis.samples {
+            for call in sample.calls {
+                switch call.status {
+                case .tooManyHaplotypes: tmh += 1
+                case .noHaplotype: noHap += 1
+                case .tooManyGenotypes: tmg += 1
+                case .called, .specialCase: break
+                }
+            }
+        }
+        return [
+            ("TMH", tmh),
+            ("NO HAP", noHap),
+            ("TMG", tmg),
+        ]
+    }
+
+    private func cohortBlockCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
+        guard let analysis = result.haplotypeAnalysis else {
+            return [
+                ("Block coherent", 0),
+                ("Recombinant", 0),
+                ("Atypical", 0),
+            ]
+        }
+        var coherent = 0
+        var recombinant = 0
+        var atypical = 0
+        for sample in analysis.samples {
+            let kind = GenotypeBlockClassifier.classify(
+                calls: sample.calls.map { (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2) }
+            )
+            switch kind {
+            case .blockCoherent: coherent += 1
+            case .regionalRecombinant: recombinant += 1
+            case .atypical: atypical += 1
+            case .unknown: break
+            }
+        }
+        return [
+            ("Block coherent", coherent),
+            ("Recombinant", recombinant),
+            ("Atypical", atypical),
+        ]
+    }
+
+    private func cohortReadBudget(
+        for result: ONTGenotypeResultBundleData
+    ) -> (median: String, belowThreshold: String) {
+        let perSampleReads = result.samples.map(\.passedUniqueReads).sorted()
+        let medianText: String
+        if perSampleReads.isEmpty {
+            medianText = "Unavailable"
+        } else {
+            let mid = perSampleReads.count / 2
+            let median: Double
+            if perSampleReads.count.isMultiple(of: 2) {
+                median = (Double(perSampleReads[mid - 1]) + Double(perSampleReads[mid])) / 2.0
+            } else {
+                median = Double(perSampleReads[mid])
+            }
+            medianText = formatReadCount(median) + " median"
+        }
+        let threshold = 5_000
+        let below = perSampleReads.filter { $0 < threshold }.count
+        let belowText = "Below \(formatReadCount(Double(threshold))): \(below) samples"
+        return (median: medianText, belowThreshold: belowText)
+    }
+
+    private func formatReadCount(_ value: Double) -> String {
+        if value >= 1_000_000 {
+            return String(format: "%.1fM", value / 1_000_000)
+        }
+        if value >= 1_000 {
+            return String(format: "%.1fK", value / 1_000)
+        }
+        return String(format: "%.0f", value)
+    }
+
+    private func cohortAnnotationCounts(for result: ONTGenotypeResultBundleData) -> [(String, Int)] {
+        let sidecar = (try? ONTGenotypeResultBundleData.loadOrCreateAnnotationSidecar(forBundleAt: result.bundleURL))
+            ?? GenotypeAnnotationSidecar.empty(generatedAt: "")
+        return [
+            ("Overrides", sidecar.callOverrides.count),
+            ("Comments", sidecar.cellComments.count + sidecar.sampleNotes.count),
+            ("Highlights", sidecar.cellHighlights.count + sidecar.rowHighlights.count),
+        ]
+    }
+
+    private func handleOutlineRowSelected(_ animalId: String) {
+        guard let row = outlineRowsBySample[animalId] else { return }
+        let detailRows: [(String, String)] = [
+            ("Animal", animalId),
+            ("Loci", row.loci.joined(separator: ", ")),
+            ("Block", outlineBlockLabel(row.blockKind)),
+            ("Notes", row.commentSummary.isEmpty ? "None" : row.commentSummary),
+        ]
+        let state = GenotypeResultSelectionState(
+            title: animalId,
+            subtitle: "Outline sample",
+            detailRows: detailRows,
+            highlightTarget: nil,
+            highlightColor: nil,
+            highlightStyle: .default
+        )
+        publishSelectionState(state)
+    }
+
+    private func outlineBlockLabel(_ kind: GenotypeBlockKind) -> String {
+        switch kind {
+        case .blockCoherent: return "Block coherent"
+        case .regionalRecombinant: return "Regional recombinant"
+        case .atypical: return "Atypical"
+        case .unknown: return "Unknown"
         }
     }
 
