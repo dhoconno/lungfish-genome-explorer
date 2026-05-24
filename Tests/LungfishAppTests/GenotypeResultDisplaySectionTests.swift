@@ -1,0 +1,275 @@
+import XCTest
+@testable import LungfishApp
+import AppKit
+import LungfishCore
+import SwiftUI
+
+@MainActor
+final class GenotypeResultDisplaySectionTests: XCTestCase {
+    func testDisplayViewModelEmitsLayoutAndThresholdChanges() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        var receivedStates: [GenotypeResultDisplayState] = []
+        viewModel.onDisplayStateChanged = { receivedStates.append($0) }
+
+        viewModel.setLayout(.listTrailing)
+        viewModel.setViewportLens(.review)
+        viewModel.setMinimumSupportPercent(1.5)
+        viewModel.setSupportDenominator(.sampleRetained)
+        viewModel.setHideFilteredHighlights(false)
+
+        XCTAssertEqual(receivedStates.map(\.layout).first, .listTrailing)
+        XCTAssertTrue(receivedStates.contains { $0.viewportLens == .review })
+        XCTAssertEqual(receivedStates.last?.minimumSupportPercent, 1.5)
+        XCTAssertEqual(receivedStates.last?.supportDenominator, .sampleRetained)
+        XCTAssertEqual(receivedStates.last?.hideFilteredHighlights, false)
+    }
+
+    func testDisplayStateDefaultsToListOverDetailLayout() {
+        XCTAssertEqual(GenotypeResultDisplayState().layout, .listTop)
+        XCTAssertEqual(GenotypeResultDisplaySectionViewModel().displayState.layout, .listTop)
+    }
+
+    func testLayoutControlUsesSharedTwoPaneRadioGroupStyle() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private var layoutControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var supportControls"))
+        let layoutSource = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(layoutSource.contains("Label(\"Detail | List\""))
+        XCTAssertTrue(layoutSource.contains("Label(\"List | Detail\""))
+        XCTAssertTrue(layoutSource.contains("Label(\"List Over Detail\""))
+        XCTAssertTrue(layoutSource.contains(".pickerStyle(.radioGroup)"))
+    }
+
+    func testSupportThresholdSliderUsesFullPercentRange() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "Slider("))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: ".controlSize(.small)"))
+        let sliderSource = String(source[start.lowerBound..<end.upperBound])
+
+        XCTAssertTrue(sliderSource.contains("in: 0...100"))
+        XCTAssertFalse(sliderSource.contains("in: 0...10,"))
+    }
+
+    func testSupportThresholdControlsIncludeExactEntryAndFilteredHighlightOption() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let start = try XCTUnwrap(source.range(of: "private var supportControls"))
+        let end = try XCTUnwrap(source[start.lowerBound...].range(of: "private var colorControls"))
+        let supportSource = String(source[start.lowerBound..<end.lowerBound])
+
+        XCTAssertTrue(supportSource.contains("TextField(\"Minimum\""))
+        XCTAssertTrue(supportSource.contains("Hide Filtered Highlights"))
+    }
+
+    func testGenotypeViewSectionExposesHaplotypeViewportControl() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("setViewportLens"))
+        XCTAssertTrue(source.contains("GenotypeResultViewportLens.allCases"))
+    }
+
+    func testGenotypeSummaryModesAreOnlyOutlineAndMatrix() {
+        XCTAssertEqual(GenotypeSummaryViewMode.allCases, [.outline, .matrix])
+        XCTAssertEqual(GenotypeSummaryViewMode.allCases.map(\.displayName), ["Outline", "Matrix"])
+    }
+
+    func testSelectingSummaryViewModeReturnsViewportToSummary() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.setViewportLens(.review)
+
+        viewModel.setSummaryViewMode(.matrix)
+
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+    }
+
+    func testGenotypeViewSectionOwnsHighlightColorControls() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let displaySource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/GenotypeResultDisplaySection.swift"),
+            encoding: .utf8
+        )
+        let selectionSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/LungfishApp/Views/Inspector/Sections/SelectionSection.swift"),
+            encoding: .utf8
+        )
+        let selectionStart = try XCTUnwrap(selectionSource.range(of: "private func genotypeResultSelectionView"))
+        let selectionEnd = try XCTUnwrap(selectionSource[selectionStart.lowerBound...].range(of: "private func genotypeHighlightControls"))
+        let selectedItemSource = String(selectionSource[selectionStart.lowerBound..<selectionEnd.lowerBound])
+
+        XCTAssertTrue(displaySource.contains("private var highlightControls"))
+        XCTAssertTrue(displaySource.contains("ContinuousColorWell("))
+        XCTAssertTrue(displaySource.contains("Clear Fill"))
+        XCTAssertTrue(displaySource.contains("Clear Border"))
+        XCTAssertFalse(selectedItemSource.contains("genotypeHighlightControls(target:"))
+    }
+
+    func testDisplayViewModelAutoAppliesSelectedHighlightColorChanges() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        let target = GenotypeResultHighlightTarget(
+            genotype: "01_Mafa_A1_001_01",
+            locus: "MHC-A",
+            sample: "AnimalA"
+        )
+        var receivedRequests: [GenotypeResultHighlightRequest] = []
+        viewModel.onGenotypeHighlightRequested = { receivedRequests.append($0) }
+
+        viewModel.updateSelection(GenotypeResultSelectionState(
+            title: target.genotype,
+            subtitle: "MHC-A - 1 sample",
+            detailRows: [],
+            highlightTarget: target,
+            highlightStyle: .default
+        ))
+        viewModel.setGenotypeHighlightChannel(.fill)
+        viewModel.setGenotypeHighlightColor(NSColor(
+            srgbRed: 0.2,
+            green: 0.5,
+            blue: 0.7,
+            alpha: 1.0
+        ))
+        viewModel.setGenotypeHighlightChannel(.border)
+        viewModel.setGenotypeHighlightColor(NSColor(
+            srgbRed: 0.9,
+            green: 0.3,
+            blue: 0.1,
+            alpha: 1.0
+        ))
+
+        XCTAssertEqual(receivedRequests.map(\.channel), [.fill, .border])
+        XCTAssertEqual(receivedRequests.first?.target, target)
+        XCTAssertEqual(receivedRequests.first?.scope, .selectedCell)
+        XCTAssertEqual(receivedRequests.first?.color, AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0))
+        XCTAssertEqual(receivedRequests.last?.color, AnnotationColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1.0))
+    }
+
+    func testSelectionViewModelEmitsGenotypeHighlightRequests() {
+        let viewModel = SelectionSectionViewModel()
+        let target = GenotypeResultHighlightTarget(
+            genotype: "01_Mafa_A1_001_01",
+            locus: "MHC-A",
+            sample: "AnimalA"
+        )
+        var receivedRequest: GenotypeResultHighlightRequest?
+        viewModel.onGenotypeHighlightRequested = { receivedRequest = $0 }
+
+        viewModel.select(genotypeResultSelection: GenotypeResultSelectionState(
+            title: target.genotype,
+            subtitle: "MHC-A - 1 sample",
+            detailRows: [],
+            highlightTarget: target,
+            highlightColor: nil
+        ))
+        viewModel.genotypeHighlightColor = ColorBridge.color(
+            from: AnnotationColor(red: 0.1, green: 0.4, blue: 0.9, alpha: 1.0)
+        )
+        viewModel.applyGenotypeHighlight()
+
+        XCTAssertEqual(receivedRequest?.target, target)
+        XCTAssertEqual(receivedRequest?.scope, .selectedCell)
+        XCTAssertEqual(receivedRequest?.channel, .fill)
+        XCTAssertNotNil(receivedRequest?.color)
+    }
+
+    func testSelectionViewModelAutoAppliesGenotypeFillAndBorderChanges() {
+        let viewModel = SelectionSectionViewModel()
+        let target = GenotypeResultHighlightTarget(
+            genotype: "01_Mafa_A1_001_01",
+            locus: "MHC-A",
+            sample: "AnimalA"
+        )
+        var receivedRequests: [GenotypeResultHighlightRequest] = []
+        viewModel.onGenotypeHighlightRequested = { receivedRequests.append($0) }
+
+        viewModel.select(genotypeResultSelection: GenotypeResultSelectionState(
+            title: target.genotype,
+            subtitle: "MHC-A - 1 sample",
+            detailRows: [],
+            highlightTarget: target,
+            highlightStyle: .default
+        ))
+        viewModel.setGenotypeHighlightChannel(.border)
+        viewModel.setGenotypeHighlightColor(ColorBridge.color(
+            from: AnnotationColor(red: 0.9, green: 0.2, blue: 0.1, alpha: 1.0)
+        ))
+        viewModel.clearGenotypeHighlight(.border)
+
+        XCTAssertEqual(receivedRequests.count, 2)
+        XCTAssertEqual(receivedRequests.first?.scope, .selectedCell)
+        XCTAssertEqual(receivedRequests.first?.channel, .border)
+        XCTAssertNotNil(receivedRequests.first?.color)
+        XCTAssertEqual(receivedRequests.last?.channel, .border)
+        XCTAssertNil(receivedRequests.last?.color)
+    }
+
+    func testSelectionViewModelAutoAppliesContinuousColorWellChanges() {
+        let viewModel = SelectionSectionViewModel()
+        let target = GenotypeResultHighlightTarget(
+            genotype: "01_Mafa_A1_001_01",
+            locus: "MHC-A",
+            sample: "AnimalA"
+        )
+        var receivedRequests: [GenotypeResultHighlightRequest] = []
+        viewModel.onGenotypeHighlightRequested = { receivedRequests.append($0) }
+
+        viewModel.select(genotypeResultSelection: GenotypeResultSelectionState(
+            title: target.genotype,
+            subtitle: "MHC-A - 1 sample",
+            detailRows: [],
+            highlightTarget: target,
+            highlightStyle: .default
+        ))
+        viewModel.setGenotypeHighlightChannel(.fill)
+        viewModel.setGenotypeHighlightColor(NSColor(
+            srgbRed: 0.2,
+            green: 0.5,
+            blue: 0.7,
+            alpha: 1.0
+        ))
+        viewModel.setGenotypeHighlightChannel(.border)
+        viewModel.setGenotypeHighlightColor(NSColor(
+            srgbRed: 0.9,
+            green: 0.3,
+            blue: 0.1,
+            alpha: 1.0
+        ))
+
+        XCTAssertEqual(receivedRequests.map(\.channel), [.fill, .border])
+        XCTAssertEqual(receivedRequests.first?.color, AnnotationColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1.0))
+        XCTAssertEqual(receivedRequests.last?.color, AnnotationColor(red: 0.9, green: 0.3, blue: 0.1, alpha: 1.0))
+    }
+}
+
+private enum ColorBridge {
+    static func color(from annotationColor: AnnotationColor) -> Color {
+        Color(
+            red: annotationColor.red,
+            green: annotationColor.green,
+            blue: annotationColor.blue,
+            opacity: annotationColor.alpha
+        )
+    }
+}

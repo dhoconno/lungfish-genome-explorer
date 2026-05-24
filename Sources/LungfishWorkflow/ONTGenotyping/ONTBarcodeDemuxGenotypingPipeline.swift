@@ -16,6 +16,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let threads: Int
     public let sortThreads: Int
     public let minSupport: Int
+    public let haplotypeAssayID: String?
+    public let haplotypeDefinitionSetID: String?
     public let extraArguments: [String]
 
     public init(
@@ -32,6 +34,8 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
         sortThreads: Int = 4,
         minSupport: Int = 1,
+        haplotypeAssayID: String? = nil,
+        haplotypeDefinitionSetID: String? = nil,
         extraArguments: [String] = []
     ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
@@ -53,6 +57,14 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.threads = max(1, threads)
         self.sortThreads = max(1, sortThreads)
         self.minSupport = max(1, minSupport)
+        let trimmedHaplotypeAssayID = haplotypeAssayID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeAssayID = trimmedHaplotypeAssayID?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeAssayID
+        let trimmedHaplotypeDefinitionSetID = haplotypeDefinitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeDefinitionSetID = trimmedHaplotypeDefinitionSetID?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeDefinitionSetID
         self.extraArguments = extraArguments
     }
 
@@ -84,6 +96,10 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         outputDirectory.appendingPathComponent("\(outputName).retained-demux-stats.json")
     }
 
+    public var haplotypeAnalysisURL: URL {
+        outputDirectory.appendingPathComponent("\(outputName).haplotype-analysis.json")
+    }
+
     public var reportProvenanceURL: URL {
         outputDirectory.appendingPathComponent("\(outputName).report-workbook-provenance.json")
     }
@@ -113,6 +129,12 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             "--min-support", String(minSupport),
             "--analysis-name", analysisName,
         ]
+        if let haplotypeDefinitionSetID {
+            if let haplotypeAssayID {
+                values += ["--haplotype-assay", haplotypeAssayID]
+            }
+            values += ["--haplotype-definition", haplotypeDefinitionSetID]
+        }
         if let demuxManifestURL {
             values += ["--demux-manifest", demuxManifestURL.path]
         }
@@ -169,6 +191,7 @@ public struct ONTBarcodeDemuxGenotypingResult: Sendable, Codable, Equatable {
     public let reportCSVURL: URL
     public let sampleSummaryCSVURL: URL
     public let statsJSONURL: URL
+    public let haplotypeAnalysisURL: URL?
     public let workbookURL: URL
     public let reportProvenanceURL: URL
     public let provenanceURL: URL
@@ -191,6 +214,9 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case processFailed(tool: String, status: Int32, stderr: String)
     case filterFailed(status: Int32, stderr: String)
     case invalidFilterOutput(String)
+    case invalidHaplotypeDefinition(String)
+    case ambiguousHaplotypeDefinition(definitionID: String)
+    case invalidHaplotypeDefinitionForAssay(definitionID: String, assayID: String)
     case reportFailed(status: Int32, stderr: String)
     case invalidReportOutput(String)
 
@@ -214,6 +240,12 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Retained-read demultiplex filter failed with status \(status): \(stderr)"
         case .invalidFilterOutput(let text):
             return "Retained-read demultiplex filter did not return valid JSON: \(text)"
+        case .invalidHaplotypeDefinition(let id):
+            return "Unknown haplotype definition set: \(id)"
+        case .ambiguousHaplotypeDefinition(let definitionID):
+            return "Haplotype definition set \(definitionID) exists in more than one assay; specify --haplotype-assay."
+        case .invalidHaplotypeDefinitionForAssay(let definitionID, let assayID):
+            return "Haplotype definition set \(definitionID) is not available for assay \(assayID)"
         case .reportFailed(let status, let stderr):
             return "ONT barcode genotype workbook report failed with status \(status): \(stderr)"
         case .invalidReportOutput(let text):
@@ -234,8 +266,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         self.referenceImporter = referenceImporter
     }
 
-    public func run(_ request: ONTBarcodeDemuxGenotypingRunRequest) async throws -> ONTBarcodeDemuxGenotypingResult {
+    public func run(
+        _ request: ONTBarcodeDemuxGenotypingRunRequest,
+        progressHandler: (@Sendable (Double, String) -> Void)? = nil
+    ) async throws -> ONTBarcodeDemuxGenotypingResult {
         let startedAt = Date()
+        progressHandler?(0.01, "Validating ONT genotyping inputs.")
         guard FileManager.default.fileExists(atPath: request.inputFASTQURL.path) else {
             throw ONTBarcodeDemuxGenotypingError.missingInput(request.inputFASTQURL)
         }
@@ -246,7 +282,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
            !FileManager.default.fileExists(atPath: comparisonWorkbookURL.path) {
             throw ONTBarcodeDemuxGenotypingError.missingComparisonWorkbook(comparisonWorkbookURL)
         }
+        _ = try resolveHaplotypeDefinitionSet(for: request)
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
+        progressHandler?(0.04, "Preparing ONT genotyping output workspace.")
         let supportDirectory = request.outputDirectory
             .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
@@ -254,6 +292,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let reportScriptURL = supportDirectory.appendingPathComponent("write-retained-demux-workbook.py")
         try Self.writeReportScript(to: reportScriptURL)
 
+        progressHandler?(0.08, "Resolving demultiplex manifest and input snapshots.")
         let demuxManifestURL = try resolveDemuxManifest(for: request)
         guard FileManager.default.fileExists(atPath: demuxManifestURL.path) else {
             throw ONTBarcodeDemuxGenotypingError.missingDemuxManifest(demuxManifestURL)
@@ -264,17 +303,20 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             supportDirectory: supportDirectory
         )
 
+        progressHandler?(0.12, "Resolving reference and FASTQ inputs.")
         let reference = try await resolveReference(for: request)
         let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: request.inputFASTQURL)
         guard !inputFASTQURLs.isEmpty else {
             throw ONTBarcodeDemuxGenotypingError.noFASTQSources(request.inputFASTQURL)
         }
 
+        progressHandler?(0.18, "Resolving managed minimap2, samtools, pysam, and openpyxl tools.")
         let minimap2URL = try await condaManager.toolPath(name: "minimap2", environment: "minimap2")
         let samtoolsURL = try await condaManager.toolPath(name: "samtools", environment: "samtools")
         let pythonURL = try await condaManager.toolPath(name: "python", environment: "pysam")
         let reportPythonURL = try await condaManager.toolPath(name: "python", environment: "openpyxl")
 
+        progressHandler?(0.25, "Mapping ONT reads with minimap2.")
         let mapping = try runMapping(
             request: request,
             referenceFASTAURL: reference.referenceFASTAURL,
@@ -283,6 +325,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             samtoolsURL: samtoolsURL
         )
 
+        progressHandler?(0.58, "Filtering retained full-reference alignments and demultiplexing by barcode.")
         let filter = try await runFilter(
             request: request,
             referenceFASTAURL: reference.referenceFASTAURL,
@@ -292,6 +335,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             pythonURL: pythonURL
         )
 
+        progressHandler?(0.76, "Writing retained-demux genotype summaries.")
         try copyFilterOutput(
             from: request.outputDirectory.appendingPathComponent("\(request.outputName).retained_demux_genotypes.csv"),
             to: request.reportCSVURL
@@ -305,16 +349,26 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             to: request.statsJSONURL
         )
 
+        progressHandler?(0.80, "Applying selected haplotype definition.")
+        let haplotypeAnalysis = try writeHaplotypeAnalysisIfRequested(
+            request: request,
+            supportDirectory: supportDirectory,
+            generatedAt: Date()
+        )
+
+        progressHandler?(0.84, "Writing Excel genotype workbook.")
         let report = try await runReport(
             request: request,
             referenceFASTAURL: reference.referenceFASTAURL,
             barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
             comparisonWorkbookURL: inputSnapshot.comparisonWorkbookURL,
+            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
             reportScriptURL: reportScriptURL,
             pythonURL: reportPythonURL
         )
 
         let completedAt = Date()
+        progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
             request: request,
             reference: reference,
@@ -330,6 +384,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             mapping: mapping,
             filter: filter,
             report: report,
+            haplotypeAnalysis: haplotypeAnalysis,
             startedAt: startedAt,
             completedAt: completedAt
         )
@@ -338,6 +393,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             provenanceURL: provenanceURL,
             completedAt: completedAt
         )
+        progressHandler?(0.98, "Finalizing ONT genotyping outputs.")
 
         return ONTBarcodeDemuxGenotypingResult(
             outputDirectory: request.outputDirectory,
@@ -348,6 +404,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             reportCSVURL: request.reportCSVURL,
             sampleSummaryCSVURL: request.sampleSummaryCSVURL,
             statsJSONURL: request.statsJSONURL,
+            haplotypeAnalysisURL: haplotypeAnalysis == nil ? nil : request.haplotypeAnalysisURL,
             workbookURL: request.workbookURL,
             reportProvenanceURL: request.reportProvenanceURL,
             provenanceURL: provenanceURL,
@@ -720,6 +777,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         referenceFASTAURL: URL,
         barcodeDefinitionsURL: URL,
         comparisonWorkbookURL: URL?,
+        haplotypeAnalysisURL: URL?,
         reportScriptURL: URL,
         pythonURL: URL
     ) async throws -> ReportStepResult {
@@ -741,6 +799,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         if let comparisonName = request.comparisonName {
             arguments += ["--comparison-name", comparisonName]
+        }
+        if let haplotypeAnalysisURL {
+            arguments += ["--haplotype-analysis-json", haplotypeAnalysisURL.path]
         }
 
         let startedAt = Date()
@@ -767,6 +828,109 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
     }
 
+    private func writeHaplotypeAnalysisIfRequested(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        supportDirectory: URL,
+        generatedAt: Date
+    ) throws -> GenotypeHaplotypeAnalysis? {
+        guard let definitionSetID = request.haplotypeDefinitionSetID else {
+            return nil
+        }
+        guard let definitionSet = try resolveHaplotypeDefinitionSet(for: request) else {
+            throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+        }
+        let assayID = definitionSet.assayID
+        try writeHaplotypeDefinitionSnapshot(definitionSet, supportDirectory: supportDirectory)
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: request.outputName,
+            analysisName: request.analysisName,
+            primaryWorkbookPath: relativePath(from: request.outputDirectory, to: request.workbookURL),
+            longSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.reportCSVURL),
+            sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
+            statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
+            provenancePath: relativePath(from: request.outputDirectory, to: request.provenanceURL),
+            haplotypeDefinitionSetID: definitionSetID,
+            haplotypeAssayID: assayID
+        )
+        let result = try ONTGenotypeResultBundle.loadResult(from: request.outputDirectory, manifest: manifest)
+        let analysis = GenotypeHaplotypeAnalyzer.analyze(
+            calls: result.calls,
+            definitionSet: definitionSet,
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(analysis)
+        try data.write(to: request.haplotypeAnalysisURL, options: .atomic)
+        return analysis
+    }
+
+    private func resolveHaplotypeDefinitionSet(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        guard let definitionSetID = request.haplotypeDefinitionSetID else {
+            return nil
+        }
+        let registry = haplotypeDefinitionRegistry(for: request)
+        if let assayID = request.haplotypeAssayID {
+            guard registry.assay(id: assayID) != nil else {
+                throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinitionForAssay(
+                    definitionID: definitionSetID,
+                    assayID: assayID
+                )
+            }
+            guard let definitionSet = registry.definitionSet(id: definitionSetID, assayID: assayID) else {
+                if registry.definitionSet(id: definitionSetID) == nil {
+                    throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+                }
+                throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinitionForAssay(
+                    definitionID: definitionSetID,
+                    assayID: assayID
+                )
+            }
+            return definitionSet
+        }
+
+        let matchingSets = registry.definitionSets(id: definitionSetID)
+        if matchingSets.count == 1 {
+            return matchingSets[0]
+        }
+        if matchingSets.isEmpty {
+            throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+        }
+        throw ONTBarcodeDemuxGenotypingError.ambiguousHaplotypeDefinition(definitionID: definitionSetID)
+    }
+
+    private func haplotypeDefinitionRegistry(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) -> GenotypeHaplotypeDefinitionRegistry {
+        guard let projectURL = request.projectURL else {
+            return .builtIn
+        }
+        return HaplotypeDefinitionStore(projectRoot: projectURL).mergedRegistry()
+    }
+
+    private func haplotypeDefinitionSnapshotURL(for request: ONTBarcodeDemuxGenotypingRunRequest) -> URL {
+        request.outputDirectory
+            .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
+            .appendingPathComponent("inputs", isDirectory: true)
+            .appendingPathComponent("haplotype-definition.json")
+    }
+
+    private func writeHaplotypeDefinitionSnapshot(
+        _ definitionSet: GenotypeHaplotypeDefinitionSet,
+        supportDirectory: URL
+    ) throws {
+        let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
+        let url = inputsDirectory.appendingPathComponent("haplotype-definition.json")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(definitionSet)
+        try data.write(to: url, options: .atomic)
+    }
+
     private func copyFilterOutput(from source: URL, to destination: URL) throws {
         guard source != destination else { return }
         if FileManager.default.fileExists(atPath: destination.path) {
@@ -790,6 +954,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         mapping: MappingStepResult,
         filter: FilterStepResult,
         report: ReportStepResult,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
         startedAt: Date,
         completedAt: Date
     ) throws -> URL {
@@ -800,7 +965,158 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             .map { [fileDescriptorDictionary(url: $0, role: "comparison")] } ?? []
         let stagedInputs = inputSnapshot.stagedInputURLs
             .map { fileDescriptorDictionary(url: $0, role: "staged-input") }
+        let haplotypeOutputs = haplotypeAnalysis == nil
+            ? []
+            : [fileDescriptorDictionary(url: request.haplotypeAnalysisURL, role: "analysis")]
+        let resolvedHaplotypeDefinitionSet = try? resolveHaplotypeDefinitionSet(for: request)
+        let haplotypeDefinitionSnapshotURL = self.haplotypeDefinitionSnapshotURL(for: request)
+        let haplotypeDefinitionInputs = haplotypeAnalysis == nil
+            ? []
+            : [fileDescriptorDictionary(url: haplotypeDefinitionSnapshotURL, role: "haplotype-definition")]
+        let haplotypeDefinitionSHA256 = (try? ProvenanceFileHasher.sha256(of: haplotypeDefinitionSnapshotURL)) as Any? ?? NSNull()
+        let haplotypeSteps: [[String: Any]] = haplotypeAnalysis.map { analysis in
+            [[
+                "toolName": "deterministic genotype haplotype assignment",
+                "argv": haplotypeAssignmentArgv(for: request, resolvedAssayID: analysis.assayID),
+                "definitionSetID": analysis.definitionSetID,
+                "definitionSetName": analysis.definitionSetName,
+                "assayID": analysis.assayID,
+                "speciesName": analysis.speciesName,
+                "definitionInput": haplotypeDefinitionSnapshotURL.path,
+                "definitionSHA256": haplotypeDefinitionSHA256,
+                "output": request.haplotypeAnalysisURL.path,
+                "sampleCount": analysis.samples.count,
+                "exitStatus": 0,
+                "wallTimeSeconds": 0,
+            ]]
+        } ?? []
+        let options: [String: Any] = [
+            "inputFASTQ": request.inputFASTQURL.path,
+            "reference": request.referenceSourceURL.path,
+            "barcodes": request.barcodeDefinitionsURL.path,
+            "demuxManifest": demuxManifestURL.path,
+            "outputDirectory": request.outputDirectory.path,
+            "outputName": request.outputName,
+            "analysisName": request.analysisName,
+            "comparisonWorkbook": request.comparisonWorkbookURL?.path as Any? ?? NSNull(),
+            "comparisonName": request.comparisonName as Any? ?? NSNull(),
+            "haplotypeAssayID": resolvedHaplotypeDefinitionSet?.assayID as Any? ?? NSNull(),
+            "haplotypeDefinitionSetID": request.haplotypeDefinitionSetID as Any? ?? NSNull(),
+            "haplotypeDefinitionSHA256": haplotypeDefinitionSHA256,
+            "threads": request.threads,
+            "sortThreads": request.sortThreads,
+            "minSupport": request.minSupport,
+            "mappingPreset": "map-ont",
+            "requireBothEndSoftclips": true,
+            "requireFullReferenceSpan": true,
+            "allowIndels": true,
+            "maxMismatches": 0,
+            "demuxRetainedReadsOnly": true,
+            "extraArguments": request.extraArguments,
+        ]
+        let resolvedDefaults: [String: Any] = [
+            "analysisName": request.outputName,
+            "comparisonName": "Illumina-31262",
+            "haplotypeAssayID": NSNull(),
+            "haplotypeDefinitionSetID": NSNull(),
+            "sortThreads": 4,
+            "minSupport": 1,
+            "mappingPreset": "map-ont",
+            "requireBothEndSoftclips": true,
+            "requireFullReferenceSpan": true,
+            "allowIndels": true,
+            "maxMismatches": 0,
+            "demuxRetainedReadsOnly": true,
+            "extraArguments": [],
+        ]
+        let runtimeIdentity: [String: Any] = [
+            "minimap2": minimap2URL.path,
+            "samtools": samtoolsURL.path,
+            "python": pythonURL.path,
+            "reportPython": reportPythonURL.path,
+            "openpyxl": report.summary.openpyxlVersion,
+            "condaRoot": condaManager.rootPrefix.path,
+        ]
+        let provenanceInputs: [[String: Any]] = inputs + [
+            fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
+            fileDescriptorDictionary(url: request.barcodeDefinitionsURL, role: "input"),
+            fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
+            fileDescriptorDictionary(url: scriptURL, role: "input"),
+            fileDescriptorDictionary(url: reportScriptURL, role: "input"),
+        ] + comparisonInputs + stagedInputs + haplotypeDefinitionInputs
+        let provenanceOutputs: [[String: Any]] = [
+            fileDescriptorDictionary(url: request.mappingBAMURL, role: "output"),
+            fileDescriptorDictionary(url: request.mappingBAIURL, role: "index"),
+            fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
+            fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
+            fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
+            fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
+            fileDescriptorDictionary(url: request.statsJSONURL, role: "output"),
+        ] + haplotypeOutputs + [
+            fileDescriptorDictionary(url: request.workbookURL, role: "report"),
+            fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
+        ]
+        let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
+        let provenanceFiles = provenanceInputs + provenanceOutputs
+        let statistics: [String: Any] = [
+            "totalInputReads": filter.stats.totalInputReads,
+            "totalAlignments": filter.stats.totalAlignments,
+            "passedAlignments": filter.stats.passedAlignments,
+            "retainedUniqueReads": filter.stats.retainedUniqueReads,
+            "retainedUniquePercentOfTotalReads": filter.stats.retainedUniquePercentOfTotalReads,
+            "assignedUniqueRetainedReads": filter.stats.assignedUniqueRetainedReads,
+            "unassignedUniqueRetainedReads": filter.stats.unassignedUniqueRetainedReads,
+        ]
+        let steps: [[String: Any]] = [
+            [
+                "toolName": "minimap2",
+                "argv": [minimap2URL.path] + mapping.minimap2Arguments,
+                "exitStatus": 0,
+                "wallClockSeconds": mapping.wallClockSeconds,
+                "wallTimeSeconds": mapping.wallClockSeconds,
+                "stderr": mapping.minimap2Stderr,
+            ],
+            [
+                "toolName": "samtools sort",
+                "argv": [samtoolsURL.path] + mapping.samtoolsSortArguments,
+                "exitStatus": 0,
+                "wallClockSeconds": mapping.wallClockSeconds,
+                "wallTimeSeconds": mapping.wallClockSeconds,
+                "stderr": mapping.samtoolsSortStderr,
+            ],
+            [
+                "toolName": "samtools index",
+                "argv": [samtoolsURL.path] + mapping.samtoolsIndexArguments,
+                "exitStatus": 0,
+                "wallTimeSeconds": mapping.wallClockSeconds,
+                "stderr": mapping.samtoolsIndexStderr,
+            ],
+            [
+                "toolName": "pysam retained-read demux filter",
+                "argv": [pythonURL.path] + filter.arguments,
+                "exitStatus": 0,
+                "wallClockSeconds": filter.wallClockSeconds,
+                "wallTimeSeconds": filter.wallClockSeconds,
+                "stderr": filter.stderr,
+            ],
+        ] + haplotypeSteps + [
+            [
+                "toolName": "openpyxl ONT genotype workbook report",
+                "argv": [reportPythonURL.path] + report.arguments,
+                "exitStatus": 0,
+                "wallClockSeconds": report.wallClockSeconds,
+                "wallTimeSeconds": report.wallClockSeconds,
+                "stderr": report.stderr,
+                "summary": [
+                    "outputXLSX": report.summary.outputXLSX,
+                    "provenanceJSON": report.summary.provenanceJSON,
+                    "sheetNames": report.summary.sheetNames,
+                    "auditRows": report.summary.auditRows,
+                ],
+            ],
+        ]
         let payload: [String: Any] = [
+            "createdAt": ISO8601DateFormatter().string(from: completedAt),
             "toolName": "lungfish fastq ont-barcode-genotype",
             "toolVersion": WorkflowRun.currentAppVersion,
             "workflowName": "ONT Barcode Demux Genotyping",
@@ -808,139 +1124,234 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "argv": request.argv,
             "durableReplayArgv": request.argv,
             "reproducibleCommand": request.argv.map(shellEscape).joined(separator: " "),
-            "options": [
-                "inputFASTQ": request.inputFASTQURL.path,
-                "reference": request.referenceSourceURL.path,
-                "barcodes": request.barcodeDefinitionsURL.path,
-                "demuxManifest": demuxManifestURL.path,
-                "outputDirectory": request.outputDirectory.path,
-                "outputName": request.outputName,
-                "analysisName": request.analysisName,
-                "comparisonWorkbook": request.comparisonWorkbookURL?.path as Any? ?? NSNull(),
-                "comparisonName": request.comparisonName as Any? ?? NSNull(),
-                "threads": request.threads,
-                "sortThreads": request.sortThreads,
-                "minSupport": request.minSupport,
-                "mappingPreset": "map-ont",
-                "requireBothEndSoftclips": true,
-                "requireFullReferenceSpan": true,
-                "allowIndels": true,
-                "maxMismatches": 0,
-                "demuxRetainedReadsOnly": true,
-                "extraArguments": request.extraArguments,
-            ],
-            "resolvedDefaults": [
-                "analysisName": request.outputName,
-                "comparisonName": "Illumina-31262",
-                "sortThreads": 4,
-                "minSupport": 1,
-                "mappingPreset": "map-ont",
-                "requireBothEndSoftclips": true,
-                "requireFullReferenceSpan": true,
-                "allowIndels": true,
-                "maxMismatches": 0,
-                "demuxRetainedReadsOnly": true,
-                "extraArguments": [],
-            ],
-            "runtimeIdentity": [
-                "minimap2": minimap2URL.path,
-                "samtools": samtoolsURL.path,
-                "python": pythonURL.path,
-                "reportPython": reportPythonURL.path,
-                "openpyxl": report.summary.openpyxlVersion,
-                "condaRoot": CondaManager.shared.rootPrefix.path,
-            ],
+            "options": options,
+            "resolvedDefaults": resolvedDefaults,
+            "runtimeIdentity": runtimeIdentity,
             "managedTools": managedToolDescriptors(ids: ["minimap2", "samtools", "pysam", "openpyxl"]),
-            "inputs": inputs + [
-                fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
-                fileDescriptorDictionary(url: request.barcodeDefinitionsURL, role: "input"),
-                fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
-                fileDescriptorDictionary(url: scriptURL, role: "input"),
-                fileDescriptorDictionary(url: reportScriptURL, role: "input"),
-            ] + comparisonInputs + stagedInputs,
+            "inputs": provenanceInputs,
+            "files": provenanceFiles,
             "stagedInputs": [
                 "barcodeDefinitions": inputSnapshot.barcodeDefinitionsURL.path,
                 "demuxManifest": inputSnapshot.demuxManifestURL.path,
                 "comparisonWorkbook": inputSnapshot.comparisonWorkbookURL?.path as Any? ?? NSNull(),
             ],
-            "outputs": [
-                fileDescriptorDictionary(url: request.mappingBAMURL, role: "output"),
-                fileDescriptorDictionary(url: request.mappingBAIURL, role: "index"),
-                fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
-                fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
-                fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
-                fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
-                fileDescriptorDictionary(url: request.statsJSONURL, role: "output"),
-                fileDescriptorDictionary(url: request.workbookURL, role: "report"),
-                fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
-            ],
+            "output": primaryOutput,
+            "outputs": provenanceOutputs,
             "inputFileCount": inputFASTQURLs.count,
             "sourceReferenceBundle": reference.sourceReferenceBundleURL?.path ?? NSNull(),
-            "statistics": [
-                "totalInputReads": filter.stats.totalInputReads,
-                "totalAlignments": filter.stats.totalAlignments,
-                "passedAlignments": filter.stats.passedAlignments,
-                "retainedUniqueReads": filter.stats.retainedUniqueReads,
-                "retainedUniquePercentOfTotalReads": filter.stats.retainedUniquePercentOfTotalReads,
-                "assignedUniqueRetainedReads": filter.stats.assignedUniqueRetainedReads,
-                "unassignedUniqueRetainedReads": filter.stats.unassignedUniqueRetainedReads,
-            ],
-            "steps": [
-                [
-                    "toolName": "minimap2",
-                    "argv": [minimap2URL.path] + mapping.minimap2Arguments,
-                    "exitStatus": 0,
-                    "wallClockSeconds": mapping.wallClockSeconds,
-                    "stderr": mapping.minimap2Stderr,
-                ],
-                [
-                    "toolName": "samtools sort",
-                    "argv": [samtoolsURL.path] + mapping.samtoolsSortArguments,
-                    "exitStatus": 0,
-                    "wallClockSeconds": mapping.wallClockSeconds,
-                    "stderr": mapping.samtoolsSortStderr,
-                ],
-                [
-                    "toolName": "samtools index",
-                    "argv": [samtoolsURL.path] + mapping.samtoolsIndexArguments,
-                    "exitStatus": 0,
-                    "stderr": mapping.samtoolsIndexStderr,
-                ],
-                [
-                    "toolName": "pysam retained-read demux filter",
-                    "argv": [pythonURL.path] + filter.arguments,
-                    "exitStatus": 0,
-                    "wallClockSeconds": filter.wallClockSeconds,
-                    "stderr": filter.stderr,
-                ],
-                [
-                    "toolName": "openpyxl ONT genotype workbook report",
-                    "argv": [reportPythonURL.path] + report.arguments,
-                    "exitStatus": 0,
-                    "wallClockSeconds": report.wallClockSeconds,
-                    "stderr": report.stderr,
-                    "summary": [
-                        "outputXLSX": report.summary.outputXLSX,
-                        "provenanceJSON": report.summary.provenanceJSON,
-                        "sheetNames": report.summary.sheetNames,
-                        "auditRows": report.summary.auditRows,
-                    ],
-                ],
-            ],
+            "statistics": statistics,
+            "steps": steps,
             "exitStatus": 0,
             "wallClockSeconds": completedAt.timeIntervalSince(startedAt),
+            "wallTimeSeconds": completedAt.timeIntervalSince(startedAt),
             "startedAt": ISO8601DateFormatter().string(from: startedAt),
             "completedAt": ISO8601DateFormatter().string(from: completedAt),
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: provenanceURL, options: .atomic)
 
-        let canonicalURL = request.outputDirectory.appendingPathComponent(ProvenanceWriter.provenanceFilename)
-        if FileManager.default.fileExists(atPath: canonicalURL.path) {
-            try FileManager.default.removeItem(at: canonicalURL)
+        let canonicalEnvelope = try canonicalProvenanceEnvelope(
+            request: request,
+            reference: reference,
+            inputFASTQURLs: inputFASTQURLs,
+            demuxManifestURL: demuxManifestURL,
+            inputSnapshot: inputSnapshot,
+            scriptURL: scriptURL,
+            reportScriptURL: reportScriptURL,
+            minimap2URL: minimap2URL,
+            samtoolsURL: samtoolsURL,
+            pythonURL: pythonURL,
+            reportPythonURL: reportPythonURL,
+            mapping: mapping,
+            filter: filter,
+            report: report,
+            haplotypeAnalysis: haplotypeAnalysis,
+            legacyProvenanceURL: provenanceURL,
+            options: options,
+            resolvedDefaults: resolvedDefaults,
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        return try ProvenanceWriter().write(canonicalEnvelope, to: request.outputDirectory)
+    }
+
+    private func canonicalProvenanceEnvelope(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        reference: ReferenceResolution,
+        inputFASTQURLs: [URL],
+        demuxManifestURL: URL,
+        inputSnapshot: SmallInputSnapshot,
+        scriptURL: URL,
+        reportScriptURL: URL,
+        minimap2URL: URL,
+        samtoolsURL: URL,
+        pythonURL: URL,
+        reportPythonURL: URL,
+        mapping: MappingStepResult,
+        filter: FilterStepResult,
+        report: ReportStepResult,
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis?,
+        legacyProvenanceURL: URL,
+        options: [String: Any],
+        resolvedDefaults: [String: Any],
+        startedAt: Date,
+        completedAt: Date
+    ) throws -> ProvenanceEnvelope {
+        let fastqInputs = try inputFASTQURLs.map { try canonicalFileDescriptor(url: $0, role: .input) }
+        let referenceInput = try canonicalFileDescriptor(url: reference.referenceFASTAURL, role: .reference)
+        let barcodeInput = try canonicalFileDescriptor(url: request.barcodeDefinitionsURL, role: .input)
+        let demuxInput = try canonicalFileDescriptor(url: demuxManifestURL, role: .input)
+        let filterScriptInput = try canonicalFileDescriptor(url: scriptURL, role: .input)
+        let reportScriptInput = try canonicalFileDescriptor(url: reportScriptURL, role: .input)
+        let comparisonInputs = try request.comparisonWorkbookURL
+            .map { [try canonicalFileDescriptor(url: $0, role: .input)] } ?? []
+        let stagedInputs = try inputSnapshot.stagedInputURLs
+            .map { try canonicalFileDescriptor(url: $0, role: .input) }
+        let haplotypeDefinitionInput = try haplotypeAnalysis.map { _ in
+            try canonicalFileDescriptor(url: haplotypeDefinitionSnapshotURL(for: request), role: .input)
         }
-        try FileManager.default.copyItem(at: provenanceURL, to: canonicalURL)
-        return provenanceURL
+        let canonicalInputs = deduplicated(
+            fastqInputs
+                + [referenceInput, barcodeInput, demuxInput, filterScriptInput, reportScriptInput]
+                + comparisonInputs
+                + stagedInputs
+                + (haplotypeDefinitionInput.map { [$0] } ?? [])
+        )
+
+        let mappingBAM = try canonicalFileDescriptor(url: request.mappingBAMURL, role: .output)
+        let mappingBAI = try canonicalFileDescriptor(url: request.mappingBAIURL, role: .index)
+        let retainedBAM = try canonicalFileDescriptor(url: request.retainedBAMURL, role: .output)
+        let retainedBAI = try canonicalFileDescriptor(url: request.retainedBAIURL, role: .index)
+        let genotypeCSV = try canonicalFileDescriptor(url: request.reportCSVURL, role: .report)
+        let sampleCSV = try canonicalFileDescriptor(url: request.sampleSummaryCSVURL, role: .report)
+        let statsJSON = try canonicalFileDescriptor(url: request.statsJSONURL, role: .output)
+        let haplotypeOutput = try haplotypeAnalysis.map { _ in
+            try canonicalFileDescriptor(url: request.haplotypeAnalysisURL, role: .report)
+        }
+        let workbook = try canonicalFileDescriptor(url: request.workbookURL, role: .report)
+        let reportProvenance = try canonicalFileDescriptor(url: request.reportProvenanceURL, role: .log)
+        let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
+        let canonicalOutputs = deduplicated(
+            [
+                mappingBAM,
+                mappingBAI,
+                retainedBAM,
+                retainedBAI,
+                genotypeCSV,
+                sampleCSV,
+                statsJSON,
+            ]
+                + (haplotypeOutput.map { [$0] } ?? [])
+                + [workbook, reportProvenance, legacyProvenance]
+        )
+        let outputDirectory = ProvenanceFileDescriptor(
+            path: request.outputDirectory.standardizedFileURL.path,
+            role: .output
+        )
+
+        var canonicalSteps = [
+            ProvenanceStep(
+                toolName: "minimap2",
+                toolVersion: "unknown",
+                argv: [minimap2URL.path] + mapping.minimap2Arguments,
+                inputs: fastqInputs + [referenceInput],
+                outputs: [mappingBAM],
+                exitStatus: 0,
+                wallTimeSeconds: mapping.wallClockSeconds,
+                stderr: mapping.minimap2Stderr
+            ),
+            ProvenanceStep(
+                toolName: "samtools sort",
+                toolVersion: "unknown",
+                argv: [samtoolsURL.path] + mapping.samtoolsSortArguments,
+                inputs: fastqInputs + [referenceInput],
+                outputs: [mappingBAM],
+                exitStatus: 0,
+                wallTimeSeconds: mapping.wallClockSeconds,
+                stderr: mapping.samtoolsSortStderr
+            ),
+            ProvenanceStep(
+                toolName: "samtools index",
+                toolVersion: "unknown",
+                argv: [samtoolsURL.path] + mapping.samtoolsIndexArguments,
+                inputs: [mappingBAM],
+                outputs: [mappingBAI],
+                exitStatus: 0,
+                wallTimeSeconds: mapping.wallClockSeconds,
+                stderr: mapping.samtoolsIndexStderr
+            ),
+            ProvenanceStep(
+                toolName: "pysam retained-read demux filter",
+                toolVersion: "unknown",
+                argv: [pythonURL.path] + filter.arguments,
+                inputs: [mappingBAM, barcodeInput, demuxInput, filterScriptInput],
+                outputs: [retainedBAM, retainedBAI, genotypeCSV, sampleCSV, statsJSON, legacyProvenance],
+                exitStatus: 0,
+                wallTimeSeconds: filter.wallClockSeconds,
+                stderr: filter.stderr
+            ),
+        ]
+        if let haplotypeOutput {
+            canonicalSteps.append(
+                ProvenanceStep(
+                    toolName: "deterministic genotype haplotype assignment",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: haplotypeAssignmentArgv(for: request, resolvedAssayID: haplotypeAnalysis?.assayID),
+                    inputs: [genotypeCSV] + (haplotypeDefinitionInput.map { [$0] } ?? []),
+                    outputs: [haplotypeOutput],
+                    exitStatus: 0,
+                    wallTimeSeconds: 0
+                )
+            )
+        }
+        canonicalSteps.append(
+            ProvenanceStep(
+                toolName: "openpyxl ONT genotype workbook report",
+                toolVersion: report.summary.openpyxlVersion,
+                argv: [reportPythonURL.path] + report.arguments,
+                inputs: [genotypeCSV, sampleCSV, statsJSON, reportScriptInput]
+                    + comparisonInputs
+                    + (haplotypeOutput.map { [$0] } ?? []),
+                outputs: [workbook, reportProvenance],
+                exitStatus: 0,
+                wallTimeSeconds: report.wallClockSeconds,
+                stderr: report.stderr
+            )
+        )
+
+        return ProvenanceEnvelope(
+            createdAt: completedAt,
+            workflowName: "ONT Barcode Demux Genotyping",
+            workflowVersion: "1",
+            toolName: "lungfish fastq ont-barcode-genotype",
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(
+                name: "lungfish fastq ont-barcode-genotype",
+                version: WorkflowRun.currentAppVersion,
+                kind: "cli"
+            ),
+            argv: request.argv,
+            durableReplayArgv: request.argv,
+            reproducibleCommand: request.argv.map(shellEscape).joined(separator: " "),
+            options: ProvenanceOptions(
+                explicit: parameterValues(from: options),
+                resolvedDefaults: parameterValues(from: resolvedDefaults)
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(
+                appVersion: WorkflowRun.currentAppVersion,
+                executablePath: CommandLine.arguments.first ?? ProvenanceRuntimeIdentity.currentExecutablePath,
+                operatingSystemVersion: WorkflowRun.currentHostOS,
+                user: NSUserName(),
+                condaEnvironment: "lungfish-managed-tools",
+                condaPrefix: condaManager.rootPrefix.path
+            ),
+            files: deduplicated(canonicalInputs + canonicalOutputs),
+            output: outputDirectory,
+            outputs: [outputDirectory] + canonicalOutputs,
+            steps: canonicalSteps,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0
+        )
     }
 
     private func writeBundleManifest(
@@ -948,6 +1359,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         provenanceURL: URL,
         completedAt: Date
     ) throws {
+        let resolvedHaplotypeDefinitionSet = try resolveHaplotypeDefinitionSet(for: request)
         let manifest = ONTGenotypeResultBundleManifest(
             outputName: request.outputName,
             analysisName: request.analysisName,
@@ -956,6 +1368,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             sampleSummaryCSVPath: relativePath(from: request.outputDirectory, to: request.sampleSummaryCSVURL),
             statsJSONPath: relativePath(from: request.outputDirectory, to: request.statsJSONURL),
             provenancePath: relativePath(from: request.outputDirectory, to: provenanceURL),
+            haplotypeAnalysisPath: request.haplotypeDefinitionSetID == nil
+                ? nil
+                : relativePath(from: request.outputDirectory, to: request.haplotypeAnalysisURL),
+            haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
+            haplotypeAssayID: resolvedHaplotypeDefinitionSet?.assayID,
             createdAt: ISO8601DateFormatter().string(from: completedAt)
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: request.outputDirectory)
@@ -977,6 +1394,71 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             return String(filePath.dropFirst(prefix.count))
         }
         return filePath
+    }
+
+    private func haplotypeAssignmentArgv(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedAssayID: String? = nil
+    ) -> [String] {
+        guard let definitionSetID = request.haplotypeDefinitionSetID else { return [] }
+        var argv: [String] = []
+        if let assayID = request.haplotypeAssayID ?? resolvedAssayID {
+            argv += ["--haplotype-assay", assayID]
+        }
+        argv += ["--haplotype-definition", definitionSetID]
+        return argv
+    }
+
+    private func canonicalFileDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
+        try ProvenanceFileDescriptor.file(url: url.standardizedFileURL, role: role)
+    }
+
+    private func parameterValues(from values: [String: Any]) -> [String: ParameterValue] {
+        values.mapValues(parameterValue(from:))
+    }
+
+    private func parameterValue(from value: Any) -> ParameterValue {
+        if value is NSNull {
+            return .null
+        }
+        if let boolValue = value as? Bool {
+            return .boolean(boolValue)
+        }
+        if let intValue = value as? Int {
+            return .integer(intValue)
+        }
+        if let doubleValue = value as? Double {
+            return .number(doubleValue)
+        }
+        if let numberValue = value as? NSNumber {
+            let doubleValue = numberValue.doubleValue
+            if doubleValue.rounded() == doubleValue {
+                return .integer(numberValue.intValue)
+            }
+            return .number(doubleValue)
+        }
+        if let stringValue = value as? String {
+            return .string(stringValue)
+        }
+        if let arrayValue = value as? [Any] {
+            return .array(arrayValue.map(parameterValue(from:)))
+        }
+        if let dictionaryValue = value as? [String: Any] {
+            return .dictionary(parameterValues(from: dictionaryValue))
+        }
+        return .string(String(describing: value))
+    }
+
+    private func deduplicated(_ descriptors: [ProvenanceFileDescriptor]) -> [ProvenanceFileDescriptor] {
+        var seen = Set<String>()
+        var result: [ProvenanceFileDescriptor] = []
+        for descriptor in descriptors {
+            let key = "\(descriptor.role.rawValue)\u{0}\(descriptor.path)"
+            if seen.insert(key).inserted {
+                result.append(descriptor)
+            }
+        }
+        return result
     }
 
     private func fileDescriptorDictionary(url: URL, role: String) -> [String: Any] {
@@ -1507,6 +1989,7 @@ def parse_args():
     parser.add_argument("--run-name", default="ont-barcode-genotyping")
     parser.add_argument("--comparison-workbook")
     parser.add_argument("--comparison-name", default="Illumina-31262")
+    parser.add_argument("--haplotype-analysis-json")
     parser.add_argument("--provenance-command")
     args = parser.parse_args()
     if not args.analysis_name:
@@ -1982,6 +2465,133 @@ def write_stats_sheet(wb, stats):
     return ws
 
 
+def load_haplotype_analysis(path):
+    if not path:
+        return None
+    with open(path) as handle:
+        return json.load(handle)
+
+
+def haplotype_calls_by_sample_locus(haplotype_analysis):
+    by_sample = {}
+    if not haplotype_analysis:
+        return by_sample
+    for sample in haplotype_analysis.get("samples", []):
+        sample_id = str(sample.get("sample", "")).strip()
+        if not sample_id:
+            continue
+        locus_map = {}
+        for call in sample.get("calls", []):
+            locus = str(call.get("locus", "")).strip()
+            if locus:
+                locus_map[locus] = call
+        by_sample[sample_id] = locus_map
+    return by_sample
+
+
+def haplotype_row_targets(ws):
+    targets = []
+    for row in range(1, min(ws.max_row, 40) + 1):
+        value = ws.cell(row, 1).value
+        if not isinstance(value, str):
+            continue
+        match = re.match(r"^(MHC-[A-Za-z0-9]+) Haplotype ([12])$", value.strip())
+        if match:
+            targets.append((row, match.group(1), int(match.group(2))))
+    return targets
+
+
+def noncalled_haplotype_summary(locus_calls):
+    messages = []
+    for locus in sorted(locus_calls):
+        call = locus_calls[locus]
+        status = call.get("status")
+        if status in (None, "called"):
+            continue
+        left = call.get("haplotype1") or ""
+        right = call.get("haplotype2") or ""
+        label = left if left == right or not right else f"{left}/{right}"
+        messages.append(f"{locus}: {label}")
+    return "; ".join(messages)
+
+
+def fill_haplotype_rows(ws, sample_cols, haplotype_analysis):
+    by_sample = haplotype_calls_by_sample_locus(haplotype_analysis)
+    if not by_sample:
+        return
+    for row, locus, index in haplotype_row_targets(ws):
+        key = f"haplotype{index}"
+        for col, sample in sample_cols:
+            call = by_sample.get(sample, {}).get(locus)
+            ws.cell(row, col).value = call.get(key) if call else None
+    comments_row = None
+    for row in range(1, min(ws.max_row, 40) + 1):
+        if ws.cell(row, 1).value == "Comments":
+            comments_row = row
+            break
+    if comments_row:
+        for col, sample in sample_cols:
+            summary = noncalled_haplotype_summary(by_sample.get(sample, {}))
+            ws.cell(comments_row, col).value = summary or None
+
+
+def haplotype_loci_for_report(haplotype_analysis):
+    fallback = [
+        "MHC-A",
+        "MHC-B",
+        "MHC-DRB",
+        "MHC-DQA",
+        "MHC-DQB",
+        "MHC-DPA",
+        "MHC-DPB",
+    ]
+    if not haplotype_analysis:
+        return fallback
+    loci = []
+    seen = set()
+    for sample in haplotype_analysis.get("samples", []):
+        for call in sample.get("calls", []):
+            locus = str(call.get("locus", "")).strip()
+            if locus and locus not in seen:
+                loci.append(locus)
+                seen.add(locus)
+    return loci if loci else fallback
+
+
+def write_haplotype_sheet(wb, haplotype_analysis):
+    if not haplotype_analysis:
+        return None
+    ws = wb.create_sheet(title=safe_sheet_title(wb, "Haplotype Calls", "Haplotype Calls"))
+    headers = [
+        "sample",
+        "locus",
+        "haplotype_1",
+        "haplotype_2",
+        "status",
+        "observed_genotype_count",
+        "matched_haplotypes",
+        "observed_genotypes",
+        "notes",
+    ]
+    ws.append(headers)
+    for sample in haplotype_analysis.get("samples", []):
+        sample_id = sample.get("sample")
+        for call in sample.get("calls", []):
+            ws.append([
+                sample_id,
+                call.get("locus"),
+                call.get("haplotype1"),
+                call.get("haplotype2"),
+                call.get("status"),
+                call.get("observedGenotypeCount"),
+                ";".join(item.get("name", "") for item in call.get("matchedHaplotypes", [])),
+                ";".join(call.get("observedGenotypes", [])),
+                call.get("notes"),
+            ])
+    style_tabular_sheet(ws)
+    return ws
+
+
 def write_audit_sheet(wb, title, comparison_ws, sample_cols, allele_rows, matched_by_row_sample, comparison_name, analysis_name):
     ws = wb.create_sheet(title=safe_sheet_title(wb, title, "Audit"))
     headers = [
@@ -2023,7 +2633,7 @@ def write_audit_sheet(wb, title, comparison_ws, sample_cols, allele_rows, matche
     return ws, audit_rows
 
 
-def build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats):
+def build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis):
     wb, analysis_ws, comparison_ws = copied_template_workbook(
         args.comparison_workbook,
         args.analysis_name,
@@ -2036,8 +2646,10 @@ def build_template_workbook(args, genotype_headers, genotype_rows, sample_header
     genotype_counts = load_genotype_counts(genotype_rows)
     sample_stats = load_sample_stats(sample_rows)
     sample_cols, allele_rows, matched = fill_analysis_sheet(analysis_ws, genotype_counts, sample_stats, samples)
+    fill_haplotype_rows(analysis_ws, sample_cols, haplotype_analysis)
     write_csv_sheet(wb, f"{args.analysis_name} Long Summary", genotype_headers, genotype_rows)
     write_csv_sheet(wb, f"{args.analysis_name} Sample Summary", sample_headers, sample_rows)
+    write_haplotype_sheet(wb, haplotype_analysis)
     _, audit_rows = write_audit_sheet(
         wb,
         f"{args.comparison_name} Audit",
@@ -2053,7 +2665,7 @@ def build_template_workbook(args, genotype_headers, genotype_rows, sample_header
     return wb, audit_rows
 
 
-def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats):
+def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis):
     wb = Workbook()
     ws = wb.active
     ws.title = safe_sheet_title(wb, args.analysis_name, "ONT08")
@@ -2080,18 +2692,13 @@ def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers
     ws.append(["Filtered exact-match read count", None, None] + [display_value(sample_stats.get(sample, {}).get("passed_alignments")) for sample in samples])
     ws.append([])
     ws.append([])
-    for label in [
-        "MHC-A Haplotype 1", "MHC-A Haplotype 2",
-        "MHC-B Haplotype 1", "MHC-B Haplotype 2",
-        "MHC-DRB Haplotype 1", "MHC-DRB Haplotype 2",
-        "MHC-DQA Haplotype 1", "MHC-DQA Haplotype 2",
-        "MHC-DQB Haplotype 1", "MHC-DQB Haplotype 2",
-        "MHC-DPA Haplotype 1", "MHC-DPA Haplotype 2",
-        "MHC-DPB Haplotype 1", "MHC-DPB Haplotype 2",
-    ]:
-        ws.append([label, None, None] + [None for _sample in samples])
+    for locus in haplotype_loci_for_report(haplotype_analysis):
+        ws.append([f"{locus} Haplotype 1", None, None] + [None for _sample in samples])
+        ws.append([f"{locus} Haplotype 2", None, None] + [None for _sample in samples])
     ws.append(["Comments", "Subtotal", "# Obs."] + [None for _sample in samples])
     ws.append(["Genotype", "Total", "# Obs."] + samples)
+    sample_cols = [(index + 4, sample) for index, sample in enumerate(samples)]
+    fill_haplotype_rows(ws, sample_cols, haplotype_analysis)
     for genotype in ordered_genotypes:
         if not any(genotype_counts.get(sample, {}).get(genotype, 0) > 0 for sample in samples):
             continue
@@ -2101,11 +2708,12 @@ def build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers
             count = genotype_counts.get(sample, {}).get(genotype, 0)
             values.append(count if count > 0 else None)
         ws.append(values)
-        fill_subtotal_observed_values(ws, [row_index], [(index + 4, sample) for index, sample in enumerate(samples)])
-    fill_read_count_summary_values(ws, 3, [(index + 4, sample) for index, sample in enumerate(samples)])
+        fill_subtotal_observed_values(ws, [row_index], sample_cols)
+    fill_read_count_summary_values(ws, 3, sample_cols)
     style_tabular_sheet(ws)
     write_csv_sheet(wb, f"{args.analysis_name} Long Summary", genotype_headers, genotype_rows)
     write_csv_sheet(wb, f"{args.analysis_name} Sample Summary", sample_headers, sample_rows)
+    write_haplotype_sheet(wb, haplotype_analysis)
     write_stats_sheet(wb, stats)
     wb.active = 0
     return wb, 0
@@ -2121,6 +2729,8 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
     ]
     if args.comparison_workbook:
         inputs.append(file_record(args.comparison_workbook, "comparison"))
+    if args.haplotype_analysis_json:
+        inputs.append(file_record(args.haplotype_analysis_json, "analysis"))
     payload = {
         "toolName": "lungfish fastq ont-barcode-genotype workbook report",
         "toolVersion": "1",
@@ -2130,6 +2740,7 @@ def write_provenance(args, start_time, started_at, completed_at, audit_rows):
         "resolvedDefaults": {
             "analysisName": args.run_name,
             "comparisonName": "Illumina-31262",
+            "haplotypeAnalysisJSON": None,
         },
         "runtimeIdentity": {
             "python": sys.version,
@@ -2172,11 +2783,12 @@ def main():
     sample_rows = assigned_sample_rows(sample_rows)
     with open(args.stats_json) as handle:
         stats = json.load(handle)
+    haplotype_analysis = load_haplotype_analysis(args.haplotype_analysis_json)
 
     if args.comparison_workbook:
-        wb, audit_rows = build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats)
+        wb, audit_rows = build_template_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)
     else:
-        wb, audit_rows = build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats)
+        wb, audit_rows = build_generic_workbook(args, genotype_headers, genotype_rows, sample_headers, sample_rows, stats, haplotype_analysis)
 
     wb.save(args.output_xlsx)
     completed_at = utc_now()

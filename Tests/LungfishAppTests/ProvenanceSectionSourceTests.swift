@@ -61,11 +61,12 @@ final class ProvenanceSectionSourceTests: XCTestCase {
         XCTAssertTrue(viewModelSource.contains("Size not recorded"))
     }
 
-    func testProvenanceSectionUsesSelectableWrappingTextForLongValues() throws {
+    func testProvenanceSectionUsesSwiftUITextSelectionForSummaryRows() throws {
         let source = try String(contentsOf: sectionSourceURL, encoding: .utf8)
 
+        XCTAssertTrue(source.contains(".textSelection(.enabled)"))
         XCTAssertTrue(source.contains("SelectableWrappingText("))
-        XCTAssertFalse(source.contains(".textSelection(.enabled)"))
+        XCTAssertTrue(source.contains("accessibilityIdentifier: \"provenance-raw-json-text\""))
     }
 
     func testLineagePathRowsUseSummaryRowTypography() throws {

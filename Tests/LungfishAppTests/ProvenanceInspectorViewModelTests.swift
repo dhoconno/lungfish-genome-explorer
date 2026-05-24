@@ -1,5 +1,6 @@
 import XCTest
 @testable import LungfishApp
+import LungfishIO
 import LungfishWorkflow
 
 @MainActor
@@ -585,6 +586,224 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.resolvedEnvelope)
         XCTAssertTrue(viewModel.warnings.contains { $0.title == "Large provenance record" })
         XCTAssertLessThan(viewModel.copyableText.count, 200_000)
+    }
+
+    func testONTFASTQBundleChunkInputsCollapseForInspectorDisplay() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resultBundle = root.appendingPathComponent("barcode08-mcm-mhc.lungfishgenotype", isDirectory: true)
+        let fastqBundle = root.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        let chunkDirectory = fastqBundle.appendingPathComponent("chunks", isDirectory: true)
+        let originalDirectory = root.appendingPathComponent("fastq_pass/barcode08", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: chunkDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: originalDirectory, withIntermediateDirectories: true)
+
+        let bundleChunk0 = chunkDirectory.appendingPathComponent("FBC39814_pass_barcode08_0.fastq.gz")
+        let bundleChunk1 = chunkDirectory.appendingPathComponent("FBC39814_pass_barcode08_1.fastq.gz")
+        let originalChunk2 = originalDirectory.appendingPathComponent("FBC39814_pass_barcode08_2.fastq.gz")
+        let chunkDescriptors = [bundleChunk0, bundleChunk1, originalChunk2].enumerated().map { index, url in
+            [
+                "path": url.path,
+                "role": "input-fastq",
+                "format": "fastq",
+                "sha256": String(repeating: "\(index)", count: 64),
+                "fileSizeBytes": 1_024 * UInt64(index + 1),
+            ] as [String: Any]
+        }
+        let output = resultBundle.appendingPathComponent("barcode08-mcm-mhc.xlsx")
+        try Data("xlsx".utf8).write(to: output)
+
+        try FASTQSourceFileManifest(files: [
+            FASTQSourceFileManifest.SourceFileEntry(
+                filename: "chunks/FBC39814_pass_barcode08_0.fastq.gz",
+                originalPath: root.appendingPathComponent("fastq_pass/barcode08/FBC39814_pass_barcode08_0.fastq.gz").path,
+                sizeBytes: 1_024,
+                isSymlink: false
+            ),
+            FASTQSourceFileManifest.SourceFileEntry(
+                filename: "chunks/FBC39814_pass_barcode08_1.fastq.gz",
+                originalPath: root.appendingPathComponent("fastq_pass/barcode08/FBC39814_pass_barcode08_1.fastq.gz").path,
+                sizeBytes: 2_048,
+                isSymlink: false
+            ),
+            FASTQSourceFileManifest.SourceFileEntry(
+                filename: "chunks/FBC39814_pass_barcode08_2.fastq.gz",
+                originalPath: originalChunk2.path,
+                sizeBytes: 3_072,
+                isSymlink: false
+            ),
+        ]).save(to: fastqBundle)
+
+        let primitiveJSON: [String: Any] = [
+            "workflowName": "ONT Barcode Demux Genotyping",
+            "workflowVersion": "0.5.0-alpha3",
+            "toolName": "lungfish fastq ont-barcode-genotype",
+            "toolVersion": "Lungfish 0.5.0-alpha3 (1)",
+            "createdAt": "2026-05-22T12:00:00Z",
+            "argv": [
+                "lungfish",
+                "fastq",
+                "ont-barcode-genotype",
+                fastqBundle.path,
+                "--output",
+                resultBundle.path,
+            ],
+            "options": [
+                "inputFASTQ": fastqBundle.path,
+                "reportName": "barcode08-mcm-mhc",
+            ],
+            "inputs": chunkDescriptors,
+            "outputs": [[
+                "path": output.path,
+                "role": "report",
+                "format": "xlsx",
+                "sha256": String(repeating: "a", count: 64),
+                "fileSizeBytes": 3,
+            ]],
+            "steps": [[
+                "toolName": "minimap2",
+                "toolVersion": "2.28",
+                "argv": ["minimap2", "-ax", "map-ont", "reference.fa", fastqBundle.path],
+                "outputs": [[
+                    "path": resultBundle.appendingPathComponent("barcode08-mcm-mhc.bam").path,
+                    "role": "output",
+                    "format": "bam",
+                    "sha256": String(repeating: "b", count: 64),
+                    "fileSizeBytes": 10,
+                ]],
+                "exitStatus": 0,
+                "wallTimeSeconds": 5.0,
+            ]],
+            "wallTimeSeconds": 5.0,
+            "exitStatus": 0,
+            "runtimeIdentity": [
+                "appVersion": "Lungfish 0.5.0-alpha3 (1)",
+                "executablePath": "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
+                "processIdentifier": 1,
+                "operatingSystemVersion": "macOS",
+                "architecture": "arm64",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: primitiveJSON, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: resultBundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: resultBundle,
+                sidebarType: .genotypeResultBundle,
+                contentMode: .genotype,
+                displayName: "barcode08-mcm-mhc"
+            )
+        )
+
+        XCTAssertEqual(viewModel.audit.status, .present)
+        XCTAssertEqual(viewModel.summary.inputCount, 3)
+        XCTAssertTrue(viewModel.fileRows.contains { row in
+            row.path == fastqBundle.path
+                && row.displayPath.contains("barcode08.lungfishfastq")
+                && row.fileSizeLabel.contains("3 FASTQ chunks")
+        }, "\(viewModel.fileRows)")
+        XCTAssertFalse(viewModel.fileRows.contains { $0.path.contains("/chunks/FBC39814_pass_barcode08_0.fastq.gz") })
+        XCTAssertFalse(viewModel.fileRows.contains { $0.path == originalChunk2.path })
+        XCTAssertEqual(viewModel.lineageRuns.first?.steps.first?.inputPaths, [
+            "barcode08.lungfishfastq - 3 FASTQ chunks (6 KB)",
+        ])
+        XCTAssertTrue(viewModel.warnings.contains { warning in
+            warning.title == "FASTQ chunks collapsed"
+                && warning.message.contains("3 FASTQ chunk descriptors")
+                && warning.message.contains("complete provenance JSON")
+        })
+        XCTAssertLessThan(viewModel.copyableText.count, 20_000)
+    }
+
+    func testONTFASTQBundleChunkCollapseKeepsLargeInspectorPresentationBounded() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resultBundle = root.appendingPathComponent("barcode08-large.lungfishgenotype", isDirectory: true)
+        let fastqBundle = root.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        let chunkDirectory = fastqBundle.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: resultBundle, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: chunkDirectory, withIntermediateDirectories: true)
+
+        let chunkCount = 260
+        let chunkDescriptors: [[String: Any]] = (0..<chunkCount).map { index in
+            let chunkURL = chunkDirectory.appendingPathComponent("barcode08_\(index).fastq.gz")
+            return [
+                "path": chunkURL.path,
+                "role": "input-fastq",
+                "format": "fastq",
+                "sha256": String(repeating: String(index % 10), count: 64),
+                "fileSizeBytes": 4_096,
+            ]
+        }
+        try FASTQSourceFileManifest(
+            files: (0..<chunkCount).map { index in
+                FASTQSourceFileManifest.SourceFileEntry(
+                    filename: "chunks/barcode08_\(index).fastq.gz",
+                    originalPath: root.appendingPathComponent("fastq_pass/barcode08/barcode08_\(index).fastq.gz").path,
+                    sizeBytes: 4_096,
+                    isSymlink: false
+                )
+            }
+        ).save(to: fastqBundle)
+
+        let output = resultBundle.appendingPathComponent("barcode08-large.xlsx")
+        try Data("xlsx".utf8).write(to: output)
+        let primitiveJSON: [String: Any] = [
+            "workflowName": "ONT Barcode Demux Genotyping",
+            "workflowVersion": "0.5.0-alpha3",
+            "toolName": "lungfish fastq ont-barcode-genotype",
+            "toolVersion": "Lungfish 0.5.0-alpha3 (1)",
+            "createdAt": "2026-05-22T12:00:00Z",
+            "argv": ["lungfish", "fastq", "ont-barcode-genotype", fastqBundle.path],
+            "options": ["inputFASTQ": fastqBundle.path],
+            "inputs": chunkDescriptors,
+            "outputs": [[
+                "path": output.path,
+                "role": "report",
+                "format": "xlsx",
+                "sha256": String(repeating: "c", count: 64),
+                "fileSizeBytes": 4,
+            ]],
+            "steps": [[
+                "toolName": "retained-demux",
+                "toolVersion": "1.0",
+                "argv": ["retained-demux", fastqBundle.path],
+                "exitStatus": 0,
+                "wallTimeSeconds": 5.0,
+            ]],
+            "wallTimeSeconds": 5.0,
+            "exitStatus": 0,
+            "runtimeIdentity": [
+                "appVersion": "Lungfish 0.5.0-alpha3 (1)",
+                "executablePath": "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
+                "processIdentifier": 1,
+                "operatingSystemVersion": "macOS",
+                "architecture": "arm64",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: primitiveJSON, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: resultBundle.appendingPathComponent(ProvenanceRecorder.provenanceFilename), options: .atomic)
+
+        let viewModel = ProvenanceInspectorViewModel()
+        viewModel.load(
+            item: ProvenanceInspectableItem(
+                url: resultBundle,
+                sidebarType: .genotypeResultBundle,
+                contentMode: .genotype,
+                displayName: "barcode08-large"
+            )
+        )
+
+        XCTAssertEqual(viewModel.fileRows.filter { $0.role == "Input" }.count, 1)
+        XCTAssertEqual(viewModel.lineageRuns.first?.steps.first?.inputPaths.count, 1)
+        XCTAssertEqual(viewModel.rawJSON, "")
+        XCTAssertTrue(viewModel.warnings.contains { $0.title == "FASTQ chunks collapsed" })
+        XCTAssertLessThan(viewModel.copyableText.count, 25_000)
     }
 
     private func makeTempDirectory() throws -> URL {

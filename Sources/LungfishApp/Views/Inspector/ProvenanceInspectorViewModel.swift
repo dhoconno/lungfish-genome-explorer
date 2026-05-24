@@ -5,6 +5,7 @@
 import Foundation
 import SwiftUI
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct ProvenanceInspectableItem {
@@ -191,7 +192,7 @@ struct ProvenanceCoverageMonitor {
 
     private func requiresProvenance(contentMode: ViewportContentMode) -> Bool {
         switch contentMode {
-        case .genomics, .mapping, .assembly, .fastq, .metagenomics:
+        case .genomics, .mapping, .assembly, .fastq, .metagenomics, .genotype:
             return true
         case .empty:
             return false
@@ -345,6 +346,8 @@ struct ProvenanceFileRow: Identifiable, Equatable {
     var format: String?
     var originPath: String?
     var sourceProvenancePath: String?
+    var searchText: String = ""
+    var isCollapsedGroup: Bool = false
 }
 
 struct ProvenanceOptionRow: Identifiable, Equatable {
@@ -460,9 +463,17 @@ final class ProvenanceInspectorViewModel {
     }
 
     private func buildPresentState(envelope: ProvenanceEnvelope, sidecarURL: URL) {
-        let completeFileRows = buildFileRows(envelope)
+        let deduplicatedDescriptors = deduplicatedFileDescriptors(allFileDescriptors(in: envelope))
+        let fastqPresentation = ProvenanceFASTQBundlePresentation(
+            envelope: envelope,
+            descriptors: deduplicatedDescriptors
+        )
+        let completeFileRows = buildFileRows(
+            deduplicatedDescriptors,
+            fastqPresentation: fastqPresentation
+        )
         let presentationWarnings = largeRecordWarningRows(
-            fileRowCount: completeFileRows.count,
+            fileRowCount: deduplicatedDescriptors.count,
             envelope: envelope
         )
         summary = ProvenanceRunSummary(
@@ -482,7 +493,10 @@ final class ProvenanceInspectorViewModel {
             outputCount: outputDescriptors(in: envelope).count,
             signatureCount: envelope.signatures.count
         )
-        warnings = warningRows(for: audit) + stepWarningRows(for: envelope) + presentationWarnings
+        warnings = warningRows(for: audit)
+            + stepWarningRows(for: envelope)
+            + fastqPresentation.warningRows()
+            + presentationWarnings
         lineageRuns = [
             ProvenanceLineageRun(
                 id: envelope.id,
@@ -495,7 +509,10 @@ final class ProvenanceInspectorViewModel {
                         toolName: step.toolName,
                         toolVersion: step.toolVersion,
                         command: step.reproducibleCommand,
-                        inputPaths: cappedPathList(step.inputs.map(\.path)),
+                        inputPaths: cappedPresentationPathList(
+                            step.inputs,
+                            fastqPresentation: fastqPresentation
+                        ),
                         outputPaths: cappedPathList(step.outputs.map(\.path)),
                         exitStatus: step.exitStatus,
                         wallTimeSeconds: step.wallTimeSeconds,
@@ -508,7 +525,7 @@ final class ProvenanceInspectorViewModel {
         fileRows = Array(completeFileRows.prefix(Self.maximumDisplayedFileRows))
         optionRows = buildOptionRows(envelope.options)
         runtimeRows = buildRuntimeRows(envelope.runtimeIdentity)
-        rawJSON = shouldInlineRawJSON(fileRowCount: completeFileRows.count, envelope: envelope)
+        rawJSON = shouldInlineRawJSON(fileRowCount: deduplicatedDescriptors.count, envelope: envelope)
             ? encodedJSON(envelope)
             : ""
         copyableText = buildCopyableText()
@@ -582,30 +599,77 @@ final class ProvenanceInspectorViewModel {
         }
     }
 
-    private func buildFileRows(_ envelope: ProvenanceEnvelope) -> [ProvenanceFileRow] {
-        var seen = Set<String>()
-        return allFileDescriptors(in: envelope).compactMap { descriptor in
-            let key = "\(descriptor.role.rawValue)|\(descriptor.path)"
-            guard !seen.contains(key) else { return nil }
-            seen.insert(key)
-            return ProvenanceFileRow(
-                role: descriptor.role.displayName,
-                path: descriptor.path,
-                displayPath: descriptor.path.middleTruncatedPath(),
-                checksumSHA256: descriptor.checksumSHA256,
-                fileSize: descriptor.fileSize,
-                fileSizeLabel: descriptor.fileSize.map(Self.formatBytes) ?? "Size not recorded",
-                format: descriptor.format?.rawValue,
-                originPath: descriptor.originPath,
-                sourceProvenancePath: descriptor.sourceProvenancePath
+    private func buildFileRows(
+        _ descriptors: [ProvenanceFileDescriptor],
+        fastqPresentation: ProvenanceFASTQBundlePresentation
+    ) -> [ProvenanceFileRow] {
+        var rows: [ProvenanceFileRow] = []
+        var emittedFASTQBundles = Set<String>()
+
+        for descriptor in descriptors {
+            if let group = fastqPresentation.group(for: descriptor) {
+                guard emittedFASTQBundles.insert(group.bundlePath).inserted else { continue }
+                rows.append(
+                    ProvenanceFileRow(
+                        role: descriptor.role.displayName,
+                        path: group.bundlePath,
+                        displayPath: group.bundleName,
+                        checksumSHA256: nil,
+                        fileSize: group.totalBytes,
+                        fileSizeLabel: group.fileSizeLabel,
+                        format: "FASTQ bundle",
+                        originPath: nil,
+                        sourceProvenancePath: nil,
+                        searchText: group.searchText,
+                        isCollapsedGroup: true
+                    )
+                )
+                continue
+            }
+
+            rows.append(
+                ProvenanceFileRow(
+                    role: descriptor.role.displayName,
+                    path: descriptor.path,
+                    displayPath: descriptor.path.middleTruncatedPath(),
+                    checksumSHA256: descriptor.checksumSHA256,
+                    fileSize: descriptor.fileSize,
+                    fileSizeLabel: descriptor.fileSize.map(Self.formatBytes) ?? "Size not recorded",
+                    format: descriptor.format?.rawValue,
+                    originPath: descriptor.originPath,
+                    sourceProvenancePath: descriptor.sourceProvenancePath
+                )
             )
         }
-        .sorted { lhs, rhs in
+
+        return rows.sorted { lhs, rhs in
             if lhs.role == rhs.role {
                 return lhs.path.localizedStandardCompare(rhs.path) == .orderedAscending
             }
             return lhs.role < rhs.role
         }
+    }
+
+    private func cappedPresentationPathList(
+        _ descriptors: [ProvenanceFileDescriptor],
+        fastqPresentation: ProvenanceFASTQBundlePresentation
+    ) -> [String] {
+        var paths: [String] = []
+        var emittedFASTQBundles = Set<String>()
+        var emittedPaths = Set<String>()
+
+        for descriptor in descriptors {
+            if let group = fastqPresentation.group(for: descriptor) {
+                guard emittedFASTQBundles.insert(group.bundlePath).inserted else { continue }
+                paths.append(group.pathListLabel)
+                continue
+            }
+
+            guard emittedPaths.insert(descriptor.path).inserted else { continue }
+            paths.append(descriptor.path)
+        }
+
+        return cappedPathList(paths)
     }
 
     private func cappedPathList(_ paths: [String]) -> [String] {
@@ -789,6 +853,195 @@ final class ProvenanceInspectorViewModel {
 
     static func formatBytes(_ bytes: UInt64) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+}
+
+private struct ProvenanceFASTQBundlePresentation {
+    struct Group: Equatable {
+        var bundlePath: String
+        var bundleName: String
+        var chunkDescriptorCount: Int
+        var totalBytes: UInt64?
+        var searchText: String
+
+        var fileSizeLabel: String {
+            let chunkLabel = "\(chunkDescriptorCount) FASTQ \(chunkDescriptorCount == 1 ? "chunk" : "chunks")"
+            guard let totalBytes else { return chunkLabel }
+            return "\(chunkLabel) | \(Self.formatBytes(totalBytes))"
+        }
+
+        var pathListLabel: String {
+            let chunkLabel = "\(chunkDescriptorCount) FASTQ \(chunkDescriptorCount == 1 ? "chunk" : "chunks")"
+            guard let totalBytes else { return "\(bundleName) - \(chunkLabel)" }
+            return "\(bundleName) - \(chunkLabel) (\(Self.formatBytes(totalBytes)))"
+        }
+
+        private static func formatBytes(_ bytes: UInt64) -> String {
+            ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        }
+    }
+
+    private struct Accumulator {
+        var bundlePath: String
+        var paths: [String] = []
+        var totalBytes: UInt64 = 0
+        var hasKnownSize = false
+
+        mutating func add(_ descriptor: ProvenanceFileDescriptor) {
+            paths.append(descriptor.path)
+            if let fileSize = descriptor.fileSize {
+                totalBytes += fileSize
+                hasKnownSize = true
+            }
+        }
+
+        func group() -> Group {
+            Group(
+                bundlePath: bundlePath,
+                bundleName: URL(fileURLWithPath: bundlePath).lastPathComponent,
+                chunkDescriptorCount: paths.count,
+                totalBytes: hasKnownSize ? totalBytes : nil,
+                searchText: ([bundlePath] + paths).joined(separator: "\n")
+            )
+        }
+    }
+
+    private var bundlePathByDescriptorPath: [String: String] = [:]
+    private var groupsByBundlePath: [String: Group] = [:]
+
+    init(envelope: ProvenanceEnvelope, descriptors: [ProvenanceFileDescriptor]) {
+        var bundleCandidates = Self.bundleCandidatePaths(from: envelope)
+        for descriptor in descriptors where Self.isFASTQInput(descriptor) {
+            if let bundlePath = Self.enclosingFASTQBundlePath(for: descriptor.path) {
+                bundleCandidates.insert(bundlePath)
+            }
+        }
+
+        var manifestBundlePathByDescriptorPath: [String: String] = [:]
+        for bundlePath in bundleCandidates {
+            Self.addManifestMapping(
+                bundlePath: bundlePath,
+                to: &manifestBundlePathByDescriptorPath
+            )
+        }
+
+        var accumulators: [String: Accumulator] = [:]
+        var seenDescriptorKeys = Set<String>()
+        for descriptor in descriptors where Self.isFASTQInput(descriptor) {
+            guard let bundlePath = manifestBundlePathByDescriptorPath[Self.standardizedPath(descriptor.path)]
+                    ?? Self.enclosingFASTQBundlePath(for: descriptor.path) else {
+                continue
+            }
+            let descriptorPath = Self.standardizedPath(descriptor.path)
+            let key = "\(bundlePath)\u{0}\(descriptorPath)"
+            guard seenDescriptorKeys.insert(key).inserted else { continue }
+
+            bundlePathByDescriptorPath[descriptorPath] = bundlePath
+            accumulators[bundlePath, default: Accumulator(bundlePath: bundlePath)].add(descriptor)
+        }
+
+        groupsByBundlePath = accumulators.mapValues { $0.group() }
+    }
+
+    func group(for descriptor: ProvenanceFileDescriptor) -> Group? {
+        guard Self.isFASTQInput(descriptor),
+              let bundlePath = bundlePathByDescriptorPath[Self.standardizedPath(descriptor.path)] else {
+            return nil
+        }
+        return groupsByBundlePath[bundlePath]
+    }
+
+    func warningRows() -> [ProvenanceWarningRow] {
+        let groups = groupsByBundlePath.values
+            .filter { $0.chunkDescriptorCount > 1 }
+            .sorted { $0.bundlePath.localizedStandardCompare($1.bundlePath) == .orderedAscending }
+        guard !groups.isEmpty else { return [] }
+
+        let chunkCount = groups.reduce(0) { $0 + $1.chunkDescriptorCount }
+        let bundleList = groups
+            .map { "\($0.bundleName) (\($0.chunkDescriptorCount) \(($0.chunkDescriptorCount == 1 ? "chunk" : "chunks")))" }
+            .joined(separator: ", ")
+        return [
+            ProvenanceWarningRow(
+                title: "FASTQ chunks collapsed",
+                message: "Inspector grouped \(chunkCount) FASTQ chunk descriptors into \(bundleList). The complete provenance JSON still contains every per-chunk path, size, and checksum for export and replay."
+            ),
+        ]
+    }
+
+    private static func bundleCandidatePaths(from envelope: ProvenanceEnvelope) -> Set<String> {
+        var candidates = Set<String>()
+        let optionValues = Array(envelope.options.explicit.values)
+            + Array(envelope.options.defaults.values)
+            + Array(envelope.options.resolvedDefaults.values)
+        for value in optionValues {
+            for path in pathStrings(from: value) {
+                if let bundlePath = enclosingFASTQBundlePath(for: path) {
+                    candidates.insert(bundlePath)
+                }
+            }
+        }
+        for argument in envelope.argv {
+            if let bundlePath = enclosingFASTQBundlePath(for: argument) {
+                candidates.insert(bundlePath)
+            }
+        }
+        return candidates
+    }
+
+    private static func pathStrings(from value: ParameterValue) -> [String] {
+        switch value {
+        case .string(let string):
+            return [string]
+        case .file(let url):
+            return [url.path]
+        case .array(let values):
+            return values.flatMap(pathStrings)
+        case .dictionary(let values):
+            return values.values.flatMap(pathStrings)
+        case .integer, .number, .boolean, .null:
+            return []
+        }
+    }
+
+    private static func addManifestMapping(
+        bundlePath: String,
+        to mapping: inout [String: String]
+    ) {
+        let bundleURL = URL(fileURLWithPath: bundlePath)
+        mapping[standardizedPath(bundlePath)] = bundlePath
+        guard let manifest = try? FASTQSourceFileManifest.load(from: bundleURL) else { return }
+        for entry in manifest.files {
+            let bundledPath = bundleURL.appendingPathComponent(entry.filename).path
+            mapping[standardizedPath(bundledPath)] = bundlePath
+            if !entry.originalPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                mapping[standardizedPath(entry.originalPath)] = bundlePath
+            }
+        }
+    }
+
+    private static func isFASTQInput(_ descriptor: ProvenanceFileDescriptor) -> Bool {
+        guard descriptor.role == .input else { return false }
+        if descriptor.format == .fastq { return true }
+        let filename = URL(fileURLWithPath: descriptor.path).lastPathComponent.lowercased()
+        return filename.hasSuffix(".fastq")
+            || filename.hasSuffix(".fq")
+            || filename.hasSuffix(".fastq.gz")
+            || filename.hasSuffix(".fq.gz")
+    }
+
+    private static func enclosingFASTQBundlePath(for path: String) -> String? {
+        let components = URL(fileURLWithPath: path).pathComponents
+        guard let index = components.firstIndex(where: { $0.hasSuffix(".lungfishfastq") }) else {
+            return nil
+        }
+        let bundleComponents = Array(components.prefix(index + 1))
+        let bundlePath = NSString.path(withComponents: bundleComponents)
+        return standardizedPath(bundlePath)
+    }
+
+    private static func standardizedPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).standardizedFileURL.path
     }
 }
 

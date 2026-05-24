@@ -31,6 +31,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
             threads: 14,
             sortThreads: 4,
             minSupport: 2,
+            haplotypeAssayID: "MHC-exon2-miSeq",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.rhesus-macaques",
             extraArguments: ["-N", "50"]
         )
 
@@ -45,6 +47,11 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(request.argv.contains("/data/pbaa.xlsx"))
         XCTAssertTrue(request.argv.contains("--comparison-name"))
         XCTAssertTrue(request.argv.contains("Illumina-31262"))
+        XCTAssertEqual(try testValue(after: "--haplotype-assay", in: request.argv), "MHC-exon2-miSeq")
+        XCTAssertEqual(
+            try testValue(after: "--haplotype-definition", in: request.argv),
+            "MHC-exon2-miSeq.rhesus-macaques"
+        )
         XCTAssertFalse(request.argv.contains("--require-both-end-softclips"))
         XCTAssertFalse(request.argv.contains("--require-full-reference-span"))
         XCTAssertFalse(request.argv.contains("--allow-indels"))
@@ -68,6 +75,185 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(request.analysisName, "ONT08")
         XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc-retained_ONT08.xlsx")
         XCTAssertFalse(request.argv.contains("--comparison-workbook"))
+    }
+
+    func testRunWritesCompleteCanonicalProvenanceEnvelope() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+
+        let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("barcode08.lungfishgenotype", isDirectory: true)
+        try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try #"{"sampleTotals":{"DW472":1},"totalInputReads":1}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputFASTQ,
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode08-mhc",
+            demuxManifestURL: demuxManifest,
+            analysisName: nil,
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            haplotypeAssayID: "MHC-exon2-miSeq",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            extraArguments: ["-N", "5"]
+        )
+
+        let result = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        XCTAssertEqual(provenance["toolName"] as? String, "lungfish fastq ont-barcode-genotype")
+        XCTAssertEqual(provenance["workflowName"] as? String, "ONT Barcode Demux Genotyping")
+        XCTAssertNotNil(provenance["toolVersion"] as? String)
+        XCTAssertNotNil(provenance["workflowVersion"] as? String)
+        XCTAssertEqual(provenance["argv"] as? [String], request.argv)
+        XCTAssertEqual(provenance["durableReplayArgv"] as? [String], request.argv)
+
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["inputFASTQ"] as? String, inputFASTQ.standardizedFileURL.path)
+        XCTAssertEqual(options["outputDirectory"] as? String, outputDirectory.standardizedFileURL.path)
+        XCTAssertEqual(options["threads"] as? Int, 2)
+        XCTAssertEqual(options["sortThreads"] as? Int, 1)
+        XCTAssertEqual(options["minSupport"] as? Int, 1)
+        XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
+        XCTAssertEqual(options["haplotypeAssayID"] as? String, "MHC-exon2-miSeq")
+        XCTAssertEqual(options["haplotypeDefinitionSetID"] as? String, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        XCTAssertNotNil(options["haplotypeDefinitionSHA256"] as? String)
+        XCTAssertEqual(options["extraArguments"] as? [String], ["-N", "5"])
+        let defaults = try XCTUnwrap(provenance["resolvedDefaults"] as? [String: Any])
+        XCTAssertEqual(defaults["sortThreads"] as? Int, 4)
+        XCTAssertEqual(defaults["minSupport"] as? Int, 1)
+        let runtime = try XCTUnwrap(provenance["runtimeIdentity"] as? [String: Any])
+        XCTAssertEqual(runtime["condaRoot"] as? String, condaRoot.standardizedFileURL.path)
+
+        let inputs = try XCTUnwrap(provenance["inputs"] as? [[String: Any]])
+        XCTAssertTrue(inputs.contains { record in
+            record["path"] as? String == inputFASTQ.standardizedFileURL.path
+                && record["sha256"] as? String != nil
+                && record["sizeBytes"] as? Int != nil
+        }, "\(inputs)")
+        XCTAssertTrue(inputs.contains { record in
+            record["path"] as? String == barcodeDefinitions.standardizedFileURL.path
+                && record["sha256"] as? String != nil
+                && record["sizeBytes"] as? Int != nil
+        }, "\(inputs)")
+
+        let output = try XCTUnwrap(provenance["output"] as? [String: Any])
+        XCTAssertEqual(output["path"] as? String, outputDirectory.standardizedFileURL.path)
+        XCTAssertEqual(output["role"] as? String, "output")
+        let outputs = try XCTUnwrap(provenance["outputs"] as? [[String: Any]])
+        XCTAssertTrue(outputs.contains { record in
+            record["path"] as? String == result.workbookURL.path
+                && record["sha256"] as? String != nil
+                && record["sizeBytes"] as? Int != nil
+        }, "\(outputs)")
+        XCTAssertTrue(inputs.contains { record in
+            record["role"] as? String == "haplotype-definition"
+                && record["sha256"] as? String != nil
+                && record["sizeBytes"] as? Int != nil
+        }, "\(inputs)")
+        let files = try XCTUnwrap(provenance["files"] as? [[String: Any]])
+        XCTAssertTrue(files.contains { $0["path"] as? String == inputFASTQ.standardizedFileURL.path })
+        XCTAssertTrue(files.contains { $0["path"] as? String == result.workbookURL.path })
+        XCTAssertEqual(provenance["exitStatus"] as? Int, 0)
+        XCTAssertNotNil(provenance["wallTimeSeconds"] as? Double)
+
+        let steps = try XCTUnwrap(provenance["steps"] as? [[String: Any]])
+        XCTAssertFalse(steps.isEmpty)
+        XCTAssertTrue(steps.allSatisfy { $0["exitStatus"] as? Int == 0 })
+        XCTAssertTrue(steps.allSatisfy { $0["wallTimeSeconds"] as? Double != nil }, "\(steps)")
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertEqual(canonicalEnvelope.workflowName, "ONT Barcode Demux Genotyping")
+        XCTAssertEqual(canonicalEnvelope.toolName, "lungfish fastq ont-barcode-genotype")
+        XCTAssertEqual(canonicalEnvelope.argv, request.argv)
+        XCTAssertEqual(canonicalEnvelope.durableReplayArgv, request.argv)
+        XCTAssertEqual(canonicalEnvelope.options.explicit["inputFASTQ"], .string(inputFASTQ.standardizedFileURL.path))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["outputDirectory"], .string(outputDirectory.standardizedFileURL.path))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["threads"], .integer(2))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["haplotypeAssayID"], .string("MHC-exon2-miSeq"))
+        XCTAssertEqual(
+            canonicalEnvelope.options.explicit["haplotypeDefinitionSetID"],
+            .string("MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        )
+        XCTAssertNotNil(canonicalEnvelope.options.explicit["haplotypeDefinitionSHA256"])
+        XCTAssertEqual(canonicalEnvelope.options.resolvedDefaults["sortThreads"], .integer(4))
+        XCTAssertEqual(canonicalEnvelope.options.resolvedDefaults["minSupport"], .integer(1))
+        XCTAssertEqual(canonicalEnvelope.output?.path, outputDirectory.standardizedFileURL.path)
+        XCTAssertEqual(canonicalEnvelope.output?.role, .output)
+        XCTAssertTrue(canonicalEnvelope.files.contains { descriptor in
+            descriptor.path == inputFASTQ.standardizedFileURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        }, "\(canonicalEnvelope.files)")
+        XCTAssertTrue(canonicalEnvelope.outputs.contains { descriptor in
+            descriptor.path == result.workbookURL.path
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        }, "\(canonicalEnvelope.outputs)")
+        XCTAssertTrue(canonicalEnvelope.files.contains { descriptor in
+            descriptor.path.hasSuffix("haplotype-definition.json")
+                && descriptor.checksumSHA256 != nil
+                && descriptor.fileSize != nil
+        }, "\(canonicalEnvelope.files)")
+        XCTAssertEqual(canonicalEnvelope.exitStatus, 0)
+        XCTAssertNotNil(canonicalEnvelope.wallTimeSeconds)
+        XCTAssertFalse(canonicalEnvelope.steps.isEmpty)
+        XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.exitStatus == 0 })
+        XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.wallTimeSeconds != nil }, "\(canonicalEnvelope.steps)")
+    }
+
+    func testRunRejectsInvalidHaplotypeDefinitionBeforeCreatingOutputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inputFASTQ = root.appendingPathComponent("barcode08.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let outputDirectory = root.appendingPathComponent("barcode08.lungfishgenotype", isDirectory: true)
+        try "@r0\nACGT\n+\nIIII\n".write(to: inputFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURL: inputFASTQ,
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "barcode08-mhc",
+            haplotypeAssayID: "unsupported-assay",
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        )
+
+        do {
+            _ = try await ONTBarcodeDemuxGenotypingPipeline().run(request)
+            XCTFail("Expected invalid assay-scoped haplotype definition to fail during preflight")
+        } catch ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinitionForAssay(let definitionID, let assayID) {
+            XCTAssertEqual(definitionID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+            XCTAssertEqual(assayID, "unsupported-assay")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: outputDirectory.path))
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
     }
 
     func testResolveInputFASTQURLsUsesOriginalPathWhenBundleChunksAreMissing() throws {
@@ -199,6 +385,96 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(inspection["containsUnassignedInWorkbook"] as? Bool, false)
     }
 
+    func testReportWorkbookPopulatesExplicitHaplotypeAnalysis() throws {
+        try XCTSkipIf(!pythonCanImportOpenpyxl(), "openpyxl is required for workbook report verification")
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let scriptURL = root.appendingPathComponent("write-report.py")
+        let genotypesCSV = root.appendingPathComponent("genotypes.csv")
+        let samplesCSV = root.appendingPathComponent("samples.csv")
+        let statsJSON = root.appendingPathComponent("stats.json")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodesCSV = root.appendingPathComponent("barcodes.csv")
+        let haplotypesJSON = root.appendingPathComponent("haplotypes.json")
+        let outputXLSX = root.appendingPathComponent("barcode08-mhc.xlsx")
+        let provenanceJSON = root.appendingPathComponent("report-provenance.json")
+
+        try ONTBarcodeDemuxGenotypingPipeline.writeReportScript(to: scriptURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_reads,overall_unique_retained_percent
+        DW472,01_Mafa_A1_063g|A1_063_01,42,42,100,42,42.0,100,42,42.0
+        """.write(to: genotypesCSV, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads,sample_total_reads,sample_unique_retained_percent,overall_input_reads,overall_unique_retained_percent
+        DW472,42,42,100,42.0,100,42.0
+        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+        try #"{"passedAlignments":42}"#.write(to: statsJSON, atomically: true, encoding: .utf8)
+        try ">01_Mafa_A1_063g|A1_063_01\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodesCSV, atomically: true, encoding: .utf8)
+        try """
+        {
+          "schemaVersion": 1,
+          "assayID": "MHC-exon2-miSeq",
+          "definitionSetID": "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+          "definitionSetName": "Mauritian cynomolgus macaques",
+          "speciesName": "Mauritian cynomolgus macaques",
+          "samples": [
+            {
+              "sample": "DW472",
+              "calls": [
+                {
+                  "locus": "MHC-A",
+                  "sourceLocus": "Mafa-A",
+                  "haplotype1": "M1A",
+                  "haplotype2": "-",
+                  "status": "called",
+                  "matchedHaplotypes": [{"name": "M1A", "diagnosticAlleles": ["A1_063"], "observedDiagnosticAlleles": ["A1_063"]}],
+                  "observedGenotypeCount": 1,
+                  "observedGenotypes": ["01_Mafa_A1_063g|A1_063_01"],
+                  "notes": ""
+                },
+                {
+                  "locus": "MHC-DQ",
+                  "sourceLocus": "Mafa-DQ",
+                  "haplotype1": "M1DQ",
+                  "haplotype2": "M2DQ",
+                  "status": "called",
+                  "matchedHaplotypes": [{"name": "M1DQ", "diagnosticAlleles": ["DQA1_01", "DQB1_01"], "observedDiagnosticAlleles": ["DQA1_01", "DQB1_01"]}],
+                  "observedGenotypeCount": 2,
+                  "observedGenotypes": ["14_M1_DQA1_01_04", "15_M1_DQB1_01_01"],
+                  "notes": ""
+                }
+              ]
+            }
+          ]
+        }
+        """.write(to: haplotypesJSON, atomically: true, encoding: .utf8)
+
+        _ = try runPython([
+            scriptURL.path,
+            "--genotypes-csv", genotypesCSV.path,
+            "--samples-csv", samplesCSV.path,
+            "--stats-json", statsJSON.path,
+            "--reference-fasta", referenceFASTA.path,
+            "--barcode-definitions", barcodesCSV.path,
+            "--output-xlsx", outputXLSX.path,
+            "--provenance-json", provenanceJSON.path,
+            "--analysis-name", "barcode08-mhc",
+            "--run-name", "barcode08-mhc",
+            "--haplotype-analysis-json", haplotypesJSON.path,
+        ])
+
+        let inspection = try inspectHaplotypeWorkbook(outputXLSX)
+        XCTAssertTrue((inspection["sheetnames"] as? [String])?.contains("Haplotype Calls") ?? false)
+        XCTAssertEqual(inspection["mhcAHaplotype1"] as? String, "M1A")
+        XCTAssertEqual(inspection["mhcAHaplotype2"] as? String, "-")
+        XCTAssertEqual(inspection["mhcDQHaplotype1"] as? String, "M1DQ")
+        XCTAssertEqual(inspection["mhcDQHaplotype2"] as? String, "M2DQ")
+        XCTAssertEqual(inspection["haplotypeSheetRows"] as? Int, 3)
+        XCTAssertEqual(inspection["provenanceIncludesHaplotypes"] as? Bool, true)
+    }
+
     private func pythonCanImportOpenpyxl() -> Bool {
         (try? runPython(["-c", "import openpyxl"])) != nil
     }
@@ -303,6 +579,48 @@ print(json.dumps(payload))
         return try XCTUnwrap(object as? [String: Any])
     }
 
+    private func inspectHaplotypeWorkbook(_ url: URL) throws -> [String: Any] {
+        let code = #"""
+import json
+import os
+import sys
+from openpyxl import load_workbook
+
+path = sys.argv[1]
+provenance = os.path.join(os.path.dirname(path), "report-provenance.json")
+wb = load_workbook(path, data_only=False)
+ws = wb[wb.sheetnames[0]]
+
+def row_for(label):
+    for row in range(1, ws.max_row + 1):
+        if ws.cell(row, 1).value == label:
+            return row
+    return None
+
+with open(provenance) as handle:
+    provenance_payload = json.load(handle)
+
+hap1 = row_for("MHC-A Haplotype 1")
+hap2 = row_for("MHC-A Haplotype 2")
+dq_hap1 = row_for("MHC-DQ Haplotype 1")
+dq_hap2 = row_for("MHC-DQ Haplotype 2")
+payload = {
+    "sheetnames": wb.sheetnames,
+    "mhcAHaplotype1": ws.cell(hap1, 4).value if hap1 else None,
+    "mhcAHaplotype2": ws.cell(hap2, 4).value if hap2 else None,
+    "mhcDQHaplotype1": ws.cell(dq_hap1, 4).value if dq_hap1 else None,
+    "mhcDQHaplotype2": ws.cell(dq_hap2, 4).value if dq_hap2 else None,
+    "haplotypeSheetRows": wb["Haplotype Calls"].max_row if "Haplotype Calls" in wb.sheetnames else 0,
+    "provenanceIncludesHaplotypes": any(item.get("role") == "analysis" for item in provenance_payload.get("inputs", [])),
+}
+print(json.dumps(payload))
+"""#
+        let output = try runPython(["-c", code, url.path])
+        let data = Data(output.utf8)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
     private func runPython(_ arguments: [String]) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -325,10 +643,186 @@ print(json.dumps(payload))
         return out
     }
 
+    private func jsonObject(at url: URL) throws -> [String: Any] {
+        let data = try Data(contentsOf: url)
+        let object = try JSONSerialization.jsonObject(with: data)
+        return try XCTUnwrap(object as? [String: Any])
+    }
+
+    private func testValue(after flag: String, in arguments: [String]) throws -> String {
+        let index = try XCTUnwrap(arguments.firstIndex(of: flag), "Missing flag \(flag)")
+        return try XCTUnwrap(arguments[safe: arguments.index(after: index)])
+    }
+
+    private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let micromambaScript = #"""
+            #!/bin/sh
+            set -eu
+            if [ "${1:-}" = "--version" ] || [ "${1:-}" = "-v" ]; then
+              echo "test-micromamba"
+              exit 0
+            fi
+            if [ "${1:-}" != "run" ]; then
+              echo "unsupported micromamba invocation: $*" >&2
+              exit 2
+            fi
+            shift
+            if [ "${1:-}" != "-n" ]; then
+              echo "missing environment" >&2
+              exit 2
+            fi
+            env_name="$2"
+            shift 2
+            tool="$1"
+            shift
+            exec "$MAMBA_ROOT_PREFIX/envs/$env_name/bin/$tool" "$@"
+            """#
+        let bundledMicromamba = root.deletingLastPathComponent().appendingPathComponent("bundled-micromamba")
+        try writeExecutable(micromambaScript, to: bundledMicromamba)
+        try writeExecutable(micromambaScript, to: bin.appendingPathComponent("micromamba"))
+
+        let minimap2Bin = root.appendingPathComponent("envs/minimap2/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: minimap2Bin, withIntermediateDirectories: true)
+        try writeExecutable(
+            #"""
+            #!/bin/sh
+            printf '@HD\tVN:1.6\n'
+            """#,
+            to: minimap2Bin.appendingPathComponent("minimap2")
+        )
+
+        let samtoolsBin = root.appendingPathComponent("envs/samtools/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: samtoolsBin, withIntermediateDirectories: true)
+        try writeExecutable(
+            #"""
+            #!/bin/sh
+            set -eu
+            command="$1"
+            shift
+            if [ "$command" = "sort" ]; then
+              output=""
+              while [ "$#" -gt 0 ]; do
+                case "$1" in
+                  -o)
+                    output="$2"
+                    shift 2
+                    ;;
+                  *)
+                    shift
+                    ;;
+                esac
+              done
+              cat >/dev/null
+              printf 'BAM' > "$output"
+              exit 0
+            fi
+            if [ "$command" = "index" ]; then
+              printf 'BAI' > "$1.bai"
+              exit 0
+            fi
+            echo "unsupported samtools command: $command" >&2
+            exit 2
+            """#,
+            to: samtoolsBin.appendingPathComponent("samtools")
+        )
+
+        let fakePython = #"""
+        #!/usr/bin/env python3
+        import json
+        import os
+        import sys
+        import time
+
+        def option(name, default=None):
+            if name not in sys.argv:
+                return default
+            index = sys.argv.index(name)
+            return sys.argv[index + 1]
+
+        script = os.path.basename(sys.argv[1]) if len(sys.argv) > 1 else ""
+        started = time.time()
+        if script == "filter-demux-retained-bam.py":
+            output_dir = option("--output-dir")
+            prefix = option("--prefix")
+            os.makedirs(output_dir, exist_ok=True)
+            outputs = {
+                "bam": os.path.join(output_dir, f"{prefix}.retained.demuxed.bam"),
+                "bai": os.path.join(output_dir, f"{prefix}.retained.demuxed.bam.bai"),
+                "genotypes": os.path.join(output_dir, f"{prefix}.retained_demux_genotypes.csv"),
+                "samples": os.path.join(output_dir, f"{prefix}.retained_demux_samples.csv"),
+                "stats": os.path.join(output_dir, f"{prefix}.retained_demux_stats.json"),
+                "provenance": os.path.join(output_dir, "retained-demux-genotyping-provenance.json"),
+            }
+            with open(outputs["bam"], "w") as handle:
+                handle.write("retained bam\n")
+            with open(outputs["bai"], "w") as handle:
+                handle.write("retained bai\n")
+            with open(outputs["genotypes"], "w") as handle:
+                handle.write("sample,genotype,passed_alignments,passed_unique_reads\nDW472,allele1,1,1\n")
+            with open(outputs["samples"], "w") as handle:
+                handle.write("sample,passed_alignments,passed_unique_reads\nDW472,1,1\n")
+            stats = {
+                "totalInputReads": 1,
+                "totalAlignments": 1,
+                "passedAlignments": 1,
+                "retainedQueryNamesBeforeDemux": 1,
+                "retainedUniqueReads": 1,
+                "retainedUniquePercentOfTotalReads": 100.0,
+                "assignedUniqueRetainedReads": 1,
+                "unassignedUniqueRetainedReads": 0,
+            }
+            with open(outputs["stats"], "w") as handle:
+                json.dump(stats, handle)
+            with open(outputs["provenance"], "w") as handle:
+                json.dump({"argv": sys.argv, "exitStatus": 0}, handle)
+            print(json.dumps(stats))
+            sys.exit(0)
+
+        if script == "write-retained-demux-workbook.py":
+            output_xlsx = option("--output-xlsx")
+            provenance_json = option("--provenance-json")
+            os.makedirs(os.path.dirname(output_xlsx), exist_ok=True)
+            with open(output_xlsx, "w") as handle:
+                handle.write("workbook\n")
+            with open(provenance_json, "w") as handle:
+                json.dump({"argv": sys.argv, "exitStatus": 0}, handle)
+            print(json.dumps({
+                "outputXLSX": output_xlsx,
+                "provenanceJSON": provenance_json,
+                "openpyxlVersion": "test-openpyxl",
+                "sheetNames": ["barcode08-mhc"],
+                "auditRows": 0,
+            }))
+            sys.exit(0)
+
+        print(f"unsupported fake python script: {script}", file=sys.stderr)
+        sys.exit(2)
+        """#
+        for environment in ["pysam", "openpyxl"] {
+            let pythonBin = root.appendingPathComponent("envs/\(environment)/bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: pythonBin, withIntermediateDirectories: true)
+            try writeExecutable(fakePython, to: pythonBin.appendingPathComponent("python"))
+        }
+        return bundledMicromamba
+    }
+
+    private func writeExecutable(_ text: String, to url: URL) throws {
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("ONTBarcodeDemuxGenotypingPipelineTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+}
+
+private extension Array {
+    subscript(safe index: Index) -> Element? {
+        indices.contains(index) ? self[index] : nil
     }
 }

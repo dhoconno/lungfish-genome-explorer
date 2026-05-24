@@ -90,6 +90,9 @@ public class ViewerViewController: NSViewController {
     /// Native phylogenetic tree bundle viewport.
     var phylogeneticTreeViewController: PhylogeneticTreeViewController?
 
+    /// Native ONT genotype result bundle viewport.
+    var genotypeResultViewController: GenotypeResultViewController?
+
     /// Whether this viewer should publish app-wide viewport notifications.
     ///
     /// Embedded viewers, such as the mapping detail viewer, use the same

@@ -223,9 +223,9 @@ public class MainSplitViewController: NSSplitViewController {
     private let sidebarMaxWidth: CGFloat = 720
 
     /// Minimum inspector width
-    private let inspectorMinWidth: CGFloat = 200
+    private let inspectorMinWidth: CGFloat = 260
     /// Default inspector width
-    private let inspectorDefaultWidth: CGFloat = 280
+    private let inspectorDefaultWidth: CGFloat = 340
     /// Maximum inspector width
     private let inspectorMaxWidth: CGFloat = 720
 
@@ -2973,14 +2973,54 @@ extension MainSplitViewController: SidebarSelectionDelegate {
         let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
         guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
 
-        guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
-            logger.warning("displayGenotypeResultBundle: Missing primary workbook for '\(url.lastPathComponent, privacy: .public)'")
-            viewerController.showNoSequenceSelected()
-            return
-        }
+        do {
+            let result = try ONTGenotypeResultBundle.loadResult(from: url)
+            inspectorController.clearSelection()
+            inspectorController.updateGenotypeResultDocument(result)
+            let controller = viewerController.displayGenotypeResult(result)
+            controller.onSelectionStateChanged = { [weak self] selection in
+                self?.inspectorController.updateGenotypeResultSelection(selection)
+            }
+            controller.onDisplaySummaryChanged = { [weak self] visibleRows, totalRows, hiddenCells in
+                self?.inspectorController.updateGenotypeResultDisplaySummary(
+                    visibleRows: visibleRows,
+                    totalRows: totalRows,
+                    hiddenCells: hiddenCells
+                )
+            }
+            controller.onDisplayStateChanged = { [weak self] state in
+                self?.inspectorController.updateGenotypeResultDisplayState(state)
+            }
+            controller.onAnnotationSidecarChanged = { [weak self] sidecar in
+                self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
+            }
+            inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
+                controller?.applyDisplayState(state)
+            }
+            inspectorController.onGenotypeSampleMetadataImported = { [weak controller] store in
+                controller?.applySampleMetadataStore(store)
+            }
+            inspectorController.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
+                controller?.applyHighlight(request)
+            }
+            inspectorController.selectionSectionViewModel.onGenotypeHighlightRequested = { [weak controller] request in
+                controller?.applyHighlight(request)
+            }
+            controller.notifySelectionStateIfAvailable()
+        } catch {
+            logger.warning(
+                "displayGenotypeResultBundle: Falling back to workbook preview for '\(url.lastPathComponent, privacy: .public)' after native load failed: \(error.localizedDescription, privacy: .public)"
+            )
+            guard let workbookURL = Self.genotypeResultWorkbookURL(forBundle: url) else {
+                logger.warning("displayGenotypeResultBundle: Missing primary workbook for '\(url.lastPathComponent, privacy: .public)'")
+                inspectorController.clearSelection()
+                viewerController.showNoSequenceSelected()
+                return
+            }
 
-        inspectorController.clearSelection()
-        viewerController.displayQuickLookPreview(url: workbookURL)
+            inspectorController.clearSelection()
+            viewerController.displayQuickLookPreview(url: workbookURL)
+        }
     }
 
     private func displayPhylogeneticTreeBundleFromSidebar(

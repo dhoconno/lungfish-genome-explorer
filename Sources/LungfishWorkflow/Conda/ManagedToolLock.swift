@@ -1,4 +1,5 @@
 @preconcurrency import Foundation
+import LungfishCore
 
 public struct ManagedToolLock: Sendable, Codable, Hashable {
     public struct ToolSpec: Sendable, Codable, Hashable, Identifiable {
@@ -162,21 +163,21 @@ public struct ManagedToolLock: Sendable, Codable, Hashable {
     }
 
     private static func resourceURL() throws -> URL {
-        if let url = Bundle.module.url(
-            forResource: "third-party-tools-lock",
-            withExtension: "json",
-            subdirectory: "ManagedTools"
+        if let url = RuntimeResourceLocator.path(
+            "ManagedTools/third-party-tools-lock.json",
+            in: .workflow
         ) {
             return url
         }
-
-        if let fallback = Bundle.module.resourceURL?
-            .appendingPathComponent("ManagedTools")
-            .appendingPathComponent("third-party-tools-lock.json"),
-           FileManager.default.fileExists(atPath: fallback.path)
-        {
-            return fallback
+        #if DEBUG
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/ManagedTools/third-party-tools-lock.json")
+        if FileManager.default.fileExists(atPath: sourceURL.path) {
+            return sourceURL
         }
+        #endif
 
         throw NSError(
             domain: "ManagedToolLock",

@@ -248,7 +248,7 @@ public class MainWindowController: NSWindowController {
                 switch mode {
                 case .genomics, .fastq, .metagenomics:
                     visible = true
-                case .mapping, .assembly, .empty:
+                case .mapping, .assembly, .genotype, .empty:
                     visible = false
                 }
                 item.isHidden = !visible

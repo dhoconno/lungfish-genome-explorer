@@ -60,6 +60,54 @@ struct PhylogeneticTreeSelectionState: Equatable {
     }
 }
 
+struct GenotypeResultSelectionState: Equatable {
+    let title: String
+    let subtitle: String?
+    let detailRows: [(String, String)]
+    let highlightTarget: GenotypeResultHighlightTarget?
+    let highlightColor: AnnotationColor?
+    let highlightStyle: GenotypeResultHighlightStyle
+    /// Animal/sample id when the selection represents a sample row (vs a
+    /// shared allele label). The "Edit calls…" button dispatches to this
+    /// id so the Sample Detail sheet opens for the right sample. nil
+    /// when the selection is something else (allele, locus, etc.).
+    let animalId: String?
+
+    init(
+        title: String,
+        subtitle: String?,
+        detailRows: [(String, String)],
+        highlightTarget: GenotypeResultHighlightTarget? = nil,
+        highlightColor: AnnotationColor? = nil,
+        highlightStyle: GenotypeResultHighlightStyle = .default,
+        animalId: String? = nil
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.detailRows = detailRows
+        self.highlightTarget = highlightTarget
+        let resolvedStyle = highlightStyle.isDefault && highlightColor != nil
+            ? GenotypeResultHighlightStyle(fillColor: highlightColor)
+            : highlightStyle
+        self.highlightColor = resolvedStyle.fillColor
+        self.highlightStyle = resolvedStyle
+        self.animalId = animalId
+    }
+
+    static func == (
+        lhs: GenotypeResultSelectionState,
+        rhs: GenotypeResultSelectionState
+    ) -> Bool {
+        lhs.title == rhs.title &&
+            lhs.subtitle == rhs.subtitle &&
+            lhs.detailRows.elementsEqual(rhs.detailRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.highlightTarget == rhs.highlightTarget &&
+            lhs.highlightColor == rhs.highlightColor &&
+            lhs.highlightStyle == rhs.highlightStyle &&
+            lhs.animalId == rhs.animalId
+    }
+}
+
 /// View model for the selection section.
 ///
 /// Manages the state of the currently selected annotation for editing.
@@ -77,6 +125,21 @@ public final class SelectionSectionViewModel {
 
     /// The currently selected phylogenetic tree node, if any.
     var phylogeneticTreeSelection: PhylogeneticTreeSelectionState?
+
+    /// The currently selected genotype result sample or call, if any.
+    var genotypeResultSelection: GenotypeResultSelectionState?
+
+    /// Transient viewport color used for genotype result review highlights.
+    var genotypeHighlightColor: Color = .blue
+
+    /// Transient viewport border color used for genotype result review highlights.
+    var genotypeBorderColor: Color = .blue
+
+    /// Scope for applying transient genotype result review highlights.
+    var genotypeHighlightScope: GenotypeResultHighlightScope = .selectedCell
+
+    /// The highlight channel currently edited in the Keynote-style color controls.
+    var genotypeHighlightChannel: GenotypeResultHighlightChannel = .fill
 
     /// Editable name binding
     public var name: String = ""
@@ -115,6 +178,9 @@ public final class SelectionSectionViewModel {
 
     /// Callback to show/compute translation in the viewer for a CDS annotation.
     public var onShowTranslation: ((SequenceAnnotation) -> Void)?
+
+    /// Callback to apply transient review color to the genotype result viewport.
+    var onGenotypeHighlightRequested: ((GenotypeResultHighlightRequest) -> Void)?
 
     /// Callback to extract sequence (presents extraction sheet).
     public var onExtractSequence: ((SequenceAnnotation) -> Void)?
@@ -210,6 +276,7 @@ public final class SelectionSectionViewModel {
         multipleSequenceAlignmentSelection = nil
         sequenceRegionSelection = nil
         phylogeneticTreeSelection = nil
+        genotypeResultSelection = nil
         selectedAnnotation = annotation
         if let annotation = annotation {
             // Reset translation visibility when switching to a different annotation.
@@ -256,6 +323,7 @@ public final class SelectionSectionViewModel {
         selectedAnnotation = nil
         sequenceRegionSelection = nil
         phylogeneticTreeSelection = nil
+        genotypeResultSelection = nil
         multipleSequenceAlignmentSelection = selection
         name = ""
         type = .region
@@ -268,6 +336,108 @@ public final class SelectionSectionViewModel {
         isTranslationVisible = false
     }
 
+    func applyGenotypeHighlight() {
+        applyGenotypeHighlight(channel: genotypeHighlightChannel, color: activeGenotypeHighlightColor)
+    }
+
+    func setGenotypeHighlightChannel(_ channel: GenotypeResultHighlightChannel) {
+        genotypeHighlightChannel = channel
+    }
+
+    func setGenotypeHighlightColor(_ color: Color) {
+        switch genotypeHighlightChannel {
+        case .fill:
+            genotypeHighlightColor = color
+        case .border:
+            genotypeBorderColor = color
+        }
+        guard !isUpdatingFromSelection else { return }
+        applyGenotypeHighlight(channel: genotypeHighlightChannel, color: color)
+    }
+
+    func setGenotypeHighlightColor(_ color: NSColor) {
+        guard let annotationColor = Self.annotationColor(from: color) else { return }
+        let swiftUIColor = Self.swiftUIColor(from: annotationColor)
+        switch genotypeHighlightChannel {
+        case .fill:
+            genotypeHighlightColor = swiftUIColor
+        case .border:
+            genotypeBorderColor = swiftUIColor
+        }
+        guard !isUpdatingFromSelection else { return }
+        applyGenotypeHighlight(channel: genotypeHighlightChannel, annotationColor: annotationColor)
+    }
+
+    func clearGenotypeHighlight(_ channel: GenotypeResultHighlightChannel) {
+        applyGenotypeHighlight(channel: channel, color: nil)
+    }
+
+    func revertGenotypeHighlightToDefault() {
+        clearGenotypeHighlight(.fill)
+        clearGenotypeHighlight(.border)
+    }
+
+    private var activeGenotypeHighlightColor: Color {
+        switch genotypeHighlightChannel {
+        case .fill:
+            return genotypeHighlightColor
+        case .border:
+            return genotypeBorderColor
+        }
+    }
+
+    private func applyGenotypeHighlight(channel: GenotypeResultHighlightChannel, color: Color?) {
+        guard let target = genotypeResultSelection?.highlightTarget else { return }
+        onGenotypeHighlightRequested?(
+            GenotypeResultHighlightRequest(
+                target: target,
+                scope: genotypeHighlightScope,
+                channel: channel,
+                color: color.flatMap { extractAnnotationColor(from: $0) }
+            )
+        )
+    }
+
+    private func applyGenotypeHighlight(
+        channel: GenotypeResultHighlightChannel,
+        annotationColor: AnnotationColor?
+    ) {
+        guard let target = genotypeResultSelection?.highlightTarget else { return }
+        onGenotypeHighlightRequested?(
+            GenotypeResultHighlightRequest(
+                target: target,
+                scope: genotypeHighlightScope,
+                channel: channel,
+                color: annotationColor
+            )
+        )
+    }
+
+    private static func swiftUIColor(from annotationColor: AnnotationColor) -> Color {
+        Color(
+            red: annotationColor.red,
+            green: annotationColor.green,
+            blue: annotationColor.blue,
+            opacity: annotationColor.alpha
+        )
+    }
+
+    var activeGenotypeHighlightNSColor: NSColor {
+        switch genotypeHighlightChannel {
+        case .fill:
+            return Self.nsColor(from: genotypeHighlightColor)
+        case .border:
+            return Self.nsColor(from: genotypeBorderColor)
+        }
+    }
+
+    private static func nsColor(from color: Color) -> NSColor {
+        if let cgColor = color.cgColor {
+            return NSColor(cgColor: cgColor) ?? .systemBlue
+        }
+        return NSColor(color)
+    }
+
     /// Updates the view model with a sequence/reference region selection.
     func select(sequenceRegionSelection selection: SequenceRegionSelectionState?) {
         isUpdatingFromSelection = true
@@ -276,6 +446,7 @@ public final class SelectionSectionViewModel {
         selectedAnnotation = nil
         multipleSequenceAlignmentSelection = nil
         phylogeneticTreeSelection = nil
+        genotypeResultSelection = nil
         sequenceRegionSelection = selection
         name = ""
         type = .region
@@ -296,6 +467,7 @@ public final class SelectionSectionViewModel {
         selectedAnnotation = nil
         multipleSequenceAlignmentSelection = nil
         sequenceRegionSelection = nil
+        genotypeResultSelection = nil
         phylogeneticTreeSelection = selection
         name = ""
         type = .region
@@ -306,6 +478,33 @@ public final class SelectionSectionViewModel {
         dbxrefLinks = []
         fullTranslation = nil
         isTranslationVisible = false
+    }
+
+    /// Updates the view model with a genotype result selection.
+    func select(genotypeResultSelection selection: GenotypeResultSelectionState?) {
+        isUpdatingFromSelection = true
+        defer { isUpdatingFromSelection = false }
+
+        selectedAnnotation = nil
+        multipleSequenceAlignmentSelection = nil
+        sequenceRegionSelection = nil
+        phylogeneticTreeSelection = nil
+        genotypeResultSelection = selection
+        name = ""
+        type = .region
+        notes = ""
+        color = .blue
+        colorApplyMode = .thisOnly
+        qualifierPairs = []
+        dbxrefLinks = []
+        fullTranslation = nil
+        isTranslationVisible = false
+        genotypeHighlightColor = selection?.highlightStyle.fillColor.map(Self.swiftUIColor) ?? .blue
+        genotypeBorderColor = selection?.highlightStyle.borderColor.map(Self.swiftUIColor) ?? .blue
+        genotypeHighlightScope = selection?.highlightTarget?.sample == nil ? .selectedRow : .selectedCell
+        genotypeHighlightChannel = selection?.highlightStyle.fillColor == nil && selection?.highlightStyle.borderColor != nil
+            ? .border
+            : .fill
     }
 
     /// Extracts all qualifier data from the annotation and optional SQLite database.
@@ -515,18 +714,12 @@ public final class SelectionSectionViewModel {
         }
 
         // Fallback: convert through NSColor for system/dynamic colors
-        let nsColor = NSColor(color)
-        guard let rgbColor = nsColor.usingColorSpace(.sRGB) else {
-            // Final fallback: try deviceRGB color space
-            guard let deviceColor = nsColor.usingColorSpace(.deviceRGB) else {
-                return nil
-            }
-            return AnnotationColor(
-                red: deviceColor.redComponent,
-                green: deviceColor.greenComponent,
-                blue: deviceColor.blueComponent,
-                alpha: deviceColor.alphaComponent
-            )
+        return Self.annotationColor(from: NSColor(color))
+    }
+
+    private static func annotationColor(from color: NSColor) -> AnnotationColor? {
+        guard let rgbColor = color.usingColorSpace(.sRGB) ?? color.usingColorSpace(.deviceRGB) else {
+            return nil
         }
         return AnnotationColor(
             red: rgbColor.redComponent,
@@ -541,6 +734,43 @@ public final class SelectionSectionViewModel {
         guard let annotation = selectedAnnotation else { return }
         onAnnotationDeleted?(annotation.id)
         select(annotation: nil)
+    }
+}
+
+private struct ContinuousColorWell: NSViewRepresentable {
+    var color: NSColor
+    var onChange: (NSColor) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onChange: onChange)
+    }
+
+    func makeNSView(context: Context) -> NSColorWell {
+        let colorWell = NSColorWell(frame: .zero)
+        colorWell.isContinuous = true
+        colorWell.color = color
+        colorWell.target = context.coordinator
+        colorWell.action = #selector(Coordinator.colorChanged(_:))
+        return colorWell
+    }
+
+    func updateNSView(_ colorWell: NSColorWell, context: Context) {
+        context.coordinator.onChange = onChange
+        if colorWell.color != color {
+            colorWell.color = color
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var onChange: (NSColor) -> Void
+
+        init(onChange: @escaping (NSColor) -> Void) {
+            self.onChange = onChange
+        }
+
+        @MainActor @objc func colorChanged(_ sender: NSColorWell) {
+            onChange(sender.color)
+        }
     }
 }
 
@@ -566,6 +796,8 @@ public struct SelectionSection: View {
                 multipleSequenceAlignmentSelectionView(selection)
             } else if let selection = viewModel.phylogeneticTreeSelection {
                 phylogeneticTreeSelectionView(selection)
+            } else if let selection = viewModel.genotypeResultSelection {
+                genotypeResultSelectionView(selection)
             } else if let selection = viewModel.sequenceRegionSelection {
                 sequenceRegionSelectionView(selection)
             } else if viewModel.selectedAnnotation != nil {
@@ -692,6 +924,130 @@ public struct SelectionSection: View {
             .controlSize(.small)
         }
         .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func genotypeResultSelectionView(
+        _ selection: GenotypeResultSelectionState
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(selection.title)
+                    .font(.callout.weight(.semibold))
+                    .textSelection(.enabled)
+                if let subtitle = selection.subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(selection.detailRows.enumerated()), id: \.offset) { _, row in
+                    LabeledContent(row.0, value: row.1)
+                        .font(.callout)
+                }
+            }
+
+            // Sample-level actions only when the selection is a sample
+            // row, not a shared allele label. The Sample Detail sheet
+            // needs an animal id to open; without one the button would
+            // open a sheet for a haplotype label, which is nonsensical.
+            if let animalId = selection.animalId, !animalId.isEmpty {
+                Divider()
+                Button {
+                    NotificationCenter.default.post(
+                        name: .genotypeResultRequestSampleDetailSheet,
+                        object: nil,
+                        userInfo: ["sample": animalId]
+                    )
+                } label: {
+                    Label("Edit calls…", systemImage: "pencil.and.list.clipboard")
+                }
+                .controlSize(.small)
+                .help("Open the per-locus call list to override haplotype calls for this sample.")
+            }
+        }
+        .padding(.top, 8)
+    }
+
+    @ViewBuilder
+    private func genotypeHighlightControls(target: GenotypeResultHighlightTarget) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Highlight")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            InspectorValueRow(label: "Target", value: target.sample.map { "\(target.locus) / \($0)" } ?? target.locus)
+                .font(.caption)
+
+            Picker("Target Scope", selection: $viewModel.genotypeHighlightScope) {
+                if target.sample != nil {
+                    Text("Cell").tag(GenotypeResultHighlightScope.selectedCell)
+                }
+                Text("Row").tag(GenotypeResultHighlightScope.selectedRow)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+
+            Picker("Color Target", selection: Binding(
+                get: { viewModel.genotypeHighlightChannel },
+                set: { viewModel.setGenotypeHighlightChannel($0) }
+            )) {
+                ForEach(GenotypeResultHighlightChannel.allCases, id: \.self) { channel in
+                    Text(channel.displayName).tag(channel)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+
+            HStack(spacing: 10) {
+                ContinuousColorWell(
+                    color: viewModel.activeGenotypeHighlightNSColor,
+                    onChange: { viewModel.setGenotypeHighlightColor($0) }
+                )
+                .frame(width: 44, height: 24)
+                Text(viewModel.genotypeHighlightChannel == .fill ? "Cell Fill" : "Outer Border")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    viewModel.clearGenotypeHighlight(.fill)
+                } label: {
+                    Label("Clear Fill", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+
+                Button {
+                    viewModel.clearGenotypeHighlight(.border)
+                } label: {
+                    Label("Clear Border", systemImage: "square.dashed")
+                }
+                .buttonStyle(.borderless)
+                .controlSize(.small)
+            }
+
+            Button {
+                viewModel.revertGenotypeHighlightToDefault()
+            } label: {
+                Label("Revert to Default", systemImage: "arrow.uturn.backward.circle")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+
+            Text("Viewport-only review color. It is not saved into the scientific bundle.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: - Annotation Editor
@@ -1070,6 +1426,24 @@ public struct SelectionSection: View {
             }
         }
         .font(.subheadline)
+    }
+}
+
+private struct InspectorValueRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: 72, alignment: .leading)
+            Text(value)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 

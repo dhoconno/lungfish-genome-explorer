@@ -136,14 +136,35 @@ final class WorkflowOperationExecutionService {
             routeContext: routeContext
         )
         operationCenter.log(id: operationID, level: .info, message: cliCommand)
+        operationCenter.updateWithLog(
+            id: operationID,
+            progress: 0.01,
+            detail: "Launching lungfish-cli for ONT genotyping..."
+        )
 
         do {
             let result = try await processRunner.runLungfishCLI(
                 arguments: arguments,
-                workingDirectory: request.outputDirectory
+                workingDirectory: request.outputDirectory,
+                outputHandler: { [operationCenter] output in
+                    Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
+                }
             )
-            logProcessOutput(result, operationID: operationID)
+            if !result.didStreamOutput {
+                logProcessOutput(result, operationID: operationID)
+            }
             if result.exitCode != 0 {
+                let failureDetail = "ONT genotyping failed with exit code \(result.exitCode)"
+                operationCenter.log(id: operationID, level: .error, message: failureDetail)
+                operationCenter.fail(
+                    id: operationID,
+                    detail: failureDetail,
+                    errorMessage: "ONT genotyping failed",
+                    errorDetail: failureDiagnostics(
+                        result: result,
+                        cliCommand: cliCommand
+                    )
+                )
                 throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
             }
             let cliPayload = decodeONTGenotypingPayload(from: result.standardOutput)
@@ -196,6 +217,12 @@ final class WorkflowOperationExecutionService {
         }
         if let comparisonName = request.comparisonName {
             arguments += ["--comparison-name", comparisonName]
+        }
+        if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
+            if let haplotypeAssayID = request.haplotypeAssayID {
+                arguments += ["--haplotype-assay", haplotypeAssayID]
+            }
+            arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
         }
         if let projectURL = request.projectURL {
             arguments += ["--project", projectURL.path]
@@ -405,11 +432,87 @@ final class WorkflowOperationExecutionService {
 
     private func logProcessOutput(_ result: LocalWorkflowCLIProcessResult, operationID: UUID) {
         for line in result.standardOutput.split(whereSeparator: \.isNewline) {
-            operationCenter.log(id: operationID, level: .info, message: String(line))
+            Self.recordProcessOutput(
+                .standardOutput(String(line)),
+                operationID: operationID,
+                operationCenter: operationCenter
+            )
         }
         for line in result.standardError.split(whereSeparator: \.isNewline) {
-            operationCenter.log(id: operationID, level: .warning, message: String(line))
+            Self.recordProcessOutput(
+                .standardError(String(line)),
+                operationID: operationID,
+                operationCenter: operationCenter
+            )
         }
+    }
+
+    private static func recordProcessOutput(
+        _ output: ViralReconWorkflowProcessOutput,
+        operationID: UUID,
+        operationCenter: OperationCenter
+    ) {
+        switch output {
+        case .standardOutput(let line):
+            operationCenter.log(id: operationID, level: .info, message: line)
+        case .standardError(let line):
+            if let progress = parseCLIProgressLine(line) {
+                operationCenter.updateWithLog(
+                    id: operationID,
+                    progress: progress.fraction,
+                    detail: progress.message
+                )
+            } else {
+                operationCenter.log(id: operationID, level: .warning, message: line)
+            }
+        }
+    }
+
+    private static func parseCLIProgressLine(_ line: String) -> (fraction: Double, message: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "[",
+              let closingBracket = trimmed.firstIndex(of: "]") else {
+            return nil
+        }
+        let percentRange = trimmed.index(after: trimmed.startIndex)..<closingBracket
+        let percentText = trimmed[percentRange]
+            .replacingOccurrences(of: "%", with: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard let percent = Double(percentText) else {
+            return nil
+        }
+        let messageStart = trimmed.index(after: closingBracket)
+        let message = trimmed[messageStart...]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (max(0, min(1, percent / 100)), message.isEmpty ? trimmed : message)
+    }
+
+    private func failureDiagnostics(
+        result: LocalWorkflowCLIProcessResult,
+        cliCommand: String
+    ) -> String {
+        var parts = [
+            "lungfish-cli exited with exit code \(result.exitCode).",
+            "",
+            "CLI command:",
+            cliCommand,
+        ]
+        let stderr = tail(result.standardError)
+        if !stderr.isEmpty {
+            parts += ["", "stderr:", stderr]
+        }
+        let stdout = tail(result.standardOutput)
+        if !stdout.isEmpty {
+            parts += ["", "stdout:", stdout]
+        }
+        return parts.joined(separator: "\n")
+    }
+
+    private func tail(_ text: String, lineLimit: Int = 80) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = trimmed.split(whereSeparator: \.isNewline).map(String.init)
+        guard lines.count > lineLimit else { return trimmed }
+        return lines.suffix(lineLimit).joined(separator: "\n")
     }
 }
 

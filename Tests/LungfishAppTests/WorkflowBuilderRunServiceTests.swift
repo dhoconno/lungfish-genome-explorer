@@ -345,7 +345,11 @@ private final class ProvenanceWritingWorkflowCLIProcessRunner: LocalWorkflowCLIP
 
     private(set) var invocations: [Invocation] = []
 
-    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
         let bundleURL = URL(fileURLWithPath: try value(after: "--bundle-path", in: arguments)).standardizedFileURL
         let workflowURL = URL(fileURLWithPath: arguments[2]).standardizedFileURL
         let outputURL = URL(fileURLWithPath: try value(after: "--results-dir", in: arguments)).standardizedFileURL
@@ -448,7 +452,11 @@ private final class ProvenanceWritingBuilderRunCLIProcessRunner: LocalWorkflowCL
         self.omitOutputProvenance = omitOutputProvenance
     }
 
-    func runLungfishCLI(arguments: [String], workingDirectory: URL) async throws -> LocalWorkflowCLIProcessResult {
+    func runLungfishCLI(
+        arguments: [String],
+        workingDirectory: URL,
+        outputHandler: (@MainActor @Sendable (ViralReconWorkflowProcessOutput) -> Void)?
+    ) async throws -> LocalWorkflowCLIProcessResult {
         let runDirectoryURL = URL(fileURLWithPath: try value(after: "--run-directory", in: arguments)).standardizedFileURL
         let workflowURL = URL(fileURLWithPath: try value(after: "--workflow", in: arguments)).standardizedFileURL
         let outputBundleURL = runDirectoryURL

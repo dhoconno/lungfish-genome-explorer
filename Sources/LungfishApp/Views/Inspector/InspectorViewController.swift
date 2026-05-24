@@ -125,10 +125,17 @@ public class InspectorViewController: NSViewController {
         viewModel.sampleSectionViewModel
     }
 
+    var genotypeResultDisplaySectionViewModel: GenotypeResultDisplaySectionViewModel {
+        viewModel.genotypeResultDisplaySectionViewModel
+    }
+
     /// Public access to the read style section view model for wiring alignment data.
     public var readStyleSectionViewModel: ReadStyleSectionViewModel {
         viewModel.readStyleSectionViewModel
     }
+
+    var onGenotypeResultDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    var onGenotypeSampleMetadataImported: ((SampleMetadataStore) -> Void)?
 
     /// Public access to the FASTQ metadata section view model.
     public var fastqMetadataSectionViewModel: FASTQMetadataSectionViewModel {
@@ -159,7 +166,7 @@ public class InspectorViewController: NSViewController {
         let inspectorView = InspectorView(viewModel: viewModel)
         hostingView = NSHostingView(rootView: inspectorView)
         // Give an initial frame so split view has something to work with
-        hostingView.frame = NSRect(x: 0, y: 0, width: 280, height: 500)
+        hostingView.frame = NSRect(x: 0, y: 0, width: 340, height: 500)
         self.view = hostingView
     }
 
@@ -173,6 +180,43 @@ public class InspectorViewController: NSViewController {
             name: .metagenomicsMetadataImportRequested,
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGenotypeViewModeChanged(_:)),
+            name: .genotypeResultViewModeChanged,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleGenotypeShowsAncillaryLociChanged(_:)),
+            name: .genotypeResultShowsAncillaryLociChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleGenotypeViewModeChanged(_ notification: Notification) {
+        guard let raw = notification.userInfo?["mode"] as? String,
+              let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
+        viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
+        if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                state.replacing(summaryViewMode: mode)
+            )
+        }
+    }
+
+    @objc private func handleGenotypeShowsAncillaryLociChanged(_ notification: Notification) {
+        guard let value = notification.userInfo?["showsAncillaryLoci"] as? Bool else { return }
+        viewModel.genotypeResultDisplaySectionViewModel.setShowsAncillaryLoci(value)
+        // Mirror into the Document section's state so the toggle in SwiftUI
+        // reflects the new value on the next render pass.
+        if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                state.replacing(showsAncillaryLoci: value)
+            )
+        }
     }
 
     public override func viewWillAppear() {
@@ -419,6 +463,10 @@ public class InspectorViewController: NSViewController {
             self?.handleSampleDisplayStateChanged(state)
         }
 
+        viewModel.genotypeResultDisplaySectionViewModel.onDisplayStateChanged = { [weak self] state in
+            self?.onGenotypeResultDisplayStateChanged?(state)
+        }
+
         // Annotation section callbacks
         viewModel.annotationSectionViewModel.onSettingsChanged = { [weak self] in
             self?.handleAnnotationSettingsChanged()
@@ -572,6 +620,11 @@ public class InspectorViewController: NSViewController {
 
         // Clear sample section
         viewModel.sampleSectionViewModel.clear()
+        viewModel.genotypeResultDisplaySectionViewModel.clear()
+        onGenotypeResultDisplayStateChanged = nil
+        onGenotypeSampleMetadataImported = nil
+        viewModel.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = nil
+        viewModel.selectionSectionViewModel.onGenotypeHighlightRequested = nil
 
         // Clear FASTQ metadata section
         viewModel.fastqMetadataSectionViewModel.clear()
@@ -1312,6 +1365,190 @@ public class InspectorViewController: NSViewController {
         viewModel.selectedTab = .bundle
     }
 
+    /// Updates the Document inspector with genotype-result bundle statistics.
+    func updateGenotypeResultDocument(_ result: ONTGenotypeResultBundleData) {
+        let qcCounts = result.qcStatusCounts
+        let sampleIds = genotypeSampleIds(result)
+        let metadataStore = SampleMetadataStore.load(
+            from: result.bundleURL,
+            knownSampleIds: Set(sampleIds)
+        )
+        metadataStore?.wireAutosave(bundleURL: result.bundleURL)
+        // Loading via the store triggers default-cohort seeding the first
+        // time a bundle is opened so the inspector lists Needs review et al.
+        let sidecar: GenotypeAnnotationSidecar = {
+            if let store = try? GenotypeAnnotationStore(bundleURL: result.bundleURL, author: NSUserName()) {
+                return store.sidecar
+            }
+            return GenotypeAnnotationSidecar.empty(generatedAt: "")
+        }()
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: result,
+            sidecar: sidecar,
+            metadataBySample: metadataStore?.records ?? [:]
+        )
+        let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
+            let count = subjects.filter { cohort.predicate.evaluate($0) }.count
+            return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
+        }
+        var state = GenotypeResultDocumentState(
+            title: result.manifest.analysisName,
+            subtitle: "\(result.manifest.kind) • \(result.manifest.outputName)",
+            bundleURL: result.bundleURL,
+            sampleIds: sampleIds,
+            sampleMetadataStore: metadataStore,
+            windowStateScope: windowStateScope,
+            summaryRows: genotypeSummaryRows(result),
+            qcRows: [
+                ("OK", "\(qcCounts[.ok, default: 0])"),
+                ("Low Support", "\(qcCounts[.lowSupport, default: 0])"),
+                ("Review", "\(qcCounts[.review, default: 0])"),
+            ],
+            artifactRows: [
+                GenotypeResultArtifactRow(label: "Workbook", fileURL: result.artifacts.workbookURL),
+                GenotypeResultArtifactRow(label: "Long Summary CSV", fileURL: result.artifacts.longSummaryCSVURL),
+                GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
+                GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
+                GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
+                GenotypeResultArtifactRow(
+                    label: "Annotations & Audit",
+                    fileURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: result.bundleURL)
+                ),
+            ],
+            smartCohorts: smartCohorts,
+            auditEntries: sidecar.auditLog,
+            haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
+            haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result)
+        )
+        // Mirror the current display-state knobs into the document state so
+        // the Inspector toggles (View Mode radio, "Show observed-only loci"
+        // checkbox) render with the right values when the section appears.
+        let currentDisplay = viewModel.genotypeResultDisplaySectionViewModel.displayState
+        state.summaryViewMode = currentDisplay.summaryViewMode
+        state.showsAncillaryLoci = currentDisplay.showsAncillaryLoci
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
+        viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
+        updateProvenanceTarget(
+            url: result.bundleURL,
+            sidebarType: .genotypeResultBundle,
+            displayName: result.manifest.analysisName
+        )
+        viewModel.selectedTab = .bundle
+    }
+
+    func updateGenotypeResultDisplaySummary(visibleRows: Int, totalRows: Int, hiddenCells: Int) {
+        viewModel.genotypeResultDisplaySectionViewModel.updateSummary(
+            visibleRows: visibleRows,
+            totalRows: totalRows,
+            hiddenCells: hiddenCells
+        )
+    }
+
+    func updateGenotypeResultDisplayState(_ state: GenotypeResultDisplayState) {
+        viewModel.genotypeResultDisplaySectionViewModel.updateDisplayState(state)
+        if let documentState = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                documentState
+                    .replacing(summaryViewMode: state.summaryViewMode)
+                    .replacing(showsAncillaryLoci: state.showsAncillaryLoci)
+            )
+        }
+    }
+
+    func updateGenotypeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar) {
+        guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
+        var nextState = state.replacing(auditEntries: sidecar.auditLog)
+        if let bundleURL = state.bundleURL,
+           let result = try? ONTGenotypeResultBundle.loadResult(from: bundleURL) {
+            let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+                result: result,
+                sidecar: sidecar,
+                metadataBySample: state.sampleMetadataStore?.records ?? [:]
+            )
+            nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
+                GenotypeSmartCohortSection.DisplayedCohort(
+                    filter: cohort,
+                    count: subjects.filter { cohort.predicate.evaluate($0) }.count
+                )
+            }
+            nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
+        }
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+            nextState
+        )
+        if let bundleURL = state.bundleURL {
+            let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+            if FileManager.default.fileExists(atPath: annotationURL.path) {
+                updateProvenanceTarget(
+                    url: annotationURL,
+                    sidebarType: .genotypeResultBundle,
+                    displayName: "Annotations & Audit"
+                )
+            }
+        }
+    }
+
+    private func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
+        [
+            ("Samples", "\(result.sampleCount)"),
+            ("Calls", "\(result.callCount)"),
+            ("Total Reads", formatInteger(result.stats.totalInputReads)),
+            ("Retained Reads", formatInteger(result.stats.retainedUniqueReads)),
+            ("Assigned Retained", formatInteger(result.stats.assignedUniqueRetainedReads)),
+            ("Unassigned Retained", formatInteger(result.stats.unassignedUniqueRetainedReads)),
+            ("Retained %", formatPercent(result.stats.retainedUniquePercentOfTotalReads)),
+            ("Created", result.manifest.createdAt ?? "Unknown"),
+        ]
+    }
+
+    private func genotypeSampleIds(_ result: ONTGenotypeResultBundleData) -> [String] {
+        var seen: Set<String> = []
+        var sampleIds: [String] = []
+        for sample in result.samples.map(\.sample) + result.calls.map(\.sample) where seen.insert(sample).inserted {
+            sampleIds.append(sample)
+        }
+        return sampleIds
+    }
+
+    private func genotypeHaplotypeDefinitionsFolderURL(_ result: ONTGenotypeResultBundleData) -> URL {
+        genotypeProjectRoot(for: result)
+            .appendingPathComponent("Haplotype Definitions", isDirectory: true)
+    }
+
+    private func genotypeHaplotypeDefinitionRows(
+        _ result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?
+    ) -> [(String, String)] {
+        let store = HaplotypeDefinitionStore(projectRoot: genotypeProjectRoot(for: result))
+        let definitionID = sidecar?.settings.activeHaplotypeDefinitionSetID
+            ?? result.haplotypeAnalysis?.definitionSetID
+            ?? result.manifest.haplotypeDefinitionSetID
+        let assayID = sidecar?.settings.activeHaplotypeDefinitionSetID == nil
+            ? result.haplotypeAnalysis?.assayID ?? result.manifest.haplotypeAssayID
+            : sidecar?.settings.activeHaplotypeAssayID
+        guard let definitionID else { return [] }
+        let definition = store.mergedRegistry().definitionSet(id: definitionID, assayID: assayID)
+        let locusCount = definition?.locusDefinitions.count ?? result.haplotypeAnalysis?.samples.first?.calls.count ?? 0
+        let haplotypeCount = definition?.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count } ?? 0
+        var rows = [
+            ("Active", definition?.displayName ?? result.haplotypeAnalysis?.definitionSetName ?? definitionID),
+            ("Definition ID", definitionID),
+            ("Loci", "\(locusCount)"),
+            ("Haplotypes", "\(haplotypeCount)"),
+        ]
+        if let assayID = definition?.assayID ?? assayID {
+            rows.insert(("Assay", assayID), at: 2)
+        }
+        return rows
+    }
+
+    private func genotypeProjectRoot(for result: ONTGenotypeResultBundleData) -> URL {
+        result.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
     /// Updates the Selected Item inspector with MSA row/site/range metadata.
     func updateMultipleSequenceAlignmentSelection(_ state: MultipleSequenceAlignmentSelectionState?) {
         viewModel.selectedAnnotation = nil
@@ -1337,6 +1574,35 @@ public class InspectorViewController: NSViewController {
         if state != nil {
             viewModel.selectedTab = .selectedItem
         }
+    }
+
+    /// Updates the Selected Item inspector with genotype result sample/call metadata.
+    ///
+    /// Auto-switches to the `.selectedItem` tab only when the analyst has
+    /// already focused on per-call metadata (current tab `.selectedItem`).
+    /// Switching away from the user's current `.bundle` or `.view` tab in
+    /// response to incidental selection events (auto-select-first-row when
+    /// the view mode changes, etc.) is treated as a regression.
+    func updateGenotypeResultSelection(_ state: GenotypeResultSelectionState?) {
+        viewModel.selectedAnnotation = nil
+        viewModel.selectionSectionViewModel.select(genotypeResultSelection: state)
+        viewModel.genotypeResultDisplaySectionViewModel.updateSelection(state)
+        // Do not flip the user's tab choice automatically; the analyst opens
+        // the Selected Item tab explicitly when they want to inspect a call.
+    }
+
+    private func formatInteger(_ value: Int?) -> String {
+        value.map { $0.formatted(.number) } ?? "Unavailable"
+    }
+
+    private func formatPercent(_ value: Double?) -> String {
+        guard let value else { return "Unavailable" }
+        return "\(String(format: "%.2f", value))%"
+    }
+
+    private func formatNumber(_ value: Double?) -> String {
+        guard let value else { return "Unavailable" }
+        return String(format: "%.2f", value)
     }
 
     /// Updates the chromosome selection in the Document tab.
@@ -1397,6 +1663,32 @@ public class InspectorViewController: NSViewController {
 
     // MARK: - Metadata Import
 
+    private struct SampleMetadataImportContext {
+        let knownSampleIds: Set<String>
+        let bundleURL: URL?
+        let applyStore: (SampleMetadataStore) -> Void
+    }
+
+    private enum InspectorSampleMetadataImportError: LocalizedError {
+        case noImportContext
+        case unreadableFile
+        case noSampleColumn
+        case writeDenied
+
+        var errorDescription: String? {
+            switch self {
+            case .noImportContext:
+                return "No sample list is available for the current result."
+            case .unreadableFile:
+                return "The selected metadata file could not be read."
+            case .noSampleColumn:
+                return "No column in this file contains values matching the known sample IDs."
+            case .writeDenied:
+                return "The current project cannot be modified right now."
+            }
+        }
+    }
+
     @objc private func handleMetadataImportRequested(_ notification: Notification) {
         _ = handleMetadataImportRequested(notification, shouldPresentPanel: true)
     }
@@ -1428,32 +1720,47 @@ public class InspectorViewController: NSViewController {
     }
 
     private func handleMetadataImport(from url: URL) {
-        guard let data = try? Data(contentsOf: url) else { return }
-        let knownIds = Set(viewModel.documentSectionViewModel.classifierSampleEntries.map(\.id))
+        guard let context = currentSampleMetadataImportContext() else {
+            showMetadataImportAlert(
+                title: "No Samples Available",
+                message: InspectorSampleMetadataImportError.noImportContext.localizedDescription
+            )
+            return
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            showMetadataImportAlert(
+                title: "Metadata Import Failed",
+                message: InspectorSampleMetadataImportError.unreadableFile.localizedDescription
+            )
+            return
+        }
 
         guard let scanResult = try? SampleMetadataStore.scanForSampleColumn(
             csvData: data,
-            knownSampleIds: knownIds
-        ) else { return }
+            knownSampleIds: context.knownSampleIds
+        ) else {
+            showMetadataImportAlert(
+                title: "Metadata Import Failed",
+                message: InspectorSampleMetadataImportError.unreadableFile.localizedDescription
+            )
+            return
+        }
 
         guard let best = scanResult.bestColumn else {
-            let alert = NSAlert()
-            alert.messageText = "No Sample Column Found"
-            alert.informativeText = "No column in this file contains values matching the known sample IDs. Check that your metadata file includes a column with sample names."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            if let window = self.view.window {
-                alert.beginSheetModal(for: window)
-            }
+            showMetadataImportAlert(
+                title: "No Sample Column Found",
+                message: "No column in this file contains values matching the known sample IDs. Check that your metadata file includes a column with sample names."
+            )
             return
         }
 
         if best.matchCount == scanResult.totalRows {
-            finishMetadataImport(
+            finishMetadataImportAndReportErrors(
                 data: data,
+                sourceURL: url,
                 scanResult: scanResult,
                 sampleColumnIndex: best.index,
-                knownSampleIds: knownIds
+                context: context
             )
         } else {
             let alert = NSAlert()
@@ -1473,17 +1780,19 @@ public class InspectorViewController: NSViewController {
                         guard let self else { return }
                         switch response {
                         case .alertFirstButtonReturn:
-                            self.finishMetadataImport(
+                            self.finishMetadataImportAndReportErrors(
                                 data: data,
+                                sourceURL: url,
                                 scanResult: scanResult,
                                 sampleColumnIndex: best.index,
-                                knownSampleIds: knownIds
+                                context: context
                             )
                         case .alertSecondButtonReturn where scanResult.candidates.count > 1:
                             self.showSampleColumnPicker(
                                 data: data,
+                                sourceURL: url,
                                 scanResult: scanResult,
-                                knownSampleIds: knownIds
+                                context: context
                             )
                         default:
                             break
@@ -1496,8 +1805,9 @@ public class InspectorViewController: NSViewController {
 
     private func showSampleColumnPicker(
         data: Data,
+        sourceURL: URL,
         scanResult: MetadataColumnScanResult,
-        knownSampleIds: Set<String>
+        context: SampleMetadataImportContext
     ) {
         let alert = NSAlert()
         alert.messageText = "Select Sample Column"
@@ -1519,34 +1829,126 @@ public class InspectorViewController: NSViewController {
                 MainActor.assumeIsolated {
                     guard let self, response == .alertFirstButtonReturn else { return }
                     let selectedIndex = popup.selectedItem?.tag ?? scanResult.candidates[0].index
-                    self.finishMetadataImport(
+                    self.finishMetadataImportAndReportErrors(
                         data: data,
+                        sourceURL: sourceURL,
                         scanResult: scanResult,
                         sampleColumnIndex: selectedIndex,
-                        knownSampleIds: knownSampleIds
+                        context: context
                     )
                 }
             }
         }
     }
 
-    private func finishMetadataImport(
+    private func currentSampleMetadataImportContext() -> SampleMetadataImportContext? {
+        if let genotypeDocument = viewModel.documentSectionViewModel.genotypeResultDocument {
+            guard !genotypeDocument.sampleIds.isEmpty else { return nil }
+            return SampleMetadataImportContext(
+                knownSampleIds: Set(genotypeDocument.sampleIds),
+                bundleURL: genotypeDocument.bundleURL,
+                applyStore: { [weak self] store in
+                    guard let self,
+                          let state = self.viewModel.documentSectionViewModel.genotypeResultDocument else { return }
+                    self.viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                        state.replacing(sampleMetadataStore: store)
+                    )
+                    self.onGenotypeSampleMetadataImported?(store)
+                }
+            )
+        }
+
+        let classifierSampleIds = Set(viewModel.documentSectionViewModel.classifierSampleEntries.map(\.id))
+        guard !classifierSampleIds.isEmpty else { return nil }
+        return SampleMetadataImportContext(
+            knownSampleIds: classifierSampleIds,
+            bundleURL: viewModel.documentSectionViewModel.bundleAttachmentStore?.bundleURL,
+            applyStore: { [weak self] store in
+                self?.viewModel.documentSectionViewModel.sampleMetadataStore = store
+            }
+        )
+    }
+
+    private func finishMetadataImportAndReportErrors(
         data: Data,
+        sourceURL: URL,
         scanResult: MetadataColumnScanResult,
         sampleColumnIndex: Int,
-        knownSampleIds: Set<String>
+        context: SampleMetadataImportContext
     ) {
-        let store = SampleMetadataStore(
+        do {
+            _ = try finishMetadataImport(
+                data: data,
+                sourceURL: sourceURL,
+                scanResult: scanResult,
+                sampleColumnIndex: sampleColumnIndex,
+                context: context
+            )
+        } catch {
+            showMetadataImportAlert(
+                title: "Metadata Import Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    @discardableResult
+    private func finishMetadataImport(
+        data: Data,
+        sourceURL: URL,
+        scanResult: MetadataColumnScanResult,
+        sampleColumnIndex: Int,
+        context: SampleMetadataImportContext
+    ) throws -> SampleMetadataStore {
+        if let bundleURL = context.bundleURL,
+           !canWriteProjectOutputs(bundleURL: bundleURL, workflowName: "Sample metadata import") {
+            throw InspectorSampleMetadataImportError.writeDenied
+        }
+
+        let result = try SampleMetadataBundleImportService().importMetadata(
+            data: data,
+            sourceURL: sourceURL,
             scanResult: scanResult,
             sampleColumnIndex: sampleColumnIndex,
-            knownSampleIds: knownSampleIds
+            knownSampleIds: context.knownSampleIds,
+            bundleURL: context.bundleURL
         )
-        viewModel.documentSectionViewModel.sampleMetadataStore = store
+        context.applyStore(result.store)
+        return result.store
+    }
 
-        if let bundleURL = viewModel.documentSectionViewModel.bundleAttachmentStore?.bundleURL {
-            try? store.persist(originalData: data, to: bundleURL)
-            store.wireAutosave(bundleURL: bundleURL)
+    private func showMetadataImportAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        if let window = self.view.window {
+            alert.beginSheetModal(for: window)
         }
+    }
+
+    func testingImportMetadata(from url: URL) throws {
+        guard let context = currentSampleMetadataImportContext() else {
+            throw InspectorSampleMetadataImportError.noImportContext
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            throw InspectorSampleMetadataImportError.unreadableFile
+        }
+        let scanResult = try SampleMetadataStore.scanForSampleColumn(
+            csvData: data,
+            knownSampleIds: context.knownSampleIds
+        )
+        guard let best = scanResult.bestColumn else {
+            throw InspectorSampleMetadataImportError.noSampleColumn
+        }
+        try finishMetadataImport(
+            data: data,
+            sourceURL: url,
+            scanResult: scanResult,
+            sampleColumnIndex: best.index,
+            context: context
+        )
     }
 
     /// Updates the NVD manifest in the Document section.
@@ -3191,6 +3593,8 @@ public final class InspectorViewModel {
             return [.bundle, .provenance]
         case .metagenomics:
             return [.resultSummary, .provenance]
+        case .genotype:
+            return [.bundle, .selectedItem, .view, .provenance]
         case .empty:
             return [.bundle, .selectedItem]
         }
@@ -3261,6 +3665,9 @@ public final class InspectorViewModel {
 
     /// View model for sample display controls section
     let sampleSectionViewModel = SampleSectionViewModel()
+
+    /// View model for genotype result viewport controls section
+    let genotypeResultDisplaySectionViewModel = GenotypeResultDisplaySectionViewModel()
 
     /// View model for FASTQ sample metadata section (Document tab)
     let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()
@@ -3482,14 +3889,18 @@ private struct InspectorReadStyleSection: View {
             Text("View Settings")
                 .font(LungfishInspectorStyle.sectionTitleFont)
 
-            if viewModel.contentMode == .mapping {
-                MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
-                Divider()
+            if viewModel.contentMode == .genotype {
+                GenotypeResultDisplaySection(viewModel: viewModel.genotypeResultDisplaySectionViewModel)
+            } else {
+                if viewModel.contentMode == .mapping {
+                    MappingViewSettingsSection(viewModel: viewModel.documentSectionViewModel)
+                    Divider()
+                }
+
+                InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
+
+                subsectionContent
             }
-
-            InspectorSubsectionGrid(selection: $viewModel.selectedReadStyleViewSubsection)
-
-            subsectionContent
         }
     }
 

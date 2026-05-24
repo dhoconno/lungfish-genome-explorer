@@ -190,31 +190,29 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     private static let enabledUserWorkflowIDsKey = "WorkflowLibrary.enabledUserWorkflowIDs"
 
     private let userDefaults: UserDefaults
-    private var enabledWorkflowIDs: Set<String> {
-        didSet {
-            userDefaults.set(Array(enabledWorkflowIDs).sorted(), forKey: Self.enabledWorkflowIDsKey)
-        }
-    }
-    private var enabledUserWorkflowIDs: Set<String> {
-        didSet {
-            userDefaults.set(Array(enabledUserWorkflowIDs).sorted(), forKey: Self.enabledUserWorkflowIDsKey)
-        }
-    }
+    private var enabledWorkflowIDs: Set<String>
+    private var enabledUserWorkflowIDs: Set<String>
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        let storedIDs = userDefaults.stringArray(forKey: Self.enabledWorkflowIDsKey) ?? []
-        self.enabledWorkflowIDs = Set(storedIDs)
-        let storedUserWorkflowIDs = userDefaults.stringArray(forKey: Self.enabledUserWorkflowIDsKey) ?? []
-        self.enabledUserWorkflowIDs = Set(storedUserWorkflowIDs)
+        self.enabledWorkflowIDs = Self.loadSet(
+            forKey: Self.enabledWorkflowIDsKey,
+            from: userDefaults
+        )
+        self.enabledUserWorkflowIDs = Self.loadSet(
+            forKey: Self.enabledUserWorkflowIDsKey,
+            from: userDefaults
+        )
     }
 
     var enabledWorkflowIDSnapshot: Set<String> {
-        enabledWorkflowIDs
+        reloadEnablementFromDefaults()
+        return enabledWorkflowIDs
     }
 
     var enabledUserWorkflowIDSnapshot: Set<String> {
-        enabledUserWorkflowIDs
+        reloadEnablementFromDefaults()
+        return enabledUserWorkflowIDs
     }
 
     func isWorkflowEnabled(_ toolID: FASTQOperationToolID) -> Bool {
@@ -225,7 +223,8 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     }
 
     func isWorkflowEnabled(_ item: WorkflowLibraryItem) -> Bool {
-        item.maturity == .core || enabledWorkflowIDs.contains(item.id)
+        reloadEnablementFromDefaults()
+        return item.maturity == .core || enabledWorkflowIDs.contains(item.id)
     }
 
     func setWorkflow(_ toolID: FASTQOperationToolID, enabled: Bool) {
@@ -235,15 +234,18 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     func setWorkflow(_ item: WorkflowLibraryItem, enabled: Bool) {
         guard item.maturity != .core else { return }
+        reloadEnablementFromDefaults()
         if enabled {
             enabledWorkflowIDs.insert(item.id)
         } else {
             enabledWorkflowIDs.remove(item.id)
         }
+        persistEnabledWorkflowIDs()
     }
 
     func isUserWorkflowEnabled(_ manifestID: String) -> Bool {
-        enabledUserWorkflowIDs.contains(manifestID)
+        reloadEnablementFromDefaults()
+        return enabledUserWorkflowIDs.contains(manifestID)
     }
 
     func isUserWorkflowEnabled(_ package: WorkflowPackageValidationResult) -> Bool {
@@ -251,11 +253,13 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     }
 
     func setUserWorkflow(_ manifestID: String, enabled: Bool) {
+        reloadEnablementFromDefaults()
         if enabled {
             enabledUserWorkflowIDs.insert(manifestID)
         } else {
             enabledUserWorkflowIDs.remove(manifestID)
         }
+        persistEnabledUserWorkflowIDs()
     }
 
     func setUserWorkflow(_ package: WorkflowPackageValidationResult, enabled: Bool) {
@@ -313,6 +317,23 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
             }
         }
         return missing
+    }
+
+    private static func loadSet(forKey key: String, from userDefaults: UserDefaults) -> Set<String> {
+        Set(userDefaults.stringArray(forKey: key) ?? [])
+    }
+
+    private func reloadEnablementFromDefaults() {
+        enabledWorkflowIDs = Self.loadSet(forKey: Self.enabledWorkflowIDsKey, from: userDefaults)
+        enabledUserWorkflowIDs = Self.loadSet(forKey: Self.enabledUserWorkflowIDsKey, from: userDefaults)
+    }
+
+    private func persistEnabledWorkflowIDs() {
+        userDefaults.set(Array(enabledWorkflowIDs).sorted(), forKey: Self.enabledWorkflowIDsKey)
+    }
+
+    private func persistEnabledUserWorkflowIDs() {
+        userDefaults.set(Array(enabledUserWorkflowIDs).sorted(), forKey: Self.enabledUserWorkflowIDsKey)
     }
 }
 

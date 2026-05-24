@@ -46,6 +46,12 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Option(name: .customLong("min-support"), help: "Minimum retained alignment support required for a genotype row in the report")
     var minSupport: Int = 1
 
+    @Option(name: .customLong("haplotype-assay"), help: "Assay/amplicon set for haplotyping; disambiguates --haplotype-definition")
+    var haplotypeAssay: String?
+
+    @Option(name: .customLong("haplotype-definition"), help: "Optional assay-scoped haplotype definition set ID; omit to skip haplotyping")
+    var haplotypeDefinition: String?
+
     @Option(
         name: .customLong("extra-args"),
         parsing: .unconditional,
@@ -67,7 +73,6 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         guard minSupport > 0 else {
             throw ValidationError("--min-support must be positive.")
         }
-
         let parsedExtraArguments: [String]
         do {
             parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
@@ -89,10 +94,18 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
+            haplotypeAssayID: haplotypeAssay,
+            haplotypeDefinitionSetID: haplotypeDefinition,
             extraArguments: parsedExtraArguments
         )
 
-        let result = try await ONTBarcodeDemuxGenotypingPipeline().run(request)
+        let result = try await ONTBarcodeDemuxGenotypingPipeline().run(
+            request,
+            progressHandler: { fraction, message in
+                let percent = max(0, min(100, Int((fraction * 100).rounded())))
+                FileHandle.standardError.write(Data("[\(String(format: "%3d%%", percent))] \(message)\n".utf8))
+            }
+        )
         let payload = FastqONTBarcodeGenotypingPayload(
             outputDirectory: result.outputDirectory.path,
             mappingBAMPath: result.mappingBAMURL.path,
