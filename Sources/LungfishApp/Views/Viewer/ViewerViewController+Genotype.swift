@@ -31,6 +31,7 @@ extension ViewerViewController {
         contentMode = .genotype
 
         let controller = GenotypeResultViewController()
+        controller.windowStateScope = windowStateScope
         addChild(controller)
 
         annotationDrawerView?.isHidden = true

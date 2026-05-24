@@ -55,9 +55,9 @@ final class GenotypeOutlineView: NSView {
     var onRowSelected: ((String) -> Void)?
     var onRowDisclosure: ((String, Bool) -> Void)?
     /// Fires when the analyst clicks a single locus cell in the tape.
-    /// Passes (animalId, locusName). The controller shows a popover at
-    /// that cell's frame with `GenotypeCallEvidenceView`.
-    var onLocusCellClicked: ((String, String, NSView, NSRect) -> Void)?
+    /// Passes (animalId, locusName). The controller updates the persistent
+    /// Review inspector with `GenotypeCallEvidenceView` for that cell.
+    var onLocusCellClicked: ((String, String) -> Void)?
     private(set) var numberOfRows: Int = 0
     private var rows: [Row] = []
     /// Per-sample disclosure state. When `true`, the row renders an
@@ -366,7 +366,7 @@ final class GenotypeOutlineView: NSView {
         locusLabel.widthAnchor.constraint(equalToConstant: 80).isActive = true
         let callLabel = NSTextField(labelWithString: callText(entry))
         callLabel.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .regular)
-        callLabel.textColor = entry.status == .called || entry.status == .specialCase
+        callLabel.textColor = entry.status == .called || entry.status == .notAssayed || entry.status == .specialCase
             ? .labelColor
             : NSColor.lungfishDanger
         callLabel.lineBreakMode = .byTruncatingTail
@@ -377,6 +377,8 @@ final class GenotypeOutlineView: NSView {
 
     private func callText(_ entry: (locus: String, h1: String, h2: String, status: GenotypeHaplotypeCallStatus)) -> String {
         switch entry.status {
+        case .notAssayed:
+            return entry.h1.isEmpty ? "Not assayed" : entry.h1
         case .called, .specialCase:
             if entry.h2 == "-" || entry.h2.isEmpty {
                 return "\(entry.h1) (homozygous)"
@@ -408,9 +410,7 @@ final class GenotypeOutlineView: NSView {
         guard columnWidth > 0 else { return }
         let index = max(0, min(recognizer.loci.count - 1, Int(location.x / columnWidth)))
         let locus = recognizer.loci[index]
-        let rect = NSRect(x: CGFloat(index) * columnWidth, y: 0,
-                          width: columnWidth, height: tape.bounds.height)
-        onLocusCellClicked?(recognizer.animalId, locus, tape, rect)
+        onLocusCellClicked?(recognizer.animalId, locus)
     }
 
     /// Specialised gesture recognizer that carries the row's locus list
@@ -476,3 +476,27 @@ final class GenotypeOutlineView: NSView {
         override var isFlipped: Bool { true }
     }
 }
+
+#if DEBUG
+extension GenotypeOutlineView {
+    func testingSetExpandedSamples(_ samples: Set<String>) {
+        expandedSamples = samples
+        rebuild()
+    }
+
+    var testingVisibleText: String {
+        textContent(in: self).joined(separator: "\n")
+    }
+
+    private func textContent(in view: NSView) -> [String] {
+        var values: [String] = []
+        if let textField = view as? NSTextField {
+            values.append(textField.stringValue)
+        }
+        for subview in view.subviews {
+            values.append(contentsOf: textContent(in: subview))
+        }
+        return values
+    }
+}
+#endif

@@ -252,6 +252,41 @@ final class WorkspaceShellLayoutTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(trailingView.frame.height, 199.5)
     }
 
+    func testTrackedSplitRecordsUserDragInsteadOfSnappingBackToOldDivider() {
+        let splitView = TrackedDividerSplitView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+        splitView.isVertical = true
+
+        let leadingView = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 500))
+        let trailingView = NSView(frame: NSRect(x: 321, y: 0, width: 279, height: 500))
+        splitView.addArrangedSubview(leadingView)
+        splitView.addArrangedSubview(trailingView)
+
+        let coordinator = TwoPaneTrackedSplitCoordinator()
+        coordinator.applyInitialSplitPositionIfNeeded(
+            to: splitView,
+            defaultLeadingFraction: 0.5,
+            defaultLeadingExtent: 320,
+            minimumExtents: (leading: 100, trailing: 100)
+        )
+
+        let dividerThickness = splitView.dividerThickness
+        leadingView.frame = NSRect(x: 0, y: 0, width: 220, height: 500)
+        trailingView.frame = NSRect(
+            x: 220 + dividerThickness,
+            y: 0,
+            width: 600 - 220 - dividerThickness,
+            height: 500
+        )
+
+        coordinator.splitViewDidResizeSubviews(
+            splitView,
+            minimumExtents: (leading: 100, trailing: 100)
+        )
+
+        XCTAssertEqual(leadingView.frame.width, 220, accuracy: 1)
+        XCTAssertEqual(try XCTUnwrap(splitView.requestedDividerPosition(at: 0)), 220, accuracy: 1)
+    }
+
     func testControllerReappliesPersistedSidebarWidthAfterHideThenShow() {
         UserDefaults.standard.set(320, forKey: MainSplitViewController.sidebarWidthDefaultsKey)
 

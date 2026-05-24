@@ -69,13 +69,11 @@ enum GenotypeResultViewportLens: String, CaseIterable, Equatable {
 
 enum GenotypeSummaryViewMode: String, CaseIterable, Equatable {
     case outline
-    case cards
     case matrix
 
     var displayName: String {
         switch self {
         case .outline: return "Outline"
-        case .cards:   return "Cards"
         case .matrix:  return "Matrix"
         }
     }
@@ -107,7 +105,7 @@ struct GenotypeResultDisplayState: Equatable {
     var supportDenominator: ONTGenotypeSupportDenominator = .viewedLocus
     var cellColorMode: GenotypeResultCellColorMode = .support
     var hideFilteredHighlights: Bool = true
-    /// When true, the Outline / Cards / Matrix views include observed loci
+    /// When true, the Outline / Matrix views include observed loci
     /// that the active haplotype definition set does NOT cover. When false
     /// (the default), only the definition-set loci appear so the tape stays
     /// focused on the calls actually being haplotyped. For MCM that means

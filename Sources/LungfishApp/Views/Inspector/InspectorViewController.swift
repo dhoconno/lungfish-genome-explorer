@@ -200,6 +200,11 @@ public class InspectorViewController: NSViewController {
         guard let raw = notification.userInfo?["mode"] as? String,
               let mode = GenotypeSummaryViewMode(rawValue: raw) else { return }
         viewModel.genotypeResultDisplaySectionViewModel.setSummaryViewMode(mode)
+        if let state = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                state.replacing(summaryViewMode: mode)
+            )
+        }
     }
 
     @objc private func handleGenotypeShowsAncillaryLociChanged(_ notification: Notification) {
@@ -1377,7 +1382,11 @@ public class InspectorViewController: NSViewController {
             }
             return GenotypeAnnotationSidecar.empty(generatedAt: "")
         }()
-        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: result,
+            sidecar: sidecar,
+            metadataBySample: metadataStore?.records ?? [:]
+        )
         let smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = sidecar.smartCohorts.map { cohort in
             let count = subjects.filter { cohort.predicate.evaluate($0) }.count
             return GenotypeSmartCohortSection.DisplayedCohort(filter: cohort, count: count)
@@ -1401,9 +1410,15 @@ public class InspectorViewController: NSViewController {
                 GenotypeResultArtifactRow(label: "Sample Summary CSV", fileURL: result.artifacts.sampleSummaryCSVURL),
                 GenotypeResultArtifactRow(label: "Run Stats JSON", fileURL: result.artifacts.statsJSONURL),
                 GenotypeResultArtifactRow(label: "Provenance", fileURL: result.artifacts.provenanceURL),
+                GenotypeResultArtifactRow(
+                    label: "Annotations & Audit",
+                    fileURL: ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: result.bundleURL)
+                ),
             ],
             smartCohorts: smartCohorts,
-            auditEntries: sidecar.auditLog
+            auditEntries: sidecar.auditLog,
+            haplotypeDefinitionRows: genotypeHaplotypeDefinitionRows(result, sidecar: sidecar),
+            haplotypeDefinitionsFolderURL: genotypeHaplotypeDefinitionsFolderURL(result)
         )
         // Mirror the current display-state knobs into the document state so
         // the Inspector toggles (View Mode radio, "Show observed-only loci"
@@ -1412,7 +1427,7 @@ public class InspectorViewController: NSViewController {
         state.summaryViewMode = currentDisplay.summaryViewMode
         state.showsAncillaryLoci = currentDisplay.showsAncillaryLoci
         viewModel.documentSectionViewModel.updateGenotypeResultDocument(state)
-        viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true)
+        viewModel.genotypeResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
         updateProvenanceTarget(
             url: result.bundleURL,
             sidebarType: .genotypeResultBundle,
@@ -1431,6 +1446,46 @@ public class InspectorViewController: NSViewController {
 
     func updateGenotypeResultDisplayState(_ state: GenotypeResultDisplayState) {
         viewModel.genotypeResultDisplaySectionViewModel.updateDisplayState(state)
+        if let documentState = viewModel.documentSectionViewModel.genotypeResultDocument {
+            viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+                documentState
+                    .replacing(summaryViewMode: state.summaryViewMode)
+                    .replacing(showsAncillaryLoci: state.showsAncillaryLoci)
+            )
+        }
+    }
+
+    func updateGenotypeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar) {
+        guard let state = viewModel.documentSectionViewModel.genotypeResultDocument else { return }
+        var nextState = state.replacing(auditEntries: sidecar.auditLog)
+        if let bundleURL = state.bundleURL,
+           let result = try? ONTGenotypeResultBundle.loadResult(from: bundleURL) {
+            let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+                result: result,
+                sidecar: sidecar,
+                metadataBySample: state.sampleMetadataStore?.records ?? [:]
+            )
+            nextState.smartCohorts = sidecar.smartCohorts.map { cohort in
+                GenotypeSmartCohortSection.DisplayedCohort(
+                    filter: cohort,
+                    count: subjects.filter { cohort.predicate.evaluate($0) }.count
+                )
+            }
+            nextState.haplotypeDefinitionRows = genotypeHaplotypeDefinitionRows(result, sidecar: sidecar)
+        }
+        viewModel.documentSectionViewModel.updateGenotypeResultDocument(
+            nextState
+        )
+        if let bundleURL = state.bundleURL {
+            let annotationURL = ONTGenotypeResultBundleData.annotationSidecarURL(forBundleAt: bundleURL)
+            if FileManager.default.fileExists(atPath: annotationURL.path) {
+                updateProvenanceTarget(
+                    url: annotationURL,
+                    sidebarType: .genotypeResultBundle,
+                    displayName: "Annotations & Audit"
+                )
+            }
+        }
     }
 
     private func genotypeSummaryRows(_ result: ONTGenotypeResultBundleData) -> [(String, String)] {
@@ -1453,6 +1508,45 @@ public class InspectorViewController: NSViewController {
             sampleIds.append(sample)
         }
         return sampleIds
+    }
+
+    private func genotypeHaplotypeDefinitionsFolderURL(_ result: ONTGenotypeResultBundleData) -> URL {
+        genotypeProjectRoot(for: result)
+            .appendingPathComponent("Haplotype Definitions", isDirectory: true)
+    }
+
+    private func genotypeHaplotypeDefinitionRows(
+        _ result: ONTGenotypeResultBundleData,
+        sidecar: GenotypeAnnotationSidecar?
+    ) -> [(String, String)] {
+        let store = HaplotypeDefinitionStore(projectRoot: genotypeProjectRoot(for: result))
+        let definitionID = sidecar?.settings.activeHaplotypeDefinitionSetID
+            ?? result.haplotypeAnalysis?.definitionSetID
+            ?? result.manifest.haplotypeDefinitionSetID
+        let assayID = sidecar?.settings.activeHaplotypeDefinitionSetID == nil
+            ? result.haplotypeAnalysis?.assayID ?? result.manifest.haplotypeAssayID
+            : sidecar?.settings.activeHaplotypeAssayID
+        guard let definitionID else { return [] }
+        let definition = store.mergedRegistry().definitionSet(id: definitionID, assayID: assayID)
+        let locusCount = definition?.locusDefinitions.count ?? result.haplotypeAnalysis?.samples.first?.calls.count ?? 0
+        let haplotypeCount = definition?.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count } ?? 0
+        var rows = [
+            ("Active", definition?.displayName ?? result.haplotypeAnalysis?.definitionSetName ?? definitionID),
+            ("Definition ID", definitionID),
+            ("Loci", "\(locusCount)"),
+            ("Haplotypes", "\(haplotypeCount)"),
+        ]
+        if let assayID = definition?.assayID ?? assayID {
+            rows.insert(("Assay", assayID), at: 2)
+        }
+        return rows
+    }
+
+    private func genotypeProjectRoot(for result: ONTGenotypeResultBundleData) -> URL {
+        result.bundleURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
     }
 
     /// Updates the Selected Item inspector with MSA row/site/range metadata.

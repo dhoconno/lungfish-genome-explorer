@@ -64,4 +64,21 @@ final class GenotypeHaplotypeTapeViewTests: XCTestCase {
             XCTFail("Expected NSAccessibilityElement child")
         }
     }
+
+    func testEmptyAccessibilityLabelUsesNotObservedLanguage() {
+        let view = GenotypeHaplotypeTapeView()
+        view.frame = NSRect(x: 0, y: 0, width: 280, height: 22)
+        view.configure(loci: ["MHC-DPA"], slots: [
+            .init(locus: "MHC-DPA", h1: .empty, h2: .empty),
+        ])
+        view.sampleAccessibilityLabel = "DW474"
+
+        guard let children = view.accessibilityChildren(),
+              let first = children.first as? NSAccessibilityElement,
+              let label = first.accessibilityLabel() else {
+            return XCTFail("Expected NSAccessibilityElement child")
+        }
+        XCTAssertTrue(label.contains("not observed"))
+        XCTAssertFalse(label.contains("absent"))
+    }
 }

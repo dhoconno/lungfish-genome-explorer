@@ -2,6 +2,7 @@ import ArgumentParser
 import Foundation
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 
 /// Merge an annotation patch JSON into a bundle's existing annotation sidecar.
 ///
@@ -36,8 +37,15 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let patchURL = URL(fileURLWithPath: patch)
+        let sidecarURL = ONTGenotypeResultBundleData.annotationSidecarURL(
+            forBundleAt: bundleURL
+        )
+        let priorSidecarInput = FileManager.default.fileExists(atPath: sidecarURL.path)
+            ? ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .input)
+            : nil
 
         let patchData = try Data(contentsOf: patchURL)
         let patchSidecar = try GenotypeAnnotationSidecar.decode(patchData)
@@ -53,12 +61,18 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
             sidecar,
             forBundleAt: bundleURL
         )
+        try await recordApplyAnnotationsProvenance(
+            bundleURL: bundleURL,
+            patchURL: patchURL,
+            sidecarURL: sidecarURL,
+            priorSidecarInput: priorSidecarInput,
+            merge: merge,
+            startedAt: startedAt
+        )
 
         let summary = MergeSummary(
             bundlePath: bundleURL.path,
-            sidecarPath: ONTGenotypeResultBundleData.annotationSidecarURL(
-                forBundleAt: bundleURL
-            ).path,
+            sidecarPath: sidecarURL.path,
             appended: merge.appendedCounts,
             skippedDuplicate: merge.skippedDuplicateCounts
         )
@@ -67,6 +81,73 @@ struct GenotypeApplyAnnotationsSubcommand: AsyncParsableCommand {
         let data = try encoder.encode(summary)
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private func recordApplyAnnotationsProvenance(
+        bundleURL: URL,
+        patchURL: URL,
+        sidecarURL: URL,
+        priorSidecarInput: FileRecord?,
+        merge: MergeResult,
+        startedAt: Date
+    ) async throws {
+        var parameters: [String: ParameterValue] = [
+            "bundle": .file(bundleURL),
+            "patch": .file(patchURL),
+            "annotationSidecar": .file(sidecarURL),
+        ]
+        Self.addCounts(merge.appendedCounts, prefix: "appended", to: &parameters)
+        Self.addCounts(merge.skippedDuplicateCounts, prefix: "skippedDuplicate", to: &parameters)
+        let inputs = [
+            ProvenanceRecorder.fileRecord(url: patchURL, format: .json, role: .input),
+            priorSidecarInput,
+        ].compactMap { $0 }
+        let outputs = [
+            ProvenanceRecorder.fileRecord(url: sidecarURL, format: .json, role: .output),
+        ]
+        try await CLIProvenanceSupport.recordSingleStepRun(
+            name: "lungfish genotype apply-annotations",
+            parameters: parameters,
+            defaults: [
+                "patchSchema": .string(GenotypeAnnotationSidecar.filename),
+                "mergeMode": .string("append-deduplicate"),
+            ],
+            resolved: parameters,
+            toolName: "lungfish-cli",
+            toolVersion: WorkflowRun.currentAppVersion,
+            command: [
+                "lungfish",
+                "genotype",
+                "apply-annotations",
+                "--bundle", bundleURL.path,
+                "--patch", patchURL.path,
+            ],
+            inputs: inputs,
+            outputs: outputs,
+            exitCode: 0,
+            wallTime: max(0, Date().timeIntervalSince(startedAt)),
+            stderr: nil,
+            status: .completed,
+            outputDirectory: bundleURL,
+            writeFileSidecars: true
+        )
+    }
+
+    private static func addCounts(
+        _ counts: AnnotationCategoryCounts,
+        prefix: String,
+        to parameters: inout [String: ParameterValue]
+    ) {
+        parameters["\(prefix)CallOverrides"] = .integer(counts.callOverrides)
+        parameters["\(prefix)CellHighlights"] = .integer(counts.cellHighlights)
+        parameters["\(prefix)RowHighlights"] = .integer(counts.rowHighlights)
+        parameters["\(prefix)SampleNotes"] = .integer(counts.sampleNotes)
+        parameters["\(prefix)CellComments"] = .integer(counts.cellComments)
+        parameters["\(prefix)SampleStatusFlags"] = .integer(counts.sampleStatusFlags)
+        parameters["\(prefix)CallStatusFlags"] = .integer(counts.callStatusFlags)
+        parameters["\(prefix)SmartCohorts"] = .integer(counts.smartCohorts)
+        parameters["\(prefix)ManualHaplotypeAssignments"] = .integer(counts.manualHaplotypeAssignments)
+        parameters["\(prefix)AuditLog"] = .integer(counts.auditLog)
     }
 
     // MARK: - Merge

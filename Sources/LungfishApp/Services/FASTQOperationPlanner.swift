@@ -574,6 +574,7 @@ extension FASTQOperationLaunchRequest {
                 threads: request.threads,
                 sortThreads: request.sortThreads,
                 minSupport: request.minSupport,
+                haplotypeAssayID: request.haplotypeAssayID,
                 haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
                 extraArguments: request.extraArguments
             ))
@@ -662,6 +663,9 @@ extension FASTQOperationLaunchRequest {
                 "allowIndels": "true",
             ]
             if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
+                if let haplotypeAssayID = request.haplotypeAssayID {
+                    params["haplotypeAssay"] = haplotypeAssayID
+                }
                 params["haplotypeDefinition"] = haplotypeDefinitionSetID
             }
             if !request.extraArguments.isEmpty {

@@ -17,6 +17,29 @@ public struct GenotypeHaplotypeDefinitionRegistry: Codable, Equatable, Sendable 
         assays.first { $0.id == id }
     }
 
+    public func definitionSets(assayID: String, speciesCode: String? = nil) -> [GenotypeHaplotypeDefinitionSet] {
+        guard let assay = assay(id: assayID) else { return [] }
+        guard let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !speciesCode.isEmpty else {
+            return assay.definitionSets
+        }
+        return assay.definitionSets.filter {
+            $0.speciesCode.caseInsensitiveCompare(speciesCode) == .orderedSame
+        }
+    }
+
+    public func definitionSet(id: String, assayID: String?) -> GenotypeHaplotypeDefinitionSet? {
+        guard let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !assayID.isEmpty else {
+            return definitionSet(id: id)
+        }
+        return definitionSets(assayID: assayID).first { $0.id == id }
+    }
+
+    public func definitionSets(id: String) -> [GenotypeHaplotypeDefinitionSet] {
+        assays.flatMap(\.definitionSets).filter { $0.id == id }
+    }
+
     public func definitionSet(id: String) -> GenotypeHaplotypeDefinitionSet? {
         assays.lazy.flatMap(\.definitionSets).first { $0.id == id }
     }
@@ -58,6 +81,11 @@ public struct GenotypeHaplotypeDefinitionSet: Codable, Equatable, Sendable {
     /// MHC-B alleles from pbaa.xlsx row 109" in the provenance trail.
     public let changeNote: String?
 
+    private enum CodingKeys: String, CodingKey {
+        case id, assayID, displayName, speciesName, speciesCode, prefix, locusDefinitions
+        case schemaVersion, lastModified, changeNote
+    }
+
     public init(
         id: String,
         assayID: String,
@@ -80,6 +108,22 @@ public struct GenotypeHaplotypeDefinitionSet: Codable, Equatable, Sendable {
         self.schemaVersion = schemaVersion
         self.lastModified = lastModified
         self.changeNote = changeNote
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(String.self, forKey: .id)
+        self.id = id
+        self.assayID = try container.decodeIfPresent(String.self, forKey: .assayID)
+            ?? GenotypeHaplotypeAssayIDResolver.assayID(forDefinitionSetID: id)
+        self.displayName = try container.decode(String.self, forKey: .displayName)
+        self.speciesName = try container.decode(String.self, forKey: .speciesName)
+        self.speciesCode = try container.decode(String.self, forKey: .speciesCode)
+        self.prefix = try container.decode(String.self, forKey: .prefix)
+        self.locusDefinitions = try container.decode([GenotypeHaplotypeLocusDefinition].self, forKey: .locusDefinitions)
+        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion)
+        self.lastModified = try container.decodeIfPresent(String.self, forKey: .lastModified)
+        self.changeNote = try container.decodeIfPresent(String.self, forKey: .changeNote)
     }
 }
 
@@ -143,8 +187,183 @@ public struct GenotypeHaplotypeDefinition: Codable, Equatable, Sendable {
     }
 }
 
+public enum GenotypeHaplotypeDiagnosticMatcher {
+    public static func matches(genotype: String, diagnosticAllele: String) -> Bool {
+        if genotype == diagnosticAllele { return true }
+        let diagnosticTokens = normalizedTokens(from: diagnosticAllele)
+        let genotypeTokens = normalizedTokens(from: genotype)
+        for diagnostic in diagnosticTokens where diagnostic.count >= 3 {
+            for token in genotypeTokens where tokenMatches(token, diagnostic: diagnostic) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func tokenMatches(_ token: String, diagnostic: String) -> Bool {
+        token == diagnostic
+            || token.hasPrefix("\(diagnostic)_")
+            || token.hasPrefix("\(diagnostic)g")
+    }
+
+    private static func normalizedTokens(from allele: String) -> Set<String> {
+        let pieces = allele
+            .split(separator: "|", omittingEmptySubsequences: false)
+            .flatMap { $0.split(separator: ",", omittingEmptySubsequences: false) }
+            .map { String($0) }
+        var tokens = Set<String>()
+        for piece in pieces {
+            let cleaned = piece
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+            guard !cleaned.isEmpty else { continue }
+            insertTokenVariants(cleaned, into: &tokens)
+            insertTokenVariants(removingLeadingRunNumber(from: cleaned), into: &tokens)
+            if let speciesFree = removingSpeciesPrefix(from: removingLeadingRunNumber(from: cleaned)) {
+                insertTokenVariants(speciesFree, into: &tokens)
+            }
+        }
+        return tokens
+    }
+
+    private static func insertTokenVariants(_ token: String, into tokens: inout Set<String>) {
+        guard !token.isEmpty else { return }
+        tokens.insert(token)
+        if let range = token.range(of: #"g\d*$"#, options: .regularExpression) {
+            let stripped = String(token[..<range.lowerBound])
+            if !stripped.isEmpty { tokens.insert(stripped) }
+        }
+    }
+
+    private static func removingLeadingRunNumber(from token: String) -> String {
+        let parts = token.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].allSatisfy(\.isNumber) else { return token }
+        return String(parts[1])
+    }
+
+    private static func removingSpeciesPrefix(from token: String) -> String? {
+        let parts = token.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let species = parts[0].lowercased()
+        guard ["mafa", "mamu", "mane"].contains(species) else { return nil }
+        return String(parts[1])
+    }
+}
+
+public enum GenotypeHaplotypeLocusResolver {
+    public static func canonicalLocusName(_ rawLocus: String) -> String {
+        let trimmed = rawLocus.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Unknown" }
+        var token = trimmed
+        if token.uppercased().hasPrefix("MHC-") {
+            token = String(token.dropFirst(4))
+            if let speciesFree = speciesFreeToken(token) {
+                token = speciesFree
+            }
+        } else if let speciesFree = speciesFreeToken(token) {
+            token = speciesFree
+        }
+        token = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let uppercased = token.uppercased()
+        if uppercased == "AG" || uppercased.hasPrefix("AG") {
+            return "MHC-AG"
+        }
+        if uppercased == "A" || (uppercased.hasPrefix("A") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
+            return "MHC-A"
+        }
+        if uppercased == "B" || (uppercased.hasPrefix("B") && uppercased.dropFirst().allSatisfy(\.isNumber)) {
+            return "MHC-B"
+        }
+        if uppercased.hasPrefix("DRB") {
+            return "MHC-DRB"
+        }
+        for locus in ["DQA", "DQB", "DPA", "DPB"] where uppercased.hasPrefix(locus) {
+            return "MHC-\(locus)"
+        }
+        if uppercased == "F" || uppercased == "G" || uppercased == "E" || uppercased == "70" {
+            return "MHC-\(uppercased)"
+        }
+        if uppercased.hasPrefix("KIR") {
+            return "KIR-\(uppercased)"
+        }
+        return "MHC-\(uppercased)"
+    }
+
+    public static func canonicalLocus(
+        for call: ONTGenotypeCall,
+        definitionSet: GenotypeHaplotypeDefinitionSet?
+    ) -> String {
+        let raw = canonicalLocusName(call.locusGroup)
+        guard let definitionSet else { return raw }
+        if let definition = definitionSet.locusDefinitions.first(where: {
+            $0.locus == raw || canonicalLocusName($0.sourceLocus) == raw
+        }) {
+            return definition.locus
+        }
+        if let definition = definitionSet.locusDefinitions.first(where: { diagnosticCall(call, belongsTo: $0) }) {
+            return definition.locus
+        }
+        return raw
+    }
+
+    public static func rawCall(_ call: ONTGenotypeCall, belongsTo definition: GenotypeHaplotypeLocusDefinition) -> Bool {
+        let raw = canonicalLocusName(call.locusGroup)
+        let definitionLocus = canonicalLocusName(definition.locus)
+        let sourceLocus = canonicalLocusName(definition.sourceLocus)
+        if raw == definition.locus || raw == definitionLocus || raw == sourceLocus {
+            return true
+        }
+        switch definitionLocus {
+        case "MHC-DQ":
+            return raw == "MHC-DQA" || raw == "MHC-DQB"
+        case "MHC-DP":
+            return raw == "MHC-DPA" || raw == "MHC-DPB"
+        default:
+            return false
+        }
+    }
+
+    public static func diagnosticCall(_ call: ONTGenotypeCall, belongsTo definition: GenotypeHaplotypeLocusDefinition) -> Bool {
+        if rawCall(call, belongsTo: definition) { return true }
+        guard allowsCrossFamilyDiagnostics(for: definition) else { return false }
+        return definition.haplotypes.contains { haplotype in
+            haplotype.diagnosticAlleles.contains {
+                GenotypeHaplotypeDiagnosticMatcher.matches(genotype: call.genotype, diagnosticAllele: $0)
+            }
+        }
+    }
+
+    public static func allowsCrossFamilyDiagnostics(for definition: GenotypeHaplotypeLocusDefinition) -> Bool {
+        let source = definition.sourceLocus.lowercased()
+        switch canonicalLocusName(definition.sourceLocus) {
+        case "MHC-A":
+            return source.contains("mafa")
+        case "MHC-DQ", "MHC-DP":
+            return source.contains("mafa") || source == "mhc-dq" || source == "mhc-dp"
+        default:
+            return false
+        }
+    }
+
+    private static func speciesFreeToken(_ token: String) -> String? {
+        let runStripped = removeLeadingRunNumber(from: token)
+        let parts = runStripped.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let species = parts[0].lowercased()
+        guard ["mafa", "mamu", "mane"].contains(species) else { return nil }
+        return String(parts[1])
+    }
+
+    private static func removeLeadingRunNumber(from token: String) -> String {
+        let parts = token.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].allSatisfy(\.isNumber) else { return token }
+        return String(parts[1])
+    }
+}
+
 public enum GenotypeHaplotypeCallStatus: String, Codable, Equatable, Sendable {
     case called
+    case notAssayed
     case noHaplotype
     case tooManyHaplotypes
     case tooManyGenotypes
@@ -220,6 +439,10 @@ public struct GenotypeHaplotypeAnalysis: Codable, Equatable, Sendable {
     public let generatedAt: String?
     public let samples: [GenotypeHaplotypeSampleAnalysis]
 
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, assayID, definitionSetID, definitionSetName, speciesName, generatedAt, samples
+    }
+
     public init(
         schemaVersion: Int = 1,
         assayID: String,
@@ -236,6 +459,34 @@ public struct GenotypeHaplotypeAnalysis: Codable, Equatable, Sendable {
         self.speciesName = speciesName
         self.generatedAt = generatedAt
         self.samples = samples
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let definitionSetID = try container.decode(String.self, forKey: .definitionSetID)
+        self.schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        self.assayID = try container.decodeIfPresent(String.self, forKey: .assayID)
+            ?? GenotypeHaplotypeAssayIDResolver.assayID(forDefinitionSetID: definitionSetID)
+        self.definitionSetID = definitionSetID
+        self.definitionSetName = try container.decode(String.self, forKey: .definitionSetName)
+        self.speciesName = try container.decode(String.self, forKey: .speciesName)
+        self.generatedAt = try container.decodeIfPresent(String.self, forKey: .generatedAt)
+        self.samples = try container.decode([GenotypeHaplotypeSampleAnalysis].self, forKey: .samples)
+    }
+}
+
+private enum GenotypeHaplotypeAssayIDResolver {
+    static let defaultAssayID = "MHC-exon2-miSeq"
+
+    static func assayID(forDefinitionSetID id: String) -> String {
+        let trimmed = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let separator = trimmed.firstIndex(of: ".") {
+            let prefix = String(trimmed[..<separator])
+            if prefix == defaultAssayID {
+                return defaultAssayID
+            }
+        }
+        return defaultAssayID
     }
 }
 
@@ -268,14 +519,20 @@ public enum GenotypeHaplotypeAnalyzer {
     ) -> GenotypeHaplotypeAnalysis {
         let filteredCalls = applyDropout(calls, evaluator: dropoutFilter, definitionSet: definitionSet)
         let callsBySample = Dictionary(grouping: filteredCalls, by: \.sample)
-        let samples = callsBySample.keys.sorted {
+        let observedLoci = observedDefinitionLoci(calls: calls, definitionSet: definitionSet)
+        let rawSampleNames = Set(calls.map(\.sample))
+        let samples = rawSampleNames.sorted {
             $0.localizedStandardCompare($1) == .orderedAscending
         }.map { sample in
             let sampleCalls = callsBySample[sample] ?? []
             return GenotypeHaplotypeSampleAnalysis(
                 sample: sample,
                 calls: definitionSet.locusDefinitions.map { definition in
-                    callHaplotype(locusDefinition: definition, calls: sampleCalls)
+                    callHaplotype(
+                        locusDefinition: definition,
+                        calls: sampleCalls,
+                        locusObservedInRun: observedLoci.contains(definition.locus)
+                    )
                 }
             )
         }
@@ -304,25 +561,20 @@ public enum GenotypeHaplotypeAnalyzer {
         // correct denominator for the ratio tests.
         var sampleTotals: [String: Int] = [:]
         var sampleLocusTotals: [String: [String: Int]] = [:]
+        let canonicalDefinitionLocusByRawLocus = canonicalLocusLookup(for: definitionSet)
         for call in calls {
             sampleTotals[call.sample, default: 0] += max(0, call.passedUniqueReads)
             sampleLocusTotals[call.sample, default: [:]][call.locusGroup, default: 0] += max(0, call.passedUniqueReads)
         }
-        // Resolve the canonical inspector locus name (e.g. "MHC-A") for a
-        // raw call's locusGroup so the per-locus EQ overrides find their
-        // target. Build the mapping from both directions so the lookup
-        // works whether the bundle exposes raw "Mafa-A" / "MHC-A" / the
-        // canonical name directly: try locusGroup as-is, then look it up
-        // by sourceLocus, then fall through to locusGroup itself.
-        let canonicalByGroup: [String: String] = Dictionary(
-            uniqueKeysWithValues: definitionSet.locusDefinitions.flatMap {
-                [($0.locus, $0.locus), ($0.sourceLocus, $0.locus)]
-            }
-        )
         return calls.filter { call in
             let sampleTotal = sampleTotals[call.sample] ?? 0
             let locusTotal = sampleLocusTotals[call.sample]?[call.locusGroup] ?? 0
-            let canonicalLocus = canonicalByGroup[call.locusGroup] ?? call.locusGroup
+            let rawLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+            let canonicalLocus = canonicalDefinitionLocusByRawLocus[rawLocus]
+                ?? GenotypeHaplotypeLocusResolver.canonicalLocus(
+                    for: call,
+                    definitionSet: definitionSet
+                )
             return !evaluator.isLowSupport(
                 reads: call.passedUniqueReads,
                 sampleTotal: sampleTotal,
@@ -332,18 +584,50 @@ public enum GenotypeHaplotypeAnalyzer {
         }
     }
 
+    private static func canonicalLocusLookup(
+        for definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> [String: String] {
+        var lookup: [String: String] = [:]
+        for definition in definitionSet.locusDefinitions {
+            let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(definition.locus)
+            lookup[definitionLocus] = definition.locus
+            lookup[GenotypeHaplotypeLocusResolver.canonicalLocusName(definition.sourceLocus)] = definition.locus
+            switch definitionLocus {
+            case "MHC-DQ":
+                lookup["MHC-DQA"] = definition.locus
+                lookup["MHC-DQB"] = definition.locus
+            case "MHC-DP":
+                lookup["MHC-DPA"] = definition.locus
+                lookup["MHC-DPB"] = definition.locus
+            default:
+                break
+            }
+        }
+        return lookup
+    }
+
     private static func callHaplotype(
         locusDefinition: GenotypeHaplotypeLocusDefinition,
-        calls: [ONTGenotypeCall]
+        calls: [ONTGenotypeCall],
+        locusObservedInRun: Bool
     ) -> GenotypeHaplotypeLocusCall {
-        let alleleText = calls.map(\.genotype).joined(separator: "\n")
-        let observedGenotypes = calls
-            .filter { genotype($0.genotype, belongsTo: locusDefinition.sourceLocus) }
+        let observedGenotypeSet = Set(calls.map(\.genotype))
+        let diagnosticCalls = calls.filter {
+            GenotypeHaplotypeLocusResolver.diagnosticCall($0, belongsTo: locusDefinition)
+        }
+        let observedGenotypes = diagnosticCalls
             .map(\.genotype)
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
         let matched = locusDefinition.haplotypes.compactMap { haplotype -> GenotypeHaplotypeMatchedDefinition? in
-            let observedDiagnostics = haplotype.diagnosticAlleles.filter { alleleText.contains($0) }
+            let observedDiagnostics = haplotype.diagnosticAlleles.filter { allele in
+                diagnosticCalls.contains { call in
+                    GenotypeHaplotypeDiagnosticMatcher.matches(
+                        genotype: call.genotype,
+                        diagnosticAllele: allele
+                    )
+                }
+            }
             // Haplotypes can opt into a "K of N" rule by setting
             // `minimumMatches`. The default behaviour (no override)
             // remains the strict "all alleles must be observed" rule
@@ -362,8 +646,13 @@ public enum GenotypeHaplotypeAnalyzer {
         var status: GenotypeHaplotypeCallStatus
         var notes = ""
 
-        if matched.isEmpty {
-            if usesMCMUndercalledA1063SpecialCase(locusDefinition: locusDefinition, alleleText: alleleText) {
+        if matched.isEmpty, !locusObservedInRun, observedGenotypes.isEmpty {
+            haplotype1 = "Not assayed"
+            haplotype2 = "Not assayed"
+            status = .notAssayed
+            notes = "\(locusDefinition.locus) was not observed anywhere in this run for the active definition set. Treat this as assay/reference coverage not available, not as a sample-level haplotype failure."
+        } else if matched.isEmpty {
+            if usesMCMUndercalledA1063SpecialCase(locusDefinition: locusDefinition, observedGenotypes: observedGenotypeSet) {
                 haplotype1 = "A1_063"
                 haplotype2 = "-"
                 status = .specialCase
@@ -375,7 +664,7 @@ public enum GenotypeHaplotypeAnalyzer {
             }
         } else if matched.count == 1 {
             haplotype1 = matched[0].name
-            if usesMCMUndercalledA1063SpecialCase(locusDefinition: locusDefinition, alleleText: alleleText),
+            if usesMCMUndercalledA1063SpecialCase(locusDefinition: locusDefinition, observedGenotypes: observedGenotypeSet),
                !["M1A", "M2A", "M3A"].contains(where: { matched[0].name.contains($0) }) {
                 haplotype2 = "A1_063"
                 status = .specialCase
@@ -395,7 +684,8 @@ public enum GenotypeHaplotypeAnalyzer {
             status = .tooManyHaplotypes
         }
 
-        if diploidClassIILocusHasTooManyGenotypes(locusDefinition: locusDefinition, calls: calls) {
+        if status != .notAssayed,
+           diploidClassIILocusHasTooManyGenotypes(locusDefinition: locusDefinition, calls: calls) {
             haplotype1 = "ERR: TMG"
             haplotype2 = "ERR: TMG"
             status = .tooManyGenotypes
@@ -414,28 +704,42 @@ public enum GenotypeHaplotypeAnalyzer {
         )
     }
 
+    private static func observedDefinitionLoci(
+        calls: [ONTGenotypeCall],
+        definitionSet: GenotypeHaplotypeDefinitionSet
+    ) -> Set<String> {
+        var observed = Set<String>()
+        for call in calls {
+            let raw = GenotypeHaplotypeLocusResolver.canonicalLocusName(call.locusGroup)
+            for definition in definitionSet.locusDefinitions where
+                raw == definition.locus
+                    || raw == GenotypeHaplotypeLocusResolver.canonicalLocusName(definition.sourceLocus)
+                    || GenotypeHaplotypeLocusResolver.diagnosticCall(call, belongsTo: definition) {
+                observed.insert(definition.locus)
+            }
+        }
+        return observed
+    }
+
     private static func usesMCMUndercalledA1063SpecialCase(
         locusDefinition: GenotypeHaplotypeLocusDefinition,
-        alleleText: String
+        observedGenotypes: Set<String>
     ) -> Bool {
-        locusDefinition.sourceLocus == "Mafa-A" && alleleText.contains("05_M1M2M3_A1_063g")
+        locusDefinition.sourceLocus == "Mafa-A" && observedGenotypes.contains("05_M1M2M3_A1_063g")
     }
 
     private static func diploidClassIILocusHasTooManyGenotypes(
         locusDefinition: GenotypeHaplotypeLocusDefinition,
         calls: [ONTGenotypeCall]
     ) -> Bool {
-        let diploidTokens = ["DPA", "DPB", "DQA", "DQB"]
-        guard let token = diploidTokens.first(where: { locusDefinition.sourceLocus.contains($0) }) else {
+        let definitionLocus = GenotypeHaplotypeLocusResolver.canonicalLocusName(locusDefinition.sourceLocus)
+        let diploidLoci = Set(["MHC-DPA", "MHC-DPB", "MHC-DQA", "MHC-DQB", "MHC-DP", "MHC-DQ"])
+        guard diploidLoci.contains(definitionLocus) else {
             return false
         }
-        return calls.filter { $0.genotype.contains(token) }.count > 2
-    }
-
-    private static func genotype(_ genotype: String, belongsTo sourceLocus: String) -> Bool {
-        guard let locusToken = sourceLocus.split(separator: "-").last.map(String.init) else {
-            return false
-        }
-        return genotype.contains(locusToken)
+        let rawCounts = Dictionary(grouping: calls.filter {
+            GenotypeHaplotypeLocusResolver.rawCall($0, belongsTo: locusDefinition)
+        }, by: { GenotypeHaplotypeLocusResolver.canonicalLocusName($0.locusGroup) })
+        return rawCounts.values.contains { $0.count > 2 }
     }
 }

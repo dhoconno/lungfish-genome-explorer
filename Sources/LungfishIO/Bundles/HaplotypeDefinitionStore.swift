@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishCore
 
@@ -17,6 +18,7 @@ import LungfishCore
 public struct HaplotypeDefinitionStore: Sendable {
     public static let folderName = "Haplotype Definitions"
     public static let fileSuffix = ".lungfishhaplotypedef.json"
+    public static let provenanceSuffix = ".provenance.json"
 
     public let projectRoot: URL?
 
@@ -63,10 +65,12 @@ public struct HaplotypeDefinitionStore: Sendable {
         _ set: GenotypeHaplotypeDefinitionSet,
         changeNote: String? = nil
     ) throws {
+        let startedAt = Date()
         try ensureFolderExists()
         guard let url = fileURL(for: set.id) else {
             throw HaplotypeDefinitionStoreError.noProjectRoot
         }
+        let priorRecord = try? fileRecord(url: url, role: "input")
         let versioned = GenotypeHaplotypeDefinitionSet(
             id: set.id,
             assayID: set.assayID,
@@ -82,14 +86,54 @@ public struct HaplotypeDefinitionStore: Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(versioned)
-        try data.write(to: url, options: .atomic)
+        let fileManager = FileManager.default
+        let hadPriorDefinition = fileManager.fileExists(atPath: url.path)
+        let priorData = hadPriorDefinition ? try Data(contentsOf: url) : nil
+
+        do {
+            try data.write(to: url, options: .atomic)
+            try writeSaveProvenance(
+                set: versioned,
+                outputURL: url,
+                priorRecord: priorRecord,
+                startedAt: startedAt,
+                endedAt: Date()
+            )
+        } catch {
+            if let priorData {
+                try? priorData.write(to: url, options: .atomic)
+            } else if fileManager.fileExists(atPath: url.path) {
+                try? fileManager.removeItem(at: url)
+            }
+            throw error
+        }
     }
 
     /// Remove a user-defined set by id. Does nothing for built-in IDs.
     public func delete(id: String) throws {
+        let startedAt = Date()
         guard let url = fileURL(for: id),
               FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.removeItem(at: url)
+        let removedRecord = try fileRecord(url: url, role: "input")
+        let removedData = try Data(contentsOf: url)
+        do {
+            try FileManager.default.removeItem(at: url)
+            try writeDeleteProvenance(
+                definitionID: id,
+                removedRecord: removedRecord,
+                startedAt: startedAt,
+                endedAt: Date()
+            )
+        } catch {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try? removedData.write(to: url, options: .atomic)
+            }
+            throw error
+        }
+    }
+
+    public func definitionURL(for id: String) -> URL? {
+        fileURL(for: id)
     }
 
     private func fileURL(for id: String) -> URL? {
@@ -97,6 +141,142 @@ public struct HaplotypeDefinitionStore: Sendable {
         let safeId = id.replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: ":", with: "_")
         return folder.appendingPathComponent(safeId + Self.fileSuffix)
+    }
+
+    public func provenanceURL(for id: String) -> URL? {
+        fileURL(for: id)?.appendingPathExtension("provenance.json")
+    }
+
+    private func writeSaveProvenance(
+        set: GenotypeHaplotypeDefinitionSet,
+        outputURL: URL,
+        priorRecord: HaplotypeDefinitionEditProvenance.FileRecord?,
+        startedAt: Date,
+        endedAt: Date
+    ) throws {
+        guard let projectRoot else { return }
+        let argv = [
+            "lungfish-gui",
+            "save-haplotype-definition",
+            "--project", projectRoot.path,
+            "--definition-id", set.id,
+            "--output", outputURL.path,
+        ]
+        let provenance = HaplotypeDefinitionEditProvenance(
+            workflowName: "Haplotype definition save",
+            workflowVersion: Self.currentToolVersion,
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: Self.currentToolVersion,
+            argv: argv,
+            reproducibleCommand: Self.shellCommand(argv),
+            options: .init(
+                explicit: [
+                    "definitionID": set.id,
+                    "assayID": set.assayID,
+                    "displayName": set.displayName,
+                    "speciesName": set.speciesName,
+                    "speciesCode": set.speciesCode,
+                    "changeNote": set.changeNote ?? "",
+                ],
+                resolvedDefaults: [
+                    "folderName": Self.folderName,
+                    "fileSuffix": Self.fileSuffix,
+                    "schemaVersion": "\(set.schemaVersion ?? 0)",
+                    "locusCount": "\(set.locusDefinitions.count)",
+                    "haplotypeCount": "\(set.locusDefinitions.reduce(0) { $0 + $1.haplotypes.count })",
+                ]
+            ),
+            runtime: .init(
+                operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
+                user: NSUserName().isEmpty ? nil : NSUserName()
+            ),
+            inputs: priorRecord.map { [$0] } ?? [],
+            outputs: [try fileRecord(url: outputURL, role: "output")],
+            exitStatus: 0,
+            startedAt: Self.isoString(startedAt),
+            endedAt: Self.isoString(endedAt),
+            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            stderr: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(provenance).write(to: outputURL.appendingPathExtension("provenance.json"), options: .atomic)
+    }
+
+    private func writeDeleteProvenance(
+        definitionID: String,
+        removedRecord: HaplotypeDefinitionEditProvenance.FileRecord,
+        startedAt: Date,
+        endedAt: Date
+    ) throws {
+        guard let projectRoot,
+              let provenanceURL = provenanceURL(for: definitionID) else { return }
+        let argv = [
+            "lungfish-gui",
+            "delete-haplotype-definition",
+            "--project", projectRoot.path,
+            "--definition-id", definitionID,
+        ]
+        let provenance = HaplotypeDefinitionEditProvenance(
+            workflowName: "Haplotype definition delete",
+            workflowVersion: Self.currentToolVersion,
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: Self.currentToolVersion,
+            argv: argv,
+            reproducibleCommand: Self.shellCommand(argv),
+            options: .init(
+                explicit: [
+                    "definitionID": definitionID,
+                    "removedPath": removedRecord.path,
+                ],
+                resolvedDefaults: [
+                    "folderName": Self.folderName,
+                    "fileSuffix": Self.fileSuffix,
+                ]
+            ),
+            runtime: .init(
+                operatingSystem: ProcessInfo.processInfo.operatingSystemVersionString,
+                user: NSUserName().isEmpty ? nil : NSUserName()
+            ),
+            inputs: [removedRecord],
+            outputs: [],
+            exitStatus: 0,
+            startedAt: Self.isoString(startedAt),
+            endedAt: Self.isoString(endedAt),
+            wallTimeSeconds: endedAt.timeIntervalSince(startedAt),
+            stderr: nil
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(provenance).write(to: provenanceURL, options: .atomic)
+    }
+
+    private func fileRecord(url: URL, role: String) throws -> HaplotypeDefinitionEditProvenance.FileRecord {
+        let data = try Data(contentsOf: url)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return .init(path: url.path, role: role, checksumSHA256: digest, fileSizeBytes: UInt64(data.count))
+    }
+
+    private static var currentToolVersion: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0"
+        return "Lungfish \(version) (\(build))"
+    }
+
+    private static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private static func shellCommand(_ argv: [String]) -> String {
+        argv.map { arg in
+            guard !arg.isEmpty else { return "''" }
+            if arg.rangeOfCharacter(from: CharacterSet.whitespacesAndNewlines.union(.init(charactersIn: "'\"$\\`"))) == nil {
+                return arg
+            }
+            return "'" + arg.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }.joined(separator: " ")
     }
 
     /// Merge the built-in registry with all user-defined sets. User sets
@@ -141,6 +321,78 @@ public struct HaplotypeDefinitionStore: Sendable {
             assays: assays,
             defaultDefinitionSetID: builtIn.defaultDefinitionSetID
         )
+    }
+}
+
+public struct HaplotypeDefinitionEditProvenance: Codable, Equatable, Sendable {
+    public struct Options: Codable, Equatable, Sendable {
+        public let explicit: [String: String]
+        public let resolvedDefaults: [String: String]
+    }
+
+    public struct Runtime: Codable, Equatable, Sendable {
+        public let operatingSystem: String
+        public let user: String?
+    }
+
+    public struct FileRecord: Codable, Equatable, Sendable {
+        public let path: String
+        public let role: String
+        public let checksumSHA256: String
+        public let fileSizeBytes: UInt64
+    }
+
+    public let schemaVersion: Int
+    public let workflowName: String
+    public let workflowVersion: String
+    public let toolName: String
+    public let toolVersion: String
+    public let argv: [String]
+    public let reproducibleCommand: String
+    public let options: Options
+    public let runtime: Runtime
+    public let inputs: [FileRecord]
+    public let outputs: [FileRecord]
+    public let exitStatus: Int
+    public let startedAt: String
+    public let endedAt: String
+    public let wallTimeSeconds: TimeInterval
+    public let stderr: String?
+
+    public init(
+        schemaVersion: Int = 1,
+        workflowName: String,
+        workflowVersion: String,
+        toolName: String,
+        toolVersion: String,
+        argv: [String],
+        reproducibleCommand: String,
+        options: Options,
+        runtime: Runtime,
+        inputs: [FileRecord],
+        outputs: [FileRecord],
+        exitStatus: Int,
+        startedAt: String,
+        endedAt: String,
+        wallTimeSeconds: TimeInterval,
+        stderr: String?
+    ) {
+        self.schemaVersion = schemaVersion
+        self.workflowName = workflowName
+        self.workflowVersion = workflowVersion
+        self.toolName = toolName
+        self.toolVersion = toolVersion
+        self.argv = argv
+        self.reproducibleCommand = reproducibleCommand
+        self.options = options
+        self.runtime = runtime
+        self.inputs = inputs
+        self.outputs = outputs
+        self.exitStatus = exitStatus
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.wallTimeSeconds = wallTimeSeconds
+        self.stderr = stderr
     }
 }
 

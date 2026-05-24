@@ -88,6 +88,21 @@ final class GenotypeResultDisplaySectionTests: XCTestCase {
         XCTAssertTrue(source.contains("GenotypeResultViewportLens.allCases"))
     }
 
+    func testGenotypeSummaryModesAreOnlyOutlineAndMatrix() {
+        XCTAssertEqual(GenotypeSummaryViewMode.allCases, [.outline, .matrix])
+        XCTAssertEqual(GenotypeSummaryViewMode.allCases.map(\.displayName), ["Outline", "Matrix"])
+    }
+
+    func testSelectingSummaryViewModeReturnsViewportToSummary() {
+        let viewModel = GenotypeResultDisplaySectionViewModel()
+        viewModel.setViewportLens(.review)
+
+        viewModel.setSummaryViewMode(.matrix)
+
+        XCTAssertEqual(viewModel.displayState.viewportLens, .summary)
+        XCTAssertEqual(viewModel.displayState.summaryViewMode, .matrix)
+    }
+
     func testGenotypeViewSectionOwnsHighlightColorControls() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

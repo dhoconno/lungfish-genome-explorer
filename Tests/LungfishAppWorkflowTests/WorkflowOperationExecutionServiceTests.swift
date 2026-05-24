@@ -121,12 +121,14 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
             analysisName: "ONT08",
             threads: 4,
             minSupport: 2,
+            haplotypeAssayID: "MHC-exon2-miSeq",
             haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
         )
 
         let service = WorkflowOperationExecutionService()
         let arguments = service.ontGenotypingArguments(for: request)
 
+        XCTAssertEqual(try testValue(after: "--haplotype-assay", in: arguments), "MHC-exon2-miSeq")
         XCTAssertEqual(
             try testValue(after: "--haplotype-definition", in: arguments),
             "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"

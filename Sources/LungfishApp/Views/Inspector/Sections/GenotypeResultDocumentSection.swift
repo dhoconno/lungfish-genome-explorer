@@ -22,6 +22,8 @@ struct GenotypeResultDocumentState: Equatable {
     var showsAncillaryLoci: Bool = false
     var smartCohorts: [GenotypeSmartCohortSection.DisplayedCohort] = []
     var auditEntries: [GenotypeAnnotationSidecar.AuditEntry] = []
+    var haplotypeDefinitionRows: [(String, String)] = []
+    var haplotypeDefinitionsFolderURL: URL?
 
     func replacing(sampleMetadataStore: SampleMetadataStore?) -> GenotypeResultDocumentState {
         var copy = self
@@ -38,6 +40,12 @@ struct GenotypeResultDocumentState: Equatable {
     func replacing(showsAncillaryLoci: Bool) -> GenotypeResultDocumentState {
         var copy = self
         copy.showsAncillaryLoci = showsAncillaryLoci
+        return copy
+    }
+
+    func replacing(auditEntries: [GenotypeAnnotationSidecar.AuditEntry]) -> GenotypeResultDocumentState {
+        var copy = self
+        copy.auditEntries = auditEntries
         return copy
     }
 
@@ -58,7 +66,9 @@ struct GenotypeResultDocumentState: Equatable {
             lhs.summaryViewMode == rhs.summaryViewMode &&
             lhs.showsAncillaryLoci == rhs.showsAncillaryLoci &&
             lhs.smartCohorts == rhs.smartCohorts &&
-            lhs.auditEntries == rhs.auditEntries
+            lhs.auditEntries == rhs.auditEntries &&
+            lhs.haplotypeDefinitionRows.elementsEqual(rhs.haplotypeDefinitionRows, by: { $0.0 == $1.0 && $0.1 == $1.1 }) &&
+            lhs.haplotypeDefinitionsFolderURL == rhs.haplotypeDefinitionsFolderURL
     }
 }
 
@@ -75,7 +85,6 @@ struct GenotypeResultDocumentSection: View {
     @State private var isArtifactsExpanded = true
     @State private var isSamplesExpanded = true
     @State private var isViewModeExpanded = true
-    @State private var isSmartCohortsExpanded = true
     @State private var isAuditTimelineExpanded = false
 
     var body: some View {
@@ -89,6 +98,10 @@ struct GenotypeResultDocumentSection: View {
             summarySection
             Divider()
             samplesSection
+            if !state.haplotypeDefinitionRows.isEmpty {
+                Divider()
+                haplotypeDefinitionsSection
+            }
             Divider()
             qcSection
             Divider()
@@ -106,19 +119,6 @@ struct GenotypeResultDocumentSection: View {
                 .padding(.top, 4)
         }
         .font(.caption.weight(.semibold))
-    }
-
-    private var smartCohortsSection: some View {
-        // GenotypeSmartCohortSection already wraps itself in a
-        // DisclosureGroup("Smart Cohorts"); wrapping it in another one
-        // duplicates the header and the disclosure caret. Render the
-        // section directly.
-        GenotypeSmartCohortSection(
-            cohorts: state.smartCohorts,
-            onSelect: { onSmartCohortSelected?($0) },
-            onDelete: { onSmartCohortDeleted?($0) },
-            onAdd: { onSmartCohortAddRequested?() }
-        )
     }
 
     private var viewModeSection: some View {
@@ -149,6 +149,47 @@ struct GenotypeResultDocumentSection: View {
                 }
                 .toggleStyle(.checkbox)
                 .help("Include loci the active haplotype definition set does not analyze (e.g. MHC-AG, MHC-70 for MCM).")
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    private var smartCohortsSection: some View {
+        GenotypeSmartCohortSection(
+            cohorts: state.smartCohorts,
+            onSelect: { cohort in
+                onSmartCohortSelected?(cohort)
+            },
+            onDelete: { cohort in
+                onSmartCohortDeleted?(cohort)
+            },
+            onAdd: {
+                onSmartCohortAddRequested?()
+            }
+        )
+    }
+
+    private var haplotypeDefinitionsSection: some View {
+        DisclosureGroup("Haplotype Definitions", isExpanded: .constant(true)) {
+            VStack(alignment: .leading, spacing: 8) {
+                rowStack(state.haplotypeDefinitionRows)
+                HStack(spacing: 8) {
+                    Button("Open Definitions...") {
+                        NotificationCenter.default.post(
+                            name: .genotypeResultOpenHaplotypeDefinitions,
+                            object: nil,
+                            userInfo: windowScopedUserInfo()
+                        )
+                    }
+                    .controlSize(.small)
+                    if let folderURL = state.haplotypeDefinitionsFolderURL {
+                        Button("Reveal Folder") {
+                            NSWorkspace.shared.activateFileViewerSelecting([folderURL])
+                        }
+                        .controlSize(.small)
+                    }
+                }
             }
             .padding(.top, 4)
         }

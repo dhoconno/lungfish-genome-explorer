@@ -79,51 +79,27 @@ extension GenotypeHaplotypeDefinitionRegistry {
                 ]
             ),
             GenotypeHaplotypeLocusDefinition(
-                locus: "MHC-DQA",
-                sourceLocus: "Mafa-DQA",
+                locus: "MHC-DQ",
+                sourceLocus: "Mafa-DQ",
                 haplotypes: [
-                    GenotypeHaplotypeDefinition(name: "M1DQ", diagnosticAlleles: ["14_M1_DQB1_18_01_01"]),
-                    GenotypeHaplotypeDefinition(name: "M2DQ", diagnosticAlleles: ["14_M2_DQA1_01_04"]),
+                    GenotypeHaplotypeDefinition(name: "M1DQ", diagnosticAlleles: ["14_M1_DQA1_24_03", "14_M1_DQB1_18_01_01"]),
+                    GenotypeHaplotypeDefinition(name: "M2DQ", diagnosticAlleles: ["14_M2_DQA1_01_04", "14_M2M6_DQB1_06g:14_M_DQB1_06_01_01"]),
                     GenotypeHaplotypeDefinition(name: "M3DQ", diagnosticAlleles: ["14_M3_DQB1_16_01", "14_M3_DQA1_05_03_01"]),
                     GenotypeHaplotypeDefinition(name: "M4DQ", diagnosticAlleles: ["14_M4_DQB1_06_08", "14_M4_DQA1_01_07_01"]),
                     GenotypeHaplotypeDefinition(name: "M5DQ", diagnosticAlleles: ["14_M5_DQA1_01_06", "14_M5_DQB1_06_11"]),
-                    GenotypeHaplotypeDefinition(name: "M6DQ", diagnosticAlleles: ["14_M6_DQA1_01_08_01"]),
+                    GenotypeHaplotypeDefinition(name: "M6DQ", diagnosticAlleles: ["14_M6_DQA1_01_08_01", "14_M2M6_DQB1_06g:14_M_DQB1_06_01_01"]),
                     GenotypeHaplotypeDefinition(name: "M7DQ", diagnosticAlleles: ["14_M7_DQA1_23_01", "14_M7_DQB1_18_14"])
                 ]
             ),
             GenotypeHaplotypeLocusDefinition(
-                locus: "MHC-DQB",
-                sourceLocus: "Mafa-DQB",
-                haplotypes: [
-                    GenotypeHaplotypeDefinition(name: "M1DQ", diagnosticAlleles: ["14_M1_DQB1_18_01_01"]),
-                    GenotypeHaplotypeDefinition(name: "M2DQ", diagnosticAlleles: ["14_M2_DQA1_01_04"]),
-                    GenotypeHaplotypeDefinition(name: "M3DQ", diagnosticAlleles: ["14_M3_DQB1_16_01", "14_M3_DQA1_05_03_01"]),
-                    GenotypeHaplotypeDefinition(name: "M4DQ", diagnosticAlleles: ["14_M4_DQB1_06_08", "14_M4_DQA1_01_07_01"]),
-                    GenotypeHaplotypeDefinition(name: "M5DQ", diagnosticAlleles: ["14_M5_DQA1_01_06", "14_M5_DQB1_06_11"]),
-                    GenotypeHaplotypeDefinition(name: "M6DQ", diagnosticAlleles: ["14_M6_DQA1_01_08_01"]),
-                    GenotypeHaplotypeDefinition(name: "M7DQ", diagnosticAlleles: ["14_M7_DQA1_23_01", "14_M7_DQB1_18_14"])
-                ]
-            ),
-            GenotypeHaplotypeLocusDefinition(
-                locus: "MHC-DPA",
-                sourceLocus: "Mafa-DPA",
+                locus: "MHC-DP",
+                sourceLocus: "Mafa-DP",
                 haplotypes: [
                     GenotypeHaplotypeDefinition(name: "M1DP", diagnosticAlleles: ["15_M1_DPA1_07_02", "15_M1_DPB1_19_03"]),
                     GenotypeHaplotypeDefinition(name: "M2DP", diagnosticAlleles: ["15_M2_DPA1_07_01", "15_M2_DPB1_20_01"]),
-                    GenotypeHaplotypeDefinition(name: "M3DP", diagnosticAlleles: ["15_M3_DPB1_09_02"]),
+                    GenotypeHaplotypeDefinition(name: "M3DP", diagnosticAlleles: ["15_M3M5M6_DPA1_02g:DPA1_02_02", "15_M3_DPB1_09_02"]),
                     GenotypeHaplotypeDefinition(name: "M4M7DP", diagnosticAlleles: ["15_M4M7_DPB1_03_03"]),
-                    GenotypeHaplotypeDefinition(name: "M5M6DP", diagnosticAlleles: ["15_M5M6_DPB1_04_01"])
-                ]
-            ),
-            GenotypeHaplotypeLocusDefinition(
-                locus: "MHC-DPB",
-                sourceLocus: "Mafa-DPB",
-                haplotypes: [
-                    GenotypeHaplotypeDefinition(name: "M1DP", diagnosticAlleles: ["15_M1_DPA1_07_02", "15_M1_DPB1_19_03"]),
-                    GenotypeHaplotypeDefinition(name: "M2DP", diagnosticAlleles: ["15_M2_DPA1_07_01", "15_M2_DPB1_20_01"]),
-                    GenotypeHaplotypeDefinition(name: "M3DP", diagnosticAlleles: ["15_M3_DPB1_09_02"]),
-                    GenotypeHaplotypeDefinition(name: "M4M7DP", diagnosticAlleles: ["15_M4M7_DPB1_03_03"]),
-                    GenotypeHaplotypeDefinition(name: "M5M6DP", diagnosticAlleles: ["15_M5M6_DPB1_04_01"])
+                    GenotypeHaplotypeDefinition(name: "M5M6DP", diagnosticAlleles: ["15_M3M5M6_DPA1_02g:DPA1_02_02", "15_M5M6_DPB1_04_01"])
                 ]
             )
         ]

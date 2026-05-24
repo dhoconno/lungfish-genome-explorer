@@ -506,18 +506,38 @@ public struct DocumentSection: View {
                 },
                 onSmartCohortSelected: { cohort in
                     guard let data = try? JSONEncoder().encode(cohort) else { return }
+                    var userInfo: [AnyHashable: Any] = ["cohort": data]
+                    if let scope = genotypeResultDocument.windowStateScope {
+                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                    }
                     NotificationCenter.default.post(
                         name: .genotypeResultSmartCohortApplied,
                         object: nil,
-                        userInfo: ["cohort": data]
+                        userInfo: userInfo
                     )
                 },
-                onSmartCohortDeleted: { _ in
-                    // Deletion happens on the inspector side via the annotation store;
-                    // the Document section's host wires this end-to-end in a follow-up.
+                onSmartCohortDeleted: { cohort in
+                    guard let data = try? JSONEncoder().encode(cohort) else { return }
+                    var userInfo: [AnyHashable: Any] = ["cohort": data]
+                    if let scope = genotypeResultDocument.windowStateScope {
+                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                    }
+                    NotificationCenter.default.post(
+                        name: .genotypeResultSmartCohortDeleteRequested,
+                        object: nil,
+                        userInfo: userInfo
+                    )
                 },
                 onSmartCohortAddRequested: {
-                    // The "Save current filter" picker UI ships in a follow-up.
+                    var userInfo: [AnyHashable: Any] = [:]
+                    if let scope = genotypeResultDocument.windowStateScope {
+                        userInfo[NotificationUserInfoKey.windowStateScope] = scope
+                    }
+                    NotificationCenter.default.post(
+                        name: .genotypeResultSmartCohortSaveRequested,
+                        object: nil,
+                        userInfo: userInfo
+                    )
                 }
             )
         } else if let phylogeneticTreeDocument = viewModel.phylogeneticTreeDocument {

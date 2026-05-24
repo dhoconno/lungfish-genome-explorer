@@ -231,11 +231,14 @@ struct GenotypeOverrideSection: View {
 
     private func reasonLabel(_ tag: GenotypeAnnotationSidecar.OverrideReasonTag) -> String {
         switch tag {
-        case .dropout: return "Dropout"
-        case .contamination: return "Contamination"
-        case .novel: return "Novel"
         case .misCall: return "Mis-call"
+        case .dropoutSuspected: return "Dropout suspected"
+        case .crossContamination: return "Cross-contamination"
+        case .novel: return "Novel"
+        case .pedigreeConflict: return "Pedigree conflict"
+        case .analystJudgment: return "Analyst judgment"
         case .confirmed: return "Confirmed"
+        case .other: return "Other"
         }
     }
 }

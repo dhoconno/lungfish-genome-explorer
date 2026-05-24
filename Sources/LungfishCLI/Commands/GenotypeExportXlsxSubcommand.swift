@@ -34,6 +34,7 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
     var output: String
 
     func run() async throws {
+        let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle)
         let sidecar = try ONTGenotypeResultBundleData
             .loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
@@ -43,8 +44,9 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         // original CLI behavior). This keeps the command useful for
         // sharing the override log of a bundle without artifacts.
         let matrix: Matrix
-        if let result = try? ONTGenotypeResultBundle.loadResult(from: bundleURL) {
-            matrix = MatrixBuilder.build(from: result)
+        let loadedResult = try? ONTGenotypeResultBundle.loadResult(from: bundleURL)
+        if let result = loadedResult {
+            matrix = MatrixBuilder.build(from: result, sidecar: sidecar)
         } else {
             matrix = Matrix(loci: [], rows: [])
         }
@@ -78,6 +80,30 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
             matrix: matrix,
             overrides: overrides,
             audit: audit
+        )
+        try await GenotypeExportProvenanceSupport.record(
+            workflowName: "genotype.export.xlsx",
+            toolName: "lungfish genotype export-xlsx",
+            command: [
+                "lungfish", "genotype", "export-xlsx",
+                "--bundle", bundleURL.path,
+                "--output", outputURL.path,
+            ],
+            bundleURL: bundleURL,
+            outputURLs: [outputURL],
+            outputDirectory: outputURL.deletingLastPathComponent(),
+            optionPaths: [
+                "bundle": bundleURL,
+                "output": outputURL,
+            ],
+            additionalInputURLs: loadedResult.flatMap {
+                GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
+                    for: $0,
+                    bundleURL: bundleURL,
+                    sidecar: sidecar
+                )
+            }.map { [$0] } ?? [],
+            startedAt: startedAt
         )
 
         let summary: [String: Any] = [
@@ -128,8 +154,14 @@ struct GenotypeExportXlsxSubcommand: AsyncParsableCommand {
         /// Builds the matrix from a bundle's haplotype analysis (preferred)
         /// or falls back to inferring per-sample haplotype tokens directly
         /// from the call list when no analysis sidecar exists.
-        static func build(from result: ONTGenotypeResultBundleData) -> Matrix {
-            if let analysis = result.haplotypeAnalysis {
+        static func build(
+            from result: ONTGenotypeResultBundleData,
+            sidecar: GenotypeAnnotationSidecar? = nil
+        ) -> Matrix {
+            if let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+                for: result,
+                sidecar: sidecar
+            ) {
                 return buildFromAnalysis(analysis)
             }
             return buildFromCalls(samples: result.samples)

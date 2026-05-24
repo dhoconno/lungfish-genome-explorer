@@ -94,7 +94,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
     func testSaveClosureForwardsCurrentDraft() {
         var draft = GenotypeOverrideSection.OverrideDraft(
             target: "M3A",
-            reason: .contamination,
+            reason: .crossContamination,
             rationale: "Cross-well bleed"
         )
         let binding = Binding(get: { draft }, set: { draft = $0 })
@@ -110,7 +110,7 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         section.onSave(draft)
 
         XCTAssertEqual(captured?.target, "M3A")
-        XCTAssertEqual(captured?.reason, .contamination)
+        XCTAssertEqual(captured?.reason, .crossContamination)
         XCTAssertEqual(captured?.rationale, "Cross-well bleed")
     }
 
@@ -148,8 +148,17 @@ final class GenotypeOverrideSectionTests: XCTestCase {
         let source = try String(contentsOf: sourceURL, encoding: .utf8)
 
         // Each reason tag should be exposed via a chip case in `reasonLabel`.
-        for tag in GenotypeAnnotationSidecar.OverrideReasonTag.allCases {
-            XCTAssertTrue(source.contains("case .\(tag.rawValue)"), "Missing reason chip label for \(tag.rawValue)")
+        for caseName in [
+            "misCall",
+            "dropoutSuspected",
+            "crossContamination",
+            "novel",
+            "pedigreeConflict",
+            "analystJudgment",
+            "confirmed",
+            "other",
+        ] {
+            XCTAssertTrue(source.contains("case .\(caseName)"), "Missing reason chip label for \(caseName)")
         }
         XCTAssertTrue(source.contains("ForEach(GenotypeAnnotationSidecar.OverrideReasonTag.allCases"))
     }

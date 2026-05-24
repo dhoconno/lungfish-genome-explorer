@@ -60,6 +60,7 @@ final class GenotypeResultDisplaySectionViewModel {
     }
 
     func setSummaryViewMode(_ mode: GenotypeSummaryViewMode) {
+        displayState.viewportLens = .summary
         displayState.summaryViewMode = mode
         notifyStateChanged()
     }

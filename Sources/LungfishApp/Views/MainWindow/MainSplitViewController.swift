@@ -2991,6 +2991,9 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             controller.onDisplayStateChanged = { [weak self] state in
                 self?.inspectorController.updateGenotypeResultDisplayState(state)
             }
+            controller.onAnnotationSidecarChanged = { [weak self] sidecar in
+                self?.inspectorController.updateGenotypeAnnotationSidecar(sidecar)
+            }
             inspectorController.onGenotypeResultDisplayStateChanged = { [weak controller] state in
                 controller?.applyDisplayState(state)
             }

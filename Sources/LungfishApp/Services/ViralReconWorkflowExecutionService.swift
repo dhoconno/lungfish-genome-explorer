@@ -412,8 +412,7 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
             process.executableURL = cliURL
             process.arguments = arguments
         } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["lungfish-cli"] + arguments
+            throw LungfishCLIRunner.RunError.cliNotFound
         }
         process.currentDirectoryURL = workingDirectory
         process.standardOutput = stdoutPipe
@@ -468,19 +467,7 @@ final class ProcessViralReconWorkflowProcessRunner: ViralReconWorkflowProcessRun
     }
 
     private static func lungfishCLIURL() -> URL? {
-        let environment = ProcessInfo.processInfo.environment
-        if let path = environment["LUNGFISH_CLI_PATH"],
-           FileManager.default.isExecutableFile(atPath: path) {
-            return URL(fileURLWithPath: path)
-        }
-
-        let bundled = Bundle.main.bundleURL
-            .appendingPathComponent("Contents/MacOS/lungfish-cli")
-        if FileManager.default.isExecutableFile(atPath: bundled.path) {
-            return bundled
-        }
-
-        return nil
+        CLIImportRunner.cliBinaryPath()
     }
 
     func cancel() {

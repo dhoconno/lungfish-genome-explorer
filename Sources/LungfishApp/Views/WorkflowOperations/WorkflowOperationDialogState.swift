@@ -36,6 +36,7 @@ final class WorkflowOperationDialogState {
     var outputName: String
     var threads: Int
     var minSupport: Int
+    var selectedHaplotypeAssayID: String?
     var selectedHaplotypeDefinitionSetID: String?
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
@@ -59,6 +60,7 @@ final class WorkflowOperationDialogState {
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
+        self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
         self.selectedHaplotypeDefinitionSetID = nil
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
@@ -102,6 +104,13 @@ final class WorkflowOperationDialogState {
 
     var selectedTool: WorkflowOperationTool? {
         tools.first { $0.id == selectedToolID }
+    }
+
+    var haplotypeDefinitionRegistry: GenotypeHaplotypeDefinitionRegistry {
+        guard let projectURL else {
+            return .builtIn
+        }
+        return HaplotypeDefinitionStore(projectRoot: projectURL).mergedRegistry()
     }
 
     var datasetLabel: String {
@@ -203,6 +212,52 @@ final class WorkflowOperationDialogState {
                 .joined(separator: "-") ?? "workflow-output"
         } else {
             outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
+            if selectedHaplotypeAssayID == nil {
+                selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
+            }
+        }
+    }
+
+    func setHaplotypeAssay(_ assayID: String?) {
+        let trimmedAssayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        selectedHaplotypeAssayID = trimmedAssayID?.isEmpty == true ? nil : trimmedAssayID
+        guard let selectedHaplotypeDefinitionSetID else { return }
+        let registry = haplotypeDefinitionRegistry
+        if registry.definitionSet(id: selectedHaplotypeDefinitionSetID, assayID: selectedHaplotypeAssayID) == nil {
+            self.selectedHaplotypeDefinitionSetID = nil
+        }
+    }
+
+    func setHaplotypeDefinition(_ definitionSetID: String?) {
+        let trimmedDefinitionSetID = definitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let id = trimmedDefinitionSetID, !id.isEmpty else {
+            selectedHaplotypeDefinitionSetID = nil
+            return
+        }
+        let registry = haplotypeDefinitionRegistry
+        if let selectedHaplotypeAssayID,
+           registry.definitionSet(id: id, assayID: selectedHaplotypeAssayID) != nil {
+            selectedHaplotypeDefinitionSetID = id
+            return
+        }
+        if let definitionSet = registry.definitionSet(id: id) {
+            selectedHaplotypeAssayID = definitionSet.assayID
+            selectedHaplotypeDefinitionSetID = id
+        }
+    }
+
+    private func refreshHaplotypeSelectionForCurrentProject() {
+        let registry = haplotypeDefinitionRegistry
+        if let selectedHaplotypeAssayID,
+           registry.assay(id: selectedHaplotypeAssayID) == nil {
+            self.selectedHaplotypeAssayID = registry.assays.first?.id
+            selectedHaplotypeDefinitionSetID = nil
+        } else if selectedHaplotypeAssayID == nil {
+            selectedHaplotypeAssayID = registry.assays.first?.id
+        }
+        guard let selectedHaplotypeDefinitionSetID else { return }
+        if registry.definitionSet(id: selectedHaplotypeDefinitionSetID, assayID: selectedHaplotypeAssayID) == nil {
+            self.selectedHaplotypeDefinitionSetID = nil
         }
     }
 
@@ -230,6 +285,7 @@ final class WorkflowOperationDialogState {
         setReads(selectedReadURLs)
         projectReferenceCandidates = Self.discoverReferenceBundles(in: standardizedProjectURL)
         projectBarcodeDefinitionCandidates = Self.discoverBarcodeDefinitionFiles(in: standardizedProjectURL)
+        refreshHaplotypeSelectionForCurrentProject()
 
         if projectChanged || selectedReferenceURL == nil {
             selectedReferenceURL = projectReferenceCandidates.first
@@ -277,6 +333,7 @@ final class WorkflowOperationDialogState {
                 projectURL: projectURL,
                 threads: threads,
                 minSupport: minSupport,
+                haplotypeAssayID: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeAssayID,
                 haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
                 extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText)
             )
@@ -425,6 +482,10 @@ final class WorkflowOperationDialogState {
 
     private static let ontGenotypingID = "builtin.ont-genotyping"
     private static let ontGenotypingResultsDirectoryName = "ONT genotyping results"
+
+    private static func defaultHaplotypeAssayID() -> String? {
+        GenotypeHaplotypeDefinitionRegistry.builtIn.assays.first?.id
+    }
 
     private static func ontGenotypingBundleURL(
         outputLocationURL: URL,

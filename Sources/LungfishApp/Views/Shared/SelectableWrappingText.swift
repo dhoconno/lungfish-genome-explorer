@@ -54,15 +54,31 @@ struct SelectableWrappingText: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: IntrinsicTextView, context: Context) {
+        var needsIntrinsicInvalidation = false
         if nsView.string != text {
             nsView.string = text
+            needsIntrinsicInvalidation = true
         }
-        nsView.font = font
-        nsView.textColor = textColor
-        nsView.textContainer?.maximumNumberOfLines = maximumNumberOfLines ?? 0
-        nsView.textContainer?.lineBreakMode = lineBreakMode
+        if nsView.font != font {
+            nsView.font = font
+            needsIntrinsicInvalidation = true
+        }
+        if nsView.textColor != textColor {
+            nsView.textColor = textColor
+        }
+        let maximumLines = maximumNumberOfLines ?? 0
+        if nsView.textContainer?.maximumNumberOfLines != maximumLines {
+            nsView.textContainer?.maximumNumberOfLines = maximumLines
+            needsIntrinsicInvalidation = true
+        }
+        if nsView.textContainer?.lineBreakMode != lineBreakMode {
+            nsView.textContainer?.lineBreakMode = lineBreakMode
+            needsIntrinsicInvalidation = true
+        }
         nsView.setAccessibilityIdentifier(accessibilityIdentifier)
-        nsView.invalidateIntrinsicContentSize()
+        if needsIntrinsicInvalidation {
+            nsView.invalidateIntrinsicContentSize()
+        }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: IntrinsicTextView, context: Context) -> CGSize? {
@@ -73,13 +89,19 @@ struct SelectableWrappingText: NSViewRepresentable {
 
 @MainActor
 final class IntrinsicTextView: NSTextView {
+    private var lastIntrinsicLayoutWidth: CGFloat = -1
+
     override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: fittingHeight(for: bounds.width))
     }
 
     override func layout() {
         super.layout()
-        invalidateIntrinsicContentSize()
+        let roundedWidth = bounds.width.rounded(.toNearestOrAwayFromZero)
+        if abs(roundedWidth - lastIntrinsicLayoutWidth) > 0.5 {
+            lastIntrinsicLayoutWidth = roundedWidth
+            invalidateIntrinsicContentSize()
+        }
     }
 
     func fittingHeight(for width: CGFloat) -> CGFloat {

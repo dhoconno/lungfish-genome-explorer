@@ -80,6 +80,22 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
         XCTAssertEqual(subjects[1].qcStatus, .lowSupport)
     }
 
+    func testCarriesImportedMetadataIntoSmartCohortSubjects() {
+        let result = makeResult(samples: [("DW472", .ok), ("DW473", .ok)])
+        let sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "")
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: result,
+            sidecar: sidecar,
+            metadataBySample: [
+                "DW472": ["Cohort": "Kenyon20", "Animal ID": "H18C153"],
+                "DW473": ["Cohort": "Indonesia", "Animal ID": "H18C174"],
+            ]
+        )
+
+        let predicate = SmartCohortPredicate.metadataFieldContains(field: "Cohort", value: "Kenyon20")
+        XCTAssertEqual(subjects.filter { predicate.evaluate($0) }.map(\.animalId), ["DW472"])
+    }
+
     func testFoldsAnnotationStateIntoSubject() {
         var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "")
         sidecar.sampleNotes.append(.init(sample: "S1", body: "review me", author: "u", timestamp: "t"))
@@ -125,5 +141,120 @@ final class GenotypeCohortSubjectBuilderTests: XCTestCase {
             sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "")
         )
         XCTAssertTrue(subjects.first?.hasErrorAtAnyLocus ?? false)
+    }
+
+    func testCallOverridesFeedCohortCallsAndErrorState() {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "MCM",
+            speciesName: "MCM",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B", sourceLocus: "Mafa-B",
+                            haplotype1: "M3B", haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [], observedGenotypeCount: 2,
+                            observedGenotypes: []
+                        )
+                    ]
+                )
+            ]
+        )
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "")
+        sidecar.callOverrides.append(.init(
+            sample: "DW472",
+            locus: "MHC-B",
+            slot: .h2,
+            originalCall: "-",
+            overrideCall: "M2B",
+            reasonTag: .misCall,
+            rationale: "Promoted from Review inspector.",
+            author: "u",
+            timestamp: "t"
+        ))
+
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: makeResult(samples: [("DW472", .ok)], analysis: analysis),
+            sidecar: sidecar
+        )
+        let subject = subjects.first
+
+        XCTAssertEqual(subject?.calls.map(\.name), ["M3B", "M2B"])
+        XCTAssertFalse(subject?.isHomozygousAcrossAll ?? true)
+        XCTAssertFalse(subject?.hasErrorAtAnyLocus ?? true)
+    }
+
+    func testNotAssayedCallsAreNeutralForHomozygousCohortState() {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "MCM",
+            speciesName: "MCM",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW474",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DPB", sourceLocus: "Mafa-DPB",
+                            haplotype1: "Not assayed", haplotype2: "Not assayed",
+                            status: .notAssayed,
+                            matchedHaplotypes: [], observedGenotypeCount: 0,
+                            observedGenotypes: []
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: makeResult(samples: [("DW474", .ok)], analysis: analysis),
+            sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "")
+        )
+        let subject = subjects.first
+
+        XCTAssertFalse(subject?.hasErrorAtAnyLocus ?? true)
+        XCTAssertFalse(subject?.isHomozygousAcrossAll ?? true)
+        XCTAssertEqual(subject?.calls.map(\.isHomozygous), [false, false])
+    }
+
+    func testNotAssayedCallsDoNotPreventCalledLociFromBeingHomozygous() {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "MCM",
+            speciesName: "MCM",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW474",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A", sourceLocus: "Mafa-A",
+                            haplotype1: "M1A", haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [], observedGenotypeCount: 2,
+                            observedGenotypes: ["01_M1_F_01_w_06", "11_M1_E_02g3"]
+                        ),
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DPB", sourceLocus: "Mafa-DPB",
+                            haplotype1: "Not assayed", haplotype2: "Not assayed",
+                            status: .notAssayed,
+                            matchedHaplotypes: [], observedGenotypeCount: 0,
+                            observedGenotypes: []
+                        )
+                    ]
+                )
+            ]
+        )
+
+        let subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+            result: makeResult(samples: [("DW474", .ok)], analysis: analysis),
+            sidecar: GenotypeAnnotationSidecar.empty(generatedAt: "")
+        )
+
+        XCTAssertTrue(subjects.first?.isHomozygousAcrossAll ?? false)
     }
 }

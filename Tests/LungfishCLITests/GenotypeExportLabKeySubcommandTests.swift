@@ -1,6 +1,7 @@
 import XCTest
 import LungfishCore
 import LungfishIO
+import LungfishWorkflow
 @testable import LungfishCLI
 
 final class GenotypeExportLabKeySubcommandTests: XCTestCase {
@@ -134,7 +135,7 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         )
         let overrideLines = overridesContent.split(separator: "\n").map(String.init)
         XCTAssertEqual(overrideLines.count, 2, "1 header + 1 override row expected")
-        XCTAssertTrue(overrideLines[1].hasPrefix("AnimalA,MHC-A,h1,M1A,M2A,misCall,"))
+        XCTAssertTrue(overrideLines[1].hasPrefix("AnimalA,MHC-A,h1,M1A,M2A,mis-call,"))
 
         let auditContent = try String(
             contentsOf: outputDir.appendingPathComponent("audit_log.csv"),
@@ -167,6 +168,76 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         )
         let alleleLines = alleleContent.split(separator: "\n").map(String.init)
         XCTAssertEqual(alleleLines.count, 4, "header + 3 call rows")
+    }
+
+    func testLabKeyExportUsesSidecarActiveCustomHaplotypeDefinition() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("labkey-active-definition-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let bundleURL = projectRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("ONT genotyping results", isDirectory: true)
+            .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let definition = customDefinition(id: "custom.labkey.definition", haplotypeName: "NewB")
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(definition)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-24T00:00:00Z")
+        sidecar.settings.activeHaplotypeDefinitionSetID = definition.id
+        let result = inMemoryResult(
+            bundleURL: bundleURL,
+            calls: [makeCall(sample: "AnimalA", genotype: "12_M9_B_001_01", reads: 150)],
+            haplotypeAnalysis: persistedAnalysis(haplotypeName: "OldB")
+        )
+        let outputDir = projectRoot.appendingPathComponent("labkey", isDirectory: true)
+        try FileManager.default.createDirectory(at: outputDir, withIntermediateDirectories: true)
+        let exporter = LabKeyExporter(
+            outputDir: outputDir,
+            bundleURL: bundleURL,
+            result: result,
+            sidecar: sidecar
+        )
+
+        _ = try exporter.writeAll()
+
+        let content = try String(
+            contentsOf: outputDir.appendingPathComponent("haplotype_calls.csv"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(content.contains("AnimalA,AnimalA,MHC-B,h1,NewB,called"))
+        XCTAssertFalse(content.contains("OldB"))
+    }
+
+    func testExportCommandWritesProvenanceForLabKeyOutputs() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("labkey-export-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let bundleURL = try makeFixtureBundle(in: root)
+        let outputDir = root.appendingPathComponent("labkey", isDirectory: true)
+        let command = try GenotypeExportLabKeySubcommand.parse([
+            "--bundle", bundleURL.path,
+            "--output-dir", outputDir.path,
+        ])
+
+        try await command.run()
+
+        let rootProvenanceURL = outputDir.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: rootProvenanceURL.path))
+        let haplotypeSidecar = ProvenanceRecorder.fileSidecarURL(
+            for: outputDir.appendingPathComponent("haplotype_calls.csv")
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: haplotypeSidecar.path))
+        let envelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: rootProvenanceURL))
+        XCTAssertEqual(envelope.workflowName, "genotype.export.labkey")
+        XCTAssertTrue(envelope.argv.contains("export-labkey"))
+        XCTAssertEqual(Set(envelope.outputs.map { URL(fileURLWithPath: $0.path).lastPathComponent }), [
+            "haplotype_calls.csv",
+            "allele_read_counts.csv",
+            "overrides.csv",
+            "audit_log.csv",
+            "smart_cohorts.csv",
+        ])
     }
 
     // MARK: - Fixture
@@ -313,7 +384,7 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
                     before: "M1A",
                     after: "M2A",
                     color: nil,
-                    reason: "misCall",
+                    reason: "mis-call",
                     rationale: "Reviewed read pileup; M2A diagnostic clearer.",
                     author: "alice",
                     timestamp: "2026-05-22T11:00:00Z"
@@ -323,5 +394,105 @@ final class GenotypeExportLabKeySubcommandTests: XCTestCase {
         try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
 
         return bundleURL
+    }
+
+    private func inMemoryResult(
+        bundleURL: URL,
+        calls: [ONTGenotypeCall],
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis
+    ) -> ONTGenotypeResultBundleData {
+        ONTGenotypeResultBundleData(
+            bundleURL: bundleURL,
+            manifest: ONTGenotypeResultBundleManifest(
+                outputName: "test",
+                analysisName: "Test",
+                primaryWorkbookPath: "test.xlsx",
+                longSummaryCSVPath: "test.retained-demux-genotypes.csv",
+                sampleSummaryCSVPath: "test.retained-demux-samples.csv",
+                statsJSONPath: "test.retained-demux-stats.json",
+                provenancePath: "retained-demux-genotyping-provenance.json"
+            ),
+            artifacts: ONTGenotypeResultArtifacts(
+                workbookURL: bundleURL.appendingPathComponent("test.xlsx"),
+                longSummaryCSVURL: bundleURL.appendingPathComponent("test.retained-demux-genotypes.csv"),
+                sampleSummaryCSVURL: bundleURL.appendingPathComponent("test.retained-demux-samples.csv"),
+                statsJSONURL: bundleURL.appendingPathComponent("test.retained-demux-stats.json"),
+                provenanceURL: bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+            ),
+            stats: ONTGenotypeRunStats(totalInputReads: 1000, retainedUniqueReads: 150),
+            calls: calls,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "AnimalA",
+                    passedAlignments: 150,
+                    passedUniqueReads: 150,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: calls
+                )
+            ],
+            haplotypeAnalysis: haplotypeAnalysis
+        )
+    }
+
+    private func customDefinition(id: String, haplotypeName: String) -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: id,
+            assayID: "custom-assay",
+            displayName: "Custom LabKey Definition",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: haplotypeName, diagnosticAlleles: ["12_M9_B_001_01"])
+                    ]
+                )
+            ]
+        )
+    }
+
+    private func persistedAnalysis(haplotypeName: String) -> GenotypeHaplotypeAnalysis {
+        GenotypeHaplotypeAnalysis(
+            assayID: "custom-assay",
+            definitionSetID: "old.definition",
+            definitionSetName: "Old Definition",
+            speciesName: "Test macaque",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "AnimalA",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: haplotypeName,
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["12_OLD_B_001_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+    }
+
+    private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
+        ONTGenotypeCall(
+            sample: sample,
+            genotype: genotype,
+            passedAlignments: reads,
+            passedUniqueReads: reads,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
     }
 }

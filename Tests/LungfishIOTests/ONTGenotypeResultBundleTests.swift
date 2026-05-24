@@ -533,13 +533,15 @@ final class ONTGenotypeResultBundleTests: XCTestCase {
             statsJSONPath: statsJSONURL.lastPathComponent,
             provenancePath: provenanceURL.lastPathComponent,
             haplotypeAnalysisPath: haplotypeURL.lastPathComponent,
-            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            haplotypeAssayID: "MHC-exon2-miSeq"
         )
         try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
 
         let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
 
         XCTAssertEqual(result.manifest.haplotypeDefinitionSetID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+        XCTAssertEqual(result.manifest.haplotypeAssayID, "MHC-exon2-miSeq")
         XCTAssertEqual(result.artifacts.haplotypeAnalysisURL, haplotypeURL.standardizedFileURL)
         XCTAssertEqual(result.haplotypeAnalysis?.definitionSetName, "Mauritian cynomolgus macaques")
         XCTAssertEqual(result.haplotypeAnalysis?.samples.first?.calls.first?.haplotype1, "A1_063")

@@ -208,6 +208,135 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertTrue(controller.testingHaplotypeLensText.contains("Review in Analyst"))
     }
 
+    func testHaplotypeLensTreatsWholeMHCHomozygoteAsSimpleDespiteMultipleDiagnosticFamilies() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW474",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 4,
+                            observedGenotypes: [
+                                "11_M1_E_02g3",
+                                "02_M1_G_02_07_2mis_156bp",
+                                "04_M1_AG_05_3mis_156bp",
+                                "01_M1_F_01_w_06",
+                            ]
+                        ),
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: [
+                                "12_M3_B_075_01",
+                                "12_M3_B_079_05",
+                                "12_M3_B_165_01",
+                            ]
+                        ),
+                    ]
+                )
+            ]
+        )
+
+        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.testingSelectLens(.review)
+
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("DW474"))
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("Simple"))
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("None"))
+        XCTAssertFalse(controller.testingHaplotypeLensText.contains("MHC-A: called"))
+        XCTAssertFalse(controller.testingHaplotypeLensText.contains("MHC-B: called"))
+    }
+
+    func testHaplotypeLensKeepsMixedFamilyHomozygoteInReview() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW-mixed",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: [
+                                "01_M1_F_01_w_06",
+                                "02_M1_G_02_07_2mis_156bp",
+                                "02_M2_G_02_06_156bp",
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.testingSelectLens(.review)
+
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("DW-mixed"))
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("Review"))
+        XCTAssertTrue(controller.testingHaplotypeLensText.contains("MHC-A: called"))
+    }
+
+    func testOutlineRendersSingleHaplotypeHomozygoteInBothSlots() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW474",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 4,
+                            observedGenotypes: ["01_M1_F_01_w_06"]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+
+        let slot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW474").first { $0.locus == "MHC-A" })
+        XCTAssertEqual(slot.h1.testingLabel, "M1A")
+        XCTAssertEqual(slot.h2.testingLabel, "M1A")
+    }
+
     func testDisplayStateCanSwitchViewportToHaplotypes() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -287,6 +416,191 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertEqual(controller.testingVisibleLensIdentifier, "summary")
         XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_063g"])
+    }
+
+    func testConfirmingReviewCallMarksLocusResolvedAndAdvancesQueue() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeReviewConfirm-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                reviewSample("DW001"),
+                reviewSample("DW002"),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(sample: "DW001", genotype: "12_M1_B_001_01", reads: 100),
+                makeCall(sample: "DW002", genotype: "12_M1_B_001_01", reads: 100),
+            ],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectLens(.review)
+
+        XCTAssertEqual(controller.testingCurrentSelectedSample, "DW001")
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "DW001")
+
+        controller.testingConfirmCurrentCallEvidence()
+
+        XCTAssertEqual(controller.testingOutlineIssueCount(sample: "DW001"), 0)
+        XCTAssertEqual(controller.testingCurrentSelectedSample, "DW002")
+        XCTAssertEqual(controller.testingCurrentCallEvidenceSample, "DW002")
+        let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+        XCTAssertTrue(sidecar.callStatusFlags.contains {
+            $0.sample == "DW001" && $0.locus == "MHC-B" && $0.value == .confirmed
+        })
+    }
+
+    func testConfirmingReviewCallAdvancesWithinSameSampleBeforeNextSample() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeReviewConfirmMultiLocus-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                reviewSample("DW001", loci: ["MHC-B", "MHC-DRB"]),
+                reviewSample("DW002", loci: ["MHC-B"]),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: [
+                makeCall(sample: "DW001", genotype: "12_M1_B_001_01", reads: 100),
+                makeCall(sample: "DW001", genotype: "13_M1_DRB_W5_01", reads: 100),
+                makeCall(sample: "DW002", genotype: "12_M1_B_001_01", reads: 100),
+            ],
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingSelectLens(.review)
+
+        controller.testingConfirmCurrentCallEvidence()
+        controller.testingConfirmCurrentCallEvidence()
+
+        let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+        XCTAssertTrue(sidecar.callStatusFlags.contains {
+            $0.sample == "DW001" && $0.locus == "MHC-B" && $0.value == .confirmed
+        })
+        XCTAssertTrue(sidecar.callStatusFlags.contains {
+            $0.sample == "DW001" && $0.locus == "MHC-DRB" && $0.value == .confirmed
+        })
+        XCTAssertFalse(sidecar.callStatusFlags.contains {
+            $0.sample == "DW002" && $0.locus == "MHC-B" && $0.value == .confirmed
+        })
+        XCTAssertEqual(controller.testingCurrentSelectedSample, "DW002")
+        XCTAssertEqual(controller.testingOutlineIssueCount(sample: "DW001"), 0)
+    }
+
+    private func reviewSample(
+        _ sample: String,
+        loci: [String] = ["MHC-B"]
+    ) -> GenotypeHaplotypeSampleAnalysis {
+        GenotypeHaplotypeSampleAnalysis(
+            sample: sample,
+            calls: loci.map { locus in
+                GenotypeHaplotypeLocusCall(
+                    locus: locus,
+                    sourceLocus: locus == "MHC-DRB" ? "Mafa-DRB" : "Mafa-B",
+                    haplotype1: locus == "MHC-DRB" ? "ERR: TMH (M1DR, M2DR, M3DR)" : "ERR: TMH (M1B, M2B, M3B)",
+                    haplotype2: locus == "MHC-DRB" ? "ERR: TMH (M1DR, M2DR, M3DR)" : "ERR: TMH (M1B, M2B, M3B)",
+                    status: .tooManyHaplotypes,
+                    matchedHaplotypes: [],
+                    observedGenotypeCount: 4,
+                    observedGenotypes: locus == "MHC-DRB" ? ["DRB1", "DRB2", "DRB3", "DRB4"] : ["B1", "B2", "B3", "B4"]
+                )
+            }
+        )
+    }
+
+    func testReviewLensUsesNeedsReviewCohortIncludingLowSupportSamples() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeReviewNeedsReview-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let lowCalls = [
+            makeCall(sample: "LowSupport", genotype: "12_M3_B_075_01", reads: 2),
+            makeCall(sample: "LowSupport", genotype: "12_M3_B_165_01", reads: 2),
+        ]
+        let okCalls = [
+            makeCall(sample: "OKSample", genotype: "12_M3_B_075_01", reads: 100),
+            makeCall(sample: "OKSample", genotype: "12_M3_B_165_01", reads: 80),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                calledReviewSample("LowSupport"),
+                calledReviewSample("OKSample"),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "LowSupport",
+                    passedAlignments: 10,
+                    passedUniqueReads: 4,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: lowCalls
+                ),
+                ONTGenotypeSampleResult(
+                    sample: "OKSample",
+                    passedAlignments: 100,
+                    passedUniqueReads: 180,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: okCalls
+                ),
+            ],
+            calls: lowCalls + okCalls,
+            haplotypeAnalysis: analysis
+        ))
+
+        controller.testingSelectLens(.review)
+
+        XCTAssertEqual(controller.testingVisibleOutlineSamples, ["LowSupport"])
+        XCTAssertEqual(controller.testingSavedCohortChipTitle, "Saved: Needs review")
+    }
+
+    private func calledReviewSample(_ sample: String) -> GenotypeHaplotypeSampleAnalysis {
+        GenotypeHaplotypeSampleAnalysis(
+            sample: sample,
+            calls: [
+                GenotypeHaplotypeLocusCall(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotype1: "M3B",
+                    haplotype2: "-",
+                    status: .called,
+                    matchedHaplotypes: [],
+                    observedGenotypeCount: 1,
+                    observedGenotypes: ["12_M3_B_075_01"]
+                )
+            ]
+        )
     }
 
     func testLocusFilterKeepsAGSeparateFromClassicalA() {
@@ -402,6 +716,139 @@ final class GenotypeResultViewportTests: XCTestCase {
         ])
     }
 
+    func testComparisonMatrixExportSnapshotUsesCohortSampleColumns() {
+        let matrix = GenotypeComparisonMatrixView()
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW474", genotype: "12_M3_B_075_01", reads: 119),
+        ]
+        matrix.configure(result: makeResult(samples: [
+            ONTGenotypeSampleResult(
+                sample: "DW472",
+                passedAlignments: 148,
+                passedUniqueReads: 148,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [calls[0]]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "DW474",
+                passedAlignments: 119,
+                passedUniqueReads: 119,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [calls[1]]
+            ),
+        ], calls: calls))
+
+        matrix.applyCohortFilter(["DW472"])
+        let snapshot = matrix.exportSnapshot(
+            bundleURL: URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
+            analysisName: "Example",
+            lens: "summary.matrix"
+        )
+
+        XCTAssertEqual(snapshot.sampleNames, ["DW472"])
+        XCTAssertEqual(snapshot.rows.first?.sampleReads, ["DW472": 148])
+    }
+
+    func testControllerExportSnapshotIncludesSavedFilterContext() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeExportContext-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW474", genotype: "12_M3_B_075_01", reads: 119),
+        ]
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "DW472",
+                passedAlignments: 148,
+                passedUniqueReads: 148,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [calls[0]]
+            ),
+            ONTGenotypeSampleResult(
+                sample: "DW474",
+                passedAlignments: 119,
+                passedUniqueReads: 119,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: [calls[1]]
+            ),
+        ], calls: calls))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix))
+
+        controller.testingSetUnifiedSampleFilter("DW472")
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        controller.testingSetUnifiedSampleFilter("")
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+
+        XCTAssertEqual(snapshot.sampleNames, ["DW472"])
+        XCTAssertEqual(snapshot.filters["activeSmartCohortName"], "Filter: DW472")
+        XCTAssertEqual(snapshot.filters["activeSmartCohortScope"], "bundle")
+        XCTAssertTrue(snapshot.filters["activeSmartCohortPredicate"]?.contains("DW472") ?? false)
+    }
+
+    func testControllerExportSnapshotUsesVisibleHaplotypeMatrixRows() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+
+        XCTAssertEqual(snapshot.lens, "summary.matrix.haplotypeDefinitions")
+        XCTAssertTrue(snapshot.sampleNames.contains("12_M3_B_075_01"))
+        XCTAssertTrue(snapshot.rows.contains { $0.genotype == "M3B" && $0.locus == "DW472 MHC-B" })
+        XCTAssertFalse(snapshot.rows.contains { $0.genotype == "12_M3_B_075_01" })
+    }
+
+    func testExportRevealTargetsProvenancePackageRatherThanBareWorkbook() {
+        let controller = GenotypeResultViewController()
+        let packageURL = URL(fileURLWithPath: "/tmp/export.lungfishexport", isDirectory: true)
+        let workbookURL = packageURL.appendingPathComponent("genotype-view.xlsx")
+        let result = GenotypeViewportExcelExportResult(
+            packageURL: packageURL,
+            workbookURL: workbookURL,
+            provenanceURL: packageURL.appendingPathComponent("provenance/provenance.json")
+        )
+
+        XCTAssertEqual(controller.testingFileViewerSelectionURLs(for: result), [packageURL])
+    }
+
     func testDisplayStateCanMoveListRightAndTop() {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -416,6 +863,31 @@ final class GenotypeResultViewportTests: XCTestCase {
 
         XCTAssertFalse(controller.testingSplitIsVertical)
         XCTAssertTrue(controller.testingFirstPaneIsMatrix)
+    }
+
+    func testTopLayoutSplitMinimumsLeaveUsableViewportContent() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listTop))
+
+        let extents = controller.testingMinimumSplitExtents
+
+        XCTAssertGreaterThanOrEqual(extents.leading, 128)
+        XCTAssertGreaterThanOrEqual(extents.trailing, 100)
+    }
+
+    func testSplitMaxCoordinateReservesTrailingPaneAndDivider() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(layout: .listTop))
+
+        let maxCoordinate = controller.testingConstrainedMaxSplitCoordinate(containerExtent: 600)
+
+        XCTAssertEqual(
+            maxCoordinate,
+            600 - controller.testingSplitDividerThickness - controller.testingMinimumSplitExtents.trailing,
+            accuracy: 0.5
+        )
     }
 
     func testSupportThresholdFiltersRowsAndCells() {
@@ -545,6 +1017,89 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_001_01"])
     }
 
+    func testUnifiedMatrixFilterAppliesGenotypeTextAsRowFilter() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            ONTGenotypeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+            ONTGenotypeCall(
+                sample: "AnimalA",
+                genotype: "04_Mafa_B_001_01",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+        ]
+        controller.configure(result: makeResult(samples: [], calls: calls))
+
+        controller.testingSetUnifiedSampleFilter("MHC-B")
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["04_Mafa_B_001_01"])
+    }
+
+    func testUnifiedMatrixFilterMatchesMetadataFieldQueries() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
+        try """
+        Sample\tCohort
+        AnimalA\ttreated
+        AnimalB\tcontrol
+        """.write(to: metadataDir.appendingPathComponent("sample_metadata.tsv"), atomically: true, encoding: .utf8)
+        let calls = [
+            ONTGenotypeCall(
+                sample: "AnimalA",
+                genotype: "01_Mafa_A1_001_01",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+            ONTGenotypeCall(
+                sample: "AnimalB",
+                genotype: "02_Mafa_A2_001_01",
+                passedAlignments: 42,
+                passedUniqueReads: 42,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                overallInputReads: nil,
+                overallUniqueRetainedReads: nil,
+                overallUniqueRetainedPercent: nil
+            ),
+        ]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls))
+
+        controller.testingSetUnifiedSampleFilter("Cohort=treated")
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_001_01"])
+    }
+
     func testApplyingImportedSampleMetadataRefreshesExistingMatrixSearch() throws {
         let controller = GenotypeResultViewController()
         _ = controller.view
@@ -573,6 +1128,951 @@ final class GenotypeResultViewportTests: XCTestCase {
         controller.applySampleMetadataStore(store)
 
         XCTAssertEqual(controller.testingVisibleGenotypes, ["01_Mafa_A1_001_01"])
+    }
+
+    func testUnifiedSampleFilterMatchesImportedMetadataFieldsInOutline() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        let metadataDir = bundleURL.appendingPathComponent("metadata", isDirectory: true)
+        try FileManager.default.createDirectory(at: metadataDir, withIntermediateDirectories: true)
+        try """
+        Sample\tCohort\tAnimal Type
+        AnimalA\ttreated\tcase
+        AnimalB\tcontrol\tcontrol
+        """.write(to: metadataDir.appendingPathComponent("sample_metadata.tsv"), atomically: true, encoding: .utf8)
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "AnimalA",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["A1"]
+                        )
+                    ]
+                ),
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "AnimalB",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M2A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["A2"]
+                        )
+                    ]
+                ),
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: [], haplotypeAnalysis: analysis))
+
+        controller.testingSetUnifiedSampleFilter("Cohort=treated")
+
+        XCTAssertEqual(controller.testingVisibleOutlineSamples, ["AnimalA"])
+    }
+
+    func testSaveCurrentFilterPersistsMetadataSmartCohortWithAudit() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: []))
+        controller.testingSetUnifiedSampleFilter("Cohort=Kenyon20")
+
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+
+        let sidecar = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleURL)
+        let saved = sidecar.smartCohorts.first { $0.name == "Filter: Cohort=Kenyon20" }
+        XCTAssertEqual(saved?.predicate, .metadataFieldContains(field: "Cohort", value: "Kenyon20"))
+        XCTAssertTrue(sidecar.auditLog.contains { $0.action == "saveSmartCohort" && $0.after?.contains("Cohort=Kenyon20") == true })
+    }
+
+    func testSavedTextFilterRoundTripsAsMatrixRowFilter() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "AnimalA", genotype: "01_Mafa_A1_001_01", reads: 42),
+            makeCall(sample: "AnimalA", genotype: "04_Mafa_B_001_01", reads: 42),
+        ]
+        controller.configure(result: makeResult(samples: [], calls: calls))
+        controller.testingSetUnifiedSampleFilter("MHC-B")
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        controller.testingSetUnifiedSampleFilter("")
+
+        XCTAssertEqual(controller.testingVisibleGenotypes, ["04_Mafa_B_001_01"])
+    }
+
+    func testScopedSaveCurrentFilterOnlyMutatesMatchingWindow() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleA = root.appendingPathComponent("a.lungfishgenotype", isDirectory: true)
+        let bundleB = root.appendingPathComponent("b.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: bundleB, withIntermediateDirectories: true)
+        let scopeA = WindowStateScope()
+        let scopeB = WindowStateScope()
+        let controllerA = GenotypeResultViewController()
+        let controllerB = GenotypeResultViewController()
+        controllerA.windowStateScope = scopeA
+        controllerB.windowStateScope = scopeB
+        _ = controllerA.view
+        _ = controllerB.view
+        controllerA.configure(result: makeResult(bundleURL: bundleA, samples: [], calls: []))
+        controllerB.configure(result: makeResult(bundleURL: bundleB, samples: [], calls: []))
+        controllerA.testingSetUnifiedSampleFilter("Cohort=Kenyon20")
+        controllerB.testingSetUnifiedSampleFilter("Cohort=Control")
+
+        NotificationCenter.default.post(
+            name: .genotypeResultSmartCohortSaveRequested,
+            object: nil,
+            userInfo: [NotificationUserInfoKey.windowStateScope: scopeA]
+        )
+
+        let sidecarA = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleA)
+        let sidecarB = try ONTGenotypeResultBundleData.loadAnnotationSidecarIfPresent(forBundleAt: bundleB)
+        XCTAssertTrue(sidecarA.smartCohorts.contains { $0.name == "Filter: Cohort=Kenyon20" })
+        XCTAssertFalse(sidecarB.smartCohorts.contains { $0.name == "Filter: Cohort=Control" })
+    }
+
+    func testOutlineLayoutLeavesViewportVisibleBelowQuickFilterBar() throws {
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "M2A",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["A1", "A2"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        controller.view.frame = NSRect(x: 0, y: 0, width: 1_500, height: 900)
+        controller.configure(result: makeResult(samples: [], calls: [], haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .outline, layout: .listTop))
+
+        controller.view.layoutSubtreeIfNeeded()
+
+        let quickFilterBar = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeQuickFilterBarView.self))
+        let outlineView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeOutlineView.self))
+        XCTAssertLessThanOrEqual(quickFilterBar.frame.height, 72)
+        XCTAssertGreaterThan(outlineView.frame.height, 200)
+    }
+
+    func testMatrixViewShowsDiagnosticGenotypesUsedForHaplotypeDefinitions() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+            makeCall(sample: "DW472", genotype: "12_M2_B_019_03", reads: 123),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "M2B",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M3B",
+                                    diagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_098_05", "12_M3_B_165_01"],
+                                    observedDiagnosticAlleles: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                                ),
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M2B",
+                                    diagnosticAlleles: ["12_M2_B_019_03", "12_M2_B_109_04", "12_M2_B_150_01_01", "12_M2_B_162"],
+                                    observedDiagnosticAlleles: ["12_M2_B_019_03"]
+                                ),
+                            ],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: ["12_M2_B_019_03", "12_M3_B_075_01", "12_M3_B_165_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        let text = controller.testingHaplotypeMatrixText
+
+        XCTAssertTrue(text.contains("Diagnostic allele matrix"))
+        XCTAssertTrue(text.contains("DW472"))
+        XCTAssertTrue(text.contains("MHC-B"))
+        XCTAssertTrue(text.contains("M3B"))
+        XCTAssertTrue(text.contains("12_M3_B_075_01"))
+        XCTAssertTrue(text.contains("12_M3_B_098_05 [not observed]"))
+        XCTAssertTrue(text.contains("M2B"))
+        XCTAssertTrue(text.contains("12_M2_B_019_03"))
+    }
+
+    func testObservedOnlyLociSwitchesMatrixToSharedGenotypeRows() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+            makeCall(sample: "DW472", genotype: "04_M3_AG_04g1_156bp", reads: 100),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(
+            summaryViewMode: .matrix,
+            layout: .listTop,
+            showsAncillaryLoci: true
+        ))
+
+        let haplotypeMatrix = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
+        let sharedMatrix = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeComparisonMatrixView.self))
+
+        XCTAssertTrue(haplotypeMatrix.isHidden)
+        XCTAssertFalse(sharedMatrix.isHidden)
+        XCTAssertTrue(controller.testingVisibleGenotypes.contains("04_M3_AG_04g1_156bp"))
+    }
+
+    func testHaplotypeDefinitionMatrixHeadersExposeSortDescriptors() throws {
+        let view = GenotypeHaplotypeDefinitionMatrixView()
+        view.configure(rows: [
+            GenotypeHaplotypeDefinitionMatrixView.Row(
+                sample: "DW472",
+                locus: "MHC-B",
+                callName: "M3B",
+                haplotypeName: "M3B",
+                observedCount: 2,
+                diagnosticCount: 3,
+                minimumMatches: 2,
+                status: .called,
+                alleles: [GenotypeHaplotypeDefinitionMatrixView.DiagnosticAllele(name: "12_M3_B_075_01", reads: 100)]
+            ),
+            GenotypeHaplotypeDefinitionMatrixView.Row(
+                sample: "DW472",
+                locus: "MHC-A",
+                callName: "M1A",
+                haplotypeName: "M1A",
+                observedCount: 1,
+                diagnosticCount: 4,
+                minimumMatches: 2,
+                status: .candidate,
+                alleles: [GenotypeHaplotypeDefinitionMatrixView.DiagnosticAllele(name: "01_M1_F_01_w_06", reads: 30)]
+            ),
+        ], definitionName: "Test")
+
+        let table = try XCTUnwrap(view.firstDescendant(ofType: NSTableView.self))
+        XCTAssertTrue(table.tableColumns.allSatisfy { $0.sortDescriptorPrototype != nil })
+    }
+
+    func testHaplotypeMatrixSearchFiltersDefinitionRowsRatherThanWholeSamples() {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "01_M1_F_01_w_06", reads: 200),
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["01_M1_F_01_w_06"]
+                        ),
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                        ),
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        controller.testingSetUnifiedSampleFilter("MHC-B")
+
+        let text = controller.testingHaplotypeMatrixText
+        XCTAssertTrue(text.contains("MHC-B"))
+        XCTAssertTrue(text.contains("M3B"))
+        XCTAssertTrue(text.contains("12_M3_B_075_01"))
+        XCTAssertFalse(text.contains("MHC-A"))
+        XCTAssertFalse(text.contains("M1A"))
+        XCTAssertFalse(text.contains("01_M1_F_01_w_06"))
+    }
+
+    func testHaplotypeMatrixUsesSavedTextFilterWhenQuickSearchIsCleared() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeSavedMatrixFilter-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "01_M1_F_01_w_06", reads: 200),
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 1,
+                            observedGenotypes: ["01_M1_F_01_w_06"]
+                        ),
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                        ),
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: analysis
+        ))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        controller.testingSetUnifiedSampleFilter("MHC-B")
+        try controller.testingSaveCurrentFilterAsSmartCohort()
+        controller.testingSetUnifiedSampleFilter("")
+
+        let text = controller.testingHaplotypeMatrixText
+        XCTAssertTrue(text.contains("MHC-B"))
+        XCTAssertTrue(text.contains("M3B"))
+        XCTAssertTrue(text.contains("12_M3_B_075_01"))
+        XCTAssertFalse(text.contains("MHC-A"))
+        XCTAssertFalse(text.contains("M1A"))
+        XCTAssertFalse(text.contains("01_M1_F_01_w_06"))
+    }
+
+    func testSavingActiveHaplotypeDefinitionRefreshesLiveCalls() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeActiveDefinition-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let bundleURL = projectRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("ONT genotyping results", isDirectory: true)
+            .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let definitionID = "custom.test.active-definition"
+        let store = HaplotypeDefinitionStore(projectRoot: projectRoot)
+        try store.save(makeCustomHaplotypeDefinitionSet(
+            id: definitionID,
+            haplotypeName: "OldB",
+            diagnosticAllele: "12_M8_B_001_01"
+        ))
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "DW472",
+                    passedAlignments: 150,
+                    passedUniqueReads: 150,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: calls
+                )
+            ],
+            calls: calls,
+            haplotypeDefinitionSetID: definitionID
+        ))
+        XCTAssertEqual(controller.callEvidence(sample: "DW472", locus: "MHC-B")?.h1Name, "ERR: NO HAP")
+
+        try controller.testingSaveHaplotypeDefinition(makeCustomHaplotypeDefinitionSet(
+            id: definitionID,
+            haplotypeName: "NewB",
+            diagnosticAllele: "12_M9_B_001_01"
+        ))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
+        XCTAssertEqual(evidence.h1Name, "NewB")
+        XCTAssertEqual(evidence.status, .called)
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+        XCTAssertTrue(controller.testingHaplotypeMatrixText.contains("NewB"))
+        XCTAssertFalse(controller.testingHaplotypeMatrixText.contains("OldB"))
+    }
+
+    func testUsingCustomHaplotypeDefinitionPersistsActiveDefinitionAndRefreshesCalls() throws {
+        let projectRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeUseDefinition-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let bundleURL = projectRoot
+            .appendingPathComponent("Analyses", isDirectory: true)
+            .appendingPathComponent("ONT genotyping results", isDirectory: true)
+            .appendingPathComponent("test.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let definitionID = "custom.test.use-definition"
+        let customDefinition = makeCustomHaplotypeDefinitionSet(
+            id: definitionID,
+            haplotypeName: "NewB",
+            diagnosticAllele: "12_M9_B_001_01"
+        )
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(customDefinition)
+        let calls = [makeCall(sample: "DW472", genotype: "12_M9_B_001_01", reads: 150)]
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [
+                ONTGenotypeSampleResult(
+                    sample: "DW472",
+                    passedAlignments: 150,
+                    passedUniqueReads: 150,
+                    sampleTotalReads: nil,
+                    sampleUniqueRetainedPercent: nil,
+                    calls: calls
+                )
+            ],
+            calls: calls,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
+        XCTAssertNotEqual(controller.callEvidence(sample: "DW472", locus: "MHC-B")?.h1Name, "NewB")
+
+        try controller.testingUseHaplotypeDefinition(id: definitionID)
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
+        XCTAssertEqual(evidence.h1Name, "NewB")
+        XCTAssertEqual(evidence.status, .called)
+        let sidecar = try GenotypeAnnotationSidecar.decode(Data(
+            contentsOf: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        ))
+        XCTAssertEqual(sidecar.settings.activeHaplotypeDefinitionSetID, definitionID)
+        XCTAssertEqual(sidecar.settings.activeHaplotypeAssayID, "custom-assay")
+        XCTAssertTrue(sidecar.auditLog.contains { entry in
+            entry.action == "updateSettings" && (entry.after?.contains(definitionID) ?? false)
+        })
+        let definitionURL = try XCTUnwrap(HaplotypeDefinitionStore(projectRoot: projectRoot).definitionURL(for: definitionID))
+        let snapshot = try XCTUnwrap(controller.testingCurrentExportSnapshot())
+        XCTAssertTrue(snapshot.provenanceInputURLs.contains(definitionURL))
+        XCTAssertEqual(snapshot.filters["activeHaplotypeDefinitionSetID"], definitionID)
+        XCTAssertEqual(snapshot.filters["activeHaplotypeAssayID"], "custom-assay")
+    }
+
+    func testReviewEvidenceIncludesCrossFamilyMCMClassIDiagnostics() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW474", genotype: "01_M1_F_01_w_06", reads: 200),
+            makeCall(sample: "DW474", genotype: "02_M1_G_02_07_2mis_156bp", reads: 180),
+            makeCall(sample: "DW474", genotype: "04_M1_AG_05_3mis_156bp", reads: 160),
+            makeCall(sample: "DW474", genotype: "14_M2_DQA1_01_04", reads: 140),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW474",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-A",
+                            sourceLocus: "Mafa-A",
+                            haplotype1: "M1A",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [
+                                GenotypeHaplotypeMatchedDefinition(
+                                    name: "M1A",
+                                    diagnosticAlleles: [
+                                        "01_M1_F_01_w_06",
+                                        "02_M1_G_02_07_2mis_156bp",
+                                        "04_M1_AG_05_3mis_156bp",
+                                    ],
+                                    observedDiagnosticAlleles: [
+                                        "01_M1_F_01_w_06",
+                                        "02_M1_G_02_07_2mis_156bp",
+                                        "04_M1_AG_05_3mis_156bp",
+                                    ]
+                                )
+                            ],
+                            observedGenotypeCount: 3,
+                            observedGenotypes: [
+                                "01_M1_F_01_w_06",
+                                "02_M1_G_02_07_2mis_156bp",
+                                "04_M1_AG_05_3mis_156bp",
+                            ]
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(samples: [], calls: calls, haplotypeAnalysis: analysis))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW474", locus: "MHC-A"))
+        let alleles = evidence.diagnosticAlleles.map(\.allele)
+        XCTAssertTrue(alleles.contains("01_M1_F_01_w_06"))
+        XCTAssertTrue(alleles.contains("02_M1_G_02_07_2mis_156bp"))
+        XCTAssertTrue(alleles.contains("04_M1_AG_05_3mis_156bp"))
+        XCTAssertFalse(alleles.contains("14_M2_DQA1_01_04"))
+    }
+
+    func testConfigureRecomputesHaplotypeAnalysisWithDefaultDropoutSettings() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M2_B_019_03", reads: 400),
+            makeCall(sample: "DW472", genotype: "12_M2_B_109_04", reads: 300),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .called,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M2_B_019_03", "12_M2_B_109_04"]
+                        )
+                    ]
+                )
+            ]
+        )
+
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls, haplotypeAnalysis: analysis))
+
+        let slot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-B" })
+        XCTAssertEqual(slot.h1.testingLabel, "M2B")
+    }
+
+    func testConfigureAppliesSavedDropoutThresholdsToLiveHaplotypeCalls() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
+        sidecar.settings.dropoutAbsolute = 50
+        sidecar.settings.dropoutSampleFraction = nil
+        sidecar.settings.dropoutLocusFraction = 0.05
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "13_M3_DRB1_10_02", reads: 1491),
+            makeCall(sample: "DW472", genotype: "13_M2_DRB_W4_02", reads: 1117),
+            makeCall(sample: "DW472", genotype: "13_M2_DRB1_10_01", reads: 570),
+            makeCall(sample: "DW472", genotype: "13_M3_DRB_W49_01_01", reads: 153),
+            makeCall(sample: "DW472", genotype: "13_M1_DRB_W21_01", reads: 5),
+            makeCall(sample: "DW472", genotype: "13_M6_DRB1_04_02_01", reads: 2),
+            makeCall(sample: "DW472", genotype: "13_M1_DRB_W5_01", reads: 1),
+        ]
+        let persistedAnalysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DRB",
+                            sourceLocus: "Mafa-DRB",
+                            haplotype1: "ERR: TMH (M1DR, M2DR, M3DR)",
+                            haplotype2: "ERR: TMH (M1DR, M2DR, M3DR)",
+                            status: .tooManyHaplotypes,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: calls.count,
+                            observedGenotypes: calls.map(\.genotype)
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: persistedAnalysis,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DRB"))
+        XCTAssertEqual(evidence.status, .called)
+        XCTAssertEqual(evidence.h1Name, "M2DR")
+        XCTAssertEqual(evidence.h2Name, "M3DR")
+        XCTAssertEqual(evidence.errorExplanation, "")
+    }
+
+    func testConfigureAppliesDefaultDropoutThresholdsWithoutSavedSidecar() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "13_M3_DRB1_10_02", reads: 1491),
+            makeCall(sample: "DW472", genotype: "13_M2_DRB_W4_02", reads: 1117),
+            makeCall(sample: "DW472", genotype: "13_M2_DRB1_10_01", reads: 570),
+            makeCall(sample: "DW472", genotype: "13_M3_DRB_W49_01_01", reads: 153),
+            makeCall(sample: "DW472", genotype: "13_M1_DRB_W21_01", reads: 5),
+            makeCall(sample: "DW472", genotype: "13_M6_DRB1_04_02_01", reads: 2),
+            makeCall(sample: "DW472", genotype: "13_M1_DRB_W5_01", reads: 1),
+        ]
+        let persistedAnalysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-DRB",
+                            sourceLocus: "Mafa-DRB",
+                            haplotype1: "ERR: TMH (M1DR, M2DR, M3DR)",
+                            haplotype2: "ERR: TMH (M1DR, M2DR, M3DR)",
+                            status: .tooManyHaplotypes,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: calls.count,
+                            observedGenotypes: calls.map(\.genotype)
+                        )
+                    ]
+                )
+            ]
+        )
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: persistedAnalysis,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DRB"))
+        XCTAssertEqual(evidence.status, .called)
+        XCTAssertEqual(evidence.h1Name, "M2DR")
+        XCTAssertEqual(evidence.h2Name, "M3DR")
+        XCTAssertEqual(evidence.errorExplanation, "")
+    }
+
+    func testDW472bLikeMHCBReviewEvidenceUsesLiveDropoutAnalysis() throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
+        sidecar.settings.dropoutAbsolute = 50
+        sidecar.settings.dropoutSampleFraction = nil
+        sidecar.settings.dropoutLocusFraction = 0.05
+        try ONTGenotypeResultBundleData.writeAnnotationSidecar(sidecar, forBundleAt: bundleURL)
+
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472b", genotype: "12_M3_B_165_01", reads: 150),
+            makeCall(sample: "DW472b", genotype: "12_M2_B_109_04", reads: 100),
+            makeCall(sample: "DW472b", genotype: "12_M2_B_109_06", reads: 84),
+            makeCall(sample: "DW472b", genotype: "12_M2_B_019_03", reads: 75),
+            makeCall(sample: "DW472b", genotype: "12_M3_B_075_01", reads: 69),
+            makeCall(sample: "DW472b", genotype: "12_M2_B_162", reads: 33),
+            makeCall(sample: "DW472b", genotype: "12_M2_B_150_01_01", reads: 26),
+            makeCall(sample: "DW472b", genotype: "12_M2M5_B_098g|B_098_01,_B_098_04", reads: 22),
+            makeCall(sample: "DW472b", genotype: "12_M3_B_098_05", reads: 20),
+            makeCall(sample: "DW472b", genotype: "12_M2M3_B_079g", reads: 15),
+        ]
+
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472b", locus: "MHC-B"))
+        XCTAssertEqual(evidence.status, .called)
+        XCTAssertEqual(evidence.h1Name, "M2B")
+        XCTAssertEqual(evidence.h2Name, "M3B")
+        XCTAssertEqual(evidence.errorExplanation, "")
+        XCTAssertEqual(evidence.candidateHaplotypes.first?.name, "M2B")
+    }
+
+    func testMatrixModeUsesHaplotypeDefinitionMatrixWhenBundleDeclaresDefinitionSetOnly() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "DW472", genotype: "13_M2_DRB_W4_02", reads: 1117),
+            makeCall(sample: "DW472", genotype: "13_M2_DRB1_10_01", reads: 570),
+            makeCall(sample: "DW472", genotype: "13_M3_DRB_W49_01_01", reads: 153),
+            makeCall(sample: "DW472", genotype: "13_M3_DRB1_10_02", reads: 1491),
+        ]
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: nil,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
+        XCTAssertFalse(matrixView.isHidden)
+        let text = controller.testingHaplotypeMatrixText
+        XCTAssertTrue(text.contains("Diagnostic allele matrix"))
+        XCTAssertTrue(text.contains("MHC-DRB"))
+        XCTAssertTrue(text.contains("M2DR"))
+        XCTAssertTrue(text.contains("M3DR"))
+    }
+
+    func testRhesusBundleWithoutManifestDefinitionInfersBuiltInDefinitionSetForMatrix() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 142),
+            makeCall(sample: "A11N094", genotype: "04_Mamu-B_072g1|B_072_01_01_01,B_072_01_01_02", reads: 139),
+            makeCall(sample: "A11N094", genotype: "09_Mamu-DQA1_23_01", reads: 4030),
+        ]
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: nil,
+            haplotypeDefinitionSetID: nil
+        ))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        let matrixView = try XCTUnwrap(controller.view.firstDescendant(ofType: GenotypeHaplotypeDefinitionMatrixView.self))
+        XCTAssertFalse(matrixView.isHidden)
+        let text = controller.testingHaplotypeMatrixText
+        XCTAssertTrue(text.contains("Diagnostic allele matrix"))
+        XCTAssertTrue(text.contains("Rhesus macaques"))
+        XCTAssertTrue(text.contains("MHC-A"))
+        XCTAssertTrue(text.contains("A006.01"))
+    }
+
+    func testRhesusHaplotypeMatrixCountsOnlyClassicalReadsForClassicalAAlleles() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 100),
+            makeCall(sample: "A11N094", genotype: "15_Mamu-AG2_01g1|A1_006_02_01_01,A1_006_03", reads: 500),
+        ]
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: nil,
+            haplotypeDefinitionSetID: nil
+        ))
+        controller.testingApplyDisplayState(GenotypeResultDisplayState(summaryViewMode: .matrix, layout: .listTop))
+
+        let text = controller.testingHaplotypeMatrixText
+        XCTAssertTrue(text.contains("Rhesus macaques"))
+        XCTAssertTrue(text.contains("A006.01"))
+        XCTAssertTrue(text.contains("A1_006 100"))
+        XCTAssertFalse(text.contains("A1_006 600"))
+    }
+
+    func testInferredRhesusDefinitionIsVisibleAsPreviewInSummary() throws {
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        let calls = [
+            makeCall(sample: "A11N094", genotype: "01_Mamu-A1_006g|A1_006_02_01_01,A1_006_03", reads: 142),
+        ]
+
+        controller.configure(result: makeResult(
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: nil,
+            haplotypeDefinitionSetID: nil
+        ))
+
+        let summary = controller.testingSummaryStripText
+        XCTAssertTrue(summary.contains("Rhesus macaques"))
+        XCTAssertTrue(summary.contains("Inferred preview"))
+    }
+
+    func testNotAssayedOutlineDetailRendersAsSingleCoverageState() {
+        let view = GenotypeOutlineView()
+        view.configure(rows: [
+            GenotypeOutlineView.Row(
+                animalId: "DW474",
+                gsId: nil,
+                loci: ["MHC-DPB"],
+                tapeSlots: [
+                    GenotypeHaplotypeTapeView.Slot(
+                        locus: "MHC-DPB",
+                        h1: .reference(tokenIndex: 1, label: "Not assayed"),
+                        h2: .reference(tokenIndex: 1, label: "Not assayed")
+                    ),
+                ],
+                blockKind: .blockCoherent,
+                commentSummary: "",
+                noteIssueCount: 0,
+                perLocusCallText: [
+                    (
+                        locus: "MHC-DPB",
+                        h1: "Not assayed",
+                        h2: "Not assayed",
+                        status: .notAssayed
+                    )
+                ]
+            )
+        ])
+        view.testingSetExpandedSamples(["DW474"])
+
+        let text = view.testingVisibleText
+
+        XCTAssertTrue(text.contains("MHC-DPB"))
+        XCTAssertTrue(text.contains("Not assayed"))
+        XCTAssertFalse(text.contains("Not assayed / Not assayed"))
+    }
+
+    func testNotAssayedCallsDoNotMakeClearWholeMHCHomozygote() {
+        let controller = GenotypeResultViewController()
+
+        XCTAssertFalse(controller.testingIsClearWholeMHCHomozygote(calls: [
+            (
+                locus: "MHC-DPB",
+                h1: "Not assayed",
+                h2: "Not assayed",
+                status: .notAssayed,
+                observedGenotypeCount: 0,
+                observedGenotypes: []
+            ),
+        ]))
+    }
+
+    func testNotAssayedCallsAreIgnoredWhenCalledLociAreClearHomozygous() {
+        let controller = GenotypeResultViewController()
+
+        XCTAssertTrue(controller.testingIsClearWholeMHCHomozygote(calls: [
+            (
+                locus: "MHC-A",
+                h1: "M1A",
+                h2: "-",
+                status: .called,
+                observedGenotypeCount: 3,
+                observedGenotypes: ["01_M1_F_01_w_06", "04_M1_AG_05_3mis_156bp", "11_M1_E_02g3"]
+            ),
+            (
+                locus: "MHC-DPB",
+                h1: "Not assayed",
+                h2: "Not assayed",
+                status: .notAssayed,
+                observedGenotypeCount: 0,
+                observedGenotypes: []
+            ),
+        ]))
     }
 
     func testSelectedSampleCellCanBeHighlightedFromInspectorRequest() {
@@ -708,11 +2208,85 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(controller.testingVisibleGenotypes.isEmpty)
     }
 
+    func testManualHaplotypeOverrideAppearsInReviewEvidenceAndOutlineTape() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("example.lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        var sidecar = GenotypeAnnotationSidecar.empty(generatedAt: "2026-05-23T00:00:00Z")
+        sidecar.callOverrides = [
+            GenotypeAnnotationSidecar.CallOverride(
+                sample: "DW472",
+                locus: "MHC-B",
+                slot: .h2,
+                originalCall: "-",
+                overrideCall: "M2B",
+                reasonTag: .misCall,
+                rationale: "Promoted M2B from Review inspector candidate matrix.",
+                author: "test",
+                timestamp: "2026-05-23T00:00:01Z"
+            )
+        ]
+        try sidecar.encoded().write(to: bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename))
+        let calls = [
+            makeCall(sample: "DW472", genotype: "12_M3_B_075_01", reads: 148),
+            makeCall(sample: "DW472", genotype: "12_M3_B_165_01", reads: 119),
+        ]
+        let analysis = GenotypeHaplotypeAnalysis(
+            assayID: "MHC-exon2-miSeq",
+            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+            definitionSetName: "Mauritian cynomolgus macaques",
+            speciesName: "Mauritian cynomolgus macaques",
+            samples: [
+                GenotypeHaplotypeSampleAnalysis(
+                    sample: "DW472",
+                    calls: [
+                        GenotypeHaplotypeLocusCall(
+                            locus: "MHC-B",
+                            sourceLocus: "Mafa-B",
+                            haplotype1: "M3B",
+                            haplotype2: "-",
+                            status: .noHaplotype,
+                            matchedHaplotypes: [],
+                            observedGenotypeCount: 2,
+                            observedGenotypes: ["12_M3_B_075_01", "12_M3_B_165_01"]
+                        )
+                    ]
+                )
+            ]
+        )
+        let controller = GenotypeResultViewController()
+        _ = controller.view
+        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [
+            ONTGenotypeSampleResult(
+                sample: "DW472",
+                passedAlignments: 442,
+                passedUniqueReads: 442,
+                sampleTotalReads: nil,
+                sampleUniqueRetainedPercent: nil,
+                calls: calls
+            )
+        ], calls: calls, haplotypeAnalysis: analysis))
+
+        let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-B"))
+        XCTAssertEqual(evidence.h1Name, "M3B")
+        XCTAssertEqual(evidence.h2Name, "M2B")
+        XCTAssertEqual(evidence.status, .called)
+        XCTAssertEqual(evidence.errorExplanation, "")
+        XCTAssertFalse(evidence.isHomozygous)
+
+        let mhcBSlot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-B" })
+        XCTAssertEqual(mhcBSlot.h1.testingLabel, "M3B")
+        XCTAssertEqual(mhcBSlot.h2.testingLabel, "M2B")
+    }
+
     private func makeResult(
         bundleURL: URL = URL(fileURLWithPath: "/tmp/example.lungfishgenotype"),
         samples: [ONTGenotypeSampleResult],
         calls: [ONTGenotypeCall],
-        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil
+        haplotypeAnalysis: GenotypeHaplotypeAnalysis? = nil,
+        haplotypeDefinitionSetID: String? = nil
     ) -> ONTGenotypeResultBundleData {
         ONTGenotypeResultBundleData(
             bundleURL: bundleURL,
@@ -723,7 +2297,8 @@ final class GenotypeResultViewportTests: XCTestCase {
                 longSummaryCSVPath: "example.retained-demux-genotypes.csv",
                 sampleSummaryCSVPath: "example.retained-demux-samples.csv",
                 statsJSONPath: "example.retained-demux-stats.json",
-                provenancePath: "retained-demux-genotyping-provenance.json"
+                provenancePath: "retained-demux-genotyping-provenance.json",
+                haplotypeDefinitionSetID: haplotypeDefinitionSetID
             ),
             artifacts: ONTGenotypeResultArtifacts(
                 workbookURL: URL(fileURLWithPath: "/tmp/example.xlsx"),
@@ -737,5 +2312,76 @@ final class GenotypeResultViewportTests: XCTestCase {
             samples: samples,
             haplotypeAnalysis: haplotypeAnalysis
         )
+    }
+
+    private func makeCall(sample: String, genotype: String, reads: Int) -> ONTGenotypeCall {
+        ONTGenotypeCall(
+            sample: sample,
+            genotype: genotype,
+            passedAlignments: reads,
+            passedUniqueReads: reads,
+            sampleTotalReads: nil,
+            sampleUniqueRetainedReads: nil,
+            sampleUniqueRetainedPercent: nil,
+            overallInputReads: nil,
+            overallUniqueRetainedReads: nil,
+            overallUniqueRetainedPercent: nil
+        )
+    }
+
+    private func makeCustomHaplotypeDefinitionSet(
+        id: String,
+        haplotypeName: String,
+        diagnosticAllele: String
+    ) -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: id,
+            assayID: "custom-assay",
+            displayName: "Custom Test Definition",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(
+                            name: haplotypeName,
+                            diagnosticAlleles: [diagnosticAllele]
+                        )
+                    ]
+                )
+            ]
+        )
+    }
+}
+
+private extension GenotypeHaplotypeTapeView.Cell {
+    var testingLabel: String? {
+        switch self {
+        case .reference(_, let label),
+             .manual(_, let label),
+             .recombinant(_, _, let label),
+             .notAssayed(let label),
+             .error(let label):
+            return label
+        case .empty, .unanalyzed:
+            return nil
+        }
+    }
+}
+
+private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        if let match = self as? T {
+            return match
+        }
+        for subview in subviews {
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+        return nil
     }
 }

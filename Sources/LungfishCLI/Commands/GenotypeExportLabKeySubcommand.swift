@@ -47,6 +47,7 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let outputDirURL = URL(fileURLWithPath: outputDir, isDirectory: true)
         try FileManager.default.createDirectory(at: outputDirURL, withIntermediateDirectories: true)
@@ -68,6 +69,30 @@ struct GenotypeExportLabKeySubcommand: AsyncParsableCommand {
             sidecar: sidecar
         )
         let written = try exporter.writeAll()
+        try await GenotypeExportProvenanceSupport.record(
+            workflowName: "genotype.export.labkey",
+            toolName: "lungfish genotype export-labkey",
+            command: [
+                "lungfish", "genotype", "export-labkey",
+                "--bundle", bundleURL.path,
+                "--output-dir", outputDirURL.path,
+            ],
+            bundleURL: bundleURL,
+            outputURLs: written.map(\.url),
+            outputDirectory: outputDirURL,
+            optionPaths: [
+                "bundle": bundleURL,
+                "outputDir": outputDirURL,
+            ],
+            additionalInputURLs: result.flatMap {
+                GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
+                    for: $0,
+                    bundleURL: bundleURL,
+                    sidecar: sidecar
+                )
+            }.map { [$0] } ?? [],
+            startedAt: startedAt
+        )
 
         let summary: [String: Any] = [
             "bundle": bundleURL.path,
@@ -176,41 +201,14 @@ struct LabKeyExporter {
     /// call was `no_haplotype` even after an override sets a final call).
     func buildHaplotypeRows() -> [[String]] {
         guard let result else { return [] }
-        // Re-run the haplotype analyzer with the current (in-repo)
-        // definitions so improvements to BuiltInGenotypeHaplotypeDefinitions
-        // immediately propagate to LabKey exports without requiring a
-        // pipeline rerun. The persisted on-disk analysis stays
-        // authoritative for audit purposes but isn't what the analyst
-        // sees in the inspector.
-        let analysis: GenotypeHaplotypeAnalysis = {
-            if let definitionSetID = result.haplotypeAnalysis?.definitionSetID,
-               let definitionSet = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: definitionSetID) {
-                // Apply the sidecar's dropout configuration before
-                // matching so low-support trace alleles (cross-well
-                // bleed below the analyst's threshold) don't trigger
-                // false TMH matches against the multi-family diagnostic
-                // sets. Defaults: 50 reads absolute, 1% of locus.
-                let s = sidecar.settings
-                let evaluator = GenotypeDropoutEvaluator(
-                    absolute: s.dropoutAbsolute,
-                    sampleFraction: s.dropoutSampleFraction,
-                    locusFraction: s.dropoutLocusFraction,
-                    locusFractionOverrides: s.locusFractionOverrides ?? [:]
-                )
-                return GenotypeHaplotypeAnalyzer.analyze(
-                    calls: result.calls,
-                    definitionSet: definitionSet,
-                    generatedAt: nil,
-                    dropoutFilter: evaluator
-                )
-            }
-            // Fallback: pipeline-persisted analysis when no definition
-            // set is registered for this bundle.
-            return result.haplotypeAnalysis ?? GenotypeHaplotypeAnalysis(
+        let analysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+            for: result,
+            bundleURL: bundleURL,
+            sidecar: sidecar
+        ) ?? GenotypeHaplotypeAnalysis(
                 assayID: "", definitionSetID: "", definitionSetName: "",
                 speciesName: "", samples: []
             )
-        }()
         let overrideIndex = indexOverrides(sidecar.callOverrides)
         let callsBySample = Dictionary(uniqueKeysWithValues: result.samples.map { ($0.sample, $0) })
 
@@ -288,6 +286,7 @@ struct LabKeyExporter {
     private func statusString(_ status: GenotypeHaplotypeCallStatus) -> String {
         switch status {
         case .called: return "called"
+        case .notAssayed: return "not_assayed"
         case .noHaplotype: return "no_haplotype"
         case .tooManyHaplotypes: return "too_many_haplotypes"
         case .tooManyGenotypes: return "too_many_genotypes"
@@ -366,7 +365,13 @@ struct LabKeyExporter {
     func buildCohortRows() -> [[String]] {
         let subjects: [GenotypeCohortSubject]
         if let result {
-            subjects = GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
+            let sampleIds = Set(result.sampleNames + result.samples.map(\.sample) + result.calls.map(\.sample))
+            let metadata = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: sampleIds)
+            subjects = GenotypeCohortSubjectBuilder.buildSubjects(
+                result: result,
+                sidecar: sidecar,
+                metadataBySample: metadata?.records ?? [:]
+            )
         } else {
             subjects = []
         }

@@ -129,6 +129,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 arguments += ["--comparison-name", comparisonName]
             }
             if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
+                if let haplotypeAssayID = request.haplotypeAssayID {
+                    arguments += ["--haplotype-assay", haplotypeAssayID]
+                }
                 arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
             }
             if let projectURL = request.projectURL {

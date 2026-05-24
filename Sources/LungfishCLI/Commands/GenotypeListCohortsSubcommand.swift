@@ -69,6 +69,12 @@ struct GenotypeListCohortsSubcommand: AsyncParsableCommand {
         from result: ONTGenotypeResultBundleData,
         sidecar: GenotypeAnnotationSidecar
     ) -> [GenotypeCohortSubject] {
-        GenotypeCohortSubjectBuilder.buildSubjects(result: result, sidecar: sidecar)
+        let sampleIds = Set(result.sampleNames + result.samples.map(\.sample) + result.calls.map(\.sample))
+        let metadata = SampleMetadataStore.load(from: result.bundleURL, knownSampleIds: sampleIds)
+        return GenotypeCohortSubjectBuilder.buildSubjects(
+            result: result,
+            sidecar: sidecar,
+            metadataBySample: metadata?.records ?? [:]
+        )
     }
 }

@@ -10,7 +10,8 @@ import LungfishCore
 public enum GenotypeCohortSubjectBuilder {
     public static func buildSubjects(
         result: ONTGenotypeResultBundleData,
-        sidecar: GenotypeAnnotationSidecar
+        sidecar: GenotypeAnnotationSidecar,
+        metadataBySample: [String: [String: String]] = [:]
     ) -> [GenotypeCohortSubject] {
         let analysesBySample: [String: GenotypeHaplotypeSampleAnalysis] = Dictionary(
             uniqueKeysWithValues: (result.haplotypeAnalysis?.samples ?? []).map { ($0.sample, $0) }
@@ -18,15 +19,22 @@ public enum GenotypeCohortSubjectBuilder {
         let sampleResultsByName: [String: ONTGenotypeSampleResult] = Dictionary(
             uniqueKeysWithValues: result.samples.map { ($0.sample, $0) }
         )
-        let sampleIds = !result.sampleNames.isEmpty
-            ? result.sampleNames
-            : result.samples.map(\.sample)
+        let rawCallsBySample = Dictionary(grouping: result.calls, by: \.sample)
+        var seenSamples = Set<String>()
+        let sampleIds = (result.sampleNames + result.samples.map(\.sample) + result.calls.map(\.sample))
+            .filter { seenSamples.insert($0).inserted }
         let notesBySample = Dictionary(grouping: sidecar.sampleNotes, by: \.sample)
         let commentsBySample = Dictionary(grouping: sidecar.cellComments, by: \.sample)
         let highlightsBySample = Dictionary(grouping: sidecar.cellHighlights, by: \.sample)
         let statusBySample = Dictionary(uniqueKeysWithValues:
             sidecar.sampleStatusFlags.map { ($0.sample, $0.value) }
         )
+        var overridesBySampleLocusSlot: [String: String] = [:]
+        for override in sidecar.callOverrides {
+            overridesBySampleLocusSlot[
+                overrideKey(sample: override.sample, locus: override.locus, slot: override.slot)
+            ] = override.overrideCall
+        }
 
         return sampleIds.map { sample in
             let sampleResult = sampleResultsByName[sample]
@@ -37,55 +45,77 @@ public enum GenotypeCohortSubjectBuilder {
                 .compactMap(\.fillColor)
             let highlightBorders = (highlightsBySample[sample] ?? [])
                 .compactMap(\.borderColor)
-            let calls: [GenotypeCohortSubject.Call] = (analysis?.calls ?? []).flatMap { locusCall in
-                [
+            let effectiveCalls = (analysis?.calls ?? []).map { locusCall in
+                let h1 = overridesBySampleLocusSlot[
+                    overrideKey(sample: sample, locus: locusCall.locus, slot: .h1)
+                ] ?? locusCall.haplotype1
+                let h2 = overridesBySampleLocusSlot[
+                    overrideKey(sample: sample, locus: locusCall.locus, slot: .h2)
+                ] ?? locusCall.haplotype2
+                let hasOverride = h1 != locusCall.haplotype1 || h2 != locusCall.haplotype2
+                let isError = (locusCall.status != .called
+                    && locusCall.status != .notAssayed
+                    && locusCall.status != .specialCase
+                    && !hasOverride)
+                    || h1.hasPrefix("ERR:")
+                    || h2.hasPrefix("ERR:")
+                return (
+                    locus: locusCall.locus,
+                    h1: h1,
+                    h2: h2,
+                    status: locusCall.status,
+                    isError: isError
+                )
+            }
+            let calls: [GenotypeCohortSubject.Call] = effectiveCalls.flatMap { locusCall in
+                let isNotAssayed = locusCall.status == .notAssayed
+                let isHomozygous = !isNotAssayed && locusCall.h1 == locusCall.h2
+                return [
                     GenotypeCohortSubject.Call(
                         locus: locusCall.locus,
                         slot: .h1,
-                        name: locusCall.haplotype1,
-                        isHomozygous: locusCall.haplotype1 == locusCall.haplotype2,
-                        isError: locusCall.status != .called && locusCall.status != .specialCase,
-                        isRecombinant: locusCall.haplotype1.hasPrefix("rec") || locusCall.haplotype2.hasPrefix("rec"),
+                        name: locusCall.h1,
+                        isHomozygous: isHomozygous,
+                        isError: locusCall.isError,
+                        isRecombinant: locusCall.h1.hasPrefix("rec") || locusCall.h2.hasPrefix("rec"),
                         readCount: 0
                     ),
                     GenotypeCohortSubject.Call(
                         locus: locusCall.locus,
                         slot: .h2,
-                        name: locusCall.haplotype2,
-                        isHomozygous: locusCall.haplotype1 == locusCall.haplotype2,
-                        isError: locusCall.status != .called && locusCall.status != .specialCase,
-                        isRecombinant: locusCall.haplotype1.hasPrefix("rec") || locusCall.haplotype2.hasPrefix("rec"),
+                        name: locusCall.h2,
+                        isHomozygous: isHomozygous,
+                        isError: locusCall.isError,
+                        isRecombinant: locusCall.h1.hasPrefix("rec") || locusCall.h2.hasPrefix("rec"),
                         readCount: 0
                     ),
                 ]
             }
-            let hasErrorAtAnyLocus = (analysis?.calls ?? []).contains { call in
-                call.status != .called && call.status != .specialCase
-            }
+            let hasErrorAtAnyLocus = effectiveCalls.contains { $0.isError }
             // "Homozygous across all" means every CALLED locus is either
             // explicitly homozygous (haplotype1 == haplotype2) OR shows
             // a single matched haplotype (h2 == "-", which the analyzer
             // emits when only one haplotype's diagnostic set was
-            // observed). Error rows are excluded so samples with all-
-            // error calls don't falsely match.
-            let calledLocusCalls = (analysis?.calls ?? []).filter {
-                $0.status == .called || $0.status == .specialCase
+            // observed). Not-assayed rows are neutral: they don't create
+            // errors, and they also don't count as homozygous evidence.
+            let calledLocusCalls = effectiveCalls.filter {
+                !$0.isError && $0.status != .notAssayed
             }
-            let isHomozygousAcrossAll = !calledLocusCalls.isEmpty &&
+            let isHomozygousAcrossAll = !hasErrorAtAnyLocus && !calledLocusCalls.isEmpty &&
                 calledLocusCalls.allSatisfy { call in
-                    guard !call.haplotype1.hasPrefix("ERR") else { return false }
+                    guard !call.h1.hasPrefix("ERR") else { return false }
                     // Single-match (h2 = "-") counts as homozygous since
                     // the analyzer found only one haplotype's diagnostic
                     // alleles in the sample.
-                    if call.haplotype2 == "-" || call.haplotype2.isEmpty { return true }
-                    return call.haplotype1 == call.haplotype2
+                    if call.h2 == "-" || call.h2.isEmpty { return true }
+                    return call.h1 == call.h2
                 }
-            let hasRegionalRecombinant = (analysis?.calls ?? []).contains { call in
-                call.haplotype1.hasPrefix("rec") || call.haplotype2.hasPrefix("rec")
+            let hasRegionalRecombinant = effectiveCalls.contains { call in
+                call.h1.hasPrefix("rec") || call.h2.hasPrefix("rec")
             }
             let blockKind = GenotypeBlockClassifier.classify(
-                calls: (analysis?.calls ?? []).map {
-                    (locus: $0.locus, h1: $0.haplotype1, h2: $0.haplotype2)
+                calls: effectiveCalls.map {
+                    (locus: $0.locus, h1: $0.h1, h2: $0.h2)
                 }
             )
             let hasAtypicalPattern = blockKind == .atypical
@@ -105,6 +135,8 @@ public enum GenotypeCohortSubjectBuilder {
                 // sample-summary CSV is parsed.
                 unmappedPercent: 0,
                 comments: comments.joined(separator: " · "),
+                metadata: metadataBySample[sample] ?? [:],
+                rawGenotypes: (rawCallsBySample[sample] ?? []).flatMap { [$0.genotype, $0.locusGroup] },
                 calls: calls,
                 hasAnyComment: !comments.isEmpty,
                 hasErrorAtAnyLocus: hasErrorAtAnyLocus,
@@ -116,5 +148,9 @@ public enum GenotypeCohortSubjectBuilder {
                 highlightBorders: highlightBorders
             )
         }
+    }
+
+    private static func overrideKey(sample: String, locus: String, slot: HaplotypeSlot) -> String {
+        "\(sample)\u{1F}\(locus)\u{1F}\(slot.rawValue)"
     }
 }

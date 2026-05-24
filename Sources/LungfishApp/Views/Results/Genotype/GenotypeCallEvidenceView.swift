@@ -24,8 +24,8 @@ struct GenotypeCallEvidenceView: View {
         let neighborsBefore: [Neighbor]
         let neighborsAfter: [Neighbor]
         /// Plain-English explanation of *why* the call is in error, or
-        /// empty when the call is healthy. The Outline / Sample Detail
-        /// popover reads this; the Review-lens panel shows it directly.
+        /// empty when the call is healthy. The Review-lens inspector
+        /// shows it directly.
         var errorExplanation: String = ""
         /// For NO HAP errors: per-candidate-haplotype breakdown of which
         /// diagnostic alleles were observed vs missing. Empty for OK / TMH /
@@ -33,7 +33,7 @@ struct GenotypeCallEvidenceView: View {
         var candidateHaplotypes: [CandidateHaplotype] = []
         /// H1 name and H2 name as the analyzer called them (may be the
         /// same for homozygous samples, or "ERR: ..." for error calls).
-        /// Both shown in the popover header so the analyst sees the full
+        /// Both shown in the inspector header so the analyst sees the full
         /// diploid call, not just one allele.
         var h1Name: String = ""
         var h2Name: String = ""
@@ -60,7 +60,7 @@ struct GenotypeCallEvidenceView: View {
         /// True when the sample's call at this locus is homozygous
         /// (h1 == h2 with both being a real haplotype) OR effectively
         /// homozygous (h2 is "-", meaning only one haplotype was
-        /// supported). Used to label the popover header.
+        /// supported). Used to label the inspector header.
         var isHomozygous: Bool {
             guard status == .called || status == .specialCase else { return false }
             if h2Name.isEmpty || h2Name == "-" { return true }
@@ -96,12 +96,11 @@ struct GenotypeCallEvidenceView: View {
     }
 
     let evidence: Evidence?
-    /// Optional callback that fires when the analyst clicks "Override…"
-    /// on a candidate haplotype. The popover host wires this to the
-    /// override flow so the user can act without leaving the popover.
-    /// Parameters: (slot, haplotypeName) → haplotypeName is "" for the
-    /// header's main Override action (uses current call as starting point).
-    var onOverrideRequested: ((HaplotypeSlot, String) -> Void)?
+    /// Optional callback that fires when the analyst promotes a candidate
+    /// haplotype from the review matrix.
+    var onOverrideRequested: ((String) -> Void)?
+    var onConfirmRequested: (() -> Void)?
+    var onSkipRequested: (() -> Void)?
 
     var body: some View {
         ScrollView {
@@ -203,7 +202,7 @@ struct GenotypeCallEvidenceView: View {
     /// Per-candidate-haplotype breakdown of which diagnostic alleles were
     /// observed and which were missing, with an Override action on each
     /// row so the analyst can promote a strong-but-not-called candidate
-    /// to the H2 slot directly from the popover.
+    /// to a slot directly from the inspector.
     private func candidatesBlock(_ evidence: Evidence) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -243,39 +242,41 @@ struct GenotypeCallEvidenceView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 if !isCurrentCall {
-                    Menu("Override…") {
-                        Button("Set H1 to \(candidate.name)") {
-                            onOverrideRequested?(.h1, candidate.name)
-                        }
-                        Button("Set H2 to \(candidate.name)") {
-                            onOverrideRequested?(.h2, candidate.name)
-                        }
+                    Button("Set haplotype") {
+                        onOverrideRequested?(candidate.name)
                     }
                     .controlSize(.small)
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 100)
+                    .help("Set haplotype to \(candidate.name)")
+                    .accessibilityLabel("Set haplotype to \(candidate.name)")
                 }
             }
             if !candidate.observed.isEmpty {
-                HStack(alignment: .top, spacing: 4) {
-                    Text("✓")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(Color.green)
-                    Text(candidate.observed.joined(separator: ", "))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                ForEach(candidate.observed, id: \.self) { allele in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("✓")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(Color.green)
+                        Text(allele)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             if !candidate.missing.isEmpty {
-                HStack(alignment: .top, spacing: 4) {
-                    Text("✗")
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(Color(nsColor: .lungfishDanger))
-                    Text(candidate.missing.joined(separator: ", "))
-                        .font(.caption2.monospaced())
-                        .foregroundStyle(Color(nsColor: .lungfishDanger))
-                        .fixedSize(horizontal: false, vertical: true)
+                ForEach(candidate.missing, id: \.self) { allele in
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text("·")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                        Text(allele)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("[not observed]")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
@@ -292,12 +293,27 @@ struct GenotypeCallEvidenceView: View {
             HStack(spacing: 8) {
                 Text(evidence.sample)
                     .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                     .textSelection(.enabled)
                 Text(evidence.locus)
                     .font(.callout.monospaced())
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 Spacer()
                 statusChip(evidence.status)
+                Button("Confirm") {
+                    onConfirmRequested?()
+                }
+                .controlSize(.small)
+                .help("Confirm analyzer call")
+                .accessibilityLabel("Confirm analyzer call")
+                Button("Skip") {
+                    onSkipRequested?()
+                }
+                .controlSize(.small)
+                .help("Skip to next review sample")
+                .accessibilityLabel("Skip to next review sample")
             }
             HStack(spacing: 6) {
                 Text("Call:")
@@ -480,6 +496,7 @@ struct GenotypeCallEvidenceView: View {
         let (label, color): (String, Color) = {
             switch status {
             case .called:            return ("Called", .secondary)
+            case .notAssayed:        return ("Not assayed", Color(nsColor: .systemOrange))
             case .specialCase:       return ("Special case", Color(nsColor: .systemOrange))
             case .noHaplotype:       return ("No haplotype", Color(nsColor: .lungfishDanger))
             case .tooManyHaplotypes: return ("Too many haplotypes", Color(nsColor: .lungfishDanger))

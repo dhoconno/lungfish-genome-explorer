@@ -106,11 +106,47 @@ public extension GenotypeAnnotationSidecar {
     }
 
     enum OverrideReasonTag: String, Codable, Sendable, CaseIterable {
-        case dropout
-        case contamination
+        case misCall = "mis-call"
+        case dropoutSuspected = "dropout-suspected"
+        case crossContamination = "cross-contamination"
         case novel
-        case misCall
+        case pedigreeConflict = "pedigree-conflict"
+        case analystJudgment = "analyst-judgment"
         case confirmed
+        case other
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(String.self)
+            switch rawValue {
+            case Self.misCall.rawValue, "misCall":
+                self = .misCall
+            case Self.dropoutSuspected.rawValue, "dropout":
+                self = .dropoutSuspected
+            case Self.crossContamination.rawValue, "contamination":
+                self = .crossContamination
+            case Self.novel.rawValue:
+                self = .novel
+            case Self.pedigreeConflict.rawValue:
+                self = .pedigreeConflict
+            case Self.analystJudgment.rawValue:
+                self = .analystJudgment
+            case Self.confirmed.rawValue:
+                self = .confirmed
+            case Self.other.rawValue:
+                self = .other
+            default:
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown genotype override reason tag '\(rawValue)'"
+                )
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(rawValue)
+        }
     }
 
     struct CellHighlight: Codable, Equatable, Sendable {
@@ -238,6 +274,13 @@ public extension GenotypeAnnotationSidecar {
         /// `dropoutLocusFraction` for diagnostic alleles in that locus. The
         /// "EQ slider grid": each locus gets its own knob.
         public var locusFractionOverrides: [String: Double]?
+        /// Optional analyst-selected definition set for this bundle. When
+        /// present, the UI re-analyzes haplotypes against this definition
+        /// instead of the pipeline/manifest default.
+        public var activeHaplotypeDefinitionSetID: String?
+        /// Assay scope for `activeHaplotypeDefinitionSetID`. nil preserves
+        /// legacy sidecars and falls back to unique definition IDs.
+        public var activeHaplotypeAssayID: String?
 
         public static let `default` = Settings(
             viewMode: "outline",
@@ -247,13 +290,17 @@ public extension GenotypeAnnotationSidecar {
             dropoutAbsolute: 50,
             dropoutSampleFraction: nil,
             dropoutLocusFraction: 0.01,
-            locusFractionOverrides: nil
+            locusFractionOverrides: nil,
+            activeHaplotypeDefinitionSetID: nil,
+            activeHaplotypeAssayID: nil
         )
 
         public init(viewMode: String, panelLayout: String, cardDensity: String,
                     cardDensityThreshold: Int, dropoutAbsolute: Int?,
                     dropoutSampleFraction: Double?, dropoutLocusFraction: Double?,
-                    locusFractionOverrides: [String: Double]? = nil) {
+                    locusFractionOverrides: [String: Double]? = nil,
+                    activeHaplotypeDefinitionSetID: String? = nil,
+                    activeHaplotypeAssayID: String? = nil) {
             self.viewMode = viewMode
             self.panelLayout = panelLayout
             self.cardDensity = cardDensity
@@ -262,6 +309,8 @@ public extension GenotypeAnnotationSidecar {
             self.dropoutSampleFraction = dropoutSampleFraction
             self.dropoutLocusFraction = dropoutLocusFraction
             self.locusFractionOverrides = locusFractionOverrides
+            self.activeHaplotypeDefinitionSetID = activeHaplotypeDefinitionSetID
+            self.activeHaplotypeAssayID = activeHaplotypeAssayID
         }
     }
 

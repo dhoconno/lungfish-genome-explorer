@@ -14,6 +14,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
     public let provenancePath: String
     public let haplotypeAnalysisPath: String?
     public let haplotypeDefinitionSetID: String?
+    public let haplotypeAssayID: String?
     public let createdAt: String?
 
     public init(
@@ -28,6 +29,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         provenancePath: String,
         haplotypeAnalysisPath: String? = nil,
         haplotypeDefinitionSetID: String? = nil,
+        haplotypeAssayID: String? = nil,
         createdAt: String? = nil
     ) {
         self.schemaVersion = schemaVersion
@@ -41,6 +43,7 @@ public struct ONTGenotypeResultBundleManifest: Codable, Equatable, Sendable {
         self.provenancePath = provenancePath
         self.haplotypeAnalysisPath = haplotypeAnalysisPath
         self.haplotypeDefinitionSetID = haplotypeDefinitionSetID
+        self.haplotypeAssayID = haplotypeAssayID
         self.createdAt = createdAt
     }
 }

@@ -1,4 +1,5 @@
 import XCTest
+import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
 
@@ -131,10 +132,11 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.analysisName, "sample-ont")
         XCTAssertEqual(request.threads, 6)
         XCTAssertEqual(request.minSupport, 3)
+        XCTAssertNil(request.haplotypeAssayID)
         XCTAssertNil(request.haplotypeDefinitionSetID)
     }
 
-    func testONTGenotypingLaunchRequestUsesExplicitHaplotypeDefinitionOnly() throws {
+    func testONTGenotypingLaunchRequestUsesExplicitAssayScopedHaplotypeDefinition() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         enablementStore.setWorkflow(.ontGenotyping, enabled: true)
@@ -160,6 +162,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         state.setOutputDirectory(outputURL)
 
         XCTAssertNil(state.selectedHaplotypeDefinitionSetID)
+        state.selectedHaplotypeAssayID = "MHC-exon2-miSeq"
         state.selectedHaplotypeDefinitionSetID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
 
         let launchRequest = try state.makeLaunchRequest()
@@ -167,7 +170,67 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             return XCTFail("Expected ONT genotyping request")
         }
 
+        XCTAssertEqual(request.haplotypeAssayID, "MHC-exon2-miSeq")
         XCTAssertEqual(request.haplotypeDefinitionSetID, "MHC-exon2-miSeq.mauritian-cynomolgus-macaques")
+    }
+
+    func testHaplotypeDefinitionSelectionTracksAssayScope() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: enablementStore,
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        )
+
+        state.setHaplotypeAssay(nil)
+        state.setHaplotypeDefinition("MHC-exon2-miSeq.rhesus-macaques")
+
+        XCTAssertEqual(state.selectedHaplotypeAssayID, "MHC-exon2-miSeq")
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, "MHC-exon2-miSeq.rhesus-macaques")
+
+        state.setHaplotypeAssay("unsupported-assay")
+
+        XCTAssertEqual(state.selectedHaplotypeAssayID, "unsupported-assay")
+        XCTAssertNil(state.selectedHaplotypeDefinitionSetID)
+    }
+
+    func testHaplotypeDefinitionSelectionIncludesProjectUserDefinitions() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let projectRoot = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: projectRoot) }
+        let custom = GenotypeHaplotypeDefinitionSet(
+            id: "custom.mhc-exon2.test",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Custom Test Definition",
+            speciesName: "Test macaque",
+            speciesCode: "TEST",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mafa-B",
+                    haplotypes: [GenotypeHaplotypeDefinition(name: "T1B", diagnosticAlleles: ["12_T1_B_001_01"])]
+                )
+            ]
+        )
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(custom)
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectRoot,
+            enablementStore: enablementStore,
+            packageStore: WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        )
+
+        state.setHaplotypeAssay("MHC-exon2-miSeq")
+        state.setHaplotypeDefinition(custom.id)
+
+        XCTAssertEqual(state.haplotypeDefinitionRegistry.definitionSet(id: custom.id)?.displayName, "Custom Test Definition")
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, custom.id)
+        XCTAssertEqual(state.selectedHaplotypeAssayID, "MHC-exon2-miSeq")
     }
 
     func testONTGenotypingKeepsExplicitGenotypeBundleOutputDirectory() throws {

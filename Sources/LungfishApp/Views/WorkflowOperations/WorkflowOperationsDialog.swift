@@ -199,6 +199,13 @@ private struct WorkflowOperationsDetailPane: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Haplotype Definition")
                 .font(.subheadline.weight(.medium))
+            Picker("Assay", selection: haplotypeAssayBinding) {
+                Text("Choose assay").tag("")
+                ForEach(haplotypeAssayOptions, id: \.id) { option in
+                    Text(option.label).tag(option.id)
+                }
+            }
+            .pickerStyle(.menu)
             Picker("Definition", selection: haplotypeDefinitionBinding) {
                 Text("No haplotyping").tag("")
                 ForEach(haplotypeDefinitionOptions, id: \.id) { option in
@@ -219,7 +226,7 @@ private struct WorkflowOperationsDetailPane: View {
             DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     labeledTextField("minimap2 arguments", text: $state.extraArgumentsText)
-                    Text("Arguments are passed to minimap2 after the fixed short-read preset.")
+                    Text("Arguments are passed to minimap2 after the ONT mapping preset.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -282,18 +289,33 @@ private struct WorkflowOperationsDetailPane: View {
     private var haplotypeDefinitionBinding: Binding<String> {
         Binding(
             get: { state.selectedHaplotypeDefinitionSetID ?? "" },
-            set: { state.selectedHaplotypeDefinitionSetID = $0.isEmpty ? nil : $0 }
+            set: { state.setHaplotypeDefinition($0.isEmpty ? nil : $0) }
         )
     }
 
+    private var haplotypeAssayBinding: Binding<String> {
+        Binding(
+            get: { state.selectedHaplotypeAssayID ?? "" },
+            set: { state.setHaplotypeAssay($0.isEmpty ? nil : $0) }
+        )
+    }
+
+    private var haplotypeAssayOptions: [(id: String, label: String)] {
+        state.haplotypeDefinitionRegistry.assays.map { assay in
+            (id: assay.id, label: assay.displayName)
+        }
+    }
+
     private var haplotypeDefinitionOptions: [(id: String, label: String)] {
-        GenotypeHaplotypeDefinitionRegistry.builtIn.assays.flatMap { assay in
-            assay.definitionSets.map { definitionSet in
-                (
-                    id: definitionSet.id,
-                    label: "\(assay.displayName) - \(definitionSet.displayName)"
-                )
-            }
+        guard let assayID = state.selectedHaplotypeAssayID,
+              let assay = state.haplotypeDefinitionRegistry.assay(id: assayID) else {
+            return []
+        }
+        return assay.definitionSets.map { definitionSet in
+            (
+                id: definitionSet.id,
+                label: "\(definitionSet.displayName) (\(definitionSet.speciesCode))"
+            )
         }
     }
 

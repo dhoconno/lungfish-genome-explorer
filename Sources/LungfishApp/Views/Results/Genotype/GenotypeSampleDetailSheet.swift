@@ -5,7 +5,7 @@ import LungfishIO
 
 /// Modal sheet that surfaces a single sample's per-locus calls with
 /// override controls inline. Opens when the analyst clicks a sample in
-/// Outline / Cards / Matrix.
+/// Outline / Matrix.
 ///
 /// One row per (locus, slot) — typically 14 rows for an MCM bundle
 /// (7 loci × H1 + H2). Each row carries the colored swatch, the call
@@ -53,7 +53,7 @@ struct GenotypeSampleDetailSheet: View {
                 Button("Done", action: onDismiss)
                     .keyboardShortcut(.cancelAction)
             }
-            Text("\(rows.count) call(s) · \(rows.filter { $0.status != .called && $0.status != .specialCase }.count) need review")
+            Text("\(rows.count) call(s) · \(rows.filter { $0.status != .called && $0.status != .notAssayed && $0.status != .specialCase }.count) need review")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -163,7 +163,7 @@ struct GenotypeSampleDetailSheet: View {
     }
 
     private func swatch(forName name: String, status: GenotypeHaplotypeCallStatus) -> some View {
-        let isError = status != .called && status != .specialCase
+        let isError = status != .called && status != .notAssayed && status != .specialCase
         let token = HaplotypeColorToken.assigned(forName: name)
         let fillColor: Color = isError
             ? Color(nsColor: .controlBackgroundColor)
@@ -201,6 +201,7 @@ struct GenotypeSampleDetailSheet: View {
         let (label, color): (String, Color) = {
             switch status {
             case .called:             return ("called", Color.secondary)
+            case .notAssayed:         return ("not assayed", Color(nsColor: .systemOrange))
             case .specialCase:        return ("special", Color(nsColor: .systemOrange))
             case .noHaplotype:        return ("no haplotype", Color(nsColor: .lungfishDanger))
             case .tooManyHaplotypes:  return ("too many haplotypes", Color(nsColor: .lungfishDanger))

@@ -51,6 +51,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        let startedAt = Date()
         let bundleURL = URL(fileURLWithPath: bundle, isDirectory: true)
         let result = try ONTGenotypeResultBundle.loadResult(from: bundleURL)
         // Pick up any analyst-saved dropout/per-locus EQ from the bundle
@@ -66,6 +67,28 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
         try FileManager.default.createDirectory(at: buildDir, withIntermediateDirectories: true)
 
         try Self.writeXLSX(to: outputURL, buildDir: buildDir, workbook: workbook)
+        try await GenotypeExportProvenanceSupport.record(
+            workflowName: "genotype.export.pivot-xlsx",
+            toolName: "lungfish genotype export-pivot-xlsx",
+            command: [
+                "lungfish", "genotype", "export-pivot-xlsx",
+                "--bundle", bundleURL.path,
+                "--output", outputURL.path,
+            ],
+            bundleURL: bundleURL,
+            outputURLs: [outputURL],
+            outputDirectory: outputURL.deletingLastPathComponent(),
+            optionPaths: [
+                "bundle": bundleURL,
+                "output": outputURL,
+            ],
+            additionalInputURLs: GenotypeActiveHaplotypeAnalysisResolver.activeDefinitionFileURL(
+                for: result,
+                bundleURL: bundleURL,
+                sidecar: sidecar
+            ).map { [$0] } ?? [],
+            startedAt: startedAt
+        )
 
         let summary: [String: Any] = [
             "bundle": bundleURL.path,
@@ -161,30 +184,10 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 return max(0, min(100, 100 - retained))
             }
 
-            // Re-run the haplotype analyzer with the current in-repo
-            // definitions + dropout filter so the pivot export reflects
-            // the inspector's view rather than the pipeline-persisted
-            // analysis. Non-Mac users opening this xlsx see the same
-            // calls an analyst would see in the GUI.
-            let activeAnalysis: GenotypeHaplotypeAnalysis? = {
-                guard let definitionSetID = result.haplotypeAnalysis?.definitionSetID,
-                      let definitionSet = GenotypeHaplotypeDefinitionRegistry.builtIn.definitionSet(id: definitionSetID) else {
-                    return result.haplotypeAnalysis
-                }
-                let settings = sidecar?.settings ?? GenotypeAnnotationSidecar.Settings.default
-                let evaluator = GenotypeDropoutEvaluator(
-                    absolute: settings.dropoutAbsolute,
-                    sampleFraction: settings.dropoutSampleFraction,
-                    locusFraction: settings.dropoutLocusFraction,
-                    locusFractionOverrides: settings.locusFractionOverrides ?? [:]
-                )
-                return GenotypeHaplotypeAnalyzer.analyze(
-                    calls: result.calls,
-                    definitionSet: definitionSet,
-                    generatedAt: nil,
-                    dropoutFilter: evaluator
-                )
-            }()
+            let activeAnalysis = GenotypeActiveHaplotypeAnalysisResolver.activeAnalysis(
+                for: result,
+                sidecar: sidecar
+            )
             let haplotypeRows = makeHaplotypeRows(samples: samples, analysis: activeAnalysis)
             let commentsRow = makeCommentsRow(samples: samples, analysis: activeAnalysis)
 
@@ -291,7 +294,7 @@ struct GenotypeExportPivotXlsxSubcommand: AsyncParsableCommand {
                 let messages = calls
                     .sorted { $0.locus.localizedStandardCompare($1.locus) == .orderedAscending }
                     .compactMap { call -> String? in
-                        guard call.status != .called else { return nil }
+                        guard call.status != .called, call.status != .notAssayed else { return nil }
                         let left = call.haplotype1
                         let right = call.haplotype2
                         let label = (left == right || right.isEmpty) ? left : "\(left)/\(right)"

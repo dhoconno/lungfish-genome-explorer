@@ -7,6 +7,8 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
                          calls: [(locus: String, h1: String, h2: String)],
                          qc: ONTGenotypeQCStatus = .ok,
                          comments: String = "",
+                         metadata: [String: String] = [:],
+                         rawGenotypes: [String] = [],
                          status: GenotypeAnnotationSidecar.StatusValue = .unflagged) -> GenotypeCohortSubject {
         let callValues = calls.flatMap { c -> [GenotypeCohortSubject.Call] in
             [
@@ -28,7 +30,8 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
         }
         return GenotypeCohortSubject(
             animalId: animal, gsId: nil, qcStatus: qc, totalReads: 50000,
-            unmappedPercent: 45, comments: comments, calls: callValues,
+            unmappedPercent: 45, comments: comments, metadata: metadata,
+            rawGenotypes: rawGenotypes, calls: callValues,
             hasAnyComment: !comments.isEmpty,
             hasErrorAtAnyLocus: callValues.contains { $0.isError },
             isHomozygousAcrossAll: calls.allSatisfy { $0.h1 == $0.h2 },
@@ -94,6 +97,36 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
         XCTAssertFalse(predicate.evaluate(subject(animal: "A", calls: [], comments: "nothing here")))
     }
 
+    func testMetadataFieldContainsMatchesImportedMetadataCaseInsensitively() {
+        let predicate = SmartCohortPredicate.metadataFieldContains(field: "cohort", value: "kenyon")
+
+        XCTAssertTrue(predicate.evaluate(subject(
+            animal: "DW472",
+            calls: [],
+            metadata: ["Cohort": "Kenyon20", "Animal ID": "H18C153"]
+        )))
+        XCTAssertFalse(predicate.evaluate(subject(
+            animal: "DW473",
+            calls: [],
+            metadata: ["Cohort": "Indonesia", "Animal ID": "H18C174"]
+        )))
+    }
+
+    func testTextContainsMatchesBroadVisibleFilterFields() {
+        let predicate = SmartCohortPredicate.textContains("MHC-B")
+
+        XCTAssertTrue(predicate.evaluate(subject(
+            animal: "DW472",
+            calls: [(locus: "MHC-B", h1: "M2B", h2: "M3B")],
+            rawGenotypes: ["12_M2_B_019_03"]
+        )))
+        XCTAssertFalse(predicate.evaluate(subject(
+            animal: "DW473",
+            calls: [(locus: "MHC-A", h1: "M1A", h2: "M3A")],
+            rawGenotypes: ["05_M1M2M3_A1_063g"]
+        )))
+    }
+
     func testJSONRoundTripPreservesPredicate() throws {
         let original = GenotypeCohortSmartFilter(
             name: "Test",
@@ -101,6 +134,8 @@ final class GenotypeCohortSmartFilterTests: XCTestCase {
             isStarred: true,
             predicate: .all([
                 .hasHaplotypeAt(locus: "MHC-A", slot: .h1, names: ["M1A", "M2A"]),
+                .metadataFieldContains(field: "Cohort", value: "Kenyon20"),
+                .textContains("MHC-B"),
                 .qcStatus([.ok]),
             ])
         )

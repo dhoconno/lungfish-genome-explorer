@@ -296,6 +296,54 @@ final class ViralReconWorkflowExecutionServiceTests: XCTestCase {
         XCTAssertTrue(result.didStreamOutput)
     }
 
+    func testConcreteRunnerUsesWorktreeCLIWhenNoExplicitExecutableIsProvided() async throws {
+        let originalWorkingDirectory = FileManager.default.currentDirectoryPath
+        let originalCLIPath = ProcessInfo.processInfo.environment["LUNGFISH_CLI_PATH"]
+        defer {
+            FileManager.default.changeCurrentDirectoryPath(originalWorkingDirectory)
+            if let originalCLIPath {
+                setenv("LUNGFISH_CLI_PATH", originalCLIPath, 1)
+            } else {
+                unsetenv("LUNGFISH_CLI_PATH")
+            }
+        }
+        unsetenv("LUNGFISH_CLI_PATH")
+
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("viral-recon-worktree-cli-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let packageRoot = temp.appendingPathComponent("repo", isDirectory: true)
+        let sourceSubdirectory = packageRoot.appendingPathComponent("Sources/LungfishApp", isDirectory: true)
+        let cliDirectory = packageRoot.appendingPathComponent(".build/debug", isDirectory: true)
+        let workingDirectory = temp.appendingPathComponent("run", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceSubdirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cliDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        try Data("// swift-tools-version: 6.2\n".utf8)
+            .write(to: packageRoot.appendingPathComponent("Package.swift"))
+
+        let fakeCLI = cliDirectory.appendingPathComponent("lungfish-cli")
+        let script = """
+        #!/bin/sh
+        printf 'worktree-cli:%s\\n' "$*"
+        """
+        try script.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCLI.path)
+
+        XCTAssertTrue(FileManager.default.changeCurrentDirectoryPath(sourceSubdirectory.path))
+        let runner = ProcessViralReconWorkflowProcessRunner()
+
+        let result = try await runner.runLungfishCLI(
+            arguments: ["--version"],
+            workingDirectory: workingDirectory,
+            outputHandler: nil
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.standardOutput.contains("worktree-cli:--version"))
+        XCTAssertEqual(result.standardError, "")
+    }
+
     func testConcreteRunnerCancelTerminatesProcessTree() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent("viral-recon-cancel-\(UUID().uuidString)", isDirectory: true)

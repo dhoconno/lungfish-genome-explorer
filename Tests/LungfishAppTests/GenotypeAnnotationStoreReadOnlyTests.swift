@@ -33,7 +33,7 @@ final class GenotypeAnnotationStoreReadOnlyTests: XCTestCase {
         try store.applyOverride(
             sample: "H1", locus: "MHC-A", slot: .h1,
             originalCall: "M2A", overrideCall: "A1_063",
-            reasonTag: .contamination, rationale: ""
+            reasonTag: .crossContamination, rationale: ""
         )
         XCTAssertEqual(store.sidecar.callOverrides.count, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sidecarPath),

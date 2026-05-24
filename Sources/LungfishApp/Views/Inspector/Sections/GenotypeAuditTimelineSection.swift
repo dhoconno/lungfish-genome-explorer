@@ -76,7 +76,12 @@ struct GenotypeAuditTimelineSection: View {
     private func displayName(for action: String) -> String {
         switch action {
         case "override":            return "Override"
+        case "clearOverride":       return "Clear override"
         case "undoOverride":        return "Undo override"
+        case "addManualHaplotypeAssignment":
+            return "Add manual haplotype"
+        case "removeManualHaplotypeAssignment":
+            return "Remove manual haplotype"
         case "setSampleStatus":     return "Status"
         case "setCallStatus":       return "Call status"
         case "setCellHighlight":    return "Highlight"

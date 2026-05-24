@@ -42,4 +42,53 @@ final class GenotypeCallEvidenceViewTests: XCTestCase {
         host.frame = NSRect(x: 0, y: 0, width: 320, height: 800)
         XCTAssertGreaterThan(host.frame.width, 0)
     }
+
+    func testNotAssayedEvidenceIsNotHomozygous() {
+        let evidence = GenotypeCallEvidenceView.Evidence(
+            sample: "DW474",
+            locus: "MHC-DPB",
+            slot: .h1,
+            callName: "Not assayed",
+            status: .notAssayed,
+            observedGenotypeCount: 0,
+            observedGenotypes: [],
+            diagnosticAlleles: [],
+            locusReadTotal: 0,
+            neighborsBefore: [],
+            neighborsAfter: [],
+            errorExplanation: "MHC-DPB was not observed for this cohort.",
+            h1Name: "Not assayed",
+            h2Name: "Not assayed"
+        )
+
+        XCTAssertFalse(evidence.isHomozygous)
+    }
+
+    func testCandidateRowsUseDirectSetHaplotypeButtonAndNotObservedMarkers() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Results/Genotype/GenotypeCallEvidenceView.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("Menu(\"Override"))
+        XCTAssertFalse(source.contains("Button(\"Set H1"))
+        XCTAssertFalse(source.contains("Button(\"Set H2"))
+        XCTAssertTrue(source.contains("Button(\"Set haplotype"))
+        XCTAssertTrue(source.contains("[not observed]"))
+    }
+
+    func testReviewInspectorDoesNotUseTransientCellPopover() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/LungfishApp/Views/Results/Genotype/GenotypeResultViewController.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+
+        XCTAssertFalse(source.contains("NSPopover"))
+        XCTAssertFalse(source.contains("presentCellEvidencePopover"))
+        XCTAssertTrue(source.contains("selectCellEvidence"))
+    }
 }

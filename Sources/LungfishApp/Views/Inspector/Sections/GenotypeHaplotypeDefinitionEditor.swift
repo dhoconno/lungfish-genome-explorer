@@ -18,15 +18,18 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     @State private var selectedLocusIndex: Int = 0
     @State private var selectedHaplotypeIndex: Int? = nil
     @State private var newAlleleText: String = ""
+    let isReadOnly: Bool
     let onSave: (GenotypeHaplotypeDefinitionSet) -> Void
     let onCancel: () -> Void
 
     init(
         draft: GenotypeHaplotypeDefinitionSet,
+        isReadOnly: Bool = false,
         onSave: @escaping (GenotypeHaplotypeDefinitionSet) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _draft = State(initialValue: draft)
+        self.isReadOnly = isReadOnly
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -75,11 +78,12 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                 TextField("Display name", text: Binding(
                     get: { draft.displayName },
                     set: { newValue in
-                        draft = withDisplayName(draft, name: newValue)
+                        draft = GenotypeHaplotypeDefinitionDrafting.withDisplayName(draft, name: newValue)
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 280)
+                .disabled(isReadOnly)
                 Text("ID:")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -130,12 +134,13 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                 }
                 .buttonStyle(.plain)
                 .help("Add a new locus")
+                .disabled(isReadOnly)
                 Button(action: removeSelectedLocus) {
                     Image(systemName: "minus")
                 }
                 .buttonStyle(.plain)
                 .help("Remove the selected locus")
-                .disabled(draft.locusDefinitions.isEmpty)
+                .disabled(isReadOnly || draft.locusDefinitions.isEmpty)
                 Spacer()
             }
             .padding(8)
@@ -185,6 +190,7 @@ struct GenotypeHaplotypeDefinitionEditor: View {
             ))
             .textFieldStyle(.roundedBorder)
             .frame(width: 120)
+            .disabled(isReadOnly)
             Text("Source")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -202,11 +208,13 @@ struct GenotypeHaplotypeDefinitionEditor: View {
             ))
             .textFieldStyle(.roundedBorder)
             .frame(width: 140)
+            .disabled(isReadOnly)
             Spacer()
             Button(action: addHaplotype) {
                 Label("Add haplotype", systemImage: "plus")
             }
             .controlSize(.small)
+            .disabled(isReadOnly)
         }
     }
 
@@ -230,22 +238,42 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                             GenotypeHaplotypeDefinition(
                                 name: newValue,
                                 diagnosticAlleles: current.diagnosticAlleles,
-                                colorTokenIndex: current.colorTokenIndex
+                                colorTokenIndex: current.colorTokenIndex,
+                                minimumMatches: current.minimumMatches
                             )
                         }
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 140)
+                .disabled(isReadOnly)
                 Text("\(haplotype.diagnosticAlleles.count) diagnostic allele\(haplotype.diagnosticAlleles.count == 1 ? "" : "s")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                Stepper(
+                    "Requires \(haplotype.effectiveMinimumMatches) of \(haplotype.diagnosticAlleles.count)",
+                    value: Binding(
+                        get: { max(1, haplotype.effectiveMinimumMatches) },
+                        set: { newValue in
+                            updateHaplotype(locusIndex: selectedLocusIndex, hIndex: hIndex) { current in
+                                GenotypeHaplotypeDefinitionDrafting.withMinimumMatches(
+                                    current,
+                                    minimumMatches: newValue
+                                )
+                            }
+                        }
+                    ),
+                    in: 1...max(1, haplotype.diagnosticAlleles.count)
+                )
+                .controlSize(.small)
+                .disabled(isReadOnly || haplotype.diagnosticAlleles.isEmpty)
                 Spacer()
                 Button(action: { removeHaplotype(locusIndex: selectedLocusIndex, hIndex: hIndex) }) {
                     Image(systemName: "trash")
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(Color(nsColor: .lungfishDanger))
+                .disabled(isReadOnly)
             }
             // Diagnostic alleles as removable chips.
             FlowLayout(spacing: 4) {
@@ -259,6 +287,7 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.secondary)
+                        .disabled(isReadOnly)
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
@@ -275,8 +304,10 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                     .onSubmit {
                         addAllele(locusIndex: selectedLocusIndex, hIndex: hIndex)
                     }
+                    .disabled(isReadOnly)
                 Button("Add", action: { addAllele(locusIndex: selectedLocusIndex, hIndex: hIndex) })
                     .controlSize(.small)
+                    .disabled(isReadOnly)
             }
         }
         .padding(8)
@@ -289,28 +320,29 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     // MARK: - Footer
 
     private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", action: onCancel)
-                .keyboardShortcut(.cancelAction)
-            Button("Save") {
-                onSave(draft)
+        let validationMessages = GenotypeHaplotypeDefinitionDrafting.validationMessages(for: draft)
+        return HStack {
+            if let firstMessage = validationMessages.first {
+                Text(firstMessage)
+                    .font(.caption)
+                    .foregroundStyle(Color(nsColor: .lungfishDanger))
+                    .lineLimit(2)
             }
-            .keyboardShortcut(.defaultAction)
-            .disabled(draft.displayName.isEmpty || draft.locusDefinitions.isEmpty)
+            Spacer()
+            Button(isReadOnly ? "Close" : "Cancel", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+            if !isReadOnly {
+                Button("Save") {
+                    onSave(draft)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(draft.displayName.isEmpty || draft.locusDefinitions.isEmpty || !validationMessages.isEmpty)
+            }
         }
         .padding(12)
     }
 
     // MARK: - Mutators
-
-    private func withDisplayName(_ set: GenotypeHaplotypeDefinitionSet, name: String) -> GenotypeHaplotypeDefinitionSet {
-        GenotypeHaplotypeDefinitionSet(
-            id: set.id, assayID: set.assayID, displayName: name,
-            speciesName: set.speciesName, speciesCode: set.speciesCode,
-            prefix: set.prefix, locusDefinitions: set.locusDefinitions
-        )
-    }
 
     private func addLocus() {
         var loci = draft.locusDefinitions
@@ -367,21 +399,16 @@ struct GenotypeHaplotypeDefinitionEditor: View {
             var alleles = current.diagnosticAlleles
             guard !alleles.contains(trimmed) else { return current }
             alleles.append(trimmed)
-            return GenotypeHaplotypeDefinition(
-                name: current.name,
-                diagnosticAlleles: alleles,
-                colorTokenIndex: current.colorTokenIndex
-            )
+            return GenotypeHaplotypeDefinitionDrafting.withDiagnosticAlleles(current, alleles: alleles)
         }
         newAlleleText = ""
     }
 
     private func removeAllele(locusIndex: Int, hIndex: Int, allele: String) {
         updateHaplotype(locusIndex: locusIndex, hIndex: hIndex) { current in
-            GenotypeHaplotypeDefinition(
-                name: current.name,
-                diagnosticAlleles: current.diagnosticAlleles.filter { $0 != allele },
-                colorTokenIndex: current.colorTokenIndex
+            GenotypeHaplotypeDefinitionDrafting.withDiagnosticAlleles(
+                current,
+                alleles: current.diagnosticAlleles.filter { $0 != allele }
             )
         }
     }
@@ -419,8 +446,149 @@ struct GenotypeHaplotypeDefinitionEditor: View {
         GenotypeHaplotypeDefinitionSet(
             id: set.id, assayID: set.assayID, displayName: set.displayName,
             speciesName: set.speciesName, speciesCode: set.speciesCode,
-            prefix: set.prefix, locusDefinitions: loci
+            prefix: set.prefix, locusDefinitions: loci,
+            schemaVersion: set.schemaVersion,
+            lastModified: set.lastModified,
+            changeNote: set.changeNote
         )
+    }
+}
+
+enum GenotypeHaplotypeDefinitionDrafting {
+    static func withDisplayName(
+        _ set: GenotypeHaplotypeDefinitionSet,
+        name: String
+    ) -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: set.id,
+            assayID: set.assayID,
+            displayName: name,
+            speciesName: set.speciesName,
+            speciesCode: set.speciesCode,
+            prefix: set.prefix,
+            locusDefinitions: set.locusDefinitions,
+            schemaVersion: set.schemaVersion,
+            lastModified: set.lastModified,
+            changeNote: set.changeNote
+        )
+    }
+
+    static func renamingHaplotype(
+        in set: GenotypeHaplotypeDefinitionSet,
+        locusIndex: Int,
+        haplotypeIndex: Int,
+        name: String
+    ) -> GenotypeHaplotypeDefinitionSet {
+        replacingHaplotype(in: set, locusIndex: locusIndex, haplotypeIndex: haplotypeIndex) {
+            GenotypeHaplotypeDefinition(
+                name: name,
+                diagnosticAlleles: $0.diagnosticAlleles,
+                colorTokenIndex: $0.colorTokenIndex,
+                minimumMatches: $0.minimumMatches
+            )
+        }
+    }
+
+    static func withDiagnosticAlleles(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        alleles: [String]
+    ) -> GenotypeHaplotypeDefinition {
+        GenotypeHaplotypeDefinition(
+            name: haplotype.name,
+            diagnosticAlleles: alleles,
+            colorTokenIndex: haplotype.colorTokenIndex,
+            minimumMatches: clampedMinimumMatches(haplotype.minimumMatches, alleleCount: alleles.count)
+        )
+    }
+
+    static func withMinimumMatches(
+        _ haplotype: GenotypeHaplotypeDefinition,
+        minimumMatches: Int
+    ) -> GenotypeHaplotypeDefinition {
+        let clamped = clampedMinimumMatches(minimumMatches, alleleCount: haplotype.diagnosticAlleles.count)
+        let stored = clamped == haplotype.diagnosticAlleles.count ? nil : clamped
+        return GenotypeHaplotypeDefinition(
+            name: haplotype.name,
+            diagnosticAlleles: haplotype.diagnosticAlleles,
+            colorTokenIndex: haplotype.colorTokenIndex,
+            minimumMatches: stored
+        )
+    }
+
+    static func validationMessages(for set: GenotypeHaplotypeDefinitionSet) -> [String] {
+        var messages: [String] = []
+        let trimmedName = set.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedName.isEmpty {
+            messages.append("Definition name is required.")
+        }
+        let locusNames = set.locusDefinitions.map { $0.locus.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if locusNames.contains(where: \.isEmpty) {
+            messages.append("Locus names are required.")
+        }
+        if hasDuplicates(locusNames.filter { !$0.isEmpty }) {
+            messages.append("Duplicate locus names are not allowed.")
+        }
+        for locus in set.locusDefinitions {
+            let haplotypeNames = locus.haplotypes.map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+            if haplotypeNames.contains(where: \.isEmpty) {
+                messages.append("Haplotype name is required.")
+            }
+            if hasDuplicates(haplotypeNames.filter { !$0.isEmpty }) {
+                messages.append("Duplicate haplotype names are not allowed within \(locus.locus).")
+            }
+            if locus.haplotypes.contains(where: { $0.diagnosticAlleles.isEmpty }) {
+                messages.append("Each haplotype needs at least one diagnostic allele.")
+            }
+        }
+        var seen = Set<String>()
+        return messages.filter { seen.insert($0).inserted }
+    }
+
+    private static func replacingHaplotype(
+        in set: GenotypeHaplotypeDefinitionSet,
+        locusIndex: Int,
+        haplotypeIndex: Int,
+        transform: (GenotypeHaplotypeDefinition) -> GenotypeHaplotypeDefinition
+    ) -> GenotypeHaplotypeDefinitionSet {
+        guard set.locusDefinitions.indices.contains(locusIndex) else { return set }
+        var loci = set.locusDefinitions
+        var haplotypes = loci[locusIndex].haplotypes
+        guard haplotypes.indices.contains(haplotypeIndex) else { return set }
+        haplotypes[haplotypeIndex] = transform(haplotypes[haplotypeIndex])
+        loci[locusIndex] = GenotypeHaplotypeLocusDefinition(
+            locus: loci[locusIndex].locus,
+            sourceLocus: loci[locusIndex].sourceLocus,
+            haplotypes: haplotypes
+        )
+        return GenotypeHaplotypeDefinitionSet(
+            id: set.id,
+            assayID: set.assayID,
+            displayName: set.displayName,
+            speciesName: set.speciesName,
+            speciesCode: set.speciesCode,
+            prefix: set.prefix,
+            locusDefinitions: loci,
+            schemaVersion: set.schemaVersion,
+            lastModified: set.lastModified,
+            changeNote: set.changeNote
+        )
+    }
+
+    private static func clampedMinimumMatches(_ minimumMatches: Int?, alleleCount: Int) -> Int? {
+        guard let minimumMatches else { return nil }
+        return clampedMinimumMatchesValue(minimumMatches, alleleCount: alleleCount)
+    }
+
+    private static func clampedMinimumMatchesValue(_ minimumMatches: Int, alleleCount: Int) -> Int {
+        max(1, min(minimumMatches, max(1, alleleCount)))
+    }
+
+    private static func hasDuplicates(_ values: [String]) -> Bool {
+        var seen = Set<String>()
+        for value in values {
+            if !seen.insert(value).inserted { return true }
+        }
+        return false
     }
 }
 

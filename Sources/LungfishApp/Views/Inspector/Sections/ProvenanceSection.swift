@@ -317,12 +317,12 @@ struct ProvenanceSection: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .frame(width: 62, alignment: .trailing)
-                SelectableWrappingText(
-                    row.displayPath,
-                    font: .systemFont(ofSize: NSFont.smallSystemFontSize),
-                    maximumNumberOfLines: 2,
-                    accessibilityIdentifier: "provenance-file-path"
-                )
+                Text(row.displayPath)
+                    .font(.caption)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("provenance-file-path")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help(row.path)
             }
@@ -332,14 +332,13 @@ struct ProvenanceSection: View {
             .padding(.leading, 68)
 
             if let checksum = row.checksumSHA256, !checksum.isEmpty {
-                SelectableWrappingText(
-                    "sha256 \(checksum)",
-                    font: .monospacedSystemFont(ofSize: 10, weight: .regular),
-                    textColor: .tertiaryLabelColor,
-                    maximumNumberOfLines: 1,
-                    lineBreakMode: .byTruncatingMiddle,
-                    accessibilityIdentifier: "provenance-file-checksum"
-                )
+                Text("sha256 \(checksum)")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("provenance-file-checksum")
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, 68)
             }
@@ -369,11 +368,12 @@ struct ProvenanceSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(width: 96, alignment: .trailing)
-            SelectableWrappingText(
-                value,
-                font: .systemFont(ofSize: NSFont.smallSystemFontSize),
-                accessibilityIdentifier: accessibilityIdentifier
-            )
+            Text(value)
+                .font(.caption)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .accessibilityIdentifier(accessibilityIdentifier)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

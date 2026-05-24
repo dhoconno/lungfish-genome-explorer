@@ -1,5 +1,6 @@
 import Foundation
 import LungfishCore
+import LungfishIO
 import LungfishWorkflow
 
 struct GenotypeViewportExportSnapshot: Equatable {
@@ -9,6 +10,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
     let filters: [String: String]
     let sampleNames: [String]
     let rows: [GenotypeViewportExportRow]
+    let provenanceInputURLs: [URL]
     /// Optional annotation sidecar to surface in additional worksheets.
     /// When non-nil, the export adds an Overrides sheet and an Audit Log
     /// sheet so consumers reading the workbook see what the analyst has
@@ -22,6 +24,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         filters: [String: String],
         sampleNames: [String],
         rows: [GenotypeViewportExportRow],
+        provenanceInputURLs: [URL] = [],
         sidecar: GenotypeAnnotationSidecarSnapshot? = nil
     ) {
         self.bundleURL = bundleURL
@@ -30,6 +33,7 @@ struct GenotypeViewportExportSnapshot: Equatable {
         self.filters = filters
         self.sampleNames = sampleNames
         self.rows = rows
+        self.provenanceInputURLs = provenanceInputURLs
         self.sidecar = sidecar
     }
 }
@@ -94,7 +98,11 @@ struct GenotypeViewportExcelExportService {
 
         let sourceManifestURL = snapshot.bundleURL.appendingPathComponent("genotype-result.json")
         let sourceInputURL = fm.fileExists(atPath: sourceManifestURL.path) ? sourceManifestURL : snapshot.bundleURL
-        let builder = try ProvenanceRunBuilder(
+        var resolvedOptions = snapshot.filters.mapValues { ParameterValue.string($0) }
+        resolvedOptions["visibleSampleIds"] = .array(snapshot.sampleNames.map { .string($0) })
+        resolvedOptions["visibleSampleCount"] = .integer(snapshot.sampleNames.count)
+
+        var builder = try ProvenanceRunBuilder(
             workflowName: "Genotype viewport Excel export",
             workflowVersion: WorkflowRun.currentAppVersion,
             toolName: "Lungfish Genome Explorer",
@@ -116,11 +124,18 @@ struct GenotypeViewportExcelExportService {
             defaults: [
                 "format": .string("xlsx"),
             ],
-            resolved: snapshot.filters.mapValues { .string($0) }
+            resolved: resolvedOptions
         )
         .input(sourceInputURL, format: .json, role: .input)
         .output(workbookURL, format: .unknown, role: .report)
         .runtime(ProvenanceRuntimeIdentity())
+        let annotationURL = snapshot.bundleURL.appendingPathComponent(GenotypeAnnotationSidecar.filename)
+        if snapshot.sidecar != nil, fm.fileExists(atPath: annotationURL.path) {
+            builder = try builder.input(annotationURL, format: .json, role: .input)
+        }
+        for inputURL in snapshot.provenanceInputURLs where fm.fileExists(atPath: inputURL.path) {
+            builder = try builder.input(inputURL, format: .json, role: .input)
+        }
 
         let envelope = try builder.complete(
             exitStatus: 0,

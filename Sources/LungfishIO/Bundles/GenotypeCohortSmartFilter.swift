@@ -25,6 +25,8 @@ public struct GenotypeCohortSubject: Sendable, Equatable {
     public let totalReads: Int
     public let unmappedPercent: Double
     public let comments: String
+    public let metadata: [String: String]
+    public let rawGenotypes: [String]
     public let calls: [Call]
     public let hasAnyComment: Bool
     public let hasErrorAtAnyLocus: Bool
@@ -37,6 +39,8 @@ public struct GenotypeCohortSubject: Sendable, Equatable {
 
     public init(animalId: String, gsId: String?, qcStatus: ONTGenotypeQCStatus,
                 totalReads: Int, unmappedPercent: Double, comments: String,
+                metadata: [String: String] = [:],
+                rawGenotypes: [String] = [],
                 calls: [Call], hasAnyComment: Bool, hasErrorAtAnyLocus: Bool,
                 isHomozygousAcrossAll: Bool, hasRegionalRecombinant: Bool,
                 hasAtypicalPattern: Bool,
@@ -48,6 +52,8 @@ public struct GenotypeCohortSubject: Sendable, Equatable {
         self.totalReads = totalReads
         self.unmappedPercent = unmappedPercent
         self.comments = comments
+        self.metadata = metadata
+        self.rawGenotypes = rawGenotypes
         self.calls = calls
         self.hasAnyComment = hasAnyComment
         self.hasErrorAtAnyLocus = hasErrorAtAnyLocus
@@ -89,6 +95,8 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     case animalIdIn([String])
     case gsIdMatches(String)
     case commentContains(String)
+    case metadataFieldContains(field: String, value: String)
+    case textContains(String)
     case hasAnyComment
     case qcStatus(Set<ONTGenotypeQCStatus>)
     case hasErrorAtAnyLocus
@@ -118,6 +126,19 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     case hasHighlightBorder(String?)
     case hasAnalystFlag(GenotypeAnnotationSidecar.StatusValue)
 
+    public var visibleTextSearch: String? {
+        switch self {
+        case .textContains(let text):
+            return text
+        case .all(let predicates), .any(let predicates):
+            return predicates.compactMap(\.visibleTextSearch).first
+        case .not(let predicate):
+            return predicate.visibleTextSearch
+        default:
+            return nil
+        }
+    }
+
     public func evaluate(_ subject: GenotypeCohortSubject) -> Bool {
         switch self {
         case .all(let predicates):
@@ -134,6 +155,24 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             return subject.gsId == s
         case .commentContains(let s):
             return subject.comments.localizedCaseInsensitiveContains(s)
+        case .metadataFieldContains(let field, let value):
+            return subject.metadata.contains { key, metadataValue in
+                key.localizedCaseInsensitiveContains(field)
+                    && metadataValue.localizedCaseInsensitiveContains(value)
+            }
+        case .textContains(let s):
+            return subject.animalId.localizedCaseInsensitiveContains(s)
+                || (subject.gsId?.localizedCaseInsensitiveContains(s) ?? false)
+                || subject.comments.localizedCaseInsensitiveContains(s)
+                || subject.metadata.contains { key, value in
+                    key.localizedCaseInsensitiveContains(s)
+                        || value.localizedCaseInsensitiveContains(s)
+                }
+                || subject.rawGenotypes.contains { $0.localizedCaseInsensitiveContains(s) }
+                || subject.calls.contains { call in
+                    call.locus.localizedCaseInsensitiveContains(s)
+                        || call.name.localizedCaseInsensitiveContains(s)
+                }
         case .hasAnyComment:
             return subject.hasAnyComment
         case .qcStatus(let set):
@@ -187,7 +226,7 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, children, child, value, locus, slot, names, hex, ids, set, prefix
+        case kind, children, child, value, field, locus, slot, names, hex, ids, set, prefix
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -213,6 +252,13 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             try container.encode(s, forKey: .value)
         case .commentContains(let s):
             try container.encode("commentContains", forKey: .kind)
+            try container.encode(s, forKey: .value)
+        case .metadataFieldContains(let field, let value):
+            try container.encode("metadataFieldContains", forKey: .kind)
+            try container.encode(field, forKey: .field)
+            try container.encode(value, forKey: .value)
+        case .textContains(let s):
+            try container.encode("textContains", forKey: .kind)
             try container.encode(s, forKey: .value)
         case .hasAnyComment:
             try container.encode("hasAnyComment", forKey: .kind)
@@ -290,6 +336,13 @@ public indirect enum SmartCohortPredicate: Codable, Equatable, Sendable {
             self = .gsIdMatches(try container.decode(String.self, forKey: .value))
         case "commentContains":
             self = .commentContains(try container.decode(String.self, forKey: .value))
+        case "metadataFieldContains":
+            self = .metadataFieldContains(
+                field: try container.decode(String.self, forKey: .field),
+                value: try container.decode(String.self, forKey: .value)
+            )
+        case "textContains":
+            self = .textContains(try container.decode(String.self, forKey: .value))
         case "hasAnyComment":
             self = .hasAnyComment
         case "qcStatus":
