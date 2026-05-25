@@ -3,31 +3,37 @@ import Foundation
 import LungfishIO
 import LungfishWorkflow
 
-struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
+struct FastqGenotypingSubcommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "ont-barcode-genotype",
-        abstract: "Map an ONT barcode FASTQ once, retain exact+indel MHC alignments, and demultiplex retained reads"
+        commandName: "genotype",
+        abstract: "Run platform-aware exact+indel amplicon genotyping for ONT or Illumina reads"
     )
 
-    @Argument(help: "Original ONT FASTQ file or multi-file .lungfishfastq bundle")
-    var input: String
+    @Argument(help: "Input FASTQ file, folder, or .lungfishfastq bundle. Illumina mode accepts multiple prepared per-sample bundles created with the Illumina Amplicon Merge import recipe.")
+    var inputs: [String]
+
+    @Option(name: .customLong("mode"), help: "Genotyping mode: auto, ont-barcode-demux, or illumina-paired")
+    var mode: String = "auto"
+
+    @Option(name: .customLong("read-type"), help: "Read type override: auto, ont, or illumina")
+    var readType: String = "auto"
 
     @Option(name: .customLong("reference"), help: "Reference FASTA file or .lungfishref bundle used as the mapping target")
     var reference: String
 
-    @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns")
-    var barcodes: String
+    @Option(name: .customLong("barcodes"), help: "CSV/TSV file containing sample ID and Fluidigm barcode sequence columns for ONT barcode-demux mode")
+    var barcodes: String?
 
-    @Option(name: .customLong("demux-manifest"), help: "Optional demux-manifest.json with total input/sample read counts; defaults to the input bundle manifest")
+    @Option(name: .customLong("demux-manifest"), help: "Optional demux-manifest.json with total input/sample read counts for ONT barcode-demux mode")
     var demuxManifest: String?
 
-    @Option(name: .customLong("output-dir"), help: "Directory for mapped BAM, retained BAM, CSV summaries, stats, and provenance")
+    @Option(name: .customLong("output-dir"), help: "Directory for genotype CSV summaries, workbook, stats, and provenance")
     var outputDir: String
 
     @Option(name: .customLong("output-name"), help: "Output filename stem")
-    var outputName: String = "ont-barcode-genotyping"
+    var outputName: String = "amplicon-genotyping"
 
-    @Option(name: .customLong("analysis-name"), help: "Label for this ONT analysis in the workbook; defaults to --output-name")
+    @Option(name: .customLong("analysis-name"), help: "Label for this analysis in the workbook; defaults to --output-name")
     var analysisName: String?
 
     @Option(name: .customLong("comparison-workbook"), help: "Optional Excel workbook whose first sheet provides comparison layout and expected calls")
@@ -62,7 +68,7 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     @Option(
         name: .customLong("extra-args"),
         parsing: .unconditional,
-        help: "Advanced minimap2 arguments passed after --MD and before reference/input paths"
+        help: "Advanced minimap2 arguments passed after the mapping preset"
     )
     var extraArgs: String = ""
 
@@ -71,6 +77,9 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     }
 
     func run() async throws {
+        guard !inputs.isEmpty else {
+            throw ValidationError("At least one input FASTQ or .lungfishfastq bundle is required.")
+        }
         guard globalOptions.threads.map({ $0 > 0 }) ?? true else {
             throw ValidationError("--threads must be positive.")
         }
@@ -80,6 +89,12 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
         guard minSupport > 0 else {
             throw ValidationError("--min-support must be positive.")
         }
+        guard let parsedMode = AmpliconGenotypingMode(cliArgument: mode) else {
+            throw ValidationError("Unknown --mode '\(mode)'. Use auto, ont-barcode-demux, or illumina-paired.")
+        }
+        guard let parsedReadType = AmpliconGenotypingReadType(cliArgument: readType) else {
+            throw ValidationError("Unknown --read-type '\(readType)'. Use auto, ont, or illumina.")
+        }
         let parsedExtraArguments: [String]
         do {
             parsedExtraArguments = try AdvancedCommandLineOptions.parse(extraArgs)
@@ -87,13 +102,13 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             throw ValidationError("Invalid --extra-args: \(error.localizedDescription)")
         }
         let parsedHaplotypeDefinitionScope = try haplotypeDefinitionScope.map {
-            try parseHaplotypeDefinitionScope($0)
+            try parseGenotypeHaplotypeDefinitionScope($0)
         }
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
-            inputFASTQURL: URL(fileURLWithPath: input),
+            inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
             referenceSourceURL: URL(fileURLWithPath: reference),
-            barcodeDefinitionsURL: URL(fileURLWithPath: barcodes),
+            barcodeDefinitionsURL: barcodes.map { URL(fileURLWithPath: $0) },
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
             demuxManifestURL: demuxManifest.map { URL(fileURLWithPath: $0) },
@@ -108,7 +123,9 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
             haplotypeSpeciesCode: haplotypeSpecies,
             haplotypeDefinitionScope: parsedHaplotypeDefinitionScope,
             haplotypeDefinitionSetID: haplotypeDefinition,
-            extraArguments: parsedExtraArguments
+            extraArguments: parsedExtraArguments,
+            mode: parsedMode,
+            readType: parsedReadType
         )
 
         let result = try await ONTBarcodeDemuxGenotypingPipeline().run(
@@ -118,7 +135,7 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
                 FileHandle.standardError.write(Data("[\(String(format: "%3d%%", percent))] \(message)\n".utf8))
             }
         )
-        let payload = FastqONTBarcodeGenotypingPayload(
+        let payload = FastqGenotypingPayload(
             outputDirectory: result.outputDirectory.path,
             mappingBAMPath: result.mappingBAMURL.path,
             mappingBAIPath: result.mappingBAIURL.path,
@@ -145,7 +162,7 @@ struct FastqONTBarcodeGenotypingSubcommand: AsyncParsableCommand {
     }
 }
 
-private func parseHaplotypeDefinitionScope(_ rawValue: String) throws -> HaplotypeDefinitionScope {
+private func parseGenotypeHaplotypeDefinitionScope(_ rawValue: String) throws -> HaplotypeDefinitionScope {
     let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     if normalized == "builtin" {
         return .builtIn
@@ -156,7 +173,7 @@ private func parseHaplotypeDefinitionScope(_ rawValue: String) throws -> Haploty
     return scope
 }
 
-private struct FastqONTBarcodeGenotypingPayload: Encodable {
+private struct FastqGenotypingPayload: Encodable {
     let outputDirectory: String
     let mappingBAMPath: String
     let mappingBAIPath: String

@@ -83,4 +83,28 @@ final class ImportConfigTests: XCTestCase {
         XCTAssertEqual(config.platform, .illumina)
         XCTAssertEqual(config.qualityBinning, .illumina4)
     }
+
+    func testIlluminaAmpliconMergeRecipeIsAvailableBeforeGenotyping() throws {
+        let recipe = try XCTUnwrap(
+            RecipeRegistryV2.recipe(id: "illumina-amplicon-merge"),
+            "Illumina amplicon merge must be a built-in import recipe so users can prepare sample bundles before running genotyping."
+        )
+
+        XCTAssertEqual(recipe.name, "Illumina Amplicon Merge")
+        XCTAssertEqual(recipe.platforms, [.illumina])
+        XCTAssertEqual(recipe.requiredInput, .paired)
+        XCTAssertEqual(recipe.qualityBinning, .illumina4)
+        XCTAssertEqual(recipe.steps.map(\.type), ["fastp-merge"])
+        XCTAssertEqual(recipe.steps.first?.params?["keepUnmerged"]?.boolValue, false)
+    }
+
+    func testFastpMergeCanProduceMergedOnlySingleReadStreamForAmpliconImports() throws {
+        let step = try FastpMergeStep(params: [
+            "minOverlap": .int(20),
+            "keepUnmerged": .bool(false),
+        ])
+
+        XCTAssertEqual(step.inputFormat, .pairedR1R2)
+        XCTAssertEqual(step.outputFormat, .single)
+    }
 }

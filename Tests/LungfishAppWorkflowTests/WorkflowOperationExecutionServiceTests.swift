@@ -41,7 +41,9 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let outputs = try await service.run(.ontGenotyping(request))
 
         let invocation = try XCTUnwrap(runner.invocations.first)
-        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "ont-barcode-genotype"])
+        XCTAssertEqual(invocation.arguments.prefix(2), ["fastq", "genotype"])
+        XCTAssertEqual(try testValue(after: "--mode", in: invocation.arguments), "ont-barcode-demux")
+        XCTAssertEqual(try testValue(after: "--read-type", in: invocation.arguments), "ont")
         XCTAssertTrue(invocation.arguments.contains(readsURL.standardizedFileURL.path))
         XCTAssertTrue(invocation.arguments.contains("--reference"))
         XCTAssertTrue(invocation.arguments.contains(referenceURL.standardizedFileURL.path))
@@ -62,9 +64,9 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         XCTAssertTrue(bamImporter.invocations.isEmpty)
 
         let item = try XCTUnwrap(operationCenter.items.first)
-        XCTAssertEqual(item.title, "ONT Genotyping")
+        XCTAssertEqual(item.title, "Amplicon Genotyping")
         XCTAssertEqual(item.state, .completed)
-        XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq ont-barcode-genotype") == true)
+        XCTAssertTrue(item.cliCommand?.contains("lungfish-cli fastq genotype") == true)
         XCTAssertTrue(item.outputURLs.contains(request.workbookURL.standardizedFileURL))
         XCTAssertTrue(runner.didReceiveOutputHandler)
         XCTAssertEqual(
@@ -94,7 +96,7 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
 
         do {
             _ = try await service.run(.ontGenotyping(request))
-            XCTFail("Expected ONT genotyping failure")
+            XCTFail("Expected amplicon genotyping failure")
         } catch LocalWorkflowExecutionError.nonZeroExit(let status) {
             XCTAssertEqual(status, 5)
         }
@@ -102,8 +104,8 @@ final class WorkflowOperationExecutionServiceTests: XCTestCase {
         let item = try XCTUnwrap(operationCenter.items.first)
         XCTAssertEqual(item.state, .failed)
         XCTAssertEqual(item.progress, 0.45, accuracy: 0.001)
-        XCTAssertEqual(item.detail, "ONT genotyping failed with exit code 5")
-        XCTAssertEqual(item.errorMessage, "ONT genotyping failed")
+        XCTAssertEqual(item.detail, "Amplicon genotyping failed with exit code 5")
+        XCTAssertEqual(item.errorMessage, "Amplicon genotyping failed")
         XCTAssertTrue(item.errorDetail?.contains("exit code 5") == true)
         XCTAssertTrue(item.errorDetail?.contains("could not load resource bundle") == true)
         XCTAssertTrue(item.logEntries.contains { $0.message == "Mapping ONT reads with minimap2." })

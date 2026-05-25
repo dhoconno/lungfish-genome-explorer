@@ -4,8 +4,9 @@ import LungfishIO
 
 public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable {
     public let inputFASTQURL: URL
+    public let inputFASTQURLs: [URL]
     public let referenceSourceURL: URL
-    public let barcodeDefinitionsURL: URL
+    public let barcodeDefinitionsURL: URL?
     public let outputDirectory: URL
     public let outputName: String
     public let demuxManifestURL: URL?
@@ -17,8 +18,12 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
     public let sortThreads: Int
     public let minSupport: Int
     public let haplotypeAssayID: String?
+    public let haplotypeSpeciesCode: String?
+    public let haplotypeDefinitionScope: HaplotypeDefinitionScope?
     public let haplotypeDefinitionSetID: String?
     public let extraArguments: [String]
+    public let mode: AmpliconGenotypingMode
+    public let readType: AmpliconGenotypingReadType
 
     public init(
         inputFASTQURL: URL,
@@ -35,13 +40,65 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         sortThreads: Int = 4,
         minSupport: Int = 1,
         haplotypeAssayID: String? = nil,
+        haplotypeSpeciesCode: String? = nil,
+        haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
         haplotypeDefinitionSetID: String? = nil,
         extraArguments: [String] = []
     ) {
+        self.init(
+            inputFASTQURLs: [inputFASTQURL],
+            referenceSourceURL: referenceSourceURL,
+            barcodeDefinitionsURL: barcodeDefinitionsURL,
+            outputDirectory: outputDirectory,
+            outputName: outputName,
+            demuxManifestURL: demuxManifestURL,
+            analysisName: analysisName,
+            comparisonWorkbookURL: comparisonWorkbookURL,
+            comparisonName: comparisonName,
+            projectURL: projectURL,
+            threads: threads,
+            sortThreads: sortThreads,
+            minSupport: minSupport,
+            haplotypeAssayID: haplotypeAssayID,
+            haplotypeSpeciesCode: haplotypeSpeciesCode,
+            haplotypeDefinitionScope: haplotypeDefinitionScope,
+            haplotypeDefinitionSetID: haplotypeDefinitionSetID,
+            extraArguments: extraArguments,
+            mode: .ontBarcodeDemux,
+            readType: .ont
+        )
+    }
+
+    public init(
+        inputFASTQURLs: [URL],
+        referenceSourceURL: URL,
+        barcodeDefinitionsURL: URL? = nil,
+        outputDirectory: URL,
+        outputName: String = "amplicon-genotyping",
+        demuxManifestURL: URL? = nil,
+        analysisName: String? = nil,
+        comparisonWorkbookURL: URL? = nil,
+        comparisonName: String? = "Illumina-31262",
+        projectURL: URL? = nil,
+        threads: Int = max(1, ProcessInfo.processInfo.activeProcessorCount),
+        sortThreads: Int = 4,
+        minSupport: Int = 1,
+        haplotypeAssayID: String? = nil,
+        haplotypeSpeciesCode: String? = nil,
+        haplotypeDefinitionScope: HaplotypeDefinitionScope? = nil,
+        haplotypeDefinitionSetID: String? = nil,
+        extraArguments: [String] = [],
+        mode: AmpliconGenotypingMode = .auto,
+        readType: AmpliconGenotypingReadType = .auto
+    ) {
         let normalizedOutputName = Self.sanitizedOutputName(outputName)
-        self.inputFASTQURL = inputFASTQURL.standardizedFileURL
+        let standardizedInputURLs = inputFASTQURLs.isEmpty
+            ? [URL(fileURLWithPath: "").standardizedFileURL]
+            : inputFASTQURLs.map(\.standardizedFileURL)
+        self.inputFASTQURL = standardizedInputURLs[0]
+        self.inputFASTQURLs = standardizedInputURLs
         self.referenceSourceURL = referenceSourceURL.standardizedFileURL
-        self.barcodeDefinitionsURL = barcodeDefinitionsURL.standardizedFileURL
+        self.barcodeDefinitionsURL = barcodeDefinitionsURL?.standardizedFileURL
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.outputName = normalizedOutputName
         self.demuxManifestURL = demuxManifestURL?.standardizedFileURL
@@ -61,11 +118,18 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         self.haplotypeAssayID = trimmedHaplotypeAssayID?.isEmpty == true
             ? nil
             : trimmedHaplotypeAssayID
+        let trimmedHaplotypeSpeciesCode = haplotypeSpeciesCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.haplotypeSpeciesCode = trimmedHaplotypeSpeciesCode?.isEmpty == true
+            ? nil
+            : trimmedHaplotypeSpeciesCode
+        self.haplotypeDefinitionScope = haplotypeDefinitionScope
         let trimmedHaplotypeDefinitionSetID = haplotypeDefinitionSetID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.haplotypeDefinitionSetID = trimmedHaplotypeDefinitionSetID?.isEmpty == true
             ? nil
             : trimmedHaplotypeDefinitionSetID
         self.extraArguments = extraArguments
+        self.mode = mode
+        self.readType = readType
     }
 
     public var mappingBAMURL: URL {
@@ -118,10 +182,11 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         var values = [
             "lungfish",
             "fastq",
-            "ont-barcode-genotype",
-            inputFASTQURL.path,
+            "genotype",
+        ] + inputFASTQURLs.map(\.path) + [
+            "--mode", mode.cliArgument,
+            "--read-type", readType.cliArgument,
             "--reference", referenceSourceURL.path,
-            "--barcodes", barcodeDefinitionsURL.path,
             "--output-dir", outputDirectory.path,
             "--output-name", outputName,
             "--threads", String(threads),
@@ -129,9 +194,18 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
             "--min-support", String(minSupport),
             "--analysis-name", analysisName,
         ]
+        if let barcodeDefinitionsURL {
+            values += ["--barcodes", barcodeDefinitionsURL.path]
+        }
         if let haplotypeDefinitionSetID {
             if let haplotypeAssayID {
                 values += ["--haplotype-assay", haplotypeAssayID]
+            }
+            if let haplotypeSpeciesCode {
+                values += ["--haplotype-species", haplotypeSpeciesCode]
+            }
+            if let haplotypeDefinitionScope {
+                values += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
             }
             values += ["--haplotype-definition", haplotypeDefinitionSetID]
         }
@@ -161,7 +235,7 @@ public struct ONTBarcodeDemuxGenotypingRunRequest: Sendable, Codable, Equatable 
         let collapsed = String(replaced)
             .split(separator: "-", omittingEmptySubsequences: true)
             .joined(separator: "-")
-        return collapsed.isEmpty ? "ont-barcode-genotyping" : collapsed
+        return collapsed.isEmpty ? "amplicon-genotyping" : collapsed
     }
 
     private static func sanitizedReportLabel(_ value: String, fallback: String) -> String {
@@ -207,10 +281,13 @@ public struct ONTBarcodeDemuxGenotypingResult: Sendable, Codable, Equatable {
 public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equatable {
     case missingInput(URL)
     case missingBarcodeDefinitions(URL)
+    case missingBarcodeDefinitionsForONT
     case missingDemuxManifest(URL)
     case missingComparisonWorkbook(URL)
     case invalidReference(URL)
     case noFASTQSources(URL)
+    case unsupportedIlluminaInput(URL)
+    case ambiguousGenotypingMode
     case processFailed(tool: String, status: Int32, stderr: String)
     case filterFailed(status: Int32, stderr: String)
     case invalidFilterOutput(String)
@@ -226,6 +303,8 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Input FASTQ bundle or file does not exist: \(url.path)"
         case .missingBarcodeDefinitions(let url):
             return "Barcode definitions file does not exist: \(url.path)"
+        case .missingBarcodeDefinitionsForONT:
+            return "ONT barcode-demux genotyping requires a barcode definition CSV/TSV file."
         case .missingDemuxManifest(let url):
             return "Demultiplex manifest does not exist: \(url.path)"
         case .missingComparisonWorkbook(let url):
@@ -234,6 +313,10 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Reference source does not contain a readable FASTA payload: \(url.path)"
         case .noFASTQSources(let url):
             return "No constituent FASTQ files could be resolved from: \(url.path)"
+        case .unsupportedIlluminaInput(let url):
+            return "Illumina genotyping requires each input to be an already merged single-FASTQ sample bundle. Import paired R1/R2 reads with the Illumina Amplicon Merge recipe first: \(url.path)"
+        case .ambiguousGenotypingMode:
+            return "Could not infer genotyping mode. Choose ONT barcode demux or Illumina sample bundles explicitly."
         case .processFailed(let tool, let status, let stderr):
             return "\(tool) failed with status \(status): \(stderr)"
         case .filterFailed(let status, let stderr):
@@ -271,12 +354,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         progressHandler: (@Sendable (Double, String) -> Void)? = nil
     ) async throws -> ONTBarcodeDemuxGenotypingResult {
         let startedAt = Date()
-        progressHandler?(0.01, "Validating ONT genotyping inputs.")
-        guard FileManager.default.fileExists(atPath: request.inputFASTQURL.path) else {
-            throw ONTBarcodeDemuxGenotypingError.missingInput(request.inputFASTQURL)
+        let resolvedMode = try resolveMode(for: request)
+        let resolvedReadType = resolveReadType(for: request, mode: resolvedMode)
+        progressHandler?(0.01, "Validating amplicon genotyping inputs.")
+        for inputFASTQURL in request.inputFASTQURLs {
+            guard FileManager.default.fileExists(atPath: inputFASTQURL.path) else {
+                throw ONTBarcodeDemuxGenotypingError.missingInput(inputFASTQURL)
+            }
         }
-        guard FileManager.default.fileExists(atPath: request.barcodeDefinitionsURL.path) else {
-            throw ONTBarcodeDemuxGenotypingError.missingBarcodeDefinitions(request.barcodeDefinitionsURL)
+        if resolvedMode == .ontBarcodeDemux {
+            guard let barcodeDefinitionsURL = request.barcodeDefinitionsURL else {
+                throw ONTBarcodeDemuxGenotypingError.missingBarcodeDefinitionsForONT
+            }
+            guard FileManager.default.fileExists(atPath: barcodeDefinitionsURL.path) else {
+                throw ONTBarcodeDemuxGenotypingError.missingBarcodeDefinitions(barcodeDefinitionsURL)
+            }
         }
         if let comparisonWorkbookURL = request.comparisonWorkbookURL,
            !FileManager.default.fileExists(atPath: comparisonWorkbookURL.path) {
@@ -284,31 +376,16 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         _ = try resolveHaplotypeDefinitionSet(for: request)
         try FileManager.default.createDirectory(at: request.outputDirectory, withIntermediateDirectories: true)
-        progressHandler?(0.04, "Preparing ONT genotyping output workspace.")
+        progressHandler?(0.04, "Preparing amplicon genotyping output workspace.")
         let supportDirectory = request.outputDirectory
-            .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
         let scriptURL = supportDirectory.appendingPathComponent("filter-demux-retained-bam.py")
         try Self.writeFilterScript(to: scriptURL)
         let reportScriptURL = supportDirectory.appendingPathComponent("write-retained-demux-workbook.py")
         try Self.writeReportScript(to: reportScriptURL)
 
-        progressHandler?(0.08, "Resolving demultiplex manifest and input snapshots.")
-        let demuxManifestURL = try resolveDemuxManifest(for: request)
-        guard FileManager.default.fileExists(atPath: demuxManifestURL.path) else {
-            throw ONTBarcodeDemuxGenotypingError.missingDemuxManifest(demuxManifestURL)
-        }
-        let inputSnapshot = try snapshotSmallInputs(
-            for: request,
-            demuxManifestURL: demuxManifestURL,
-            supportDirectory: supportDirectory
-        )
-
         progressHandler?(0.12, "Resolving reference and FASTQ inputs.")
         let reference = try await resolveReference(for: request)
-        let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: request.inputFASTQURL)
-        guard !inputFASTQURLs.isEmpty else {
-            throw ONTBarcodeDemuxGenotypingError.noFASTQSources(request.inputFASTQURL)
-        }
 
         progressHandler?(0.18, "Resolving managed minimap2, samtools, pysam, and openpyxl tools.")
         let minimap2URL = try await condaManager.toolPath(name: "minimap2", environment: "minimap2")
@@ -316,18 +393,33 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let pythonURL = try await condaManager.toolPath(name: "python", environment: "pysam")
         let reportPythonURL = try await condaManager.toolPath(name: "python", environment: "openpyxl")
 
-        progressHandler?(0.25, "Mapping ONT reads with minimap2.")
+        progressHandler?(0.22, "Preparing platform-specific read inputs.")
+        let inputPlan = try await prepareInputPlan(
+            request: request,
+            resolvedMode: resolvedMode,
+            supportDirectory: supportDirectory,
+            pythonURL: pythonURL
+        )
+        let inputSnapshot = inputPlan.inputSnapshot
+        let mappingInputFASTQURLs = inputPlan.mappingFASTQURLs
+        guard !mappingInputFASTQURLs.isEmpty else {
+            throw ONTBarcodeDemuxGenotypingError.noFASTQSources(request.inputFASTQURL)
+        }
+
+        progressHandler?(0.25, "Mapping amplicon reads with minimap2.")
         let mapping = try runMapping(
             request: request,
+            resolvedMode: resolvedMode,
             referenceFASTAURL: reference.referenceFASTAURL,
-            inputFASTQURLs: inputFASTQURLs,
+            inputFASTQURLs: mappingInputFASTQURLs,
             minimap2URL: minimap2URL,
             samtoolsURL: samtoolsURL
         )
 
-        progressHandler?(0.58, "Filtering retained full-reference alignments and demultiplexing by barcode.")
+        progressHandler?(0.58, "Filtering retained full-reference alignments and assigning samples.")
         let filter = try await runFilter(
             request: request,
+            resolvedMode: resolvedMode,
             referenceFASTAURL: reference.referenceFASTAURL,
             barcodeDefinitionsURL: inputSnapshot.barcodeDefinitionsURL,
             demuxManifestURL: inputSnapshot.demuxManifestURL,
@@ -371,10 +463,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         progressHandler?(0.93, "Writing reproducibility provenance and bundle manifest.")
         let provenanceURL = try writeProvenance(
             request: request,
+            resolvedMode: resolvedMode,
+            resolvedReadType: resolvedReadType,
             reference: reference,
-            inputFASTQURLs: inputFASTQURLs,
-            demuxManifestURL: demuxManifestURL,
+            inputFASTQURLs: inputPlan.originalInputFASTQURLs,
+            mappingInputFASTQURLs: mappingInputFASTQURLs,
+            demuxManifestURL: inputPlan.manifestURL,
             inputSnapshot: inputSnapshot,
+            illuminaPreparation: inputPlan.illuminaPreparation,
             scriptURL: scriptURL,
             reportScriptURL: reportScriptURL,
             minimap2URL: minimap2URL,
@@ -390,12 +486,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         )
         try writeBundleManifest(
             request: request,
+            resolvedMode: resolvedMode,
             provenanceURL: provenanceURL,
             completedAt: completedAt
         )
         progressHandler?(0.97, "Removing regenerable alignment intermediates.")
         try removeGeneratedAlignmentIntermediates(for: request)
-        progressHandler?(0.98, "Finalizing ONT genotyping outputs.")
+        progressHandler?(0.98, "Finalizing amplicon genotyping outputs.")
 
         return ONTBarcodeDemuxGenotypingResult(
             outputDirectory: request.outputDirectory,
@@ -494,6 +591,29 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let stagedInputURLs: [URL]
     }
 
+    private struct InputPlan {
+        let mappingFASTQURLs: [URL]
+        let originalInputFASTQURLs: [URL]
+        let manifestURL: URL
+        let inputSnapshot: SmallInputSnapshot
+        let illuminaPreparation: IlluminaPreparation?
+    }
+
+    private struct IlluminaSampleInput {
+        let sampleID: String
+        let sourceURL: URL
+        let fastqURL: URL
+        let prefixedFASTQURL: URL
+        let readCount: Int
+    }
+
+    private struct IlluminaPreparation {
+        let sampleManifestURL: URL
+        let sampleDefinitionsURL: URL
+        let sourceFASTQURLs: [URL]
+        let mappingFASTQURLs: [URL]
+    }
+
     private struct MappingStepResult {
         let minimap2Arguments: [String]
         let samtoolsSortArguments: [String]
@@ -539,6 +659,246 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let auditRows: Int
     }
 
+    private func resolveMode(for request: ONTBarcodeDemuxGenotypingRunRequest) throws -> AmpliconGenotypingMode {
+        switch request.mode {
+        case .ontBarcodeDemux, .illuminaPaired:
+            return request.mode
+        case .auto:
+            if request.readType == .ont {
+                return .ontBarcodeDemux
+            }
+            if request.readType == .illumina || request.inputFASTQURLs.count > 1 {
+                return .illuminaPaired
+            }
+            if request.barcodeDefinitionsURL != nil {
+                return .ontBarcodeDemux
+            }
+            guard let first = request.inputFASTQURLs.first else {
+                throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
+            }
+            let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: first)
+            let detected = inputFASTQURLs.compactMap { LungfishIO.SequencingPlatform.detect(fromFASTQ: $0) }
+            if detected.contains(.illumina) {
+                return .illuminaPaired
+            }
+            if detected.contains(.oxfordNanopore) {
+                return .ontBarcodeDemux
+            }
+            throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
+        }
+    }
+
+    private func resolveReadType(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        mode: AmpliconGenotypingMode
+    ) -> AmpliconGenotypingReadType {
+        if request.readType != .auto {
+            return request.readType
+        }
+        switch mode {
+        case .ontBarcodeDemux:
+            return .ont
+        case .illuminaPaired:
+            return .illumina
+        case .auto:
+            return .auto
+        }
+    }
+
+    private func prepareInputPlan(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        supportDirectory: URL,
+        pythonURL: URL
+    ) async throws -> InputPlan {
+        switch resolvedMode {
+        case .ontBarcodeDemux:
+            progressNoop()
+            let demuxManifestURL = try resolveDemuxManifest(for: request)
+            guard FileManager.default.fileExists(atPath: demuxManifestURL.path) else {
+                throw ONTBarcodeDemuxGenotypingError.missingDemuxManifest(demuxManifestURL)
+            }
+            let inputSnapshot = try snapshotSmallInputs(
+                for: request,
+                demuxManifestURL: demuxManifestURL,
+                supportDirectory: supportDirectory
+            )
+            let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: request.inputFASTQURL)
+            return InputPlan(
+                mappingFASTQURLs: inputFASTQURLs,
+                originalInputFASTQURLs: inputFASTQURLs,
+                manifestURL: demuxManifestURL,
+                inputSnapshot: inputSnapshot,
+                illuminaPreparation: nil
+            )
+
+        case .illuminaPaired:
+            let preparation = try await prepareIlluminaInputs(
+                request: request,
+                supportDirectory: supportDirectory,
+                pythonURL: pythonURL
+            )
+            let comparisonSnapshotURL = try request.comparisonWorkbookURL.map { comparisonURL in
+                try copyInputSnapshot(
+                    sourceURL: comparisonURL,
+                    destinationURL: supportDirectory
+                        .appendingPathComponent("inputs", isDirectory: true)
+                        .appendingPathComponent(
+                            "comparison-workbook.\(comparisonURL.pathExtension.isEmpty ? "xlsx" : comparisonURL.pathExtension)"
+                        )
+                )
+            }
+            let snapshot = SmallInputSnapshot(
+                barcodeDefinitionsURL: preparation.sampleDefinitionsURL,
+                demuxManifestURL: preparation.sampleManifestURL,
+                comparisonWorkbookURL: comparisonSnapshotURL,
+                stagedInputURLs: [preparation.sampleDefinitionsURL, preparation.sampleManifestURL]
+                    + (comparisonSnapshotURL.map { [$0] } ?? [])
+            )
+            return InputPlan(
+                mappingFASTQURLs: preparation.mappingFASTQURLs,
+                originalInputFASTQURLs: preparation.sourceFASTQURLs,
+                manifestURL: preparation.sampleManifestURL,
+                inputSnapshot: snapshot,
+                illuminaPreparation: preparation
+            )
+
+        case .auto:
+            throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
+        }
+    }
+
+    private func progressNoop() {}
+
+    private func prepareIlluminaInputs(
+        request: ONTBarcodeDemuxGenotypingRunRequest,
+        supportDirectory: URL,
+        pythonURL: URL
+    ) async throws -> IlluminaPreparation {
+        let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
+        let stagedDirectory = supportDirectory.appendingPathComponent("illumina-sample-fastqs", isDirectory: true)
+        try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: stagedDirectory, withIntermediateDirectories: true)
+
+        let samples = try await Self.resolveIlluminaSampleInputs(
+            from: request.inputFASTQURLs,
+            stagingDirectory: stagedDirectory
+        )
+        _ = pythonURL
+
+        let sampleDefinitionsURL = inputsDirectory.appendingPathComponent("illumina-sample-definitions.csv")
+        let sampleDefinitionRows = ["sample,barcode"]
+            + samples.map { "\($0.sampleID),ILLUMINA_SAMPLE" }
+        try (sampleDefinitionRows.joined(separator: "\n") + "\n")
+            .write(to: sampleDefinitionsURL, atomically: true, encoding: .utf8)
+
+        let sampleManifestURL = inputsDirectory.appendingPathComponent("illumina-sample-manifest.json")
+        let sampleItems = samples.map { sample -> [String: Any] in
+            [
+                "sample": sample.sampleID,
+                "inputBundle": sample.sourceURL.path,
+                "fastq": sample.fastqURL.path,
+                "mappingFASTQ": sample.prefixedFASTQURL.path,
+                "readCount": sample.readCount,
+            ]
+        }
+        let manifest: [String: Any] = [
+            "mode": AmpliconGenotypingMode.illuminaPaired.rawValue,
+            "inputReadCount": samples.reduce(0) { $0 + $1.readCount },
+            "samples": sampleItems,
+        ]
+        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+        try manifestData.write(to: sampleManifestURL, options: .atomic)
+
+        return IlluminaPreparation(
+            sampleManifestURL: sampleManifestURL,
+            sampleDefinitionsURL: sampleDefinitionsURL,
+            sourceFASTQURLs: samples.map(\.fastqURL),
+            mappingFASTQURLs: samples.map(\.prefixedFASTQURL)
+        )
+    }
+
+    private static func resolveIlluminaSampleInputs(
+        from urls: [URL],
+        stagingDirectory: URL
+    ) async throws -> [IlluminaSampleInput] {
+        var samples: [IlluminaSampleInput] = []
+        for url in urls.map(\.standardizedFileURL) {
+            let resolvedFASTQs: [URL]
+            if FASTQBundle.isFASTQFileURL(url) {
+                resolvedFASTQs = [url]
+            } else if FASTQBundle.isBundleURL(url) {
+                resolvedFASTQs = try Self.resolveInputFASTQURLs(for: url)
+            } else {
+                throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
+            }
+            guard resolvedFASTQs.count == 1, let fastqURL = resolvedFASTQs.first else {
+                throw ONTBarcodeDemuxGenotypingError.unsupportedIlluminaInput(url)
+            }
+            let sampleID = sampleID(from: url)
+            let prefixedFASTQURL = stagingDirectory
+                .appendingPathComponent("\(safeFilenameStem(sampleID)).sample-prefixed.fastq")
+            let readCount = try await writeSamplePrefixedFASTQ(
+                sourceURL: fastqURL,
+                destinationURL: prefixedFASTQURL,
+                sampleID: sampleID
+            )
+            samples.append(IlluminaSampleInput(
+                sampleID: sampleID,
+                sourceURL: url,
+                fastqURL: fastqURL.standardizedFileURL,
+                prefixedFASTQURL: prefixedFASTQURL.standardizedFileURL,
+                readCount: readCount
+            ))
+        }
+        return samples
+    }
+
+    private static func writeSamplePrefixedFASTQ(
+        sourceURL: URL,
+        destinationURL: URL,
+        sampleID: String
+    ) async throws -> Int {
+        let reader = FASTQReader(validateSequence: false)
+        let writer = FASTQWriter(url: destinationURL)
+        try writer.open()
+        defer { try? writer.close() }
+
+        var count = 0
+        for try await record in reader.records(from: sourceURL) {
+            let prefixed = FASTQRecord(
+                identifier: "\(sampleID)|\(record.identifier)",
+                description: record.description,
+                sequence: record.sequence,
+                quality: record.quality
+            )
+            try writer.write(prefixed)
+            count += 1
+        }
+        return count
+    }
+
+    private static func sampleID(from url: URL) -> String {
+        let basename = url.deletingPathExtension().lastPathComponent
+        let sanitized = basename.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "_"
+        }
+        let collapsed = String(sanitized)
+            .split(separator: "_", omittingEmptySubsequences: true)
+            .joined(separator: "_")
+        return collapsed.isEmpty ? "sample" : collapsed
+    }
+
+    private static func safeFilenameStem(_ value: String) -> String {
+        let sanitized = value.map { character -> Character in
+            character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
+        }
+        let collapsed = String(sanitized)
+            .split(separator: "-", omittingEmptySubsequences: true)
+            .joined(separator: "-")
+        return collapsed.isEmpty ? "sample" : collapsed
+    }
+
     private func resolveDemuxManifest(for request: ONTBarcodeDemuxGenotypingRunRequest) throws -> URL {
         if let demuxManifestURL = request.demuxManifestURL {
             return demuxManifestURL
@@ -562,11 +922,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     ) throws -> SmallInputSnapshot {
         let inputsDirectory = supportDirectory.appendingPathComponent("inputs", isDirectory: true)
         try FileManager.default.createDirectory(at: inputsDirectory, withIntermediateDirectories: true)
+        guard let barcodeDefinitionsURL = request.barcodeDefinitionsURL else {
+            throw ONTBarcodeDemuxGenotypingError.missingBarcodeDefinitionsForONT
+        }
 
         let barcodeSnapshotURL = try copyInputSnapshot(
-            sourceURL: request.barcodeDefinitionsURL,
+            sourceURL: barcodeDefinitionsURL,
             destinationURL: inputsDirectory.appendingPathComponent(
-                "barcode-definitions.\(request.barcodeDefinitionsURL.pathExtension.isEmpty ? "txt" : request.barcodeDefinitionsURL.pathExtension)"
+                "barcode-definitions.\(barcodeDefinitionsURL.pathExtension.isEmpty ? "txt" : barcodeDefinitionsURL.pathExtension)"
             )
         )
         let demuxManifestSnapshotURL = try copyInputSnapshot(
@@ -639,6 +1002,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func runMapping(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
         inputFASTQURLs: [URL],
         minimap2URL: URL,
@@ -647,10 +1011,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let minimap2StderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).minimap2.stderr.log")
         let sortStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-sort.stderr.log")
         let indexStderrURL = request.outputDirectory.appendingPathComponent("\(request.outputName).samtools-index.stderr.log")
-        let readGroup = "@RG\\tID:\(request.outputName)\\tSM:\(request.outputName)\\tLB:\(request.outputName)\\tPL:ONT\\tPU:\(request.outputName)"
+        let mappingPreset = resolvedMode == .illuminaPaired ? "sr" : "map-ont"
+        let platform = resolvedMode == .illuminaPaired ? "ILLUMINA" : "ONT"
+        let readGroup = "@RG\\tID:\(request.outputName)\\tSM:\(request.outputName)\\tLB:\(request.outputName)\\tPL:\(platform)\\tPU:\(request.outputName)"
         let minimap2Arguments = [
             "-a",
-            "-x", "map-ont",
+            "-x", mappingPreset,
             "--MD",
             "-t", String(request.threads),
             "-R", readGroup,
@@ -731,25 +1097,39 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func runFilter(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
         referenceFASTAURL: URL,
         barcodeDefinitionsURL: URL,
         demuxManifestURL: URL,
         scriptURL: URL,
         pythonURL: URL
     ) async throws -> FilterStepResult {
-        let arguments = [
+        var arguments = [
             scriptURL.path,
             "--input-bam", request.mappingBAMURL.path,
             "--reference-fasta", referenceFASTAURL.path,
-            "--barcodes", barcodeDefinitionsURL.path,
             "--demux-manifest", demuxManifestURL.path,
             "--output-dir", request.outputDirectory.path,
             "--prefix", request.outputName,
-            "--require-both-end-softclips",
             "--max-mismatches", "0",
             "--min-support", String(request.minSupport),
             "--provenance-command", request.argv.map(shellEscape).joined(separator: " "),
         ]
+        switch resolvedMode {
+        case .ontBarcodeDemux:
+            arguments += [
+                "--assignment-mode", "barcode",
+                "--barcodes", barcodeDefinitionsURL.path,
+                "--require-both-end-softclips",
+            ]
+        case .illuminaPaired:
+            arguments += [
+                "--assignment-mode", "query-prefix",
+                "--sample-manifest", demuxManifestURL.path,
+            ]
+        case .auto:
+            break
+        }
         let startedAt = Date()
         let result = try await condaManager.runTool(
             name: pythonURL.lastPathComponent,
@@ -874,6 +1254,22 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         guard let definitionSetID = request.haplotypeDefinitionSetID else {
             return nil
         }
+        if request.haplotypeSpeciesCode != nil || request.haplotypeDefinitionScope != nil {
+            let matchingRecords = haplotypeDefinitionLibrary(for: request)
+                .activeRecords(
+                    assayID: request.haplotypeAssayID,
+                    speciesCode: request.haplotypeSpeciesCode,
+                    scope: request.haplotypeDefinitionScope
+                )
+                .filter { $0.definitionSet.id == definitionSetID }
+            if matchingRecords.count == 1 {
+                return matchingRecords[0].definitionSet
+            }
+            if matchingRecords.isEmpty {
+                throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
+            }
+            throw ONTBarcodeDemuxGenotypingError.ambiguousHaplotypeDefinition(definitionID: definitionSetID)
+        }
         let registry = haplotypeDefinitionRegistry(for: request)
         if let assayID = request.haplotypeAssayID {
             guard registry.assay(id: assayID) != nil else {
@@ -907,15 +1303,18 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
     private func haplotypeDefinitionRegistry(
         for request: ONTBarcodeDemuxGenotypingRunRequest
     ) -> GenotypeHaplotypeDefinitionRegistry {
-        guard let projectURL = request.projectURL else {
-            return .builtIn
-        }
-        return HaplotypeDefinitionStore(projectRoot: projectURL).mergedRegistry()
+        haplotypeDefinitionLibrary(for: request).mergedRegistry()
+    }
+
+    private func haplotypeDefinitionLibrary(
+        for request: ONTBarcodeDemuxGenotypingRunRequest
+    ) -> HaplotypeDefinitionLibrary {
+        HaplotypeDefinitionLibrary(projectRoot: request.projectURL)
     }
 
     private func haplotypeDefinitionSnapshotURL(for request: ONTBarcodeDemuxGenotypingRunRequest) -> URL {
         request.outputDirectory
-            .appendingPathComponent(".ont-barcode-genotyping", isDirectory: true)
+            .appendingPathComponent(".amplicon-genotyping", isDirectory: true)
             .appendingPathComponent("inputs", isDirectory: true)
             .appendingPathComponent("haplotype-definition.json")
     }
@@ -943,10 +1342,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func writeProvenance(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType,
         reference: ReferenceResolution,
         inputFASTQURLs: [URL],
+        mappingInputFASTQURLs: [URL],
         demuxManifestURL: URL,
         inputSnapshot: SmallInputSnapshot,
+        illuminaPreparation: IlluminaPreparation?,
         scriptURL: URL,
         reportScriptURL: URL,
         minimap2URL: URL,
@@ -963,6 +1366,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let provenanceURL = request.outputDirectory.appendingPathComponent("retained-demux-genotyping-provenance.json")
         let inputs = inputFASTQURLs
             .map { fileDescriptorDictionary(url: $0, role: "input-fastq") }
+        let mappingInputs = mappingInputFASTQURLs
+            .map { fileDescriptorDictionary(url: $0, role: "mapping-fastq") }
         let comparisonInputs = request.comparisonWorkbookURL
             .map { [fileDescriptorDictionary(url: $0, role: "comparison")] } ?? []
         let stagedInputs = inputSnapshot.stagedInputURLs
@@ -994,8 +1399,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         } ?? []
         let options: [String: Any] = [
             "inputFASTQ": request.inputFASTQURL.path,
+            "inputFASTQs": request.inputFASTQURLs.map(\.path),
+            "mode": request.mode.rawValue,
+            "resolvedMode": resolvedMode.rawValue,
+            "readType": request.readType.rawValue,
+            "resolvedReadType": resolvedReadType.rawValue,
             "reference": request.referenceSourceURL.path,
-            "barcodes": request.barcodeDefinitionsURL.path,
+            "barcodes": request.barcodeDefinitionsURL?.path as Any? ?? NSNull(),
             "demuxManifest": demuxManifestURL.path,
             "outputDirectory": request.outputDirectory.path,
             "outputName": request.outputName,
@@ -1003,32 +1413,50 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "comparisonWorkbook": request.comparisonWorkbookURL?.path as Any? ?? NSNull(),
             "comparisonName": request.comparisonName as Any? ?? NSNull(),
             "haplotypeAssayID": resolvedHaplotypeDefinitionSet?.assayID as Any? ?? NSNull(),
+            "haplotypeSpeciesCode": request.haplotypeSpeciesCode as Any? ?? NSNull(),
+            "haplotypeDefinitionScope": request.haplotypeDefinitionScope?.rawValue as Any? ?? NSNull(),
             "haplotypeDefinitionSetID": request.haplotypeDefinitionSetID as Any? ?? NSNull(),
             "haplotypeDefinitionSHA256": haplotypeDefinitionSHA256,
             "threads": request.threads,
             "sortThreads": request.sortThreads,
             "minSupport": request.minSupport,
-            "mappingPreset": "map-ont",
-            "requireBothEndSoftclips": true,
+            "mappingPreset": resolvedMode == .illuminaPaired ? "sr" : "map-ont",
+            "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
             "maxMismatches": 0,
-            "demuxRetainedReadsOnly": true,
+            "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
+            "illuminaMergeResults": NSNull(),
+            "illuminaInputPreparation": illuminaPreparation.map { preparation in
+                [
+                    "sourceFASTQs": preparation.sourceFASTQURLs.map(\.path),
+                    "mappingFASTQs": preparation.mappingFASTQURLs.map(\.path),
+                    "sampleDefinitions": preparation.sampleDefinitionsURL.path,
+                    "sampleManifest": preparation.sampleManifestURL.path,
+                    "internalMergePerformed": false,
+                ] as [String: Any]
+            } as Any? ?? NSNull(),
             "extraArguments": request.extraArguments,
         ]
         let resolvedDefaults: [String: Any] = [
             "analysisName": request.outputName,
             "comparisonName": "Illumina-31262",
+            "mode": AmpliconGenotypingMode.auto.rawValue,
+            "readType": AmpliconGenotypingReadType.auto.rawValue,
             "haplotypeAssayID": NSNull(),
+            "haplotypeSpeciesCode": NSNull(),
+            "haplotypeDefinitionScope": NSNull(),
             "haplotypeDefinitionSetID": NSNull(),
             "sortThreads": 4,
             "minSupport": 1,
-            "mappingPreset": "map-ont",
-            "requireBothEndSoftclips": true,
+            "mappingPreset": resolvedMode == .illuminaPaired ? "sr" : "map-ont",
+            "requireBothEndSoftclips": resolvedMode == .ontBarcodeDemux,
             "requireFullReferenceSpan": true,
             "allowIndels": true,
             "maxMismatches": 0,
-            "demuxRetainedReadsOnly": true,
+            "demuxRetainedReadsOnly": resolvedMode == .ontBarcodeDemux,
+            "illuminaMergeResults": NSNull(),
+            "illuminaInputPreparation": NSNull(),
             "extraArguments": [],
         ]
         let runtimeIdentity: [String: Any] = [
@@ -1039,13 +1467,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "openpyxl": report.summary.openpyxlVersion,
             "condaRoot": condaManager.rootPrefix.path,
         ]
-        let provenanceInputs: [[String: Any]] = inputs + [
+        let provenanceInputs: [[String: Any]] = inputs + mappingInputs + [
             fileDescriptorDictionary(url: reference.referenceFASTAURL, role: "reference"),
-            fileDescriptorDictionary(url: request.barcodeDefinitionsURL, role: "input"),
             fileDescriptorDictionary(url: demuxManifestURL, role: "input"),
             fileDescriptorDictionary(url: scriptURL, role: "input"),
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
-        ] + comparisonInputs + stagedInputs + haplotypeDefinitionInputs
+        ] + (request.barcodeDefinitionsURL.map { [fileDescriptorDictionary(url: $0, role: "input")] } ?? [])
+            + comparisonInputs + stagedInputs + haplotypeDefinitionInputs
         let transientAlignmentOutputs: [[String: Any]] = [
             fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
             fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
@@ -1121,9 +1549,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         ]
         let payload: [String: Any] = [
             "createdAt": ISO8601DateFormatter().string(from: completedAt),
-            "toolName": "lungfish fastq ont-barcode-genotype",
+            "toolName": "lungfish fastq genotype",
             "toolVersion": WorkflowRun.currentAppVersion,
-            "workflowName": "ONT Barcode Demux Genotyping",
+            "workflowName": resolvedMode == .illuminaPaired
+                ? "Illumina Paired Amplicon Genotyping"
+                : "ONT Barcode Demux Genotyping",
             "workflowVersion": "1",
             "argv": request.argv,
             "durableReplayArgv": request.argv,
@@ -1143,6 +1573,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "output": primaryOutput,
             "outputs": provenanceOutputs,
             "inputFileCount": inputFASTQURLs.count,
+            "mappingInputFileCount": mappingInputFASTQURLs.count,
             "sourceReferenceBundle": reference.sourceReferenceBundleURL?.path ?? NSNull(),
             "statistics": statistics,
             "steps": steps,
@@ -1157,10 +1588,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
         let canonicalEnvelope = try canonicalProvenanceEnvelope(
             request: request,
+            resolvedMode: resolvedMode,
+            resolvedReadType: resolvedReadType,
             reference: reference,
             inputFASTQURLs: inputFASTQURLs,
+            mappingInputFASTQURLs: mappingInputFASTQURLs,
             demuxManifestURL: demuxManifestURL,
             inputSnapshot: inputSnapshot,
+            illuminaPreparation: illuminaPreparation,
             scriptURL: scriptURL,
             reportScriptURL: reportScriptURL,
             minimap2URL: minimap2URL,
@@ -1182,10 +1617,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func canonicalProvenanceEnvelope(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
+        resolvedReadType: AmpliconGenotypingReadType,
         reference: ReferenceResolution,
         inputFASTQURLs: [URL],
+        mappingInputFASTQURLs: [URL],
         demuxManifestURL: URL,
         inputSnapshot: SmallInputSnapshot,
+        illuminaPreparation: IlluminaPreparation?,
         scriptURL: URL,
         reportScriptURL: URL,
         minimap2URL: URL,
@@ -1203,8 +1642,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         completedAt: Date
     ) throws -> ProvenanceEnvelope {
         let fastqInputs = try inputFASTQURLs.map { try canonicalFileDescriptor(url: $0, role: .input) }
+        let mappingFastqInputs = try mappingInputFASTQURLs.map { try canonicalFileDescriptor(url: $0, role: .input) }
         let referenceInput = try canonicalFileDescriptor(url: reference.referenceFASTAURL, role: .reference)
-        let barcodeInput = try canonicalFileDescriptor(url: request.barcodeDefinitionsURL, role: .input)
+        let barcodeInput = try request.barcodeDefinitionsURL.map { try canonicalFileDescriptor(url: $0, role: .input) }
         let demuxInput = try canonicalFileDescriptor(url: demuxManifestURL, role: .input)
         let filterScriptInput = try canonicalFileDescriptor(url: scriptURL, role: .input)
         let reportScriptInput = try canonicalFileDescriptor(url: reportScriptURL, role: .input)
@@ -1217,7 +1657,9 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         }
         let canonicalInputs = deduplicated(
             fastqInputs
-                + [referenceInput, barcodeInput, demuxInput, filterScriptInput, reportScriptInput]
+                + mappingFastqInputs
+                + [referenceInput, demuxInput, filterScriptInput, reportScriptInput]
+                + (barcodeInput.map { [$0] } ?? [])
                 + comparisonInputs
                 + stagedInputs
                 + (haplotypeDefinitionInput.map { [$0] } ?? [])
@@ -1255,7 +1697,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 toolName: "minimap2",
                 toolVersion: "unknown",
                 argv: [minimap2URL.path] + mapping.minimap2Arguments,
-                inputs: fastqInputs + [referenceInput],
+                inputs: mappingFastqInputs + [referenceInput],
                 outputs: [mappingBAM],
                 exitStatus: 0,
                 wallTimeSeconds: mapping.wallClockSeconds,
@@ -1265,7 +1707,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 toolName: "samtools sort",
                 toolVersion: "unknown",
                 argv: [samtoolsURL.path] + mapping.samtoolsSortArguments,
-                inputs: fastqInputs + [referenceInput],
+                inputs: mappingFastqInputs + [referenceInput],
                 outputs: [mappingBAM],
                 exitStatus: 0,
                 wallTimeSeconds: mapping.wallClockSeconds,
@@ -1285,7 +1727,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 toolName: "pysam retained-read demux filter",
                 toolVersion: "unknown",
                 argv: [pythonURL.path] + filter.arguments,
-                inputs: [mappingBAM, barcodeInput, demuxInput, filterScriptInput],
+                inputs: [mappingBAM, demuxInput, filterScriptInput] + (barcodeInput.map { [$0] } ?? []),
                 outputs: [retainedBAM, retainedBAI, genotypeCSV, sampleCSV, statsJSON, legacyProvenance],
                 exitStatus: 0,
                 wallTimeSeconds: filter.wallClockSeconds,
@@ -1322,12 +1764,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
         return ProvenanceEnvelope(
             createdAt: completedAt,
-            workflowName: "ONT Barcode Demux Genotyping",
+            workflowName: resolvedMode == .illuminaPaired ? "Illumina Paired Amplicon Genotyping" : "ONT Barcode Demux Genotyping",
             workflowVersion: "1",
-            toolName: "lungfish fastq ont-barcode-genotype",
+            toolName: "lungfish fastq genotype",
             toolVersion: WorkflowRun.currentAppVersion,
             tool: ProvenanceToolIdentity(
-                name: "lungfish fastq ont-barcode-genotype",
+                name: "lungfish fastq genotype",
                 version: WorkflowRun.currentAppVersion,
                 kind: "cli"
             ),
@@ -1361,6 +1803,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func writeBundleManifest(
         request: ONTBarcodeDemuxGenotypingRunRequest,
+        resolvedMode: AmpliconGenotypingMode,
         provenanceURL: URL,
         completedAt: Date
     ) throws {
@@ -1385,7 +1828,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if let projectURL = request.projectURL,
            request.outputDirectory.standardizedFileURL.path.hasPrefix(projectURL.standardizedFileURL.path) {
             try? AnalysesFolder.writeAnalysisMetadata(
-                AnalysesFolder.AnalysisMetadata(tool: "ont-genotyping", isBatch: false, created: completedAt),
+                AnalysesFolder.AnalysisMetadata(
+                    tool: resolvedMode == .illuminaPaired ? "illumina-amplicon-genotyping" : "ont-genotyping",
+                    isBatch: false,
+                    created: completedAt
+                ),
                 to: request.outputDirectory
             )
         }
@@ -1421,12 +1868,24 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         if let assayID = request.haplotypeAssayID ?? resolvedAssayID {
             argv += ["--haplotype-assay", assayID]
         }
+        if let speciesCode = request.haplotypeSpeciesCode {
+            argv += ["--haplotype-species", speciesCode]
+        }
+        if let scope = request.haplotypeDefinitionScope {
+            argv += ["--haplotype-definition-scope", scope.rawValue]
+        }
         argv += ["--haplotype-definition", definitionSetID]
         return argv
     }
 
     private func canonicalFileDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
-        try ProvenanceFileDescriptor.file(url: url.standardizedFileURL, role: role)
+        let standardized = url.standardizedFileURL
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: standardized.path, isDirectory: &isDirectory),
+           isDirectory.boolValue {
+            return ProvenanceFileDescriptor(path: standardized.path, role: role)
+        }
+        return try ProvenanceFileDescriptor.file(url: standardized, role: role)
     }
 
     private func parameterValues(from values: [String: Any]) -> [String: ParameterValue] {
@@ -1546,6 +2005,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try reportScript.write(to: url, atomically: true, encoding: .utf8)
     }
+
 }
 
 private let filterScript = #"""
@@ -1571,8 +2031,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Filter exact+indel/no-mismatch full-reference alignments and demultiplex retained BAM records by Fluidigm barcodes.")
     parser.add_argument("--input-bam", required=True)
     parser.add_argument("--reference-fasta", required=True)
-    parser.add_argument("--barcodes", required=True)
+    parser.add_argument("--barcodes")
     parser.add_argument("--demux-manifest", required=True)
+    parser.add_argument("--sample-manifest")
+    parser.add_argument("--assignment-mode", choices=["barcode", "query-prefix"], default="barcode")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--prefix", default="barcode08")
     parser.add_argument("--require-both-end-softclips", action="store_true")
@@ -1662,6 +2124,10 @@ def load_demux_manifest(path):
         sample = item.get("barcodeID")
         if sample:
             sample_totals[sample] = item.get("readCount")
+    for item in payload.get("samples", []):
+        sample = item.get("sample") or item.get("sampleID")
+        if sample:
+            sample_totals[sample] = item.get("totalPairs") or item.get("readCount") or item.get("mergedPairs")
     return {"inputReadCount": payload.get("inputReadCount"), "sampleTotals": sample_totals}
 
 
@@ -1689,6 +2155,15 @@ def assign_barcode(sequence, regex, pattern_to_sample):
         return None
     entry = pattern_to_sample[match.group(0)]
     return entry["sample"], entry["barcode"], match.start()
+
+
+def assign_query_prefix(query_name, sample_totals):
+    if not query_name or "|" not in query_name:
+        return None
+    sample = query_name.split("|", 1)[0]
+    if sample not in sample_totals:
+        return None
+    return sample, "", 0
 
 
 def has_both_terminal_softclips(read):
@@ -1764,9 +2239,14 @@ def main():
     started_at = utc_now()
     os.makedirs(args.output_dir, exist_ok=True)
     reference_lengths = load_reference_lengths(args.reference_fasta)
-    barcode_entries = load_barcodes(args.barcodes)
-    manifest = load_demux_manifest(args.demux_manifest)
-    regex, pattern_to_sample = barcode_regex(barcode_entries)
+    manifest = load_demux_manifest(args.sample_manifest or args.demux_manifest)
+    if args.assignment_mode == "barcode":
+        if not args.barcodes:
+            raise ValueError("--barcodes is required when --assignment-mode=barcode")
+        barcode_entries = load_barcodes(args.barcodes)
+        regex, pattern_to_sample = barcode_regex(barcode_entries)
+    else:
+        regex, pattern_to_sample = None, None
     total_input_reads = manifest["inputReadCount"]
     output_bam = os.path.join(args.output_dir, f"{args.prefix}.retained.demuxed.bam")
     output_bai = output_bam + ".bai"
@@ -1799,7 +2279,10 @@ def main():
             retained_sequence_records_seen += 1
             if read.query_name in barcode_cache:
                 continue
-            assignment = assign_barcode(sequence, regex, pattern_to_sample)
+            if args.assignment_mode == "query-prefix":
+                assignment = assign_query_prefix(read.query_name, manifest["sampleTotals"])
+            else:
+                assignment = assign_barcode(sequence, regex, pattern_to_sample)
             if assignment is not None:
                 sample, barcode, start = assignment
                 barcode_cache[read.query_name] = (sample, barcode, start)
@@ -1815,7 +2298,7 @@ def main():
     with pysam.AlignmentFile(args.input_bam, "rb") as source:
         header = source.header.to_dict()
         comments = header.get("CO", [])
-        comments.append("Filtered by lungfish fastq ont-barcode-genotype: full-reference MD-tag mismatches <= max-mismatches; indels allowed; barcode scanning limited to retained query names; Fluidigm sample in LF tag.")
+        comments.append(f"Filtered by lungfish fastq genotype: full-reference MD-tag mismatches <= max-mismatches; indels allowed; sample assignment mode={args.assignment_mode}; sample in LF tag.")
         header["CO"] = comments
         with pysam.AlignmentFile(output_bam, "wb", header=header) as dest:
             for read in source.fetch(until_eof=True):
@@ -1891,6 +2374,8 @@ def main():
         "referenceFasta": args.reference_fasta,
         "barcodes": args.barcodes,
         "demuxManifest": args.demux_manifest,
+        "sampleManifest": args.sample_manifest,
+        "assignmentMode": args.assignment_mode,
         "outputBAM": output_bam,
         "outputBAI": output_bai,
         "summaryCSV": summary_csv,
@@ -1913,7 +2398,7 @@ def main():
         "requireFullReferenceSpan": True,
         "allowIndels": True,
         "maxMismatches": args.max_mismatches,
-        "demuxRetainedReadsOnly": True,
+        "demuxRetainedReadsOnly": args.assignment_mode == "barcode",
         "minSupport": args.min_support,
     }
     with open(stats_json, "w") as handle:
@@ -1926,9 +2411,15 @@ def main():
         "argv": sys.argv,
         "reproducibleCommand": args.provenance_command or " ".join(sys.argv),
         "options": vars(args),
-        "resolvedDefaults": {"maxMismatches": args.max_mismatches, "requireBothEndSoftclips": args.require_both_end_softclips, "minSupport": args.min_support, "demuxRetainedReadsOnly": True},
+        "resolvedDefaults": {"maxMismatches": args.max_mismatches, "requireBothEndSoftclips": args.require_both_end_softclips, "minSupport": args.min_support, "demuxRetainedReadsOnly": args.assignment_mode == "barcode"},
         "runtimeIdentity": {"python": sys.version, "platform": platform.platform(), "pysam": pysam.__version__, "executable": sys.executable},
-        "inputs": [file_record(args.input_bam, "input"), file_record(args.reference_fasta, "input"), file_record(args.barcodes, "input"), file_record(args.demux_manifest, "input")],
+        "inputs": [record for record in [
+            file_record(args.input_bam, "input"),
+            file_record(args.reference_fasta, "input"),
+            file_record(args.barcodes, "input") if args.barcodes else None,
+            file_record(args.demux_manifest, "input"),
+            file_record(args.sample_manifest, "input") if args.sample_manifest else None,
+        ] if record is not None],
         "outputs": [file_record(output_bam, "output"), file_record(output_bai, "output"), file_record(summary_csv, "output"), file_record(sample_csv, "output"), file_record(stats_json, "output")],
         "exitStatus": 0,
         "wallClockSeconds": stats["wallClockSeconds"],

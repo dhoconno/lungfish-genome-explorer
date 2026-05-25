@@ -82,7 +82,7 @@ private extension FASTQOperationLaunchRequest {
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:
-            return "ONT Genotyping"
+            return "Amplicon Genotyping"
         }
     }
 }

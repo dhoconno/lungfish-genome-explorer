@@ -108,10 +108,11 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             let outputDirectoryPath = outputTargetPath == "<derived>"
                 ? request.outputDirectory.path
                 : outputTargetPath
-            var arguments = ["ont-barcode-genotype", request.inputFASTQURL.path]
+            var arguments = ["genotype"] + request.inputFASTQURLs.map(\.path)
             arguments += [
+                "--mode", request.mode.cliArgument,
+                "--read-type", request.readType.cliArgument,
                 "--reference", request.referenceSourceURL.path,
-                "--barcodes", request.barcodeDefinitionsURL.path,
                 "--output-dir", outputDirectoryPath,
                 "--output-name", request.outputName,
                 "--analysis-name", request.analysisName,
@@ -119,6 +120,9 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
                 "--sort-threads", String(request.sortThreads),
                 "--min-support", String(request.minSupport),
             ]
+            if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
+                arguments += ["--barcodes", barcodeDefinitionsURL.path]
+            }
             if let demuxManifestURL = request.demuxManifestURL {
                 arguments += ["--demux-manifest", demuxManifestURL.path]
             }
@@ -131,6 +135,12 @@ struct FASTQOperationCLIInvocationBuilder: Sendable {
             if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
                 if let haplotypeAssayID = request.haplotypeAssayID {
                     arguments += ["--haplotype-assay", haplotypeAssayID]
+                }
+                if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
+                    arguments += ["--haplotype-species", haplotypeSpeciesCode]
+                }
+                if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
+                    arguments += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
                 }
                 arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
             }

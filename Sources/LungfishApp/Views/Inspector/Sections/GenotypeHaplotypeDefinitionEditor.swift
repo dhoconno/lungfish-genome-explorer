@@ -19,17 +19,23 @@ struct GenotypeHaplotypeDefinitionEditor: View {
     @State private var selectedHaplotypeIndex: Int? = nil
     @State private var newAlleleText: String = ""
     let isReadOnly: Bool
+    let allowsIdentityEditing: Bool
+    let allowsMetadataEditing: Bool
     let onSave: (GenotypeHaplotypeDefinitionSet) -> Void
     let onCancel: () -> Void
 
     init(
         draft: GenotypeHaplotypeDefinitionSet,
         isReadOnly: Bool = false,
+        allowsIdentityEditing: Bool = false,
+        allowsMetadataEditing: Bool = false,
         onSave: @escaping (GenotypeHaplotypeDefinitionSet) -> Void,
         onCancel: @escaping () -> Void
     ) {
         _draft = State(initialValue: draft)
         self.isReadOnly = isReadOnly
+        self.allowsIdentityEditing = allowsIdentityEditing
+        self.allowsMetadataEditing = allowsMetadataEditing
         self.onSave = onSave
         self.onCancel = onCancel
     }
@@ -78,7 +84,7 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                 TextField("Display name", text: Binding(
                     get: { draft.displayName },
                     set: { newValue in
-                        draft = GenotypeHaplotypeDefinitionDrafting.withDisplayName(draft, name: newValue)
+                        draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, displayName: newValue)
                     }
                 ))
                 .textFieldStyle(.roundedBorder)
@@ -97,6 +103,57 @@ struct GenotypeHaplotypeDefinitionEditor: View {
                 Text("\(locusCount) loci · \(haplotypeCount) haplotypes")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
+            if allowsMetadataEditing || allowsIdentityEditing {
+                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
+                    GridRow {
+                        Text("Definition ID")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("definition-id", text: Binding(
+                            get: { draft.id },
+                            set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, id: $0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isReadOnly || !allowsIdentityEditing)
+                    }
+                    GridRow {
+                        Text("Assay")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("assay-id", text: Binding(
+                            get: { draft.assayID },
+                            set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, assayID: $0) }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isReadOnly || !allowsMetadataEditing)
+                    }
+                    GridRow {
+                        Text("Species")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            TextField("Species name", text: Binding(
+                                get: { draft.speciesName },
+                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesName: $0) }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            TextField("Code", text: Binding(
+                                get: { draft.speciesCode },
+                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, speciesCode: $0) }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 90)
+                            TextField("Allele prefix", text: Binding(
+                                get: { draft.prefix },
+                                set: { draft = GenotypeHaplotypeDefinitionDrafting.withDefinitionFields(draft, prefix: $0) }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 120)
+                        }
+                        .disabled(isReadOnly || !allowsMetadataEditing)
+                    }
+                }
             }
             if let modified = draft.lastModified, !modified.isEmpty {
                 Text("Last modified: \(modified)")
@@ -459,13 +516,25 @@ enum GenotypeHaplotypeDefinitionDrafting {
         _ set: GenotypeHaplotypeDefinitionSet,
         name: String
     ) -> GenotypeHaplotypeDefinitionSet {
+        withDefinitionFields(set, displayName: name)
+    }
+
+    static func withDefinitionFields(
+        _ set: GenotypeHaplotypeDefinitionSet,
+        id: String? = nil,
+        assayID: String? = nil,
+        displayName: String? = nil,
+        speciesName: String? = nil,
+        speciesCode: String? = nil,
+        prefix: String? = nil
+    ) -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
-            id: set.id,
-            assayID: set.assayID,
-            displayName: name,
-            speciesName: set.speciesName,
-            speciesCode: set.speciesCode,
-            prefix: set.prefix,
+            id: id ?? set.id,
+            assayID: assayID ?? set.assayID,
+            displayName: displayName ?? set.displayName,
+            speciesName: speciesName ?? set.speciesName,
+            speciesCode: speciesCode ?? set.speciesCode,
+            prefix: prefix ?? set.prefix,
             locusDefinitions: set.locusDefinitions,
             schemaVersion: set.schemaVersion,
             lastModified: set.lastModified,
@@ -520,6 +589,19 @@ enum GenotypeHaplotypeDefinitionDrafting {
         let trimmedName = set.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedName.isEmpty {
             messages.append("Definition name is required.")
+        }
+        if set.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.append("Definition ID is required.")
+        }
+        if set.assayID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.append("Assay ID is required.")
+        }
+        if set.speciesName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || set.speciesCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.append("Species name and code are required.")
+        }
+        if set.prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            messages.append("Allele prefix is required.")
         }
         let locusNames = set.locusDefinitions.map { $0.locus.trimmingCharacters(in: .whitespacesAndNewlines) }
         if locusNames.contains(where: \.isEmpty) {

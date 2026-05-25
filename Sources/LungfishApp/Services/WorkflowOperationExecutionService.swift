@@ -128,8 +128,8 @@ final class WorkflowOperationExecutionService {
             arguments: arguments
         )
         let operationID = operationCenter.start(
-            title: "ONT Genotyping",
-            detail: "Running ONT genotyping workflow",
+            title: "Amplicon Genotyping",
+            detail: "Running amplicon genotyping workflow",
             operationType: .workflow,
             targetBundleURL: request.outputDirectory,
             cliCommand: cliCommand,
@@ -139,7 +139,7 @@ final class WorkflowOperationExecutionService {
         operationCenter.updateWithLog(
             id: operationID,
             progress: 0.01,
-            detail: "Launching lungfish-cli for ONT genotyping..."
+            detail: "Launching lungfish-cli for amplicon genotyping..."
         )
 
         do {
@@ -154,12 +154,12 @@ final class WorkflowOperationExecutionService {
                 logProcessOutput(result, operationID: operationID)
             }
             if result.exitCode != 0 {
-                let failureDetail = "ONT genotyping failed with exit code \(result.exitCode)"
+            let failureDetail = "Amplicon genotyping failed with exit code \(result.exitCode)"
                 operationCenter.log(id: operationID, level: .error, message: failureDetail)
                 operationCenter.fail(
                     id: operationID,
                     detail: failureDetail,
-                    errorMessage: "ONT genotyping failed",
+                    errorMessage: "Amplicon genotyping failed",
                     errorDetail: failureDiagnostics(
                         result: result,
                         cliCommand: cliCommand
@@ -175,7 +175,7 @@ final class WorkflowOperationExecutionService {
             operationCenter.log(id: operationID, level: .info, message: "Status: completed")
             operationCenter.complete(
                 id: operationID,
-                detail: "ONT genotyping completed. Output: \(request.outputDirectory.path)",
+                detail: "Amplicon genotyping completed. Output: \(request.outputDirectory.path)",
                 outputURLs: outputURLs
             )
             resultRefresher.refresh(
@@ -189,8 +189,8 @@ final class WorkflowOperationExecutionService {
         } catch {
             operationCenter.fail(
                 id: operationID,
-                detail: "ONT genotyping failed",
-                errorMessage: "ONT genotyping failed",
+                detail: "Amplicon genotyping failed",
+                errorMessage: "Amplicon genotyping failed",
                 errorDetail: String(describing: error)
             )
             throw error
@@ -198,10 +198,11 @@ final class WorkflowOperationExecutionService {
     }
 
     func ontGenotypingArguments(for request: ONTBarcodeDemuxGenotypingRunRequest) -> [String] {
-        var arguments = ["fastq", "ont-barcode-genotype", request.inputFASTQURL.path]
+        var arguments = ["fastq", "genotype"] + request.inputFASTQURLs.map(\.path)
         arguments += [
+            "--mode", request.mode.cliArgument,
+            "--read-type", request.readType.cliArgument,
             "--reference", request.referenceSourceURL.path,
-            "--barcodes", request.barcodeDefinitionsURL.path,
             "--output-dir", request.outputDirectory.path,
             "--output-name", request.outputName,
             "--analysis-name", request.analysisName,
@@ -209,6 +210,9 @@ final class WorkflowOperationExecutionService {
             "--sort-threads", String(request.sortThreads),
             "--min-support", String(request.minSupport),
         ]
+        if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
+            arguments += ["--barcodes", barcodeDefinitionsURL.path]
+        }
         if let demuxManifestURL = request.demuxManifestURL {
             arguments += ["--demux-manifest", demuxManifestURL.path]
         }
@@ -221,6 +225,12 @@ final class WorkflowOperationExecutionService {
         if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
             if let haplotypeAssayID = request.haplotypeAssayID {
                 arguments += ["--haplotype-assay", haplotypeAssayID]
+            }
+            if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
+                arguments += ["--haplotype-species", haplotypeSpeciesCode]
+            }
+            if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
+                arguments += ["--haplotype-definition-scope", haplotypeDefinitionScope.rawValue]
             }
             arguments += ["--haplotype-definition", haplotypeDefinitionSetID]
         }

@@ -491,7 +491,7 @@ public enum FASTQBatchImporter {
         databaseRegistry: DatabaseRegistry = .shared
     ) async -> ImportResult {
         let startTime = Date()
-        let recipeName = config.recipe?.name
+        let recipeName = config.newRecipe?.name ?? config.recipe?.name
 
         log?(.importStart(sampleCount: pairs.count, recipeName: recipeName))
         logger.info("Batch import starting: \(pairs.count) samples, recipe=\(recipeName ?? "none")")

@@ -696,6 +696,109 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: definitionURL), savedBefore)
     }
 
+    func testHaplotypeDefinitionLibraryMergesBuiltInGlobalAndProjectScopesWithPrecedence() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HaplotypeDefinitionLibrary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
+
+        let shadowedID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        let globalShadow = GenotypeHaplotypeDefinitionSet(
+            id: shadowedID,
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Global MCM Override",
+            speciesName: "Mauritian cynomolgus macaques",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "Mafa-A",
+                    haplotypes: [GenotypeHaplotypeDefinition(name: "GLOBAL", diagnosticAlleles: ["global"])]
+                )
+            ]
+        )
+        let projectShadow = GenotypeHaplotypeDefinitionSet(
+            id: shadowedID,
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Project MCM Override",
+            speciesName: "Mauritian cynomolgus macaques",
+            speciesCode: "MCM",
+            prefix: "Mafa",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-A",
+                    sourceLocus: "Mafa-A",
+                    haplotypes: [GenotypeHaplotypeDefinition(name: "PROJECT", diagnosticAlleles: ["project"])]
+                )
+            ]
+        )
+        let globalUnique = makeDefinitionSet(displayName: "Global Unique Definition")
+
+        try HaplotypeDefinitionStore(projectRoot: globalRoot).save(globalShadow)
+        try HaplotypeDefinitionStore(projectRoot: globalRoot).save(globalUnique)
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(projectShadow)
+
+        let library = HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+        let merged = library.mergedRegistry()
+        let active = try XCTUnwrap(merged.definitionSet(id: shadowedID, assayID: "MHC-exon2-miSeq"))
+
+        XCTAssertEqual(active.displayName, "Project MCM Override")
+        XCTAssertEqual(
+            merged.definitionSet(id: globalUnique.id, assayID: globalUnique.assayID)?.displayName,
+            "Global Unique Definition"
+        )
+
+        let records = library.records()
+        XCTAssertTrue(records.contains { $0.scope == .builtIn && $0.definitionSet.id == shadowedID && $0.isShadowed })
+        XCTAssertTrue(records.contains { $0.scope == .global && $0.definitionSet.id == shadowedID && $0.isShadowed })
+        XCTAssertTrue(records.contains { $0.scope == .project && $0.definitionSet.id == shadowedID && !$0.isShadowed })
+    }
+
+    func testHaplotypeDefinitionLibraryFiltersActiveRecordsByAssaySpeciesAndScope() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HaplotypeDefinitionLibrary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project", isDirectory: true)
+        let projectDefinition = GenotypeHaplotypeDefinitionSet(
+            id: "project.rhesus",
+            assayID: "MHC-exon2-miSeq",
+            displayName: "Project Rhesus",
+            speciesName: "Rhesus macaques",
+            speciesCode: "MAMU",
+            prefix: "Mamu",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "Mamu-B",
+                    haplotypes: [GenotypeHaplotypeDefinition(name: "B001", diagnosticAlleles: ["B_001"])]
+                )
+            ]
+        )
+        try HaplotypeDefinitionStore(projectRoot: projectRoot).save(projectDefinition)
+
+        let library = HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+        let mamuProject = library.activeRecords(
+            assayID: "MHC-exon2-miSeq",
+            speciesCode: "MAMU",
+            scope: .project
+        )
+        let mcmProject = library.activeRecords(
+            assayID: "MHC-exon2-miSeq",
+            speciesCode: "MCM",
+            scope: .project
+        )
+
+        XCTAssertEqual(mamuProject.map(\.definitionSet.id), ["project.rhesus"])
+        XCTAssertTrue(mcmProject.isEmpty)
+        XCTAssertTrue(
+            library.activeRecords(assayID: "MHC-exon2-miSeq", speciesCode: "MAMU", scope: nil)
+                .contains { $0.definitionSet.id == "MHC-exon2-miSeq.rhesus-macaques" && $0.scope == .builtIn }
+        )
+    }
+
     private func makeDefinitionSet(displayName: String) -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
             id: "test.definition",

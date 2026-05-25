@@ -17,17 +17,20 @@ public struct FastpMergeStep: RecipeStepExecutor {
     public static let displayName: String = "Paired-End Merge"
 
     public var inputFormat: RecipeFileFormat { .pairedR1R2 }
-    public var outputFormat: RecipeFileFormat { .merged }
+    public var outputFormat: RecipeFileFormat { keepUnmerged ? .merged : .single }
 
     // MARK: - Parameters
 
     /// Minimum overlap length required for two mates to be merged.
     public let minOverlap: Int
+    /// Whether unmerged R1/R2 records should be retained beside merged reads.
+    public let keepUnmerged: Bool
 
     // MARK: - Init
 
     public init(params: [String: AnyCodableValue]?) throws {
         minOverlap = params?["minOverlap"]?.intValue ?? 15
+        keepUnmerged = params?["keepUnmerged"]?.boolValue ?? true
     }
 
     // MARK: - Execute
@@ -66,7 +69,20 @@ public struct FastpMergeStep: RecipeStepExecutor {
                 tool: "fastp", step: Self.typeID, stderr: result.stderr)
         }
 
-        // r1 = merged reads, r2 = unmerged R1, r3 = unmerged R2
-        return StepOutput(r1: merged, r2: unmergedR1, r3: unmergedR2, format: .merged, tool: .fastp, arguments: result.arguments)
+        if keepUnmerged {
+            // r1 = merged reads, r2 = unmerged R1, r3 = unmerged R2
+            return StepOutput(
+                r1: merged,
+                r2: unmergedR1,
+                r3: unmergedR2,
+                format: .merged,
+                tool: .fastp,
+                arguments: result.arguments
+            )
+        }
+
+        try? FileManager.default.removeItem(at: unmergedR1)
+        try? FileManager.default.removeItem(at: unmergedR2)
+        return StepOutput(r1: merged, format: .single, tool: .fastp, arguments: result.arguments)
     }
 }

@@ -701,6 +701,13 @@ public final class MainMenu {
         )
         workflowOperationsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.workflowOperations)
 
+        let haplotypeDefinitionsItem = toolsMenu.addItem(
+            withTitle: "Haplotype Definitions\u{2026}",
+            action: #selector(ToolsMenuActions.showHaplotypeDefinitions(_:)),
+            keyEquivalent: ""
+        )
+        haplotypeDefinitionsItem.identifier = NSUserInterfaceItemIdentifier(MainMenuAccessibilityID.haplotypeDefinitions)
+
         toolsMenu.addItem(.separator())
 
         let callVariantsItem = toolsMenu.addItem(
@@ -1095,6 +1102,8 @@ enum ProvenanceExportMenuModel {
     func showWorkflowBuilder(_ sender: Any?)
     /// Opens the enabled workflow operations runner.
     func showWorkflowOperations(_ sender: Any?)
+    /// Opens the CLI-backed haplotype definition manager for ONT genotyping workflows.
+    func showHaplotypeDefinitions(_ sender: Any?)
     /// Opens the Workflow Library window for enabling specialized workflow surfaces.
     func showWorkflowLibrary(_ sender: Any?)
     /// Opens the Plugin Manager window for browsing and installing bioconda tools.

@@ -386,6 +386,8 @@ private final class WorkflowBuilderMenuActionRecorder: NSObject, ToolsMenuAction
         workflowOperationsInvocationCount += 1
     }
 
+    @objc func showHaplotypeDefinitions(_ sender: Any?) {}
+
     @objc func showFASTQQCReportingOperations(_ sender: Any?) {}
     @objc func showFASTQDemultiplexingOperations(_ sender: Any?) {}
     @objc func showFASTQTrimmingFilteringOperations(_ sender: Any?) {}

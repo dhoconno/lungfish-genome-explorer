@@ -502,7 +502,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa(let request):
             return [request.inputFASTQURL]
         case .ontGenotyping(let request):
-            return [request.inputFASTQURL]
+            return request.inputFASTQURLs
         }
     }
 
@@ -522,7 +522,9 @@ extension FASTQOperationLaunchRequest {
             urls.append(request.guideSourceURL)
         case .ontGenotyping(let request):
             urls.append(request.referenceSourceURL)
-            urls.append(request.barcodeDefinitionsURL)
+            if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
+                urls.append(barcodeDefinitionsURL)
+            }
             if let comparisonWorkbookURL = request.comparisonWorkbookURL {
                 urls.append(comparisonWorkbookURL)
             }
@@ -559,9 +561,8 @@ extension FASTQOperationLaunchRequest {
                   ) else { return self }
             return .pbaa(request: updatedRequest)
         case .ontGenotyping(let request):
-            guard let inputURL = inputURLs.first else { return self }
             return .ontGenotyping(request: ONTBarcodeDemuxGenotypingRunRequest(
-                inputFASTQURL: inputURL,
+                inputFASTQURLs: inputURLs,
                 referenceSourceURL: request.referenceSourceURL,
                 barcodeDefinitionsURL: request.barcodeDefinitionsURL,
                 outputDirectory: request.outputDirectory,
@@ -575,8 +576,12 @@ extension FASTQOperationLaunchRequest {
                 sortThreads: request.sortThreads,
                 minSupport: request.minSupport,
                 haplotypeAssayID: request.haplotypeAssayID,
+                haplotypeSpeciesCode: request.haplotypeSpeciesCode,
+                haplotypeDefinitionScope: request.haplotypeDefinitionScope,
                 haplotypeDefinitionSetID: request.haplotypeDefinitionSetID,
-                extraArguments: request.extraArguments
+                extraArguments: request.extraArguments,
+                mode: request.mode,
+                readType: request.readType
             ))
         }
     }
@@ -596,7 +601,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa:
             return "pbAA Amplicon Clustering"
         case .ontGenotyping:
-            return "ONT Genotyping"
+            return "Amplicon Genotyping"
         }
     }
 
@@ -615,7 +620,7 @@ extension FASTQOperationLaunchRequest {
         case .pbaa:
             return "pbaaClustering"
         case .ontGenotyping:
-            return "ontGenotyping"
+            return "ampliconGenotyping"
         }
     }
 
@@ -652,19 +657,28 @@ extension FASTQOperationLaunchRequest {
         case .ontGenotyping(let request):
             var params = [
                 "reference": request.referenceSourceURL.lastPathComponent,
-                "barcodes": request.barcodeDefinitionsURL.lastPathComponent,
                 "outputName": request.outputName,
                 "analysisName": request.analysisName,
                 "threads": String(request.threads),
                 "sortThreads": String(request.sortThreads),
                 "minSupport": String(request.minSupport),
-                "mappingPreset": "map-ont",
+                "mode": request.mode.rawValue,
+                "readType": request.readType.rawValue,
                 "maxMismatches": "0",
                 "allowIndels": "true",
             ]
+            if let barcodeDefinitionsURL = request.barcodeDefinitionsURL {
+                params["barcodes"] = barcodeDefinitionsURL.lastPathComponent
+            }
             if let haplotypeDefinitionSetID = request.haplotypeDefinitionSetID {
                 if let haplotypeAssayID = request.haplotypeAssayID {
                     params["haplotypeAssay"] = haplotypeAssayID
+                }
+                if let haplotypeSpeciesCode = request.haplotypeSpeciesCode {
+                    params["haplotypeSpecies"] = haplotypeSpeciesCode
+                }
+                if let haplotypeDefinitionScope = request.haplotypeDefinitionScope {
+                    params["haplotypeDefinitionScope"] = haplotypeDefinitionScope.rawValue
                 }
                 params["haplotypeDefinition"] = haplotypeDefinitionSetID
             }

@@ -144,6 +144,7 @@ enum MainMenuAccessibilityID {
     static let callVariants = "tools-menu-call-variants"
     static let freyjaDemix = "tools-menu-freyja-demix"
     static let workflowOperations = "tools-menu-workflow-operations"
+    static let haplotypeDefinitions = "tools-menu-haplotype-definitions"
     static let workflowLibrary = "tools-menu-workflow-library"
     static let workflowBuilder = "tools-menu-workflow-builder"
     static let pluginManager = "tools-menu-plugin-manager"

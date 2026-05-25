@@ -40,7 +40,9 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(request.sampleSummaryCSVURL.lastPathComponent, "barcode08-mhc.retained-demux-samples.csv")
         XCTAssertEqual(request.workbookURL.lastPathComponent, "barcode08-mhc_ONT08_vs_Illumina-31262.xlsx")
         XCTAssertEqual(request.retainedBAMURL.lastPathComponent, "barcode08-mhc.retained.demuxed.bam")
-        XCTAssertTrue(request.argv.contains("ont-barcode-genotype"))
+        XCTAssertTrue(request.argv.contains("genotype"))
+        XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "ont-barcode-demux")
+        XCTAssertEqual(try testValue(after: "--read-type", in: request.argv), "ont")
         XCTAssertTrue(request.argv.contains("--analysis-name"))
         XCTAssertTrue(request.argv.contains("ONT08"))
         XCTAssertTrue(request.argv.contains("--comparison-workbook"))
@@ -121,7 +123,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
 
         let provenance = try jsonObject(at: request.provenanceURL)
-        XCTAssertEqual(provenance["toolName"] as? String, "lungfish fastq ont-barcode-genotype")
+        XCTAssertEqual(provenance["toolName"] as? String, "lungfish fastq genotype")
         XCTAssertEqual(provenance["workflowName"] as? String, "ONT Barcode Demux Genotyping")
         XCTAssertNotNil(provenance["toolVersion"] as? String)
         XCTAssertNotNil(provenance["workflowVersion"] as? String)
@@ -186,7 +188,7 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
 
         let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
         XCTAssertEqual(canonicalEnvelope.workflowName, "ONT Barcode Demux Genotyping")
-        XCTAssertEqual(canonicalEnvelope.toolName, "lungfish fastq ont-barcode-genotype")
+        XCTAssertEqual(canonicalEnvelope.toolName, "lungfish fastq genotype")
         XCTAssertEqual(canonicalEnvelope.argv, request.argv)
         XCTAssertEqual(canonicalEnvelope.durableReplayArgv, request.argv)
         XCTAssertEqual(canonicalEnvelope.options.explicit["inputFASTQ"], .string(inputFASTQ.standardizedFileURL.path))
@@ -249,6 +251,82 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertFalse(canonicalEnvelope.steps.isEmpty)
         XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.exitStatus == 0 })
         XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.wallTimeSeconds != nil }, "\(canonicalEnvelope.steps)")
+    }
+
+    func testRunIlluminaModeConsumesPreparedSampleBundlesWithoutMergingReads() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let outputDirectory = root.appendingPathComponent("miseq-mhc.lungfishgenotype", isDirectory: true)
+        try ">allele1\nACGTACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+
+        let sampleA = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW001",
+            sequence: "ACGTACGT"
+        )
+        let sampleB = try makeMergedFASTQBundle(
+            root: root,
+            name: "DW002",
+            sequence: "ACGTACGT"
+        )
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [sampleA.bundleURL, sampleB.bundleURL],
+            referenceSourceURL: referenceFASTA,
+            outputDirectory: outputDirectory,
+            outputName: "miseq-mhc",
+            analysisName: "MiSeqMHC",
+            threads: 2,
+            sortThreads: 1,
+            minSupport: 1,
+            mode: .illuminaPaired,
+            readType: .illumina
+        )
+
+        let result = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+        XCTAssertTrue(request.argv.contains("genotype"))
+        XCTAssertEqual(try testValue(after: "--mode", in: request.argv), "illumina-paired")
+        XCTAssertEqual(try testValue(after: "--read-type", in: request.argv), "illumina")
+        XCTAssertFalse(request.argv.contains("--barcodes"))
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        XCTAssertEqual(provenance["toolName"] as? String, "lungfish fastq genotype")
+        XCTAssertEqual(provenance["workflowName"] as? String, "Illumina Paired Amplicon Genotyping")
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["resolvedMode"] as? String, "illumina-paired")
+        XCTAssertEqual(options["resolvedReadType"] as? String, "illumina")
+        XCTAssertEqual(options["mappingPreset"] as? String, "sr")
+        XCTAssertEqual(options["requireBothEndSoftclips"] as? Bool, false)
+        XCTAssertEqual(options["demuxRetainedReadsOnly"] as? Bool, false)
+        XCTAssertTrue(options["illuminaMergeResults"] is NSNull)
+
+        let inputs = try XCTUnwrap(provenance["inputs"] as? [[String: Any]])
+        XCTAssertTrue(inputs.contains { $0["path"] as? String == sampleA.fastqURL.standardizedFileURL.path && $0["sha256"] as? String != nil }, "\(inputs)")
+        XCTAssertTrue(inputs.contains { $0["path"] as? String == sampleB.fastqURL.standardizedFileURL.path && $0["sha256"] as? String != nil }, "\(inputs)")
+        XCTAssertFalse(inputs.contains { ($0["path"] as? String)?.hasSuffix("merge-illumina-pairs.py") == true }, "\(inputs)")
+        XCTAssertFalse(inputs.contains { ($0["path"] as? String)?.contains("illumina-merged") == true }, "\(inputs)")
+        XCTAssertTrue(inputs.contains { ($0["path"] as? String)?.hasSuffix("illumina-sample-manifest.json") == true }, "\(inputs)")
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertEqual(canonicalEnvelope.workflowName, "Illumina Paired Amplicon Genotyping")
+        XCTAssertEqual(canonicalEnvelope.toolName, "lungfish fastq genotype")
+        XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedMode"], .string("illumina-paired"))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedReadType"], .string("illumina"))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["illuminaMergeResults"], .null)
+        XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == sampleB.fastqURL.standardizedFileURL.path && $0.checksumSHA256 != nil })
+        XCTAssertFalse(canonicalEnvelope.files.contains { $0.path.hasSuffix("merge-illumina-pairs.py") })
     }
 
     func testRunRejectsInvalidHaplotypeDefinitionBeforeCreatingOutputs() async throws {
@@ -681,6 +759,43 @@ print(json.dumps(payload))
     private func testValue(after flag: String, in arguments: [String]) throws -> String {
         let index = try XCTUnwrap(arguments.firstIndex(of: flag), "Missing flag \(flag)")
         return try XCTUnwrap(arguments[safe: arguments.index(after: index)])
+    }
+
+    private func makePairedFASTQBundle(
+        root: URL,
+        name: String,
+        r1Sequence: String,
+        r2Sequence: String
+    ) throws -> (bundleURL: URL, r1URL: URL, r2URL: URL) {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let r1URL = bundleURL.appendingPathComponent("\(name)_R1.fastq")
+        let r2URL = bundleURL.appendingPathComponent("\(name)_R2.fastq")
+        try "@\(name):1:1:1:1:1:1 1:N:0:1\n\(r1Sequence)\n+\n\(String(repeating: "I", count: r1Sequence.count))\n"
+            .write(to: r1URL, atomically: true, encoding: .utf8)
+        try "@\(name):1:1:1:1:1:1 2:N:0:1\n\(r2Sequence)\n+\n\(String(repeating: "I", count: r2Sequence.count))\n"
+            .write(to: r2URL, atomically: true, encoding: .utf8)
+        let classification = ReadClassification(
+            pairedR1File: r1URL.lastPathComponent,
+            pairedR1Count: 1,
+            pairedR2File: r2URL.lastPathComponent,
+            pairedR2Count: 1
+        )
+        try ReadManifest(classification: classification, sourceOperation: "synthetic-test").save(to: bundleURL)
+        return (bundleURL, r1URL, r2URL)
+    }
+
+    private func makeMergedFASTQBundle(
+        root: URL,
+        name: String,
+        sequence: String
+    ) throws -> (bundleURL: URL, fastqURL: URL) {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let fastqURL = bundleURL.appendingPathComponent("\(name).fastq")
+        try "@\(name):1:1:1:1:1:1\n\(sequence)\n+\n\(String(repeating: "I", count: sequence.count))\n"
+            .write(to: fastqURL, atomically: true, encoding: .utf8)
+        return (bundleURL, fastqURL)
     }
 
     private func makeFakeONTGenotypingCondaRoot(at root: URL) throws -> URL {

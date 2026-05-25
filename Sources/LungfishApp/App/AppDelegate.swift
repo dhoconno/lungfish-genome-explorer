@@ -4874,6 +4874,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             return canShowBAMVariantCalling(bundle: bundle)
         }
 
+        if menuItem.action == #selector(showHaplotypeDefinitions(_:)) {
+            let enabled = WorkflowLibraryEnablementStore.shared.isWorkflowEnabled(.ontGenotyping)
+            menuItem.isHidden = !enabled
+            return enabled
+        }
+
         // Copy visible region requires an active viewer.
         if menuItem.action == #selector(copySelectionFASTA(_:)) {
             return activeMainWindowController()?
@@ -7295,6 +7301,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             routeContext: routeContext,
             selectedReadURLs: selectedReadURLs
         )
+    }
+
+    @objc func showHaplotypeDefinitions(_ sender: Any?) {
+        let sourceController = activeMainWindowController(sender: sender)
+        let projectURL = sourceController?.mainSplitViewController?.sidebarController?.currentProjectURL
+        HaplotypeDefinitionManagerWindowController.show(projectURL: projectURL)
     }
 
     @objc func showImportCenter(_ sender: Any?) {

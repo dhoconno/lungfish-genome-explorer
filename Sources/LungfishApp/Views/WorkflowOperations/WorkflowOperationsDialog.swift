@@ -1,5 +1,6 @@
 import AppKit
 import LungfishIO
+import LungfishWorkflow
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -60,7 +61,8 @@ private struct WorkflowOperationsDetailPane: View {
 
                 section(DatasetOperationSection.inputs.title) {
                     referencePicker
-                    if case .ontGenotyping = state.selectedTool?.kind {
+                    if case .ontGenotyping = state.selectedTool?.kind,
+                       state.selectedGenotypingMode != .illuminaPaired {
                         barcodePicker
                     }
                     readPicker
@@ -174,6 +176,7 @@ private struct WorkflowOperationsDetailPane: View {
         switch state.selectedTool?.kind {
         case .ontGenotyping:
             VStack(alignment: .leading, spacing: 10) {
+                genotypingModePicker
                 labeledTextField("Report Name", text: $state.outputName)
                 HStack(spacing: 12) {
                     labeledCompactTextField("Threads", value: $state.threads)
@@ -195,14 +198,54 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private var genotypingModePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Read Configuration")
+                .font(.subheadline.weight(.medium))
+            Picker("Mode", selection: genotypingModeBinding) {
+                ForEach(AmpliconGenotypingMode.allCases, id: \.rawValue) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            Picker("Read Type", selection: genotypingReadTypeBinding) {
+                ForEach(AmpliconGenotypingReadType.allCases, id: \.rawValue) { readType in
+                    Text(readType.displayName).tag(readType.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+        }
+    }
+
     private var haplotypeDefinitionPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Haplotype Definition")
-                .font(.subheadline.weight(.medium))
+            HStack {
+                Text("Haplotype Definition")
+                    .font(.subheadline.weight(.medium))
+                Spacer()
+                Button("Manage\u{2026}") {
+                    NSApp.sendAction(#selector(ToolsMenuActions.showHaplotypeDefinitions(_:)), to: nil, from: nil)
+                }
+                .controlSize(.small)
+            }
             Picker("Assay", selection: haplotypeAssayBinding) {
                 Text("Choose assay").tag("")
                 ForEach(haplotypeAssayOptions, id: \.id) { option in
                     Text(option.label).tag(option.id)
+                }
+            }
+            .pickerStyle(.menu)
+            Picker("Species", selection: haplotypeSpeciesBinding) {
+                Text("Any species").tag("")
+                ForEach(haplotypeSpeciesOptions, id: \.code) { option in
+                    Text(option.label).tag(option.code)
+                }
+            }
+            .pickerStyle(.menu)
+            Picker("Source", selection: haplotypeScopeBinding) {
+                Text("Any source").tag("")
+                ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
+                    Text(scope.displayName).tag(scope.rawValue)
                 }
             }
             .pickerStyle(.menu)
@@ -293,10 +336,52 @@ private struct WorkflowOperationsDetailPane: View {
         )
     }
 
+    private var genotypingModeBinding: Binding<String> {
+        Binding(
+            get: { state.selectedGenotypingMode.rawValue },
+            set: { value in
+                if let mode = AmpliconGenotypingMode(cliArgument: value) {
+                    state.selectedGenotypingMode = mode
+                }
+            }
+        )
+    }
+
+    private var genotypingReadTypeBinding: Binding<String> {
+        Binding(
+            get: { state.selectedGenotypingReadType.rawValue },
+            set: { value in
+                if let readType = AmpliconGenotypingReadType(cliArgument: value) {
+                    state.selectedGenotypingReadType = readType
+                }
+            }
+        )
+    }
+
     private var haplotypeAssayBinding: Binding<String> {
         Binding(
             get: { state.selectedHaplotypeAssayID ?? "" },
             set: { state.setHaplotypeAssay($0.isEmpty ? nil : $0) }
+        )
+    }
+
+    private var haplotypeSpeciesBinding: Binding<String> {
+        Binding(
+            get: { state.selectedHaplotypeSpeciesCode ?? "" },
+            set: { state.setHaplotypeSpecies($0.isEmpty ? nil : $0) }
+        )
+    }
+
+    private var haplotypeScopeBinding: Binding<String> {
+        Binding(
+            get: { state.selectedHaplotypeDefinitionScope?.rawValue ?? "" },
+            set: { value in
+                guard !value.isEmpty else {
+                    state.setHaplotypeDefinitionScope(nil)
+                    return
+                }
+                state.setHaplotypeDefinitionScope(HaplotypeDefinitionScope(rawValue: value))
+            }
         )
     }
 
@@ -307,16 +392,21 @@ private struct WorkflowOperationsDetailPane: View {
     }
 
     private var haplotypeDefinitionOptions: [(id: String, label: String)] {
-        guard let assayID = state.selectedHaplotypeAssayID,
-              let assay = state.haplotypeDefinitionRegistry.assay(id: assayID) else {
-            return []
-        }
-        return assay.definitionSets.map { definitionSet in
-            (
+        state.compatibleHaplotypeDefinitionRecords.map { record in
+            let definitionSet = record.definitionSet
+            return (
                 id: definitionSet.id,
-                label: "\(definitionSet.displayName) (\(definitionSet.speciesCode))"
+                label: "\(definitionSet.displayName) (\(definitionSet.speciesCode), \(record.scope.displayName))"
             )
         }
+    }
+
+    private var haplotypeSpeciesOptions: [(code: String, label: String)] {
+        state.haplotypeSpeciesOptions
+    }
+
+    private var haplotypeScopeOptions: [HaplotypeDefinitionScope] {
+        state.haplotypeScopeOptions
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {

@@ -16,7 +16,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             packageStore: packageStore
         )
 
-        let ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        let ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
     }
 
@@ -60,17 +60,17 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         )
 
         let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
-        var ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        var ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: true)
 
-        ont = try XCTUnwrap(state.tools.first { $0.title == "ONT Genotyping" })
+        ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
     }
 
@@ -393,6 +393,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             enablementStore: enablementStore,
             packageStore: packageStore
         )
+        state.selectedGenotypingMode = .ontBarcodeDemux
         state.setReference(referenceURL)
         state.setBarcodeDefinition(barcodesURL)
         state.setOutputDirectory(outputURL)
@@ -406,6 +407,44 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(state.readinessText, "Select one ONT barcode FASTQ bundle.")
 
         XCTAssertThrowsError(try state.makeLaunchRequest())
+    }
+
+    func testAmpliconGenotypingIlluminaModeAllowsMultipleReadBundlesWithoutBarcodes() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let firstReadsURL = temp.appendingPathComponent("dw001.lungfishfastq", isDirectory: true)
+        let secondReadsURL = temp.appendingPathComponent("dw002.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, firstReadsURL, secondReadsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [firstReadsURL, secondReadsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.selectedGenotypingMode = .illuminaPaired
+        state.selectedGenotypingReadType = .illumina
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(nil)
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertTrue(state.isRunEnabled)
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected amplicon genotyping request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [firstReadsURL.standardizedFileURL, secondReadsURL.standardizedFileURL])
+        XCTAssertNil(request.barcodeDefinitionsURL)
+        XCTAssertEqual(request.mode, .illuminaPaired)
+        XCTAssertEqual(request.readType, .illumina)
     }
 
     func testReconfiguringForNewProjectResetsBarcodeDefinitionToProjectCandidate() throws {
@@ -462,7 +501,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(
             state.outputDirectoryURL,
             firstProjectURL
-                .appendingPathComponent("Analyses/ONT genotyping results", isDirectory: true)
+                .appendingPathComponent("Analyses/Amplicon genotyping results", isDirectory: true)
                 .standardizedFileURL
         )
 
@@ -474,7 +513,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(
             state.outputDirectoryURL,
             secondProjectURL
-                .appendingPathComponent("Analyses/ONT genotyping results", isDirectory: true)
+                .appendingPathComponent("Analyses/Amplicon genotyping results", isDirectory: true)
                 .standardizedFileURL
         )
     }
@@ -494,7 +533,7 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
 
         XCTAssertEqual(
             state.outputDirectoryURL,
-            temp.appendingPathComponent("Analyses/ONT genotyping results", isDirectory: true).standardizedFileURL
+            temp.appendingPathComponent("Analyses/Amplicon genotyping results", isDirectory: true).standardizedFileURL
         )
     }
 

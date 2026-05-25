@@ -36,7 +36,11 @@ final class WorkflowOperationDialogState {
     var outputName: String
     var threads: Int
     var minSupport: Int
+    var selectedGenotypingMode: AmpliconGenotypingMode
+    var selectedGenotypingReadType: AmpliconGenotypingReadType
     var selectedHaplotypeAssayID: String?
+    var selectedHaplotypeSpeciesCode: String?
+    var selectedHaplotypeDefinitionScope: HaplotypeDefinitionScope?
     var selectedHaplotypeDefinitionSetID: String?
     var extraArgumentsText: String
     var advancedOptionsExpanded: Bool
@@ -60,7 +64,11 @@ final class WorkflowOperationDialogState {
         self.outputName = Self.defaultONTGenotypingOutputName(for: standardizedReadURLs)
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
+        self.selectedGenotypingMode = .auto
+        self.selectedGenotypingReadType = .auto
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
+        self.selectedHaplotypeSpeciesCode = nil
+        self.selectedHaplotypeDefinitionScope = nil
         self.selectedHaplotypeDefinitionSetID = nil
         self.extraArgumentsText = ""
         self.advancedOptionsExpanded = false
@@ -107,10 +115,43 @@ final class WorkflowOperationDialogState {
     }
 
     var haplotypeDefinitionRegistry: GenotypeHaplotypeDefinitionRegistry {
-        guard let projectURL else {
-            return .builtIn
+        haplotypeDefinitionLibrary.mergedRegistry()
+    }
+
+    var haplotypeDefinitionLibrary: HaplotypeDefinitionLibrary {
+        HaplotypeDefinitionLibrary(projectRoot: projectURL)
+    }
+
+    var compatibleHaplotypeDefinitionRecords: [HaplotypeDefinitionRecord] {
+        haplotypeDefinitionLibrary.activeRecords(
+            assayID: selectedHaplotypeAssayID,
+            speciesCode: selectedHaplotypeSpeciesCode,
+            scope: selectedHaplotypeDefinitionScope
+        )
+    }
+
+    var haplotypeSpeciesOptions: [(code: String, label: String)] {
+        let records = haplotypeDefinitionLibrary.activeRecords(
+            assayID: selectedHaplotypeAssayID,
+            scope: selectedHaplotypeDefinitionScope
+        )
+        var seen = Set<String>()
+        return records.compactMap { record in
+            let code = record.definitionSet.speciesCode
+            guard seen.insert(code).inserted else { return nil }
+            return (code: code, label: "\(record.definitionSet.speciesName) (\(code))")
         }
-        return HaplotypeDefinitionStore(projectRoot: projectURL).mergedRegistry()
+    }
+
+    var haplotypeScopeOptions: [HaplotypeDefinitionScope] {
+        let scopes = Set(
+            haplotypeDefinitionLibrary.activeRecords(
+                assayID: selectedHaplotypeAssayID,
+                speciesCode: selectedHaplotypeSpeciesCode
+            )
+            .map(\.scope)
+        )
+        return HaplotypeDefinitionScope.allCases.filter { scopes.contains($0) }
     }
 
     var datasetLabel: String {
@@ -152,13 +193,17 @@ final class WorkflowOperationDialogState {
         guard selectedReferenceURL != nil else {
             return "Select a reference bundle or FASTA file."
         }
-        if selectedTool?.kind == .ontGenotyping, selectedBarcodeDefinitionURL == nil {
+        if selectedTool?.kind == .ontGenotyping,
+           selectedGenotypingMode == .ontBarcodeDemux,
+           selectedBarcodeDefinitionURL == nil {
             return "Select a project barcode definition or choose a CSV/TSV file."
         }
         guard !selectedReadURLs.isEmpty else {
             return "Select one or more FASTQ bundles."
         }
-        if selectedTool?.kind == .ontGenotyping, selectedReadURLs.count != 1 {
+        if selectedTool?.kind == .ontGenotyping,
+           selectedGenotypingMode == .ontBarcodeDemux,
+           selectedReadURLs.count != 1 {
             return "Select one ONT barcode FASTQ bundle."
         }
         guard outputDirectoryURL != nil else {
@@ -176,6 +221,11 @@ final class WorkflowOperationDialogState {
         }
         if selectedTool?.kind == .ontGenotyping, minSupport < 1 {
             return "Minimum support must be at least 1."
+        }
+        if selectedTool?.kind == .ontGenotyping,
+           selectedGenotypingMode == .illuminaPaired,
+           selectedReadURLs.isEmpty {
+            return "Select one or more prepared Illumina sample FASTQ bundles."
         }
         if selectedTool?.kind == .ontGenotyping,
            (try? AdvancedCommandLineOptions.parse(extraArgumentsText)) == nil {
@@ -221,11 +271,24 @@ final class WorkflowOperationDialogState {
     func setHaplotypeAssay(_ assayID: String?) {
         let trimmedAssayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines)
         selectedHaplotypeAssayID = trimmedAssayID?.isEmpty == true ? nil : trimmedAssayID
-        guard let selectedHaplotypeDefinitionSetID else { return }
-        let registry = haplotypeDefinitionRegistry
-        if registry.definitionSet(id: selectedHaplotypeDefinitionSetID, assayID: selectedHaplotypeAssayID) == nil {
-            self.selectedHaplotypeDefinitionSetID = nil
+        selectedHaplotypeSpeciesCode = nil
+        selectedHaplotypeDefinitionScope = nil
+        refreshHaplotypeSelectionForCurrentFilters()
+    }
+
+    func setHaplotypeSpecies(_ speciesCode: String?) {
+        let trimmedSpeciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines)
+        selectedHaplotypeSpeciesCode = trimmedSpeciesCode?.isEmpty == true ? nil : trimmedSpeciesCode
+        if let selectedHaplotypeDefinitionScope,
+           !haplotypeScopeOptions.contains(selectedHaplotypeDefinitionScope) {
+            self.selectedHaplotypeDefinitionScope = nil
         }
+        refreshHaplotypeSelectionForCurrentFilters()
+    }
+
+    func setHaplotypeDefinitionScope(_ scope: HaplotypeDefinitionScope?) {
+        selectedHaplotypeDefinitionScope = scope
+        refreshHaplotypeSelectionForCurrentFilters()
     }
 
     func setHaplotypeDefinition(_ definitionSetID: String?) {
@@ -234,14 +297,17 @@ final class WorkflowOperationDialogState {
             selectedHaplotypeDefinitionSetID = nil
             return
         }
-        let registry = haplotypeDefinitionRegistry
-        if let selectedHaplotypeAssayID,
-           registry.definitionSet(id: id, assayID: selectedHaplotypeAssayID) != nil {
+        if let record = compatibleHaplotypeDefinitionRecords.first(where: { $0.definitionSet.id == id }) {
+            selectedHaplotypeAssayID = record.definitionSet.assayID
+            selectedHaplotypeSpeciesCode = record.definitionSet.speciesCode
+            selectedHaplotypeDefinitionScope = record.scope
             selectedHaplotypeDefinitionSetID = id
             return
         }
-        if let definitionSet = registry.definitionSet(id: id) {
-            selectedHaplotypeAssayID = definitionSet.assayID
+        if let record = haplotypeDefinitionLibrary.activeRecords().first(where: { $0.definitionSet.id == id }) {
+            selectedHaplotypeAssayID = record.definitionSet.assayID
+            selectedHaplotypeSpeciesCode = record.definitionSet.speciesCode
+            selectedHaplotypeDefinitionScope = record.scope
             selectedHaplotypeDefinitionSetID = id
         }
     }
@@ -256,9 +322,17 @@ final class WorkflowOperationDialogState {
             selectedHaplotypeAssayID = registry.assays.first?.id
         }
         guard let selectedHaplotypeDefinitionSetID else { return }
-        if registry.definitionSet(id: selectedHaplotypeDefinitionSetID, assayID: selectedHaplotypeAssayID) == nil {
-            self.selectedHaplotypeDefinitionSetID = nil
+        refreshHaplotypeSelectionForCurrentFilters(selectedDefinitionID: selectedHaplotypeDefinitionSetID)
+    }
+
+    private func refreshHaplotypeSelectionForCurrentFilters(selectedDefinitionID: String? = nil) {
+        let selectedID = selectedDefinitionID ?? selectedHaplotypeDefinitionSetID
+        if let selectedID,
+           compatibleHaplotypeDefinitionRecords.contains(where: { $0.definitionSet.id == selectedID }) {
+            selectedHaplotypeDefinitionSetID = selectedID
+            return
         }
+        selectedHaplotypeDefinitionSetID = nil
     }
 
     func setReference(_ url: URL?) {
@@ -307,23 +381,32 @@ final class WorkflowOperationDialogState {
               let outputDirectoryURL else {
             throw WorkflowOperationError.incompleteConfiguration(readinessText)
         }
+        guard isRunEnabled else {
+            throw WorkflowOperationError.incompleteConfiguration(readinessText)
+        }
         switch selectedTool.kind {
         case .ontGenotyping:
-            guard selectedReadURLs.count == 1,
-                  let readURL = selectedReadURLs.first,
-                  let barcodeDefinitionURL = selectedBarcodeDefinitionURL else {
+            guard !selectedReadURLs.isEmpty else {
                 throw WorkflowOperationError.incompleteConfiguration(readinessText)
             }
-            let resolvedBarcodeDefinitionURL: URL
-            do {
-                resolvedBarcodeDefinitionURL = try projectOwnedBarcodeDefinitionURL(for: barcodeDefinitionURL)
-            } catch {
-                throw WorkflowOperationError.barcodeDefinitionImportFailed(error.localizedDescription)
+            let barcodeDefinitionURL: URL?
+            if selectedGenotypingMode != .illuminaPaired
+                && (selectedGenotypingMode == .ontBarcodeDemux || selectedBarcodeDefinitionURL != nil) {
+                guard let selectedBarcodeDefinitionURL else {
+                    throw WorkflowOperationError.incompleteConfiguration(readinessText)
+                }
+                do {
+                    barcodeDefinitionURL = try projectOwnedBarcodeDefinitionURL(for: selectedBarcodeDefinitionURL)
+                } catch {
+                    throw WorkflowOperationError.barcodeDefinitionImportFailed(error.localizedDescription)
+                }
+            } else {
+                barcodeDefinitionURL = nil
             }
             let request = ONTBarcodeDemuxGenotypingRunRequest(
-                inputFASTQURL: readURL,
+                inputFASTQURLs: selectedReadURLs,
                 referenceSourceURL: selectedReferenceURL,
-                barcodeDefinitionsURL: resolvedBarcodeDefinitionURL,
+                barcodeDefinitionsURL: barcodeDefinitionURL,
                 outputDirectory: Self.ontGenotypingBundleURL(
                     outputLocationURL: outputDirectoryURL,
                     outputName: outputName
@@ -334,8 +417,12 @@ final class WorkflowOperationDialogState {
                 threads: threads,
                 minSupport: minSupport,
                 haplotypeAssayID: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeAssayID,
+                haplotypeSpeciesCode: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeSpeciesCode,
+                haplotypeDefinitionScope: selectedHaplotypeDefinitionSetID == nil ? nil : selectedHaplotypeDefinitionScope,
                 haplotypeDefinitionSetID: selectedHaplotypeDefinitionSetID,
-                extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText)
+                extraArguments: try AdvancedCommandLineOptions.parse(extraArgumentsText),
+                mode: selectedGenotypingMode,
+                readType: selectedGenotypingReadType
             )
             return .ontGenotyping(request)
 
@@ -481,7 +568,7 @@ final class WorkflowOperationDialogState {
     }
 
     private static let ontGenotypingID = "builtin.ont-genotyping"
-    private static let ontGenotypingResultsDirectoryName = "ONT genotyping results"
+    private static let ontGenotypingResultsDirectoryName = "Amplicon genotyping results"
 
     private static func defaultHaplotypeAssayID() -> String? {
         GenotypeHaplotypeDefinitionRegistry.builtIn.assays.first?.id
