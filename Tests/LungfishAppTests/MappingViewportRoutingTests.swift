@@ -137,6 +137,51 @@ final class MappingViewportRoutingTests: XCTestCase {
         )
     }
 
+    func testGenotypeResultWithoutHaplotypingDisplaysPrimaryWorkbookPreview() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNoHapPreview-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "barcode08-mhc-newref",
+            haplotypeAnalysisPath: nil
+        )
+        let workbookURL = try XCTUnwrap(MainSplitViewController.genotypeResultWorkbookURL(forBundle: bundleURL))
+        let controller = MainSplitViewController()
+        _ = controller.view
+
+        controller.testingDisplayGenotypeResultBundle(bundleURL)
+
+        XCTAssertEqual(
+            controller.viewerController.testQuickLookURL?.standardizedFileURL,
+            workbookURL.standardizedFileURL
+        )
+        XCTAssertNil(controller.viewerController.genotypeResultViewController)
+    }
+
+    func testGenotypeWorkbookPreviewRemovesPreviousNativeGenotypeViewport() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GenotypeNoHapPreviewAfterNative-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = try makeGenotypeResultBundle(
+            root: root,
+            name: "barcode08-mhc-newref",
+            haplotypeAnalysisPath: nil
+        )
+        let controller = MainSplitViewController()
+        _ = controller.view
+        _ = controller.viewerController.displayGenotypeResult(makeNativeHaplotypedResult())
+        XCTAssertNotNil(controller.viewerController.genotypeResultViewController)
+
+        controller.testingDisplayGenotypeResultBundle(bundleURL)
+
+        XCTAssertNil(controller.viewerController.genotypeResultViewController)
+        XCTAssertEqual(
+            controller.viewerController.testQuickLookURL?.lastPathComponent,
+            "barcode08-mhc-newref.xlsx"
+        )
+    }
+
     func testExternalOpenReferenceBundleWiresInspectorCallbacksAndProvenanceTarget() throws {
         let bundleURL = try MappingRoutingFixture.makeReferenceBundle(
             name: "External Open Reference",
@@ -345,6 +390,86 @@ final class MappingViewportRoutingTests: XCTestCase {
         let viewerSource = try loadSource(at: "Sources/LungfishApp/Views/Viewer/ViewerViewController.swift")
 
         XCTAssertTrue(viewerSource.contains("viewer-back-navigation-button"))
+    }
+
+    private func makeNativeHaplotypedResult() -> ONTGenotypeResultBundleData {
+        ONTGenotypeResultBundleData(
+            bundleURL: URL(fileURLWithPath: "/tmp/native.lungfishgenotype"),
+            manifest: ONTGenotypeResultBundleManifest(
+                outputName: "native",
+                analysisName: "native",
+                primaryWorkbookPath: "native.xlsx",
+                longSummaryCSVPath: "native.retained-demux-genotypes.csv",
+                sampleSummaryCSVPath: "native.retained-demux-samples.csv",
+                statsJSONPath: "native.retained-demux-stats.json",
+                provenancePath: "retained-demux-genotyping-provenance.json",
+                haplotypeAnalysisPath: "native-haplotype-analysis.json",
+                haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+            ),
+            artifacts: ONTGenotypeResultArtifacts(
+                workbookURL: URL(fileURLWithPath: "/tmp/native.xlsx"),
+                longSummaryCSVURL: URL(fileURLWithPath: "/tmp/native.retained-demux-genotypes.csv"),
+                sampleSummaryCSVURL: URL(fileURLWithPath: "/tmp/native.retained-demux-samples.csv"),
+                statsJSONURL: URL(fileURLWithPath: "/tmp/native.retained-demux-stats.json"),
+                provenanceURL: URL(fileURLWithPath: "/tmp/retained-demux-genotyping-provenance.json")
+            ),
+            stats: ONTGenotypeRunStats(totalInputReads: 1, retainedUniqueReads: 1),
+            calls: [],
+            samples: [],
+            haplotypeAnalysis: GenotypeHaplotypeAnalysis(
+                assayID: "MHC-exon2-miSeq",
+                definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
+                definitionSetName: "Mauritian cynomolgus macaques",
+                speciesName: "Mauritian cynomolgus macaques",
+                samples: []
+            )
+        )
+    }
+
+    private func makeGenotypeResultBundle(
+        root: URL,
+        name: String,
+        haplotypeAnalysisPath: String?
+    ) throws -> URL {
+        let bundleURL = root.appendingPathComponent("\(name).lungfishgenotype", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let workbookURL = bundleURL.appendingPathComponent("\(name).xlsx")
+        let genotypeCSV = bundleURL.appendingPathComponent("\(name).retained-demux-genotypes.csv")
+        let samplesCSV = bundleURL.appendingPathComponent("\(name).retained-demux-samples.csv")
+        let statsJSON = bundleURL.appendingPathComponent("\(name).retained-demux-stats.json")
+        let provenanceJSON = bundleURL.appendingPathComponent("retained-demux-genotyping-provenance.json")
+
+        try Data("workbook".utf8).write(to: workbookURL)
+        try """
+        sample,genotype,passed_alignments,passed_unique_reads
+        DW472,01_Mafa_A1_063g,10,8
+
+        """.write(to: genotypeCSV, atomically: true, encoding: .utf8)
+        try """
+        sample,passed_alignments,passed_unique_reads
+        DW472,10,8
+
+        """.write(to: samplesCSV, atomically: true, encoding: .utf8)
+        try #"{"totalInputReads":10,"retainedUniqueReads":8}"#
+            .write(to: statsJSON, atomically: true, encoding: .utf8)
+        try #"{"workflow":"test"}"#
+            .write(to: provenanceJSON, atomically: true, encoding: .utf8)
+
+        let manifest = ONTGenotypeResultBundleManifest(
+            outputName: name,
+            analysisName: name,
+            primaryWorkbookPath: workbookURL.lastPathComponent,
+            longSummaryCSVPath: genotypeCSV.lastPathComponent,
+            sampleSummaryCSVPath: samplesCSV.lastPathComponent,
+            statsJSONPath: statsJSON.lastPathComponent,
+            provenancePath: provenanceJSON.lastPathComponent,
+            haplotypeAnalysisPath: haplotypeAnalysisPath,
+            haplotypeDefinitionSetID: haplotypeAnalysisPath == nil
+                ? nil
+                : "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        )
+        try ONTGenotypeResultBundle.writeManifest(manifest, to: bundleURL)
+        return bundleURL
     }
 
     private func loadSource(at relativePath: String) throws -> String {

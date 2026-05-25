@@ -2553,6 +2553,10 @@ public class MainSplitViewController: NSSplitViewController {
     func testingDisplayImportedProjectFile(_ url: URL) {
         displayImportedProjectFile(at: url)
     }
+
+    func testingDisplayGenotypeResultBundle(_ url: URL) {
+        displayGenotypeResultBundleFromSidebar(at: url)
+    }
 }
 
 // MARK: - SidebarSelectionDelegate
@@ -2977,6 +2981,14 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             let result = try ONTGenotypeResultBundle.loadResult(from: url)
             inspectorController.clearSelection()
             inspectorController.updateGenotypeResultDocument(result)
+            if Self.shouldPreviewPrimaryWorkbook(for: result) {
+                logger.info(
+                    "displayGenotypeResultBundle: Previewing primary workbook for '\(url.lastPathComponent, privacy: .public)' because no haplotyping analysis is present"
+                )
+                inspectorController.updateGenotypeResultSelection(nil)
+                viewerController.displayQuickLookPreview(url: result.artifacts.workbookURL)
+                return
+            }
             let controller = viewerController.displayGenotypeResult(result)
             controller.onSelectionStateChanged = { [weak self] selection in
                 self?.inspectorController.updateGenotypeResultSelection(selection)
@@ -3021,6 +3033,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             inspectorController.clearSelection()
             viewerController.displayQuickLookPreview(url: workbookURL)
         }
+    }
+
+    static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
+        result.haplotypeAnalysis == nil
+            && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
     }
 
     private func displayPhylogeneticTreeBundleFromSidebar(

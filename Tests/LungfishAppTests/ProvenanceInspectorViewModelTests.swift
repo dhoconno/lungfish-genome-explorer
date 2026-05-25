@@ -264,7 +264,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         let envelope = ProvenanceEnvelope(
             workflowName: "lungfish.assemble",
-            workflowVersion: "0.5.0-alpha4",
+            workflowVersion: "0.5.0-alpha5",
             toolName: "megahit",
             toolVersion: "1.2.9",
             argv: ["lungfish-cli", "assemble", input.path, "--assembler", "megahit"],
@@ -320,9 +320,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         )
         let envelope = ProvenanceEnvelope(
             workflowName: "EsViritu Batch",
-            workflowVersion: "0.5.0-alpha4",
+            workflowVersion: "0.5.0-alpha5",
             toolName: "Lungfish EsViritu Batch",
-            toolVersion: "0.5.0-alpha4",
+            toolVersion: "0.5.0-alpha5",
             argv: step.argv,
             runtimeIdentity: ProvenanceRuntimeIdentity.fixture(),
             files: [inputDescriptor, outputDescriptor],
@@ -638,9 +638,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
 
         let primitiveJSON: [String: Any] = [
             "workflowName": "ONT Barcode Demux Genotyping",
-            "workflowVersion": "0.5.0-alpha4",
+            "workflowVersion": "0.5.0-alpha5",
             "toolName": "lungfish fastq ont-barcode-genotype",
-            "toolVersion": "Lungfish 0.5.0-alpha4 (1)",
+            "toolVersion": "Lungfish 0.5.0-alpha5 (1)",
             "createdAt": "2026-05-22T12:00:00Z",
             "argv": [
                 "lungfish",
@@ -679,7 +679,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             "wallTimeSeconds": 5.0,
             "exitStatus": 0,
             "runtimeIdentity": [
-                "appVersion": "Lungfish 0.5.0-alpha4 (1)",
+                "appVersion": "Lungfish 0.5.0-alpha5 (1)",
                 "executablePath": "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
                 "processIdentifier": 1,
                 "operatingSystemVersion": "macOS",
@@ -755,9 +755,9 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
         try Data("xlsx".utf8).write(to: output)
         let primitiveJSON: [String: Any] = [
             "workflowName": "ONT Barcode Demux Genotyping",
-            "workflowVersion": "0.5.0-alpha4",
+            "workflowVersion": "0.5.0-alpha5",
             "toolName": "lungfish fastq ont-barcode-genotype",
-            "toolVersion": "Lungfish 0.5.0-alpha4 (1)",
+            "toolVersion": "Lungfish 0.5.0-alpha5 (1)",
             "createdAt": "2026-05-22T12:00:00Z",
             "argv": ["lungfish", "fastq", "ont-barcode-genotype", fastqBundle.path],
             "options": ["inputFASTQ": fastqBundle.path],
@@ -779,7 +779,7 @@ final class ProvenanceInspectorViewModelTests: XCTestCase {
             "wallTimeSeconds": 5.0,
             "exitStatus": 0,
             "runtimeIdentity": [
-                "appVersion": "Lungfish 0.5.0-alpha4 (1)",
+                "appVersion": "Lungfish 0.5.0-alpha5 (1)",
                 "executablePath": "/Applications/Lungfish.app/Contents/MacOS/Lungfish",
                 "processIdentifier": 1,
                 "operatingSystemVersion": "macOS",

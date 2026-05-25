@@ -2663,6 +2663,7 @@ public class ViewerViewController: NSViewController {
         hideCzIdView()
         hideAssemblyView()
         hideMappingView()
+        hideGenotypeResultView()
         hideAlignmentTreeBundleViews()
 
         // Hide the progress overlay first - it may be covering the view area

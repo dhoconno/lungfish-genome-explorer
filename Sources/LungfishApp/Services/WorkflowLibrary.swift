@@ -188,6 +188,9 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     private static let enabledWorkflowIDsKey = "WorkflowLibrary.enabledWorkflowIDs"
     private static let enabledUserWorkflowIDsKey = "WorkflowLibrary.enabledUserWorkflowIDs"
+    private static let defaultEnabledWorkflowIDs: Set<String> = [
+        FASTQOperationToolID.ontGenotyping.rawValue,
+    ]
 
     private let userDefaults: UserDefaults
     private var enabledWorkflowIDs: Set<String>
@@ -195,10 +198,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
-        self.enabledWorkflowIDs = Self.loadSet(
-            forKey: Self.enabledWorkflowIDsKey,
-            from: userDefaults
-        )
+        self.enabledWorkflowIDs = Self.loadEnabledWorkflowIDs(from: userDefaults)
         self.enabledUserWorkflowIDs = Self.loadSet(
             forKey: Self.enabledUserWorkflowIDsKey,
             from: userDefaults
@@ -323,8 +323,15 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
         Set(userDefaults.stringArray(forKey: key) ?? [])
     }
 
+    private static func loadEnabledWorkflowIDs(from userDefaults: UserDefaults) -> Set<String> {
+        guard userDefaults.object(forKey: enabledWorkflowIDsKey) != nil else {
+            return defaultEnabledWorkflowIDs
+        }
+        return loadSet(forKey: enabledWorkflowIDsKey, from: userDefaults)
+    }
+
     private func reloadEnablementFromDefaults() {
-        enabledWorkflowIDs = Self.loadSet(forKey: Self.enabledWorkflowIDsKey, from: userDefaults)
+        enabledWorkflowIDs = Self.loadEnabledWorkflowIDs(from: userDefaults)
         enabledUserWorkflowIDs = Self.loadSet(forKey: Self.enabledUserWorkflowIDsKey, from: userDefaults)
     }
 

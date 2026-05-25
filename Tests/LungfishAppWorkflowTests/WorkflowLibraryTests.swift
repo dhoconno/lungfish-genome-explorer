@@ -42,27 +42,28 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.toolID == .ontGenotyping })
     }
 
-    func testStoreEnablesCoreWorkflowsByDefaultAndPersistsSpecializedWorkflowEnablement() throws {
+    func testFreshInstallEnablesBundledONTGenotypingAndPersistsExplicitChanges() throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
 
         XCTAssertTrue(store.isWorkflowEnabled(.minimap2))
-        XCTAssertFalse(store.isWorkflowEnabled(.ontGenotyping))
-
-        store.setWorkflow(.ontGenotyping, enabled: true)
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
 
-        let reloaded = WorkflowLibraryEnablementStore(userDefaults: defaults)
-        XCTAssertTrue(reloaded.isWorkflowEnabled(.ontGenotyping))
+        store.setWorkflow(.ontGenotyping, enabled: false)
+        XCTAssertFalse(store.isWorkflowEnabled(.ontGenotyping))
 
-        reloaded.setWorkflow(.ontGenotyping, enabled: false)
+        let reloaded = WorkflowLibraryEnablementStore(userDefaults: defaults)
         XCTAssertFalse(reloaded.isWorkflowEnabled(.ontGenotyping))
+
+        reloaded.setWorkflow(.ontGenotyping, enabled: true)
+        XCTAssertTrue(reloaded.isWorkflowEnabled(.ontGenotyping))
     }
 
     func testEnablingSpecializedWorkflowIsBlockedUntilRequiredPluginPacksAreReady() async throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let ont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .ontGenotyping))
+        store.setWorkflow(.ontGenotyping, enabled: false)
 
         let blockedProvider = StubWorkflowLibraryPluginStatusProvider(states: [
             "lungfish-tools": .ready,

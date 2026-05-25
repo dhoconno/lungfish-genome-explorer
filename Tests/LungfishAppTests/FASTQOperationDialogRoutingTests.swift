@@ -817,7 +817,7 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
         )
     }
 
-    func testMappingDialogHidesSpecializedWorkflowsUntilEnabledInWorkflowLibrary() throws {
+    func testMappingDialogShowsBundledONTByDefaultAndHonorsExplicitLibraryDisable() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "FASTQOperationDialogRoutingTests-\(UUID().uuidString)"))
         let workflowLibrary = WorkflowLibraryEnablementStore(userDefaults: defaults)
         let defaultState = FASTQOperationDialogState(
@@ -826,7 +826,16 @@ final class FASTQOperationDialogRoutingTests: XCTestCase {
             workflowLibrary: workflowLibrary
         )
 
-        XCTAssertFalse(defaultState.visibleToolIDs.contains(.ontGenotyping))
+        XCTAssertTrue(defaultState.visibleToolIDs.contains(.ontGenotyping))
+
+        workflowLibrary.setWorkflow(.ontGenotyping, enabled: false)
+        let disabledState = FASTQOperationDialogState(
+            initialCategory: .mapping,
+            selectedInputURLs: [URL(fileURLWithPath: "/tmp/sample.lungfishfastq")],
+            workflowLibrary: workflowLibrary
+        )
+
+        XCTAssertFalse(disabledState.visibleToolIDs.contains(.ontGenotyping))
 
         workflowLibrary.setWorkflow(.ontGenotyping, enabled: true)
         let enabledState = FASTQOperationDialogState(
