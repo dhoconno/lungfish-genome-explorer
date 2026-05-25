@@ -715,7 +715,7 @@ private struct PackCard: View {
                 .accessibilityIdentifier(PluginManagerAccessibilityID.packCopyOfflineCommandsButton(pack.id))
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 10)
+            .padding(.vertical, 10)
         }
         .background(Color.lungfishCardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 10))

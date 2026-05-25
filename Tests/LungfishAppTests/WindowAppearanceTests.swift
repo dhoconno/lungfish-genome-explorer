@@ -24,6 +24,28 @@ final class WindowAppearanceTests: XCTestCase {
         XCTAssertFalse(source.contains(".foregroundStyle(.blue)"))
     }
 
+    func testPluginManagerOfflineCommandSectionHasDividerBreathingRoom() throws {
+        let source = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/PluginManager/PluginManagerView.swift"),
+            encoding: .utf8
+        )
+
+        guard let commandIconRange = source.range(of: "Image(systemName: \"externaldrive\")"),
+              let cardIdentifierRange = source.range(
+                of: ".accessibilityIdentifier(PluginManagerAccessibilityID.packCard(pack.id))",
+                range: commandIconRange.upperBound..<source.endIndex
+              ) else {
+            return XCTFail("Could not locate Plugin Manager offline command section")
+        }
+
+        let offlineCommandSection = String(source[commandIconRange.lowerBound..<cardIdentifierRange.lowerBound])
+        XCTAssertTrue(
+            offlineCommandSection.contains(".padding(.vertical, 10)"),
+            "Offline command rows should have symmetric vertical padding so text is not crowded against the divider."
+        )
+    }
+
     func testSemanticDangerUIUsesLungfishPaletteInsteadOfSystemRed() throws {
         let root = repositoryRoot()
         let colorsSource = try String(
