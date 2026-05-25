@@ -175,6 +175,16 @@ The ONT Genotyping workflow dialog keeps the existing assay and definition picke
 - A compatibility note under the selected definition.
 - Refresh after manager close so newly imported definitions are immediately selectable.
 
+The workflow setup must expose the options needed to choose the correct haplotype definition before launch:
+
+- Species or host taxon when the assay supports multiple species.
+- PCR amplicon or assay scheme, such as MHC exon 2 MiSeq.
+- Reference allele library, including display name and version when known.
+- Haplotyping mode: `No haplotyping` or `Deterministic haplotyping`.
+- Definition scope/source when more than one compatible definition exists: built-in, global, or project.
+
+The definition picker is driven by these options. The app should not make users infer MCM versus rhesus or combined DP/DQ versus split DPA/DPB/DQA/DQB behavior from definition names alone. If a selected reference library does not provide enough identity metadata to prove compatibility, the dialog shows the definition as "reference not specified" rather than "compatible."
+
 If no definition is selected, the workflow runs genotyping only. If a compatible definition is selected, deterministic haplotyping runs and the definition is snapshotted into the output bundle.
 
 ## Error Handling
