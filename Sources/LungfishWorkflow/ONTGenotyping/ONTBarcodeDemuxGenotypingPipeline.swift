@@ -393,6 +393,8 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             provenanceURL: provenanceURL,
             completedAt: completedAt
         )
+        progressHandler?(0.97, "Removing regenerable alignment intermediates.")
+        try removeGeneratedAlignmentIntermediates(for: request)
         progressHandler?(0.98, "Finalizing ONT genotyping outputs.")
 
         return ONTBarcodeDemuxGenotypingResult(
@@ -1044,11 +1046,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: scriptURL, role: "input"),
             fileDescriptorDictionary(url: reportScriptURL, role: "input"),
         ] + comparisonInputs + stagedInputs + haplotypeDefinitionInputs
+        let transientAlignmentOutputs: [[String: Any]] = [
+            fileDescriptorDictionary(url: request.mappingBAMURL, role: "intermediate"),
+            fileDescriptorDictionary(url: request.mappingBAIURL, role: "intermediate-index"),
+            fileDescriptorDictionary(url: request.retainedBAMURL, role: "intermediate"),
+            fileDescriptorDictionary(url: request.retainedBAIURL, role: "intermediate-index"),
+        ]
         let provenanceOutputs: [[String: Any]] = [
-            fileDescriptorDictionary(url: request.mappingBAMURL, role: "output"),
-            fileDescriptorDictionary(url: request.mappingBAIURL, role: "index"),
-            fileDescriptorDictionary(url: request.retainedBAMURL, role: "output"),
-            fileDescriptorDictionary(url: request.retainedBAIURL, role: "index"),
             fileDescriptorDictionary(url: request.reportCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.sampleSummaryCSVURL, role: "report"),
             fileDescriptorDictionary(url: request.statsJSONURL, role: "output"),
@@ -1057,7 +1061,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             fileDescriptorDictionary(url: request.reportProvenanceURL, role: "provenance"),
         ]
         let primaryOutput = fileDescriptorDictionary(url: request.outputDirectory, role: "output")
-        let provenanceFiles = provenanceInputs + provenanceOutputs
+        let provenanceFiles = provenanceInputs + transientAlignmentOutputs + provenanceOutputs
         let statistics: [String: Any] = [
             "totalInputReads": filter.stats.totalInputReads,
             "totalAlignments": filter.stats.totalAlignments,
@@ -1130,6 +1134,7 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             "managedTools": managedToolDescriptors(ids: ["minimap2", "samtools", "pysam", "openpyxl"]),
             "inputs": provenanceInputs,
             "files": provenanceFiles,
+            "transientAlignmentOutputs": transientAlignmentOutputs,
             "stagedInputs": [
                 "barcodeDefinitions": inputSnapshot.barcodeDefinitionsURL.path,
                 "demuxManifest": inputSnapshot.demuxManifestURL.path,
@@ -1233,10 +1238,6 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         let legacyProvenance = try canonicalFileDescriptor(url: legacyProvenanceURL, role: .log)
         let canonicalOutputs = deduplicated(
             [
-                mappingBAM,
-                mappingBAI,
-                retainedBAM,
-                retainedBAI,
                 genotypeCSV,
                 sampleCSV,
                 statsJSON,
@@ -1345,7 +1346,11 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 condaEnvironment: "lungfish-managed-tools",
                 condaPrefix: condaManager.rootPrefix.path
             ),
-            files: deduplicated(canonicalInputs + canonicalOutputs),
+            files: deduplicated(
+                canonicalInputs
+                    + canonicalOutputs
+                    + canonicalSteps.flatMap { $0.inputs + $0.outputs }
+            ),
             output: outputDirectory,
             outputs: [outputDirectory] + canonicalOutputs,
             steps: canonicalSteps,
@@ -1383,6 +1388,17 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 AnalysesFolder.AnalysisMetadata(tool: "ont-genotyping", isBatch: false, created: completedAt),
                 to: request.outputDirectory
             )
+        }
+    }
+
+    private func removeGeneratedAlignmentIntermediates(for request: ONTBarcodeDemuxGenotypingRunRequest) throws {
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+        ] where FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
         }
     }
 

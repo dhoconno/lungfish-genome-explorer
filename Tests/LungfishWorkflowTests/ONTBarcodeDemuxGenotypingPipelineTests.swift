@@ -166,6 +166,8 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 && record["sha256"] as? String != nil
                 && record["sizeBytes"] as? Int != nil
         }, "\(outputs)")
+        XCTAssertFalse(outputs.contains { ($0["path"] as? String)?.hasSuffix(".bam") == true }, "\(outputs)")
+        XCTAssertFalse(outputs.contains { ($0["path"] as? String)?.hasSuffix(".bam.bai") == true }, "\(outputs)")
         XCTAssertTrue(inputs.contains { record in
             record["role"] as? String == "haplotype-definition"
                 && record["sha256"] as? String != nil
@@ -210,6 +212,33 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
                 && descriptor.checksumSHA256 != nil
                 && descriptor.fileSize != nil
         }, "\(canonicalEnvelope.outputs)")
+        XCTAssertFalse(canonicalEnvelope.outputs.contains { $0.path.hasSuffix(".bam") }, "\(canonicalEnvelope.outputs)")
+        XCTAssertFalse(canonicalEnvelope.outputs.contains { $0.path.hasSuffix(".bam.bai") }, "\(canonicalEnvelope.outputs)")
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.outputs.contains { descriptor in
+                descriptor.path == request.mappingBAMURL.path
+                    && descriptor.checksumSHA256 != nil
+                    && descriptor.fileSize != nil
+            }
+        }, "\(canonicalEnvelope.steps)")
+        XCTAssertTrue(canonicalEnvelope.steps.contains { step in
+            step.outputs.contains { descriptor in
+                descriptor.path == request.retainedBAMURL.path
+                    && descriptor.checksumSHA256 != nil
+                    && descriptor.fileSize != nil
+            }
+        }, "\(canonicalEnvelope.steps)")
+        for url in [
+            request.mappingBAMURL,
+            request.mappingBAIURL,
+            request.retainedBAMURL,
+            request.retainedBAIURL,
+        ] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: url.path),
+                "Regenerable ONT genotyping BAM intermediate should be removed: \(url.path)"
+            )
+        }
         XCTAssertTrue(canonicalEnvelope.files.contains { descriptor in
             descriptor.path.hasSuffix("haplotype-definition.json")
                 && descriptor.checksumSHA256 != nil
