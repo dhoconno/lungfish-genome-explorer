@@ -2592,6 +2592,70 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             throw CLIError.inputFileNotFound(path: input)
         }
 
+        let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
+        let argv = ["lungfish", "fastq"] + cliArguments
+        if FASTQBundle.isBundleURL(inputURL) {
+            let destinationBundleURL = FASTQBundleCopyImportWorkflow.resolvedDestinationBundleURL(
+                outputURL: outputURL,
+                sourceBundleURL: inputURL
+            )
+            FileHandle.standardError.write(Data("Detected existing FASTQ bundle; copying atomically\n".utf8))
+            let workflow = FASTQBundleCopyImportWorkflow()
+            let result = try workflow.importBundle(
+                sourceBundleURL: inputURL,
+                outputURL: outputURL,
+                context: FASTQBundleCopyImportWorkflow.CommandContext(
+                    workflowName: "lungfish fastq import-ont",
+                    workflowVersion: WorkflowRun.currentAppVersion,
+                    toolName: "lungfish fastq import-ont",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: argv,
+                    durableReplayArgv: argv,
+                    reproducibleCommand: argv.map(shellEscape).joined(separator: " "),
+                    explicitOptions: [
+                        "input": .file(inputURL),
+                        "output": .file(outputURL),
+                        "includeUnclassified": .boolean(includeUnclassified),
+                        "concurrency": .integer(concurrency),
+                        "storageMode": .string(storageMode.rawValue),
+                        "optimizeStorage": .boolean(optimizeStorage),
+                        "qualityBinning": .string(qualityBinning.rawValue)
+                    ],
+                    defaultOptions: [
+                        "includeUnclassified": .boolean(false),
+                        "concurrency": .integer(4),
+                        "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
+                        "optimizeStorage": .boolean(false),
+                        "qualityBinning": .string(QualityBinningScheme.none.rawValue),
+                        "sourceKind": .string("raw-ont-directory")
+                    ],
+                    resolvedOptions: [
+                        "input": .file(inputURL),
+                        "output": .file(outputURL),
+                        "destinationBundle": .file(destinationBundleURL),
+                        "includeUnclassified": .boolean(includeUnclassified),
+                        "concurrency": .integer(concurrency),
+                        "storageMode": .string(storageMode.rawValue),
+                        "optimizeStorage": .boolean(optimizeStorage),
+                        "qualityBinning": .string(qualityBinning.rawValue),
+                        "sourceKind": .string("existing-fastq-bundle"),
+                        "copyMode": .string("atomic-bundle-copy"),
+                        "caller": .string("cli")
+                    ],
+                    runtimeIdentity: ProvenanceRuntimeIdentity()
+                )
+            )
+
+            FileHandle.standardError.write(Data("\n--- ONT Import Summary ---\n".utf8))
+            FileHandle.standardError.write(Data("Source: existing FASTQ bundle\n".utf8))
+            FileHandle.standardError.write(Data("Bundle: \(result.bundleURL.lastPathComponent)\n".utf8))
+            FileHandle.standardError.write(Data("Files copied: \(result.copiedFileCount)\n".utf8))
+            FileHandle.standardError.write(Data("Bytes copied: \(result.totalCopiedBytes)\n".utf8))
+            FileHandle.standardError.write(Data("Output: \(result.bundleURL.path)\n".utf8))
+            FileHandle.standardError.write(Data("Time: \(String(format: "%.1f", result.wallClockSeconds))s\n".utf8))
+            return
+        }
+
         let importer = ONTDirectoryImporter()
 
         // Detect layout first
@@ -2606,8 +2670,6 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             storageMode: storageMode
         )
 
-        let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
-        let argv = ["lungfish", "fastq"] + cliArguments
         let workflow = ONTImportWorkflow()
         let workflowResult = try await workflow.importDirectory(
             config: config,

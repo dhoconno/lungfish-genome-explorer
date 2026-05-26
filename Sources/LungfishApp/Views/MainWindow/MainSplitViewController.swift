@@ -1190,8 +1190,7 @@ public class MainSplitViewController: NSSplitViewController {
             let destinationURL = targetDir.appendingPathComponent(url.lastPathComponent)
             if !fileManager.fileExists(atPath: destinationURL.path) {
                 do {
-                    try fileManager.copyItem(at: url, to: destinationURL)
-                    urlToLoad = destinationURL
+                    urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL)
                     logger.info("handleSidebarFileDropped: Copied file to project at \(destinationURL.path, privacy: .public)")
                     sidebarController.reloadFromFilesystem()
                 } catch {
@@ -1205,8 +1204,7 @@ public class MainSplitViewController: NSSplitViewController {
                 case .replace:
                     do {
                         try fileManager.removeItem(at: destinationURL)
-                        try fileManager.copyItem(at: url, to: destinationURL)
-                        urlToLoad = destinationURL
+                        urlToLoad = try copyProjectItemForImport(from: url, to: destinationURL)
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to replace file: \(error.localizedDescription, privacy: .public)")
@@ -1216,8 +1214,7 @@ public class MainSplitViewController: NSSplitViewController {
                 case .keepBoth:
                     let uniqueURL = generateUniqueFilename(for: url, in: targetDir)
                     do {
-                        try fileManager.copyItem(at: url, to: uniqueURL)
-                        urlToLoad = uniqueURL
+                        urlToLoad = try copyProjectItemForImport(from: url, to: uniqueURL)
                         sidebarController.reloadFromFilesystem()
                     } catch {
                         logger.error("handleSidebarFileDropped: Failed to copy with unique name: \(error.localizedDescription, privacy: .public)")
@@ -1237,6 +1234,59 @@ public class MainSplitViewController: NSSplitViewController {
             displayImportedProjectFile(at: urlToLoad)
         }
         postSidebarFileDropCompleted(requestID: requestID, sourceURL: url, success: importSucceeded, error: importError)
+    }
+
+    func importFASTQBundleInBackground(sourceURL: URL, projectDirectory: URL, requestID: String? = nil) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.importNonFASTQFile(
+                url: sourceURL,
+                projectURL: projectDirectory,
+                targetDir: projectDirectory,
+                destinationItem: nil,
+                requestID: requestID,
+                displayAfterImport: true
+            )
+        }
+    }
+
+    private func copyProjectItemForImport(from sourceURL: URL, to destinationURL: URL) throws -> URL {
+        if FASTQBundle.isBundleURL(sourceURL) {
+            let argv = ["lungfish", "fastq", "import-ont", sourceURL.path, "--output", destinationURL.path]
+            let result = try FASTQBundleCopyImportWorkflow().importBundle(
+                sourceBundleURL: sourceURL,
+                outputURL: destinationURL,
+                context: FASTQBundleCopyImportWorkflow.CommandContext(
+                    workflowName: "lungfish fastq import-ont",
+                    workflowVersion: WorkflowRun.currentAppVersion,
+                    toolName: "lungfish fastq import-ont",
+                    toolVersion: WorkflowRun.currentAppVersion,
+                    argv: argv,
+                    durableReplayArgv: argv,
+                    explicitOptions: [
+                        "input": .file(sourceURL),
+                        "output": .file(destinationURL)
+                    ],
+                    defaultOptions: [
+                        "sourceKind": .string("raw-ont-directory"),
+                        "copyMode": .string("none")
+                    ],
+                    resolvedOptions: [
+                        "input": .file(sourceURL),
+                        "output": .file(destinationURL),
+                        "destinationBundle": .file(destinationURL),
+                        "sourceKind": .string("existing-fastq-bundle"),
+                        "copyMode": .string("atomic-bundle-copy"),
+                        "caller": .string("app")
+                    ],
+                    runtimeIdentity: ProvenanceRuntimeIdentity()
+                )
+            )
+            return result.bundleURL
+        }
+
+        try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+        return destinationURL
     }
 
     // MARK: - FASTQ Import Sheet
@@ -1559,6 +1609,9 @@ public class MainSplitViewController: NSSplitViewController {
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
             return false
         }
+        guard !FASTQBundle.isBundleURL(url) else {
+            return false
+        }
         // Quick probe — try detecting layout without throwing
         let importer = ONTDirectoryImporter()
         return (try? importer.detectLayout(at: url)) != nil
@@ -1616,6 +1669,7 @@ public class MainSplitViewController: NSSplitViewController {
             ])
             storagePopup.selectItem(at: 0)
             storagePopup.toolTip = "Keep chunked ONT files for atomic bundle copies, or flatten each barcode into one FASTQ payload."
+            storagePopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 220).isActive = true
             storageRow.addArrangedSubview(storageLabel)
             storageRow.addArrangedSubview(storagePopup)
             stack.addArrangedSubview(storageRow)
@@ -1643,6 +1697,7 @@ public class MainSplitViewController: NSSplitViewController {
                 includeUnclassifiedButton = nil
             }
 
+            stack.frame = NSRect(x: 0, y: 0, width: 360, height: hasUnclassified ? 104 : 72)
             alert.accessoryView = stack
             alert.applyLungfishBranding()
             alert.beginSheetModal(for: window) { [weak self] response in

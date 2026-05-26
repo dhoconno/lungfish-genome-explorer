@@ -274,6 +274,9 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else {
             throw ONTImportError.notONTDirectory(url)
         }
+        guard !FASTQBundle.isBundleURL(url) else {
+            throw ONTImportError.notONTDirectory(url)
+        }
 
         // Check if this IS a single barcode directory
         let dirName = url.lastPathComponent.lowercased()

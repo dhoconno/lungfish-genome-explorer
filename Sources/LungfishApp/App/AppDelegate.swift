@@ -1856,16 +1856,27 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             presentingWindow: originController.window
         ) else { return }
 
-        // Collect FASTQ files, expanding directories
+        // Collect FASTQ files, expanding directories. Existing `.lungfishfastq`
+        // bundles are atomic imports; do not enumerate their preview/chunk payloads.
         var fastqURLs: [URL] = []
+        var fastqBundleURLs: [URL] = []
         let fm = FileManager.default
         for url in urls {
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+                if FASTQBundle.isBundleURL(url) {
+                    fastqBundleURLs.append(url)
+                    continue
+                }
                 // Scan directory for FASTQ files
                 if let enumerator = fm.enumerator(at: url, includingPropertiesForKeys: nil) {
-                    for case let fileURL as URL in enumerator where FASTQBundle.isFASTQFileURL(fileURL) {
-                        fastqURLs.append(fileURL)
+                    for case let fileURL as URL in enumerator {
+                        if FASTQBundle.isBundleURL(fileURL) {
+                            enumerator.skipDescendants()
+                            fastqBundleURLs.append(fileURL)
+                        } else if FASTQBundle.isFASTQFileURL(fileURL) {
+                            fastqURLs.append(fileURL)
+                        }
                     }
                 }
             } else if FASTQBundle.isFASTQFileURL(url) {
@@ -1873,13 +1884,19 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
 
-        guard !fastqURLs.isEmpty else {
+        guard !fastqURLs.isEmpty || !fastqBundleURLs.isEmpty else {
             showAlert(title: "No FASTQ Files Found", message: "The selected files or folders do not contain any FASTQ files.")
             return
         }
 
-        let pairs = groupFASTQByPairs(fastqURLs)
-        mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
+        for bundleURL in fastqBundleURLs {
+            mainSplit.importFASTQBundleInBackground(sourceURL: bundleURL, projectDirectory: projectURL)
+        }
+
+        if !fastqURLs.isEmpty {
+            let pairs = groupFASTQByPairs(fastqURLs)
+            mainSplit.presentFASTQImportSheetFromImportCenter(pairs: pairs, projectDirectory: projectURL)
+        }
     }
 
     /// Import paired FASTQ batches from a CSV sample sheet.

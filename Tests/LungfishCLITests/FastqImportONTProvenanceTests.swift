@@ -95,6 +95,51 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         ))
     }
 
+    func testCLIImportONTCopiesExistingFASTQBundleAtomically() async throws {
+        let sourceBundleURL = try makeExistingChunkedFASTQBundle()
+        let outputURL = tempDir.appendingPathComponent("bundle-copy-project", isDirectory: true)
+        let command = try FastqImportONTSubcommand.parse([
+            sourceBundleURL.path,
+            "--output", outputURL.path,
+        ])
+
+        try await command.run()
+
+        let copiedBundleURL = outputURL.appendingPathComponent(sourceBundleURL.lastPathComponent, isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copiedBundleURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: copiedBundleURL.appendingPathComponent("source-files.json").path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: copiedBundleURL.appendingPathComponent("chunks/chunk_0.fastq").path
+        ))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: copiedBundleURL.appendingPathComponent("chunks/chunk_1.fastq").path
+        ))
+
+        let resolvedURLs = try XCTUnwrap(FASTQBundle.resolveAllFASTQURLs(for: copiedBundleURL))
+        XCTAssertEqual(resolvedURLs.map(\.lastPathComponent).sorted(), ["chunk_0.fastq", "chunk_1.fastq"])
+
+        let envelope = try readEnvelope(copiedBundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertEqual(envelope.workflowName, "lungfish fastq import-ont")
+        XCTAssertEqual(envelope.toolName, "lungfish fastq import-ont")
+        XCTAssertEqual(envelope.exitStatus, 0)
+        XCTAssertEqual(envelope.options.resolvedDefaults["sourceKind"], .string("existing-fastq-bundle"))
+        XCTAssertTrue(envelope.argv.contains(sourceBundleURL.path))
+        XCTAssertTrue(envelope.argv.contains(outputURL.path))
+
+        let outputPaths = Set(envelope.outputs.map(\.path))
+        XCTAssertTrue(outputPaths.contains(canonicalPath(copiedBundleURL.appendingPathComponent("chunks/chunk_0.fastq"))))
+        XCTAssertTrue(outputPaths.contains(canonicalPath(copiedBundleURL.appendingPathComponent("chunks/chunk_1.fastq"))))
+        XCTAssertTrue(outputPaths.contains(canonicalPath(copiedBundleURL.appendingPathComponent("preview.fastq"))))
+        XCTAssertFalse(
+            outputPaths.contains {
+                $0.hasSuffix("barcode08.lungfishfastq.lungfishfastq/preview.fastq")
+            },
+            "Existing FASTQ bundles must be copied atomically, not re-imported from preview.fastq"
+        )
+    }
+
     func testCLIImportONTOptimizeStorageRequiresFlattenedStorage() async throws {
         let command = try FastqImportONTSubcommand.parse([
             "/tmp/missing-fastq-pass",
@@ -124,6 +169,43 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         return sourceURL
     }
 
+    private func makeExistingChunkedFASTQBundle() throws -> URL {
+        let bundleURL = tempDir.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        let chunksURL = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
+
+        let chunk0 = chunksURL.appendingPathComponent("chunk_0.fastq")
+        let chunk1 = chunksURL.appendingPathComponent("chunk_1.fastq")
+        try """
+        @read1 barcode=barcode08
+        ACGT
+        +
+        IIII
+
+        """.write(to: chunk0, atomically: true, encoding: .utf8)
+        try """
+        @read2 barcode=barcode08
+        TGCA
+        +
+        IIII
+
+        """.write(to: chunk1, atomically: true, encoding: .utf8)
+        try """
+        @preview-read barcode=barcode08
+        ACGT
+        +
+        IIII
+
+        """.write(to: bundleURL.appendingPathComponent("preview.fastq"), atomically: true, encoding: .utf8)
+
+        let manifest = FASTQSourceFileManifest(files: [
+            .init(filename: "chunks/chunk_0.fastq", originalPath: chunk0.path, sizeBytes: fileSize(chunk0), isSymlink: false),
+            .init(filename: "chunks/chunk_1.fastq", originalPath: chunk1.path, sizeBytes: fileSize(chunk1), isSymlink: false),
+        ])
+        try manifest.save(to: bundleURL)
+        return bundleURL
+    }
+
     private func readEnvelope(_ url: URL) throws -> ProvenanceEnvelope {
         let data = try Data(contentsOf: url)
         return try ProvenanceJSON.decoder.decode(ProvenanceEnvelope.self, from: data)
@@ -131,5 +213,10 @@ final class FastqImportONTProvenanceTests: XCTestCase {
 
     private func canonicalPath(_ url: URL) -> String {
         url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+
+    private func fileSize(_ url: URL) -> Int64 {
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+        return Int64(values?.fileSize ?? 0)
     }
 }

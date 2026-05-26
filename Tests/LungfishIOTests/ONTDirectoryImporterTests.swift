@@ -138,6 +138,30 @@ final class ONTDirectoryImporterTests: XCTestCase {
         }
     }
 
+    func testDetectLayoutRejectsExistingFASTQBundle() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let bundleURL = dir.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try writePlainFASTQ(
+            to: bundleURL.appendingPathComponent("preview.fastq"),
+            headerLine: "@preview-read barcode=barcode08"
+        )
+
+        let importer = ONTDirectoryImporter()
+        XCTAssertThrowsError(try importer.detectLayout(at: bundleURL)) { error in
+            guard let importError = error as? ONTImportError else {
+                return XCTFail("Expected ONTImportError")
+            }
+            if case .notONTDirectory = importError {
+                // Expected: existing FASTQ bundles are atomic inputs, not raw ONT run directories.
+            } else {
+                XCTFail("Expected .notONTDirectory error")
+            }
+        }
+    }
+
     func testBarcodeDirectorySorting() throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

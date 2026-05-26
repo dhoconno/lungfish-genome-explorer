@@ -105,6 +105,36 @@ final class GUIRegressionTests: XCTestCase {
         )
     }
 
+    func testONTDirectoryRoutingExcludesExistingFASTQBundles() throws {
+        let mainSplitSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/Views/MainWindow/MainSplitViewController.swift"),
+            encoding: .utf8
+        )
+        let appDelegateSource = try String(
+            contentsOf: repositoryRoot()
+                .appendingPathComponent("Sources/LungfishApp/App/AppDelegate.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(
+            mainSplitSource.contains("FASTQBundle.isBundleURL(url)"),
+            "Existing .lungfishfastq bundles must bypass raw ONT directory detection so atomic bundle copies do not re-import preview.fastq"
+        )
+        XCTAssertTrue(
+            appDelegateSource.contains("fastqBundleURLs.append(url)"),
+            "Import Center FASTQ routing must treat selected .lungfishfastq bundles as atomic copy imports."
+        )
+        XCTAssertTrue(
+            appDelegateSource.contains("enumerator.skipDescendants()"),
+            "Import Center FASTQ routing must not scan preview.fastq or chunk payloads inside existing .lungfishfastq bundles."
+        )
+        XCTAssertTrue(
+            mainSplitSource.contains("storagePopup.widthAnchor.constraint"),
+            "The ONT import accessory popup needs explicit AppKit sizing; otherwise it can render as an empty pulldown in NSAlert."
+        )
+    }
+
     private func repositoryRoot() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
