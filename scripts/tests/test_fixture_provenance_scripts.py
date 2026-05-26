@@ -37,6 +37,12 @@ REQUIRED_MSA_PAYLOAD_FILES = [
 
 
 class FixtureProvenanceScriptTests(unittest.TestCase):
+    def _backfill_tool_version(self):
+        for line in BACKFILL_SCRIPT.read_text(encoding="utf-8").splitlines():
+            if line.startswith("TOOL_VERSION = "):
+                return json.loads(line.split("=", 1)[1].strip())
+        self.fail("TOOL_VERSION was not found in the backfill script")
+
     def test_audit_fails_when_retained_fixture_lacks_sidecar(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -606,7 +612,7 @@ class FixtureProvenanceScriptTests(unittest.TestCase):
 
             provenance = json.loads((missing_fixture / ".lungfish-provenance.json").read_text(encoding="utf-8"))
             self.assertEqual(provenance["schemaVersion"], 1)
-            self.assertEqual(provenance["tool"]["version"], "0.5.0-alpha6")
+            self.assertEqual(provenance["tool"]["version"], self._backfill_tool_version())
             self.assertEqual(provenance["output"]["path"], "Tests/Fixtures/analyses/kraken2-2026-01-15T11-00-00")
             self.assertEqual(provenance["output"]["fileSize"], 8)
             self.assertEqual(provenance["exitStatus"], 0)
