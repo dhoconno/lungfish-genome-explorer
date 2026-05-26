@@ -8968,6 +8968,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
         }
 
         var copiedURLs: [URL] = []
+        var packagedFASTQPayloads: [String: URL] = [:]
 
         // Copy all files first
         for (index, tempURL) in tempFileURLs.enumerated() {
@@ -9061,6 +9062,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
 
                     try? FileManager.default.removeItem(at: tempURL)
                     copiedURLs.append(bundleURL)
+                    packagedFASTQPayloads[DownloadImportRouting.canonicalPath(for: bundleURL)] = bundledFASTQURL
                 } catch {
                     debugLog("handleMultipleDownloadsSync: Failed to package FASTQ \(originalFilename) - \(error)")
                 }
@@ -9106,9 +9108,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate,
             }
         }
 
-        // Trigger FASTQ ingestion for any imported FASTQ files (now at their final location)
+        // Trigger FASTQ ingestion only for raw FASTQ files this method packaged into
+        // new bundles. Existing `.lungfishfastq` bundles are atomic imports; resolving
+        // their "primary" FASTQ can point at a representative chunk and mutate/copy
+        // only part of an ONT multi-file bundle.
         for url in copiedURLs {
-            if let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: url) {
+            if let fastqURL = DownloadImportRouting.postCopyFASTQIngestionTarget(
+                importedURL: url,
+                packagedFASTQPayloads: packagedFASTQPayloads
+            ) {
                 let existingMeta = FASTQMetadataStore.load(for: fastqURL)
                 FASTQIngestionService.ingestIfNeeded(
                     url: fastqURL,

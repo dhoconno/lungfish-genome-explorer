@@ -366,6 +366,7 @@ public final class OperationCenter: ObservableObject {
 
     public func update(id: UUID, progress: Double, detail: String) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
     }
@@ -382,6 +383,7 @@ public final class OperationCenter: ObservableObject {
         deduplicateAdjacent: Bool = true
     ) {
         guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard items[index].state == .running else { return }
         items[index].progress = max(0, min(1, progress))
         items[index].detail = detail
 

@@ -13,12 +13,36 @@ public struct ONTImportWorkflow: Sendable {
 
     public enum ImportError: Error, LocalizedError, Sendable, Equatable {
         case outputAlreadyExists([String])
+        case optimizationRequiresFlattenedStorage
+        case missingFlattenedPayload(String)
 
         public var errorDescription: String? {
             switch self {
             case .outputAlreadyExists(let paths):
                 return "ONT import output already exists: \(paths.joined(separator: ", "))"
+            case .optimizationRequiresFlattenedStorage:
+                return "ONT import storage optimization requires flattened storage mode."
+            case .missingFlattenedPayload(let path):
+                return "ONT import could not find a flattened FASTQ payload in \(path)."
             }
+        }
+    }
+
+    public struct OptimizationConfig: Sendable {
+        public let optimizeStorage: Bool
+        public let qualityBinning: QualityBinningScheme
+        public let threads: Int
+
+        public static let disabled = OptimizationConfig(optimizeStorage: false)
+
+        public init(
+            optimizeStorage: Bool,
+            qualityBinning: QualityBinningScheme = .none,
+            threads: Int = 4
+        ) {
+            self.optimizeStorage = optimizeStorage
+            self.qualityBinning = qualityBinning
+            self.threads = threads
         }
     }
 
@@ -85,9 +109,15 @@ public struct ONTImportWorkflow: Sendable {
     }
 
     public typealias ProvenanceWriterClosure = @Sendable (ProvenanceEnvelope, URL) throws -> URL
+    public typealias OptimizationRunnerClosure = @Sendable (
+        URL,
+        OptimizationConfig,
+        @escaping @Sendable (Double, String) -> Void
+    ) async throws -> [ProvenanceStep]
 
     private let importer: ONTDirectoryImporter
     private let provenanceWriter: ProvenanceWriterClosure
+    private let optimizationRunner: OptimizationRunnerClosure
 
     private struct RollbackPlan {
         let outputDirectory: URL
@@ -102,17 +132,24 @@ public struct ONTImportWorkflow: Sendable {
         importer: ONTDirectoryImporter = ONTDirectoryImporter(),
         provenanceWriter: @escaping ProvenanceWriterClosure = { envelope, directory in
             try ProvenanceWriter().write(envelope, to: directory)
-        }
+        },
+        optimizationRunner: OptimizationRunnerClosure? = nil
     ) {
         self.importer = importer
         self.provenanceWriter = provenanceWriter
+        self.optimizationRunner = optimizationRunner ?? ONTImportWorkflow.defaultOptimizationRunner
     }
 
     public func importDirectory(
         config: ONTImportConfig,
         context: CommandContext,
+        optimization: OptimizationConfig = .disabled,
         progress: @escaping @Sendable (Double, String) -> Void
     ) async throws -> Result {
+        if optimization.optimizeStorage && config.storageMode != .flattened {
+            throw ImportError.optimizationRequiresFlattenedStorage
+        }
+
         let startedAt = Date()
         let layout = try importer.detectLayout(at: config.sourceDirectory)
         let importedBarcodeDirectories = layout.barcodeDirectories.filter {
@@ -133,8 +170,19 @@ public struct ONTImportWorkflow: Sendable {
         try preflightOutputs(rollbackPlan)
 
         let importResult: ONTImportResult
+        let importedOutputDescriptorsByBundle: [String: [ProvenanceFileDescriptor]]
+        let optimizationStepsByBundle: [String: [ProvenanceStep]]
         do {
             importResult = try await importer.importDirectory(config: config, progress: progress)
+            importedOutputDescriptorsByBundle = try concreteOutputDescriptorsByBundle(
+                importResult.bundleURLs
+            )
+            optimizationStepsByBundle = try await optimizeImportedBundlesIfNeeded(
+                bundleURLs: importResult.bundleURLs,
+                config: config,
+                optimization: optimization,
+                progress: progress
+            )
         } catch {
             rollback(rollbackPlan)
             throw error
@@ -152,6 +200,7 @@ public struct ONTImportWorkflow: Sendable {
             let parentEnvelope = try provenanceEnvelope(
                 context: context,
                 config: config,
+                optimization: optimization,
                 layout: layout,
                 importedBarcodeCount: importedBarcodeDirectories.count,
                 inputDescriptors: inputDescriptors,
@@ -172,16 +221,23 @@ public struct ONTImportWorkflow: Sendable {
                     .map {
                         try ProvenanceFileDescriptor.file(url: $0, format: .fastq, role: .input)
                     }
-                let childOutputDescriptors = try concreteFiles(in: bundleURL).map {
-                    try ProvenanceFileDescriptor.file(
-                        url: $0,
-                        format: provenanceFormat(for: $0),
-                        role: .output
-                    )
+                let bundleKey = canonicalURL(bundleURL).path
+                let childOutputDescriptors: [ProvenanceFileDescriptor]
+                if let importedDescriptors = importedOutputDescriptorsByBundle[bundleKey] {
+                    childOutputDescriptors = importedDescriptors
+                } else {
+                    childOutputDescriptors = try concreteFiles(in: bundleURL).map {
+                        try ProvenanceFileDescriptor.file(
+                            url: $0,
+                            format: provenanceFormat(for: $0),
+                            role: .output
+                        )
+                    }
                 }
                 let childEnvelope = try provenanceEnvelope(
                     context: context,
                     config: config,
+                    optimization: optimization,
                     layout: layout,
                     importedBarcodeCount: 1,
                     inputDescriptors: childInputDescriptors,
@@ -189,7 +245,8 @@ public struct ONTImportWorkflow: Sendable {
                     startedAt: startedAt,
                     completedAt: completedAt,
                     barcodeName: barcodeDirectory.barcodeName,
-                    bundleURL: bundleURL
+                    bundleURL: bundleURL,
+                    extraSteps: optimizationStepsByBundle[bundleKey] ?? []
                 )
                 provenanceURLs.append(try provenanceWriter(childEnvelope, canonicalURL(bundleURL)))
             }
@@ -209,6 +266,7 @@ public struct ONTImportWorkflow: Sendable {
     private func provenanceEnvelope(
         context: CommandContext,
         config: ONTImportConfig,
+        optimization: OptimizationConfig,
         layout: ONTDirectoryLayout,
         importedBarcodeCount: Int,
         inputDescriptors: [ProvenanceFileDescriptor],
@@ -216,11 +274,15 @@ public struct ONTImportWorkflow: Sendable {
         startedAt: Date,
         completedAt: Date,
         barcodeName: String? = nil,
-        bundleURL: URL? = nil
+        bundleURL: URL? = nil,
+        extraSteps: [ProvenanceStep] = []
     ) throws -> ProvenanceEnvelope {
         var defaults: [String: ParameterValue] = [
             "includeUnclassified": .boolean(false),
             "concurrency": .integer(4),
+            "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
+            "optimizeStorage": .boolean(false),
+            "qualityBinning": .string(QualityBinningScheme.none.rawValue),
             "useVirtualConcatenation": .boolean(true),
         ]
         defaults.merge(context.defaultOptions) { _, contextValue in contextValue }
@@ -230,6 +292,9 @@ public struct ONTImportWorkflow: Sendable {
         resolved["output"] = .file(config.outputDirectory)
         resolved["includeUnclassified"] = .boolean(config.includeUnclassified)
         resolved["concurrency"] = .integer(config.maxConcurrentBarcodes)
+        resolved["storageMode"] = .string(config.storageMode.rawValue)
+        resolved["optimizeStorage"] = .boolean(optimization.optimizeStorage)
+        resolved["qualityBinning"] = .string(optimization.qualityBinning.rawValue)
         resolved["useVirtualConcatenation"] = .boolean(config.useVirtualConcatenation)
         resolved["caller"] = .string(context.caller.rawValue)
         resolved["barcodeDirectoryCount"] = .integer(layout.barcodeDirectories.count)
@@ -257,7 +322,7 @@ public struct ONTImportWorkflow: Sendable {
             completedAt: completedAt
         )
 
-        return try ProvenanceRunBuilder(
+        var builder = ProvenanceRunBuilder(
             workflowName: context.workflowName,
             workflowVersion: context.workflowVersion,
             toolName: context.toolName,
@@ -273,6 +338,12 @@ public struct ONTImportWorkflow: Sendable {
         )
         .runtime(context.runtimeIdentity)
         .step(step)
+
+        for extraStep in extraSteps {
+            builder = builder.step(extraStep)
+        }
+
+        return try builder
         .complete(
             exitStatus: 0,
             stderr: context.stderr,
@@ -300,6 +371,97 @@ public struct ONTImportWorkflow: Sendable {
             )
         })
         return descriptors.sorted { $0.path < $1.path }
+    }
+
+    private func concreteOutputDescriptorsByBundle(
+        _ bundleURLs: [URL]
+    ) throws -> [String: [ProvenanceFileDescriptor]] {
+        var descriptorsByBundle: [String: [ProvenanceFileDescriptor]] = [:]
+        for bundleURL in bundleURLs {
+            descriptorsByBundle[canonicalURL(bundleURL).path] = try concreteFiles(in: bundleURL).map {
+                try ProvenanceFileDescriptor.file(
+                    url: $0,
+                    format: provenanceFormat(for: $0),
+                    role: .output
+                )
+            }
+        }
+        return descriptorsByBundle
+    }
+
+    private func optimizeImportedBundlesIfNeeded(
+        bundleURLs: [URL],
+        config: ONTImportConfig,
+        optimization: OptimizationConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> [String: [ProvenanceStep]] {
+        guard optimization.optimizeStorage else { return [:] }
+        guard config.storageMode == .flattened else {
+            throw ImportError.optimizationRequiresFlattenedStorage
+        }
+
+        var stepsByBundle: [String: [ProvenanceStep]] = [:]
+
+        for (index, bundleURL) in bundleURLs.enumerated() {
+            let bundleKey = canonicalURL(bundleURL).path
+            guard FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) != nil else {
+                throw ImportError.missingFlattenedPayload(bundleURL.path)
+            }
+
+            stepsByBundle[bundleKey] = try await optimizationRunner(
+                bundleURL,
+                optimization,
+                { fraction, message in
+                    let bundleProgress = (Double(index) + fraction) / Double(max(1, bundleURLs.count))
+                    progress(bundleProgress, "\(bundleURL.deletingPathExtension().lastPathComponent): \(message)")
+                }
+            )
+        }
+
+        return stepsByBundle
+    }
+
+    private static func defaultOptimizationRunner(
+        bundleURL: URL,
+        optimization: OptimizationConfig,
+        progress: @escaping @Sendable (Double, String) -> Void
+    ) async throws -> [ProvenanceStep] {
+        guard let payloadURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL) else {
+            throw ImportError.missingFlattenedPayload(bundleURL.path)
+        }
+
+        let pipeline = FASTQIngestionPipeline()
+        let result = try await pipeline.run(
+            config: FASTQIngestionConfig(
+                inputFiles: [payloadURL],
+                pairingMode: .singleEnd,
+                outputDirectory: bundleURL,
+                threads: max(1, optimization.threads),
+                deleteOriginals: true,
+                qualityBinning: optimization.qualityBinning,
+                skipClumpify: false
+            ),
+            progress: progress
+        )
+        updateMetadataAfterOptimization(result: result, bundleURL: bundleURL)
+        return result.provenanceSteps.map(ProvenanceStep.init(stepExecution:))
+    }
+
+    private static func updateMetadataAfterOptimization(
+        result: FASTQIngestionResult,
+        bundleURL: URL
+    ) {
+        var metadata = FASTQMetadataStore.load(for: bundleURL) ?? PersistedFASTQMetadata()
+        metadata.ingestion = IngestionMetadata(
+            isClumpified: result.wasClumpified,
+            isCompressed: result.outputFile.pathExtension.lowercased() == "gz",
+            pairingMode: .singleEnd,
+            qualityBinning: result.qualityBinning.rawValue,
+            originalFilenames: result.originalFilenames,
+            ingestionDate: Date(),
+            originalSizeBytes: result.originalSizeBytes
+        )
+        FASTQMetadataStore.save(metadata, for: bundleURL)
     }
 
     private func barcodeDirectory(

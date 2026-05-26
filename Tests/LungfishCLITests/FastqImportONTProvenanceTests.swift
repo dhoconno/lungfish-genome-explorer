@@ -67,6 +67,49 @@ final class FastqImportONTProvenanceTests: XCTestCase {
         ))
     }
 
+    func testCLIImportONTFlattenedStorageRecordsProvenanceAndSinglePayload() async throws {
+        let sourceURL = try makeONTSource()
+        let outputURL = tempDir.appendingPathComponent("flattened-project", isDirectory: true)
+        let command = try FastqImportONTSubcommand.parse([
+            sourceURL.path,
+            "--output", outputURL.path,
+            "--concurrency", "1",
+            "--storage-mode", "flattened",
+        ])
+
+        try await command.run()
+
+        let envelope = try readEnvelope(outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertEqual(envelope.options.resolvedDefaults["storageMode"], .string("flattened"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["useVirtualConcatenation"], .boolean(false))
+        XCTAssertTrue(envelope.argv.contains("--storage-mode"))
+        XCTAssertTrue(envelope.argv.contains("flattened"))
+
+        let bundleURL = outputURL.appendingPathComponent("barcode01.lungfishfastq", isDirectory: true)
+        let payloadURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: payloadURL.path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("source-files.json").path
+        ))
+    }
+
+    func testCLIImportONTOptimizeStorageRequiresFlattenedStorage() async throws {
+        let command = try FastqImportONTSubcommand.parse([
+            "/tmp/missing-fastq-pass",
+            "--output", tempDir.appendingPathComponent("project").path,
+            "--optimize-storage",
+        ])
+
+        do {
+            try await command.run()
+            XCTFail("Expected validation error")
+        } catch let error as ValidationError {
+            XCTAssertTrue(error.message.contains("--storage-mode flattened"))
+        }
+    }
+
     private func makeONTSource() throws -> URL {
         let sourceURL = tempDir.appendingPathComponent("fastq_pass", isDirectory: true)
         let barcodeURL = sourceURL.appendingPathComponent("barcode01", isDirectory: true)

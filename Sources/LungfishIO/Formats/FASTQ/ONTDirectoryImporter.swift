@@ -116,6 +116,18 @@ public struct ONTBarcodeDirectory: Sendable {
 // MARK: - ONT Import Configuration
 
 /// Configuration for ONT directory import.
+public enum ONTImportStorageMode: String, Codable, Sendable, CaseIterable {
+    /// Preserve each ONT chunk in the bundle and record ordering in source-files.json.
+    case chunked
+
+    /// Byte-concatenate chunks into one FASTQ payload per barcode bundle.
+    case flattened
+
+    public var usesVirtualConcatenation: Bool {
+        self == .chunked
+    }
+}
+
 public struct ONTImportConfig: Sendable {
     /// Source directory (fastq_pass/ or a single barcode directory).
     public let sourceDirectory: URL
@@ -129,9 +141,15 @@ public struct ONTImportConfig: Sendable {
     /// Whether to include the "unclassified" directory.
     public let includeUnclassified: Bool
 
+    /// How ONT per-barcode chunk files should be stored inside each bundle.
+    public let storageMode: ONTImportStorageMode
+
     /// When true, creates symlink-based bundles with `source-files.json` instead of
     /// byte-concatenating chunks into a single `reads.fastq.gz`. This avoids duplicating
     /// data and enables virtual concatenation for downstream operations.
+    ///
+    /// Kept for compatibility with existing callers. New code should use
+    /// ``storageMode``.
     public let useVirtualConcatenation: Bool
 
     public init(
@@ -139,13 +157,30 @@ public struct ONTImportConfig: Sendable {
         outputDirectory: URL,
         maxConcurrentBarcodes: Int = 4,
         includeUnclassified: Bool = false,
-        useVirtualConcatenation: Bool = true
+        storageMode: ONTImportStorageMode = .chunked
     ) {
         self.sourceDirectory = sourceDirectory
         self.outputDirectory = outputDirectory
         self.maxConcurrentBarcodes = maxConcurrentBarcodes
         self.includeUnclassified = includeUnclassified
-        self.useVirtualConcatenation = useVirtualConcatenation
+        self.storageMode = storageMode
+        self.useVirtualConcatenation = storageMode.usesVirtualConcatenation
+    }
+
+    public init(
+        sourceDirectory: URL,
+        outputDirectory: URL,
+        maxConcurrentBarcodes: Int = 4,
+        includeUnclassified: Bool = false,
+        useVirtualConcatenation: Bool
+    ) {
+        self.init(
+            sourceDirectory: sourceDirectory,
+            outputDirectory: outputDirectory,
+            maxConcurrentBarcodes: maxConcurrentBarcodes,
+            includeUnclassified: includeUnclassified,
+            storageMode: useVirtualConcatenation ? .chunked : .flattened
+        )
     }
 }
 
@@ -508,7 +543,9 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
         do {
             try fm.createDirectory(at: bundleURL, withIntermediateDirectories: true)
 
-            let outputFASTQ = bundleURL.appendingPathComponent("reads.fastq.gz")
+            let outputFASTQ = bundleURL.appendingPathComponent(
+                flattenedOutputFilename(for: barcodeDir.chunkFiles)
+            )
 
             progress("Concatenating \(barcodeDir.chunkFiles.count) chunks...")
 
@@ -692,6 +729,11 @@ public final class ONTDirectoryImporter: @unchecked Sendable {
                     || name.hasSuffix(".fastq") || name.hasSuffix(".fq")
             }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    private func flattenedOutputFilename(for chunks: [URL]) -> String {
+        let allGzipped = chunks.allSatisfy { $0.pathExtension.lowercased() == "gz" }
+        return allGzipped ? "reads.fastq.gz" : "reads.fastq"
     }
 
     /// Returns the file size in bytes, or 0 on failure.

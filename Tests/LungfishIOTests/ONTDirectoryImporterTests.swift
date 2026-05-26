@@ -203,6 +203,43 @@ final class ONTDirectoryImporterTests: XCTestCase {
         XCTAssertEqual(cachedMetadata?.assemblyReadType, .ontReads)
     }
 
+    func testFlattenedStorageModeWritesSingleFASTQPayload() async throws {
+        let sourceDir = try makeTempDir()
+        let outputDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: sourceDir)
+            try? FileManager.default.removeItem(at: outputDir)
+        }
+
+        let barcodeDir = sourceDir.appendingPathComponent("barcode01", isDirectory: true)
+        try FileManager.default.createDirectory(at: barcodeDir, withIntermediateDirectories: true)
+        try writeGzippedFASTQ(to: barcodeDir.appendingPathComponent("chunk_0.fastq"), readCount: 2)
+        try writeGzippedFASTQ(to: barcodeDir.appendingPathComponent("chunk_1.fastq"), readCount: 3)
+
+        let importer = ONTDirectoryImporter()
+        let result = try await importer.importDirectory(
+            config: ONTImportConfig(
+                sourceDirectory: barcodeDir,
+                outputDirectory: outputDir,
+                storageMode: .flattened
+            )
+        ) { _, _ in }
+
+        let bundleURL = try XCTUnwrap(result.bundleURLs.first)
+        let payloadURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: payloadURL.path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("source-files.json").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("preview.fastq").path
+        ))
+        XCTAssertEqual(result.totalReadCount, 5)
+        XCTAssertEqual(FASTQMetadataStore.load(for: bundleURL)?.computedStatistics?.readCount, 5)
+    }
+
     func testDemultiplexManifestProvidesDisplayMetadataForExistingONTBundleWithoutSidecar() async throws {
         let sourceDir = try makeTempDir()
         let outputDir = try makeTempDir()

@@ -895,7 +895,7 @@ struct WelcomeView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Divider()
                     .overlay(Color.lungfishWelcomeStroke)
-                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.0-alpha6")")
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.5.0-alpha7")")
                     .font(.caption)
                     .foregroundStyle(Color.lungfishWelcomeSecondaryText)
             }

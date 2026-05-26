@@ -89,6 +89,38 @@ final class ONTImportOperationCoordinatorTests: XCTestCase {
         XCTAssertTrue(center.items.first?.cliCommand?.contains("--output \(expectedOutputURL.path)") == true)
     }
 
+    func testCoordinatorIncludesFlattenedStorageModeInCLIAndProvenance() async throws {
+        let sourceURL = try makeONTSource()
+        let projectURL = tempDir.appendingPathComponent("flattened-project", isDirectory: true)
+        let routeContext = OperationRouteContext(projectURL: projectURL, windowStateScopeID: nil)
+        let center = OperationCenter()
+        let coordinator = ONTImportOperationCoordinator(operationCenter: center)
+
+        let result = try await coordinator.importDirectory(
+            sourceURL: sourceURL,
+            projectURL: projectURL,
+            includeUnclassified: false,
+            concurrency: 1,
+            storageMode: .flattened,
+            routeContext: routeContext
+        )
+
+        let item = try XCTUnwrap(center.items.first)
+        XCTAssertTrue(item.cliCommand?.contains("--storage-mode flattened") == true)
+        let bundleURL = try XCTUnwrap(result.importResult.bundleURLs.first)
+        let payloadURL = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL))
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: payloadURL.path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: bundleURL.appendingPathComponent("source-files.json").path
+        ))
+
+        let envelope = try readEnvelope(projectURL.appendingPathComponent(ProvenanceWriter.provenanceFilename))
+        XCTAssertEqual(envelope.options.resolvedDefaults["storageMode"], .string("flattened"))
+        XCTAssertEqual(envelope.options.resolvedDefaults["useVirtualConcatenation"], .boolean(false))
+    }
+
     private func makeONTSource() throws -> URL {
         try makeONTSource(in: tempDir)
     }

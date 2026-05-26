@@ -8,6 +8,9 @@ import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 
+extension ONTImportStorageMode: ExpressibleByArgument {}
+extension QualityBinningScheme: ExpressibleByArgument {}
+
 /// FASTQ processing operations
 struct FastqCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -2562,9 +2565,24 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             help: "Max concurrent barcode imports (default: 4)")
     var concurrency: Int = 4
 
+    @Option(name: .customLong("storage-mode"),
+            help: "How to store ONT chunks inside each bundle: chunked or flattened (default: chunked)")
+    var storageMode: ONTImportStorageMode = .chunked
+
+    @Flag(name: .customLong("optimize-storage"),
+          help: "Run clumpify on flattened per-barcode FASTQ payloads to improve compression")
+    var optimizeStorage: Bool = false
+
+    @Option(name: .customLong("quality-binning"),
+            help: "Quality binning for --optimize-storage: none, illumina4, or eightLevel (default: none)")
+    var qualityBinning: QualityBinningScheme = .none
+
     func run() async throws {
         guard concurrency >= 1 else {
             throw ValidationError("Concurrency must be at least 1 (got \(concurrency))")
+        }
+        if optimizeStorage && storageMode != .flattened {
+            throw ValidationError("--optimize-storage requires --storage-mode flattened")
         }
 
         let inputURL = URL(fileURLWithPath: input)
@@ -2584,7 +2602,8 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
             sourceDirectory: inputURL,
             outputDirectory: outputURL,
             maxConcurrentBarcodes: concurrency,
-            includeUnclassified: includeUnclassified
+            includeUnclassified: includeUnclassified,
+            storageMode: storageMode
         )
 
         let cliArguments = cliArguments(inputURL: inputURL, outputURL: outputURL)
@@ -2605,11 +2624,17 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                     "input": .file(inputURL),
                     "output": .file(outputURL),
                     "includeUnclassified": .boolean(includeUnclassified),
-                    "concurrency": .integer(concurrency)
+                    "concurrency": .integer(concurrency),
+                    "storageMode": .string(storageMode.rawValue),
+                    "optimizeStorage": .boolean(optimizeStorage),
+                    "qualityBinning": .string(qualityBinning.rawValue)
                 ],
                 defaultOptions: [
                     "includeUnclassified": .boolean(false),
                     "concurrency": .integer(4),
+                    "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
+                    "optimizeStorage": .boolean(false),
+                    "qualityBinning": .string(QualityBinningScheme.none.rawValue),
                     "useVirtualConcatenation": .boolean(true)
                 ],
                 resolvedOptions: [
@@ -2617,12 +2642,20 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
                     "output": .file(outputURL),
                     "includeUnclassified": .boolean(includeUnclassified),
                     "concurrency": .integer(concurrency),
-                    "useVirtualConcatenation": .boolean(true),
+                    "storageMode": .string(storageMode.rawValue),
+                    "optimizeStorage": .boolean(optimizeStorage),
+                    "qualityBinning": .string(qualityBinning.rawValue),
+                    "useVirtualConcatenation": .boolean(storageMode.usesVirtualConcatenation),
                     "caller": .string("cli"),
                     "barcodeDirectoryCount": .integer(layout.barcodeDirectories.count),
                     "chunkCount": .integer(layout.totalChunkCount)
                 ],
                 runtimeIdentity: ProvenanceRuntimeIdentity()
+            ),
+            optimization: ONTImportWorkflow.OptimizationConfig(
+                optimizeStorage: optimizeStorage,
+                qualityBinning: qualityBinning,
+                threads: concurrency
             )
         ) { fraction, message in
             FileHandle.standardError.write(Data("[\(String(format: "%3.0f%%", fraction * 100))] \(message)\n".utf8))
@@ -2657,6 +2690,15 @@ struct FastqImportONTSubcommand: AsyncParsableCommand {
         }
         if concurrency != 4 {
             cliArguments += ["--concurrency", String(concurrency)]
+        }
+        if storageMode != .chunked {
+            cliArguments += ["--storage-mode", storageMode.rawValue]
+        }
+        if optimizeStorage {
+            cliArguments.append("--optimize-storage")
+        }
+        if qualityBinning != .none {
+            cliArguments += ["--quality-binning", qualityBinning.rawValue]
         }
         return cliArguments
     }

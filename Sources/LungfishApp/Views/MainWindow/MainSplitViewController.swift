@@ -21,6 +21,33 @@ private func performOnMainRunLoop(_ block: @escaping @MainActor @Sendable () -> 
     }
 }
 
+@MainActor
+private final class ONTImportOptionsAccessoryController: NSObject {
+    let storagePopup: NSPopUpButton
+    let optimizeStorageButton: NSButton
+
+    init(storagePopup: NSPopUpButton, optimizeStorageButton: NSButton) {
+        self.storagePopup = storagePopup
+        self.optimizeStorageButton = optimizeStorageButton
+        super.init()
+        storagePopup.target = self
+        storagePopup.action = #selector(storageModeChanged(_:))
+        updateOptimizeStorageState()
+    }
+
+    @objc private func storageModeChanged(_ sender: NSPopUpButton) {
+        updateOptimizeStorageState()
+    }
+
+    private func updateOptimizeStorageState() {
+        let flattened = storagePopup.indexOfSelectedItem == 1
+        optimizeStorageButton.isEnabled = flattened
+        if !flattened {
+            optimizeStorageButton.state = .off
+        }
+    }
+}
+
 private extension FASTQOperationLaunchRequest {
     var primaryInputURL: URL? {
         switch self {
@@ -1554,24 +1581,90 @@ public class MainSplitViewController: NSSplitViewController {
             return
         }
 
-        // Ask whether to include unclassified reads, then proceed
+        // Ask for ONT-specific import options before creating scientific data.
         let importer = ONTDirectoryImporter()
         let layout = try? importer.detectLayout(at: sourceURL)
         let hasUnclassified = layout?.hasUnclassified ?? false
 
-        if hasUnclassified, let window = self.view.window ?? NSApp.keyWindow {
+        if let window = self.view.window ?? NSApp.keyWindow {
             let alert = NSAlert()
             alert.messageText = "ONT Directory Import"
-            alert.informativeText = "Found \(layout!.barcodeDirectories.count) barcode directories. Include unclassified reads?"
-            alert.addButton(withTitle: "Include Unclassified")
-            alert.addButton(withTitle: "Barcoded Only")
+            if let layout {
+                alert.informativeText = "Found \(layout.barcodeDirectories.count) barcode directories."
+            } else {
+                alert.informativeText = "Choose how this ONT directory should be stored in the project."
+            }
+            alert.addButton(withTitle: "Import")
+            alert.addButton(withTitle: "Cancel")
+
+            let stack = NSStackView()
+            stack.orientation = .vertical
+            stack.alignment = .leading
+            stack.spacing = 10
+
+            let storageRow = NSStackView()
+            storageRow.orientation = .horizontal
+            storageRow.alignment = .centerY
+            storageRow.spacing = 8
+            let storageLabel = NSTextField(labelWithString: "Storage")
+            storageLabel.alignment = .right
+            storageLabel.widthAnchor.constraint(equalToConstant: 92).isActive = true
+            let storagePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+            storagePopup.addItems(withTitles: [
+                "Keep chunks",
+                "Flatten to single FASTQ",
+            ])
+            storagePopup.selectItem(at: 0)
+            storagePopup.toolTip = "Keep chunked ONT files for atomic bundle copies, or flatten each barcode into one FASTQ payload."
+            storageRow.addArrangedSubview(storageLabel)
+            storageRow.addArrangedSubview(storagePopup)
+            stack.addArrangedSubview(storageRow)
+
+            let optimizeStorageButton = NSButton(
+                checkboxWithTitle: "Optimize flattened FASTQ with clumpify",
+                target: nil,
+                action: nil
+            )
+            optimizeStorageButton.state = .off
+            optimizeStorageButton.toolTip = "Runs clumpify after flattened import. This can reduce storage size, but requires the managed BBTools environment."
+            stack.addArrangedSubview(optimizeStorageButton)
+            let accessoryController = ONTImportOptionsAccessoryController(
+                storagePopup: storagePopup,
+                optimizeStorageButton: optimizeStorageButton
+            )
+
+            let includeUnclassifiedButton: NSButton?
+            if hasUnclassified {
+                let checkbox = NSButton(checkboxWithTitle: "Include unclassified reads", target: nil, action: nil)
+                checkbox.state = .off
+                stack.addArrangedSubview(checkbox)
+                includeUnclassifiedButton = checkbox
+            } else {
+                includeUnclassifiedButton = nil
+            }
+
+            alert.accessoryView = stack
             alert.applyLungfishBranding()
             alert.beginSheetModal(for: window) { [weak self] response in
-                let includeUnclassified = response == .alertFirstButtonReturn
+                _ = accessoryController
+                guard response == .alertFirstButtonReturn else {
+                    self?.postSidebarFileDropCompleted(
+                        requestID: requestID,
+                        sourceURL: sourceURL,
+                        success: true,
+                        error: nil
+                    )
+                    return
+                }
+                let includeUnclassified = includeUnclassifiedButton?.state == .on
+                let storageMode: ONTImportStorageMode = storagePopup.indexOfSelectedItem == 1 ? .flattened : .chunked
+                let optimizeStorage = storageMode == .flattened && optimizeStorageButton.state == .on
                 MainActor.assumeIsolated {
                     self?.performONTImport(
                         sourceURL: sourceURL, projectURL: projectURL,
                         includeUnclassified: includeUnclassified,
+                        storageMode: storageMode,
+                        optimizeStorage: optimizeStorage,
                         viewerController: viewerController, requestID: requestID
                     )
                 }
@@ -1580,6 +1673,8 @@ public class MainSplitViewController: NSSplitViewController {
             performONTImport(
                 sourceURL: sourceURL, projectURL: projectURL,
                 includeUnclassified: false,
+                storageMode: .chunked,
+                optimizeStorage: false,
                 viewerController: viewerController, requestID: requestID
             )
         }
@@ -1589,6 +1684,8 @@ public class MainSplitViewController: NSSplitViewController {
     private func performONTImport(
         sourceURL: URL, projectURL: URL,
         includeUnclassified: Bool,
+        storageMode: ONTImportStorageMode,
+        optimizeStorage: Bool,
         viewerController: ViewerViewController, requestID: String?
     ) {
         viewerController.showProgress("Importing ONT directory\u{2026}")
@@ -1601,6 +1698,9 @@ public class MainSplitViewController: NSSplitViewController {
                     sourceURL: sourceURL,
                     projectURL: projectURL,
                     includeUnclassified: includeUnclassified,
+                    storageMode: storageMode,
+                    optimizeStorage: optimizeStorage,
+                    qualityBinning: .none,
                     routeContext: routeContext
                 )
                 let result = workflowResult.importResult

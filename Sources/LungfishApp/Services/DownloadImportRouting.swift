@@ -34,4 +34,23 @@ enum DownloadImportRouting {
         let parent = directory.standardizedFileURL.resolvingSymlinksInPath().pathComponents
         return child.count >= parent.count && child.starts(with: parent)
     }
+
+    static func postCopyFASTQIngestionTarget(
+        importedURL: URL,
+        packagedFASTQPayloads: [String: URL]
+    ) -> URL? {
+        if let packagedPayload = packagedFASTQPayloads[canonicalPath(for: importedURL)] {
+            return packagedPayload
+        }
+
+        if FASTQBundle.isBundleURL(importedURL) {
+            return nil
+        }
+
+        return FASTQBundle.resolvePrimaryFASTQURL(for: importedURL)
+    }
+
+    static func canonicalPath(for url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
 }

@@ -25,6 +25,9 @@ public final class ONTImportOperationCoordinator {
         projectURL: URL,
         includeUnclassified: Bool,
         concurrency: Int = 4,
+        storageMode: ONTImportStorageMode = .chunked,
+        optimizeStorage: Bool = false,
+        qualityBinning: QualityBinningScheme = .none,
         routeContext: OperationRouteContext?
     ) async throws -> ONTImportWorkflow.Result {
         let outputURL = try Self.resolvedOutputDirectory(
@@ -36,7 +39,10 @@ public final class ONTImportOperationCoordinator {
             sourceURL: sourceURL,
             outputURL: outputURL,
             includeUnclassified: includeUnclassified,
-            concurrency: concurrency
+            concurrency: concurrency,
+            storageMode: storageMode,
+            optimizeStorage: optimizeStorage,
+            qualityBinning: qualityBinning
         )
         let cliCommand = OperationCenter.buildCLICommand(
             subcommand: "fastq import-ont",
@@ -55,7 +61,8 @@ public final class ONTImportOperationCoordinator {
                 sourceDirectory: sourceURL,
                 outputDirectory: outputURL,
                 maxConcurrentBarcodes: concurrency,
-                includeUnclassified: includeUnclassified
+                includeUnclassified: includeUnclassified,
+                storageMode: storageMode
             )
             let result = try await workflow.importDirectory(
                 config: config,
@@ -64,8 +71,16 @@ public final class ONTImportOperationCoordinator {
                     outputURL: outputURL,
                     includeUnclassified: includeUnclassified,
                     concurrency: concurrency,
+                    storageMode: storageMode,
+                    optimizeStorage: optimizeStorage,
+                    qualityBinning: qualityBinning,
                     cliArgs: cliArgs,
                     cliCommand: cliCommand
+                ),
+                optimization: ONTImportWorkflow.OptimizationConfig(
+                    optimizeStorage: optimizeStorage,
+                    qualityBinning: qualityBinning,
+                    threads: concurrency
                 )
             ) { [operationCenter, opID] fraction, message in
                 Task { @MainActor in
@@ -172,7 +187,10 @@ public final class ONTImportOperationCoordinator {
         sourceURL: URL,
         outputURL: URL,
         includeUnclassified: Bool,
-        concurrency: Int
+        concurrency: Int,
+        storageMode: ONTImportStorageMode = .chunked,
+        optimizeStorage: Bool = false,
+        qualityBinning: QualityBinningScheme = .none
     ) -> [String] {
         var args = [
             sourceURL.path,
@@ -184,6 +202,15 @@ public final class ONTImportOperationCoordinator {
         if concurrency != 4 {
             args += ["--concurrency", String(concurrency)]
         }
+        if storageMode != .chunked {
+            args += ["--storage-mode", storageMode.rawValue]
+        }
+        if optimizeStorage {
+            args.append("--optimize-storage")
+        }
+        if qualityBinning != .none {
+            args += ["--quality-binning", qualityBinning.rawValue]
+        }
         return args
     }
 
@@ -192,6 +219,9 @@ public final class ONTImportOperationCoordinator {
         outputURL: URL,
         includeUnclassified: Bool,
         concurrency: Int,
+        storageMode: ONTImportStorageMode = .chunked,
+        optimizeStorage: Bool = false,
+        qualityBinning: QualityBinningScheme = .none,
         cliArgs: [String],
         cliCommand: String
     ) -> ONTImportWorkflow.CommandContext {
@@ -210,10 +240,16 @@ public final class ONTImportOperationCoordinator {
                 "output": .file(outputURL),
                 "includeUnclassified": .boolean(includeUnclassified),
                 "concurrency": .integer(concurrency),
+                "storageMode": .string(storageMode.rawValue),
+                "optimizeStorage": .boolean(optimizeStorage),
+                "qualityBinning": .string(qualityBinning.rawValue),
             ],
             defaultOptions: [
                 "includeUnclassified": .boolean(false),
                 "concurrency": .integer(4),
+                "storageMode": .string(ONTImportStorageMode.chunked.rawValue),
+                "optimizeStorage": .boolean(false),
+                "qualityBinning": .string(QualityBinningScheme.none.rawValue),
                 "useVirtualConcatenation": .boolean(true),
             ],
             resolvedOptions: [
@@ -221,7 +257,10 @@ public final class ONTImportOperationCoordinator {
                 "output": .file(outputURL),
                 "includeUnclassified": .boolean(includeUnclassified),
                 "concurrency": .integer(concurrency),
-                "useVirtualConcatenation": .boolean(true),
+                "storageMode": .string(storageMode.rawValue),
+                "optimizeStorage": .boolean(optimizeStorage),
+                "qualityBinning": .string(qualityBinning.rawValue),
+                "useVirtualConcatenation": .boolean(storageMode.usesVirtualConcatenation),
                 "caller": .string("gui"),
             ],
             runtimeIdentity: ProvenanceRuntimeIdentity()

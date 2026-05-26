@@ -266,6 +266,40 @@ final class ONTImportWorkflowTests: XCTestCase {
         ))
     }
 
+    func testOptimizationFailureRollsBackCreatedBundlesAndManifest() async throws {
+        let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
+        let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)
+        let workflow = ONTImportWorkflow(optimizationRunner: { _, _, _ in
+            throw NSError(domain: "ONTImportWorkflowTests.optimization", code: 17)
+        })
+
+        do {
+            _ = try await workflow.importDirectory(
+                config: ONTImportConfig(
+                    sourceDirectory: sourceURL,
+                    outputDirectory: outputURL,
+                    maxConcurrentBarcodes: 1,
+                    storageMode: .flattened
+                ),
+                context: makeContext(sourceURL: sourceURL, outputURL: outputURL),
+                optimization: ONTImportWorkflow.OptimizationConfig(optimizeStorage: true)
+            ) { _, _ in }
+            XCTFail("Expected optimization failure")
+        } catch {
+            XCTAssertEqual((error as NSError).domain, "ONTImportWorkflowTests.optimization")
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent("barcode01.lungfishfastq").path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent(DemultiplexManifest.filename).path
+        ))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: outputURL.appendingPathComponent(ProvenanceWriter.provenanceFilename).path
+        ))
+    }
+
     func testPreflightRefusesExistingBundleWithoutDeletingIt() async throws {
         let sourceURL = try makeONTSource(barcodeChunks: ["barcode01": ["chunk_0.fastq"]])
         let outputURL = tempDir.appendingPathComponent("project", isDirectory: true)

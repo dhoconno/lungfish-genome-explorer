@@ -51,4 +51,43 @@ final class DownloadImportRoutingTests: XCTestCase {
             )
         )
     }
+
+    func testCopiedFASTQBundleIsNotQueuedForPostCopyIngestion() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("download-routing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("barcode08.lungfishfastq", isDirectory: true)
+        let chunksURL = bundleURL.appendingPathComponent("chunks", isDirectory: true)
+        try FileManager.default.createDirectory(at: chunksURL, withIntermediateDirectories: true)
+        try "@r1\nACGT\n+\nIIII\n".write(
+            to: chunksURL.appendingPathComponent("chunk_0.fastq"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertNil(DownloadImportRouting.postCopyFASTQIngestionTarget(
+            importedURL: bundleURL,
+            packagedFASTQPayloads: [:]
+        ))
+    }
+
+    func testNewlyPackagedPlainFASTQIsQueuedForPostCopyIngestion() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("download-routing-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundleURL = tempDir.appendingPathComponent("reads.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        let payloadURL = bundleURL.appendingPathComponent("reads.fastq")
+        try "@r1\nACGT\n+\nIIII\n".write(to: payloadURL, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(
+            DownloadImportRouting.postCopyFASTQIngestionTarget(
+                importedURL: bundleURL,
+                packagedFASTQPayloads: [DownloadImportRouting.canonicalPath(for: bundleURL): payloadURL]
+            ),
+            payloadURL
+        )
+    }
 }
