@@ -113,14 +113,17 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        perform {
-            _ = try service.importDefinition(
-                from: url,
-                scope: scope,
-                changeNote: "Imported from Haplotype Definition Manager",
-                argv: ["lungfish", "haplotypes", "import", url.path, "--scope", scope.rawValue]
-            )
+        begin(panel) { [weak self, panel] response in
+            guard response == .OK, let url = panel.url else { return }
+            guard let self else { return }
+            self.perform {
+                _ = try self.service.importDefinition(
+                    from: url,
+                    scope: scope,
+                    changeNote: "Imported from Haplotype Definition Manager",
+                    argv: ["lungfish", "haplotypes", "import", url.path, "--scope", scope.rawValue]
+                )
+            }
         }
     }
 
@@ -130,15 +133,18 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         panel.title = "Export Haplotype Definition"
         panel.nameFieldStringValue = "\(record.definitionSet.id)\(HaplotypeDefinitionStore.fileSuffix)"
         panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        perform {
-            try service.exportDefinition(
-                definitionID: record.definitionSet.id,
-                assayID: record.definitionSet.assayID,
-                scope: record.scope,
-                to: url,
-                argv: ["lungfish", "haplotypes", "export", record.definitionSet.id, "--output", url.path]
-            )
+        begin(panel) { [weak self, panel] response in
+            guard response == .OK, let url = panel.url else { return }
+            guard let self else { return }
+            self.perform {
+                try self.service.exportDefinition(
+                    definitionID: record.definitionSet.id,
+                    assayID: record.definitionSet.assayID,
+                    scope: record.scope,
+                    to: url,
+                    argv: ["lungfish", "haplotypes", "export", record.definitionSet.id, "--output", url.path]
+                )
+            }
         }
     }
 
@@ -221,6 +227,14 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             reload()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func begin(_ panel: NSSavePanel, completionHandler: @escaping (NSApplication.ModalResponse) -> Void) {
+        if let parentWindow = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: parentWindow, completionHandler: completionHandler)
+        } else {
+            panel.begin(completionHandler: completionHandler)
         }
     }
 
