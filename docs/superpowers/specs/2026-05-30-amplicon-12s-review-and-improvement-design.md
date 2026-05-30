@@ -146,10 +146,12 @@ expectations.
 **12S**
 - Synthetic/deterministic: `swift test --filter TwelveS`.
 - Real: build `.lungfish12sref` from `/Users/dho/Downloads/32308/ref/amplicons_deduplicated.fa`
-  + `/Users/dho/Downloads/32308/intermediate/12s_reference.tsv`; merge the paired Hilo example
-  (`/Users/dho/Downloads/HI_Hilo_WWTP_20260511__12S_F09_S69_L001_R{1,2}_001.fastq.gz`) since
-  12S consumes merged FASTQ; run `fastq 12s-match`; confirm `targets.tsv` has populated
-  `taxid` / `taxon_group` / `taxonomy` for known rows (e.g. `Homo sapiens`) and that
+  + `/Users/dho/Downloads/32308/intermediate/12s_reference.tsv`. The paired Hilo example
+  (`/Users/dho/Downloads/HI_Hilo_WWTP_20260511__12S_F09_S69_L001_R{1,2}_001.fastq.gz`) is
+  clumpified and merged into a single merged-FASTQ bundle by the amplicon import recipe on GUI
+  import, which is how 12S receives its merged input; for a pure-CLI run, produce the merged
+  FASTQ via that same recipe path first. Then run `fastq 12s-match`; confirm `targets.tsv` has
+  populated `taxid` / `taxon_group` / `taxonomy` for known rows (e.g. `Homo sapiens`) and that
   `.lungfish-provenance.json` is canonical.
 
 **MHC genotyping** (uses `/Users/dho/Desktop/sandbox/32271.lungfish` artifacts)
@@ -176,8 +178,9 @@ deliverable is a verified, CLI-backed, idiomatically-consistent code surface.
 - Manual GUI testing (user's follow-up).
 - Unrelated refactoring not surfaced by the review.
 - New MHC workflow enablement entry (MHC feeds existing ONT/Illumina genotyping).
-- Paired-end read merging as a new feature (existing import recipe; merging is a prerequisite
-  step for the 12S real-data run).
+- Paired-end read merging as a new feature. The amplicon import recipe already clumpifies and
+  merges R1/R2 into a merged-FASTQ bundle on import; the 12S real-data run consumes that
+  merged output.
 
 ## Verification Assets (confirmed present)
 
