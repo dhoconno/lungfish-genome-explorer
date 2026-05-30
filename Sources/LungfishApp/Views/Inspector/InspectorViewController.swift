@@ -129,12 +129,17 @@ public class InspectorViewController: NSViewController {
         viewModel.genotypeResultDisplaySectionViewModel
     }
 
+    var twelveSResultDisplaySectionViewModel: TwelveSResultDisplaySectionViewModel {
+        viewModel.twelveSResultDisplaySectionViewModel
+    }
+
     /// Public access to the read style section view model for wiring alignment data.
     public var readStyleSectionViewModel: ReadStyleSectionViewModel {
         viewModel.readStyleSectionViewModel
     }
 
     var onGenotypeResultDisplayStateChanged: ((GenotypeResultDisplayState) -> Void)?
+    var onTwelveSResultDisplayStateChanged: ((TwelveSResultDisplayState) -> Void)?
     var onGenotypeSampleMetadataImported: ((SampleMetadataStore) -> Void)?
 
     /// Public access to the FASTQ metadata section view model.
@@ -159,6 +164,7 @@ public class InspectorViewController: NSViewController {
         }
     }
     private var activeContentSelectionIdentity: ContentSelectionIdentity?
+    private var selectedFASTQMetadataTargetBundleURLs: [URL] = []
 
     // MARK: - Lifecycle
 
@@ -244,6 +250,10 @@ public class InspectorViewController: NSViewController {
     var testingWindowStateScope: WindowStateScope? {
         get { windowStateScope }
         set { windowStateScope = newValue }
+    }
+
+    var testingSelectedTab: InspectorTab {
+        viewModel.selectedTab
     }
 
     func testingHandleSidebarSelectionChanged(_ notification: Notification) {
@@ -467,6 +477,10 @@ public class InspectorViewController: NSViewController {
             self?.onGenotypeResultDisplayStateChanged?(state)
         }
 
+        viewModel.twelveSResultDisplaySectionViewModel.onDisplayStateChanged = { [weak self] state in
+            self?.onTwelveSResultDisplayStateChanged?(state)
+        }
+
         // Annotation section callbacks
         viewModel.annotationSectionViewModel.onSettingsChanged = { [weak self] in
             self?.handleAnnotationSettingsChanged()
@@ -549,6 +563,7 @@ public class InspectorViewController: NSViewController {
         // Handle empty selection (items array is empty, no "item" key)
         if let items = notification.userInfo?["items"] as? [SidebarItem], items.isEmpty {
             activeContentSelectionIdentity = nil
+            selectedFASTQMetadataTargetBundleURLs = []
             clearTransientSelectionState()
             return
         }
@@ -556,11 +571,24 @@ public class InspectorViewController: NSViewController {
         guard let item = notification.userInfo?["item"] as? SidebarItem else { return }
         activeContentSelectionIdentity = notification.userInfo?[NotificationUserInfoKey.contentSelectionIdentity]
             as? ContentSelectionIdentity
+        let selectedItems = notification.userInfo?["items"] as? [SidebarItem] ?? [item]
+        selectedFASTQMetadataTargetBundleURLs = Self.fastqBundleURLs(from: selectedItems)
 
         // Update UI state only - document loading is handled by MainSplitViewController
         viewModel.selectedItem = item.title
         viewModel.selectedType = item.type.description
         updateProvenanceTarget(url: item.url, sidebarType: item.type, displayName: item.title)
+
+        if selectedFASTQMetadataTargetBundleURLs.count > 1,
+           let firstFASTQBundleURL = selectedFASTQMetadataTargetBundleURLs.first {
+            viewModel.fastqMetadataSectionViewModel.load(
+                from: firstFASTQBundleURL,
+                readTypeTargetBundleURLs: selectedFASTQMetadataTargetBundleURLs
+            )
+            viewModel.selectedTab = .bundle
+        } else if selectedFASTQMetadataTargetBundleURLs.count == 1 {
+            viewModel.fastqMetadataSectionViewModel.setReadTypeTargetBundleURLs(selectedFASTQMetadataTargetBundleURLs)
+        }
 
         if item.type == .sequence || item.type == .annotation || item.type == .alignment || item.type == .referenceBundle {
             syncAnnotationStateToViewer()
@@ -576,6 +604,7 @@ public class InspectorViewController: NSViewController {
     /// metadata, and read selection to their default empty states.
     private func clearTransientSelectionState() {
         activeContentSelectionIdentity = nil
+        selectedFASTQMetadataTargetBundleURLs = []
         // Clear sidebar selection display
         viewModel.selectedItem = nil
         viewModel.selectedType = nil
@@ -621,7 +650,10 @@ public class InspectorViewController: NSViewController {
         // Clear sample section
         viewModel.sampleSectionViewModel.clear()
         viewModel.genotypeResultDisplaySectionViewModel.clear()
+        viewModel.twelveSResultDisplaySectionViewModel.clear()
+        viewModel.twelveSResultDisplaySectionViewModel.onExportRequested = nil
         onGenotypeResultDisplayStateChanged = nil
+        onTwelveSResultDisplayStateChanged = nil
         onGenotypeSampleMetadataImported = nil
         viewModel.genotypeResultDisplaySectionViewModel.onGenotypeHighlightRequested = nil
         viewModel.selectionSectionViewModel.onGenotypeHighlightRequested = nil
@@ -741,7 +773,13 @@ public class InspectorViewController: NSViewController {
 
         // Load FASTQ sample metadata and analysis manifest if bundle URL is provided
         if let bundleURL = notification.userInfo?["bundleURL"] as? URL {
-            viewModel.fastqMetadataSectionViewModel.load(from: bundleURL)
+            let readTypeTargets = selectedFASTQMetadataTargetBundleURLs.contains(bundleURL.standardizedFileURL)
+                ? selectedFASTQMetadataTargetBundleURLs
+                : [bundleURL.standardizedFileURL]
+            viewModel.fastqMetadataSectionViewModel.load(
+                from: bundleURL,
+                readTypeTargetBundleURLs: readTypeTargets
+            )
             updateProvenanceTarget(
                 url: bundleURL,
                 sidebarType: .fastqBundle,
@@ -787,6 +825,20 @@ public class InspectorViewController: NSViewController {
         }
 
         viewModel.selectedTab = .bundle
+    }
+
+    private static func fastqBundleURLs(from items: [SidebarItem]) -> [URL] {
+        var urls: [URL] = []
+        var seen = Set<String>()
+        for item in items where item.type == .fastqBundle {
+            guard let url = item.url?.standardizedFileURL,
+                  FASTQBundle.isBundleURL(url),
+                  seen.insert(url.path).inserted else {
+                continue
+            }
+            urls.append(url)
+        }
+        return urls
     }
 
     /// Handles viewport content mode changes.
@@ -1453,6 +1505,41 @@ public class InspectorViewController: NSViewController {
                     .replacing(showsAncillaryLoci: state.showsAncillaryLoci)
             )
         }
+    }
+
+    func updateTwelveSAmpliconResultDocument(_ result: TwelveSAmpliconResultBundleData) {
+        viewModel.readStyleSectionViewModel.clear()
+        let currentDisplay = viewModel.twelveSResultDisplaySectionViewModel.displayState
+        viewModel.twelveSResultDisplaySectionViewModel.update(isAvailable: true, state: currentDisplay)
+        viewModel.twelveSResultDisplaySectionViewModel.updateSummary(
+            TwelveSResultDisplaySummary(
+                rowLabel: "Species Rows",
+                visibleRows: result.scientificNameRows.count,
+                totalRows: result.scientificNameRows.count
+            )
+        )
+        viewModel.twelveSResultDisplaySectionViewModel.updateSamples(
+            count: result.samples.count,
+            metadata: result.sampleMetadata,
+            manifest: result.sampleMetadataManifest
+        )
+        viewModel.twelveSResultDisplaySectionViewModel.updateTaxonGroupOptions(
+            result.scientificNameRows.flatMap(\.displayTaxonGroups)
+        )
+        updateProvenanceTarget(
+            url: result.bundleURL,
+            sidebarType: .twelveSAmpliconResultBundle,
+            displayName: result.manifest.analysisName
+        )
+        viewModel.selectedTab = .resultSummary
+    }
+
+    func updateTwelveSResultDisplaySummary(_ summary: TwelveSResultDisplaySummary) {
+        viewModel.twelveSResultDisplaySectionViewModel.updateSummary(summary)
+    }
+
+    func updateTwelveSResultDisplayState(_ state: TwelveSResultDisplayState) {
+        viewModel.twelveSResultDisplaySectionViewModel.updateDisplayState(state)
     }
 
     func updateGenotypeAnnotationSidecar(_ sidecar: GenotypeAnnotationSidecar) {
@@ -3669,6 +3756,9 @@ public final class InspectorViewModel {
     /// View model for genotype result viewport controls section
     let genotypeResultDisplaySectionViewModel = GenotypeResultDisplaySectionViewModel()
 
+    /// View model for 12S amplicon result viewport controls section.
+    let twelveSResultDisplaySectionViewModel = TwelveSResultDisplaySectionViewModel()
+
     /// View model for FASTQ sample metadata section (Document tab)
     let fastqMetadataSectionViewModel = FASTQMetadataSectionViewModel()
 
@@ -3823,6 +3913,7 @@ public struct InspectorView: View {
         case .resultSummary:
             MetagenomicsResultSummarySection(
                 viewModel: viewModel.documentSectionViewModel,
+                twelveSViewModel: viewModel.twelveSResultDisplaySectionViewModel,
                 windowStateScope: viewModel.windowStateScope
             )
 
@@ -4667,11 +4758,18 @@ private struct MappingViewSettingsSection: View {
 /// otherwise shows a "No result information" placeholder.
 private struct MetagenomicsResultSummarySection: View {
     @Bindable var viewModel: DocumentSectionViewModel
+    @Bindable var twelveSViewModel: TwelveSResultDisplaySectionViewModel
     let windowStateScope: WindowStateScope?
     @State private var isSamplesExpanded = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if twelveSViewModel.isAvailable {
+                TwelveSResultDisplaySection(viewModel: twelveSViewModel)
+                Divider()
+                    .padding(.vertical, 4)
+                twelveSSamplesMetadataSection
+            } else {
             if let manifest = viewModel.manifest {
                 metadataRow("Organism", value: manifest.source.organism)
                 metadataRow("Assembly", value: manifest.source.assembly)
@@ -4801,6 +4899,7 @@ private struct MetagenomicsResultSummarySection: View {
                     }
                 )
             }
+            }
         }
     }
 
@@ -4809,6 +4908,54 @@ private struct MetagenomicsResultSummarySection: View {
         var scopedUserInfo = userInfo ?? [:]
         scopedUserInfo[NotificationUserInfoKey.windowStateScope] = windowStateScope
         return scopedUserInfo
+    }
+
+    private var twelveSSamplesMetadataSection: some View {
+        DisclosureGroup("Samples & Metadata", isExpanded: $isSamplesExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                metadataRow("Samples", value: "\(twelveSViewModel.sampleCount)")
+                metadataRow("Metadata", value: twelveSViewModel.sampleMetadataSourceSummary)
+                if !twelveSViewModel.sampleMetadataSourceDetails.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Sources")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(twelveSViewModel.sampleMetadataSourceDetails, id: \.self) { detail in
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+                if !twelveSViewModel.sampleMetadataWarnings.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Warnings")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(twelveSViewModel.sampleMetadataWarnings, id: \.self) { warning in
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                    }
+                }
+                if let store = twelveSViewModel.sampleMetadataStore {
+                    SampleMetadataSection(
+                        store: store,
+                        title: "Resolved Metadata",
+                        isEditable: false
+                    )
+                } else {
+                    Text("Sample IDs are frozen in this result. No FASTQ or analysis metadata fields were attached.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.caption.weight(.semibold))
     }
 
     @ViewBuilder
@@ -4913,6 +5060,7 @@ extension SidebarItemType: CustomStringConvertible {
         case .fastqBundle: return "FASTQ Bundle"
         case .primerSchemeBundle: return "Primer Scheme"
         case .genotypeResultBundle: return "ONT Genotyping Result"
+        case .twelveSAmpliconResultBundle: return "12S Amplicon Result"
         case .batchGroup: return "Batch Operation"
         case .classificationResult: return "Classification Result"
         case .esvirituResult: return "Viral Detection Result"

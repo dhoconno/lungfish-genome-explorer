@@ -176,6 +176,55 @@ final class FASTQSampleMetadataTests: XCTestCase {
         XCTAssertEqual(cloned.customFields["lab"], "CDC")
     }
 
+    func testSampleMetadataRecordExportsTypedAndCustomFields() {
+        var meta = FASTQSampleMetadata(sampleName: "Hilo_F09")
+        meta.sampleType = "wastewater"
+        meta.collectionDate = "2026-05-11"
+        meta.batchId = "batch-12s"
+        meta.metadataTemplate = .wastewater
+        meta.notes = ""
+        meta.customFields["catchment_area_id"] = "HI-Hilo"
+        meta.customFields["empty_field"] = ""
+
+        let record = meta.sampleMetadataRecord
+
+        XCTAssertEqual(record["sample_name"], "Hilo_F09")
+        XCTAssertEqual(record["sample_type"], "wastewater")
+        XCTAssertEqual(record["collection_date"], "2026-05-11")
+        XCTAssertEqual(record["sample_role"], "test_sample")
+        XCTAssertEqual(record["batch_id"], "batch-12s")
+        XCTAssertEqual(record["metadata_template"], "wastewater")
+        XCTAssertEqual(record["catchment_area_id"], "HI-Hilo")
+        XCTAssertNil(record["notes"])
+        XCTAssertNil(record["empty_field"])
+    }
+
+    func testResolvedFolderMetadataCanExportEffectiveGenericRecords() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FASTQSampleMetadataTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bundleURL = root.appendingPathComponent("Hilo_F09.lungfishfastq", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+
+        var folderMeta = FASTQSampleMetadata(sampleName: "Hilo_F09")
+        folderMeta.sampleType = "folder-level"
+        try FASTQFolderMetadata.save(
+            FASTQFolderMetadata(orderedSamples: [folderMeta]),
+            to: root
+        )
+
+        var bundleMeta = FASTQSampleMetadata(sampleName: "Hilo_F09")
+        bundleMeta.sampleType = "bundle-level"
+        bundleMeta.customFields["site"] = "Hilo WWTP"
+        try FASTQBundleCSVMetadata.save(bundleMeta.toLegacyCSV(), to: bundleURL)
+
+        let resolved = FASTQFolderMetadata.loadResolved(from: root)
+        let record = try XCTUnwrap(resolved.samples["Hilo_F09"]?.sampleMetadataRecord)
+
+        XCTAssertEqual(record["sample_type"], "bundle-level")
+        XCTAssertEqual(record["site"], "Hilo WWTP")
+    }
+
     func testAddRemoveAttachment() {
         var meta = FASTQSampleMetadata(sampleName: "S1")
         XCTAssertNil(meta.attachments)

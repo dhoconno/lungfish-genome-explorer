@@ -325,6 +325,24 @@ extension FASTQSampleMetadata {
 
 extension FASTQSampleMetadata {
 
+    /// Generic key/value representation used by analysis-level sample metadata resolution.
+    ///
+    /// This keeps the existing FASTQ metadata storage format intact while allowing
+    /// result bundles to freeze one effective sample metadata record per sample.
+    public var sampleMetadataRecord: [String: String] {
+        var record: [String: String] = [:]
+        for mapping in Self.columnMapping {
+            let header = mapping.csvHeaders[0]
+            if let value = value(forCSVHeader: header), !value.isEmpty {
+                record[header] = value
+            }
+        }
+        for (key, value) in customFields where !value.isEmpty {
+            record[key] = value
+        }
+        return record
+    }
+
     /// Creates a copy of this metadata with a new sample name, preserving all other fields.
     ///
     /// Used by the "Clone Metadata From..." action to copy metadata between samples.

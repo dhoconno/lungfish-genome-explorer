@@ -1,4 +1,5 @@
 import AppKit
+import LungfishWorkflow
 import SwiftUI
 
 @MainActor
@@ -59,9 +60,15 @@ final class WorkflowOperationsWindowController: NSWindowController {
         super.init(window: window)
 
         window.contentView = NSHostingView(
-            rootView: WorkflowOperationsDialog(state: state) { [weak self] request in
-                self?.run(request)
-            }
+            rootView: WorkflowOperationsDialog(
+                state: state,
+                onRun: { [weak self] request in
+                    self?.run(request)
+                },
+                onCreateTwelveSReferenceBundle: { [weak self] configuration in
+                    self?.createTwelveSReferenceBundle(configuration)
+                }
+            )
         )
     }
 
@@ -96,6 +103,19 @@ final class WorkflowOperationsWindowController: NSWindowController {
                 _ = try await service.run(request, routeContext: routeContext)
             } catch {
                 showWindow(nil)
+                state.errorMessage = error.localizedDescription
+                state.showingError = true
+            }
+        }
+    }
+
+    private func createTwelveSReferenceBundle(_ configuration: TwelveSReferenceBundleBuildConfiguration) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                _ = try await service.runTwelveSReferenceBundleBuild(configuration, routeContext: routeContext)
+                state.refreshProjectReferences(selecting: configuration.outputURL)
+            } catch {
                 state.errorMessage = error.localizedDescription
                 state.showingError = true
             }

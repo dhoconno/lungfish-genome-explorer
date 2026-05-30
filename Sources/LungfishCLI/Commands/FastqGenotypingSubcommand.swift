@@ -104,10 +104,15 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         let parsedHaplotypeDefinitionScope = try haplotypeDefinitionScope.map {
             try parseGenotypeHaplotypeDefinitionScope($0)
         }
+        let referenceURL = URL(fileURLWithPath: reference)
+        let bundledDefaultHaplotype = try Self.defaultBundledHaplotypeDefinition(for: referenceURL)
+        let effectiveHaplotypeDefinition = haplotypeDefinition ?? bundledDefaultHaplotype?.id
+        let effectiveHaplotypeAssay = haplotypeAssay ?? bundledDefaultHaplotype?.assayID
+        let effectiveHaplotypeSpecies = haplotypeSpecies ?? bundledDefaultHaplotype?.speciesCode
 
         let request = ONTBarcodeDemuxGenotypingRunRequest(
             inputFASTQURLs: inputs.map { URL(fileURLWithPath: $0) },
-            referenceSourceURL: URL(fileURLWithPath: reference),
+            referenceSourceURL: referenceURL,
             barcodeDefinitionsURL: barcodes.map { URL(fileURLWithPath: $0) },
             outputDirectory: URL(fileURLWithPath: outputDir, isDirectory: true),
             outputName: outputName,
@@ -119,10 +124,10 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
             threads: threads,
             sortThreads: sortThreads,
             minSupport: minSupport,
-            haplotypeAssayID: haplotypeAssay,
-            haplotypeSpeciesCode: haplotypeSpecies,
+            haplotypeAssayID: effectiveHaplotypeAssay,
+            haplotypeSpeciesCode: effectiveHaplotypeSpecies,
             haplotypeDefinitionScope: parsedHaplotypeDefinitionScope,
-            haplotypeDefinitionSetID: haplotypeDefinition,
+            haplotypeDefinitionSetID: effectiveHaplotypeDefinition,
             extraArguments: parsedExtraArguments,
             mode: parsedMode,
             readType: parsedReadType
@@ -159,6 +164,15 @@ struct FastqGenotypingSubcommand: AsyncParsableCommand {
         let data = try encoder.encode(payload)
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data("\n".utf8))
+    }
+
+    private static func defaultBundledHaplotypeDefinition(
+        for referenceURL: URL
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        guard MHCAmpliconReferenceBundle.isBundleURL(referenceURL) else {
+            return nil
+        }
+        return try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: referenceURL.standardizedFileURL)
     }
 }
 

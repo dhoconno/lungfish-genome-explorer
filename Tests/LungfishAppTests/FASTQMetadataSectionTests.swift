@@ -102,6 +102,30 @@ final class FASTQMetadataSectionViewModelTests: XCTestCase {
         )
     }
 
+    func testReadTypeSelectionPersistsToAllSelectedBundles() throws {
+        let firstBundle = tmpDir.appendingPathComponent("barcode10.lungfishfastq")
+        let secondBundle = tmpDir.appendingPathComponent("barcode11.lungfishfastq")
+        for bundle in [firstBundle, secondBundle] {
+            try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+            try "@\(bundle.deletingPathExtension().lastPathComponent)\nACGT\n+\nIIII\n".write(
+                to: bundle.appendingPathComponent("reads.fastq"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+
+        let vm = FASTQMetadataSectionViewModel()
+        vm.load(from: firstBundle, readTypeTargetBundleURLs: [firstBundle, secondBundle])
+
+        vm.setAssemblyReadType(.ontReads)
+        vm.performSave()
+
+        let firstFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: firstBundle))
+        let secondFASTQ = try XCTUnwrap(FASTQBundle.resolvePrimaryFASTQURL(for: secondBundle))
+        XCTAssertEqual(FASTQMetadataStore.load(for: firstFASTQ)?.assemblyReadType, .ontReads)
+        XCTAssertEqual(FASTQMetadataStore.load(for: secondFASTQ)?.assemblyReadType, .ontReads)
+    }
+
     func testLoadReadsPersistedAssemblyReadTypeFromSidecar() throws {
         let bundleDir = tmpDir.appendingPathComponent("ReadType.lungfishfastq")
         try FileManager.default.createDirectory(at: bundleDir, withIntermediateDirectories: true)

@@ -102,6 +102,7 @@ extension ViewerViewController {
             phylogeneticTreeViewController = nil
         }
         hideGenotypeResultView()
+        hideTwelveSAmpliconResultView()
         showGenomicsStackAfterNativeBundle()
     }
 

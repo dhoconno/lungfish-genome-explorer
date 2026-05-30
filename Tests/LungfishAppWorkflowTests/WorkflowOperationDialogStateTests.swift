@@ -1,4 +1,5 @@
 import XCTest
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 @testable import LungfishApp
@@ -49,6 +50,64 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertTrue(state.isRunEnabled)
     }
 
+    func testMHCReferenceBundleSelectionAppliesBundledHaplotypeDefinition() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("Reference Sequences/MCM-MHC.lungfishmhcref", isDirectory: true)
+        let haplotypeURL = referenceURL.appendingPathComponent("haplotypes/mcm.json")
+        let readsURL = temp.appendingPathComponent("Reads/barcode10.lungfishfastq", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: haplotypeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+        try ">M1\nACGT\n".write(to: referenceURL.appendingPathComponent("reference.fa"), atomically: true, encoding: .utf8)
+        let definition = Self.mhcDefinition(id: "mcm-mhc")
+        try JSONEncoder().encode(definition).write(to: haplotypeURL)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: ["haplotypes/mcm.json"],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: referenceURL
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "barcode10-mhc"
+
+        XCTAssertEqual(state.selectedHaplotypeDefinitionSetID, definition.id)
+        XCTAssertEqual(state.selectedHaplotypeAssayID, definition.assayID)
+        XCTAssertEqual(state.selectedHaplotypeSpeciesCode, definition.speciesCode)
+        XCTAssertEqual(state.selectedMHCReferenceBundleURL, referenceURL.standardizedFileURL)
+        let compatibleRecord = try XCTUnwrap(state.compatibleHaplotypeDefinitionRecords.first)
+        XCTAssertEqual(compatibleRecord.definitionSet.id, definition.id)
+        XCTAssertEqual(compatibleRecord.referenceBundleURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(compatibleRecord.sourceDisplayName, "MHC Reference Bundle")
+        let launch = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launch else {
+            return XCTFail("Expected ONT genotyping request")
+        }
+        XCTAssertEqual(request.referenceSourceURL, referenceURL.standardizedFileURL)
+        XCTAssertEqual(request.haplotypeDefinitionSetID, definition.id)
+        XCTAssertEqual(request.haplotypeAssayID, definition.assayID)
+        XCTAssertEqual(request.haplotypeSpeciesCode, definition.speciesCode)
+    }
+
     func testOperationsDialogReflectsWorkflowEnabledByLibraryStoreAfterDialogStoreWasCreated() throws {
         let defaults = try makeDefaults()
         let operationsStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -62,16 +121,43 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
         var ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
+        var twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        XCTAssertEqual(twelveS.availability, .available)
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: false)
+        let twelveSItem = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
+        libraryStore.setWorkflow(twelveSItem, enabled: false)
 
         ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .disabled(reason: "Enable in Library"))
+        twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        XCTAssertEqual(twelveS.availability, .disabled(reason: "Enable in Library"))
 
         libraryStore.setWorkflow(.ontGenotyping, enabled: true)
+        libraryStore.setWorkflow(twelveSItem, enabled: true)
 
         ont = try XCTUnwrap(state.tools.first { $0.title == "Amplicon Genotyping" })
         XCTAssertEqual(ont.availability, .available)
+        twelveS = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        XCTAssertEqual(twelveS.availability, .available)
+    }
+
+    func testOperationsDialogStateInvalidatesWhenLibraryEnablementChanges() throws {
+        let defaults = try makeDefaults()
+        let operationsStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let state = WorkflowOperationDialogState(
+            projectURL: nil,
+            enablementStore: operationsStore,
+            packageStore: packageStore
+        )
+        let initialRevision = state.workflowAvailabilityRevision
+        let libraryStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+
+        libraryStore.setWorkflow(.ontGenotyping, enabled: false)
+        waitForMainQueue()
+
+        XCTAssertGreaterThan(state.workflowAvailabilityRevision, initialRevision)
     }
 
     func testEnabledWorkflowPackageBuildsLocalWorkflowRunWithExpectedOutputs() async throws {
@@ -167,6 +253,286 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.minSupport, 3)
         XCTAssertNil(request.haplotypeAssayID)
         XCTAssertNil(request.haplotypeDefinitionSetID)
+    }
+
+    func testTwelveSAmpliconMatchingLaunchRequestUsesFastaReferenceAndMultipleReadBundles() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("amplicons_12s.fa")
+        let firstReadsURL = temp.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
+        let secondReadsURL = temp.appendingPathComponent("hilo-f10.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try Data(">target\nACGT\n".utf8).write(to: referenceURL)
+        for url in [firstReadsURL, secondReadsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [firstReadsURL, secondReadsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "hilo-12s"
+        state.twelveSMinimumSoftClipBases = 2
+        state.twelveSMaximumIndelBases = 5
+        state.threads = 6
+        state.twelveSRunChimeraReview = false
+
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        XCTAssertTrue(state.isRunEnabled)
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .twelveSAmpliconMatching(let configuration) = launchRequest else {
+            return XCTFail("Expected 12S amplicon matching request")
+        }
+
+        XCTAssertEqual(configuration.inputFASTQs, [
+            firstReadsURL.standardizedFileURL,
+            secondReadsURL.standardizedFileURL,
+        ])
+        XCTAssertEqual(configuration.referenceFASTA, referenceURL.standardizedFileURL)
+        XCTAssertEqual(configuration.outputDirectory, outputURL.standardizedFileURL)
+        XCTAssertEqual(configuration.outputName, "hilo-12s")
+        XCTAssertEqual(configuration.minimumSoftClipBases, 2)
+        XCTAssertEqual(configuration.maximumIndelBases, 5)
+        XCTAssertEqual(configuration.threads, 6)
+        XCTAssertFalse(configuration.runChimeraReview)
+        XCTAssertFalse(configuration.forceOverwrite)
+    }
+
+    func testTwelveSAmpliconMatchingLaunchRequestCarriesAnalysisSampleMetadata() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("amplicons_12s.fa")
+        let readsURL = temp.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
+        let metadataURL = temp.appendingPathComponent("analysis-metadata.tsv")
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try Data(">target\nACGT\n".utf8).write(to: referenceURL)
+        try Data("sample_id\tsite\nhilo-f09\tHilo WWTP\n".utf8).write(to: metadataURL)
+        for url in [readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceURL)
+        state.setTwelveSSampleMetadata(metadataURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "hilo-12s"
+
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .twelveSAmpliconMatching(let configuration) = launchRequest else {
+            return XCTFail("Expected 12S amplicon matching request")
+        }
+
+        XCTAssertEqual(configuration.sampleMetadata, metadataURL.standardizedFileURL)
+        XCTAssertEqual(
+            state.twelveSSampleMetadataDisplay,
+            WorkflowOperationDialogState.displayPath(for: metadataURL, relativeTo: temp)
+        )
+    }
+
+    func testTwelveSAmpliconMatchingResolvesProjectReferenceBundleToEmbeddedFasta() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let projectURL = temp.appendingPathComponent("project.lungfish", isDirectory: true)
+        let sourceFastaURL = temp.appendingPathComponent("amplicons_12s.fa")
+        let readsURL = projectURL.appendingPathComponent("Imports/hilo-f09.lungfishfastq", isDirectory: true)
+        let outputURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        try FileManager.default.createDirectory(at: readsURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        try Data(">target\nACGT\n".utf8).write(to: sourceFastaURL)
+
+        let referenceBundleURL = try ReferenceSequenceFolder.importReference(
+            from: sourceFastaURL,
+            into: projectURL,
+            displayName: "amplicons_12s"
+        )
+        let expectedFastaURL = try XCTUnwrap(ReferenceSequenceFolder.fastaURL(in: referenceBundleURL))
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceBundleURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "hilo-12s"
+
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        XCTAssertTrue(state.isRunEnabled)
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .twelveSAmpliconMatching(let configuration) = launchRequest else {
+            return XCTFail("Expected 12S amplicon matching request")
+        }
+
+        XCTAssertEqual(configuration.referenceFASTA, expectedFastaURL.standardizedFileURL)
+    }
+
+    func testTwelveSAmpliconMatchingResolvesFullReferenceBundleGenomeFasta() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let projectURL = temp.appendingPathComponent("project.lungfish", isDirectory: true)
+        let referenceBundleURL = projectURL
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("amplicons_12s_deduplicated.lungfishref", isDirectory: true)
+        let genomeURL = referenceBundleURL.appendingPathComponent("genome", isDirectory: true)
+        let sequenceURL = genomeURL.appendingPathComponent("sequence.fa.gz")
+        let readsURL = projectURL.appendingPathComponent("Imports/hilo-f09.lungfishfastq", isDirectory: true)
+        let outputURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [genomeURL, readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        try Data(">target\nACGT\n".utf8).write(to: sequenceURL)
+        try Data("target\t4\t8\t4\t5\n".utf8).write(to: genomeURL.appendingPathComponent("sequence.fa.gz.fai"))
+        try Data().write(to: genomeURL.appendingPathComponent("sequence.fa.gz.gzi"))
+        let manifest = BundleManifest(
+            name: "12S Amplicons",
+            identifier: "org.lungfish.test.12s",
+            source: SourceInfo(organism: "12S reference", assembly: "test"),
+            genome: GenomeInfo(
+                path: "genome/sequence.fa.gz",
+                indexPath: "genome/sequence.fa.gz.fai",
+                gzipIndexPath: "genome/sequence.fa.gz.gzi",
+                totalLength: 4,
+                chromosomes: [
+                    ChromosomeInfo(name: "target", length: 4, offset: 8, lineBases: 4, lineWidth: 5),
+                ]
+            )
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(manifest).write(to: referenceBundleURL.appendingPathComponent(BundleManifest.filename))
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceBundleURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "hilo-12s"
+
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .twelveSAmpliconMatching(let configuration) = launchRequest else {
+            return XCTFail("Expected 12S amplicon matching request")
+        }
+
+        XCTAssertEqual(configuration.referenceFASTA, sequenceURL.standardizedFileURL)
+    }
+
+    func testTwelveSAmpliconMatchingResolvesTwelveSReferenceBundleFastaAndMetadata() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let projectURL = temp.appendingPathComponent("project.lungfish", isDirectory: true)
+        let referenceBundleURL = projectURL
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("MIDORI-12S.lungfish12sref", isDirectory: true)
+        let readsURL = projectURL.appendingPathComponent("Imports/hilo-f09.lungfishfastq", isDirectory: true)
+        let outputURL = projectURL.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceBundleURL, readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+        let fastaURL = referenceBundleURL.appendingPathComponent("reference.fa")
+        let metadataURL = referenceBundleURL.appendingPathComponent("target-metadata.tsv")
+        try Data(">target\nACGT\n".utf8).write(to: fastaURL)
+        try Data("target_id\tsequence_sha256\nref\tsha\n".utf8).write(to: metadataURL)
+        try TwelveSReferenceBundle.writeManifest(
+            TwelveSReferenceBundleManifest(
+                name: "MIDORI 12S",
+                referenceFastaPath: "reference.fa",
+                targetMetadataPath: "target-metadata.tsv",
+                metrics: TwelveSReferenceBundleMetrics(
+                    referenceCount: 1,
+                    metadataRowCount: 1,
+                    taxidCount: 1,
+                    taxonGroupCount: 1,
+                    taxonomyCount: 1,
+                    alternateMatchCount: 0
+                ),
+                provenancePath: ".lungfish-provenance.json",
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: referenceBundleURL
+        )
+
+        let state = WorkflowOperationDialogState(
+            projectURL: projectURL,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceBundleURL)
+        state.setOutputDirectory(outputURL)
+        state.outputName = "hilo-12s"
+
+        XCTAssertTrue(state.projectReferenceCandidates.contains(referenceBundleURL.standardizedFileURL))
+        XCTAssertEqual(state.readinessText, "Ready to run.")
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .twelveSAmpliconMatching(let configuration) = launchRequest else {
+            return XCTFail("Expected 12S amplicon matching request")
+        }
+
+        XCTAssertEqual(configuration.referenceFASTA, fastaURL.standardizedFileURL)
+        XCTAssertEqual(configuration.referenceMetadata, metadataURL.standardizedFileURL)
+        XCTAssertEqual(configuration.referenceBundleURL, referenceBundleURL.standardizedFileURL)
+    }
+
+    func testTwelveSAmpliconMatchingRequiresFastaReference() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let readsURL = temp.appendingPathComponent("hilo-f09.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        for url in [referenceURL, readsURL, outputURL] {
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [readsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        let twelveSTool = try XCTUnwrap(state.tools.first { $0.title == "12S Amplicon Matching" })
+        state.selectTool(twelveSTool.id)
+        state.setReference(referenceURL)
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertEqual(state.readinessText, "Select a 12S reference FASTA file or reference bundle.")
+        XCTAssertFalse(state.isRunEnabled)
+        XCTAssertThrowsError(try state.makeLaunchRequest())
     }
 
     func testONTGenotypingLaunchRequestUsesExplicitAssayScopedHaplotypeDefinition() throws {
@@ -447,6 +813,53 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
         XCTAssertEqual(request.readType, .illumina)
     }
 
+    func testAmpliconGenotypingDefaultsReadTypeFromSelectedFASTQMetadata() throws {
+        let defaults = try makeDefaults()
+        let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        enablementStore.setWorkflow(.ontGenotyping, enabled: true)
+        let packageStore = WorkflowLibraryImportedPackageStore(userDefaults: defaults)
+        let temp = try temporaryDirectory()
+        let referenceURL = temp.appendingPathComponent("ref.lungfishref", isDirectory: true)
+        let barcodesURL = temp.appendingPathComponent("barcodes.csv")
+        let firstReadsURL = temp.appendingPathComponent("barcode10.lungfishfastq", isDirectory: true)
+        let secondReadsURL = temp.appendingPathComponent("barcode11.lungfishfastq", isDirectory: true)
+        let outputURL = temp.appendingPathComponent("Analyses", isDirectory: true)
+        try Data("sample,barcode\nDW472,ACGT\n".utf8).write(to: barcodesURL)
+        for bundleURL in [referenceURL, firstReadsURL, secondReadsURL, outputURL] {
+            try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        }
+        for bundleURL in [firstReadsURL, secondReadsURL] {
+            let fastqURL = bundleURL.appendingPathComponent("reads.fastq")
+            try "@\(bundleURL.deletingPathExtension().lastPathComponent)\nACGT\n+\nIIII\n".write(
+                to: fastqURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            FASTQMetadataStore.save(
+                PersistedFASTQMetadata(assemblyReadType: .ontReads),
+                for: fastqURL
+            )
+        }
+
+        let state = WorkflowOperationDialogState(
+            projectURL: temp,
+            selectedReadURLs: [firstReadsURL, secondReadsURL],
+            enablementStore: enablementStore,
+            packageStore: packageStore
+        )
+        state.setReference(referenceURL)
+        state.setBarcodeDefinition(barcodesURL)
+        state.setOutputDirectory(outputURL)
+
+        XCTAssertEqual(state.selectedGenotypingReadType, .ont)
+        let launchRequest = try state.makeLaunchRequest()
+        guard case .ontGenotyping(let request) = launchRequest else {
+            return XCTFail("Expected amplicon genotyping request")
+        }
+        XCTAssertEqual(request.inputFASTQURLs, [firstReadsURL.standardizedFileURL, secondReadsURL.standardizedFileURL])
+        XCTAssertEqual(request.readType, .ont)
+    }
+
     func testReconfiguringForNewProjectResetsBarcodeDefinitionToProjectCandidate() throws {
         let defaults = try makeDefaults()
         let enablementStore = WorkflowLibraryEnablementStore(userDefaults: defaults)
@@ -627,6 +1040,30 @@ final class WorkflowOperationDialogStateTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+    }
+
+    private func waitForMainQueue() {
+        RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private static func mhcDefinition(id: String) -> GenotypeHaplotypeDefinitionSet {
+        GenotypeHaplotypeDefinitionSet(
+            id: id,
+            assayID: "MHC-exon2-miSeq",
+            displayName: "MCM MHC",
+            speciesName: "Mauritian cynomolgus macaque",
+            speciesCode: "MCM",
+            prefix: "MHC",
+            locusDefinitions: [
+                GenotypeHaplotypeLocusDefinition(
+                    locus: "MHC-B",
+                    sourceLocus: "MHC-B",
+                    haplotypes: [
+                        GenotypeHaplotypeDefinition(name: "M1", diagnosticAlleles: ["M1"])
+                    ]
+                )
+            ]
+        )
     }
 
     private func sourceBlock(

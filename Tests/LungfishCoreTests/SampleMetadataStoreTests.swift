@@ -170,4 +170,24 @@ struct SampleMetadataStoreTests {
         #expect(store?.records["SRR001"]?["city"] == "Dallas")
         #expect(store?.records["SRR002"]?["city"] == "Houston")
     }
+
+    @Test("init from resolved sample metadata keeps effective records")
+    func initFromResolvedSampleMetadata() throws {
+        let resolved = ResolvedSampleMetadata(
+            columns: ["sample_id", "sample_name", "site"],
+            sampleIDs: ["S1", "S2"],
+            records: [
+                "S1": ["sample_name": "Influent A", "site": "Hilo"],
+                "S2": ["sample_name": "Influent B", "site": "Kona"],
+            ]
+        )
+
+        let store = SampleMetadataStore(resolved: resolved)
+
+        #expect(store.columnNames == ["sample_name", "site"])
+        #expect(store.matchedSampleIds == Set(["S1", "S2"]))
+        #expect(store.records["S1"]?["site"] == "Hilo")
+        #expect(store.records["S2"]?["sample_name"] == "Influent B")
+        #expect(store.unmatchedRecords.isEmpty)
+    }
 }

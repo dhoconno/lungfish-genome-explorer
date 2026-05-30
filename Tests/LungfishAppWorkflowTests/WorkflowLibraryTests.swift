@@ -5,7 +5,7 @@ import LungfishWorkflow
 @MainActor
 final class WorkflowLibraryTests: XCTestCase {
     func testBuiltInCatalogRegistersEveryFASTQOperationAndKeepsONTGenotypingSpecialized() throws {
-        let catalogToolIDs = Set(WorkflowLibraryCatalog.builtIn.map(\.toolID))
+        let catalogToolIDs = Set(WorkflowLibraryCatalog.builtIn.compactMap(\.toolID))
         XCTAssertEqual(catalogToolIDs, Set(FASTQOperationToolID.allCases))
 
         let ont = try XCTUnwrap(WorkflowLibraryCatalog.item(for: .ontGenotyping))
@@ -16,9 +16,19 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .minimap2)?.requiredPluginPackIDs, ["read-mapping"])
         XCTAssertEqual(WorkflowLibraryCatalog.item(for: .mafft)?.requiredPluginPackIDs, ["multiple-sequence-alignment"])
 
-        let coreItems = WorkflowLibraryCatalog.builtIn.filter { $0.toolID != .ontGenotyping }
+        let coreItems = WorkflowLibraryCatalog.builtIn.filter { $0.maturity == .core }
         XCTAssertFalse(coreItems.isEmpty)
         XCTAssertTrue(coreItems.allSatisfy { $0.maturity == .core })
+    }
+
+    func testBuiltInCatalogIncludesTwelveSAmpliconMatchingAsSpecializedWorkflow() throws {
+        let twelveS = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
+
+        XCTAssertNil(twelveS.toolID)
+        XCTAssertEqual(twelveS.title, "12S Amplicon Matching")
+        XCTAssertEqual(twelveS.maturity, .specialized)
+        XCTAssertEqual(twelveS.categoryID, .classification)
+        XCTAssertEqual(twelveS.requiredPluginPackIDs, ["lungfish-tools"])
     }
 
     func testBuiltInSectionsGroupCoreWorkflowsBeforeSpecializedWorkflows() throws {
@@ -31,6 +41,7 @@ final class WorkflowLibraryTests: XCTestCase {
         let specialized = try XCTUnwrap(sections.first { $0.kind == .specialized })
         XCTAssertEqual(specialized.title, "Specialized Workflows")
         XCTAssertTrue(specialized.items.contains { $0.toolID == .ontGenotyping })
+        XCTAssertTrue(specialized.items.contains { $0.id == WorkflowLibraryCatalog.twelveSAmpliconMatchingID })
         XCTAssertTrue(sections.firstIndex { $0.kind == .core }! < sections.firstIndex { $0.kind == .specialized }!)
     }
 
@@ -40,23 +51,50 @@ final class WorkflowLibraryTests: XCTestCase {
         XCTAssertTrue(core.groups.contains { $0.title == "Mapping" && $0.items.contains { $0.toolID == .minimap2 } })
         XCTAssertTrue(core.groups.contains { $0.title == "Alignment" && $0.items.contains { $0.toolID == .mafft } })
         XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.toolID == .ontGenotyping })
+        XCTAssertFalse(core.groups.flatMap(\.items).contains { $0.id == WorkflowLibraryCatalog.twelveSAmpliconMatchingID })
     }
 
-    func testFreshInstallEnablesBundledONTGenotypingAndPersistsExplicitChanges() throws {
+    func testFreshInstallEnablesBundledSpecializedWorkflowsAndPersistsExplicitChanges() throws {
         let defaults = try makeDefaults()
         let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let twelveS = try XCTUnwrap(WorkflowLibraryCatalog.item(id: WorkflowLibraryCatalog.twelveSAmpliconMatchingID))
 
         XCTAssertTrue(store.isWorkflowEnabled(.minimap2))
         XCTAssertTrue(store.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertTrue(store.isWorkflowEnabled(twelveS))
 
         store.setWorkflow(.ontGenotyping, enabled: false)
+        store.setWorkflow(twelveS, enabled: false)
         XCTAssertFalse(store.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertFalse(store.isWorkflowEnabled(twelveS))
 
         let reloaded = WorkflowLibraryEnablementStore(userDefaults: defaults)
         XCTAssertFalse(reloaded.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertFalse(reloaded.isWorkflowEnabled(twelveS))
 
         reloaded.setWorkflow(.ontGenotyping, enabled: true)
+        reloaded.setWorkflow(twelveS, enabled: true)
         XCTAssertTrue(reloaded.isWorkflowEnabled(.ontGenotyping))
+        XCTAssertTrue(reloaded.isWorkflowEnabled(twelveS))
+    }
+
+    func testEnablementStorePostsChangeNotificationWhenWorkflowAvailabilityChanges() throws {
+        let defaults = try makeDefaults()
+        let store = WorkflowLibraryEnablementStore(userDefaults: defaults)
+        let expectation = expectation(description: "workflow enablement changed")
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workflowLibraryEnablementDidChange,
+            object: nil,
+            queue: nil
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?["workflowID"] as? String, FASTQOperationToolID.ontGenotyping.rawValue)
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        store.setWorkflow(.ontGenotyping, enabled: false)
+
+        wait(for: [expectation], timeout: 1)
     }
 
     func testEnablingSpecializedWorkflowIsBlockedUntilRequiredPluginPacksAreReady() async throws {

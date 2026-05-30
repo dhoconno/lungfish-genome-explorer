@@ -1715,7 +1715,7 @@ final class GenotypeResultViewportTests: XCTestCase {
         XCTAssertFalse(alleles.contains("14_M2_DQA1_01_04"))
     }
 
-    func testConfigureRecomputesHaplotypeAnalysisWithDefaultDropoutSettings() throws {
+    func testConfigureRecomputesHaplotypeAnalysisWithDefaultDropoutSettingsWhenNoPersistedAnalysis() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
@@ -1725,37 +1725,19 @@ final class GenotypeResultViewportTests: XCTestCase {
             makeCall(sample: "DW472", genotype: "12_M2_B_019_03", reads: 400),
             makeCall(sample: "DW472", genotype: "12_M2_B_109_04", reads: 300),
         ]
-        let analysis = GenotypeHaplotypeAnalysis(
-            assayID: "MHC-exon2-miSeq",
-            definitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques",
-            definitionSetName: "Mauritian cynomolgus macaques",
-            speciesName: "Mauritian cynomolgus macaques",
-            samples: [
-                GenotypeHaplotypeSampleAnalysis(
-                    sample: "DW472",
-                    calls: [
-                        GenotypeHaplotypeLocusCall(
-                            locus: "MHC-B",
-                            sourceLocus: "Mafa-B",
-                            haplotype1: "M3B",
-                            haplotype2: "-",
-                            status: .called,
-                            matchedHaplotypes: [],
-                            observedGenotypeCount: 2,
-                            observedGenotypes: ["12_M2_B_019_03", "12_M2_B_109_04"]
-                        )
-                    ]
-                )
-            ]
-        )
-
-        controller.configure(result: makeResult(bundleURL: bundleURL, samples: [], calls: calls, haplotypeAnalysis: analysis))
+        controller.configure(result: makeResult(
+            bundleURL: bundleURL,
+            samples: [],
+            calls: calls,
+            haplotypeAnalysis: nil,
+            haplotypeDefinitionSetID: "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+        ))
 
         let slot = try XCTUnwrap(controller.testingOutlineSlots(sample: "DW472").first { $0.locus == "MHC-B" })
         XCTAssertEqual(slot.h1.testingLabel, "M2B")
     }
 
-    func testConfigureAppliesSavedDropoutThresholdsToLiveHaplotypeCalls() throws {
+    func testConfigureUsesPersistedHaplotypeAnalysisWhenSavedDropoutThresholdsExist() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
@@ -1808,13 +1790,12 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DRB"))
-        XCTAssertEqual(evidence.status, .called)
-        XCTAssertEqual(evidence.h1Name, "M2DR")
-        XCTAssertEqual(evidence.h2Name, "M3DR")
-        XCTAssertEqual(evidence.errorExplanation, "")
+        XCTAssertEqual(evidence.status, .tooManyHaplotypes)
+        XCTAssertEqual(evidence.h1Name, "ERR: TMH (M1DR, M2DR, M3DR)")
+        XCTAssertEqual(evidence.h2Name, "ERR: TMH (M1DR, M2DR, M3DR)")
     }
 
-    func testConfigureAppliesDefaultDropoutThresholdsWithoutSavedSidecar() throws {
+    func testConfigureUsesPersistedHaplotypeAnalysisWithoutSavedSidecar() throws {
         let bundleURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("GenotypeResultViewportTests-\(UUID().uuidString).lungfishgenotype", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: bundleURL) }
@@ -1861,10 +1842,9 @@ final class GenotypeResultViewportTests: XCTestCase {
         ))
 
         let evidence = try XCTUnwrap(controller.callEvidence(sample: "DW472", locus: "MHC-DRB"))
-        XCTAssertEqual(evidence.status, .called)
-        XCTAssertEqual(evidence.h1Name, "M2DR")
-        XCTAssertEqual(evidence.h2Name, "M3DR")
-        XCTAssertEqual(evidence.errorExplanation, "")
+        XCTAssertEqual(evidence.status, .tooManyHaplotypes)
+        XCTAssertEqual(evidence.h1Name, "ERR: TMH (M1DR, M2DR, M3DR)")
+        XCTAssertEqual(evidence.h2Name, "ERR: TMH (M1DR, M2DR, M3DR)")
     }
 
     func testDW472bLikeMHCBReviewEvidenceUsesLiveDropoutAnalysis() throws {

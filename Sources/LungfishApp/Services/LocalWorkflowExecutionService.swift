@@ -296,11 +296,24 @@ extension LocalWorkflowCLIProcessRunning {
     }
 }
 
-enum LocalWorkflowExecutionError: Error, Equatable {
+enum LocalWorkflowExecutionError: Error, LocalizedError, Equatable {
     case nonZeroExit(Int32)
     case incompleteRunBundle(String)
     case missingProvenance(String)
     case invalidProvenance(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .nonZeroExit(let status):
+            return "The workflow command failed with exit code \(status)."
+        case .incompleteRunBundle(let path):
+            return "The workflow run bundle is incomplete: \(path)"
+        case .missingProvenance(let path):
+            return "The workflow output is missing required provenance: \(path)"
+        case .invalidProvenance(let path):
+            return "The workflow output provenance is incomplete or does not match the expected workflow: \(path)"
+        }
+    }
 }
 
 struct ProcessLocalWorkflowCLIProcessRunner: LocalWorkflowCLIProcessRunning {

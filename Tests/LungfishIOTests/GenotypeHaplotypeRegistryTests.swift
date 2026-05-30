@@ -799,6 +799,67 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
         )
     }
 
+    func testHaplotypeDefinitionLibraryListsMHCReferenceBundleDefinitionsWhenRequested() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HaplotypeDefinitionLibrary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let definition = makeDefinitionSet(displayName: "Bundled MHC Definition")
+        try writeMHCReferenceBundle(
+            bundleURL: bundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: definition
+        )
+
+        let library = HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+
+        XCTAssertFalse(library.records().contains { $0.referenceBundleURL == bundleURL.standardizedFileURL })
+        let bundleRecord = try XCTUnwrap(
+            library.records(includeReferenceBundles: true).first {
+                $0.referenceBundleURL == bundleURL.standardizedFileURL
+                    && $0.definitionSet.id == definition.id
+            }
+        )
+        XCTAssertEqual(bundleRecord.referenceFASTAURL?.lastPathComponent, "reference.fa")
+        XCTAssertEqual(bundleRecord.sourceDisplayName, "MHC Reference Bundle")
+        XCTAssertFalse(bundleRecord.isShadowed)
+    }
+
+    func testActiveRecordsCanIncludeProjectMHCReferenceBundleDefinitions() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("HaplotypeDefinitionLibrary-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let definition = makeDefinitionSet(displayName: "Bundled MHC Definition")
+        try writeMHCReferenceBundle(
+            bundleURL: bundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: definition
+        )
+
+        let library = HaplotypeDefinitionLibrary(projectRoot: projectRoot, globalRoot: globalRoot)
+
+        XCTAssertFalse(library.activeRecords().contains { $0.referenceBundleURL == bundleURL.standardizedFileURL })
+        let activeWithBundles = library.activeRecords(
+            assayID: definition.assayID,
+            speciesCode: definition.speciesCode,
+            includeReferenceBundles: true
+        )
+        XCTAssertTrue(activeWithBundles.contains { record in
+            record.definitionSet.id == definition.id
+                && record.referenceBundleURL == bundleURL.standardizedFileURL
+                && record.sourceDisplayName == "MHC Reference Bundle"
+        })
+    }
+
     private func makeDefinitionSet(displayName: String) -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
             id: "test.definition",
@@ -820,6 +881,32 @@ final class GenotypeHaplotypeRegistryTests: XCTestCase {
                     ]
                 )
             ]
+        )
+    }
+
+    private func writeMHCReferenceBundle(
+        bundleURL: URL,
+        referenceContents: String,
+        definition: GenotypeHaplotypeDefinitionSet
+    ) throws {
+        let referenceURL = bundleURL.appendingPathComponent("reference.fa")
+        let definitionURL = bundleURL.appendingPathComponent("haplotypes/test-definition.lungfishhaplotypedef.json")
+        try FileManager.default.createDirectory(at: definitionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try referenceContents.write(to: referenceURL, atomically: true, encoding: .utf8)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(definition).write(to: definitionURL, options: .atomic)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: ["haplotypes/test-definition.lungfishhaplotypedef.json"],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                provenancePath: ".lungfish-provenance.json",
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
         )
     }
 

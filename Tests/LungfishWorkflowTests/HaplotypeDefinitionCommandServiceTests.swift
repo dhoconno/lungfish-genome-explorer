@@ -105,6 +105,153 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         }
     }
 
+    func testSaveDefinitionInMHCReferenceBundleUpdatesEmbeddedDefinitionAndCanonicalProvenance() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let original = makeDefinition(id: "custom.bundle", displayName: "Original Bundle Definition")
+        try writeMHCReferenceBundle(
+            bundleURL: bundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: original
+        )
+        let edited = GenotypeHaplotypeDefinitionSet(
+            id: original.id,
+            assayID: original.assayID,
+            displayName: "Edited Bundle Definition",
+            speciesName: original.speciesName,
+            speciesCode: original.speciesCode,
+            prefix: original.prefix,
+            locusDefinitions: original.locusDefinitions
+        )
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let result = try service.saveDefinition(
+            edited,
+            inMHCReferenceBundle: bundleURL,
+            changeNote: "Edited in Haplotype Definition Manager",
+            argv: ["lungfish-gui", "haplotypes", "bundle-save", bundleURL.path, original.id]
+        )
+
+        XCTAssertEqual(result.definitionSet.id, original.id)
+        XCTAssertEqual(result.definitionURL.lastPathComponent, "custom.bundle.lungfishhaplotypedef.json")
+        let stored = try XCTUnwrap(
+            MHCAmpliconReferenceBundle.haplotypeDefinition(id: original.id, in: bundleURL)
+        )
+        XCTAssertEqual(stored.displayName, "Edited Bundle Definition")
+        XCTAssertEqual(stored.schemaVersion, 1)
+        XCTAssertEqual(stored.changeNote, "Edited in Haplotype Definition Manager")
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(provenance.workflowName, "Haplotype definition edit in MHC reference bundle")
+        XCTAssertTrue(provenance.files.contains { $0.path == bundleURL.appendingPathComponent("reference.fa").path })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == result.definitionURL.path })
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: bundleURL
+                .appendingPathComponent(ProvenanceWriter.bundleProvenanceDirectoryName, isDirectory: true)
+                .appendingPathComponent(ProvenanceWriter.bundleRollupFilename)
+                .path
+        ))
+    }
+
+    func testReplaceReferenceFASTAInMHCReferenceBundleUpdatesManifestMetricsAndProvenance() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let bundleURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let definition = makeDefinition(id: "custom.bundle", displayName: "Bundle Definition")
+        try writeMHCReferenceBundle(
+            bundleURL: bundleURL,
+            referenceContents: ">M1\nACGT\n",
+            definition: definition
+        )
+        let replacementURL = root.appendingPathComponent("replacement.fa")
+        try ">M1\nACGT\n>M2\nTTTT\n".write(to: replacementURL, atomically: true, encoding: .utf8)
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let storedReferenceURL = try service.replaceReferenceFASTA(
+            inMHCReferenceBundle: bundleURL,
+            with: replacementURL,
+            argv: ["lungfish-gui", "haplotypes", "bundle-replace-reference", bundleURL.path, replacementURL.path]
+        )
+
+        let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
+        XCTAssertEqual(manifest.metrics.referenceCount, 2)
+        XCTAssertEqual(manifest.metrics.haplotypeDefinitionCount, 1)
+        XCTAssertEqual(storedReferenceURL.lastPathComponent, "reference.fa")
+        XCTAssertEqual(
+            try String(contentsOf: storedReferenceURL, encoding: .utf8),
+            ">M1\nACGT\n>M2\nTTTT\n"
+        )
+
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceWriter.provenanceFilename)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: provenanceURL))
+        XCTAssertEqual(provenance.workflowName, "MHC reference bundle FASTA replacement")
+        XCTAssertTrue(provenance.files.contains { $0.path == replacementURL.path })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == storedReferenceURL.path })
+    }
+
+    func testCreateMHCReferenceBundleFromBuiltInDefinitionEmbedsReferenceDefinitionAndProvenance() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let projectRoot = root.appendingPathComponent("project.lungfish", isDirectory: true)
+        let globalRoot = root.appendingPathComponent("global", isDirectory: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        try ">Mafa-B*001\nACGT\n>Mafa-B*002\nTTTT\n".write(to: referenceURL, atomically: true, encoding: .utf8)
+        let outputURL = projectRoot
+            .appendingPathComponent("Reference allele databases", isDirectory: true)
+            .appendingPathComponent("MCM-MHC.lungfishmhcref", isDirectory: true)
+        let definitionID = "MHC-exon2-miSeq.mauritian-cynomolgus-macaques"
+
+        let service = HaplotypeDefinitionCommandService(projectRoot: projectRoot, globalRoot: globalRoot)
+        let result = try await service.createMHCReferenceBundle(
+            definitionIDs: [definitionID],
+            assayID: "MHC-exon2-miSeq",
+            speciesCode: "MCM",
+            scope: .builtIn,
+            referenceFASTA: referenceURL,
+            outputURL: outputURL,
+            name: "MCM Explicit MHC",
+            defaultDefinitionID: definitionID,
+            forceOverwrite: false,
+            argv: [
+                "lungfish-cli", "haplotypes", "bundle-create",
+                "--definition", definitionID,
+                "--scope", "built-in",
+                "--reference-fasta", referenceURL.path,
+                "--output", outputURL.path,
+            ]
+        )
+
+        XCTAssertEqual(result.bundleURL, outputURL.standardizedFileURL)
+        let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: outputURL)
+        XCTAssertEqual(manifest.name, "MCM Explicit MHC")
+        XCTAssertEqual(manifest.defaultHaplotypeDefinitionID, definitionID)
+        XCTAssertEqual(manifest.metrics.referenceCount, 2)
+        XCTAssertEqual(manifest.metrics.haplotypeDefinitionCount, 1)
+        XCTAssertEqual(try MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: outputURL)?.id, definitionID)
+        XCTAssertEqual(MHCAmpliconReferenceBundle.referenceFASTAURL(in: outputURL)?.lastPathComponent, "reference.fa")
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(fromSidecar: result.provenanceURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish haplotypes bundle-create")
+        XCTAssertTrue(provenance.files.contains { $0.path == referenceURL.path })
+        XCTAssertTrue(provenance.outputs.contains { $0.path == outputURL.path })
+        let definitionSources = try XCTUnwrap(provenance.options.explicit["haplotypeDefinitionSources"]?.arrayValue)
+        XCTAssertTrue(definitionSources.contains { value in
+            guard let fields = value.dictionaryValue else { return false }
+            return fields["definitionID"] == .string(definitionID)
+                && fields["scope"] == .string(HaplotypeDefinitionScope.builtIn.rawValue)
+        })
+    }
+
     private func makeDefinition(id: String, displayName: String) -> GenotypeHaplotypeDefinitionSet {
         GenotypeHaplotypeDefinitionSet(
             id: id,
@@ -136,6 +283,32 @@ final class HaplotypeDefinitionCommandServiceTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(definition).write(to: url, options: .atomic)
+    }
+
+    private func writeMHCReferenceBundle(
+        bundleURL: URL,
+        referenceContents: String,
+        definition: GenotypeHaplotypeDefinitionSet
+    ) throws {
+        let referenceURL = bundleURL.appendingPathComponent("reference.fa")
+        let definitionURL = bundleURL
+            .appendingPathComponent("haplotypes", isDirectory: true)
+            .appendingPathComponent("\(definition.id).lungfishhaplotypedef.json")
+        try FileManager.default.createDirectory(at: definitionURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try referenceContents.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try writeDefinition(definition, to: definitionURL)
+        try MHCAmpliconReferenceBundle.writeManifest(
+            MHCAmpliconReferenceBundleManifest(
+                name: "MCM MHC",
+                referenceFastaPath: "reference.fa",
+                haplotypeDefinitionPaths: ["haplotypes/\(definition.id).lungfishhaplotypedef.json"],
+                defaultHaplotypeDefinitionID: definition.id,
+                metrics: MHCAmpliconReferenceBundleMetrics(referenceCount: 1, haplotypeDefinitionCount: 1),
+                provenancePath: ProvenanceWriter.provenanceFilename,
+                createdAt: "2026-05-30T00:00:00Z"
+            ),
+            to: bundleURL
+        )
     }
 
     private func temporaryDirectory() throws -> URL {

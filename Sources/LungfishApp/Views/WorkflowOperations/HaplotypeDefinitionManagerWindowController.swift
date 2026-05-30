@@ -3,6 +3,7 @@ import Combine
 import LungfishIO
 import LungfishWorkflow
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class HaplotypeDefinitionManagerWindowController: NSWindowController {
@@ -48,6 +49,9 @@ struct HaplotypeDefinitionManagerEditingDraft: Identifiable {
     let originalDefinitionID: String?
     let isReadOnly: Bool
     let allowsIdentityEditing: Bool
+    let definitionURL: URL?
+    let referenceBundleURL: URL?
+    let referenceFASTAURL: URL?
     var definition: GenotypeHaplotypeDefinitionSet
 }
 
@@ -57,6 +61,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     @Published private(set) var records: [HaplotypeDefinitionRecord] = []
     @Published var selectedRecordID: String?
     @Published var errorMessage: String?
+    @Published var isWorking = false
 
     private var globalRoot: URL
 
@@ -80,7 +85,7 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     }
 
     func reload() {
-        records = service.listDefinitions(includeShadowed: true)
+        records = service.listDefinitions(includeShadowed: true, includeReferenceBundles: true)
         if selectedRecordID == nil || records.contains(where: { $0.id == selectedRecordID }) == false {
             selectedRecordID = records.first?.id
         }
@@ -92,6 +97,9 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             originalDefinitionID: nil,
             isReadOnly: false,
             allowsIdentityEditing: true,
+            definitionURL: nil,
+            referenceBundleURL: nil,
+            referenceFASTAURL: nil,
             definition: Self.templateDefinition()
         )
     }
@@ -102,6 +110,9 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
             originalDefinitionID: record.definitionSet.id,
             isReadOnly: record.scope == .builtIn,
             allowsIdentityEditing: false,
+            definitionURL: record.fileURL,
+            referenceBundleURL: record.referenceBundleURL,
+            referenceFASTAURL: record.referenceFASTAURL,
             definition: record.definitionSet
         )
     }
@@ -151,18 +162,30 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     func duplicateSelected(to scope: HaplotypeDefinitionScope) {
         guard let record = selectedRecord else { return }
         perform {
-            _ = try service.duplicateDefinition(
-                definitionID: record.definitionSet.id,
-                assayID: record.definitionSet.assayID,
-                fromScope: record.scope,
-                toScope: scope,
-                changeNote: "Duplicated from \(record.scope.displayName)",
-                argv: [
-                    "lungfish", "haplotypes", "duplicate", record.definitionSet.id,
-                    "--source-scope", record.scope.rawValue,
-                    "--target-scope", scope.rawValue,
-                ]
-            )
+            if record.referenceBundleURL != nil {
+                _ = try service.saveDefinition(
+                    record.definitionSet,
+                    scope: scope,
+                    changeNote: "Duplicated from MHC reference bundle",
+                    argv: cliArgv(
+                        ["haplotypes", "save", record.definitionSet.id, "--scope", scope.rawValue],
+                        scope: scope
+                    )
+                )
+            } else {
+                _ = try service.duplicateDefinition(
+                    definitionID: record.definitionSet.id,
+                    assayID: record.definitionSet.assayID,
+                    fromScope: record.scope,
+                    toScope: scope,
+                    changeNote: "Duplicated from \(record.scope.displayName)",
+                    argv: [
+                        "lungfish", "haplotypes", "duplicate", record.definitionSet.id,
+                        "--source-scope", record.scope.rawValue,
+                        "--target-scope", scope.rawValue,
+                    ]
+                )
+            }
         }
     }
 
@@ -178,21 +201,166 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
     }
 
     func saveDraft(_ draft: HaplotypeDefinitionManagerEditingDraft) {
-        let definitionPath = definitionURL(for: draft.definition.id, scope: draft.scope)?.path
-            ?? draft.definition.id
-        perform {
-            _ = try service.saveDefinition(
-                draft.definition,
-                scope: draft.scope,
-                changeNote: draft.originalDefinitionID == nil
-                    ? "Created in Haplotype Definition Manager"
-                    : "Edited in Haplotype Definition Manager",
-                argv: cliArgv(
-                    ["haplotypes", "save", definitionPath, "--scope", draft.scope.rawValue],
-                    scope: draft.scope
+        if let bundleURL = draft.referenceBundleURL {
+            perform {
+                _ = try service.saveDefinition(
+                    draft.definition,
+                    inMHCReferenceBundle: bundleURL,
+                    changeNote: "Edited in Haplotype Definition Manager",
+                    argv: [
+                        "lungfish-cli", "haplotypes", "bundle-save",
+                        draft.definitionURL?.path ?? draft.definition.id,
+                        "--bundle", bundleURL.path,
+                    ]
                 )
+            }
+        } else {
+            let definitionPath = definitionURL(for: draft.definition.id, scope: draft.scope)?.path
+                ?? draft.definition.id
+            perform {
+                _ = try service.saveDefinition(
+                    draft.definition,
+                    scope: draft.scope,
+                    changeNote: draft.originalDefinitionID == nil
+                        ? "Created in Haplotype Definition Manager"
+                        : "Edited in Haplotype Definition Manager",
+                    argv: cliArgv(
+                        ["haplotypes", "save", definitionPath, "--scope", draft.scope.rawValue],
+                        scope: draft.scope
+                    )
+                )
+            }
+        }
+    }
+
+    func replaceReferenceFASTA(for record: HaplotypeDefinitionRecord) {
+        guard let bundleURL = record.referenceBundleURL else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choose Reference FASTA"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = ["fa", "fasta", "fna", "gz"].compactMap {
+            UTType(filenameExtension: $0)
+        }
+        begin(panel) { [weak self, panel] response in
+            guard response == .OK, let url = panel.url else { return }
+            guard let self else { return }
+            self.perform {
+                _ = try self.service.replaceReferenceFASTA(
+                    inMHCReferenceBundle: bundleURL,
+                    with: url,
+                    argv: [
+                        "lungfish-cli", "haplotypes", "bundle-replace-reference",
+                        url.path,
+                        "--bundle", bundleURL.path,
+                    ]
+                )
+            }
+        }
+    }
+
+    func createMHCReferenceBundle(for record: HaplotypeDefinitionRecord) {
+        let referencePanel = NSOpenPanel()
+        referencePanel.title = "Choose MHC Reference FASTA"
+        referencePanel.canChooseDirectories = false
+        referencePanel.canChooseFiles = true
+        referencePanel.allowsMultipleSelection = false
+        referencePanel.allowedContentTypes = ["fa", "fasta", "fna", "fas", "gz"].compactMap {
+            UTType(filenameExtension: $0)
+        }
+        begin(referencePanel) { [weak self, referencePanel] response in
+            guard response == .OK, let referenceURL = referencePanel.url else { return }
+            guard let self else { return }
+            self.chooseMHCReferenceBundleDestination(for: record, referenceFASTA: referenceURL)
+        }
+    }
+
+    private func chooseMHCReferenceBundleDestination(
+        for record: HaplotypeDefinitionRecord,
+        referenceFASTA: URL
+    ) {
+        let panel = NSSavePanel()
+        panel.title = "Create MHC Reference Bundle"
+        panel.nameFieldStringValue = "\(safeBundleName(record.definitionSet.displayName)).\(MHCAmpliconReferenceBundle.directoryExtension)"
+        panel.allowedContentTypes = [UTType(filenameExtension: MHCAmpliconReferenceBundle.directoryExtension)].compactMap { $0 }
+        if let projectURL {
+            let directory = projectURL.appendingPathComponent("Reference allele databases", isDirectory: true)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            panel.directoryURL = directory
+        }
+        begin(panel) { [weak self, panel] response in
+            guard response == .OK, let rawOutputURL = panel.url else { return }
+            guard let self else { return }
+            let outputURL = self.mhcReferenceBundleURL(from: rawOutputURL)
+            self.createMHCReferenceBundle(
+                from: record,
+                referenceFASTA: referenceFASTA,
+                outputURL: outputURL
             )
         }
+    }
+
+    private func createMHCReferenceBundle(
+        from record: HaplotypeDefinitionRecord,
+        referenceFASTA: URL,
+        outputURL: URL
+    ) {
+        let service = self.service
+        let argv = [
+            "lungfish-cli", "haplotypes", "bundle-create",
+            "--definition", record.definitionSet.id,
+            "--assay", record.definitionSet.assayID,
+            "--species", record.definitionSet.speciesCode,
+            "--scope", record.scope.rawValue,
+            "--reference-fasta", referenceFASTA.path,
+            "--output", outputURL.path,
+            "--name", record.definitionSet.displayName,
+            "--default-definition", record.definitionSet.id,
+        ]
+        isWorking = true
+        Task.detached(priority: .userInitiated) {
+            do {
+                let result = try await service.createMHCReferenceBundle(
+                    records: [record],
+                    referenceFASTA: referenceFASTA,
+                    outputURL: outputURL,
+                    name: record.definitionSet.displayName,
+                    defaultDefinitionID: record.definitionSet.id,
+                    forceOverwrite: false,
+                    argv: argv
+                )
+                await MainActor.run {
+                    self.isWorking = false
+                    self.reload()
+                    self.selectedRecordID = self.records.first {
+                        $0.referenceBundleURL == result.bundleURL
+                            && $0.definitionSet.id == record.definitionSet.id
+                    }?.id ?? self.selectedRecordID
+                }
+            } catch {
+                await MainActor.run {
+                    self.isWorking = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func revealReferenceFASTA(for record: HaplotypeDefinitionRecord) {
+        guard let url = record.referenceFASTAURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    func displayPath(_ url: URL?) -> String {
+        guard let url else { return "" }
+        if let projectURL {
+            let prefix = projectURL.path.hasSuffix("/") ? projectURL.path : projectURL.path + "/"
+            if url.path.hasPrefix(prefix) {
+                return String(url.path.dropFirst(prefix.count))
+            }
+        }
+        return url.path
     }
 
     private var service: HaplotypeDefinitionCommandService {
@@ -236,6 +404,25 @@ final class HaplotypeDefinitionManagerViewModel: ObservableObject {
         } else {
             panel.begin(completionHandler: completionHandler)
         }
+    }
+
+    private func mhcReferenceBundleURL(from url: URL) -> URL {
+        if url.pathExtension.lowercased() == MHCAmpliconReferenceBundle.directoryExtension {
+            return url.standardizedFileURL
+        }
+        return url
+            .deletingPathExtension()
+            .appendingPathExtension(MHCAmpliconReferenceBundle.directoryExtension)
+            .standardizedFileURL
+    }
+
+    private func safeBundleName(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(.init(charactersIn: "._- "))
+        let name = String(value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        })
+        .trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: ".-_")))
+        return name.isEmpty ? "MHC Reference" : name
     }
 
     private static func templateDefinition() -> GenotypeHaplotypeDefinitionSet {
@@ -328,13 +515,14 @@ struct HaplotypeDefinitionManagerView: View {
             } label: {
                 Label("Export", systemImage: "square.and.arrow.up")
             }
-            .disabled(viewModel.selectedRecord == nil)
+            .disabled(viewModel.selectedRecord == nil || viewModel.selectedRecord?.referenceBundleURL != nil)
             Spacer()
             Button {
                 viewModel.reload()
             } label: {
                 Label("Refresh", systemImage: "arrow.clockwise")
             }
+            .disabled(viewModel.isWorking)
         }
         .padding(10)
     }
@@ -356,7 +544,7 @@ struct HaplotypeDefinitionManagerView: View {
                 Text(record.definitionSet.speciesCode)
             }
             TableColumn("Source") { record in
-                Text(record.scope.displayName)
+                Text(record.sourceDisplayName)
             }
             TableColumn("Status") { record in
                 Text(record.isShadowed ? "Shadowed" : "Active")
@@ -375,13 +563,32 @@ struct HaplotypeDefinitionManagerView: View {
                     detailRow("Definition ID", record.definitionSet.id)
                     detailRow("Assay", record.definitionSet.assayID)
                     detailRow("Species", "\(record.definitionSet.speciesName) (\(record.definitionSet.speciesCode))")
-                    detailRow("Source", record.scope.displayName)
+                    detailRow("Source", record.sourceDisplayName)
+                    if record.referenceBundleURL != nil {
+                        detailRow("Bundle", viewModel.displayPath(record.referenceBundleURL))
+                        detailRow("Reference FASTA", viewModel.displayPath(record.referenceFASTAURL))
+                    } else {
+                        detailRow("Reference FASTA", "Not bundled")
+                    }
                     detailRow("Loci", record.definitionSet.locusDefinitions.map(\.locus).joined(separator: ", "))
                 }
                 Divider()
                 HStack(spacing: 8) {
                     Button(record.scope == .builtIn ? "View" : "Edit") {
                         editingDraft = viewModel.editDraft(for: record)
+                    }
+                    if record.referenceBundleURL != nil {
+                        Button("Replace FASTA...") {
+                            viewModel.replaceReferenceFASTA(for: record)
+                        }
+                        Button("Reveal FASTA") {
+                            viewModel.revealReferenceFASTA(for: record)
+                        }
+                    } else {
+                        Button("Create Project Bundle...") {
+                            viewModel.createMHCReferenceBundle(for: record)
+                        }
+                        .disabled(viewModel.isWorking || !viewModel.canWriteProjectDefinitions)
                     }
                     if viewModel.canWriteProjectDefinitions {
                         Button("Duplicate to Project") {
@@ -396,7 +603,11 @@ struct HaplotypeDefinitionManagerView: View {
                     }
                     .foregroundStyle(Color.lungfishDangerFallback)
                     .tint(Color.lungfishDangerFallback)
-                    .disabled(record.scope == .builtIn)
+                    .disabled(record.scope == .builtIn || record.referenceBundleURL != nil)
+                }
+                if viewModel.isWorking {
+                    ProgressView()
+                        .controlSize(.small)
                 }
                 Spacer()
             }

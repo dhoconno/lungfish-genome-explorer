@@ -419,8 +419,8 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     /// Build a `GenotypeDropoutEvaluator` matching the current view-model
-    /// state (sliders + per-locus EQ). Used to seed the live analysis on
-    /// bundle open and to recompute after each Apply.
+    /// state (sliders + per-locus EQ). Used when the analyst explicitly
+    /// applies dropout settings or when no persisted analysis is available.
     private func currentDropoutEvaluator() -> GenotypeDropoutEvaluator {
         GenotypeDropoutEvaluator(
             absolute: dropoutAbsoluteEnabled ? dropoutAbsoluteValue : nil,
@@ -3050,6 +3050,7 @@ final class GenotypeResultViewController: NSViewController {
     }
 
     private func shouldEagerlyRecomputeHaplotypeAnalysis(for result: ONTGenotypeResultBundleData) -> Bool {
+        guard result.haplotypeAnalysis == nil else { return false }
         guard let context = haplotypeDefinitionContext(for: result) else { return false }
         return context.source != .inferredPreview
     }

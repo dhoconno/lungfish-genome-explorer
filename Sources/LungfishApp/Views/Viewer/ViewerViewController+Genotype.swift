@@ -24,6 +24,7 @@ extension ViewerViewController {
         hideAssemblyView()
         hideMappingView()
         hideAlignmentTreeBundleViews()
+        hideTwelveSAmpliconResultView()
         clearBundleDisplay()
         hideCollectionBackButton()
         hideBundleBackNavigationButton()

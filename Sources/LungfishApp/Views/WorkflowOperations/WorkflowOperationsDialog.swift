@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct WorkflowOperationsDialog: View {
     @Bindable var state: WorkflowOperationDialogState
     let onRun: (WorkflowOperationLaunchRequest) -> Void
+    let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
 
     var body: some View {
         DatasetOperationsDialog(
@@ -22,7 +23,10 @@ struct WorkflowOperationsDialog: View {
             onCancel: { NSApp.keyWindow?.close() },
             onRun: runSelectedWorkflow
         ) {
-            WorkflowOperationsDetailPane(state: state)
+            WorkflowOperationsDetailPane(
+                state: state,
+                onCreateTwelveSReferenceBundle: onCreateTwelveSReferenceBundle
+            )
         }
         .alert(
             "Workflow Operation Error",
@@ -47,9 +51,12 @@ struct WorkflowOperationsDialog: View {
 
 private struct WorkflowOperationsDetailPane: View {
     @Bindable var state: WorkflowOperationDialogState
+    let onCreateTwelveSReferenceBundle: (TwelveSReferenceBundleBuildConfiguration) -> Void
     @State private var showingReferencePanel = false
     @State private var showingBarcodePanel = false
     @State private var showingOutputPanel = false
+    @State private var showingTwelveSReferenceBuilder = false
+    @State private var twelveSReferenceDraft = TwelveSReferenceBundleDraft()
 
     var body: some View {
         ScrollView {
@@ -64,6 +71,9 @@ private struct WorkflowOperationsDetailPane: View {
                     if case .ontGenotyping = state.selectedTool?.kind,
                        state.selectedGenotypingMode != .illuminaPaired {
                         barcodePicker
+                    }
+                    if case .twelveSAmpliconMatching = state.selectedTool?.kind {
+                        twelveSSampleMetadataPicker
                     }
                     readPicker
                 }
@@ -89,6 +99,19 @@ private struct WorkflowOperationsDetailPane: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 20)
         }
+        .sheet(isPresented: $showingTwelveSReferenceBuilder) {
+            TwelveSReferenceBundleBuilderSheet(
+                projectURL: state.projectURL,
+                draft: $twelveSReferenceDraft,
+                onCancel: {
+                    showingTwelveSReferenceBuilder = false
+                },
+                onCreate: { configuration in
+                    showingTwelveSReferenceBuilder = false
+                    onCreateTwelveSReferenceBundle(configuration)
+                }
+            )
+        }
     }
 
     private var referencePicker: some View {
@@ -111,6 +134,12 @@ private struct WorkflowOperationsDetailPane: View {
                     .foregroundStyle(state.selectedReferenceURL == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
                     .lineLimit(2)
                 Spacer()
+                if case .twelveSAmpliconMatching = state.selectedTool?.kind {
+                    Button("Create 12S Reference\u{2026}") {
+                        twelveSReferenceDraft = TwelveSReferenceBundleDraft(projectURL: state.projectURL)
+                        showingTwelveSReferenceBuilder = true
+                    }
+                }
                 Button(state.selectedReferenceURL == nil ? "Choose…" : "Replace…") {
                     browseForReference()
                 }
@@ -171,6 +200,28 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private var twelveSSampleMetadataPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Analysis Metadata")
+                .font(.subheadline.weight(.medium))
+            HStack(spacing: 10) {
+                Text(state.twelveSSampleMetadataDisplay)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishSecondaryText)
+                    .lineLimit(2)
+                Spacer()
+                Button(state.twelveSSampleMetadataURL == nil ? "Choose Metadata\u{2026}" : "Replace Metadata\u{2026}") {
+                    browseForTwelveSSampleMetadata()
+                }
+                if state.twelveSSampleMetadataURL != nil {
+                    Button("Clear") {
+                        state.setTwelveSSampleMetadata(nil)
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var primarySettings: some View {
         switch state.selectedTool?.kind {
@@ -183,6 +234,11 @@ private struct WorkflowOperationsDetailPane: View {
                     labeledCompactTextField("Min Support", value: $state.minSupport)
                 }
                 haplotypeDefinitionPicker
+            }
+        case .twelveSAmpliconMatching:
+            VStack(alignment: .leading, spacing: 10) {
+                labeledTextField("Result Name", text: $state.outputName)
+                labeledCompactTextField("Min Soft Clip", value: $state.twelveSMinimumSoftClipBases)
             }
         case .workflowPackage(let package):
             VStack(alignment: .leading, spacing: 8) {
@@ -242,13 +298,22 @@ private struct WorkflowOperationsDetailPane: View {
                 }
             }
             .pickerStyle(.menu)
-            Picker("Source", selection: haplotypeScopeBinding) {
-                Text("Any source").tag("")
-                ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
-                    Text(scope.displayName).tag(scope.rawValue)
+            if state.selectedMHCReferenceBundleURL != nil {
+                HStack {
+                    Text("Source")
+                    Spacer()
+                    Text("Selected MHC reference bundle")
+                        .foregroundStyle(.secondary)
                 }
+            } else {
+                Picker("Source", selection: haplotypeScopeBinding) {
+                    Text("Any source").tag("")
+                    ForEach(haplotypeScopeOptions, id: \.rawValue) { scope in
+                        Text(scope.displayName).tag(scope.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
             }
-            .pickerStyle(.menu)
             Picker("Definition", selection: haplotypeDefinitionBinding) {
                 Text("No haplotyping").tag("")
                 ForEach(haplotypeDefinitionOptions, id: \.id) { option in
@@ -270,6 +335,17 @@ private struct WorkflowOperationsDetailPane: View {
                 VStack(alignment: .leading, spacing: 8) {
                     labeledTextField("minimap2 arguments", text: $state.extraArgumentsText)
                     Text("Arguments are passed to minimap2 after the ONT mapping preset.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 4)
+            }
+        case .twelveSAmpliconMatching:
+            DisclosureGroup("Advanced Options", isExpanded: $state.advancedOptionsExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    labeledCompactTextField("Max Indels", value: $state.twelveSMaximumIndelBases)
+                    Toggle("Run vsearch chimera review", isOn: $state.twelveSRunChimeraReview)
+                    Text("The 12S workflow expects merged FASTQ inputs; paired-read merging should be handled before import.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -396,7 +472,7 @@ private struct WorkflowOperationsDetailPane: View {
             let definitionSet = record.definitionSet
             return (
                 id: definitionSet.id,
-                label: "\(definitionSet.displayName) (\(definitionSet.speciesCode), \(record.scope.displayName))"
+                label: "\(definitionSet.displayName) (\(definitionSet.speciesCode), \(record.sourceDisplayName))"
             )
         }
     }
@@ -485,6 +561,32 @@ private struct WorkflowOperationsDetailPane: View {
         }
     }
 
+    private func browseForTwelveSSampleMetadata() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Analysis Metadata"
+        panel.message = "Select a CSV or TSV file with sample metadata to use when this analysis runs."
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.plainText]
+        if let csv = UTType(filenameExtension: "csv") {
+            contentTypes.append(csv)
+        }
+        if let tsv = UTType(filenameExtension: "tsv") {
+            contentTypes.append(tsv)
+        }
+        panel.allowedContentTypes = contentTypes
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK else { return }
+            state.setTwelveSSampleMetadata(panel.url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
     private func browseForOutputDirectory() {
         let panel = NSOpenPanel()
         panel.title = "Choose Output Directory"
@@ -500,5 +602,279 @@ private struct WorkflowOperationsDetailPane: View {
         } else {
             panel.begin(completionHandler: completion)
         }
+    }
+}
+
+private struct TwelveSReferenceBundleDraft: Equatable {
+    var name: String = ""
+    var deduplicatedFASTA: URL?
+    var midoriMetadataTSV: URL?
+    var outputURL: URL?
+    var sourceURLs: [URL] = []
+    var forceOverwrite = false
+
+    init(projectURL: URL? = nil) {
+        self.outputURL = Self.defaultOutputURL(projectURL: projectURL)
+    }
+
+    var canCreate: Bool {
+        deduplicatedFASTA != nil
+            && midoriMetadataTSV != nil
+            && outputURL != nil
+    }
+
+    var buildConfiguration: TwelveSReferenceBundleBuildConfiguration? {
+        guard let deduplicatedFASTA,
+              let midoriMetadataTSV,
+              let outputURL else {
+            return nil
+        }
+        let standardizedSources = sourceURLs.map(\.standardizedFileURL)
+        let fileManager = FileManager.default
+        let sourceFiles = standardizedSources.filter { url in
+            var isDirectory: ObjCBool = false
+            return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && !isDirectory.boolValue
+        }
+        let sourceDirectories = standardizedSources.filter { url in
+            var isDirectory: ObjCBool = false
+            return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        }
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return TwelveSReferenceBundleBuildConfiguration(
+            deduplicatedFASTA: deduplicatedFASTA,
+            midoriMetadataTSV: midoriMetadataTSV,
+            outputURL: Self.normalizedOutputURL(outputURL),
+            name: trimmedName.isEmpty ? nil : trimmedName,
+            sourceFiles: sourceFiles,
+            sourceDirectories: sourceDirectories,
+            forceOverwrite: forceOverwrite
+        )
+    }
+
+    static func defaultOutputURL(projectURL: URL?) -> URL? {
+        guard let projectURL else { return nil }
+        return projectURL
+            .appendingPathComponent("Reference Sequences", isDirectory: true)
+            .appendingPathComponent("12S reference.\(TwelveSReferenceBundle.directoryExtension)", isDirectory: true)
+            .standardizedFileURL
+    }
+
+    static func normalizedOutputURL(_ url: URL) -> URL {
+        let standardized = url.standardizedFileURL
+        if standardized.pathExtension.lowercased() == TwelveSReferenceBundle.directoryExtension {
+            return standardized
+        }
+        return standardized
+            .deletingPathExtension()
+            .appendingPathExtension(TwelveSReferenceBundle.directoryExtension)
+            .standardizedFileURL
+    }
+}
+
+private struct TwelveSReferenceBundleBuilderSheet: View {
+    let projectURL: URL?
+    @Binding var draft: TwelveSReferenceBundleDraft
+    let onCancel: () -> Void
+    let onCreate: (TwelveSReferenceBundleBuildConfiguration) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Create 12S Reference")
+                .font(.title3.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 12) {
+                labeledTextField("Name", text: $draft.name)
+                pathRow(
+                    title: "Deduplicated FASTA",
+                    url: draft.deduplicatedFASTA,
+                    placeholder: "No FASTA selected",
+                    actionTitle: "Choose\u{2026}",
+                    action: chooseDeduplicatedFASTA
+                )
+                pathRow(
+                    title: "Target Metadata",
+                    url: draft.midoriMetadataTSV,
+                    placeholder: "No metadata TSV selected",
+                    actionTitle: "Choose\u{2026}",
+                    action: chooseMIDORIMetadata
+                )
+                pathRow(
+                    title: "Output Bundle",
+                    url: draft.outputURL.map(TwelveSReferenceBundleDraft.normalizedOutputURL(_:)),
+                    placeholder: "No output selected",
+                    actionTitle: "Choose\u{2026}",
+                    action: chooseOutputBundle
+                )
+                sourceFilesRow
+                Toggle("Replace Existing Bundle", isOn: $draft.forceOverwrite)
+                    .toggleStyle(.checkbox)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+                Button("Create") {
+                    if let configuration = draft.buildConfiguration {
+                        onCreate(configuration)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!draft.canCreate)
+            }
+        }
+        .padding(24)
+        .frame(width: 560)
+    }
+
+    private var sourceFilesRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Source Files")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text(sourceDisplay)
+                    .font(.caption)
+                    .foregroundStyle(Color.lungfishSecondaryText)
+                    .lineLimit(2)
+                Spacer()
+                Button("Add\u{2026}", action: chooseSourceFiles)
+                if !draft.sourceURLs.isEmpty {
+                    Button("Clear") {
+                        draft.sourceURLs.removeAll()
+                    }
+                }
+            }
+        }
+    }
+
+    private var sourceDisplay: String {
+        switch draft.sourceURLs.count {
+        case 0:
+            return "No additional sources selected"
+        case 1:
+            return WorkflowOperationDialogState.displayPath(for: draft.sourceURLs[0], relativeTo: projectURL)
+        default:
+            return "\(draft.sourceURLs.count) sources selected"
+        }
+    }
+
+    private func labeledTextField(_ label: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField(label, text: text)
+                .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+        }
+    }
+
+    private func pathRow(
+        title: String,
+        url: URL?,
+        placeholder: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 10) {
+                Text(url.map { WorkflowOperationDialogState.displayPath(for: $0, relativeTo: projectURL) } ?? placeholder)
+                    .font(.caption)
+                    .foregroundStyle(url == nil ? Color.lungfishOrangeFallback : Color.lungfishSecondaryText)
+                    .lineLimit(2)
+                Spacer()
+                Button(actionTitle, action: action)
+            }
+        }
+    }
+
+    private func chooseDeduplicatedFASTA() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Deduplicated 12S FASTA"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = fastaContentTypes()
+        runOpenPanel(panel) { url in
+            draft.deduplicatedFASTA = url.standardizedFileURL
+            if draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                draft.name = url.deletingPathExtension().lastPathComponent
+            }
+        }
+    }
+
+    private func chooseMIDORIMetadata() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose 12S Target Metadata"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        var contentTypes: [UTType] = [.plainText]
+        if let tsv = UTType(filenameExtension: "tsv") {
+            contentTypes.append(tsv)
+        }
+        if let csv = UTType(filenameExtension: "csv") {
+            contentTypes.append(csv)
+        }
+        panel.allowedContentTypes = contentTypes
+        runOpenPanel(panel) { url in
+            draft.midoriMetadataTSV = url.standardizedFileURL
+        }
+    }
+
+    private func chooseOutputBundle() {
+        let panel = NSSavePanel()
+        panel.title = "Create 12S Reference Bundle"
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = draft.outputURL?.lastPathComponent ?? "12S reference.\(TwelveSReferenceBundle.directoryExtension)"
+        panel.directoryURL = draft.outputURL?.deletingLastPathComponent()
+            ?? projectURL?.appendingPathComponent("Reference Sequences", isDirectory: true)
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            draft.outputURL = TwelveSReferenceBundleDraft.normalizedOutputURL(url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func chooseSourceFiles() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Reference Source Files"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        runOpenPanel(panel) { _ in
+            let selected = panel.urls.map(\.standardizedFileURL)
+            draft.sourceURLs = Array(Set(draft.sourceURLs + selected)).sorted { $0.path < $1.path }
+        }
+    }
+
+    private func runOpenPanel(_ panel: NSOpenPanel, handler: @escaping (URL) -> Void) {
+        let completion: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            handler(url)
+        }
+        if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            panel.beginSheetModal(for: window, completionHandler: completion)
+        } else {
+            panel.begin(completionHandler: completion)
+        }
+    }
+
+    private func fastaContentTypes() -> [UTType] {
+        var contentTypes: [UTType] = [.plainText]
+        for ext in ["fa", "fasta", "fna"] {
+            if let type = UTType(filenameExtension: ext) {
+                contentTypes.append(type)
+            }
+        }
+        return contentTypes
     }
 }

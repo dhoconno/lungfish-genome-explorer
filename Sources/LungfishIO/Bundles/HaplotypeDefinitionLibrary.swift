@@ -28,9 +28,18 @@ public struct HaplotypeDefinitionRecord: Equatable, Sendable, Identifiable {
     public let definitionSet: GenotypeHaplotypeDefinitionSet
     public let fileURL: URL?
     public let isShadowed: Bool
+    public let referenceBundleURL: URL?
+    public let referenceFASTAURL: URL?
 
     public var id: String {
-        "\(scope.rawValue):\(definitionSet.assayID):\(definitionSet.id)"
+        if let referenceBundleURL {
+            return "mhc-reference-bundle:\(referenceBundleURL.path):\(definitionSet.assayID):\(definitionSet.id)"
+        }
+        return "\(scope.rawValue):\(definitionSet.assayID):\(definitionSet.id)"
+    }
+
+    public var sourceDisplayName: String {
+        referenceBundleURL == nil ? scope.displayName : "MHC Reference Bundle"
     }
 
     public init(
@@ -38,13 +47,17 @@ public struct HaplotypeDefinitionRecord: Equatable, Sendable, Identifiable {
         assayDisplayName: String,
         definitionSet: GenotypeHaplotypeDefinitionSet,
         fileURL: URL?,
-        isShadowed: Bool = false
+        isShadowed: Bool = false,
+        referenceBundleURL: URL? = nil,
+        referenceFASTAURL: URL? = nil
     ) {
         self.scope = scope
         self.assayDisplayName = assayDisplayName
         self.definitionSet = definitionSet
         self.fileURL = fileURL
         self.isShadowed = isShadowed
+        self.referenceBundleURL = referenceBundleURL?.standardizedFileURL
+        self.referenceFASTAURL = referenceFASTAURL?.standardizedFileURL
     }
 }
 
@@ -70,10 +83,13 @@ public struct HaplotypeDefinitionLibrary: Sendable {
             .appendingPathComponent("Haplotype Definitions Library", isDirectory: true)
     }
 
-    public func records() -> [HaplotypeDefinitionRecord] {
-        let rawRecords = builtInRecords() + globalRecords() + projectRecords()
+    public func records(includeReferenceBundles: Bool = false) -> [HaplotypeDefinitionRecord] {
+        let rawRecords = builtInRecords()
+            + globalRecords()
+            + projectRecords()
+            + (includeReferenceBundles ? projectMHCReferenceBundleRecords() : [])
         let activeKeys = Set(
-            Dictionary(grouping: rawRecords, by: definitionKey(_:))
+            Dictionary(grouping: rawRecords.filter { $0.referenceBundleURL == nil }, by: definitionKey(_:))
                 .compactMap { _, grouped in
                     grouped.max { lhs, rhs in
                         lhs.scope.precedence < rhs.scope.precedence
@@ -86,7 +102,9 @@ public struct HaplotypeDefinitionLibrary: Sendable {
                 assayDisplayName: record.assayDisplayName,
                 definitionSet: record.definitionSet,
                 fileURL: record.fileURL,
-                isShadowed: !activeKeys.contains(record.id)
+                isShadowed: record.referenceBundleURL == nil && !activeKeys.contains(record.id),
+                referenceBundleURL: record.referenceBundleURL,
+                referenceFASTAURL: record.referenceFASTAURL
             )
         }
         .sorted { lhs, rhs in
@@ -94,7 +112,7 @@ public struct HaplotypeDefinitionLibrary: Sendable {
                 lhs.definitionSet.assayID.localizedStandardCompare(rhs.definitionSet.assayID),
                 lhs.definitionSet.speciesName.localizedStandardCompare(rhs.definitionSet.speciesName),
                 lhs.definitionSet.displayName.localizedStandardCompare(rhs.definitionSet.displayName),
-                lhs.scope.rawValue.localizedStandardCompare(rhs.scope.rawValue),
+                lhs.sourceDisplayName.localizedStandardCompare(rhs.sourceDisplayName),
             ]
             return keys.first { $0 != .orderedSame } == .orderedAscending
         }
@@ -103,9 +121,10 @@ public struct HaplotypeDefinitionLibrary: Sendable {
     public func activeRecords(
         assayID: String? = nil,
         speciesCode: String? = nil,
-        scope: HaplotypeDefinitionScope? = nil
+        scope: HaplotypeDefinitionScope? = nil,
+        includeReferenceBundles: Bool = false
     ) -> [HaplotypeDefinitionRecord] {
-        records().filter { record in
+        records(includeReferenceBundles: includeReferenceBundles).filter { record in
             guard !record.isShadowed else { return false }
             if let assayID, !assayID.isEmpty, record.definitionSet.assayID != assayID {
                 return false
@@ -122,8 +141,8 @@ public struct HaplotypeDefinitionLibrary: Sendable {
         }
     }
 
-    public func mergedRegistry() -> GenotypeHaplotypeDefinitionRegistry {
-        let active = activeRecords()
+    public func mergedRegistry(includeReferenceBundles: Bool = false) -> GenotypeHaplotypeDefinitionRegistry {
+        let active = activeRecords(includeReferenceBundles: includeReferenceBundles)
         let builtIn = GenotypeHaplotypeDefinitionRegistry.builtIn
         let assayNames = Dictionary(
             uniqueKeysWithValues: builtIn.assays.map { ($0.id, $0.displayName) }
@@ -190,6 +209,47 @@ public struct HaplotypeDefinitionLibrary: Sendable {
     private func projectRecords() -> [HaplotypeDefinitionRecord] {
         guard let projectRoot else { return [] }
         return storeRecords(scope: .project, root: projectRoot)
+    }
+
+    private func projectMHCReferenceBundleRecords() -> [HaplotypeDefinitionRecord] {
+        guard let projectRoot else { return [] }
+        let fileManager = FileManager.default
+        var bundleURLs: [URL] = []
+        if MHCAmpliconReferenceBundle.isBundleURL(projectRoot) {
+            bundleURLs.append(projectRoot.standardizedFileURL)
+        }
+        if let enumerator = fileManager.enumerator(
+            at: projectRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator {
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                if MHCAmpliconReferenceBundle.isBundleURL(url) {
+                    bundleURLs.append(url.standardizedFileURL)
+                    enumerator.skipDescendants()
+                }
+            }
+        }
+        return bundleURLs.flatMap { bundleURL -> [HaplotypeDefinitionRecord] in
+            let definitionURLs = MHCAmpliconReferenceBundle.haplotypeDefinitionURLs(in: bundleURL)
+            let referenceURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: bundleURL)
+            return definitionURLs.compactMap { definitionURL in
+                guard let data = try? Data(contentsOf: definitionURL),
+                      let definitionSet = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data) else {
+                    return nil
+                }
+                return HaplotypeDefinitionRecord(
+                    scope: .project,
+                    assayDisplayName: assayDisplayName(for: definitionSet.assayID),
+                    definitionSet: definitionSet,
+                    fileURL: definitionURL,
+                    isShadowed: false,
+                    referenceBundleURL: bundleURL,
+                    referenceFASTAURL: referenceURL
+                )
+            }
+        }
     }
 
     private func storeRecords(scope: HaplotypeDefinitionScope, root: URL) -> [HaplotypeDefinitionRecord] {

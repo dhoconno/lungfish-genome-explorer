@@ -150,7 +150,13 @@ public enum ScientificProvenancePolicy {
         "primers": dataWriting("cli.primers"),
         "primer": dataWriting("cli.primers"),
         "genotype": inspectOnly("cli.genotype"),
-        "haplotypes": dataWriting("cli.haplotypes", writer: "HaplotypeDefinitionCommandService")
+        "haplotypes": dataWriting("cli.haplotypes", writer: "HaplotypeDefinitionCommandService"),
+        "12s-match": dataWriting("cli.fastq.12s-match", writer: "TwelveSAmpliconMatchingWorkflow"),
+        "12s-reference-metadata": dataWriting("cli.fastq.12s-reference-metadata", writer: "TwelveSReferenceMetadataBuilder"),
+        "12s-reference-bundle": dataWriting("cli.fastq.12s-reference-bundle", writer: "TwelveSReferenceBundleBuilder"),
+        "mhc-reference-bundle": dataWriting("cli.fastq.mhc-reference-bundle", writer: "MHCAmpliconReferenceBundleBuilder"),
+        "12s-export": dataWriting("cli.fastq.12s-export", writer: "TwelveSResultExportWorkflow"),
+        "12s-export-unresolved": dataWriting("cli.fastq.12s-export-unresolved", writer: "TwelveSUnresolvedFastaExportWorkflow")
     ]
 
     public static let nativeToolPolicies: [String: ProvenancePolicyEntry] = [

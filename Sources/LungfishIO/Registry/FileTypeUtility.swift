@@ -73,6 +73,8 @@ public enum FileTypeUtility {
 
         // Reference bundle
         map["lungfishref"] = .referenceBundle
+        map[TwelveSReferenceBundle.directoryExtension] = .referenceBundle
+        map[MHCAmpliconReferenceBundle.directoryExtension] = .referenceBundle
         // FASTQ package bundle
         map[FASTQBundle.directoryExtension] = .sequence
 

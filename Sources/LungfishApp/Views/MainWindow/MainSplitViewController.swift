@@ -843,6 +843,8 @@ public class MainSplitViewController: NSSplitViewController {
             displayPhylogeneticTreeBundleFromSidebar(at: url)
         case FASTQBundle.directoryExtension:
             loadFASTQDatasetInBackground(sourceURL: url)
+        case TwelveSAmpliconResultBundle.directoryExtension:
+            displayTwelveSAmpliconResultBundleFromSidebar(at: url)
         default:
             loadGenomicsFileInBackground(url: url)
         }
@@ -2994,6 +2996,11 @@ extension MainSplitViewController: SidebarSelectionDelegate {
             return
         }
 
+        if item.type == .twelveSAmpliconResultBundle, let url = item.url {
+            displayTwelveSAmpliconResultBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
+            return
+        }
+
         if item.type == .multipleSequenceAlignmentBundle, let url = item.url {
             displayMultipleSequenceAlignmentBundleFromSidebar(at: url, identity: displayIdentity, token: displayToken)
             return
@@ -3193,6 +3200,41 @@ extension MainSplitViewController: SidebarSelectionDelegate {
     static func shouldPreviewPrimaryWorkbook(for result: ONTGenotypeResultBundleData) -> Bool {
         result.haplotypeAnalysis == nil
             && FileManager.default.fileExists(atPath: result.artifacts.workbookURL.path)
+    }
+
+    private func displayTwelveSAmpliconResultBundleFromSidebar(
+        at url: URL,
+        identity: ContentSelectionIdentity? = nil,
+        token: AsyncRequestToken<ContentSelectionIdentity>? = nil
+    ) {
+        let displayIdentity = identity ?? contentSelectionIdentity(url: url, kind: "twelveSAmpliconResultBundle")
+        let displayToken = token ?? beginDisplayRequest(identity: displayIdentity)
+        guard canCommitDisplayRequest(displayToken, identity: displayIdentity) else { return }
+
+        do {
+            let result = try TwelveSAmpliconResultBundle.loadResult(from: url)
+            inspectorController.clearSelection()
+            inspectorController.updateTwelveSAmpliconResultDocument(result)
+            let controller = viewerController.displayTwelveSAmpliconResult(result)
+            controller.onDisplaySummaryChanged = { [weak self] summary in
+                self?.inspectorController.updateTwelveSResultDisplaySummary(summary)
+            }
+            controller.onDisplayStateChanged = { [weak self] state in
+                self?.inspectorController.updateTwelveSResultDisplayState(state)
+            }
+            inspectorController.onTwelveSResultDisplayStateChanged = { [weak controller] state in
+                controller?.applyDisplayState(state)
+            }
+            inspectorController.twelveSResultDisplaySectionViewModel.onExportRequested = { [weak controller] format in
+                controller?.presentExport(format: format)
+            }
+        } catch {
+            logger.error(
+                "displayTwelveSAmpliconResultBundle: Failed to load '\(url.lastPathComponent, privacy: .public)': \(error.localizedDescription, privacy: .public)"
+            )
+            inspectorController.clearSelection()
+            viewerController.showNoSequenceSelected()
+        }
     }
 
     private func displayPhylogeneticTreeBundleFromSidebar(

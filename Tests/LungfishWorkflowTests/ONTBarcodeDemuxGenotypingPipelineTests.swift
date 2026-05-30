@@ -253,6 +253,64 @@ final class ONTBarcodeDemuxGenotypingPipelineTests: XCTestCase {
         XCTAssertTrue(canonicalEnvelope.steps.allSatisfy { $0.wallTimeSeconds != nil }, "\(canonicalEnvelope.steps)")
     }
 
+    func testAutoModeWithBarcodesAndMultipleInputsUsesONTPresetAndAllInputs() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let condaRoot = root.appendingPathComponent("conda", isDirectory: true)
+        let bundledMicromamba = try makeFakeONTGenotypingCondaRoot(at: condaRoot)
+
+        let firstFASTQ = root.appendingPathComponent("barcode10.fastq")
+        let secondFASTQ = root.appendingPathComponent("barcode11.fastq")
+        let referenceFASTA = root.appendingPathComponent("reference.fa")
+        let barcodeDefinitions = root.appendingPathComponent("barcodes.csv")
+        let demuxManifest = root.appendingPathComponent("demux-manifest.json")
+        let outputDirectory = root.appendingPathComponent("combined-mhc.lungfishgenotype", isDirectory: true)
+        try "@r0\nACGT\n+\nIIII\n".write(to: firstFASTQ, atomically: true, encoding: .utf8)
+        try "@r1\nACGT\n+\nIIII\n".write(to: secondFASTQ, atomically: true, encoding: .utf8)
+        try ">allele1\nACGT\n".write(to: referenceFASTA, atomically: true, encoding: .utf8)
+        try "sample,barcode\nDW472,ACGT\n".write(to: barcodeDefinitions, atomically: true, encoding: .utf8)
+        try #"{"sampleTotals":{"DW472":2},"totalInputReads":2}"#.write(to: demuxManifest, atomically: true, encoding: .utf8)
+
+        let request = ONTBarcodeDemuxGenotypingRunRequest(
+            inputFASTQURLs: [firstFASTQ, secondFASTQ],
+            referenceSourceURL: referenceFASTA,
+            barcodeDefinitionsURL: barcodeDefinitions,
+            outputDirectory: outputDirectory,
+            outputName: "combined-mhc",
+            demuxManifestURL: demuxManifest,
+            threads: 2,
+            sortThreads: 1
+        )
+
+        let result = try await ONTBarcodeDemuxGenotypingPipeline(
+            condaManager: CondaManager(
+                rootPrefix: condaRoot,
+                bundledMicromambaProvider: { bundledMicromamba },
+                bundledMicromambaVersionProvider: { "test-micromamba" }
+            )
+        ).run(request)
+
+        let provenance = try jsonObject(at: request.provenanceURL)
+        let options = try XCTUnwrap(provenance["options"] as? [String: Any])
+        XCTAssertEqual(options["resolvedMode"] as? String, AmpliconGenotypingMode.ontBarcodeDemux.rawValue)
+        XCTAssertEqual(options["resolvedReadType"] as? String, AmpliconGenotypingReadType.ont.rawValue)
+        XCTAssertEqual(options["mappingPreset"] as? String, "map-ont")
+        XCTAssertEqual(options["inputFASTQs"] as? [String], [
+            firstFASTQ.standardizedFileURL.path,
+            secondFASTQ.standardizedFileURL.path,
+        ])
+        XCTAssertEqual(provenance["mappingInputFileCount"] as? Int, 2)
+
+        let canonicalEnvelope = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: outputDirectory))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedMode"], .string("ont-barcode-demux"))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["resolvedReadType"], .string("ont"))
+        XCTAssertEqual(canonicalEnvelope.options.explicit["mappingPreset"], .string("map-ont"))
+        XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == firstFASTQ.standardizedFileURL.path })
+        XCTAssertTrue(canonicalEnvelope.files.contains { $0.path == secondFASTQ.standardizedFileURL.path })
+        XCTAssertEqual(result.provenanceURL.lastPathComponent, ProvenanceRecorder.provenanceFilename)
+    }
+
     func testRunIlluminaModeConsumesPreparedSampleBundlesWithoutMergingReads() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -8,12 +8,14 @@ import LungfishCore
 /// Inspector section displaying imported sample metadata with inline editing.
 struct SampleMetadataSection: View {
     @Bindable var store: SampleMetadataStore
+    var title: String = "Sample Metadata"
+    var isEditable: Bool = true
     @State private var isExpanded = true
     @State private var editingCell: (sampleId: String, column: String)?
     @State private var editText: String = ""
 
     var body: some View {
-        DisclosureGroup("Sample Metadata", isExpanded: $isExpanded) {
+        DisclosureGroup(title, isExpanded: $isExpanded) {
             if store.records.isEmpty {
                 Text("No metadata imported")
                     .font(.system(size: 11))
@@ -74,7 +76,16 @@ struct SampleMetadataSection: View {
         let identifier = metadataCellIdentifier(sampleId: sampleId, column: column)
 
         return Group {
-            if isEditing {
+            if !isEditable {
+                Text(value)
+                    .font(.system(size: 10))
+                    .frame(width: 90, alignment: .leading)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .accessibilityIdentifier(identifier)
+                    .accessibilityLabel("\(sampleId) \(column)")
+                    .textSelection(.enabled)
+            } else if isEditing {
                 TextField("", text: $editText, onCommit: {
                     store.applyEdit(sampleId: sampleId, column: column, newValue: editText)
                     editingCell = nil

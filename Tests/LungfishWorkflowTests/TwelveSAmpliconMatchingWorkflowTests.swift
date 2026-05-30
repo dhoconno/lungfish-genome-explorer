@@ -1,0 +1,518 @@
+import Foundation
+import XCTest
+@testable import LungfishIO
+@testable import LungfishWorkflow
+
+final class TwelveSAmpliconMatchingWorkflowTests: XCTestCase {
+    func testClassifiesBothEndSoftClippedExactTargetMatch() throws {
+        let reference = TwelveSReferenceRecord(
+            targetID: "human",
+            displayName: "human (Homo sapiens)",
+            sequence: "ACGTACGT"
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [reference],
+            minimumSoftClipBases: 2,
+            maximumIndelBases: 2
+        )
+
+        let result = classifier.classify(readSequence: "TTACGTACGTGG")
+
+        XCTAssertEqual(result, .exact(targetID: "human", indelCount: 0))
+    }
+
+    func testRequiresSoftClipAtBothEnds() throws {
+        let reference = TwelveSReferenceRecord(
+            targetID: "human",
+            displayName: "human (Homo sapiens)",
+            sequence: "ACGTACGT"
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [reference],
+            minimumSoftClipBases: 2,
+            maximumIndelBases: 2
+        )
+
+        XCTAssertEqual(classifier.classify(readSequence: "ACGTACGTGG"), .unresolved)
+        XCTAssertEqual(classifier.classify(readSequence: "TTACGTACGT"), .unresolved)
+    }
+
+    func testRejectsSubstitutionButAcceptsIndelOnlyAlignment() throws {
+        let reference = TwelveSReferenceRecord(
+            targetID: "human",
+            displayName: "human (Homo sapiens)",
+            sequence: "ACGTACGT"
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: [reference],
+            minimumSoftClipBases: 2,
+            maximumIndelBases: 2
+        )
+
+        XCTAssertEqual(classifier.classify(readSequence: "TTACGTTACGTGG"), .exact(targetID: "human", indelCount: 1))
+        XCTAssertEqual(classifier.classify(readSequence: "TTACGTTCATGG"), .unresolved)
+    }
+
+    func testIndelCandidateSearchDoesNotDropLowIndexTiesBeyondFirst128References() throws {
+        let decoys = (0..<128).map { index in
+            TwelveSReferenceRecord(
+                targetID: "decoy-\(index)",
+                displayName: "Decoy \(index)",
+                sequence: "AAAAAAAAGGCCCCCCCC"
+            )
+        }
+        let trueReference = TwelveSReferenceRecord(
+            targetID: "true-target",
+            displayName: "True Target",
+            sequence: "AAAAAAAACCCCCCCC"
+        )
+        let classifier = TwelveSAmpliconReadClassifier(
+            references: decoys + [trueReference],
+            minimumSoftClipBases: 2,
+            maximumIndelBases: 1
+        )
+
+        XCTAssertEqual(
+            classifier.classify(readSequence: "TTAAAAAAAATCCCCCCCCGG"),
+            .exact(targetID: "true-target", indelCount: 1)
+        )
+    }
+
+    func testReferenceIndexUsesSequenceStableTargetIDsForRepeatedDisplayNames() throws {
+        let index = try TwelveSReferenceIndex.parse("""
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        >human (Homo sapiens)|locus=12S|len=8
+        TTTTCCCC
+        """)
+
+        XCTAssertEqual(index.records.map(\.displayName), ["human (Homo sapiens)", "human (Homo sapiens)"])
+        XCTAssertEqual(Set(index.records.map(\.targetID)).count, 2)
+        XCTAssertTrue(index.records.allSatisfy { $0.targetID.hasPrefix("human (Homo sapiens)|seq_sha256=") })
+        XCTAssertTrue(index.records.allSatisfy { $0.metadata["sequence_sha256"]?.count == 64 })
+    }
+
+    func testWorkflowWritesBundleTablesUnresolvedSequencesChimeraStatusAndProvenance() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let fastqURL = root.appendingPathComponent("sampleA.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+
+        try """
+        >human (Homo sapiens)|locus=12S|len=8|n_refs=2|n_species=1|primer_pairs=12S_vert
+        ACGTACGT
+        >dog (Canis lupus familiaris)|locus=12S|len=8|n_refs=1|n_species=1|primer_pairs=12S_vert
+        GGGGCCCC
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        @read2
+        TTACGTTCGTGG
+        +
+        IIIIIIIIIIII
+        @read3
+        TTACGTTCATGG
+        +
+        IIIIIIIIIIII
+        @read4
+        AACCCCCCCCTT
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let workflow = TwelveSAmpliconMatchingWorkflow(
+            chimeraReviewer: FakeTwelveSChimeraReviewer(statuses: ["unresolved_1": .candidate])
+        )
+        let result = try await workflow.run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "sampleA-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                threads: 2
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.samples.map(\.sampleID), ["sampleA"])
+        XCTAssertEqual(loaded.readFate.totalReads, 4)
+        XCTAssertEqual(loaded.readFate.exactMatchReads, 2)
+        XCTAssertEqual(loaded.readFate.unresolvedReads, 2)
+        XCTAssertEqual(loaded.targetRows.first?.target.displayName, "human (Homo sapiens)")
+        XCTAssertEqual(loaded.targetRows.first?.count(forSample: "sampleA"), 2)
+        XCTAssertEqual(loaded.unresolvedSequences.count, 2)
+        XCTAssertEqual(loaded.unresolvedSequences.first?.chimeraStatus, .candidate)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: loaded.artifacts.provenanceURL.path))
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        XCTAssertEqual(provenance.workflowName, "lungfish fastq 12s-match")
+        XCTAssertEqual(provenance.argv.prefix(3), ["lungfish-cli", "fastq", "12s-match"])
+        XCTAssertTrue(provenance.argv.contains("--min-soft-clip"))
+        XCTAssertTrue(provenance.argv.contains("--max-indels"))
+        XCTAssertTrue(provenance.argv.contains("--threads"))
+        XCTAssertTrue(provenance.outputs.contains { $0.path == result.bundleURL.path })
+        let outputBundleRecord = try XCTUnwrap(provenance.outputs.first { $0.path == result.bundleURL.path })
+        XCTAssertNotNil(outputBundleRecord.checksumSHA256)
+        XCTAssertGreaterThan(outputBundleRecord.fileSize ?? 0, 0)
+        XCTAssertTrue(provenance.files.contains { $0.path == fastqURL.path && $0.checksumSHA256 != nil })
+        XCTAssertEqual(provenance.exitStatus, 0)
+        XCTAssertEqual(provenance.stderr, "fake vsearch stderr")
+    }
+
+    func testWorkflowAppliesReferenceMetadataAndWritesAlternateMatchTable() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let midoriURL = root.appendingPathComponent("12s_reference.tsv")
+        let metadataURL = root.appendingPathComponent("12s-target-metadata.tsv")
+        let fastqURL = root.appendingPathComponent("sampleA.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+
+        try """
+        >human (Homo sapiens)|locus=12S|len=8|n_refs=2|n_species=2|also_matches=Heidelberg man (Homo heidelbergensis)|n_primer_pairs=1|primer_pairs=12S_vert
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        seq_id\tcommon_name\tlatin_name\tgroup\ttaxid\tname_source\ttaxonomy
+        AB1\thuman\tHomo sapiens\tMammal\t9606\tncbi_common\troot; Eukaryota; Chordata; Mammalia; Primates; Homo sapiens
+        AB2\tHeidelberg man\tHomo heidelbergensis\tMammal\t1425170\tncbi_common\troot; Eukaryota; Chordata; Mammalia; Primates; Homo heidelbergensis
+        """.write(to: midoriURL, atomically: true, encoding: .utf8)
+        _ = try await TwelveSReferenceMetadataBuilder().build(
+            TwelveSReferenceMetadataBuildConfiguration(
+                deduplicatedFASTA: referenceURL,
+                midoriMetadataTSV: midoriURL,
+                outputURL: metadataURL,
+                forceOverwrite: false
+            )
+        )
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let result = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer()).run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                referenceMetadata: metadataURL,
+                outputDirectory: outputDirectory,
+                outputName: "sampleA-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        let target = try XCTUnwrap(loaded.targets.first)
+        XCTAssertEqual(target.taxonGroup, "Mammal")
+        XCTAssertEqual(target.taxid, "9606")
+        XCTAssertEqual(target.alternateMatches.map(\.scientificName), ["Homo heidelbergensis"])
+        XCTAssertEqual(loaded.scientificNameRows.first?.taxonGroups, ["Mammal"])
+        XCTAssertNotNil(loaded.artifacts.alternateMatchesTableURL)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        XCTAssertTrue(provenance.files.contains { $0.path == metadataURL.path })
+    }
+
+    func testWorkflowReportsStableProgressMilestonesWithoutVerboseToolStderr() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let fastqURL = root.appendingPathComponent("sampleA.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        @read2
+        TTACGTTCATGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let workflow = TwelveSAmpliconMatchingWorkflow(
+            chimeraReviewer: FakeTwelveSChimeraReviewer(statuses: [:])
+        )
+        let progressRecorder = TwelveSProgressRecorder()
+        _ = try await workflow.run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [fastqURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "sampleA-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2
+            ),
+            progressHandler: { fraction, message in
+                progressRecorder.append(fraction, message)
+            }
+        )
+
+        let progressCalls = progressRecorder.calls()
+        let messages = progressCalls.map(\.1)
+        XCTAssertTrue(messages.contains("Validating 12S amplicon matching inputs."))
+        XCTAssertTrue(messages.contains("Loading 12S reference records."))
+        XCTAssertTrue(messages.contains("Matching reads to 12S references."))
+        XCTAssertTrue(messages.contains("Reviewing unresolved sequences for chimeras."))
+        XCTAssertTrue(messages.contains("Writing 12S result bundle tables."))
+        XCTAssertTrue(messages.contains("Writing reproducibility provenance."))
+        XCTAssertEqual(messages.last, "12S amplicon matching complete.")
+        XCTAssertFalse(messages.contains { $0.contains("fake vsearch stderr") })
+        XCTAssertEqual(progressCalls.last?.0, 1.0)
+    }
+
+    func testWorkflowAcceptsImportedFASTQBundleWithPhysicalPayload() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let bundleURL = root.appendingPathComponent("MergedSample.lungfishfastq", isDirectory: true)
+        let fastqURL = bundleURL.appendingPathComponent("reads.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+
+        let workflow = TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer())
+        let result = try await workflow.run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [bundleURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "bundle-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.samples.map(\.sampleID), ["MergedSample"])
+        XCTAssertEqual(loaded.readFate.exactMatchReads, 1)
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        let inputBundleRecord = try XCTUnwrap(provenance.files.first { $0.path == bundleURL.path })
+        XCTAssertNotNil(inputBundleRecord.checksumSHA256)
+        XCTAssertGreaterThan(inputBundleRecord.fileSize ?? 0, 0)
+    }
+
+    func testWorkflowFreezesFASTQAndAnalysisSampleMetadata() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let bundleURL = root.appendingPathComponent("MergedSample.lungfishfastq", isDirectory: true)
+        let fastqURL = bundleURL.appendingPathComponent("reads.fastq")
+        let analysisMetadataURL = root.appendingPathComponent("analysis-metadata.tsv")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+        try FASTQBundleCSVMetadata.save(
+            FASTQBundleCSVMetadata(keyValuePairs: [
+                "sample_name": "Merged Sample",
+                "sample_type": "wastewater",
+                "collection_date": "2026-05-11",
+                "site": "Hilo",
+            ]),
+            to: bundleURL
+        )
+        try """
+        sample_id\tsample_name\tsite\tbatch_id
+        MergedSample\t\tHilo WWTP\tbatch-12s
+        """.write(to: analysisMetadataURL, atomically: true, encoding: .utf8)
+
+        let result = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer()).run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [bundleURL],
+                referenceFASTA: referenceURL,
+                sampleMetadata: analysisMetadataURL,
+                outputDirectory: outputDirectory,
+                outputName: "bundle-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["sample_name"], "Merged Sample")
+        XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["sample_type"], "wastewater")
+        XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["site"], "Hilo WWTP")
+        XCTAssertEqual(loaded.sampleMetadata?.records["MergedSample"]?["batch_id"], "batch-12s")
+        XCTAssertNotNil(loaded.manifest.resolvedSampleMetadataPath)
+        XCTAssertNotNil(loaded.manifest.sampleMetadataManifestPath)
+        XCTAssertNotNil(loaded.manifest.analysisSampleMetadataOriginalPath)
+        XCTAssertEqual(loaded.sampleMetadataManifest?.hasFASTQMetadata, true)
+        XCTAssertEqual(loaded.sampleMetadataManifest?.hasAnalysisMetadata, true)
+        XCTAssertEqual(loaded.sampleMetadataManifest?.sampleCount, 1)
+        XCTAssertEqual(loaded.sampleMetadataManifest?.sources.map(\.kind), [.fastqBundle, .analysisOverride])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: result.bundleURL.appendingPathComponent("metadata/resolved-sample-metadata.tsv").path))
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        XCTAssertTrue(provenance.argv.contains("--sample-metadata"))
+        XCTAssertTrue(provenance.files.contains { $0.path == analysisMetadataURL.path && $0.checksumSHA256 != nil })
+        XCTAssertTrue(provenance.outputs.contains { $0.path.hasSuffix("metadata/resolved-sample-metadata.tsv") })
+    }
+
+    func testWorkflowRecordsFolderLevelFASTQMetadataAsManifestSourceAndProvenanceInput() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSAmpliconMatchingWorkflowTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let referenceURL = root.appendingPathComponent("reference.fa")
+        let bundleURL = root.appendingPathComponent("FolderSample.lungfishfastq", isDirectory: true)
+        let fastqURL = bundleURL.appendingPathComponent("reads.fastq")
+        let outputDirectory = root.appendingPathComponent("outputs", isDirectory: true)
+        let folderMetadataURL = FASTQFolderMetadata.metadataURL(in: root)
+        try FileManager.default.createDirectory(at: bundleURL, withIntermediateDirectories: true)
+        try """
+        >human (Homo sapiens)|locus=12S|len=8
+        ACGTACGT
+        """.write(to: referenceURL, atomically: true, encoding: .utf8)
+        try """
+        @read1
+        TTACGTACGTGG
+        +
+        IIIIIIIIIIII
+        """.write(to: fastqURL, atomically: true, encoding: .utf8)
+        var folderSampleMetadata = FASTQSampleMetadata(sampleName: "FolderSample")
+        folderSampleMetadata.sampleType = "wastewater"
+        folderSampleMetadata.customFields["site"] = "Hilo WWTP"
+        try FASTQFolderMetadata.save(
+            FASTQFolderMetadata(orderedSamples: [folderSampleMetadata]),
+            to: root
+        )
+
+        let result = try await TwelveSAmpliconMatchingWorkflow(chimeraReviewer: TwelveSNoOpChimeraReviewer()).run(
+            TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: [bundleURL],
+                referenceFASTA: referenceURL,
+                outputDirectory: outputDirectory,
+                outputName: "folder-12s",
+                minimumSoftClipBases: 2,
+                maximumIndelBases: 2,
+                runChimeraReview: false
+            )
+        )
+
+        let loaded = try TwelveSAmpliconResultBundle.loadResult(from: result.bundleURL)
+        XCTAssertEqual(loaded.sampleMetadata?.records["FolderSample"]?["sample_type"], "wastewater")
+        XCTAssertEqual(loaded.sampleMetadata?.records["FolderSample"]?["site"], "Hilo WWTP")
+        XCTAssertEqual(loaded.sampleMetadataManifest?.sources.map(\.kind), [.fastqFolder])
+        XCTAssertEqual(loaded.sampleMetadataManifest?.sources.first?.path, folderMetadataURL.standardizedFileURL.path)
+
+        let provenance = try XCTUnwrap(ProvenanceEnvelopeReader.load(from: result.bundleURL))
+        XCTAssertTrue(provenance.files.contains {
+            $0.path == folderMetadataURL.standardizedFileURL.path && $0.checksumSHA256 != nil
+        })
+    }
+
+    func testVSearchChimeraReviewerThrowsOnNonZeroExit() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TwelveSVSearchChimeraReviewerTests-\(UUID().uuidString)", isDirectory: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: root) }
+        let reviewer = TwelveSVSearchChimeraReviewer { arguments in
+            XCTAssertTrue(arguments.contains("--threads"))
+            XCTAssertEqual(arguments.last, "4")
+            return NativeToolResult(
+                exitCode: 2,
+                stdout: "",
+                stderr: "uchime failed",
+                arguments: ["/usr/local/bin/vsearch"] + arguments
+            )
+        }
+
+        do {
+            _ = try await reviewer.review(
+                unresolvedSequences: [
+                    TwelveSUnresolvedSequence(
+                        sequenceID: "unresolved_1",
+                        sequence: "ACGT",
+                        readCount: 5,
+                        sampleCounts: ["SampleA": 5],
+                        chimeraStatus: .notReviewed,
+                        note: nil
+                    )
+                ],
+                outputDirectory: root,
+                threads: 4
+            )
+            XCTFail("Expected vsearch chimera review failure")
+        } catch TwelveSChimeraReviewError.vsearchFailed(let exitCode, let stderr) {
+            XCTAssertEqual(exitCode, 2)
+            XCTAssertEqual(stderr, "uchime failed")
+        }
+    }
+}
+
+private final class TwelveSProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [(Double, String)] = []
+
+    func append(_ fraction: Double, _ message: String) {
+        lock.lock()
+        values.append((fraction, message))
+        lock.unlock()
+    }
+
+    func calls() -> [(Double, String)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
+private struct FakeTwelveSChimeraReviewer: TwelveSChimeraReviewing {
+    let statuses: [String: TwelveSChimeraStatus]
+
+    func review(
+        unresolvedSequences: [TwelveSUnresolvedSequence],
+        outputDirectory: URL,
+        threads: Int
+    ) async throws -> TwelveSChimeraReviewResult {
+        TwelveSChimeraReviewResult(
+            statusesBySequenceID: statuses,
+            stderr: "fake vsearch stderr",
+            exitStatus: 0
+        )
+    }
+}

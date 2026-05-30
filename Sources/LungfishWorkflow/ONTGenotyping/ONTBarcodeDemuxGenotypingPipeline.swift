@@ -286,6 +286,7 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
     case missingComparisonWorkbook(URL)
     case invalidReference(URL)
     case noFASTQSources(URL)
+    case noInputFASTQs
     case unsupportedIlluminaInput(URL)
     case ambiguousGenotypingMode
     case processFailed(tool: String, status: Int32, stderr: String)
@@ -313,6 +314,8 @@ public enum ONTBarcodeDemuxGenotypingError: Error, LocalizedError, Sendable, Equ
             return "Reference source does not contain a readable FASTA payload: \(url.path)"
         case .noFASTQSources(let url):
             return "No constituent FASTQ files could be resolved from: \(url.path)"
+        case .noInputFASTQs:
+            return "No input FASTQ files could be resolved for genotyping."
         case .unsupportedIlluminaInput(let url):
             return "Illumina genotyping requires each input to be an already merged single-FASTQ sample bundle. Import paired R1/R2 reads with the Illumina Amplicon Merge recipe first: \(url.path)"
         case .ambiguousGenotypingMode:
@@ -667,11 +670,14 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             if request.readType == .ont {
                 return .ontBarcodeDemux
             }
-            if request.readType == .illumina || request.inputFASTQURLs.count > 1 {
+            if request.readType == .illumina {
                 return .illuminaPaired
             }
             if request.barcodeDefinitionsURL != nil {
                 return .ontBarcodeDemux
+            }
+            if request.inputFASTQURLs.count > 1 {
+                return .illuminaPaired
             }
             guard let first = request.inputFASTQURLs.first else {
                 throw ONTBarcodeDemuxGenotypingError.ambiguousGenotypingMode
@@ -723,7 +729,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
                 demuxManifestURL: demuxManifestURL,
                 supportDirectory: supportDirectory
             )
-            let inputFASTQURLs = try Self.resolveInputFASTQURLs(for: request.inputFASTQURL)
+            let inputFASTQURLs = try request.inputFASTQURLs.flatMap { inputURL in
+                try Self.resolveInputFASTQURLs(for: inputURL)
+            }
+            guard !inputFASTQURLs.isEmpty else {
+                throw ONTBarcodeDemuxGenotypingError.noInputFASTQs
+            }
             return InputPlan(
                 mappingFASTQURLs: inputFASTQURLs,
                 originalInputFASTQURLs: inputFASTQURLs,
@@ -967,6 +978,13 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
 
     private func resolveReference(for request: ONTBarcodeDemuxGenotypingRunRequest) async throws -> ReferenceResolution {
         let sourceURL = request.referenceSourceURL
+        if MHCAmpliconReferenceBundle.isBundleURL(sourceURL) {
+            guard let fastaURL = MHCAmpliconReferenceBundle.referenceFASTAURL(in: sourceURL) else {
+                throw ONTBarcodeDemuxGenotypingError.invalidReference(sourceURL)
+            }
+            return ReferenceResolution(referenceFASTAURL: fastaURL.standardizedFileURL, sourceReferenceBundleURL: sourceURL)
+        }
+
         if sourceURL.pathExtension.lowercased() == "lungfishref" {
             guard let fastaURL = SequenceInputResolver.resolvePrimarySequenceURL(for: sourceURL),
                   SequenceInputResolver.inputSequenceFormat(for: sourceURL) == .fasta else {
@@ -1254,6 +1272,12 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
         guard let definitionSetID = request.haplotypeDefinitionSetID else {
             return nil
         }
+        if let bundledDefinition = try bundledHaplotypeDefinitionSet(
+            for: request,
+            definitionSetID: definitionSetID
+        ) {
+            return bundledDefinition
+        }
         if request.haplotypeSpeciesCode != nil || request.haplotypeDefinitionScope != nil {
             let matchingRecords = haplotypeDefinitionLibrary(for: request)
                 .activeRecords(
@@ -1298,6 +1322,21 @@ public struct ONTBarcodeDemuxGenotypingPipeline: Sendable {
             throw ONTBarcodeDemuxGenotypingError.invalidHaplotypeDefinition(definitionSetID)
         }
         throw ONTBarcodeDemuxGenotypingError.ambiguousHaplotypeDefinition(definitionID: definitionSetID)
+    }
+
+    private func bundledHaplotypeDefinitionSet(
+        for request: ONTBarcodeDemuxGenotypingRunRequest,
+        definitionSetID: String
+    ) throws -> GenotypeHaplotypeDefinitionSet? {
+        guard MHCAmpliconReferenceBundle.isBundleURL(request.referenceSourceURL) else {
+            return nil
+        }
+        return try MHCAmpliconReferenceBundle.haplotypeDefinition(
+            id: definitionSetID,
+            assayID: request.haplotypeAssayID,
+            speciesCode: request.haplotypeSpeciesCode,
+            in: request.referenceSourceURL
+        )
     }
 
     private func haplotypeDefinitionRegistry(

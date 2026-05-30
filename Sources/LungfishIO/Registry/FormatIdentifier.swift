@@ -326,6 +326,20 @@ extension FormatIdentifier {
         extensions: ["lungfishref"],
         mimeTypes: ["application/x-lungfishref"]
     )
+
+    /// Lungfish 12S amplicon reference bundle format (.lungfish12sref)
+    public static let lungfish12SRef = FormatIdentifier(
+        "lungfish12sref",
+        extensions: ["lungfish12sref"],
+        mimeTypes: ["application/x-lungfish12sref"]
+    )
+
+    /// Lungfish MHC amplicon reference bundle format (.lungfishmhcref)
+    public static let lungfishMHCRef = FormatIdentifier(
+        "lungfishmhcref",
+        extensions: ["lungfishmhcref"],
+        mimeTypes: ["application/x-lungfishmhcref"]
+    )
 }
 
 // MARK: - CustomStringConvertible

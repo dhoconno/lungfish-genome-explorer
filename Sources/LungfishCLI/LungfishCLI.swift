@@ -80,6 +80,9 @@ struct LungfishCLI: AsyncParsableCommand {
     @OptionGroup var globalOptions: GlobalOptions
 
     static func normalizedArgumentsForParsing(_ arguments: [String]) -> [String] {
+        if arguments.starts(with: ["fastq", "12s-export"]) {
+            return rewriteExportFormatFlag(in: arguments, startingAt: 2)
+        }
         guard let provenanceIndex = arguments.firstIndex(of: "provenance") else {
             return arguments
         }
@@ -89,8 +92,12 @@ struct LungfishCLI: AsyncParsableCommand {
             return arguments
         }
 
+        return rewriteExportFormatFlag(in: arguments, startingAt: arguments.index(after: exportIndex))
+    }
+
+    private static func rewriteExportFormatFlag(in arguments: [String], startingAt startIndex: Int) -> [String] {
         var normalized = arguments
-        var index = arguments.index(after: exportIndex)
+        var index = startIndex
         while normalized.indices.contains(index) {
             if normalized[index] == "--" {
                 break

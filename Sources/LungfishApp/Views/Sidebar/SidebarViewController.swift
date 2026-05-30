@@ -1259,6 +1259,7 @@ public class SidebarViewController: NSViewController {
             || itemType == .fastqBundle
             || itemType == .primerSchemeBundle
             || itemType == .genotypeResultBundle
+            || itemType == .twelveSAmpliconResultBundle
             || itemType == .czIdResult)
             ? url.deletingPathExtension().lastPathComponent
             : filename
@@ -1433,6 +1434,8 @@ public class SidebarViewController: NSViewController {
             return (.primerSchemeBundle, "line.horizontal.3.decrease.circle")
         case ONTGenotypeResultBundle.directoryExtension:
             return (.genotypeResultBundle, "tablecells.badge.ellipsis")
+        case TwelveSAmpliconResultBundle.directoryExtension:
+            return (.twelveSAmpliconResultBundle, "tablecells")
         case "lungfishtax":
             let manifestURL = url.appendingPathComponent("cz-id-manifest.json")
             if fileManager.fileExists(atPath: manifestURL.path) {
@@ -3690,6 +3693,7 @@ public enum SidebarItemType {
     case fastqBundle  // .lungfishfastq FASTQ package bundle
     case primerSchemeBundle  // .lungfishprimers primer-scheme bundle
     case genotypeResultBundle // .lungfishgenotype ONT genotyping result bundle
+    case twelveSAmpliconResultBundle // .lungfish12s 12S amplicon result bundle
     case batchGroup   // Virtual node representing a batch operation across multiple bundles
     case classificationResult  // Kraken2 classification result folder
     case esvirituResult        // EsViritu viral detection result folder
@@ -3717,6 +3721,7 @@ public enum SidebarItemType {
         case .fastqBundle: return .systemGreen
         case .primerSchemeBundle: return .systemYellow
         case .genotypeResultBundle: return .lungfishOrange
+        case .twelveSAmpliconResultBundle: return .systemTeal
         case .batchGroup: return .systemCyan
         case .classificationResult: return .lungfishOrange
         case .esvirituResult: return .lungfishOrange
@@ -3742,7 +3747,7 @@ public enum SidebarItemType {
     var isBundle: Bool {
         switch self {
         case .referenceBundle, .multipleSequenceAlignmentBundle, .phylogeneticTreeBundle,
-             .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .czIdResult:
+             .fastqBundle, .primerSchemeBundle, .genotypeResultBundle, .twelveSAmpliconResultBundle, .czIdResult:
             return true
         default:
             return false

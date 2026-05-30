@@ -38,6 +38,13 @@ public final class FASTQMetadataSectionViewModel {
     /// Optional persisted assembly read type for this dataset.
     var assemblyReadType: FASTQAssemblyReadType?
 
+    /// Bundles that should receive read-type edits from this inspector instance.
+    var readTypeTargetBundleURLs: [URL] = []
+
+    var readTypeTargetCount: Int {
+        max(1, readTypeTargetBundleURLs.count)
+    }
+
     /// Whether there are unsaved changes since last save.
     var hasUnsavedChanges: Bool {
         metadata != lastSavedMetadata || assemblyReadType != lastSavedAssemblyReadType
@@ -86,6 +93,9 @@ public final class FASTQMetadataSectionViewModel {
     /// Debounce work item for autosave.
     private var autosaveWorkItem: DispatchWorkItem?
 
+    /// Tracks whether the read type picker was changed since the last save.
+    private var assemblyReadTypeChangedSinceLastSave = false
+
     /// Debounce interval for autosave (500ms).
     private let autosaveInterval: TimeInterval = 0.5
 
@@ -103,8 +113,12 @@ public final class FASTQMetadataSectionViewModel {
     // MARK: - Methods
 
     /// Loads metadata from a FASTQ bundle.
-    func load(from bundleURL: URL) {
+    func load(from bundleURL: URL, readTypeTargetBundleURLs: [URL]? = nil) {
         self.bundleURL = bundleURL
+        self.readTypeTargetBundleURLs = Self.normalizedReadTypeTargets(
+            readTypeTargetBundleURLs ?? [bundleURL],
+            fallback: bundleURL
+        )
         let sampleName = bundleURL.deletingPathExtension().lastPathComponent
 
         if let csvMeta = FASTQBundleCSVMetadata.load(from: bundleURL) {
@@ -122,6 +136,7 @@ public final class FASTQMetadataSectionViewModel {
             assemblyReadType = nil
         }
         lastSavedAssemblyReadType = assemblyReadType
+        assemblyReadTypeChangedSinceLastSave = false
         attachmentManager = BundleAttachmentManager(bundleURL: bundleURL)
         attachmentFilenames = attachmentManager?.listAttachments() ?? []
     }
@@ -133,6 +148,8 @@ public final class FASTQMetadataSectionViewModel {
         lastSavedMetadata = nil
         assemblyReadType = nil
         lastSavedAssemblyReadType = nil
+        readTypeTargetBundleURLs = []
+        assemblyReadTypeChangedSinceLastSave = false
         attachmentManager = nil
         primaryFASTQURL = nil
         attachmentFilenames = []
@@ -156,15 +173,16 @@ public final class FASTQMetadataSectionViewModel {
     /// Immediately saves current metadata to disk.
     func performSave() {
         guard let bundleURL, let metadata else { return }
+        let shouldPersistReadType = assemblyReadTypeChangedSinceLastSave
+            || assemblyReadType != lastSavedAssemblyReadType
         lastSavedMetadata = metadata
         lastSavedAssemblyReadType = assemblyReadType
         let legacyCSV = metadata.toLegacyCSV()
         try? FASTQBundleCSVMetadata.save(legacyCSV, to: bundleURL)
-        if let primaryFASTQURL {
-            var sidecarMetadata = FASTQMetadataStore.load(for: primaryFASTQURL) ?? PersistedFASTQMetadata()
-            sidecarMetadata.assemblyReadType = assemblyReadType
-            FASTQMetadataStore.save(sidecarMetadata, for: primaryFASTQURL)
+        if shouldPersistReadType {
+            persistAssemblyReadTypeToTargets()
         }
+        assemblyReadTypeChangedSinceLastSave = false
         onSave?(bundleURL, metadata)
     }
 
@@ -199,7 +217,16 @@ public final class FASTQMetadataSectionViewModel {
     /// Sets the persisted assembly read type and triggers autosave.
     func setAssemblyReadType(_ readType: FASTQAssemblyReadType?) {
         assemblyReadType = readType
+        assemblyReadTypeChangedSinceLastSave = true
         scheduleAutosave()
+    }
+
+    func setReadTypeTargetBundleURLs(_ bundleURLs: [URL]) {
+        guard let bundleURL else {
+            readTypeTargetBundleURLs = Self.normalizedReadTypeTargets(bundleURLs, fallback: nil)
+            return
+        }
+        readTypeTargetBundleURLs = Self.normalizedReadTypeTargets(bundleURLs, fallback: bundleURL)
     }
 
     /// Adds a new custom field.
@@ -260,6 +287,36 @@ public final class FASTQMetadataSectionViewModel {
     func save() { performSave() }
     func beginEditing() {}
     func cancelEditing() { revertToLastSaved() }
+
+    private func persistAssemblyReadTypeToTargets() {
+        let targets = Self.normalizedReadTypeTargets(readTypeTargetBundleURLs, fallback: bundleURL)
+        for targetBundleURL in targets {
+            guard let targetFASTQURL = FASTQBundle.resolvePrimaryFASTQURL(for: targetBundleURL) else {
+                continue
+            }
+            var sidecarMetadata = FASTQMetadataStore.load(for: targetFASTQURL) ?? PersistedFASTQMetadata()
+            sidecarMetadata.assemblyReadType = assemblyReadType
+            FASTQMetadataStore.save(sidecarMetadata, for: targetFASTQURL)
+        }
+        if let primaryFASTQURL,
+           !targets.contains(where: { FASTQBundle.resolvePrimaryFASTQURL(for: $0) == primaryFASTQURL }) {
+            var sidecarMetadata = FASTQMetadataStore.load(for: primaryFASTQURL) ?? PersistedFASTQMetadata()
+            sidecarMetadata.assemblyReadType = assemblyReadType
+            FASTQMetadataStore.save(sidecarMetadata, for: primaryFASTQURL)
+        }
+    }
+
+    private static func normalizedReadTypeTargets(_ bundleURLs: [URL], fallback: URL?) -> [URL] {
+        var normalized: [URL] = []
+        var seen = Set<String>()
+        for url in bundleURLs + (fallback.map { [$0] } ?? []) {
+            let standardized = url.standardizedFileURL
+            guard FASTQBundle.isBundleURL(standardized) else { continue }
+            guard seen.insert(standardized.path).inserted else { continue }
+            normalized.append(standardized)
+        }
+        return normalized
+    }
 }
 
 // MARK: - FASTQMetadataSection View
@@ -364,6 +421,12 @@ public struct FASTQMetadataSection: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if viewModel.readTypeTargetCount > 1 {
+                Text("Read type applies to \(viewModel.readTypeTargetCount) selected FASTQ bundles.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

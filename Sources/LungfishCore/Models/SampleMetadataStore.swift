@@ -126,6 +126,18 @@ public final class SampleMetadataStore: @unchecked Sendable {
         self.unmatchedRecords = unmatchedRecords
     }
 
+    public convenience init(resolved: ResolvedSampleMetadata) {
+        let metadataColumns = resolved.columns.filter {
+            SampleMetadataTable.normalizedColumn($0) != "sample_id"
+        }
+        self.init(
+            columnNames: metadataColumns,
+            records: resolved.records,
+            matchedSampleIds: Set(resolved.sampleIDs),
+            unmatchedRecords: [:]
+        )
+    }
+
     /// Creates a store using a specific column as the sample ID column.
     public convenience init(
         scanResult: MetadataColumnScanResult,

@@ -127,6 +127,12 @@ public enum BlastJobPhase: Int, Sendable {
             case .waiting:    return "Waiting for NCBI BLAST results..."
             case .parsing:    return "Parsing BLAST results..."
             }
+        case .sequenceBlast:
+            switch self {
+            case .submitting: return "Submitting sequences to NCBI BLAST..."
+            case .waiting:    return "Waiting for NCBI BLAST results..."
+            case .parsing:    return "Parsing BLAST results..."
+            }
         }
     }
 
@@ -249,6 +255,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
     enum BlastResultsDrawerPresentationStyle: Equatable {
         case verification
         case contigBlast
+        case sequenceBlast
     }
 
     // MARK: - State
@@ -460,7 +467,7 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
                 accessibilityDescription: confidence.displayLabel
             )
             summaryIcon.contentTintColor = confidence.accentColor
-        case .contigBlast:
+        case .contigBlast, .sequenceBlast:
             summaryLabel.stringValue = "BLAST results for \(result.taxonName)"
             confidenceLabel.stringValue = ""
             confidenceDots.stringValue = ""
@@ -593,6 +600,15 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             emptyStateTitleLabel.stringValue = "No BLAST Results"
             emptyStateDetailLabel.stringValue =
                 "Select contigs and choose \"BLAST Contig…\" to compare them against the NCBI database."
+        case .sequenceBlast:
+            emptyStateIcon.image = NSImage(
+                systemSymbolName: "magnifyingglass.circle",
+                accessibilityDescription: "BLAST results"
+            )
+            emptyStateIcon.contentTintColor = .tertiaryLabelColor
+            emptyStateTitleLabel.stringValue = "No BLAST Results"
+            emptyStateDetailLabel.stringValue =
+                "Select unmatched 12S sequences and run BLAST to compare them against the NCBI database."
         }
         emptyStateDetailLabel.textColor = .tertiaryLabelColor
     }
@@ -1271,6 +1287,12 @@ public final class BlastResultsDrawerTab: NSView, NSMenuItemValidation {
             readColumn?.title = "Contig / Accession"
             summaryBar.setAccessibilityLabel("BLAST summary")
             rerunBlastButton.setAccessibilityLabel("Re-run BLAST for selected contigs")
+            setAccessibilityLabel("BLAST Results")
+        case .sequenceBlast:
+            statusColumn?.isHidden = true
+            readColumn?.title = "Sequence / Accession"
+            summaryBar.setAccessibilityLabel("BLAST summary")
+            rerunBlastButton.setAccessibilityLabel("Re-run BLAST for selected sequences")
             setAccessibilityLabel("BLAST Results")
         }
     }

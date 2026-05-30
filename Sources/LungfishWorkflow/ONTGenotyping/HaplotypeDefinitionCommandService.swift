@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import LungfishIO
 
@@ -33,9 +34,10 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         assayID: String? = nil,
         speciesCode: String? = nil,
         scope: HaplotypeDefinitionScope? = nil,
-        includeShadowed: Bool = false
+        includeShadowed: Bool = false,
+        includeReferenceBundles: Bool = false
     ) -> [HaplotypeDefinitionRecord] {
-        library.records().filter { record in
+        library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
             if !includeShadowed, record.isShadowed { return false }
             if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
                !assayID.isEmpty,
@@ -206,6 +208,260 @@ public struct HaplotypeDefinitionCommandService: Sendable {
     }
 
     @discardableResult
+    public func saveDefinition(
+        _ definition: GenotypeHaplotypeDefinitionSet,
+        inMHCReferenceBundle bundleURL: URL,
+        changeNote: String? = nil,
+        argv: [String]
+    ) throws -> HaplotypeDefinitionCommandResult {
+        let startedAt = Date()
+        let bundleURL = bundleURL.standardizedFileURL
+        guard MHCAmpliconReferenceBundle.isBundleURL(bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.invalidMHCReferenceBundle(bundleURL.path)
+        }
+        try validateDefinition(definition)
+        let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
+        let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
+        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: referenceURL.path) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
+        }
+
+        let existingPath = try existingDefinitionRelativePath(
+            definitionID: definition.id,
+            manifest: manifest,
+            bundleURL: bundleURL
+        )
+        let relativePath = existingPath ?? "haplotypes/\(safeFileName(definition.id)).lungfishhaplotypedef.json"
+        let definitionURL = bundleURL.appendingPathComponent(relativePath).standardizedFileURL
+        let priorDefinitionDescriptor = FileManager.default.fileExists(atPath: definitionURL.path)
+            ? try ProvenanceFileDescriptor.file(url: definitionURL, format: .json, role: .input)
+            : nil
+        let priorManifestDescriptor = try? ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .input)
+        let referenceDescriptor = try ProvenanceFileDescriptor.file(url: referenceURL, format: .fasta, role: .reference)
+
+        let versioned = GenotypeHaplotypeDefinitionSet(
+            id: definition.id,
+            assayID: definition.assayID,
+            displayName: definition.displayName,
+            speciesName: definition.speciesName,
+            speciesCode: definition.speciesCode,
+            prefix: definition.prefix,
+            locusDefinitions: definition.locusDefinitions,
+            schemaVersion: (definition.schemaVersion ?? 0) + 1,
+            lastModified: HaplotypeDefinitionStore.isoString(Date()),
+            changeNote: changeNote ?? definition.changeNote
+        )
+        try FileManager.default.createDirectory(
+            at: definitionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(versioned).write(to: definitionURL, options: .atomic)
+
+        let updatedPaths = manifest.haplotypeDefinitionPaths.contains(relativePath)
+            ? manifest.haplotypeDefinitionPaths
+            : manifest.haplotypeDefinitionPaths + [relativePath]
+        let updatedManifest = MHCAmpliconReferenceBundleManifest(
+            formatVersion: manifest.formatVersion,
+            name: manifest.name,
+            referenceFastaPath: manifest.referenceFastaPath,
+            haplotypeDefinitionPaths: updatedPaths,
+            defaultHaplotypeDefinitionID: manifest.defaultHaplotypeDefinitionID ?? definition.id,
+            sourceFiles: manifest.sourceFiles,
+            metrics: MHCAmpliconReferenceBundleMetrics(
+                referenceCount: try FASTAReader(url: referenceURL).readHeadersSync().count,
+                haplotypeDefinitionCount: updatedPaths.count
+            ),
+            provenancePath: ProvenanceWriter.provenanceFilename,
+            createdAt: manifest.createdAt
+        )
+        try MHCAmpliconReferenceBundle.writeManifest(updatedManifest, to: bundleURL)
+
+        let outputs = try [
+            ProvenanceFileDescriptor.file(url: definitionURL, format: .json, role: .output),
+            ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .output),
+            directoryDescriptor(url: bundleURL, role: .output),
+        ]
+        try writeMHCReferenceBundleProvenance(
+            workflowName: "Haplotype definition edit in MHC reference bundle",
+            bundleURL: bundleURL,
+            argv: argv,
+            startedAt: startedAt,
+            completedAt: Date(),
+            explicit: [
+                "bundle": .file(bundleURL),
+                "definitionID": .string(versioned.id),
+                "assayID": .string(versioned.assayID),
+                "speciesCode": .string(versioned.speciesCode),
+                "definitionPath": .file(definitionURL),
+                "referenceFASTA": .file(referenceURL),
+            ],
+            inputs: [priorDefinitionDescriptor, priorManifestDescriptor, referenceDescriptor].compactMap { $0 },
+            outputs: outputs
+        )
+
+        return HaplotypeDefinitionCommandResult(
+            scope: .project,
+            definitionSet: versioned,
+            definitionURL: definitionURL
+        )
+    }
+
+    @discardableResult
+    public func replaceReferenceFASTA(
+        inMHCReferenceBundle bundleURL: URL,
+        with replacementFASTAURL: URL,
+        argv: [String]
+    ) throws -> URL {
+        let startedAt = Date()
+        let bundleURL = bundleURL.standardizedFileURL
+        let replacementFASTAURL = replacementFASTAURL.standardizedFileURL
+        guard MHCAmpliconReferenceBundle.isBundleURL(bundleURL) else {
+            throw HaplotypeDefinitionCommandServiceError.invalidMHCReferenceBundle(bundleURL.path)
+        }
+        guard FileManager.default.fileExists(atPath: replacementFASTAURL.path) else {
+            throw HaplotypeDefinitionCommandServiceError.missingInput(replacementFASTAURL.path)
+        }
+        let manifest = try MHCAmpliconReferenceBundle.loadManifest(from: bundleURL)
+        let manifestURL = MHCAmpliconReferenceBundle.manifestURL(in: bundleURL)
+        let referenceURL = bundleURL.appendingPathComponent(manifest.referenceFastaPath).standardizedFileURL
+        guard FileManager.default.fileExists(atPath: referenceURL.path) else {
+            throw HaplotypeDefinitionCommandServiceError.missingMHCReferenceBundleReference(referenceURL.path)
+        }
+
+        let priorReferenceDescriptor = try ProvenanceFileDescriptor.file(url: referenceURL, format: .fasta, role: .input)
+        let priorManifestDescriptor = try? ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .input)
+        let replacementDescriptor = try ProvenanceFileDescriptor.file(url: replacementFASTAURL, format: .fasta, role: .reference)
+        let priorReferenceData = try Data(contentsOf: referenceURL)
+        do {
+            let replacementData = try Data(contentsOf: replacementFASTAURL)
+            try replacementData.write(to: referenceURL, options: .atomic)
+
+            let updatedManifest = MHCAmpliconReferenceBundleManifest(
+                formatVersion: manifest.formatVersion,
+                name: manifest.name,
+                referenceFastaPath: manifest.referenceFastaPath,
+                haplotypeDefinitionPaths: manifest.haplotypeDefinitionPaths,
+                defaultHaplotypeDefinitionID: manifest.defaultHaplotypeDefinitionID,
+                sourceFiles: updatedReferenceSourceFiles(
+                    manifest.sourceFiles,
+                    referencePath: manifest.referenceFastaPath,
+                    replacementFASTAURL: replacementFASTAURL
+                ),
+                metrics: MHCAmpliconReferenceBundleMetrics(
+                    referenceCount: try FASTAReader(url: referenceURL).readHeadersSync().count,
+                    haplotypeDefinitionCount: manifest.haplotypeDefinitionPaths.count
+                ),
+                provenancePath: ProvenanceWriter.provenanceFilename,
+                createdAt: manifest.createdAt
+            )
+            try MHCAmpliconReferenceBundle.writeManifest(updatedManifest, to: bundleURL)
+
+            let outputs = try [
+                ProvenanceFileDescriptor.file(url: referenceURL, format: .fasta, role: .output),
+                ProvenanceFileDescriptor.file(url: manifestURL, format: .json, role: .output),
+                directoryDescriptor(url: bundleURL, role: .output),
+            ]
+            try writeMHCReferenceBundleProvenance(
+                workflowName: "MHC reference bundle FASTA replacement",
+                bundleURL: bundleURL,
+                argv: argv,
+                startedAt: startedAt,
+                completedAt: Date(),
+                explicit: [
+                    "bundle": .file(bundleURL),
+                    "replacementFASTA": .file(replacementFASTAURL),
+                    "referenceFASTA": .file(referenceURL),
+                ],
+                inputs: [replacementDescriptor, priorReferenceDescriptor, priorManifestDescriptor].compactMap { $0 },
+                outputs: outputs
+            )
+            return referenceURL
+        } catch {
+            try? priorReferenceData.write(to: referenceURL, options: .atomic)
+            throw error
+        }
+    }
+
+    public func createMHCReferenceBundle(
+        definitionIDs: [String],
+        assayID: String? = nil,
+        speciesCode: String? = nil,
+        scope: HaplotypeDefinitionScope? = nil,
+        referenceFASTA: URL,
+        outputURL: URL,
+        name: String? = nil,
+        defaultDefinitionID: String? = nil,
+        forceOverwrite: Bool = false,
+        argv: [String]
+    ) async throws -> MHCAmpliconReferenceBundleBuildResult {
+        let trimmedIDs = definitionIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        guard !trimmedIDs.isEmpty else {
+            throw HaplotypeDefinitionCommandServiceError.missingHaplotypeDefinitions
+        }
+        let records = try trimmedIDs.map { id in
+            try uniqueDefinitionRecord(
+                definitionID: id,
+                assayID: assayID,
+                speciesCode: speciesCode,
+                scope: scope,
+                includeReferenceBundles: true
+            )
+        }
+        return try await createMHCReferenceBundle(
+            records: records,
+            referenceFASTA: referenceFASTA,
+            outputURL: outputURL,
+            name: name,
+            defaultDefinitionID: defaultDefinitionID,
+            forceOverwrite: forceOverwrite,
+            argv: argv
+        )
+    }
+
+    public func createMHCReferenceBundle(
+        records: [HaplotypeDefinitionRecord],
+        referenceFASTA: URL,
+        outputURL: URL,
+        name: String? = nil,
+        defaultDefinitionID: String? = nil,
+        forceOverwrite: Bool = false,
+        argv: [String]
+    ) async throws -> MHCAmpliconReferenceBundleBuildResult {
+        guard !records.isEmpty else {
+            throw HaplotypeDefinitionCommandServiceError.missingHaplotypeDefinitions
+        }
+        for record in records {
+            try validateDefinition(record.definitionSet)
+        }
+        let inputs = records.map { record in
+            MHCAmpliconReferenceBundleDefinitionInput(
+                definition: record.definitionSet,
+                sourceURL: record.fileURL,
+                sourceDescription: definitionSourceDescription(for: record),
+                sourceScope: record.scope.rawValue
+            )
+        }
+        return try await MHCAmpliconReferenceBundleBuilder().build(
+            MHCAmpliconReferenceBundleBuildConfiguration(
+                referenceFASTA: referenceFASTA,
+                haplotypeDefinitionURLs: [],
+                haplotypeDefinitionInputs: inputs,
+                outputURL: outputURL,
+                name: name,
+                defaultHaplotypeDefinitionID: defaultDefinitionID,
+                forceOverwrite: forceOverwrite,
+                argv: argv,
+                provenanceWorkflowName: "lungfish haplotypes bundle-create"
+            )
+        )
+    }
+
+    @discardableResult
     public func duplicateDefinition(
         definitionID: String,
         assayID: String? = nil,
@@ -312,6 +568,49 @@ public struct HaplotypeDefinitionCommandService: Sendable {
         return record
     }
 
+    private func uniqueDefinitionRecord(
+        definitionID: String,
+        assayID: String? = nil,
+        speciesCode: String? = nil,
+        scope: HaplotypeDefinitionScope? = nil,
+        includeReferenceBundles: Bool = false
+    ) throws -> HaplotypeDefinitionRecord {
+        let matches = library.records(includeReferenceBundles: includeReferenceBundles).filter { record in
+            guard record.definitionSet.id == definitionID else { return false }
+            if let assayID = assayID?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !assayID.isEmpty,
+               record.definitionSet.assayID != assayID {
+                return false
+            }
+            if let speciesCode = speciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !speciesCode.isEmpty,
+               record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
+                return false
+            }
+            if let scope, record.scope != scope {
+                return false
+            }
+            return true
+        }
+        guard !matches.isEmpty else {
+            throw HaplotypeDefinitionCommandServiceError.definitionNotFound(definitionID)
+        }
+        guard matches.count == 1 else {
+            throw HaplotypeDefinitionCommandServiceError.ambiguousDefinition(definitionID)
+        }
+        return matches[0]
+    }
+
+    private func definitionSourceDescription(for record: HaplotypeDefinitionRecord) -> String {
+        if let referenceBundleURL = record.referenceBundleURL {
+            return "mhc-reference-bundle:\(referenceBundleURL.path):\(record.definitionSet.id)"
+        }
+        if let fileURL = record.fileURL {
+            return fileURL.path
+        }
+        return "\(record.scope.rawValue):\(record.definitionSet.id)"
+    }
+
     private func provenanceContext(
         workflowName: String,
         argv: [String],
@@ -342,6 +641,140 @@ public struct HaplotypeDefinitionCommandService: Sendable {
             "globalRoot": globalRoot.path,
             "scope": scope.rawValue,
         ]
+    }
+
+    private func existingDefinitionRelativePath(
+        definitionID: String,
+        manifest: MHCAmpliconReferenceBundleManifest,
+        bundleURL: URL
+    ) throws -> String? {
+        for relativePath in manifest.haplotypeDefinitionPaths {
+            let url = bundleURL.appendingPathComponent(relativePath)
+            guard let data = try? Data(contentsOf: url),
+                  let definition = try? JSONDecoder().decode(GenotypeHaplotypeDefinitionSet.self, from: data) else {
+                continue
+            }
+            if definition.id == definitionID {
+                return relativePath
+            }
+        }
+        return nil
+    }
+
+    private func updatedReferenceSourceFiles(
+        _ sourceFiles: [MHCAmpliconReferenceBundleSourceFile],
+        referencePath: String,
+        replacementFASTAURL: URL
+    ) -> [MHCAmpliconReferenceBundleSourceFile] {
+        let retained = sourceFiles.filter { source in
+            source.path != referencePath && source.role != "reference_fasta"
+        }
+        return [
+            MHCAmpliconReferenceBundleSourceFile(
+                path: referencePath,
+                role: "reference_fasta",
+                originalPath: replacementFASTAURL.path
+            ),
+        ] + retained
+    }
+
+    private func writeMHCReferenceBundleProvenance(
+        workflowName: String,
+        bundleURL: URL,
+        argv: [String],
+        startedAt: Date,
+        completedAt: Date,
+        explicit: [String: ParameterValue],
+        inputs: [ProvenanceFileDescriptor],
+        outputs: [ProvenanceFileDescriptor]
+    ) throws {
+        let replayArgv = argv.isEmpty ? ["lungfish-gui", workflowName, bundleURL.path] : argv
+        let step = ProvenanceStep(
+            toolName: workflowName,
+            toolVersion: WorkflowRun.currentAppVersion,
+            argv: replayArgv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: HaplotypeDefinitionStore.shellCommand(replayArgv),
+            inputs: inputs,
+            outputs: outputs,
+            exitStatus: 0,
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            startedAt: startedAt,
+            completedAt: completedAt
+        )
+        let envelope = ProvenanceEnvelope(
+            createdAt: startedAt,
+            workflowName: workflowName,
+            workflowVersion: WorkflowRun.currentAppVersion,
+            toolName: "Lungfish Genome Explorer",
+            toolVersion: WorkflowRun.currentAppVersion,
+            tool: ProvenanceToolIdentity(
+                name: "Lungfish Genome Explorer",
+                version: WorkflowRun.currentAppVersion,
+                kind: "app"
+            ),
+            argv: replayArgv,
+            durableReplayArgv: replayArgv,
+            reproducibleCommand: HaplotypeDefinitionStore.shellCommand(replayArgv),
+            options: ProvenanceOptions(
+                explicit: explicit,
+                resolvedDefaults: [
+                    "projectRoot": .string(projectRoot?.path ?? ""),
+                    "globalRoot": .string(globalRoot.path),
+                    "bundleFormat": .string(MHCAmpliconReferenceBundle.directoryExtension),
+                ]
+            ),
+            runtimeIdentity: ProvenanceRuntimeIdentity(user: WorkflowRun.currentUser),
+            files: inputs + outputs,
+            output: outputs.first,
+            outputs: outputs,
+            steps: [step],
+            wallTimeSeconds: completedAt.timeIntervalSince(startedAt),
+            exitStatus: 0
+        )
+        try ProvenanceWriter(signingProvider: nil).write(envelope, to: bundleURL)
+    }
+
+    private func directoryDescriptor(url: URL, role: FileRole) throws -> ProvenanceFileDescriptor {
+        let manifest = try ProvenanceFileHasher.directoryManifest(for: url, role: role)
+        return ProvenanceFileDescriptor(
+            path: url.standardizedFileURL.path,
+            checksumSHA256: directoryChecksum(from: manifest),
+            fileSize: directorySize(from: manifest),
+            format: .unknown,
+            role: role
+        )
+    }
+
+    private func directoryChecksum(from manifest: ProvenanceDirectoryManifest) -> String {
+        let canonical = manifest.files
+            .sorted { $0.path < $1.path }
+            .map { descriptor in
+                [
+                    descriptor.path,
+                    descriptor.checksumSHA256 ?? "",
+                    descriptor.fileSize.map(String.init) ?? "0",
+                ].joined(separator: "\t")
+            }
+            .joined(separator: "\n")
+        return SHA256.hash(data: Data(canonical.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    private func directorySize(from manifest: ProvenanceDirectoryManifest) -> UInt64 {
+        manifest.files.reduce(UInt64(0)) { total, descriptor in
+            total + (descriptor.fileSize ?? 0)
+        }
+    }
+
+    private func safeFileName(_ value: String) -> String {
+        let allowed = CharacterSet.alphanumerics.union(.init(charactersIn: "._-"))
+        let scalars = value.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? Character(scalar) : "-"
+        }
+        let name = String(scalars).trimmingCharacters(in: .init(charactersIn: ".-_"))
+        return name.isEmpty ? "haplotype-definition" : name
     }
 
     private func writeExportProvenance(
@@ -396,6 +829,11 @@ public struct HaplotypeDefinitionCommandService: Sendable {
 public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equatable {
     case cannotWriteBuiltIn
     case definitionNotFound(String)
+    case invalidMHCReferenceBundle(String)
+    case missingInput(String)
+    case missingHaplotypeDefinitions
+    case ambiguousDefinition(String)
+    case missingMHCReferenceBundleReference(String)
     case missingDefinitionURL(String)
     case validationFailed([String])
 
@@ -405,6 +843,16 @@ public enum HaplotypeDefinitionCommandServiceError: Error, LocalizedError, Equat
             return "Built-in haplotype definitions cannot be modified. Duplicate them to the project or global library first."
         case .definitionNotFound(let id):
             return "Haplotype definition not found: \(id)"
+        case .invalidMHCReferenceBundle(let path):
+            return "Not an MHC reference bundle: \(path)"
+        case .missingInput(let path):
+            return "Input file does not exist: \(path)"
+        case .missingHaplotypeDefinitions:
+            return "MHC reference bundle creation requires at least one haplotype definition."
+        case .ambiguousDefinition(let id):
+            return "More than one haplotype definition matches \(id). Choose an assay, species, scope, or bundle."
+        case .missingMHCReferenceBundleReference(let path):
+            return "MHC reference bundle is missing its reference FASTA: \(path)"
         case .missingDefinitionURL(let id):
             return "Could not resolve stored haplotype definition URL for \(id)."
         case .validationFailed(let errors):

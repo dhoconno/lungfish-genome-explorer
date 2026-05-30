@@ -93,6 +93,9 @@ public class ViewerViewController: NSViewController {
     /// Native ONT genotype result bundle viewport.
     var genotypeResultViewController: GenotypeResultViewController?
 
+    /// Native 12S amplicon result bundle viewport.
+    var twelveSAmpliconResultViewController: TwelveSAmpliconResultViewController?
+
     /// Whether this viewer should publish app-wide viewport notifications.
     ///
     /// Embedded viewers, such as the mapping detail viewer, use the same
@@ -2664,6 +2667,7 @@ public class ViewerViewController: NSViewController {
         hideAssemblyView()
         hideMappingView()
         hideGenotypeResultView()
+        hideTwelveSAmpliconResultView()
         hideAlignmentTreeBundleViews()
 
         // Hide the progress overlay first - it may be covering the view area

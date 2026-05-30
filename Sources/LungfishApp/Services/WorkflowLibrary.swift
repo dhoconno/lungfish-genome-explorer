@@ -17,7 +17,7 @@ enum WorkflowLibraryMaturity: String, Codable, CaseIterable, Sendable {
 
 struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
     let id: String
-    let toolID: FASTQOperationToolID
+    let toolID: FASTQOperationToolID?
     let title: String
     let subtitle: String
     let categoryID: FASTQOperationCategoryID
@@ -36,6 +36,23 @@ struct WorkflowLibraryItem: Identifiable, Equatable, Sendable {
         self.title = title ?? toolID.title
         self.subtitle = subtitle ?? toolID.subtitle
         self.categoryID = toolID.categoryID
+        self.maturity = maturity
+        self.requiredPluginPackIDs = requiredPluginPackIDs
+    }
+
+    init(
+        id: String,
+        title: String,
+        subtitle: String,
+        categoryID: FASTQOperationCategoryID,
+        maturity: WorkflowLibraryMaturity,
+        requiredPluginPackIDs: [String] = []
+    ) {
+        self.id = id
+        self.toolID = nil
+        self.title = title
+        self.subtitle = subtitle
+        self.categoryID = categoryID
         self.maturity = maturity
         self.requiredPluginPackIDs = requiredPluginPackIDs
     }
@@ -69,6 +86,17 @@ struct WorkflowLibrarySection: Identifiable, Equatable, Sendable {
 }
 
 enum WorkflowLibraryCatalog {
+    static let twelveSAmpliconMatchingID = "builtin.12s-amplicon-matching"
+
+    static let twelveSAmpliconMatchingItem = WorkflowLibraryItem(
+        id: twelveSAmpliconMatchingID,
+        title: "12S Amplicon Matching",
+        subtitle: "Match merged 12S amplicon reads exactly to a deduplicated FASTA and review unresolved sequences.",
+        categoryID: .classification,
+        maturity: .specialized,
+        requiredPluginPackIDs: ["lungfish-tools"]
+    )
+
     static let builtIn: [WorkflowLibraryItem] = FASTQOperationToolID.allCases.map { toolID in
         if toolID == .ontGenotyping {
             return WorkflowLibraryItem(
@@ -82,10 +110,14 @@ enum WorkflowLibraryCatalog {
             maturity: .core,
             requiredPluginPackIDs: toolID.categoryID.requiredPackIDs
         )
-    }
+    } + [twelveSAmpliconMatchingItem]
 
     static func item(for toolID: FASTQOperationToolID) -> WorkflowLibraryItem? {
         builtIn.first { $0.toolID == toolID }
+    }
+
+    static func item(id: String) -> WorkflowLibraryItem? {
+        builtIn.first { $0.id == id }
     }
 
     static var builtInSections: [WorkflowLibrarySection] {
@@ -182,6 +214,10 @@ enum WorkflowLibraryEnablementResult: Equatable, Sendable {
     case blocked(missingPackIDs: [String])
 }
 
+extension Notification.Name {
+    static let workflowLibraryEnablementDidChange = Notification.Name("workflowLibraryEnablementDidChange")
+}
+
 @MainActor
 final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     static let shared = WorkflowLibraryEnablementStore()
@@ -190,6 +226,7 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     private static let enabledUserWorkflowIDsKey = "WorkflowLibrary.enabledUserWorkflowIDs"
     private static let defaultEnabledWorkflowIDs: Set<String> = [
         FASTQOperationToolID.ontGenotyping.rawValue,
+        WorkflowLibraryCatalog.twelveSAmpliconMatchingID,
     ]
 
     private let userDefaults: UserDefaults
@@ -235,12 +272,19 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
     func setWorkflow(_ item: WorkflowLibraryItem, enabled: Bool) {
         guard item.maturity != .core else { return }
         reloadEnablementFromDefaults()
+        let wasEnabled = enabledWorkflowIDs.contains(item.id)
         if enabled {
             enabledWorkflowIDs.insert(item.id)
         } else {
             enabledWorkflowIDs.remove(item.id)
         }
         persistEnabledWorkflowIDs()
+        postEnablementDidChangeIfNeeded(
+            workflowID: item.id,
+            enabled: enabled,
+            wasEnabled: wasEnabled,
+            isUserWorkflow: false
+        )
     }
 
     func isUserWorkflowEnabled(_ manifestID: String) -> Bool {
@@ -254,12 +298,19 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     func setUserWorkflow(_ manifestID: String, enabled: Bool) {
         reloadEnablementFromDefaults()
+        let wasEnabled = enabledUserWorkflowIDs.contains(manifestID)
         if enabled {
             enabledUserWorkflowIDs.insert(manifestID)
         } else {
             enabledUserWorkflowIDs.remove(manifestID)
         }
         persistEnabledUserWorkflowIDs()
+        postEnablementDidChangeIfNeeded(
+            workflowID: manifestID,
+            enabled: enabled,
+            wasEnabled: wasEnabled,
+            isUserWorkflow: true
+        )
     }
 
     func setUserWorkflow(_ package: WorkflowPackageValidationResult, enabled: Bool) {
@@ -341,6 +392,24 @@ final class WorkflowLibraryEnablementStore: WorkflowLibraryEnabling {
 
     private func persistEnabledUserWorkflowIDs() {
         userDefaults.set(Array(enabledUserWorkflowIDs).sorted(), forKey: Self.enabledUserWorkflowIDsKey)
+    }
+
+    private func postEnablementDidChangeIfNeeded(
+        workflowID: String,
+        enabled: Bool,
+        wasEnabled: Bool,
+        isUserWorkflow: Bool
+    ) {
+        guard wasEnabled != enabled else { return }
+        NotificationCenter.default.post(
+            name: .workflowLibraryEnablementDidChange,
+            object: self,
+            userInfo: [
+                "workflowID": workflowID,
+                "enabled": enabled,
+                "isUserWorkflow": isUserWorkflow,
+            ]
+        )
     }
 }
 

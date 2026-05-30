@@ -1,4 +1,5 @@
 import Foundation
+import LungfishIO
 import LungfishWorkflow
 
 protocol WorkflowOperationViewerBundlePreparing: Sendable {
@@ -107,6 +108,8 @@ final class WorkflowOperationExecutionService {
         switch request {
         case .ontGenotyping(let request):
             return try await runONTGenotyping(request, routeContext: routeContext)
+        case .twelveSAmpliconMatching(let configuration):
+            return try await runTwelveSAmpliconMatching(configuration, routeContext: routeContext)
         case .workflowPackage(let request, let bundleRoot):
             let service = LocalWorkflowExecutionService(
                 operationCenter: operationCenter,
@@ -114,6 +117,168 @@ final class WorkflowOperationExecutionService {
             )
             let result = try await service.run(request, bundleRoot: bundleRoot, routeContext: routeContext)
             return [result.bundleURL]
+        }
+    }
+
+    @discardableResult
+    func runTwelveSReferenceBundleBuild(
+        _ configuration: TwelveSReferenceBundleBuildConfiguration,
+        routeContext: OperationRouteContext? = nil
+    ) async throws -> [URL] {
+        try fileManager.createDirectory(
+            at: configuration.outputURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let arguments = twelveSReferenceBundleArguments(for: configuration)
+        let cliCommand = ViralReconWorkflowCommandPreview.build(
+            executableName: "lungfish-cli",
+            arguments: arguments
+        )
+        let operationID = operationCenter.start(
+            title: "12S Reference Bundle",
+            detail: "Creating 12S reference bundle",
+            operationType: .workflow,
+            targetBundleURL: configuration.outputURL,
+            cliCommand: cliCommand,
+            routeContext: routeContext
+        )
+        operationCenter.log(id: operationID, level: .info, message: cliCommand)
+        operationCenter.updateWithLog(
+            id: operationID,
+            progress: 0.01,
+            detail: "Launching lungfish-cli for 12S reference bundle creation..."
+        )
+
+        do {
+            let result = try await processRunner.runLungfishCLI(
+                arguments: arguments,
+                workingDirectory: configuration.outputURL.deletingLastPathComponent(),
+                outputHandler: { [operationCenter] output in
+                    Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
+                }
+            )
+            if !result.didStreamOutput {
+                logProcessOutput(result, operationID: operationID)
+            }
+            if result.exitCode != 0 {
+                let failureDetail = "12S reference bundle creation failed with exit code \(result.exitCode)"
+                operationCenter.log(id: operationID, level: .error, message: failureDetail)
+                operationCenter.fail(
+                    id: operationID,
+                    detail: failureDetail,
+                    errorMessage: "12S reference bundle creation failed",
+                    errorDetail: failureDiagnostics(
+                        result: result,
+                        cliCommand: cliCommand
+                    )
+                )
+                throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
+            }
+            try verifyTwelveSReferenceBundleProvenance(at: configuration.outputURL)
+            let outputURLs = deduplicatedExistingURLs([
+                configuration.outputURL,
+                TwelveSReferenceBundle.manifestURL(in: configuration.outputURL),
+                TwelveSReferenceBundle.targetMetadataURL(in: configuration.outputURL),
+                TwelveSReferenceBundle.provenanceURL(in: configuration.outputURL),
+            ].compactMap { $0 })
+            operationCenter.log(id: operationID, level: .info, message: "Status: completed")
+            operationCenter.complete(
+                id: operationID,
+                detail: "12S reference bundle created. Output: \(configuration.outputURL.path)",
+                outputURLs: outputURLs
+            )
+            resultRefresher.refresh(
+                routeContext: routeContext,
+                preferredSelectionURL: configuration.outputURL
+            )
+            return outputURLs
+        } catch {
+            operationCenter.fail(
+                id: operationID,
+                detail: "12S reference bundle creation failed",
+                errorMessage: "12S reference bundle creation failed",
+                errorDetail: error.localizedDescription
+            )
+            throw error
+        }
+    }
+
+    private func runTwelveSAmpliconMatching(
+        _ configuration: TwelveSAmpliconMatchingConfiguration,
+        routeContext: OperationRouteContext?
+    ) async throws -> [URL] {
+        try fileManager.createDirectory(at: configuration.outputDirectory, withIntermediateDirectories: true)
+        let arguments = twelveSAmpliconMatchingArguments(for: configuration)
+        let cliCommand = ViralReconWorkflowCommandPreview.build(
+            executableName: "lungfish-cli",
+            arguments: arguments
+        )
+        let bundleURL = twelveSAmpliconMatchingBundleURL(for: configuration)
+        let operationID = operationCenter.start(
+            title: "12S Amplicon Matching",
+            detail: "Running 12S amplicon matching workflow",
+            operationType: .workflow,
+            targetBundleURL: bundleURL,
+            cliCommand: cliCommand,
+            routeContext: routeContext
+        )
+        operationCenter.log(id: operationID, level: .info, message: cliCommand)
+        operationCenter.updateWithLog(
+            id: operationID,
+            progress: 0.01,
+            detail: "Launching lungfish-cli for 12S amplicon matching..."
+        )
+
+        do {
+            let result = try await processRunner.runLungfishCLI(
+                arguments: arguments,
+                workingDirectory: configuration.outputDirectory,
+                outputHandler: { [operationCenter] output in
+                    Self.recordProcessOutput(output, operationID: operationID, operationCenter: operationCenter)
+                }
+            )
+            if !result.didStreamOutput {
+                logProcessOutput(result, operationID: operationID)
+            }
+            if result.exitCode != 0 {
+                let failureDetail = "12S amplicon matching failed with exit code \(result.exitCode)"
+                operationCenter.log(id: operationID, level: .error, message: failureDetail)
+                operationCenter.fail(
+                    id: operationID,
+                    detail: failureDetail,
+                    errorMessage: "12S amplicon matching failed",
+                    errorDetail: failureDiagnostics(
+                        result: result,
+                        cliCommand: cliCommand
+                    )
+                )
+                throw LocalWorkflowExecutionError.nonZeroExit(result.exitCode)
+            }
+            try verifyTwelveSAmpliconBundleProvenance(at: bundleURL)
+            let outputURLs = deduplicatedExistingURLs([
+                bundleURL,
+                bundleURL.appendingPathComponent(TwelveSAmpliconResultBundleManifest.filename),
+                bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename),
+            ])
+            operationCenter.log(id: operationID, level: .info, message: "Status: completed")
+            operationCenter.complete(
+                id: operationID,
+                detail: "12S amplicon matching completed. Output: \(bundleURL.path)",
+                outputURLs: outputURLs
+            )
+            resultRefresher.refresh(
+                routeContext: routeContext,
+                preferredSelectionURL: bundleURL
+            )
+            return outputURLs
+        } catch {
+            operationCenter.fail(
+                id: operationID,
+                detail: "12S amplicon matching failed",
+                errorMessage: "12S amplicon matching failed",
+                errorDetail: error.localizedDescription
+            )
+            throw error
         }
     }
 
@@ -191,7 +356,7 @@ final class WorkflowOperationExecutionService {
                 id: operationID,
                 detail: "Amplicon genotyping failed",
                 errorMessage: "Amplicon genotyping failed",
-                errorDetail: String(describing: error)
+                errorDetail: error.localizedDescription
             )
             throw error
         }
@@ -243,6 +408,72 @@ final class WorkflowOperationExecutionService {
         return arguments
     }
 
+    func twelveSAmpliconMatchingArguments(for configuration: TwelveSAmpliconMatchingConfiguration) -> [String] {
+        var arguments = ["fastq", "12s-match"] + configuration.inputFASTQs.map(\.path)
+        let referenceURL = configuration.referenceBundleURL ?? configuration.referenceFASTA
+        arguments += [
+            "--reference", referenceURL.path,
+        ]
+        if let referenceMetadata = configuration.referenceMetadata,
+           !Self.isBundledTwelveSReferenceMetadata(referenceMetadata, bundleURL: configuration.referenceBundleURL) {
+            arguments += ["--reference-metadata", referenceMetadata.path]
+        }
+        if let sampleMetadata = configuration.sampleMetadata {
+            arguments += ["--sample-metadata", sampleMetadata.path]
+        }
+        arguments += [
+            "--output-dir", configuration.outputDirectory.path,
+            "--output-name", configuration.outputName,
+        ]
+        if configuration.minimumSoftClipBases != 1 {
+            arguments += ["--min-soft-clip", String(configuration.minimumSoftClipBases)]
+        }
+        if configuration.maximumIndelBases != 3 {
+            arguments += ["--max-indels", String(configuration.maximumIndelBases)]
+        }
+        if configuration.threads != 1 {
+            arguments += ["--threads", String(configuration.threads)]
+        }
+        if !configuration.runChimeraReview {
+            arguments.append("--no-chimera-review")
+        }
+        if configuration.forceOverwrite {
+            arguments.append("--force")
+        }
+        return arguments
+    }
+
+    func twelveSReferenceBundleArguments(for configuration: TwelveSReferenceBundleBuildConfiguration) -> [String] {
+        var arguments = [
+            "fastq", "12s-reference-bundle",
+            "--dedup-fasta", configuration.deduplicatedFASTA.path,
+            "--midori-metadata", configuration.midoriMetadataTSV.path,
+            "--output", configuration.outputURL.path,
+        ]
+        if let name = configuration.name,
+           !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            arguments += ["--name", name]
+        }
+        for sourceFile in configuration.sourceFiles {
+            arguments += ["--source-file", sourceFile.path]
+        }
+        for sourceDirectory in configuration.sourceDirectories {
+            arguments += ["--source-directory", sourceDirectory.path]
+        }
+        if configuration.forceOverwrite {
+            arguments.append("--force")
+        }
+        return arguments
+    }
+
+    private static func isBundledTwelveSReferenceMetadata(_ metadataURL: URL, bundleURL: URL?) -> Bool {
+        guard let bundleURL,
+              let bundledURL = TwelveSReferenceBundle.targetMetadataURL(in: bundleURL) else {
+            return false
+        }
+        return metadataURL.standardizedFileURL == bundledURL.standardizedFileURL
+    }
+
     private func ontGenotypingOutputURLs(
         for request: ONTBarcodeDemuxGenotypingRunRequest,
         cliPayload: ONTGenotypingCLIPayload?
@@ -262,6 +493,73 @@ final class WorkflowOperationExecutionService {
         urls.append(request.provenanceURL)
         urls.append(request.outputDirectory)
         return deduplicatedExistingURLs(urls)
+    }
+
+    private func twelveSAmpliconMatchingBundleURL(
+        for configuration: TwelveSAmpliconMatchingConfiguration
+    ) -> URL {
+        configuration.outputDirectory.appendingPathComponent(
+            "\(configuration.outputName).\(TwelveSAmpliconResultBundle.directoryExtension)",
+            isDirectory: true
+        )
+    }
+
+    private func verifyTwelveSAmpliconBundleProvenance(at bundleURL: URL) throws {
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard fileManager.fileExists(atPath: provenanceURL.path) else {
+            throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+        }
+        guard let envelope = try ProvenanceEnvelopeReader.load(from: bundleURL),
+              Self.isTwelveSAmpliconMatchingProvenance(envelope),
+              envelope.exitStatus == 0,
+              !envelope.argv.isEmpty else {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+
+        let bundlePath = bundleURL.standardizedFileURL.path
+        let outputPaths = Set(
+            (envelope.outputs + envelope.steps.flatMap(\.outputs))
+                .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+        )
+        guard outputPaths.contains(bundlePath) || outputPaths.contains(where: { $0.hasPrefix(bundlePath + "/") }) else {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+    }
+
+    private func verifyTwelveSReferenceBundleProvenance(at bundleURL: URL) throws {
+        let provenanceURL = bundleURL.appendingPathComponent(ProvenanceRecorder.provenanceFilename)
+        guard fileManager.fileExists(atPath: provenanceURL.path) else {
+            throw LocalWorkflowExecutionError.missingProvenance(provenanceURL.path)
+        }
+        guard let envelope = try ProvenanceEnvelopeReader.load(from: bundleURL),
+              envelope.workflowName == "lungfish fastq 12s-reference-bundle",
+              envelope.exitStatus == 0,
+              !envelope.argv.isEmpty else {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+
+        let bundlePath = bundleURL.standardizedFileURL.path
+        let outputPaths = Set(
+            (envelope.outputs + envelope.steps.flatMap(\.outputs))
+                .map { URL(fileURLWithPath: $0.path).standardizedFileURL.path }
+        )
+        guard outputPaths.contains(bundlePath) || outputPaths.contains(where: { $0.hasPrefix(bundlePath + "/") }) else {
+            throw LocalWorkflowExecutionError.invalidProvenance(provenanceURL.path)
+        }
+    }
+
+    private static func isTwelveSAmpliconMatchingProvenance(_ envelope: ProvenanceEnvelope) -> Bool {
+        let acceptedToolNames: Set<String> = ["lungfish", "lungfish-cli"]
+        guard acceptedToolNames.contains(envelope.toolName) else { return false }
+        if envelope.workflowName == "lungfish fastq 12s-match" {
+            return true
+        }
+        return envelope.argv.indices.contains { index in
+            let nextIndex = envelope.argv.index(after: index)
+            return nextIndex < envelope.argv.endIndex
+                && envelope.argv[index] == "fastq"
+                && envelope.argv[nextIndex] == "12s-match"
+        }
     }
 
     private func prepareONTGenotypingViewerBundlesIfPossible(

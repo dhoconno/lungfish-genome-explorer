@@ -380,6 +380,15 @@ final class BlastResultsDrawerTests: XCTestCase {
         XCTAssertEqual(tab.loadingPhaseText, "Submitting contigs to NCBI BLAST...")
     }
 
+    func testSequenceBlastLoadingUsesSequenceCopy() throws {
+        let tab = BlastResultsDrawerTab(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+
+        tab.presentationStyle = .sequenceBlast
+        tab.showLoading(phase: .submitting, requestId: nil)
+
+        XCTAssertEqual(tab.loadingPhaseText, "Submitting sequences to NCBI BLAST...")
+    }
+
     // MARK: - Outline View Row Count
 
     func testOutlineViewTopLevelItemCount() throws {

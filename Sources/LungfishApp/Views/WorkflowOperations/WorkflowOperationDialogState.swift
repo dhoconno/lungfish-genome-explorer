@@ -1,10 +1,12 @@
 import Foundation
+import LungfishCore
 import LungfishIO
 import LungfishWorkflow
 import Observation
 
 enum WorkflowOperationToolKind: Equatable, Sendable {
     case ontGenotyping
+    case twelveSAmpliconMatching
     case workflowPackage(WorkflowPackageValidationResult)
 }
 
@@ -18,7 +20,20 @@ struct WorkflowOperationTool: Identifiable, Equatable, Sendable {
 
 enum WorkflowOperationLaunchRequest: Equatable {
     case ontGenotyping(ONTBarcodeDemuxGenotypingRunRequest)
+    case twelveSAmpliconMatching(TwelveSAmpliconMatchingConfiguration)
     case workflowPackage(LocalWorkflowRunRequest, bundleRoot: URL)
+}
+
+private final class WorkflowOperationNotificationObserver: @unchecked Sendable {
+    private let token: NSObjectProtocol
+
+    init(_ token: NSObjectProtocol) {
+        self.token = token
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(token)
+    }
 }
 
 @MainActor
@@ -26,6 +41,7 @@ enum WorkflowOperationLaunchRequest: Equatable {
 final class WorkflowOperationDialogState {
     private let enablementStore: WorkflowLibraryEnablementStore
     private let packageStore: WorkflowLibraryImportedPackageStore
+    @ObservationIgnored private var enablementObserver: WorkflowOperationNotificationObserver?
 
     var projectURL: URL?
     var selectedToolID: String
@@ -38,6 +54,10 @@ final class WorkflowOperationDialogState {
     var minSupport: Int
     var selectedGenotypingMode: AmpliconGenotypingMode
     var selectedGenotypingReadType: AmpliconGenotypingReadType
+    var twelveSMinimumSoftClipBases: Int
+    var twelveSMaximumIndelBases: Int
+    var twelveSRunChimeraReview: Bool
+    var twelveSSampleMetadataURL: URL?
     var selectedHaplotypeAssayID: String?
     var selectedHaplotypeSpeciesCode: String?
     var selectedHaplotypeDefinitionScope: HaplotypeDefinitionScope?
@@ -48,6 +68,7 @@ final class WorkflowOperationDialogState {
     var projectBarcodeDefinitionCandidates: [URL]
     var errorMessage: String?
     var showingError: Bool
+    var workflowAvailabilityRevision: Int
 
     init(
         projectURL: URL?,
@@ -65,7 +86,11 @@ final class WorkflowOperationDialogState {
         self.threads = max(1, ProcessInfo.processInfo.activeProcessorCount)
         self.minSupport = 1
         self.selectedGenotypingMode = .auto
-        self.selectedGenotypingReadType = .auto
+        self.selectedGenotypingReadType = Self.defaultGenotypingReadType(for: standardizedReadURLs)
+        self.twelveSMinimumSoftClipBases = 1
+        self.twelveSMaximumIndelBases = 3
+        self.twelveSRunChimeraReview = true
+        self.twelveSSampleMetadataURL = nil
         self.selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
         self.selectedHaplotypeSpeciesCode = nil
         self.selectedHaplotypeDefinitionScope = nil
@@ -80,6 +105,7 @@ final class WorkflowOperationDialogState {
         self.selectedBarcodeDefinitionURL = barcodeDefinitionCandidates.first
         self.errorMessage = nil
         self.showingError = false
+        self.workflowAvailabilityRevision = 0
 
         let initialTools = Self.makeTools(
             enablementStore: enablementStore,
@@ -93,10 +119,25 @@ final class WorkflowOperationDialogState {
             projectURL: self.projectURL,
             toolKind: initialTools.first { $0.id == initialToolID }?.kind
         )
+        if initialToolID == Self.ontGenotypingID {
+            applyBundledMHCReferenceDefaultsIfAvailable(for: self.selectedReferenceURL)
+        }
+        self.enablementObserver = WorkflowOperationNotificationObserver(
+            NotificationCenter.default.addObserver(
+                forName: .workflowLibraryEnablementDidChange,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refreshWorkflowAvailability()
+                }
+            }
+        )
     }
 
     var tools: [WorkflowOperationTool] {
-        Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
+        _ = workflowAvailabilityRevision
+        return Self.makeTools(enablementStore: enablementStore, packageStore: packageStore)
     }
 
     var sidebarItems: [DatasetOperationToolSidebarItem] {
@@ -115,7 +156,7 @@ final class WorkflowOperationDialogState {
     }
 
     var haplotypeDefinitionRegistry: GenotypeHaplotypeDefinitionRegistry {
-        haplotypeDefinitionLibrary.mergedRegistry()
+        haplotypeDefinitionLibrary.mergedRegistry(includeReferenceBundles: selectedMHCReferenceBundleURL != nil)
     }
 
     var haplotypeDefinitionLibrary: HaplotypeDefinitionLibrary {
@@ -123,7 +164,23 @@ final class WorkflowOperationDialogState {
     }
 
     var compatibleHaplotypeDefinitionRecords: [HaplotypeDefinitionRecord] {
-        haplotypeDefinitionLibrary.activeRecords(
+        if let bundleURL = selectedMHCReferenceBundleURL {
+            return haplotypeDefinitionLibrary.records(includeReferenceBundles: true).filter { record in
+                guard record.referenceBundleURL == bundleURL else { return false }
+                if let assayID = selectedHaplotypeAssayID,
+                   !assayID.isEmpty,
+                   record.definitionSet.assayID != assayID {
+                    return false
+                }
+                if let speciesCode = selectedHaplotypeSpeciesCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !speciesCode.isEmpty,
+                   record.definitionSet.speciesCode.caseInsensitiveCompare(speciesCode) != .orderedSame {
+                    return false
+                }
+                return true
+            }
+        }
+        return haplotypeDefinitionLibrary.activeRecords(
             assayID: selectedHaplotypeAssayID,
             speciesCode: selectedHaplotypeSpeciesCode,
             scope: selectedHaplotypeDefinitionScope
@@ -131,10 +188,18 @@ final class WorkflowOperationDialogState {
     }
 
     var haplotypeSpeciesOptions: [(code: String, label: String)] {
-        let records = haplotypeDefinitionLibrary.activeRecords(
-            assayID: selectedHaplotypeAssayID,
-            scope: selectedHaplotypeDefinitionScope
-        )
+        let records: [HaplotypeDefinitionRecord]
+        if let bundleURL = selectedMHCReferenceBundleURL {
+            records = haplotypeDefinitionLibrary.records(includeReferenceBundles: true).filter {
+                $0.referenceBundleURL == bundleURL
+                    && (selectedHaplotypeAssayID == nil || $0.definitionSet.assayID == selectedHaplotypeAssayID)
+            }
+        } else {
+            records = haplotypeDefinitionLibrary.activeRecords(
+                assayID: selectedHaplotypeAssayID,
+                scope: selectedHaplotypeDefinitionScope
+            )
+        }
         var seen = Set<String>()
         return records.compactMap { record in
             let code = record.definitionSet.speciesCode
@@ -144,6 +209,9 @@ final class WorkflowOperationDialogState {
     }
 
     var haplotypeScopeOptions: [HaplotypeDefinitionScope] {
+        if selectedMHCReferenceBundleURL != nil {
+            return []
+        }
         let scopes = Set(
             haplotypeDefinitionLibrary.activeRecords(
                 assayID: selectedHaplotypeAssayID,
@@ -152,6 +220,14 @@ final class WorkflowOperationDialogState {
             .map(\.scope)
         )
         return HaplotypeDefinitionScope.allCases.filter { scopes.contains($0) }
+    }
+
+    var selectedMHCReferenceBundleURL: URL? {
+        guard let selectedReferenceURL,
+              MHCAmpliconReferenceBundle.isBundleURL(selectedReferenceURL) else {
+            return nil
+        }
+        return selectedReferenceURL.standardizedFileURL
     }
 
     var datasetLabel: String {
@@ -179,6 +255,11 @@ final class WorkflowOperationDialogState {
         return Self.displayPath(for: outputDirectoryURL, relativeTo: projectURL)
     }
 
+    var twelveSSampleMetadataDisplay: String {
+        guard let twelveSSampleMetadataURL else { return "No analysis metadata selected" }
+        return Self.displayPath(for: twelveSSampleMetadataURL, relativeTo: projectURL)
+    }
+
     var selectedToolSummary: String {
         selectedTool?.subtitle ?? "Select a workflow to configure."
     }
@@ -190,8 +271,17 @@ final class WorkflowOperationDialogState {
         guard selectedTool?.availability == .available else {
             return selectedTool?.availability.badgeText ?? "Workflow unavailable."
         }
-        guard selectedReferenceURL != nil else {
+        guard let selectedReferenceURL else {
             return "Select a reference bundle or FASTA file."
+        }
+        if selectedTool?.kind == .twelveSAmpliconMatching,
+           Self.twelveSReferenceInput(for: selectedReferenceURL) == nil {
+            return "Select a 12S reference FASTA file or reference bundle."
+        }
+        if selectedTool?.kind == .twelveSAmpliconMatching,
+           let twelveSSampleMetadataURL,
+           !FileManager.default.fileExists(atPath: twelveSSampleMetadataURL.path) {
+            return "Select a valid analysis metadata CSV or TSV file."
         }
         if selectedTool?.kind == .ontGenotyping,
            selectedGenotypingMode == .ontBarcodeDemux,
@@ -221,6 +311,14 @@ final class WorkflowOperationDialogState {
         }
         if selectedTool?.kind == .ontGenotyping, minSupport < 1 {
             return "Minimum support must be at least 1."
+        }
+        if selectedTool?.kind == .twelveSAmpliconMatching,
+           twelveSMinimumSoftClipBases < 0 {
+            return "Minimum soft clip must be at least 0."
+        }
+        if selectedTool?.kind == .twelveSAmpliconMatching,
+           twelveSMaximumIndelBases < 0 {
+            return "Maximum indels must be at least 0."
         }
         if selectedTool?.kind == .ontGenotyping,
            selectedGenotypingMode == .illuminaPaired,
@@ -260,11 +358,26 @@ final class WorkflowOperationDialogState {
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { !$0.isEmpty }
                 .joined(separator: "-") ?? "workflow-output"
+        } else if selectedTool?.kind == .twelveSAmpliconMatching {
+            outputName = Self.defaultTwelveSOutputName(for: selectedReadURLs)
         } else {
             outputName = Self.defaultONTGenotypingOutputName(for: selectedReadURLs)
             if selectedHaplotypeAssayID == nil {
                 selectedHaplotypeAssayID = Self.defaultHaplotypeAssayID()
             }
+        }
+    }
+
+    func refreshWorkflowAvailability() {
+        workflowAvailabilityRevision &+= 1
+    }
+
+    func refreshProjectReferences(selecting url: URL? = nil) {
+        projectReferenceCandidates = Self.discoverReferenceBundles(in: projectURL)
+        if let url = url?.standardizedFileURL {
+            setReference(url)
+        } else if selectedReferenceURL == nil {
+            setReference(projectReferenceCandidates.first)
         }
     }
 
@@ -300,14 +413,16 @@ final class WorkflowOperationDialogState {
         if let record = compatibleHaplotypeDefinitionRecords.first(where: { $0.definitionSet.id == id }) {
             selectedHaplotypeAssayID = record.definitionSet.assayID
             selectedHaplotypeSpeciesCode = record.definitionSet.speciesCode
-            selectedHaplotypeDefinitionScope = record.scope
+            selectedHaplotypeDefinitionScope = record.referenceBundleURL == nil ? record.scope : nil
             selectedHaplotypeDefinitionSetID = id
             return
         }
-        if let record = haplotypeDefinitionLibrary.activeRecords().first(where: { $0.definitionSet.id == id }) {
+        if let record = haplotypeDefinitionLibrary.activeRecords(
+            includeReferenceBundles: selectedMHCReferenceBundleURL != nil
+        ).first(where: { $0.definitionSet.id == id }) {
             selectedHaplotypeAssayID = record.definitionSet.assayID
             selectedHaplotypeSpeciesCode = record.definitionSet.speciesCode
-            selectedHaplotypeDefinitionScope = record.scope
+            selectedHaplotypeDefinitionScope = record.referenceBundleURL == nil ? record.scope : nil
             selectedHaplotypeDefinitionSetID = id
         }
     }
@@ -337,6 +452,21 @@ final class WorkflowOperationDialogState {
 
     func setReference(_ url: URL?) {
         selectedReferenceURL = url?.standardizedFileURL
+        if selectedToolID == Self.ontGenotypingID {
+            applyBundledMHCReferenceDefaultsIfAvailable(for: selectedReferenceURL)
+        }
+    }
+
+    private func applyBundledMHCReferenceDefaultsIfAvailable(for url: URL?) {
+        guard let url,
+              MHCAmpliconReferenceBundle.isBundleURL(url),
+              let definition = try? MHCAmpliconReferenceBundle.defaultHaplotypeDefinition(in: url) else {
+            return
+        }
+        selectedHaplotypeAssayID = definition.assayID
+        selectedHaplotypeSpeciesCode = definition.speciesCode
+        selectedHaplotypeDefinitionScope = nil
+        selectedHaplotypeDefinitionSetID = definition.id
     }
 
     func setBarcodeDefinition(_ url: URL?) {
@@ -345,10 +475,17 @@ final class WorkflowOperationDialogState {
 
     func setReads(_ urls: [URL]) {
         selectedReadURLs = Self.deduplicated(urls.map(\.standardizedFileURL))
+        if selectedGenotypingReadType == .auto {
+            selectedGenotypingReadType = Self.defaultGenotypingReadType(for: selectedReadURLs)
+        }
     }
 
     func setOutputDirectory(_ url: URL?) {
         outputDirectoryURL = url?.standardizedFileURL
+    }
+
+    func setTwelveSSampleMetadata(_ url: URL?) {
+        twelveSSampleMetadataURL = url?.standardizedFileURL
     }
 
     func configureProject(projectURL: URL?, selectedReadURLs: [URL]) {
@@ -366,6 +503,9 @@ final class WorkflowOperationDialogState {
         }
         if projectChanged || selectedBarcodeDefinitionURL == nil {
             selectedBarcodeDefinitionURL = projectBarcodeDefinitionCandidates.first
+        }
+        if projectChanged {
+            selectedGenotypingReadType = Self.defaultGenotypingReadType(for: self.selectedReadURLs)
         }
         if projectChanged || outputDirectoryURL == nil {
             outputDirectoryURL = Self.defaultOutputDirectory(
@@ -425,6 +565,29 @@ final class WorkflowOperationDialogState {
                 readType: selectedGenotypingReadType
             )
             return .ontGenotyping(request)
+
+        case .twelveSAmpliconMatching:
+            guard !selectedReadURLs.isEmpty else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
+            guard let referenceInput = Self.twelveSReferenceInput(for: selectedReferenceURL) else {
+                throw WorkflowOperationError.incompleteConfiguration(readinessText)
+            }
+            let config = TwelveSAmpliconMatchingConfiguration(
+                inputFASTQs: selectedReadURLs,
+                referenceFASTA: referenceInput.fasta,
+                referenceMetadata: referenceInput.metadata,
+                referenceBundleURL: referenceInput.bundle,
+                sampleMetadata: twelveSSampleMetadataURL,
+                outputDirectory: outputDirectoryURL,
+                outputName: outputName,
+                minimumSoftClipBases: twelveSMinimumSoftClipBases,
+                maximumIndelBases: twelveSMaximumIndelBases,
+                threads: threads,
+                runChimeraReview: twelveSRunChimeraReview,
+                forceOverwrite: false
+            )
+            return .twelveSAmpliconMatching(config)
 
         case .workflowPackage(let package):
             return .workflowPackage(
@@ -568,7 +731,15 @@ final class WorkflowOperationDialogState {
     }
 
     private static let ontGenotypingID = "builtin.ont-genotyping"
+    private static let twelveSAmpliconMatchingID = WorkflowLibraryCatalog.twelveSAmpliconMatchingID
     private static let ontGenotypingResultsDirectoryName = "Amplicon genotyping results"
+    private static let twelveSResultsDirectoryName = "12S amplicon results"
+
+    private struct TwelveSReferenceInput {
+        let fasta: URL
+        let metadata: URL?
+        let bundle: URL?
+    }
 
     private static func defaultHaplotypeAssayID() -> String? {
         GenotypeHaplotypeDefinitionRegistry.builtIn.assays.first?.id
@@ -602,6 +773,11 @@ final class WorkflowOperationDialogState {
                 ontGenotypingResultsDirectoryName,
                 isDirectory: true
             )
+        case .twelveSAmpliconMatching:
+            return analysesDirectory.appendingPathComponent(
+                twelveSResultsDirectoryName,
+                isDirectory: true
+            )
         case .workflowPackage:
             return analysesDirectory
         case nil:
@@ -621,6 +797,17 @@ final class WorkflowOperationDialogState {
                 subtitle: ont.subtitle,
                 kind: .ontGenotyping,
                 availability: enablementStore.isWorkflowEnabled(.ontGenotyping)
+                    ? .available
+                    : .disabled(reason: "Enable in Library")
+            ))
+        }
+        if let twelveS = WorkflowLibraryCatalog.item(id: twelveSAmpliconMatchingID) {
+            tools.append(WorkflowOperationTool(
+                id: twelveSAmpliconMatchingID,
+                title: twelveS.title,
+                subtitle: twelveS.subtitle,
+                kind: .twelveSAmpliconMatching,
+                availability: enablementStore.isWorkflowEnabled(twelveS)
                     ? .available
                     : .disabled(reason: "Enable in Library")
             ))
@@ -668,8 +855,13 @@ final class WorkflowOperationDialogState {
             return []
         }
         var refs: [URL] = []
+        let referenceBundleExtensions = Set([
+            "lungfishref",
+            TwelveSReferenceBundle.directoryExtension,
+            MHCAmpliconReferenceBundle.directoryExtension,
+        ])
         for case let url as URL in enumerator {
-            guard url.pathExtension.lowercased() == "lungfishref" else { continue }
+            guard referenceBundleExtensions.contains(url.pathExtension.lowercased()) else { continue }
             refs.append(url.standardizedFileURL)
             enumerator.skipDescendants()
         }
@@ -677,6 +869,48 @@ final class WorkflowOperationDialogState {
             displayPath(for: $0, relativeTo: projectURL)
                 .localizedStandardCompare(displayPath(for: $1, relativeTo: projectURL)) == .orderedAscending
         }
+    }
+
+    private static func isTwelveSReferenceFASTA(_ url: URL) -> Bool {
+        let lowercasedName = url.lastPathComponent.lowercased()
+        let fastaExtensions = ["fa", "fasta", "fna", "fas"]
+        if fastaExtensions.contains(url.pathExtension.lowercased()) {
+            return true
+        }
+        return fastaExtensions.contains { lowercasedName.hasSuffix(".\($0).gz") }
+    }
+
+    private static func twelveSReferenceFASTAURL(for url: URL) -> URL? {
+        twelveSReferenceInput(for: url)?.fasta
+    }
+
+    private static func twelveSReferenceInput(for url: URL) -> TwelveSReferenceInput? {
+        let standardizedURL = url.standardizedFileURL
+        if isTwelveSReferenceFASTA(standardizedURL) {
+            return TwelveSReferenceInput(fasta: standardizedURL, metadata: nil, bundle: nil)
+        }
+        if TwelveSReferenceBundle.isBundleURL(standardizedURL),
+           let fastaURL = TwelveSReferenceBundle.referenceFASTAURL(in: standardizedURL) {
+            return TwelveSReferenceInput(
+                fasta: fastaURL.standardizedFileURL,
+                metadata: TwelveSReferenceBundle.targetMetadataURL(in: standardizedURL)?.standardizedFileURL,
+                bundle: standardizedURL
+            )
+        }
+        guard standardizedURL.pathExtension.lowercased() == "lungfishref" else {
+            return nil
+        }
+        if let fastaURL = ReferenceSequenceFolder.fastaURL(in: standardizedURL) {
+            return TwelveSReferenceInput(fasta: fastaURL.standardizedFileURL, metadata: nil, bundle: nil)
+        }
+        guard let manifest = try? BundleManifest.load(from: standardizedURL),
+              let genomePath = manifest.genome?.path else {
+            return nil
+        }
+        let fastaURL = standardizedURL.appendingPathComponent(genomePath).standardizedFileURL
+        return FileManager.default.fileExists(atPath: fastaURL.path)
+            ? TwelveSReferenceInput(fasta: fastaURL, metadata: nil, bundle: nil)
+            : nil
     }
 
     private static func discoverBarcodeDefinitionFiles(in projectURL: URL?) -> [URL] {
@@ -801,6 +1035,58 @@ final class WorkflowOperationDialogState {
             return "ont-mhc"
         }
         return "\(sanitizeFilenameStem(stem))-mhc"
+    }
+
+    private static func defaultTwelveSOutputName(for selectedReadURLs: [URL]) -> String {
+        guard let stem = selectedReadURLs.first?.deletingPathExtension().lastPathComponent,
+              !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "12s-amplicons"
+        }
+        return "\(sanitizeFilenameStem(stem))-12s"
+    }
+
+    private static func defaultGenotypingReadType(for selectedReadURLs: [URL]) -> AmpliconGenotypingReadType {
+        let readTypes = Set(selectedReadURLs.compactMap(genotypingReadTypeFromFASTQMetadata))
+        if readTypes.count == 1, let readType = readTypes.first {
+            return readType
+        }
+        return .auto
+    }
+
+    private static func genotypingReadTypeFromFASTQMetadata(_ url: URL) -> AmpliconGenotypingReadType? {
+        let bundleURL: URL
+        if FASTQBundle.isBundleURL(url) {
+            bundleURL = url.standardizedFileURL
+        } else if let enclosingBundle = SequenceInputResolver.enclosingFASTQBundleURL(for: url) {
+            bundleURL = enclosingBundle.standardizedFileURL
+        } else {
+            return nil
+        }
+        guard let fastqURL = FASTQBundle.resolvePrimaryFASTQURL(for: bundleURL),
+              let metadata = FASTQMetadataStore.load(for: fastqURL) else {
+            return nil
+        }
+        if let assemblyReadType = metadata.assemblyReadType {
+            switch assemblyReadType {
+            case .ontReads:
+                return .ont
+            case .illuminaShortReads:
+                return .illumina
+            case .pacBioHiFi:
+                return nil
+            }
+        }
+        guard let assemblyReadType = metadata.sequencingPlatform.flatMap(FASTQAssemblyReadType.init(sequencingPlatform:)) else {
+            return nil
+        }
+        switch assemblyReadType {
+        case .ontReads:
+            return .ont
+        case .illuminaShortReads:
+            return .illumina
+        case .pacBioHiFi:
+            return nil
+        }
     }
 
     private static func sanitizeFilenameStem(_ value: String) -> String {

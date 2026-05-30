@@ -18,6 +18,9 @@ struct HaplotypeDefinitionsCommand: AsyncParsableCommand {
             HaplotypeDefinitionsValidateSubcommand.self,
             HaplotypeDefinitionsImportSubcommand.self,
             HaplotypeDefinitionsSaveSubcommand.self,
+            HaplotypeDefinitionsBundleCreateSubcommand.self,
+            HaplotypeDefinitionsBundleSaveSubcommand.self,
+            HaplotypeDefinitionsBundleReplaceReferenceSubcommand.self,
             HaplotypeDefinitionsExportSubcommand.self,
             HaplotypeDefinitionsDuplicateSubcommand.self,
             HaplotypeDefinitionsDeleteSubcommand.self,
@@ -49,13 +52,17 @@ struct HaplotypeDefinitionsListSubcommand: AsyncParsableCommand {
     @Flag(name: .customLong("include-shadowed"), help: "Include definitions overridden by a higher-precedence scope")
     var includeShadowed = false
 
+    @Flag(name: .customLong("include-reference-bundles"), help: "Include haplotype definitions embedded in project .lungfishmhcref bundles")
+    var includeReferenceBundles = false
+
     func run() async throws {
         let service = makeService(project: project, globalRoot: globalRoot)
         let records = service.listDefinitions(
             assayID: assay,
             speciesCode: species,
             scope: try parseOptionalScope(scope),
-            includeShadowed: includeShadowed
+            includeShadowed: includeShadowed,
+            includeReferenceBundles: includeReferenceBundles
         )
         try emitJSON(records.map(HaplotypeDefinitionListPayload.init(record:)))
     }
@@ -145,6 +152,130 @@ struct HaplotypeDefinitionsSaveSubcommand: AsyncParsableCommand {
             argv: Array(CommandLine.arguments)
         )
         try emitJSON(HaplotypeDefinitionWritePayload(result: result))
+    }
+}
+
+struct HaplotypeDefinitionsBundleCreateSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bundle-create",
+        abstract: "Create an MHC reference bundle from managed haplotype definitions and a reference FASTA"
+    )
+
+    @Option(name: .customLong("definition"), help: "Managed haplotype definition id to embed")
+    var definitions: [String] = []
+
+    @Option(name: .customLong("assay"), help: "Assay/amplicon id used to disambiguate definition ids")
+    var assay: String?
+
+    @Option(name: .customLong("species"), help: "Species code used to disambiguate definition ids")
+    var species: String?
+
+    @Option(name: .customLong("scope"), help: "Definition source scope: built-in, global, or project")
+    var scope: String?
+
+    @Option(name: .customLong("reference-fasta"), help: "MHC amplicon reference FASTA to embed")
+    var referenceFASTA: String
+
+    @Option(name: .customLong("output"), help: "Output .lungfishmhcref bundle")
+    var output: String
+
+    @Option(name: .customLong("name"), help: "Display name stored in the bundle manifest")
+    var name: String?
+
+    @Option(name: .customLong("default-definition"), help: "Default embedded haplotype definition set ID")
+    var defaultDefinition: String?
+
+    @Option(name: .customLong("project"), help: "Project root whose project-scoped definitions should be included")
+    var project: String?
+
+    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
+    var globalRoot: String?
+
+    @Flag(name: .customLong("force"), help: "Replace an existing .lungfishmhcref bundle")
+    var force = false
+
+    func run() async throws {
+        let service = makeService(project: project, globalRoot: globalRoot)
+        let result = try await service.createMHCReferenceBundle(
+            definitionIDs: definitions,
+            assayID: assay,
+            speciesCode: species,
+            scope: try parseOptionalScope(scope),
+            referenceFASTA: URL(fileURLWithPath: referenceFASTA),
+            outputURL: URL(fileURLWithPath: output, isDirectory: true),
+            name: name,
+            defaultDefinitionID: defaultDefinition,
+            forceOverwrite: force,
+            argv: Array(CommandLine.arguments)
+        )
+        try emitJSON(HaplotypeDefinitionBundleCreatePayload(result: result))
+    }
+}
+
+struct HaplotypeDefinitionsBundleSaveSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bundle-save",
+        abstract: "Save or update a haplotype definition embedded in an MHC reference bundle"
+    )
+
+    @Argument(help: "Definition JSON file to save into the bundle")
+    var input: String
+
+    @Option(name: .customLong("bundle"), help: "Destination .lungfishmhcref bundle")
+    var bundle: String
+
+    @Option(name: .customLong("project"), help: "Project root used for provenance context")
+    var project: String?
+
+    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
+    var globalRoot: String?
+
+    @Option(name: .customLong("change-note"), help: "Human-readable provenance note for this edit")
+    var changeNote: String?
+
+    func run() async throws {
+        let inputURL = URL(fileURLWithPath: input)
+        let definition = try JSONDecoder().decode(
+            GenotypeHaplotypeDefinitionSet.self,
+            from: Data(contentsOf: inputURL)
+        )
+        let service = makeService(project: project, globalRoot: globalRoot)
+        let result = try service.saveDefinition(
+            definition,
+            inMHCReferenceBundle: URL(fileURLWithPath: bundle, isDirectory: true),
+            changeNote: changeNote,
+            argv: Array(CommandLine.arguments)
+        )
+        try emitJSON(HaplotypeDefinitionWritePayload(result: result))
+    }
+}
+
+struct HaplotypeDefinitionsBundleReplaceReferenceSubcommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "bundle-replace-reference",
+        abstract: "Replace the reference FASTA embedded in an MHC reference bundle"
+    )
+
+    @Argument(help: "Replacement reference FASTA")
+    var referenceFASTA: String
+
+    @Option(name: .customLong("bundle"), help: "Destination .lungfishmhcref bundle")
+    var bundle: String
+
+    @Option(name: .customLong("project"), help: "Project root used for provenance context")
+    var project: String?
+
+    @Option(name: .customLong("global-root"), help: "Global haplotype definition library root")
+    var globalRoot: String?
+
+    func run() async throws {
+        let service = makeService(project: project, globalRoot: globalRoot)
+        let referenceURL = try service.replaceReferenceFASTA(
+            inMHCReferenceBundle: URL(fileURLWithPath: bundle, isDirectory: true),
+            with: URL(fileURLWithPath: referenceFASTA),
+            argv: Array(CommandLine.arguments)
+        )
+        try emitJSON(["referencePath": referenceURL.path])
     }
 }
 
@@ -261,6 +392,7 @@ struct HaplotypeDefinitionsDeleteSubcommand: AsyncParsableCommand {
 
 private struct HaplotypeDefinitionListPayload: Encodable {
     let scope: String
+    let source: String
     let assayID: String
     let assayDisplayName: String
     let definitionID: String
@@ -268,10 +400,13 @@ private struct HaplotypeDefinitionListPayload: Encodable {
     let speciesName: String
     let speciesCode: String
     let filePath: String?
+    let referenceBundlePath: String?
+    let referenceFASTAPath: String?
     let isShadowed: Bool
 
     init(record: HaplotypeDefinitionRecord) {
         self.scope = record.scope.rawValue
+        self.source = record.sourceDisplayName
         self.assayID = record.definitionSet.assayID
         self.assayDisplayName = record.assayDisplayName
         self.definitionID = record.definitionSet.id
@@ -279,6 +414,8 @@ private struct HaplotypeDefinitionListPayload: Encodable {
         self.speciesName = record.definitionSet.speciesName
         self.speciesCode = record.definitionSet.speciesCode
         self.filePath = record.fileURL?.path
+        self.referenceBundlePath = record.referenceBundleURL?.path
+        self.referenceFASTAPath = record.referenceFASTAURL?.path
         self.isShadowed = record.isShadowed
     }
 }
@@ -298,6 +435,16 @@ private struct HaplotypeDefinitionWritePayload: Encodable {
         self.displayName = result.definitionSet.displayName
         self.speciesCode = result.definitionSet.speciesCode
         self.definitionPath = result.definitionURL.path
+    }
+}
+
+private struct HaplotypeDefinitionBundleCreatePayload: Encodable {
+    let bundlePath: String
+    let provenancePath: String
+
+    init(result: MHCAmpliconReferenceBundleBuildResult) {
+        self.bundlePath = result.bundleURL.path
+        self.provenancePath = result.provenanceURL.path
     }
 }
 
