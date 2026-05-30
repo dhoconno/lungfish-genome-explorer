@@ -80,6 +80,42 @@ for review:
   `InspectorViewController.swift`, `SidebarViewController.swift`,
   `WorkflowOperationsWindowController.swift`, `ViewerViewController+Genotype.swift`.
 
+### Specific features/fixes in this worktree the review must cover
+
+Beyond the two workflows in the abstract, the review must explicitly cover these concrete
+changes:
+
+- **Simultaneous multi-bundle MHC genotyping.** Illumina mode accepts multiple prepared
+  per-sample bundles in one run; the pipeline has a batch path (`AmpliconGenotypingMode`,
+  `IlluminaPreparation`/`IlluminaSampleInput`, `resolveMode`, `prepareIlluminaInputs`,
+  `isBatch`) and a comparison/report label. Review correctness of mode inference, batch
+  iteration, per-sample isolation, and provenance for batch runs.
+- **New reference bundle formats.** `.lungfishmhcref` (FASTA + paired haplotype definitions)
+  and `.lungfish12sref` (deduplicated FASTA + target metadata). Review whether they share a
+  coherent reference-bundle pattern and integrate with the format registry
+  (`FormatIdentifier`, `FileTypeUtility`) the way existing `.lungfishref` bundles do.
+- **Haplotype manager functionality.** `HaplotypeDefinitionManagerWindowController` /
+  `HaplotypeDefinitionManagerViewModel` gained new/edit/import/export/duplicate/delete,
+  `replaceReferenceFASTA`, `revealReferenceFASTA`, and `createMHCReferenceBundle` (CLI-backed).
+  Backed by `HaplotypeDefinitionCommandService` (+452) and `HaplotypeDefinitionLibrary` (+82).
+  Review CLI-backing, scope handling (built-in/global/project), and idiom consistency of the
+  manager window.
+
+### Cross-cutting changes (connective tissue, also in scope)
+
+Both workflows ride on shared infrastructure changed in this worktree:
+
+- Workflow enablement: `WorkflowLibrary.swift` (+73), `WorkflowOperationDialogState.swift`
+  (+312), `WorkflowOperationExecutionService.swift` (+300).
+- CLI registration: `FastqCommand.swift`, `LungfishCLI.swift`.
+- Format registry: `FormatIdentifier.swift` (+14), `FileTypeUtility.swift` (registering the
+  new bundle extensions).
+- Sample metadata: `SampleMetadataResolver.swift` (new, `LungfishCore`),
+  `SampleMetadataStore.swift`, `FASTQSampleMetadata.swift`, and the Inspector metadata
+  sections.
+- Shared drawer: `BlastResultsDrawerTab.swift` changes (the bottom BLAST drawer both
+  classifier-style surfaces reuse).
+
 ### Known gaps / candidate findings spotted during exploration
 
 These are pre-identified inputs to the review, not a substitute for it:
@@ -87,14 +123,16 @@ These are pre-identified inputs to the review, not a substitute for it:
 1. **12S workflow is on by default.** `WorkflowLibraryEnablementStore.defaultEnabledWorkflowIDs`
    includes `WorkflowLibraryCatalog.twelveSAmpliconMatchingID`. The product intent is opt-in.
    Likely a P0/P1 fix.
-2. **`.lungfishmhcref` bundle is unwired.** `MHCAmpliconReferenceBundle` (model) and
-   `MHCAmpliconReferenceBundleBuilder` (builder) exist with tests, but **no consumer** in
-   `Sources/` reads `.lungfishmhcref`. The genotyping CLI (`FastqGenotypingSubcommand`) still
-   takes a separate `--reference` FASTA and resolves haplotype definitions independently
+2. **`.lungfishmhcref` bundle is created but not consumed for genotyping.** The bundle is
+   *produced* from the haplotype manager (`HaplotypeDefinitionManagerWindowController.createMHCReferenceBundle`,
+   CLI-backed via `FastqMHCReferenceBundleSubcommand`), and `MHCAmpliconReferenceBundle`
+   (model) + `MHCAmpliconReferenceBundleBuilder` exist with tests. But **no genotyping consumer**
+   reads it: the genotyping CLI (`FastqGenotypingSubcommand`) still takes a separate
+   `--reference` FASTA and resolves haplotype definitions independently
    (`--haplotype-definition` / `--haplotype-assay` / `--haplotype-species`). The product intent
-   is that MHC genotyping works against the new bundle, which pairs the genotyping FASTA with
-   the haplotype definitions specific to that FASTA. This is almost certainly a wiring gap the
-   improvement phase must close, and it is a hard verification gate (Phase 5).
+   is that MHC genotyping works *against* the new bundle, which pairs the genotyping FASTA with
+   the haplotype definitions specific to that FASTA. Closing this consume-side wiring gap is
+   almost certainly improvement-phase work, and it is a hard verification gate (Phase 5).
 
 ## Approach: Five Phases with a Review/Improvement Gate
 
@@ -206,6 +244,9 @@ expectations.
 - Drive the existing ONT genotyping CLI against the barcode05-08 `.lungfishfastq` bundles,
   MHC/KIR `.lungfishref` references, and the Mauritian-cynomolgus haplotype definitions,
   materializing virtual FASTQ as needed (preview.fastq + chunks).
+- **Multi-bundle gate:** run the genotyping CLI over multiple prepared sample bundles in a
+  single invocation (the batch/Illumina-sample-bundle path) and confirm per-sample results,
+  the comparison/report label, and batch provenance are correct.
 - **Bundle-format gate:** MHC genotyping must also run against the new `.lungfishmhcref`
   bundle, which pairs the genotyping FASTA with the haplotype definitions specific to that
   FASTA. Verify the CLI resolves both the reference FASTA and the paired haplotype definitions
