@@ -29,9 +29,8 @@ and synthetic data before anything is called "done."
 
 ## Product Context
 
-Two niche analysis capabilities, both opt-in via the Workflow Manager (most users will not
-need them; users who do should enable them and immediately gain the functionality and bundle
-types):
+Two niche analysis capabilities (most users will not need them; users who do should be able to
+enable them and immediately gain the functionality and bundle types):
 
 - **Host-locus amplicon genotyping/haplotyping** (MHC/KIR) for nonhuman primates: interactive
   exploration and understanding of complex genotyping and haplotyping results. This is **not**
@@ -40,6 +39,24 @@ types):
 - **12S amplicon matching** for complex environmental samples: determine which 12S species are
   present. This **is** its own Workflow-Manager opt-in entry, parallel to other specialized
   workflows.
+
+## Cross-Workflow Consistency Requirement
+
+The two workflows share substantial user intent even though they have different viewports and
+results-exploration tools. Wherever they perform the **same kind of operation**, they must use
+the **same Inspector interface idiom** rather than two parallel implementations that happen to
+do the same thing differently.
+
+The canonical example: **filtering out low-abundance reads that are noise** (12S genotyping
+and MHC typing both need this). The control to set a minimum-read/abundance threshold should be
+the same kind of Inspector control in both workflows (same widget type, label conventions,
+live-filter behavior, accessibility identifiers pattern), differing only in the data it binds
+to. Other equivalent operations to check for shared idioms: text/name search, taxon/allele
+include-exclude, and export/action affordances.
+
+This is a first-class review target and an improvement-phase deliverable, not a "nice to have."
+The reviewers must inspect **both surfaces in their entirety** and report every place where
+equivalent operations diverge in interface.
 
 ## Current State (from exploration)
 
@@ -133,6 +150,16 @@ These are pre-identified inputs to the review, not a substitute for it:
    is that MHC genotyping works *against* the new bundle, which pairs the genotyping FASTA with
    the haplotype definitions specific to that FASTA. Closing this consume-side wiring gap is
    almost certainly improvement-phase work, and it is a hard verification gate (Phase 5).
+3. **Low-abundance-noise filtering uses two different interfaces.** Both workflows need to
+   suppress or flag low-abundance reads that are noise (12S genotyping; MHC typing), but they
+   express the same intent differently today. 12S exposes a user-editable Inspector control,
+   "Minimum Exact Reads" (TextField + Stepper, `TwelveSResultDisplaySection` ->
+   `displayState.minimumExactReads`), that live-filters target rows. MHC genotype uses a
+   *fixed* absolute read threshold (~5K) hardcoded in `GenotypeCohortSummaryPanelView`
+   (`belowThresholdValue`) that only flags below-threshold samples as unreliable, rather than
+   an equivalent interactive Inspector filter on `GenotypeResultDisplayState`. This is a
+   cross-workflow consistency defect: the same operation should use the same interface idiom.
+   See the cross-workflow consistency requirement below.
 
 ## Approach: Five Phases with a Review/Improvement Gate
 
@@ -190,13 +217,20 @@ secondary; the genotyping/haplotype/`.lungfishmhcref` changes get the same scrut
   (`GenotypeResultViewController`, genotype Inspector sections,
   `HaplotypeDefinitionManagerWindowController`). Flag any bespoke widget that duplicates
   existing functionality with a different interface, and any place where the 12S surface and
-  the genotype surface solve the same problem two different ways.
+  the genotype surface solve the same problem two different ways. **Explicitly compare the
+  Inspector controls for equivalent operations across both workflows** (see Cross-Workflow
+  Consistency Requirement): low-abundance/minimum-read filtering (12S
+  `TwelveSResultDisplaySection.minimumExactReads` vs MHC `GenotypeCohortSummaryPanelView`
+  fixed threshold / `GenotypeResultDisplayState`), text search, include-exclude filters, and
+  export affordances. Propose the shared idiom each should converge on.
 - `ux-researcher`: end-to-end flow from a user's perspective for **both** workflows: for 12S,
   enable in Workflow Manager, import/merge, run, explore, export; for Amplicon Genotyping,
   select reference (including the `.lungfishmhcref` bundle), choose haplotype definitions, run,
   explore genotype/haplotype results. Flag friction, inconsistent terminology, the
   opt-in-default issue, and any cross-workflow inconsistency that would make the two feel like
-  different apps.
+  different apps. **Produce a side-by-side map of equivalent operations** (filter low-abundance
+  noise, search, include-exclude, export) showing how each workflow exposes it today and where
+  they diverge, so the improvement phase can converge them on one idiom.
 
 Synthesis: the orchestrator merges all five reports into one triaged findings doc at
 `docs/superpowers/reviews/2026-05-30-synthesis.md`.
@@ -209,7 +243,9 @@ Triage each finding on severity x effort, grouped:
   gaps, provenance holes (executable name, tool versions, inputs), the opt-in-default fix,
   the `.lungfishmhcref` wiring gap.
 - **P1 UX consistency**: bespoke widgets duplicating existing idioms with a different
-  interface, terminology drift, missing shared-component reuse.
+  interface, terminology drift, missing shared-component reuse, and **cross-workflow
+  divergence on equivalent operations** (the low-abundance filter and any others surfaced by
+  the side-by-side map). Converging these on one shared Inspector idiom is a P1 deliverable.
 - **P2 reuse refactors** (opted in by user): consolidate duplicated logic into shared
   components. The 846-line viewport and 1028-line bundle are prime suspects.
 
@@ -258,6 +294,13 @@ expectations.
 **Sample metadata + provenance**
 - `swift test --filter SampleMetadata` and `swift test --filter Provenance`.
 - A CLI smoke run with a small metadata CSV.
+
+**Cross-workflow consistency**
+- Confirm the converged low-abundance/minimum-read filter behaves equivalently in both
+  workflows: where the threshold is a CLI parameter, verify it changes results in a CLI run;
+  where it is a display-state filter, verify via the display-state/view-controller tests
+  (`TwelveSResultDisplaySection`/`GenotypeResultDisplayState`). Same control idiom, same
+  semantics, two data bindings.
 
 GUI testing is out of scope for this effort; it is the user's manual follow-up. The
 deliverable is a verified, CLI-backed, idiomatically-consistent code surface.
