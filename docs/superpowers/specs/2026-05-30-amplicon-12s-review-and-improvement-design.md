@@ -44,19 +44,38 @@ enable them and immediately gain the functionality and bundle types):
 
 The two workflows share substantial user intent even though they have different viewports and
 results-exploration tools. Wherever they perform the **same kind of operation**, they must use
-the **same Inspector interface idiom** rather than two parallel implementations that happen to
-do the same thing differently.
+the **same interface idiom** rather than two parallel implementations that happen to do the
+same thing differently. This applies not only to the two new/changed workflows against each
+other, but to both against the **rest of the existing LGE app** (classifiers, assembly,
+variant, alignment surfaces).
 
-The canonical example: **filtering out low-abundance reads that are noise** (12S genotyping
-and MHC typing both need this). The control to set a minimum-read/abundance threshold should be
-the same kind of Inspector control in both workflows (same widget type, label conventions,
-live-filter behavior, accessibility identifiers pattern), differing only in the data it binds
-to. Other equivalent operations to check for shared idioms: text/name search, taxon/allele
-include-exclude, and export/action affordances.
+This is a **class of defect to eliminate across the entire code surface**, not a checklist of
+named cases. The low-abundance/minimum-read filter (12S `minimumExactReads` vs the MHC fixed
+~5K threshold) is **one illustrative example, not the scope.** Do not fix the named example and
+declare the requirement met. The same divergence almost certainly exists in operations no one
+has named yet; the job is to find them.
 
-This is a first-class review target and an improvement-phase deliverable, not a "nice to have."
-The reviewers must inspect **both surfaces in their entirety** and report every place where
-equivalent operations diverge in interface.
+### How thoroughness is enforced (not anecdotal)
+
+Coverage must be **provable by inventory, not by spot-checking.** The review produces a
+complete operation inventory before judging consistency:
+
+1. For each surface (12S viewport + Inspector + dialog + CLI; genotype viewport + Inspector +
+   haplotype manager + CLI), enumerate **every** user-facing operation and control: filters,
+   thresholds, searches, include-exclude toggles, sort/group controls, export/action
+   affordances, selection-detail behaviors, empty/error states, and the CLI flags that back
+   them.
+2. Build a cross-surface matrix keyed by **operation intent** (e.g. "suppress low-abundance
+   noise", "free-text search", "include-exclude by category", "export current view"). For each
+   intent, record how every surface implements it (widget type, label, live vs apply, backing
+   state/CLI flag) and whether an existing shared LGE idiom already covers it.
+3. Flag **every** intent where two surfaces diverge in interface, plus every operation that
+   reinvents something the app already provides. Absence of divergence must be an explicit
+   statement ("intent X is consistent across surfaces"), not silence.
+
+Reviewers must inspect the surfaces **in their entirety**. A report that only addresses the
+abundance filter, or only lists a handful of obvious cases, is incomplete and will be sent
+back. The matrix is a required Phase 2 artifact and feeds the synthesis directly.
 
 ## Current State (from exploration)
 
@@ -217,23 +236,31 @@ secondary; the genotyping/haplotype/`.lungfishmhcref` changes get the same scrut
   (`GenotypeResultViewController`, genotype Inspector sections,
   `HaplotypeDefinitionManagerWindowController`). Flag any bespoke widget that duplicates
   existing functionality with a different interface, and any place where the 12S surface and
-  the genotype surface solve the same problem two different ways. **Explicitly compare the
-  Inspector controls for equivalent operations across both workflows** (see Cross-Workflow
-  Consistency Requirement): low-abundance/minimum-read filtering (12S
+  the genotype surface solve the same problem two different ways. **Contribute the widget-level side of the
+  operation-intent matrix** (see Cross-Workflow Consistency Requirement): for each operation
+  intent the matrix lists, identify the concrete AppKit/SwiftUI control each surface uses and
+  the existing shared LGE idiom it should converge on. Cover the full surface, not just the
+  abundance filter (which is merely one row: 12S
   `TwelveSResultDisplaySection.minimumExactReads` vs MHC `GenotypeCohortSummaryPanelView`
-  fixed threshold / `GenotypeResultDisplayState`), text search, include-exclude filters, and
-  export affordances. Propose the shared idiom each should converge on.
+  fixed threshold / `GenotypeResultDisplayState`). Propose the shared idiom for every divergent
+  intent, and confirm the consistent ones.
 - `ux-researcher`: end-to-end flow from a user's perspective for **both** workflows: for 12S,
   enable in Workflow Manager, import/merge, run, explore, export; for Amplicon Genotyping,
   select reference (including the `.lungfishmhcref` bundle), choose haplotype definitions, run,
   explore genotype/haplotype results. Flag friction, inconsistent terminology, the
   opt-in-default issue, and any cross-workflow inconsistency that would make the two feel like
-  different apps. **Produce a side-by-side map of equivalent operations** (filter low-abundance
-  noise, search, include-exclude, export) showing how each workflow exposes it today and where
-  they diverge, so the improvement phase can converge them on one idiom.
+  different apps. **Owns the operation-intent matrix** described in the Cross-Workflow
+  Consistency Requirement: enumerate every user-facing operation across both surfaces (and
+  compare against existing LGE surfaces), key them by intent, and flag every divergence. The
+  abundance filter is one row, not the deliverable; the matrix must be exhaustive, and intents
+  that are already consistent must be stated as such.
 
 Synthesis: the orchestrator merges all five reports into one triaged findings doc at
-`docs/superpowers/reviews/2026-05-30-synthesis.md`.
+`docs/superpowers/reviews/2026-05-30-synthesis.md`, and consolidates the operation-intent
+matrix into `docs/superpowers/reviews/2026-05-30-operation-intent-matrix.md` as a standalone
+artifact. Before accepting the reports, the orchestrator checks the matrix for completeness:
+every surface enumerated, every intent either flagged as divergent or explicitly confirmed
+consistent. An incomplete or spot-check-only matrix is sent back to the relevant agent.
 
 ### Phase 3: Triage + improvement plan
 
@@ -329,7 +356,11 @@ deliverable is a verified, CLI-backed, idiomatically-consistent code surface.
 
 - Baseline committed (Phase 1).
 - Five findings reports + one synthesis (Phase 2).
-- User-approved triage and a written implementation plan (Phase 3).
+- A complete operation-intent matrix (Phase 2): every surface enumerated, every operation
+  intent either flagged divergent or explicitly confirmed consistent. Spot-check-only coverage
+  does not satisfy this.
+- User-approved triage and a written implementation plan (Phase 3). Every divergent intent from
+  the matrix is either scheduled for convergence or explicitly accepted with a reason.
 - Improvements implemented TDD-style, CLI-backed, each task verified (Phase 4).
 - All Phase 5 verifications pass, including the `.lungfishmhcref` bundle-format gate for MHC
   genotyping, with outputs matching expectations.
